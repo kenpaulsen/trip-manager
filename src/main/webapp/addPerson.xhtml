@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" 
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"
+    xmlns:jsft="http://jsftemplating.java.net/jsft"
+    xmlns:ui="http://java.sun.com/jsf/facelets"
+    xmlns:p="http://primefaces.org/ui"
+    xmlns:pe="http://primefaces.org/ui/extensions"
+    xmlns:f="http://java.sun.com/jsf/core"
+    xmlns:h="http://java.sun.com/jsf/html">
+    <ui:composition template="template.xhtml">
+        <ui:define name="header">
+            <style type="text/css">
+            .ui-datatable-header {
+                height: 34px
+            }
+            </style>
+        </ui:define>
+
+        <ui:define name="content">
+                <jsft:event type="afterCreate">
+                    requestScope.pilgrims = util.createList();
+                    person = util.createMap();
+                    pilgrims.add(person);
+                    //person.put("first", "Kenneth");
+                    person.put("middle", "A");
+                    person.put("last", "Paulsen");
+                    person.put("city", "Seattle");
+                    person.put("state", "WA");
+                    person.put("zip", "98119");
+                    person.put("address", "414 W Armour St.");
+                    person.put("cell", "360-852-1088");
+                    person.put("email", "kenapaulsen@gmail.com");
+                    person.put("passport", "571305584");
+                    person.put("passExp", "12-07-2027");
+                    person.put("passIss", "12-08-2017");
+                    person.put("tsa", "tsa-ktid");
+                    person.put("passCountry", "USA");
+                </jsft:event>
+
+            <h2>Add New Person</h2>
+
+            <p:fieldset id="nme" legend="Name &amp; Birthdate" style="margin-bottom:13px;">
+                <p:panelGrid columns="2" styleClass="ui-noborder">
+                    <h:outputText value="First Name: "/>
+                    <p:inplace id="firstName" emptyLabel="First" editor="true" style="margin-left:20px;">
+                        <p:inputText id="first" value="#{person.first}" label="First Name" required="true" />
+                        <p:watermark for="first" value="First Name" id="firstWater" />
+                    </p:inplace>
+                    <h:outputText value="Middle Name(s): "/>
+                    <p:inplace id="middleName" emptyLabel="Middle" editor="true" style="margin-left:20px;">
+                        <p:inputText id="middle" value="#{person.middle}" label="Middle Name" />
+                        <p:watermark for="middle" value="Middle Name" id="middleWater" />
+                    </p:inplace>
+                    <h:outputText value="Last Name: "/>
+                    <p:inplace id="lastName" emptyLabel="Last" editor="true" style="margin-left:20px;">
+                        <p:inputText id="last" value="#{person.last}" label="Last Name" required="true" />
+                        <p:watermark for="last" value="Last Name" id="lastWater" />
+                    </p:inplace>
+                    <h:outputText value="Birthdate: "/>
+                    <p:inplace id="birthDate" emptyLabel="Enter Birthdate" editor="true" style="margin-left:20px;" pattern="MM-dd-yyyy">
+                        <p:calendar id="bd" value="#{person.birthdate}" navigator="true" showOn="both" pattern="MM-dd-yyyy" yearRange="-100:c">
+                            <f:convertDateTime pattern="#{component.pattern}" />
+                        </p:calendar>
+                    </p:inplace>
+                </p:panelGrid>
+            </p:fieldset>
+            <p:fieldset id="addr" legend="Address" style="margin-bottom:13px;">
+                <p:inplace id="addressEditor" emptyLabel="Enter Street Address" editor="true" style="margin-left:20px;">
+                    <p:inputText id="address" value="#{person.address}" label="Street Address" />
+                    <p:watermark for="address" value="Enter Your Street Address" id="streetWater" />
+                </p:inplace>
+                <br />
+                <p:inplace id="cityEditor" emptyLabel="Enter City" editor="true" style="margin-left:20px;">
+                    <p:inputText id="city" value="#{person.city}" label="City" />
+                    <p:watermark for="city" value="Enter Your City" id="cityWater" />
+                </p:inplace>,
+                <p:inplace id="stateEditor" emptyLabel="Enter State" editor="true" style="margin-left:20px;">
+                    <p:inputText id="state" value="#{person.state}" label="State" />
+                    <p:watermark for="state" value="Enter Your State" id="stateWater" />
+                </p:inplace>
+                <p:inplace id="zipEditor" emptyLabel="Enter Zip Code" editor="true" style="margin-left:20px;">
+                    <p:inputText id="zip" value="#{person.zip}" label="Zip" />
+                    <p:watermark for="zip" value="Enter Your Zip Code" id="zipWater" />
+                </p:inplace>
+            </p:fieldset>
+            <p:fieldset id="travel" legend="Travel Info" style="margin-bottom:13px;">
+                <p:panelGrid columns="2" styleClass="ui-noborder">
+                    <h:outputText value="Passport Number: "/>
+                    <p:inplace id="passportEditor" emptyLabel="Enter Passport Number" editor="true" style="margin-left:20px;">
+                        <p:inputText id="passport" value="#{person.passport}" label="Passport Number" />
+                        <p:watermark for="passport" value="Enter Your Passport Number" id="passportWater" />
+                    </p:inplace>
+                    <h:outputText value="Passport Country: " />
+                    <p:inplace id="passCountryEditor" emptyLabel="Enter Passport Country" editor="true" style="margin-left:20px;">
+                        <p:inputText id="passCountry" value="#{person.passCountry}" label="Passport Country" />
+                        <p:watermark for="passCountry" value="Enter Your Passport Country" id="passCountryWater" />
+                    </p:inplace>
+                    <h:outputText value="Passport Expiration Date: " />
+                    <p:inplace id="expDateEditor" emptyLabel="Enter Passport Expiration Date" editor="true" style="margin-left:20px;">
+                        <p:inputText id="expDate" value="#{person.passExp}" label="Passport Expiration Date" />
+                        <p:watermark for="expDate" value="Enter Your Passport Expiration Date" id="expDateWater" />
+                    </p:inplace>
+                    <h:outputText value="Passport Issue Date: " />
+                    <p:inplace id="issDateEditor" emptyLabel="Enter Passport Issue Date" editor="true" style="margin-left:20px;">
+                        <p:inputText id="issDate" value="#{person.passIss}" label="Passport Issue Date" />
+                        <p:watermark for="issDate" value="Enter Your Passport Issue Date" id="issDateWater" />
+                    </p:inplace>
+                    <h:outputText value="TSA Known Traveler ID Number: " />
+                    <p:inplace id="tsaEditor" emptyLabel="Enter TSA Known Traveler ID Number" editor="true" style="margin-left:20px;">
+                        <p:inputText id="tsa" value="#{person.tsa}" label="TSA Known Traveler ID Number" />
+                        <p:watermark for="tsa" value="Enter Your TSA Known Traveler Id Number" id="tsaWater" />
+                    </p:inplace>
+                </p:panelGrid>
+            </p:fieldset>
+            <p:fieldset id="contact" legend="Contact Info" style="margin-bottom:13px;">
+                <p:panelGrid columns="2" styleClass="ui-noborder">
+                    <h:outputText value="Email: " />
+                    <p:inplace id="emailEditor" emptyLabel="Enter Email" editor="true" style="margin-left:20px;">
+                        <p:inputText id="email" value="#{person.email}" label="Email Address" />
+                        <p:watermark for="email" value="Enter Your Email Address" id="emailWater" />
+                    </p:inplace>
+                    <h:outputText value="Cell Phone: " />
+                    <p:inplace id="cellEditor" emptyLabel="Enter Cell Phone Number" editor="true" style="margin-left:20px;">
+                        <pe:inputPhone id="cell" initialCountry="us" value="#{person.cell}" formatOnDisplay="true" label="Cell Phone Number" />
+                        <p:watermark for="cell" value="Enter Your Cell Phone Number" id="cellWater" />
+                    </p:inplace>
+                    <h:outputText value="Notes: " />
+                    <p:inplace id="notesEditor" emptyLabel="Enter Notes" editor="true" style="margin-left:20px;">
+                        <p:inputTextarea rows="10" cols="120" id="notes" value="#{person.notes}" label="Notes" />
+                        <p:watermark for="notes" value="Enter Notes" id="notesWater" />
+                    </p:inplace>
+                </p:panelGrid>
+            </p:fieldset>
+        </ui:define>
+    </ui:composition>
+</html>
