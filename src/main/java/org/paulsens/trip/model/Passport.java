@@ -7,14 +7,10 @@ import lombok.experimental.Wither;
 
 @Value
 public class Passport {
-    @Wither
-    String number;
-    @Wither
-    String country;
-    @Wither
-    LocalDate expires;
-    @Wither
-    LocalDate issued;
+    @Wither String number;
+    @Wither String country;
+    @Wither LocalDate expires;
+    @Wither LocalDate issued;
 
     public Passport(
             @JsonProperty("number") String number,

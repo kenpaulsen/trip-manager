@@ -6,14 +6,10 @@ import lombok.experimental.Wither;
 
 @Value
 public class Address {
-    @Wither
-    String street;
-    @Wither
-    String city;
-    @Wither
-    String state;
-    @Wither
-    String zip;
+    @Wither String street;
+    @Wither String city;
+    @Wither String state;
+    @Wither String zip;
 
     public Address(
             @JsonProperty("street") String street,
