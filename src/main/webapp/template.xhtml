@@ -17,8 +17,8 @@
 <h:body>
     <h:form id="form">
         <ui:insert name="header" />
+        <p:growl id="growl" showDetail="true" showSummary="true" autoUpdate="false" />
         <ui:insert name="content">
-            <p:growl id="growl" showDetail="true" showSummary="true" />
             <h2>This is a template, be sure to pass "content"!</h2>
         </ui:insert>
         <ui:insert name="footer" />

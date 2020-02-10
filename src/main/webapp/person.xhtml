@@ -125,12 +125,12 @@
                 </p:panelGrid>
             </p:fieldset>
             <div style="float:right">
-                <p:commandButton immediate="true" id="cancel" value="Cancel">
+                <p:commandButton immediate="true" id="cancel" value="Cancel" update="growl">
                     <jsft:event type="command">
                         jsft.redirect("people.jsf");
                     </jsft:event>
                 </p:commandButton>
-                <p:commandButton id="addPerson" value="Add">
+                <p:commandButton id="savePerson" value="Save" update="growl">
                     <jsft:event type="command">
                         if (people.savePerson(viewScope.person)) {
                             jsft.redirect("people.jsf");
