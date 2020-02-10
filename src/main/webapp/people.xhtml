@@ -17,31 +17,16 @@
         </ui:define>
 
         <ui:define name="content">
-            <p:dataTable id="people" var="person" value="#{pilgrims}">
-                <jsft:event type="afterCreate">
-                    requestScope.pilgrims = util.createList();
-                    tmpMap = util.createMap();
-                    pilgrims.add(tmpMap);
-                    tmpMap.put("first", "Kenneth");
-                    tmpMap.put("middle", "A");
-                    tmpMap.put("last", "Paulsen");
-                    tmpMap.put("city", "Seattle");
-                    tmpMap.put("state", "WA");
-                    tmpMap.put("zip", "98119");
-                    tmpMap.put("address", "414 W Armour St.");
-                    tmpMap.put("phone", "360-852-1088");
-                    tmpMap.put("email", "kenapaulsen@gmail.com");
-                    tmpMap.put("passport", "571305584");
-                    tmpMap.put("passExp", "12/7/2027");
-                    tmpMap.put("passIss", "12/8/2017");
-                    tmpMap.put("birthdate", "12/11/1974");
-                </jsft:event>
+            <jsft:event type="initPage">
+                viewScope.pilgrims = people.getPeople();
+            </jsft:event>
+            <p:dataTable id="peeps" var="person" value="#{pilgrims}">
                 <f:facet name="header">
                     <!-- FIXME: Replace "Spring 2020" with the trip name -->
-                    <h:outputText id="foo" value="Spring 2020 Pilgrims" />
-                    <p:commandButton id="addPerson" value="Add" style="float:right">
+                    <h:outputText value="Spring 2020 Pilgrims" />
+                    <p:commandButton id="personDetail" value="Add" style="float:right">
                         <jsft:event type="command">
-                            jsft.redirect("addPerson.jsf");
+                            jsft.redirect("person.jsf");
                         </jsft:event>
                     </p:commandButton>
                     <!--
@@ -51,7 +36,7 @@
                 </f:facet>
 
                 <p:column headerText="First">
-                    <h:outputText value="#{person.first}" />
+                    <a href="person.jsf?id=#{person.id}"><h:outputText value="#{person.first}" /></a>
                 </p:column>
                 <p:column headerText="Middle">
                     <h:outputText value="#{person.middle}" />
@@ -60,24 +45,17 @@
                     <h:outputText value="#{person.last}" />
                 </p:column>
                 <p:column headerText="Cell Phone">
-                    <h:outputText value="#{person.phone}" />
-                </p:column>
-                <p:column headerText="Other Phone">
-                    <h:outputText value="#{person.otherPhone}">
-                        <!-- <f:convertNumber type="currency" currencySymbol="$" /> -->
-                    </h:outputText>
+                    <h:outputText value="#{person.cell}" />
                 </p:column>
                 <p:column headerText="Email">
                     <h:outputLink value="mailto:#{person.email}" rendered="#{person.email != null}">#{person.email}</h:outputLink>
                 </p:column>
                 <p:column headerText="Address">
-                    #{person.address}<br/>
-                    #{person.city}, #{person.state} #{person.zip}
+                    #{person.address.street}<br/>
+                    #{person.address.city}, #{person.address.state} #{person.address.zip}
                 </p:column>
                 <p:column headerText="Passport #">
-                    #{person.passport}<br />
-                    Expires: #{person.passExp}<br />
-                    Issued: #{person.passIss}<br />
+                    #{person.passport.country} #{person.passport.number}<br />
                 </p:column>
                 <p:column headerText="Birth Date">
                     #{person.birthdate}

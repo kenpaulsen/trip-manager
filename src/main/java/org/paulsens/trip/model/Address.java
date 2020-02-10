@@ -1,15 +1,15 @@
 package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.Value;
-import lombok.experimental.Wither;
+import java.io.Serializable;
+import lombok.Data;
 
-@Value
-public class Address {
-    @Wither String street;
-    @Wither String city;
-    @Wither String state;
-    @Wither String zip;
+@Data
+public class Address implements Serializable {
+    String street;
+    String city;
+    String state;
+    String zip;
 
     public Address(
             @JsonProperty("street") String street,
@@ -20,5 +20,12 @@ public class Address {
         this.city = city;
         this.state = state;
         this.zip = zip;
+    }
+
+    public Address() {
+        this.street = null;
+        this.city = null;
+        this.state = null;
+        this.zip = null;
     }
 }

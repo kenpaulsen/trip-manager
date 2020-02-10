@@ -18,25 +18,15 @@
         </ui:define>
 
         <ui:define name="content">
-                <jsft:event type="afterCreate">
-                    requestScope.pilgrims = util.createList();
-                    person = util.createMap();
-                    pilgrims.add(person);
-                    person.put("first", "Kenneth");
-                    person.put("middle", "A");
-                    person.put("last", "Paulsen");
-                    person.put("city", "Seattle");
-                    person.put("state", "WA");
-                    person.put("zip", "98119");
-                    person.put("address", "414 W Armour St.");
-                    person.put("cell", "360-852-1088");
-                    person.put("email", "kenapaulsen@gmail.com");
-                    person.put("passport", "571305584");
-                    person.put("passExp", "12-07-2027");
-                    person.put("passIss", "12-08-2017");
-                    person.put("tsa", "tsa-ktid");
-                    person.put("passCountry", "USA");
-                </jsft:event>
+            <jsft:event type="initPage">
+                if (viewScope.person == null) {
+                    if (param.id != null) {
+                        viewScope.person = people.getPerson(param.id);
+                    } else {
+                        viewScope.person = people.createPerson();
+                    }
+                }
+            </jsft:event>
 
             <h2>Add New Person</h2>
 
@@ -60,27 +50,27 @@
                     <h:outputText value="Birthdate: "/>
                     <p:inplace id="birthDate" emptyLabel="Enter Birthdate" editor="true" style="margin-left:20px;" pattern="MM-dd-yyyy">
                         <p:calendar id="bd" value="#{person.birthdate}" navigator="true" showOn="both" pattern="MM-dd-yyyy" yearRange="-100:c">
-                            <f:convertDateTime pattern="#{component.pattern}" />
+                            <f:convertDateTime type="localDate" pattern="#{component.pattern}" />
                         </p:calendar>
                     </p:inplace>
                 </p:panelGrid>
             </p:fieldset>
             <p:fieldset id="addr" legend="Address" style="margin-bottom:13px;">
                 <p:inplace id="addressEditor" emptyLabel="Enter Street Address" editor="true" style="margin-left:20px;">
-                    <p:inputText id="address" value="#{person.address}" label="Street Address" />
+                    <p:inputText id="address" value="#{person.address.street}" label="Street Address" />
                     <p:watermark for="address" value="Enter Your Street Address" id="streetWater" />
                 </p:inplace>
                 <br />
                 <p:inplace id="cityEditor" emptyLabel="Enter City" editor="true" style="margin-left:20px;">
-                    <p:inputText id="city" value="#{person.city}" label="City" />
+                    <p:inputText id="city" value="#{person.address.city}" label="City" />
                     <p:watermark for="city" value="Enter Your City" id="cityWater" />
                 </p:inplace>,
                 <p:inplace id="stateEditor" emptyLabel="Enter State" editor="true" style="margin-left:20px;">
-                    <p:inputText id="state" value="#{person.state}" label="State" />
+                    <p:inputText id="state" value="#{person.address.state}" label="State" />
                     <p:watermark for="state" value="Enter Your State" id="stateWater" />
                 </p:inplace>
                 <p:inplace id="zipEditor" emptyLabel="Enter Zip Code" editor="true" style="margin-left:20px;">
-                    <p:inputText id="zip" value="#{person.zip}" label="Zip" />
+                    <p:inputText id="zip" value="#{person.address.zip}" label="Zip" />
                     <p:watermark for="zip" value="Enter Your Zip Code" id="zipWater" />
                 </p:inplace>
             </p:fieldset>
@@ -88,23 +78,25 @@
                 <p:panelGrid columns="2" styleClass="ui-noborder">
                     <h:outputText value="Passport Number: "/>
                     <p:inplace id="passportEditor" emptyLabel="Enter Passport Number" editor="true" style="margin-left:20px;">
-                        <p:inputText id="passport" value="#{person.passport}" label="Passport Number" />
+                        <p:inputText id="passport" value="#{person.passport.number}" label="Passport Number" />
                         <p:watermark for="passport" value="Enter Your Passport Number" id="passportWater" />
                     </p:inplace>
                     <h:outputText value="Passport Country: " />
                     <p:inplace id="passCountryEditor" emptyLabel="Enter Passport Country" editor="true" style="margin-left:20px;">
-                        <p:inputText id="passCountry" value="#{person.passCountry}" label="Passport Country" />
+                        <p:inputText id="passCountry" value="#{person.passport.country}" label="Passport Country" />
                         <p:watermark for="passCountry" value="Enter Your Passport Country" id="passCountryWater" />
                     </p:inplace>
                     <h:outputText value="Passport Expiration Date: " />
                     <p:inplace id="expDateEditor" emptyLabel="Enter Passport Expiration Date" editor="true" style="margin-left:20px;">
-                        <p:inputText id="expDate" value="#{person.passExp}" label="Passport Expiration Date" />
-                        <p:watermark for="expDate" value="Enter Your Passport Expiration Date" id="expDateWater" />
+                        <p:calendar id="expDate" value="#{person.passport.expires}" navigator="true" showOn="both" pattern="MM-dd-yyyy" yearRange="-0:c+11">
+                            <f:convertDateTime type="localDate" pattern="#{component.pattern}" />
+                        </p:calendar>
                     </p:inplace>
                     <h:outputText value="Passport Issue Date: " />
                     <p:inplace id="issDateEditor" emptyLabel="Enter Passport Issue Date" editor="true" style="margin-left:20px;">
-                        <p:inputText id="issDate" value="#{person.passIss}" label="Passport Issue Date" />
-                        <p:watermark for="issDate" value="Enter Your Passport Issue Date" id="issDateWater" />
+                        <p:calendar id="issDate" value="#{person.passport.issued}" navigator="true" showOn="both" pattern="MM-dd-yyyy" yearRange="-11:c">
+                            <f:convertDateTime type="localDate" pattern="#{component.pattern}" />
+                        </p:calendar>
                     </p:inplace>
                     <h:outputText value="TSA Known Traveler ID Number: " />
                     <p:inplace id="tsaEditor" emptyLabel="Enter TSA Known Traveler ID Number" editor="true" style="margin-left:20px;">
@@ -132,6 +124,20 @@
                     </p:inplace>
                 </p:panelGrid>
             </p:fieldset>
+            <div style="float:right">
+                <p:commandButton immediate="true" id="cancel" value="Cancel">
+                    <jsft:event type="command">
+                        jsft.redirect("people.jsf");
+                    </jsft:event>
+                </p:commandButton>
+                <p:commandButton id="addPerson" value="Add">
+                    <jsft:event type="command">
+                        if (people.savePerson(viewScope.person)) {
+                            jsft.redirect("people.jsf");
+                        }
+                    </jsft:event>
+                </p:commandButton>
+            </div>
         </ui:define>
     </ui:composition>
 </html>

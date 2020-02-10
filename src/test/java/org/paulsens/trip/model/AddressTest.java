@@ -31,44 +31,44 @@ public class AddressTest {
     public void canChangeStreet() {
         final String newStreet = "21 Fireweed Ln.";
         final Address addr = getTestAddress(STREET, CITY, STATE, ZIP);
-        final Address addr2 = addr.withStreet(newStreet);
-        Assert.assertEquals(addr2.getStreet(), newStreet);
-        Assert.assertEquals(addr2.getCity(), addr.getCity());
-        Assert.assertEquals(addr2.getState(), addr.getState());
-        Assert.assertEquals(addr2.getZip(), addr.getZip());
+        addr.setStreet(newStreet);
+        Assert.assertEquals(addr.getStreet(), newStreet);
+        Assert.assertEquals(addr.getCity(), addr.getCity());
+        Assert.assertEquals(addr.getState(), addr.getState());
+        Assert.assertEquals(addr.getZip(), addr.getZip());
     }
 
     @Test
     public void canChangeZip() {
         final String newZip = "97219";
         final Address addr = getTestAddress(STREET, CITY, STATE, ZIP);
-        final Address addr2 = addr.withZip(newZip);
-        Assert.assertEquals(addr2.getStreet(), addr.getStreet());
-        Assert.assertEquals(addr2.getCity(), addr.getCity());
-        Assert.assertEquals(addr2.getState(), addr.getState());
-        Assert.assertEquals(addr2.getZip(), newZip);
+        addr.setZip(newZip);
+        Assert.assertEquals(addr.getStreet(), addr.getStreet());
+        Assert.assertEquals(addr.getCity(), addr.getCity());
+        Assert.assertEquals(addr.getState(), addr.getState());
+        Assert.assertEquals(addr.getZip(), newZip);
     }
 
     @Test
     public void canChangeCity() {
         final String newCity = "Seattle";
         final Address addr = getTestAddress(STREET, CITY, STATE, ZIP);
-        final Address addr2 = addr.withCity(newCity);
-        Assert.assertEquals(addr2.getStreet(), addr.getStreet());
-        Assert.assertEquals(addr2.getCity(), newCity);
-        Assert.assertEquals(addr2.getState(), addr.getState());
-        Assert.assertEquals(addr2.getZip(), addr.getZip());
+        addr.setCity(newCity);
+        Assert.assertEquals(addr.getStreet(), addr.getStreet());
+        Assert.assertEquals(addr.getCity(), newCity);
+        Assert.assertEquals(addr.getState(), addr.getState());
+        Assert.assertEquals(addr.getZip(), addr.getZip());
     }
 
     @Test
     public void canChangeState() {
         final String newState = "Oregon";
         final Address addr = getTestAddress(STREET, CITY, STATE, ZIP);
-        final Address addr2 = addr.withState(newState);
-        Assert.assertEquals(addr2.getStreet(), addr.getStreet());
-        Assert.assertEquals(addr2.getCity(), addr.getCity());
-        Assert.assertEquals(addr2.getState(), newState);
-        Assert.assertEquals(addr2.getZip(), addr.getZip());
+        addr.setState(newState);
+        Assert.assertEquals(addr.getStreet(), addr.getStreet());
+        Assert.assertEquals(addr.getCity(), addr.getCity());
+        Assert.assertEquals(addr.getState(), newState);
+        Assert.assertEquals(addr.getZip(), addr.getZip());
     }
 
     @Test

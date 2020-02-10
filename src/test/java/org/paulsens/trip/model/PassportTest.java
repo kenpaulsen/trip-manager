@@ -34,44 +34,44 @@ public class PassportTest {
     public void canChangeNumber() {
         final String number = "544-11-77733";
         final Passport pass = getTestPassport(NUMBER, COUNTRY, EXPIRES, ISSUED);
-        final Passport pass2 = pass.withNumber(number);
-        Assert.assertEquals(pass2.getNumber(), number);
-        Assert.assertEquals(pass2.getCountry(), pass.getCountry());
-        Assert.assertEquals(pass2.getExpires(), pass.getExpires());
-        Assert.assertEquals(pass2.getIssued(), pass.getIssued());
+        pass.setNumber(number);
+        Assert.assertEquals(pass.getNumber(), number);
+        Assert.assertEquals(pass.getCountry(), pass.getCountry());
+        Assert.assertEquals(pass.getExpires(), pass.getExpires());
+        Assert.assertEquals(pass.getIssued(), pass.getIssued());
     }
 
     @Test
     public void canChangeZip() {
         final LocalDate newIssue = LocalDate.now();
         final Passport pass = getTestPassport(NUMBER, COUNTRY, EXPIRES, ISSUED);
-        final Passport pass2 = pass.withIssued(newIssue);
-        Assert.assertEquals(pass2.getNumber(), pass.getNumber());
-        Assert.assertEquals(pass2.getCountry(), pass.getCountry());
-        Assert.assertEquals(pass2.getExpires(), pass.getExpires());
-        Assert.assertEquals(pass2.getIssued(), newIssue);
+        pass.setIssued(newIssue);
+        Assert.assertEquals(pass.getNumber(), pass.getNumber());
+        Assert.assertEquals(pass.getCountry(), pass.getCountry());
+        Assert.assertEquals(pass.getExpires(), pass.getExpires());
+        Assert.assertEquals(pass.getIssued(), newIssue);
     }
 
     @Test
     public void canChangeCity() {
         final String newCountry = "Seattle";
         final Passport pass = getTestPassport(NUMBER, COUNTRY, EXPIRES, ISSUED);
-        final Passport pass2 = pass.withCountry(newCountry);
-        Assert.assertEquals(pass2.getNumber(), pass.getNumber());
-        Assert.assertEquals(pass2.getCountry(), newCountry);
-        Assert.assertEquals(pass2.getExpires(), pass.getExpires());
-        Assert.assertEquals(pass2.getIssued(), pass.getIssued());
+        pass.setCountry(newCountry);
+        Assert.assertEquals(pass.getNumber(), pass.getNumber());
+        Assert.assertEquals(pass.getCountry(), newCountry);
+        Assert.assertEquals(pass.getExpires(), pass.getExpires());
+        Assert.assertEquals(pass.getIssued(), pass.getIssued());
     }
 
     @Test
     public void canChangeState() {
         final LocalDate newExpires = LocalDate.now();
         final Passport pass = getTestPassport(NUMBER, COUNTRY, EXPIRES, ISSUED);
-        final Passport pass2 = pass.withExpires(newExpires);
-        Assert.assertEquals(pass2.getNumber(), pass.getNumber());
-        Assert.assertEquals(pass2.getCountry(), pass.getCountry());
-        Assert.assertEquals(pass2.getExpires(), newExpires);
-        Assert.assertEquals(pass2.getIssued(), pass.getIssued());
+        pass.setExpires(newExpires);
+        Assert.assertEquals(pass.getNumber(), pass.getNumber());
+        Assert.assertEquals(pass.getCountry(), pass.getCountry());
+        Assert.assertEquals(pass.getExpires(), newExpires);
+        Assert.assertEquals(pass.getIssued(), pass.getIssued());
     }
 
     @Test
