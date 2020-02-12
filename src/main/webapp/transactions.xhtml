@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"
+    xmlns:jsft="http://jsftemplating.java.net/jsft"
+    xmlns:ui="http://java.sun.com/jsf/facelets"
+    xmlns:p="http://primefaces.org/ui"
+    xmlns:f="http://java.sun.com/jsf/core"
+    xmlns:h="http://java.sun.com/jsf/html">
+    <ui:composition template="template.xhtml">
+        <ui:define name="content">
+            <jsft:event type="initPage">
+                if (viewScope.transactions == null) {
+                    if (param.id != null) {
+                        viewScope.person = people.getPerson(param.id);
+                        viewScope.transactions = people.getTransactions(param.id);
+                        viewScope.reqId = param.id;
+                        viewScope.reqPriv = "admin";
+                    } else {
+                        jsft.redirect("hello.jsf");
+                    }
+                }
+                if (sessionScope.priv.equals("admin")) {
+                    viewScope.showAll = true;
+                }
+                activeTab=1;
+            </jsft:event>
+            <jsft:event type="afterCreate" insert="defaultAuth" />
+
+            <p:dataTable id="txs" var="tx" value="#{transactions}" sortBy="#{true}">
+                <f:facet name="header">
+                    <h:outputText value="#{person.first} #{person.last}'s Balance" style="margin-top:200px;" />
+                    <p:commandButton id="newTx" rendered="#{showAll}" value="Add Transaction" style="float:right">
+                        <jsft:event type="command">
+                            jsft.redirect("transaction.jsf?id=".concat(viewScope.person.id));
+                        </jsft:event>
+                    </p:commandButton>
+                </f:facet>
+                <p:column width="20" style="text-align:right">
+                    <h:outputText value="#{lc}">
+                        <jsft:event type="beforeEncode">
+                            lc = lc + 1;
+                        </jsft:event>
+                    </h:outputText>
+                </p:column>
+                <p:column headerText="Date" width="120" style="text-align:center">
+                    <a href="transaction.jsf?id=#{person.id}&amp;date=#{tx.txDate}">
+                        <h:outputText value="#{tx.txDate}">
+                            <f:convertDateTime type="offsetDateTime" pattern="MMM dd, yyyy" />
+                        </h:outputText></a>
+                </p:column>
+                <p:column headerText="Category" width="120">
+                    <h:outputText value="#{tx.category}" />
+                </p:column>
+                <p:column headerText="Note">
+                    <h:outputText value="#{tx.note}" />
+                </p:column>
+                <p:column headerText="Credit" width="85">
+                    <h:outputText rendered="#{tx.amount &gt; 0}" value="#{tx.amount}" style="float:right">
+                        <f:convertNumber type="currency" currencySymbol="$" locale="en_US" />
+                        <jsft:event type="beforeEncode">
+                            totalCredits = totalCredits + tx.amount;
+                        </jsft:event>
+                    </h:outputText>
+                </p:column>
+                <p:column headerText="Debit" width="85">
+                    <h:outputText rendered="#{tx.amount &lt; 0}" value="#{tx.amount}" style="color:#DD0000;float:right;">
+                        <f:convertNumber type="currency" currencySymbol="$" locale="en_US" />
+                        <jsft:event type="beforeEncode">
+                            totalDebits = totalDebits + tx.amount;
+                        </jsft:event>
+                    </h:outputText>
+                </p:column>
+                <p:column headerText="Balance" width="85">
+                    <h:outputText value="#{total}" style="float:right;#{total &lt; 0 ? 'color:#DD0000' : ''}">
+                        <f:convertNumber type="currency" currencySymbol="$" locale="en_US" />
+                        <jsft:event type="beforeEncode">
+                            total = total + tx.amount;
+                        </jsft:event>
+                    </h:outputText>
+                </p:column>
+                <p:summaryRow>
+                    <p:column colspan="4" style="text-align:right">
+                        <h:outputText value="Total:" />
+                    </p:column>
+                    <p:column style="text-align:right">
+                        <h:outputText value="#{totalCredits}" style="font-weight:normal;">
+                            <f:convertNumber type="currency" currencySymbol="$" locale="en_US" />
+                        </h:outputText>
+                    </p:column>
+                    <p:column style="text-align:right">
+                        <h:outputText value="#{totalDebits}" style="color:#DD0000;font-weight:normal;">
+                            <f:convertNumber type="currency" currencySymbol="$" locale="en_US" />
+                        </h:outputText>
+                    </p:column>
+                    <p:column style="text-align:right;border:2px solid red;">
+                        <h:outputText value="#{totalCredits + totalDebits}" style="color:#{(totalCredis + totalDebits) &lt; 0 ? '#DD0000' : '#000000'};">
+                            <f:convertNumber type="currency" currencySymbol="$" locale="en_US" />
+                        </h:outputText>
+                    </p:column>
+                </p:summaryRow>
+            </p:dataTable>
+        </ui:define>
+    </ui:composition>
+</html>

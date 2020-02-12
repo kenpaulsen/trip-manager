@@ -11,17 +11,74 @@
 <ui:composition>
 <html>
 <h:head>
-    <title>Your Medjugorje Trip Manager</title>
+    <title>Medjugorje Trip Manager</title>
     <link rel="shortcut icon" type="image/png" href="/trip/favicon.ico"/>
+    <style type="text/css">
+        .ui-datatable-header {
+            height: 34px
+        }
+        .siteheading {
+            font-family: "Comic Sans MS", cursive, sans-serif;
+            font-size: 40px;
+            letter-spacing: -3px;
+            word-spacing: -8px;
+            color: #D03F68;
+            text-shadow: -1px -1px 0 #BBB, 1px -1px 0 #BBB, -1px 1px 0 #BBB, 1px 1px 0 #BBB;
+            font-weight: 700;
+            text-decoration: none;
+            font-variant: normal;
+            text-transform: none;
+            text-align: center;
+        }
+        <ui:insert name="pagecss" />
+    </style>
 </h:head>
 <h:body>
     <h:form id="form">
-        <ui:insert name="header" />
+        <jsft:event id="defaultAuth">
+            // First check priv... if exists and doesn't match, check user
+            //                     if exists and does match, authorized
+            //                     if !exists and 
+            //tripUtil.errorMsg("Checking privileges...", "Need: ".concat(viewScope.reqPriv).concat(", have: ".concat(sessionScope.priv)));
+            //tripUtil.errorMsg("Checking privileges...", "Need: ".concat(reqId).concat(", have: ".concat(sessionScope.userId)));
+            //tripUtil.errorMsg("ans: ", "".concat(reqId == null).concat(" / ".concat(viewScope.priv == null)));
+            if ((viewScope.reqPriv != null) &amp;&amp; !sessionScope.priv.equalsIgnoreCase(viewScope.reqPriv)) {
+                // Missing req priv
+                if ((reqId == null) || !sessionScope.userId.equals(reqId)) {
+                    // No user-override... redirect
+                    jsft.redirect("/trip/login.jsf");
+                }
+            } else if (viewScope.reqPriv == null) {
+                // No priv requirement... is there a user requirement?
+                if ((reqId != null) &amp;&amp; !sessionScope.userId.equals(reqId)) {
+                    // No user-override... redirect
+                    jsft.redirect("/trip/login.jsf");
+                }
+            }
+        </jsft:event>
+        <ui:insert name="header">
+            <div style="background-image:url('images/medjbanner.jpg'); background-size:cover; height:100px;">
+                <!-- FIXME: Finish the menu.. -->
+                <div class="siteheading">Medjugorje Trip Manager</div>
+                <p:linkButton id="Profile" value="Edit Profile" style="float:right" href="person.jsf">
+                    <f:param name="id" value="#{sessionScope.userId}" />
+                </p:linkButton>
+            </div>
+            <p:tabMenu activeIndex="#{activeTab}">
+                <p:menuitem value="Pilgrims" url="people.jsf" />
+                <p:menuitem value="Account Balance" url="transactions.jsf">
+                    <f:param name="id" value="#{sessionScope.userId}" />
+                </p:menuitem>
+            </p:tabMenu>
+        </ui:insert>
         <p:growl id="growl" showDetail="true" showSummary="true" autoUpdate="false" />
         <ui:insert name="content">
             <h2>This is a template, be sure to pass "content"!</h2>
         </ui:insert>
-        <ui:insert name="footer" />
+        <ui:insert name="footer">
+            <br /><br />
+            <div style="text-align:center"><a href="http://visitqueenofpeace.com" style="color:#D03F68;font-weight:bold">Visit Queen of Peace Website</a></div>
+        </ui:insert>
     </h:form>
 </h:body>
 </html>

@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" 
-"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml"
     xmlns:jsft="http://jsftemplating.java.net/jsft"
     xmlns:ui="http://java.sun.com/jsf/facelets"
@@ -8,57 +7,51 @@
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
     <ui:composition template="template.xhtml">
-        <ui:define name="header">
-            <style type="text/css">
-            .ui-datatable-header {
-                height: 34px
-            }
-            </style>
-        </ui:define>
-
         <ui:define name="content">
             <jsft:event type="initPage">
+                if (sessionScope.userId == null) {
+                    jsft.redirect("person.jsf");
+                }
+                if (sessionScope.priv.equals("admin")) {
+                    viewScope.showAll = true;
+                }
                 viewScope.pilgrims = people.getPeople();
+                activeTab=0;
             </jsft:event>
-            <p:dataTable id="peeps" var="person" value="#{pilgrims}">
+            <jsft:event type="afterCreate" insert="defaultAuth" />
+            <p:dataTable id="peeps" var="person" value="#{pilgrims}" sortBy="#{person.last}">
                 <f:facet name="header">
                     <!-- FIXME: Replace "Spring 2020" with the trip name -->
                     <h:outputText value="Spring 2020 Pilgrims" />
-                    <p:commandButton id="personDetail" value="Add" style="float:right">
+                    <p:commandButton id="personDetail" rendered="#{showAll}" value="Add Person" style="float:right">
                         <jsft:event type="command">
                             jsft.redirect("person.jsf");
                         </jsft:event>
                     </p:commandButton>
-                    <!--
-                    <p:commandButton id="toggler" type="button" value="Columns" style="float:right" icon="pi pi-align-justify" />
-                    <p:columnToggler datasource="pilgrims" trigger="toggler" />
-                    -->
                 </f:facet>
-
-                <p:column headerText="First">
-                    <a href="person.jsf?id=#{person.id}"><h:outputText value="#{person.first}" /></a>
+                <p:column headerText="Name" width="180">
+                    <h:outputText value="#{person.first}" />&nbsp;<h:outputText value="#{person.last}" /><br />
+                    <h:panelGroup rendered="#{showAll || person.id.equals(sessionScope.userId)}">
+                        <h:outputLink value="transactions.jsf?id=#{person.id}" style="color:#227722;font-weight:bold;font-size:12px;">Balance</h:outputLink>
+                        &nbsp;<span style="font-size:12px"> | </span>&nbsp;
+                        <h:outputLink value="person.jsf?id=#{person.id}" style="color:#222277;font-weight:bold;font-size:12px;">Profile</h:outputLink>
+                    </h:panelGroup>
                 </p:column>
-                <p:column headerText="Middle">
-                    <h:outputText value="#{person.middle}" />
+                <p:column headerText="Email" width="210">
+                    <h:outputLink value="mailto:#{person.email}" rendered="#{person.email != null}">#{person.email}</h:outputLink><br />
                 </p:column>
-                <p:column headerText="Last">
-                    <h:outputText value="#{person.last}" />
-                </p:column>
-                <p:column headerText="Cell Phone">
+                <p:column headerText="Phone" width="210">
                     <h:outputText value="#{person.cell}" />
                 </p:column>
-                <p:column headerText="Email">
-                    <h:outputLink value="mailto:#{person.email}" rendered="#{person.email != null}">#{person.email}</h:outputLink>
+                <p:column headerText="Address" width="210">
+                    <h:outputText rendered="#{showAll || person.id.equals(sessionScope.userId)}" escape="false" value="#{person.address.street}&lt;br/&gt;" />
+                    <h:outputText rendered="#{person.address.city != null}" value="#{person.address.city}, " />#{person.address.state} <h:outputText rendered="#{showAll || person.id.equals(sessionScope.userId)}" value="#{person.address.zip}" />
                 </p:column>
-                <p:column headerText="Address">
-                    #{person.address.street}<br/>
-                    #{person.address.city}, #{person.address.state} #{person.address.zip}
+                <p:column rendered="#{showAll}" headerText="Passport #" width="150">
+                    <h:outputText value="#{person.passport.country} #{person.passport.number}" /><br />
                 </p:column>
-                <p:column headerText="Passport #">
-                    #{person.passport.country} #{person.passport.number}<br />
-                </p:column>
-                <p:column headerText="Birth Date">
-                    #{person.birthdate}
+                <p:column rendered="#{showAll}" headerText="Birth Date" width="120" style="text-align:center">
+                    <h:outputText value="#{person.birthdate}" />
                 </p:column>
             </p:dataTable>
         </ui:define>
