@@ -37,10 +37,10 @@
                         <h:outputLink value="person.jsf?id=#{person.id}" style="color:#222277;font-weight:bold;font-size:12px;">Profile</h:outputLink>
                     </h:panelGroup>
                 </p:column>
-                <p:column headerText="Email" width="210">
+                <p:column headerText="Email" width="230">
                     <h:outputLink value="mailto:#{person.email}" rendered="#{person.email != null}">#{person.email}</h:outputLink><br />
                 </p:column>
-                <p:column headerText="Phone" width="210">
+                <p:column headerText="Phone" width="130">
                     <h:outputText value="#{person.cell}" />
                 </p:column>
                 <p:column headerText="Address" width="210">
@@ -50,7 +50,7 @@
                 <p:column rendered="#{showAll}" headerText="Passport #" width="150">
                     <h:outputText value="#{person.passport.country} #{person.passport.number}" /><br />
                 </p:column>
-                <p:column rendered="#{showAll}" headerText="Birth Date" width="120" style="text-align:center">
+                <p:column rendered="#{showAll}" headerText="Birth Date" width="100" style="text-align:center">
                     <h:outputText value="#{person.birthdate}" />
                 </p:column>
             </p:dataTable>
