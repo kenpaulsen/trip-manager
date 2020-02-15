@@ -31,13 +31,11 @@ public class PersonCommands {
     public boolean savePerson(final Person person) {
         boolean result = true;
         try {
-            DynamoUtils.getInstance().savePerson(person)
-                    .thenApply(PutItemResponse::toString)
-                    .exceptionally(ex -> {
-                        log.error("Boom: ", ex);
-                        return "FAILED!";
-                    })
-                    .thenAccept(resp -> System.out.println("PUT Response: " + resp));
+             result = DynamoUtils.getInstance().savePerson(person).exceptionally(ex -> {
+                    log.error("Boom: ", ex);
+                    addMessage("Error saveing " + person.getId() + ": " + person.getFirst() + " " + person.getLast());
+                    return false;
+                }).join();
         } catch (final IOException ex) {
             addMessage("Unable to save " + person.getId() + ": " + person.getFirst() + " " + person.getLast());
             log.warn("Error while saving user: ", ex);

@@ -56,12 +56,14 @@ public class DynamoUtils {
         return instance;
     }
 
-    public CompletableFuture<PutItemResponse> savePerson(final Person person) throws IOException {
+    public CompletableFuture<Boolean> savePerson(final Person person) throws IOException {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(ID, AttributeValue.builder().s(person.getId()).build());
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(person)).build());
         return client.putItem(b -> b.tableName(PERSON_TABLE).item(map))
-                .thenApply(resp -> clearCache(peopleCache, resp));
+                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
+                .thenApply(success -> success ?
+                        cacheOne(peopleCache, person, Person::getId, true) : clearCache(peopleCache, false));
     }
 
     public CompletableFuture<List<Person>> getPeople() {
@@ -210,11 +212,13 @@ public class DynamoUtils {
     private <T> List<T> cacheAll(
             final Map<String, T> cacheMap, final List<T> items, final Function<T, String> keySupplier) {
         cacheMap.clear();
-        items.forEach(item -> cacheOne(cacheMap, item, keySupplier));
+        items.forEach(item -> cacheOne(cacheMap, item, keySupplier, null));
         return items;
     }
 
-    private <T> void cacheOne(final Map<String, T> cacheMap, final T item, final Function<T, String> keySupplier) {
+    private <T, R> R cacheOne(
+            final Map<String, T> cacheMap, final T item, final Function<T, String> keySupplier, final R returnValue) {
         cacheMap.put(keySupplier.apply(item), item);
+        return returnValue;
     }
 }
