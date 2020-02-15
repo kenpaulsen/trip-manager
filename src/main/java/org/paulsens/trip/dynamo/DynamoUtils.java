@@ -7,6 +7,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.Creds;
@@ -23,6 +25,7 @@ import software.amazon.awssdk.services.dynamodb.model.*;
 public class DynamoUtils {
     private final ObjectMapper mapper;
     private final DynamoDbAsyncClient client;
+    private Map<String, Person> peopleCache = new ConcurrentHashMap<>();
 
     private static final DynamoUtils instance = new DynamoUtils();
     private static final String PERSON_TABLE = "people";
@@ -57,19 +60,25 @@ public class DynamoUtils {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(ID, AttributeValue.builder().s(person.getId()).build());
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(person)).build());
-        return client.putItem(b -> b.tableName(PERSON_TABLE).item(map));
+        return client.putItem(b -> b.tableName(PERSON_TABLE).item(map))
+                .thenApply(resp -> clearCache(peopleCache, resp));
     }
 
     public CompletableFuture<List<Person>> getPeople() {
-        return client.scan(b -> b.consistentRead(false).limit(100).tableName(PERSON_TABLE).build())
+        if (!peopleCache.isEmpty()) {
+            return CompletableFuture.completedFuture(new ArrayList<>(peopleCache.values()));
+        }
+        return client.scan(b -> b.consistentRead(false).limit(1000).tableName(PERSON_TABLE).build())
                 .thenApply(resp -> resp.items().stream()
-                        .map(it -> toPerson(it.get(CONTENT))).collect(Collectors.toList()));
+                        .map(it -> toPerson(it.get(CONTENT))).collect(Collectors.toList()))
+                        .thenApply(list -> cacheAll(peopleCache, list, Person::getId));
     }
 
     public CompletableFuture<Person> getPerson(final String id) {
-        final Map<String, AttributeValue> key = Collections.singletonMap(ID, AttributeValue.builder().s(id).build());
-        return client.getItem(b -> b.key(key).tableName(PERSON_TABLE).build())
-                .thenApply(it -> toPerson(it.item().get(CONTENT)));
+        if (peopleCache.containsKey(id)) {
+            return CompletableFuture.completedFuture(peopleCache.get(id));
+        }
+        return getPeople().thenApply(people -> peopleCache.get(id)); // Load all the people
     }
 
     public CompletableFuture<Creds> getCredsByEmailAndPass(final String email, final String pass) {
@@ -142,18 +151,8 @@ public class DynamoUtils {
     }
 
     private CompletableFuture<Person> getPersonByEmail(final String email) {
-        final String emailVal = "\"email\":\"" + email + "\"";
-        return client.scan(b -> b.tableName(PERSON_TABLE).consistentRead(false).limit(100)
-                .expressionAttributeValues(
-                        Collections.singletonMap(":emailVal", AttributeValue.builder().s(emailVal).build()))
-                .filterExpression("contains(content, :emailVal)").build())
-                .thenApply(this::getFirstScanResult)
-                .thenApply(optm -> optm.map(m -> toPerson(m.get(CONTENT))).orElse(null));
-    }
-
-    private Optional<Map<String, AttributeValue>> getFirstScanResult(final ScanResponse resp) {
-        final List<Map<String, AttributeValue>> items = resp.items();
-        return Optional.ofNullable(items.isEmpty() ? null : items.get(0));
+        return getPeople().thenApply(people -> people.stream()
+                .filter(person -> email.equals(person.getEmail())).findAny().orElse(null));
     }
 
     private Transaction toTransaction(final AttributeValue content) {
@@ -192,5 +191,30 @@ public class DynamoUtils {
             log.error("Unable to parse record: " + content, ex);
             return null;
         }
+    }
+
+    private <T, R> R clearCache(Map<String, T> cacheMap, R returnValue) {
+        // To avoid the chance of a slow scan returning and caching the result AFTER we clear, but before we may
+        // have added/deleted content, introduce a cache clear delay.
+        CompletableFuture.runAsync(() -> {
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException ex) {
+                throw new RuntimeException(ex);
+            }
+            cacheMap.clear();
+        });
+        return returnValue;
+    }
+
+    private <T> List<T> cacheAll(
+            final Map<String, T> cacheMap, final List<T> items, final Function<T, String> keySupplier) {
+        cacheMap.clear();
+        items.forEach(item -> cacheOne(cacheMap, item, keySupplier));
+        return items;
+    }
+
+    private <T> void cacheOne(final Map<String, T> cacheMap, final T item, final Function<T, String> keySupplier) {
+        cacheMap.put(keySupplier.apply(item), item);
     }
 }
