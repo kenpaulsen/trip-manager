@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+
+<FindBugsFilter>
+
+    <!-- This is to ignore the immutable field error -->
+    <Match>
+        <Bug code="EI,EI2" />
+    </Match>
+
+    <Match>
+        <Class name="~.*Test$"/>
+    </Match>
+    <Match>
+        <Package name="~test\..*"/>
+    </Match>
+    <Match>
+        <Package name="~tests\..*"/>
+    </Match>
+
+</FindBugsFilter>
