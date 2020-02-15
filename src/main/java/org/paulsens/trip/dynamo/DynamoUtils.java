@@ -26,6 +26,7 @@ public class DynamoUtils {
     private final ObjectMapper mapper;
     private final DynamoDbAsyncClient client;
     private Map<String, Person> peopleCache = new ConcurrentHashMap<>();
+    private Map<String, Map<String, Transaction>> txCache = new ConcurrentHashMap<>();
 
     private static final DynamoUtils instance = new DynamoUtils();
     private static final String PERSON_TABLE = "people";
@@ -61,9 +62,8 @@ public class DynamoUtils {
         map.put(ID, AttributeValue.builder().s(person.getId()).build());
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(person)).build());
         return client.putItem(b -> b.tableName(PERSON_TABLE).item(map))
-                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
-                .thenApply(success -> success ?
-                        cacheOne(peopleCache, person, Person::getId, true) : clearCache(peopleCache, false));
+            .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
+            .thenApply(r -> r ? cacheOne(peopleCache, person, Person::getId, true) : clearCache(peopleCache, false));
     }
 
     public CompletableFuture<List<Person>> getPeople() {
@@ -73,14 +73,15 @@ public class DynamoUtils {
         return client.scan(b -> b.consistentRead(false).limit(1000).tableName(PERSON_TABLE).build())
                 .thenApply(resp -> resp.items().stream()
                         .map(it -> toPerson(it.get(CONTENT))).collect(Collectors.toList()))
-                        .thenApply(list -> cacheAll(peopleCache, list, Person::getId));
+                .thenApply(list -> cacheAll(peopleCache, list, Person::getId));
     }
 
-    public CompletableFuture<Person> getPerson(final String id) {
-        if (peopleCache.containsKey(id)) {
-            return CompletableFuture.completedFuture(peopleCache.get(id));
+    public CompletableFuture<Optional<Person>> getPerson(final String id) {
+        final Person person = peopleCache.get(id);
+        if (person != null) {
+            return CompletableFuture.completedFuture(Optional.of(person));
         }
-        return getPeople().thenApply(people -> peopleCache.get(id)); // Load all the people
+        return getPeople().thenApply(people -> Optional.ofNullable(peopleCache.get(id))); // Load all the people
     }
 
     public CompletableFuture<Creds> getCredsByEmailAndPass(final String email, final String pass) {
@@ -94,21 +95,43 @@ public class DynamoUtils {
     }
 
     public CompletableFuture<List<Transaction>> getTransactions(final String userId) {
-        return client.query(qb -> txByUserId(qb, userId)).thenApply(
-                resp -> resp.items().stream().map(m -> toTransaction(m.get(CONTENT))).collect(Collectors.toList()));
+        final Map<String, Transaction> userTxCache = getTxCacheForUser(userId);
+        if (!userTxCache.isEmpty()) {
+            return CompletableFuture.completedFuture(new ArrayList<>(userTxCache.values()));
+        }
+        return client.query(qb -> txByUserId(qb, userId))
+                .thenApply(resp -> resp.items().stream()
+                        .map(m -> toTransaction(m.get(CONTENT))).collect(Collectors.toList()))
+                .thenApply(list -> cacheAll(userTxCache, list, this::getTxCacheId));
     }
 
     public CompletableFuture<Optional<Transaction>> getTransaction(final String userId, final OffsetDateTime date) {
-        return client.query(qb -> txByUserIdAndDate(qb, userId, date)).thenApply(
-                resp -> resp.items().stream().map(m -> toTransaction(m.get(CONTENT))).findAny());
+        return getTransactions(userId) // Ensure user transactions are already loaded into memory
+                .thenApply(na -> getTxCacheForUser(userId).get(getTxCacheId(userId, date)))  // Read from cache
+                .thenApply(Optional::ofNullable);
     }
 
-    public CompletableFuture<PutItemResponse> saveTransaction(final Transaction tx) throws IOException {
+    public CompletableFuture<Boolean> saveTransaction(final Transaction tx) throws IOException {
+        final Map<String, Transaction> userTxs = getTxCacheForUser(tx.getUserId());
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(USER_ID, AttributeValue.builder().s(tx.getUserId()).build());
         map.put(TX_DATE, AttributeValue.builder().n("" + tx.getTxDate().toInstant().toEpochMilli()).build());
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(tx)).build());
-        return client.putItem(b -> b.tableName(TRANSACTION_TABLE).item(map));
+        return client.putItem(b -> b.tableName(TRANSACTION_TABLE).item(map))
+                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
+                .thenApply(r -> r ? cacheOne(userTxs, tx, this::getTxCacheId, true) : clearCache(userTxs, false));
+    }
+
+    private String getTxCacheId(final String userId, final OffsetDateTime dateTime) {
+        return userId + "_" + dateTime.toInstant().toEpochMilli();
+    }
+
+    private String getTxCacheId(final Transaction tx) {
+        return tx.getUserId() + "_" + tx.getTxDate().toInstant().toEpochMilli();
+    }
+
+    private Map<String, Transaction> getTxCacheForUser(final String userId) {
+        return txCache.computeIfAbsent(userId, k -> new HashMap<>());
     }
 
     private Creds toCreds(final GetItemResponse resp, final String email, final String pass) {
@@ -209,13 +232,26 @@ public class DynamoUtils {
         return returnValue;
     }
 
-    private <T> List<T> cacheAll(
-            final Map<String, T> cacheMap, final List<T> items, final Function<T, String> keySupplier) {
+    private <T> List<T> cacheAll(final Map<String, T> cacheMap, final List<T> items, final Function<T, String> getKey) {
         cacheMap.clear();
-        items.forEach(item -> cacheOne(cacheMap, item, keySupplier, null));
+        items.forEach(item -> cacheMap.put(getKey.apply(item), item));
         return items;
     }
 
+    /**
+     * This method caches a single value, typically used when a single value is updated. In fact, it does not support
+     * the use case of saving a single value to the cache if the cache isn't fully populated. In other words, it will
+     * do nothing if the cache is completely empty. This allows checking if the cache is empty to know if it is
+     * completely populated.
+     *
+     * @param cacheMap      The Map used to cache values.
+     * @param item          The value to cache.
+     * @param keySupplier   The key to cache it under.
+     * @param returnValue   The return value (only to help functional style, pass through).
+     * @param <T>           The type of the thing being cached.
+     * @param <R>           The return value type.
+     * @return  It always returns the {@code returnValue} passed in.
+     */
     private <T, R> R cacheOne(
             final Map<String, T> cacheMap, final T item, final Function<T, String> keySupplier, final R returnValue) {
         cacheMap.put(keySupplier.apply(item), item);
