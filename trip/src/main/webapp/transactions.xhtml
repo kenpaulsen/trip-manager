@@ -48,8 +48,18 @@
                             <f:convertDateTime type="offsetDateTime" pattern="MMM dd, yyyy" />
                         </h:outputText></a>
                 </p:column>
-                <p:column headerText="Category" width="120">
+                <p:column headerText="Category" width="99">
                     <h:outputText value="#{tx.category}" />
+                </p:column>
+                <p:column width="20" rendered="#{showAll}" style="text-align:center">
+                    <p:commandLink id="deltx" ajax="false">
+                        <img src="images/trash.png" width="20" style="margin-top:3px;margin-bottom:-3px;" />
+                        <jsft:event type="command">
+                            tx.delete();
+                            people.saveTransaction(tx);
+                            jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id));
+                        </jsft:event>
+                    </p:commandLink>
                 </p:column>
                 <p:column headerText="Note">
                     <h:outputText value="#{tx.note}" />
@@ -78,8 +88,9 @@
                         </jsft:event>
                     </h:outputText>
                 </p:column>
+                <!--
                 <p:summaryRow>
-                    <p:column colspan="4" style="text-align:right">
+                    <p:column colspan="#{showAll ? 5 : 4}" style="text-align:right">
                         <h:outputText value="Total:" />
                     </p:column>
                     <p:column style="text-align:right">
@@ -98,6 +109,7 @@
                         </h:outputText>
                     </p:column>
                 </p:summaryRow>
+                -->
             </p:dataTable>
         </ui:define>
     </ui:composition>

@@ -10,6 +10,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
@@ -23,6 +24,7 @@ import software.amazon.awssdk.services.dynamodb.model.*;
 
 @Slf4j
 public class DynamoUtils {
+    @Getter
     private final ObjectMapper mapper;
     private final DynamoDbAsyncClient client;
     private Map<String, Person> peopleCache = new ConcurrentHashMap<>();
@@ -63,7 +65,7 @@ public class DynamoUtils {
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(person)).build());
         return client.putItem(b -> b.tableName(PERSON_TABLE).item(map))
             .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
-            .thenApply(r -> r ? cacheOne(peopleCache, person, Person::getId, true) : clearCache(peopleCache, false));
+            .thenApply(r -> r ? cacheOne(peopleCache, person, person.getId(), true) : clearCache(peopleCache, false));
     }
 
     public CompletableFuture<List<Person>> getPeople() {
@@ -101,7 +103,9 @@ public class DynamoUtils {
         }
         return client.query(qb -> txByUserId(qb, userId))
                 .thenApply(resp -> resp.items().stream()
-                        .map(m -> toTransaction(m.get(CONTENT))).collect(Collectors.toList()))
+                        .map(m -> toTransaction(m.get(CONTENT)))
+                        .filter(tx -> (tx != null) && (tx.getDeleted() == null))
+                        .collect(Collectors.toList()))
                 .thenApply(list -> cacheAll(userTxCache, list, this::getTxCacheId));
     }
 
@@ -112,14 +116,27 @@ public class DynamoUtils {
     }
 
     public CompletableFuture<Boolean> saveTransaction(final Transaction tx) throws IOException {
-        final Map<String, Transaction> userTxs = getTxCacheForUser(tx.getUserId());
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(USER_ID, AttributeValue.builder().s(tx.getUserId()).build());
         map.put(TX_DATE, AttributeValue.builder().n("" + tx.getTxDate().toInstant().toEpochMilli()).build());
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(tx)).build());
         return client.putItem(b -> b.tableName(TRANSACTION_TABLE).item(map))
                 .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
-                .thenApply(r -> r ? cacheOne(userTxs, tx, this::getTxCacheId, true) : clearCache(userTxs, false));
+                .thenApply(r -> cacheOneTx(r, tx));
+    }
+
+    private boolean cacheOneTx(final boolean success, final Transaction tx) {
+        final Map<String, Transaction> userTxs = getTxCacheForUser(tx.getUserId());
+        if (success) {
+            if (tx.getDeleted() == null) {
+                cacheOne(userTxs, tx, getTxCacheId(tx), true); // Normal, just cache it
+            } else {
+                userTxs.remove(getTxCacheId(tx)); // It is now deleted, remove it from cache
+            }
+        } else {
+            clearCache(userTxs, false); // Error... clear all cache values
+        }
+        return success;
     }
 
     private String getTxCacheId(final String userId, final OffsetDateTime dateTime) {
@@ -196,16 +213,6 @@ public class DynamoUtils {
                         Collections.singletonMap(":userIdVal", AttributeValue.builder().s(userId).build()));
     }
 
-    private void txByUserIdAndDate(final QueryRequest.Builder qb, final String userId, final OffsetDateTime date) {
-        final String dateStr = "" + date.toInstant().toEpochMilli();
-        final Map<String, AttributeValue> attVals = new HashMap<>();
-        attVals.put(":userIdVal", AttributeValue.builder().s(userId).build());
-        attVals.put(":dateVal", AttributeValue.builder().n(dateStr).build());
-        qb.tableName(TRANSACTION_TABLE)
-                .keyConditionExpression("userId = :userIdVal and txDate = :dateVal")
-                .expressionAttributeValues(attVals);
-    }
-
     private Person toPerson(final AttributeValue content) {
         if (content == null) {
             return null;
@@ -252,9 +259,8 @@ public class DynamoUtils {
      * @param <R>           The return value type.
      * @return  It always returns the {@code returnValue} passed in.
      */
-    private <T, R> R cacheOne(
-            final Map<String, T> cacheMap, final T item, final Function<T, String> keySupplier, final R returnValue) {
-        cacheMap.put(keySupplier.apply(item), item);
+    private <T, R> R cacheOne(final Map<String, T> cacheMap, final T item, String key, final R returnValue) {
+        cacheMap.put(key, item);
         return returnValue;
     }
 }

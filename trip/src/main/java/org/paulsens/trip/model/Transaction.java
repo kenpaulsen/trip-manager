@@ -3,7 +3,7 @@ package org.paulsens.trip.model;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serializable;
 import java.time.OffsetDateTime;
-import java.util.UUID;
+import java.time.ZoneOffset;
 import lombok.Data;
 
 @Data
@@ -13,6 +13,7 @@ public final class Transaction implements Serializable {
     Float amount;
     String category;
     String note;
+    OffsetDateTime deleted;
 
     public Transaction(
             @JsonProperty("userId") String userId,
@@ -25,6 +26,7 @@ public final class Transaction implements Serializable {
         this.amount = amount;
         this.category = category;
         this.note = note;
+        this.deleted = null;
     }
 
     public Transaction() {
@@ -35,7 +37,8 @@ public final class Transaction implements Serializable {
         this.note = null;
     }
 
-    private String getNewId() {
-        return UUID.randomUUID().toString();
+    public OffsetDateTime delete() {
+        this.deleted = OffsetDateTime.now(ZoneOffset.UTC);
+        return deleted;
     }
 }
