@@ -40,7 +40,7 @@ public class TripCommands {
     public List<Trip> getTrips() {
         return DynamoUtils.getInstance().getTrips()
                 .exceptionally(ex -> {
-                    log.error("Failed to get list of people!", ex);
+                    log.error("Failed to get list of trips!", ex);
                     return Collections.emptyList();
                 }).join();
     }

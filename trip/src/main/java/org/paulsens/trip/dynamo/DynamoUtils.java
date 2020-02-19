@@ -357,9 +357,9 @@ public class DynamoUtils {
 
         default CompletableFuture<GetItemResponse> getItem(Consumer<GetItemRequest.Builder> getItemRequest) {
             final Map<String, AttributeValue> attrs = new HashMap<>();
-            GetItemRequest.Builder builder = GetItemRequest.builder();
-            getItemRequest.accept(builder);
-            GetItemRequest giReq = builder.build();
+            final GetItemRequest.Builder builder = GetItemRequest.builder();
+            getItemRequest.accept(builder); // Populate it from their consumer
+            final GetItemRequest giReq = builder.build();
             if (PASS_TABLE.equals(giReq.tableName())) {
                 final AttributeValue email = giReq.key().get(EMAIL);
                 final AttributeValue priv;
