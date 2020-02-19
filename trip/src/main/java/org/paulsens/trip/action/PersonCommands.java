@@ -9,7 +9,6 @@ import java.util.List;
 import java.util.Optional;
 import javax.enterprise.context.ApplicationScoped;
 import javax.faces.application.FacesMessage;
-import javax.faces.context.FacesContext;
 import javax.inject.Named;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DynamoUtils;
@@ -28,13 +27,15 @@ public class PersonCommands {
         boolean result;
         try {
              result = DynamoUtils.getInstance().savePerson(person).exceptionally(ex -> {
-                    log.error("Boom: ", ex);
-                    addMessage("Error saveing " + person.getId() + ": " + person.getFirst() + " " + person.getLast());
-                    return false;
+                    TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Error saving: " + person.getFirst()
+                            + " " + person.getLast(), ex.getMessage());
+                 log.error("Error while saving user: ", ex);
+                 return false;
                 }).join();
         } catch (final IOException ex) {
-            addMessage("Unable to save " + person.getId() + ": " + person.getFirst() + " " + person.getLast());
-            log.warn("Error while saving user: ", ex);
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Unable to save: " + person.getFirst()
+                    + " " + person.getLast(), ex.getMessage());
+            log.error("Error while saving user: ", ex);
             result = false;
         }
         return result;
@@ -55,13 +56,15 @@ public class PersonCommands {
         boolean result;
         try {
             result = DynamoUtils.getInstance().saveTransaction(tx).exceptionally(ex -> {
-                    log.error("Boom: ", ex);
-                    addMessage("Unable to save transaction for userId: " + tx.getUserId());
+                    TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
+                            "Unable to save transaction for userId: " + tx.getUserId(), ex.getMessage());
+                    log.error("Error while saving transaction: ", ex);
                     return false;
                 }).join();
         } catch (final IOException ex) {
-            addMessage("Unable to save transaction for userId: " + tx.getUserId());
-            log.warn("Error while saving transaction: ", ex);
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Unable to save transaction for userId: "
+                    + tx.getUserId(), ex.getMessage());
+            log.error("Error while saving transaction: ", ex);
             result = false;
         }
         return result;
@@ -108,14 +111,5 @@ public class PersonCommands {
                     return Optional.empty();
                 })
                 .thenApply(opt -> opt.orElseGet(() -> createTransaction(id, date))).join();
-    }
-
-    public void addMessage(final String msg) {
-        FacesContext.getCurrentInstance().addMessage(null, new FacesMessage(msg));
-    }
-
-    public void addMessage(final String msg, final Exception ex) {
-        FacesContext.getCurrentInstance().addMessage(null, new FacesMessage(msg, ex.getMessage()));
-        log.error(msg, ex);
     }
 }

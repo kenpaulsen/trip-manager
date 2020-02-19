@@ -52,7 +52,7 @@ public class TripUtilCommands {
     public void fatalMsg(final String summary, final String detail) {
         addFacesMessage(FacesMessage.SEVERITY_FATAL, summary, detail);
     }
-    private void addFacesMessage(final Severity severity, final String summary, final String detail) {
+    static void addFacesMessage(final Severity severity, final String summary, final String detail) {
         FacesContext.getCurrentInstance().addMessage(null, new FacesMessage(severity, summary, detail));
     }
 

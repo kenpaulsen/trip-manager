@@ -8,12 +8,12 @@ import lombok.Data;
 
 @Data
 public final class Transaction implements Serializable {
-    String userId;
-    OffsetDateTime txDate;
-    Float amount;
-    String category;
-    String note;
-    OffsetDateTime deleted;
+    private String userId;
+    private OffsetDateTime txDate;
+    private Float amount;
+    private String category;
+    private String note;
+    private OffsetDateTime deleted;
 
     public Transaction(
             @JsonProperty("userId") String userId,

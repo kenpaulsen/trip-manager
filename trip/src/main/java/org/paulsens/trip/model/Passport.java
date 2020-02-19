@@ -7,10 +7,10 @@ import lombok.Data;
 
 @Data
 public final class Passport implements Serializable {
-    String number;
-    String country;
-    LocalDate expires;
-    LocalDate issued;
+    private String number;
+    private String country;
+    private LocalDate expires;
+    private LocalDate issued;
 
     public Passport(
             @JsonProperty("number") String number,

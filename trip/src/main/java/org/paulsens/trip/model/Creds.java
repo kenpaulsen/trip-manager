@@ -7,10 +7,10 @@ import lombok.Data;
 
 @Data
 public final class Creds implements Serializable {
-    String email;
-    String userId;
-    String priv;
-    String pass;
+    private String email;
+    private String userId;
+    private String priv;
+    private String pass;
 
     @JsonCreator
     public Creds(

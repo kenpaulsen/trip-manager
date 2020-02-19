@@ -9,17 +9,17 @@ import lombok.Data;
 
 @Data
 public final class Person implements Serializable {
-    String id;
-    String first;
-    String middle;
-    String last;
-    LocalDate birthdate;
-    String cell;
-    String email;
-    String tsa;
-    Address address;
-    Passport passport;
-    String notes;
+    private String id;
+    private String first;
+    private String middle;
+    private String last;
+    private LocalDate birthdate;
+    private String cell;
+    private String email;
+    private String tsa;
+    private Address address;
+    private Passport passport;
+    private String notes;
 
     public Person(
             @JsonProperty("id") String id,

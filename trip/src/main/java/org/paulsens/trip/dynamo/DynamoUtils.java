@@ -4,8 +4,15 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import java.io.IOException;
 import java.time.OffsetDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
@@ -17,30 +24,39 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
-
-import java.io.IOException;
 import org.paulsens.trip.model.Transaction;
+import org.paulsens.trip.model.Trip;
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.http.SdkHttpResponse;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
-import software.amazon.awssdk.services.dynamodb.model.*;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
+import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.PutItemResponse;
+import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
+import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
+import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
+import software.amazon.awssdk.services.dynamodb.model.ScanResponse;
 
 @Slf4j
 public class DynamoUtils {
     @Getter
     private final ObjectMapper mapper;
     private final TripPersistence client;
-    private Map<String, Person> peopleCache = new ConcurrentHashMap<>();
-    private Map<String, Map<String, Transaction>> txCache = new ConcurrentHashMap<>();
 
-    private static final DynamoUtils instance = new DynamoUtils();
+    private final Map<String, Person> peopleCache = new ConcurrentHashMap<>();
+    private final Map<String, Trip> tripCache = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, Transaction>> txCache = new ConcurrentHashMap<>();
+
     // This flag is set in the web.xml via the login page via the
-    private static final String LOCAL = "local";
     private static final String FACES_SERVLET = "Faces Servlet";
+    private static final String LOCAL = "local";
+    private static final String PASS_TABLE = "pass";
     private static final String PERSON_TABLE = "people";
     private static final String TRANSACTION_TABLE = "transactions";
-    private static final String PASS_TABLE = "pass";
+    private static final String TRIP_TABLE = "trip";
     private static final String ID = "id";
     private static final String USER_ID = "userId";
     private static final String CONTENT = "content";
@@ -49,6 +65,8 @@ public class DynamoUtils {
     private static final String PRIV = "priv";
     private static final String PW = "pass";
     private static final String USER_PRIV = "user";
+
+    private static final DynamoUtils instance = new DynamoUtils();
 
     private DynamoUtils() {
         final ObjectMapper mapper = new ObjectMapper();
@@ -96,6 +114,36 @@ public class DynamoUtils {
             return CompletableFuture.completedFuture(Optional.of(person));
         }
         return getPeople().thenApply(people -> Optional.ofNullable(peopleCache.get(id))); // Load all the people
+    }
+
+    public CompletableFuture<Boolean> saveTrip(final Trip trip) throws IOException {
+        final Map<String, AttributeValue> map = new HashMap<>();
+        map.put(ID, toStrAttr(trip.getId()));
+        map.put(CONTENT, toStrAttr(mapper.writeValueAsString(trip)));
+        return client.putItem(b -> b.tableName(TRIP_TABLE).item(map))
+                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
+                .thenApply(r -> r ? cacheOne(tripCache, trip, trip.getId(), true) : clearCache(tripCache, false));
+    }
+
+    public CompletableFuture<List<Trip>> getTrips() {
+        if (!tripCache.isEmpty()) {
+            return CompletableFuture.completedFuture(tripCache.values().stream()
+                    .sorted(Comparator.comparing(Trip::getStartDate)).collect(Collectors.toList()));
+        }
+        return client.scan(b -> b.consistentRead(false).limit(1000).tableName(TRIP_TABLE).build())
+                .thenApply(resp -> resp.items().stream().map(it -> toTrip(it.get(CONTENT)))
+                        .sorted(Comparator.comparing(Trip::getStartDate))
+                        .collect(Collectors.toList())
+                )
+                .thenApply(list -> cacheAll(tripCache, list, Trip::getId));
+    }
+
+    public CompletableFuture<Optional<Trip>> getTrip(final String id) {
+        final Trip trip = tripCache.get(id);
+        if (trip != null) {
+            return CompletableFuture.completedFuture(Optional.of(trip));
+        }
+        return getTrips().thenApply(trips -> Optional.ofNullable(tripCache.get(id))); // Load all the trips
     }
 
     public CompletableFuture<Creds> getCredsByEmailAndPass(final String email, final String pass) {
@@ -231,8 +279,20 @@ public class DynamoUtils {
         }
         try {
             return mapper.readValue(content.s(), Person.class);
-        } catch (IOException ex) {
-            log.error("Unable to parse record: " + content, ex);
+        } catch (final IOException ex) {
+            log.error("Unable to parse person record: " + content, ex);
+            return null;
+        }
+    }
+
+    private Trip toTrip(final AttributeValue content) {
+        if (content == null) {
+            return null;
+        }
+        try {
+            return mapper.readValue(content.s(), Trip.class);
+        } catch (final IOException ex) {
+            log.error("Unable to parse trip record: " + content, ex);
             return null;
         }
     }
@@ -274,6 +334,10 @@ public class DynamoUtils {
     private <T, R> R cacheOne(final Map<String, T> cacheMap, final T item, String key, final R returnValue) {
         cacheMap.put(key, item);
         return returnValue;
+    }
+
+    private AttributeValue toStrAttr(final String val) {
+        return AttributeValue.builder().s(val).build();
     }
 
     private interface TripPersistence {

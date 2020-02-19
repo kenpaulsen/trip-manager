@@ -6,10 +6,10 @@ import lombok.Data;
 
 @Data
 public final class Address implements Serializable {
-    String street;
-    String city;
-    String state;
-    String zip;
+    private String street;
+    private String city;
+    private String state;
+    private String zip;
 
     public Address(
             @JsonProperty("street") String street,
