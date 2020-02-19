@@ -8,8 +8,11 @@ import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.faces.context.FacesContext;
+import javax.servlet.ServletContext;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.Creds;
@@ -18,6 +21,7 @@ import org.paulsens.trip.model.Person;
 import java.io.IOException;
 import org.paulsens.trip.model.Transaction;
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
+import software.amazon.awssdk.http.SdkHttpResponse;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.dynamodb.model.*;
@@ -26,11 +30,14 @@ import software.amazon.awssdk.services.dynamodb.model.*;
 public class DynamoUtils {
     @Getter
     private final ObjectMapper mapper;
-    private final DynamoDbAsyncClient client;
+    private final TripPersistence client;
     private Map<String, Person> peopleCache = new ConcurrentHashMap<>();
     private Map<String, Map<String, Transaction>> txCache = new ConcurrentHashMap<>();
 
     private static final DynamoUtils instance = new DynamoUtils();
+    // This flag is set in the web.xml via the login page via the
+    private static final String LOCAL = "local";
+    private static final String FACES_SERVLET = "Faces Servlet";
     private static final String PERSON_TABLE = "people";
     private static final String TRANSACTION_TABLE = "transactions";
     private static final String PASS_TABLE = "pass";
@@ -48,10 +55,15 @@ public class DynamoUtils {
         mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
         mapper.registerModule(new JavaTimeModule());
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-        this.client = DynamoDbAsyncClient.builder()
-                .region(Region.US_WEST_2)
-                .credentialsProvider(ProfileCredentialsProvider.builder().build())
-                .build();
+        final FacesContext fc = FacesContext.getCurrentInstance();
+        if ((fc != null) && "true".equals(((ServletContext) fc.getExternalContext().getContext())
+                .getServletRegistration(FACES_SERVLET).getInitParameter(LOCAL))) {
+            // Local development only -- don't talk to dynamo
+            this.client = new DynamoUtils.TripPersistence() {};
+        } else {
+            // The real deal
+            this.client = new DynamoUtils.DynamoTripPersistence();
+        }
         this.mapper = mapper;
     }
 
@@ -253,7 +265,7 @@ public class DynamoUtils {
      *
      * @param cacheMap      The Map used to cache values.
      * @param item          The value to cache.
-     * @param keySupplier   The key to cache it under.
+     * @param key           The key to cache it under.
      * @param returnValue   The return value (only to help functional style, pass through).
      * @param <T>           The type of the thing being cached.
      * @param <R>           The return value type.
@@ -262,5 +274,66 @@ public class DynamoUtils {
     private <T, R> R cacheOne(final Map<String, T> cacheMap, final T item, String key, final R returnValue) {
         cacheMap.put(key, item);
         return returnValue;
+    }
+
+    private interface TripPersistence {
+        default CompletableFuture<PutItemResponse> putItem(Consumer<PutItemRequest.Builder> putItemRequest) {
+            final PutItemResponse.Builder builder = PutItemResponse.builder();
+            builder.sdkHttpResponse(SdkHttpResponse.builder().statusCode(200).build());
+            return CompletableFuture.completedFuture(builder.build());
+        }
+
+        default CompletableFuture<ScanResponse> scan(Consumer<ScanRequest.Builder> scanRequest) {
+            return CompletableFuture.completedFuture(ScanResponse.builder().items(Collections.emptyList()).build());
+        }
+
+        default CompletableFuture<QueryResponse> query(Consumer<QueryRequest.Builder> queryRequest) {
+            return CompletableFuture.completedFuture(QueryResponse.builder().items(Collections.emptyList()).build());
+        }
+
+        default CompletableFuture<GetItemResponse> getItem(Consumer<GetItemRequest.Builder> getItemRequest) {
+            final Map<String, AttributeValue> attrs = new HashMap<>();
+            GetItemRequest.Builder builder = GetItemRequest.builder();
+            getItemRequest.accept(builder);
+            GetItemRequest giReq = builder.build();
+            if (PASS_TABLE.equals(giReq.tableName())) {
+                final AttributeValue email = giReq.key().get(EMAIL);
+                final AttributeValue priv;
+                if (giReq.key().get(EMAIL).s().startsWith("admin")) {
+                    priv = AttributeValue.builder().s("admin").build();
+                } else {
+                    priv = AttributeValue.builder().s("user").build();
+                }
+                attrs.put(EMAIL, email);
+                attrs.put(USER_ID, email);
+                attrs.put(PRIV, priv);
+                attrs.put(PW, priv);
+            }
+            return CompletableFuture.completedFuture(GetItemResponse.builder().item(attrs).build());
+        }
+    }
+
+    private static class DynamoTripPersistence implements TripPersistence {
+        private final DynamoDbAsyncClient client;
+
+        DynamoTripPersistence() {
+            this.client = DynamoDbAsyncClient.builder()
+                .region(Region.US_WEST_2)
+                    .credentialsProvider(ProfileCredentialsProvider.builder().build())
+                .build();
+        }
+
+        public CompletableFuture<ScanResponse> scan(Consumer<ScanRequest.Builder> scanRequest) {
+            return client.scan(scanRequest);
+        }
+        public CompletableFuture<PutItemResponse> putItem(Consumer<PutItemRequest.Builder> putItemRequest) {
+            return client.putItem(putItemRequest);
+        }
+        public CompletableFuture<QueryResponse> query(Consumer<QueryRequest.Builder> queryRequest) {
+            return client.query(queryRequest);
+        }
+        public CompletableFuture<GetItemResponse> getItem(Consumer<GetItemRequest.Builder> getItemRequest) {
+            return client.getItem(getItemRequest);
+        }
     }
 }

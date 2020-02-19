@@ -27,6 +27,11 @@
         <ui:define name="footer" />
 
         <ui:define name="content">
+            <jsft:event type="initPage">
+                if (applicationScope.local == null) {
+                    applicationScope.local = "true".equals(facesContext.externalContext.getContext().getServletRegistration("Faces Servlet").getInitParameter("local"));
+                }
+            </jsft:event>
             <a href="http://visitqueenofpeace.com">Visit Medjugorje</a>
             <div style="width:100%;text-align:center;">
             <h:panelGrid columns="2" cellpadding="5" style="margin-left:auto;margin-right:12%;margin-top:18%;text-align:right;">

@@ -35,6 +35,10 @@
     <servlet>
         <servlet-name>Faces Servlet</servlet-name>
         <servlet-class>javax.faces.webapp.FacesServlet</servlet-class>
+        <init-param>
+            <param-name>local</param-name>
+            <param-value>false</param-value>
+        </init-param>
         <load-on-startup>1</load-on-startup>
     </servlet>
 
