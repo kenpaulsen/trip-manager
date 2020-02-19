@@ -11,143 +11,68 @@
     <ui:composition template="template.xhtml">
         <ui:define name="content">
             <jsft:event type="initPage">
-                if (viewScope.person == null) {
+                if (viewScope.theTrip == null) {
                     viewScope.reqPriv = "admin";
                     if (param.id != null) {
-                        viewScope.person = people.getPerson(param.id);
-                        viewScope.reqId = param.id;
+                        viewScope.theTrip = trip.getTrip(param.id);
+                        // Fix me: the following needs to be the sessionScope.userId iff it exists in the trip.
+                        // viewScope.reqId = sessionScope.userId;
                     } else {
-                        viewScope.person = people.createPerson();
+                        viewScope.theTrip = trip.createTrip();
                     }
                 }
+                // FIXME: Enable dynamic tabs, find the tab number
                 activeTab=0;
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
 
             <h2>Trip Editor</h2>
-            <p:fieldset id="nme" legend="Name &amp; Birthdate" style="margin-bottom:13px;">
+            <p:fieldset id="title" legend="Trip Info" style="margin-bottom:13px;">
                 <p:panelGrid columns="2" styleClass="ui-noborder">
-                    <h:outputText value="First Name: "/>
-                    <p:inplace id="firstName" widgetVar="firstName" emptyLabel="First" editor="false" style="margin-left:20px;">
-                        <p:inputText id="first" value="#{person.first}" label="First Name" required="true" />
-                        <p:watermark for="first" value="First Name" id="firstWater" />
+                    <h:outputText value="Trip Name: "/>
+                    <p:inplace id="tripname" widgetVar="tripname" emptyLabel="Enter trip title" editor="false" style="margin-left:20px;">
+                        <p:inputText id="tn" value="#{theTrip.title}" label="Trip Name" required="true" />
+                        <p:watermark for="tn" value="Trip Name" id="tnWater" />
                     </p:inplace>
-                    <h:outputText value="Middle Name(s): "/>
-                    <p:inplace id="middleName" widgetVar="middleName" emptyLabel="Middle" editor="false" style="margin-left:20px;">
-                        <p:inputText id="middle" value="#{person.middle}" label="Middle Name" />
-                        <p:watermark for="middle" value="Middle Name" id="middleWater" />
+                    <h:outputText value="Trip Description: " />
+                    <p:inplace id="descEditor" widgetVar="desc" emptyLabel="Enter Trip Description" editor="false" style="margin-left:20px;">
+                        <!-- FIXME: allow html editor -->
+                        <p:inputTextarea rows="6" cols="80" id="description" value="#{theTrip.description}" label="Trip Description" />
+                        <p:watermark for="description" value="Enter Description" id="descWater" />
                     </p:inplace>
-                    <h:outputText value="Last Name: "/>
-                    <p:inplace id="lastName" widgetVar="lastName" emptyLabel="Last" editor="false" style="margin-left:20px;">
-                        <p:inputText id="last" value="#{person.last}" label="Last Name" required="true" />
-                        <p:watermark for="last" value="Last Name" id="lastWater" />
-                    </p:inplace>
-                    <h:outputText value="Birthdate: "/>
-                    <p:inplace id="birthDate" widgetVar="birthDate" emptyLabel="Enter Birthdate" editor="false" style="margin-left:20px;" pattern="MM-dd-yyyy">
-                        <p:calendar id="bd" value="#{person.birthdate}" navigator="true" showOn="both" pattern="MM-dd-yyyy" yearRange="-100:c">
-                            <f:convertDateTime type="localDate" pattern="#{component.pattern}" />
+                    <h:outputText value="Trip Start: "/>
+                    <p:inplace id="tStart" widgetVar="tripStart" emptyLabel="Enter Trip Start Date" editor="false" style="margin-left:20px;">
+                        <p:calendar id="startDate" value="#{theTrip.startDate}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm" yearRange="-1:c+5">
+                            <f:convertDateTime type="localDateTime" pattern="#{component.pattern}" />
                         </p:calendar>
                     </p:inplace>
-                </p:panelGrid>
-            </p:fieldset>
-            <p:fieldset id="addr" legend="Address" style="margin-bottom:13px;">
-                <p:inplace id="addressEditor" widgetVar="address" emptyLabel="Enter Street Address" editor="false" style="margin-left:20px;">
-                    <p:inputText id="address" value="#{person.address.street}" label="Street Address" />
-                    <p:watermark for="address" value="Enter Your Street Address" id="streetWater" />
-                </p:inplace>
-                <br />
-                <p:inplace id="cityEditor" widgetVar="city" emptyLabel="Enter City" editor="false" style="margin-left:20px;">
-                    <p:inputText id="city" value="#{person.address.city}" label="City" />
-                    <p:watermark for="city" value="Enter Your City" id="cityWater" />
-                </p:inplace>,
-                <p:inplace id="stateEditor" widgetVar="state" emptyLabel="Enter State" editor="false" style="margin-left:20px;">
-                    <p:inputText id="state" value="#{person.address.state}" label="State" />
-                    <p:watermark for="state" value="Enter Your State" id="stateWater" />
-                </p:inplace>
-                <p:inplace id="zipEditor" widgetVar="zip" emptyLabel="Enter Zip Code" editor="false" style="margin-left:20px;">
-                    <p:inputText id="zip" value="#{person.address.zip}" label="Zip" />
-                    <p:watermark for="zip" value="Enter Your Zip Code" id="zipWater" />
-                </p:inplace>
-            </p:fieldset>
-            <p:fieldset id="travel" legend="Travel Info" style="margin-bottom:13px;">
-                <p:panelGrid columns="2" styleClass="ui-noborder">
-                    <h:outputText value="Passport Number: "/>
-                    <p:inplace id="passportEditor" widgetVar="passport" emptyLabel="Enter Passport Number" editor="false" style="margin-left:20px;">
-                        <p:inputText id="passport" value="#{person.passport.number}" label="Passport Number" />
-                        <p:watermark for="passport" value="Enter Your Passport Number" id="passportWater" />
-                    </p:inplace>
-                    <h:outputText value="Passport Country: " />
-                    <p:inplace id="passCountryEditor" widgetVar="passCountry" emptyLabel="Enter Passport Country" editor="false" style="margin-left:20px;">
-                        <p:inputText id="passCountry" value="#{person.passport.country}" label="Passport Country" />
-                        <p:watermark for="passCountry" value="Enter Your Passport Country" id="passCountryWater" />
-                    </p:inplace>
-                    <h:outputText value="Passport Expiration Date: " />
-                    <p:inplace id="expDateEditor" widgetVar="expDate" emptyLabel="Enter Passport Expiration Date" editor="false" style="margin-left:20px;">
-                        <p:calendar id="expDate" value="#{person.passport.expires}" navigator="true" showOn="both" pattern="MM-dd-yyyy" yearRange="-0:c+11">
-                            <f:convertDateTime type="localDate" pattern="#{component.pattern}" />
+                    <h:outputText value="Trip End: " />
+                    <p:inplace id="tEnd" widgetVar="tripEnd" emptyLabel="Enter Trip End Date" editor="false" style="margin-left:20px;">
+                        <p:calendar id="endDate" value="#{theTrip.endDate}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm" yearRange="-1:c+5">
+                            <f:convertDateTime type="localDateTime" pattern="#{component.pattern}" />
                         </p:calendar>
-                    </p:inplace>
-                    <h:outputText value="Passport Issue Date: " />
-                    <p:inplace id="issDateEditor" widgetVar="issDate" emptyLabel="Enter Passport Issue Date" editor="false" style="margin-left:20px;">
-                        <p:calendar id="issDate" value="#{person.passport.issued}" navigator="true" showOn="both" pattern="MM-dd-yyyy" yearRange="-11:c">
-                            <f:convertDateTime type="localDate" pattern="#{component.pattern}" />
-                        </p:calendar>
-                    </p:inplace>
-                    <h:outputText value="TSA Known Traveler ID Number: " />
-                    <p:inplace id="tsaEditor" widgetVar="tsa" emptyLabel="Enter TSA Known Traveler ID Number" editor="false" style="margin-left:20px;">
-                        <p:inputText id="tsa" value="#{person.tsa}" label="TSA Known Traveler ID Number" />
-                        <p:watermark for="tsa" value="Enter Your TSA Known Traveler Id Number" id="tsaWater" />
-                    </p:inplace>
-                </p:panelGrid>
-            </p:fieldset>
-            <p:fieldset id="contact" legend="Contact Info" style="margin-bottom:13px;">
-                <p:panelGrid columns="2" styleClass="ui-noborder">
-                    <h:outputText value="Email: " />
-                    <p:inplace id="emailEditor" widgetVar="email" emptyLabel="Enter Email" editor="false" style="margin-left:20px;">
-                        <p:inputText id="email" value="#{person.email}" label="Email Address" />
-                        <p:watermark for="email" value="Enter Your Email Address" id="emailWater" />
-                    </p:inplace>
-                    <h:outputText value="Cell Phone: " />
-                    <p:inplace id="cellEditor" widgetVar="cell" emptyLabel="Enter Cell Phone Number" editor="false" style="margin-left:20px;">
-                        <pe:inputPhone id="cell" initialCountry="us" value="#{person.cell}" formatOnDisplay="true" label="Cell Phone Number" />
-                        <p:watermark for="cell" value="Enter Your Cell Phone Number" id="cellWater" />
-                    </p:inplace>
-                    <h:outputText value="Notes: " />
-                    <p:inplace id="notesEditor" widgetVar="notes" emptyLabel="Enter Notes" editor="false" style="margin-left:20px;">
-                        <p:inputTextarea rows="6" cols="80" id="notes" value="#{person.notes}" label="Notes" />
-                        <p:watermark for="notes" value="Enter Notes" id="notesWater" />
                     </p:inplace>
                 </p:panelGrid>
             </p:fieldset>
             <h:outputScript target="body">
                 $(document).ready(function() {
-                    <h:outputText rendered="#{person.notes == '' || person.notes == null}" value="PF('notes').show();" />
-                    <h:outputText rendered="#{person.cell == '' || person.cell == null}" value="PF('cell').show();" />
-                    <h:outputText rendered="#{person.email == '' || person.email == null}" value="PF('email').show();" />
-                    <h:outputText rendered="#{person.tsa == '' || person.tsa == null}" value="PF('tsa').show();" />
-                    <h:outputText rendered="#{person.passport.country == '' || person.passport.country == null}" value="PF('passCountry').show();" />
-                    <h:outputText rendered="#{person.passport.number == '' || person.passport.number == null}" value="PF('passport').show();" />
-                    <h:outputText rendered="#{person.address.zip == '' || person.address.zip == null}" value="PF('zip').show();" />
-                    <h:outputText rendered="#{person.address.state == '' || person.address.state == null}" value="PF('state').show();" />
-                    <h:outputText rendered="#{person.address.city == '' || person.address.city == null}" value="PF('city').show();" />
-                    <h:outputText rendered="#{person.address.street == '' || person.address.street == null}" value="PF('address').show();" />
-                    <h:outputText rendered="#{person.last == '' || person.last == null}" value="PF('lastName').show();" />
-                    <h:outputText rendered="#{person.middle == '' || person.middle == null}" value="PF('middleName').show();" />
-                    <h:outputText rendered="#{person.first == '' || person.first == null}" value="PF('firstName').show();" />
-                    <h:outputText rendered="#{person.birthdate == '' || person.birthdate == null}" value="PF('birthDate').show();" />
-                    <h:outputText rendered="#{person.passport.issued == '' || person.passport.issued == null}" value="PF('issDate').show();" />
-                    <h:outputText rendered="#{person.passport.expires == '' || person.passport.expires == null}" value="PF('expDate').show();" />
+                    <h:outputText rendered="#{theTrip.title == '' || theTrip.title == null}" value="PF('tripname').show();" />
+                    <h:outputText rendered="#{theTrip.description == '' || theTrip.description == null}" value="PF('descEditor').show();" />
+                    <h:outputText rendered="#{theTrip.startDate == '' || theTrip.startDate == null}" value="PF('tStart').show();" />
+                    <h:outputText rendered="#{theTrip.endDate == '' || theTrip.endDate == null}" value="PF('tEnd').show();" />
                 })
             </h:outputScript>
             <div style="float:right">
                 <p:commandButton immediate="true" id="cancel" value="Cancel" update="growl">
                     <jsft:event type="command">
+                        <!-- FIXME: Work out proper navigation flow -->
                         jsft.redirect("people.jsf");
                     </jsft:event>
                 </p:commandButton>
                 <p:commandButton id="savePerson" value="Save" update="growl">
                     <jsft:event type="command">
-                        if (people.savePerson(viewScope.person)) {
+                        if (trip.saveTrip(viewScope.theTrip)) {
+                            <!-- FIXME: Work out proper navigation flow -->
                             jsft.redirect("people.jsf");
                         }
                     </jsft:event>

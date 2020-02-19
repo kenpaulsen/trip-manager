@@ -2,10 +2,7 @@ package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serializable;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.Data;
@@ -27,7 +24,7 @@ public final class TripEvent implements Serializable {
 
     public TripEvent() {
         this.title = null;
-        this.start = LocalDateTime.now(ZoneId.of("PST")).plusDays(30);
+        this.start = LocalDateTime.now().plusDays(30);
         this.people = new ConcurrentHashMap<>();
     }
 }

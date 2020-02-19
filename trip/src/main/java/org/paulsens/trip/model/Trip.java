@@ -2,8 +2,7 @@ package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serializable;
-import java.time.LocalDate;
-import java.time.ZoneId;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -14,8 +13,8 @@ public final class Trip implements Serializable {
     private String id;                  // Trip ID
     private String title;               // Title of trip
     private String description;         // Describes the trip
-    private LocalDate startDate;        // Start of trip
-    private LocalDate endDate;          // End of trip
+    private LocalDateTime startDate;    // Start of trip
+    private LocalDateTime endDate;      // End of trip
     private List<String> people;        // UserIds
     private List<TripEvent> tripEvents; // The stuff needed to book, airfare, hotel, etc. w/ conf #'s or yes/no/NA/?
 
@@ -23,8 +22,8 @@ public final class Trip implements Serializable {
             @JsonProperty("id") String id,
             @JsonProperty("title") String title,
             @JsonProperty("description") String description,
-            @JsonProperty("startDate") LocalDate startDate,
-            @JsonProperty("endDate") LocalDate endDate,
+            @JsonProperty("startDate") LocalDateTime startDate,
+            @JsonProperty("endDate") LocalDateTime endDate,
             @JsonProperty("people") List<String> people,
             @JsonProperty("tripEvents") List<TripEvent> tripEvents) {
         this.id = id;
@@ -40,8 +39,8 @@ public final class Trip implements Serializable {
         this.id = UUID.randomUUID().toString();
         this.title = null;
         this.description = null;
-        this.startDate = LocalDate.now(ZoneId.of("PST")).plusDays(60);
-        this.endDate = LocalDate.now(ZoneId.of("PST")).plusDays(70);
+        this.startDate = LocalDateTime.now().plusDays(60);
+        this.endDate = LocalDateTime.now().plusDays(70);
         this.people = new ArrayList<>();
         this.tripEvents = new ArrayList<>();
     }
