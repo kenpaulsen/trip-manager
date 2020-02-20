@@ -52,4 +52,69 @@ public class TripCommands {
                     return Optional.empty();
                 }).join().orElse(new Trip());
     }
+
+    /**
+     * This is used to help determine the correct trip to show for the particular user. The chosen trip depends on the
+     * user's permissions, what trips they are part of, and whether they already have the trip they need.
+     *
+     * @param trips     The complete list of trips.
+     * @param currTrip  The resolved trip, which may already be calculated, if supplied this will be returned.
+     * @param userId    The userId.
+     * @param tripId    The desired tripId -- will be returned if it exists and the user is part of the trip or admin.
+     * @param priv      The user's privileges.
+     *
+     * @return  The trip to display, or null if the user should not see any trips.
+     */
+    public Trip getTripForUser(
+            final List<Trip> trips, final Trip currTrip, final String userId, final String priv, final String tripId) {
+        final Trip result;
+        if (canSeeTrip(currTrip, userId, priv)) {
+            result = currTrip;                          // Use current trip
+        } else if ((tripId != null) && canSeeTrip(findTrip(tripId), userId, priv)) {
+            result = findTrip(tripId);                  // Use requested trip
+        } else {
+            result = findTrip(trips, userId, priv);     // Anything the user can see... or null
+        }
+        return result;
+    }
+
+    /**
+     * This findTrip method looks for any trip the user can see. It's the last resort way to resolve the trip to show
+     * the user.
+     * @param trips     All the possible trips.
+     * @param userId    The userId.
+     * @param priv      The user's privileges (admin's can see everything.
+     * @return  The trip to show the user, if any. {@code null} if none.
+     */
+    private Trip findTrip(final List<Trip> trips, final String userId, final String priv) {
+        if (trips == null) {
+            return null;
+        }
+        return trips.stream().filter(t -> canSeeTrip(t, userId, priv)).findAny().orElse(null);
+    }
+
+    /**
+     * This findTrip method looks for a specific Trip by id. Only used for the
+     * {@link #getTripForUser(List, Trip, String, String, String)} method.
+     *
+     * @param tripId    The trip id.
+     * @return The trip or null if not found.
+     */
+    private Trip findTrip(final String tripId) {
+        return DynamoUtils.getInstance().getTrip(tripId).join().orElse(null);
+    }
+
+    /**
+     * Ensures the trip either contains the person, or the person is an admin.
+     * @param trip      The trip to check.
+     * @param userId    The userId to check.
+     * @param priv      The user's privileges.
+     * @return  True if the user is allowed to see this Trip.
+     */
+    private boolean canSeeTrip(final Trip trip, final String userId, final String priv) {
+        if ((trip == null) || (userId == null)) {
+            return false;
+        }
+        return trip.getPeople().contains(userId) || ((priv != null) && priv.contains("admin"));
+    }
 }

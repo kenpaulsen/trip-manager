@@ -71,12 +71,14 @@
                 <p:menuitem value="Account Balance" url="transactions.jsf">
                     <f:param name="id" value="#{sessionScope.userId}" />
                     <jsft:event type="afterCreate">
-                        tabs = trip.getTrips();
-                        foreach("tab", tabs) {
-                            comp = jsftComp.createComponent(null, "org.primefaces.component.UIMenuItem", null);
-                            comp.value = tab.title;
-                            comp.url = "people.jsf?tripId=".concat(tab.id);
-                            jsftComp.insertUIComponentBefore(component, comp);
+                        trips = trip.getTrips();
+                        foreach("tab", trips) {
+                            if (tab.getPeople().contains(userId) || priv.contains("admin")) {
+                                comp = jsftComp.createComponent(null, "org.primefaces.component.UIMenuItem", null);
+                                comp.value = tab.title;
+                                comp.url = "trip.jsf?tripId=".concat(tab.id);
+                                jsftComp.insertUIComponentBefore(component, comp);
+                            }
                         }
                     </jsft:event>
                 </p:menuitem>

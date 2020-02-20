@@ -1,103 +1,74 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" 
-"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml"
     xmlns:jsft="http://jsftemplating.java.net/jsft"
     xmlns:ui="http://java.sun.com/jsf/facelets"
     xmlns:p="http://primefaces.org/ui"
-    xmlns:pe="http://primefaces.org/ui/extensions"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
     <ui:composition template="template.xhtml">
         <ui:define name="content">
             <jsft:event type="initPage">
-                if (viewScope.theTrip == null) {
-                    viewScope.reqPriv = "admin";
-                    if (param.id != null) {
-                        viewScope.theTrip = trip.getTrip(param.id);
-                        // Fix me: the following needs to be the sessionScope.userId iff it exists in the trip.
-                        // viewScope.reqId = sessionScope.userId;
+                if (sessionScope.userId == null) {
+                    jsft.redirect("login.jsf"); // Not logged in
+                } else {
+                    viewScope.theTrip = trip.getTripForUser(trip.trips, theTrip, userId, priv, param.tripId);
+                    if (theTrip == null) {
+                        jsft.redirect("person.jsf?id=".concat(userId)); // No trips to view
                     } else {
-                        viewScope.theTrip = trip.createTrip();
+                        if (sessionScope.priv.contains("admin")) {
+                            viewScope.showAll = true;
+                        }
+                        viewScope.pilgrims = theTrip.getPeople();
+                        activeTab=trip.trips.indexOf(theTrip);
                     }
                 }
-                // FIXME: Enable dynamic tabs, find the tab number
-                activeTab=0;
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
-
-            <h2>
-            <p:inplace id="tripname" widgetVar="tripname" emptyLabel="Enter trip title" editor="false" style="margin-left:20px;">
-                <p:inputText id="tn" value="#{theTrip.title}" label="Trip Name" required="true" />
-                <p:watermark for="tn" value="Trip Name" id="tnWater" />
-            </p:inplace>
-            </h2>
-            <p:fieldset id="info" legend="Trip Info" style="margin-bottom:13px;">
-                <p:inplace id="descEditor" widgetVar="desc" emptyLabel="Enter Trip Description" editor="false">
-                    <f:facet name="output">
-                        <h:outputText value="#{theTrip.description}" escape="false" />
-                    </f:facet>
-                    <p:textEditor id="description" widgetVar="descField" value="#{theTrip.description}" label="Trip Description" style="margin-bottom:10px;margin-left:40px;margin-right:40px;" height="150" />
-                    <p:watermark for="description" value="Enter Description" id="descWater" />
-                </p:inplace>
-                <p:panelGrid columns="2" styleClass="ui-noborder" columnClasses="propSheetLabel,propSheetValue">
-                    <h:outputText value="Trip Start: "/>
-                    <p:inplace id="tStart" widgetVar="tripStart" emptyLabel="Enter Trip Start Date" editor="false" style="margin-left:20px;">
-                        <p:calendar id="startDate" value="#{theTrip.startDate}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm" yearRange="-1:c+5">
-                            <f:convertDateTime type="localDateTime" pattern="#{component.pattern}" />
-                        </p:calendar>
-                    </p:inplace>
-                    <h:outputText value="Trip End: " />
-                    <p:inplace id="tEnd" widgetVar="tripEnd" emptyLabel="Enter Trip End Date" editor="false" style="margin-left:20px;">
-                        <p:calendar id="endDate" value="#{theTrip.endDate}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm" yearRange="-1:c+5">
-                            <f:convertDateTime type="localDateTime" pattern="#{component.pattern}" />
-                        </p:calendar>
-                    </p:inplace>
-                </p:panelGrid>
-            </p:fieldset>
-
-            <p:fieldset id="peoplefield" legend="Who's going?" style="margin-bottom:13px;">
-                <p:selectManyMenu id="people" value="#{theTrip.people}" var="perId" filter="true" filterMatchMode="contains" showCheckbox="true" style="width:300px;">
-                    <f:selectItems value="#{people.people}" var="p" itemLabel="#{p.first.concat(' ').concat(p.last)}" itemValue="#{p.id}" />
-
-                    <p:column>
-                        <h:outputText value="#{person.first} #{person.last}">
-                            <jsft:event type="beforeEncode">
-                                person = people.getPerson(perId);
-                            </jsft:event>
-                        </h:outputText>
-                    </p:column>
-                </p:selectManyMenu>
-            </p:fieldset>
-                <!-- p:selectManyMenu id="people" value="#{theTrip.people}" converter="#{themeConverter}" var="t" filter="true" filterMatchMode="contains" showCheckbox="true" -->
-
-            <p:fieldset id="events" legend="The Plan" style="margin-bottom:13px;">
-            </p:fieldset>
-
-            <h:outputScript target="body">
-                $(document).ready(function() {
-                    <h:outputText rendered="#{theTrip.title == '' || theTrip.title == null}" value="PF('tripname').show();" />
-                    <h:outputText rendered="#{theTrip.description == '' || theTrip.description == null}" value="PF('desc').show();" />
-                    <h:outputText rendered="#{theTrip.startDate == '' || theTrip.startDate == null}" value="PF('tStart').show();" />
-                    <h:outputText rendered="#{theTrip.endDate == '' || theTrip.endDate == null}" value="PF('tEnd').show();" />
-                })
-            </h:outputScript>
-            <div style="float:right">
-                <p:commandButton immediate="true" id="cancel" value="Cancel" update="growl">
-                    <jsft:event type="command">
-                        <!-- FIXME: Work out proper navigation flow -->
-                        jsft.redirect("people.jsf");
-                    </jsft:event>
-                </p:commandButton>
-                <p:commandButton id="savePerson" value="Save" update="growl">
-                    <jsft:event type="command">
-                        if (trip.saveTrip(viewScope.theTrip)) {
-                            <!-- FIXME: Work out proper navigation flow -->
-                            jsft.redirect("people.jsf");
-                        }
-                    </jsft:event>
-                </p:commandButton>
-            </div>
+            <p:dataTable id="peeps" var="personId" value="#{pilgrims}" sortBy="#{person.last}">
+                <f:facet name="header">
+                    <h:outputText value="#{theTrip.title} Contacts" />
+                    <p:commandButton id="editTrip" rendered="#{showAll}" value="Edit Trip" style="float:right">
+                        <jsft:event type="command">
+                            jsft.redirect("editTrip.jsf?id=".concat(theTrip.id));
+                        </jsft:event>
+                    </p:commandButton>
+                    <p:commandButton id="personDetail" rendered="#{showAll}" value="Add Person" style="float:right">
+                        <jsft:event type="command">
+                            jsft.redirect("person.jsf");
+                        </jsft:event>
+                    </p:commandButton>
+                </f:facet>
+                <p:column headerText="Name" width="180">
+                    <h:outputText value="#{person.first}">
+                        <jsft:event type="beforeEncode">
+                            person = people.getPerson(personId);
+                        </jsft:event>
+                    </h:outputText>
+                    &nbsp;<h:outputText value="#{person.last}" /><br />
+                    <h:panelGroup rendered="#{showAll || person.id.equals(sessionScope.userId)}">
+                        <h:outputLink value="transactions.jsf?id=#{person.id}" style="color:#227722;font-weight:bold;font-size:12px;">Balance</h:outputLink>
+                        &nbsp;<span style="font-size:12px"> | </span>&nbsp;
+                        <h:outputLink value="person.jsf?id=#{person.id}" style="color:#222277;font-weight:bold;font-size:12px;">Profile</h:outputLink>
+                    </h:panelGroup>
+                </p:column>
+                <p:column headerText="Email" width="230">
+                    <h:outputLink value="mailto:#{person.email}" rendered="#{person.email != null}">#{person.email}</h:outputLink><br />
+                </p:column>
+                <p:column headerText="Phone" width="130">
+                    <h:outputText value="#{person.cell}" />
+                </p:column>
+                <p:column headerText="Address" width="210">
+                    <h:outputText rendered="#{showAll || person.id.equals(sessionScope.userId)}" escape="false" value="#{person.address.street}&lt;br/&gt;" />
+                    <h:outputText rendered="#{person.address.city != null}" value="#{person.address.city}, " />#{person.address.state} <h:outputText rendered="#{showAll || person.id.equals(sessionScope.userId)}" value="#{person.address.zip}" />
+                </p:column>
+                <p:column rendered="#{showAll}" headerText="Passport #" width="150">
+                    <h:outputText value="#{person.passport.country} #{person.passport.number}" /><br />
+                </p:column>
+                <p:column rendered="#{showAll}" headerText="Birth Date" width="100" style="text-align:center">
+                    <h:outputText value="#{person.birthdate}" />
+                </p:column>
+            </p:dataTable>
         </ui:define>
     </ui:composition>
 </html>
