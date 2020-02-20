@@ -56,7 +56,7 @@ public class DynamoUtils {
     private static final String PASS_TABLE = "pass";
     private static final String PERSON_TABLE = "people";
     private static final String TRANSACTION_TABLE = "transactions";
-    private static final String TRIP_TABLE = "trip";
+    private static final String TRIP_TABLE = "trips";
     private static final String ID = "id";
     private static final String USER_ID = "userId";
     private static final String CONTENT = "content";
