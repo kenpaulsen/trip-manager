@@ -11,15 +11,20 @@
             <jsft:event type="initPage">
                 if (sessionScope.userId == null) {
                     jsft.redirect("person.jsf");
+                } else if ((param.tripId == null) &amp;&amp; (viewScope.theTrip == null)) {
+                    // No Trip ID
+                    jsft.redirect("person.jsf?id=".concat(userId));
+                } else if (viewScope.theTrip == null) {
+                    viewScope.theTrip = trip.getTrip(param.tripId);
                 }
                 if (sessionScope.priv.equals("admin")) {
                     viewScope.showAll = true;
                 }
-                viewScope.pilgrims = people.getPeople();
+                viewScope.pilgrims = theTrip.getPeople();
                 activeTab=0;
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
-            <p:dataTable id="peeps" var="person" value="#{pilgrims}" sortBy="#{person.last}">
+            <p:dataTable id="peeps" var="personId" value="#{pilgrims}" sortBy="#{person.last}">
                 <f:facet name="header">
                     <!-- FIXME: Replace "Spring 2020" with the trip name -->
                     <h:outputText value="Spring 2020 Pilgrims" />
@@ -30,7 +35,12 @@
                     </p:commandButton>
                 </f:facet>
                 <p:column headerText="Name" width="180">
-                    <h:outputText value="#{person.first}" />&nbsp;<h:outputText value="#{person.last}" /><br />
+                    <h:outputText value="#{person.first}">
+                        <jsft:event type="beforeEncode">
+                            person = people.getPerson(personId);
+                        </jsft:event>
+                    </h:outputText>
+                    &nbsp;<h:outputText value="#{person.last}" /><br />
                     <h:panelGroup rendered="#{showAll || person.id.equals(sessionScope.userId)}">
                         <h:outputLink value="transactions.jsf?id=#{person.id}" style="color:#227722;font-weight:bold;font-size:12px;">Balance</h:outputLink>
                         &nbsp;<span style="font-size:12px"> | </span>&nbsp;

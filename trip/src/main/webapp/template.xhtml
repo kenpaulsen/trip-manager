@@ -14,6 +14,9 @@
     <title>Medjugorje Trip Manager</title>
     <link rel="shortcut icon" type="image/png" href="/trip/favicon.ico"/>
     <style type="text/css">
+        .propSheetLabel {
+            vertical-align:top;
+        }
         .ui-datatable-header {
             height: 34px
         }
@@ -65,9 +68,17 @@
                 </p:linkButton>
             </div>
             <p:tabMenu activeIndex="#{activeTab}">
-                <p:menuitem value="Pilgrims" url="people.jsf" />
                 <p:menuitem value="Account Balance" url="transactions.jsf">
                     <f:param name="id" value="#{sessionScope.userId}" />
+                    <jsft:event type="afterCreate">
+                        tabs = trip.getTrips();
+                        foreach("tab", tabs) {
+                            comp = jsftComp.createComponent(null, "org.primefaces.component.UIMenuItem", null);
+                            comp.value = tab.title;
+                            comp.url = "people.jsf?tripId=".concat(tab.id);
+                            jsftComp.insertUIComponentBefore(component, comp);
+                        }
+                    </jsft:event>
                 </p:menuitem>
             </p:tabMenu>
         </ui:insert>

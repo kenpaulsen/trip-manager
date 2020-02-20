@@ -100,11 +100,15 @@ public class DynamoUtils {
 
     public CompletableFuture<List<Person>> getPeople() {
         if (!peopleCache.isEmpty()) {
-            return CompletableFuture.completedFuture(new ArrayList<>(peopleCache.values()));
+            return CompletableFuture.completedFuture(peopleCache.values().stream()
+                    .sorted(Comparator.comparing(Person::getLast))
+                    .collect(Collectors.toList()));
         }
         return client.scan(b -> b.consistentRead(false).limit(1000).tableName(PERSON_TABLE).build())
                 .thenApply(resp -> resp.items().stream()
-                        .map(it -> toPerson(it.get(CONTENT))).collect(Collectors.toList()))
+                        .map(it -> toPerson(it.get(CONTENT)))
+                        .sorted(Comparator.comparing(Person::getLast))
+                        .collect(Collectors.toList()))
                 .thenApply(list -> cacheAll(peopleCache, list, Person::getId));
     }
 
@@ -128,7 +132,8 @@ public class DynamoUtils {
     public CompletableFuture<List<Trip>> getTrips() {
         if (!tripCache.isEmpty()) {
             return CompletableFuture.completedFuture(tripCache.values().stream()
-                    .sorted(Comparator.comparing(Trip::getStartDate)).collect(Collectors.toList()));
+                    .sorted(Comparator.comparing(Trip::getStartDate))
+                    .collect(Collectors.toList()));
         }
         return client.scan(b -> b.consistentRead(false).limit(1000).tableName(TRIP_TABLE).build())
                 .thenApply(resp -> resp.items().stream().map(it -> toTrip(it.get(CONTENT)))

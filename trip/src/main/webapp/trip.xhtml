@@ -26,20 +26,21 @@
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
 
-            <h2>Trip Editor</h2>
-            <p:fieldset id="title" legend="Trip Info" style="margin-bottom:13px;">
-                <p:panelGrid columns="2" styleClass="ui-noborder">
-                    <h:outputText value="Trip Name: "/>
-                    <p:inplace id="tripname" widgetVar="tripname" emptyLabel="Enter trip title" editor="false" style="margin-left:20px;">
-                        <p:inputText id="tn" value="#{theTrip.title}" label="Trip Name" required="true" />
-                        <p:watermark for="tn" value="Trip Name" id="tnWater" />
-                    </p:inplace>
-                    <h:outputText value="Trip Description: " />
-                    <p:inplace id="descEditor" widgetVar="desc" emptyLabel="Enter Trip Description" editor="false" style="margin-left:20px;">
-                        <!-- FIXME: allow html editor -->
-                        <p:inputTextarea rows="6" cols="80" id="description" value="#{theTrip.description}" label="Trip Description" />
-                        <p:watermark for="description" value="Enter Description" id="descWater" />
-                    </p:inplace>
+            <h2>
+            <p:inplace id="tripname" widgetVar="tripname" emptyLabel="Enter trip title" editor="false" style="margin-left:20px;">
+                <p:inputText id="tn" value="#{theTrip.title}" label="Trip Name" required="true" />
+                <p:watermark for="tn" value="Trip Name" id="tnWater" />
+            </p:inplace>
+            </h2>
+            <p:fieldset id="info" legend="Trip Info" style="margin-bottom:13px;">
+                <p:inplace id="descEditor" widgetVar="desc" emptyLabel="Enter Trip Description" editor="false">
+                    <f:facet name="output">
+                        <h:outputText value="#{theTrip.description}" escape="false" />
+                    </f:facet>
+                    <p:textEditor id="description" widgetVar="descField" value="#{theTrip.description}" label="Trip Description" style="margin-bottom:10px;margin-left:40px;margin-right:40px;" height="150" />
+                    <p:watermark for="description" value="Enter Description" id="descWater" />
+                </p:inplace>
+                <p:panelGrid columns="2" styleClass="ui-noborder" columnClasses="propSheetLabel,propSheetValue">
                     <h:outputText value="Trip Start: "/>
                     <p:inplace id="tStart" widgetVar="tripStart" emptyLabel="Enter Trip Start Date" editor="false" style="margin-left:20px;">
                         <p:calendar id="startDate" value="#{theTrip.startDate}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm" yearRange="-1:c+5">
@@ -54,10 +55,29 @@
                     </p:inplace>
                 </p:panelGrid>
             </p:fieldset>
+
+            <p:fieldset id="peoplefield" legend="Who's going?" style="margin-bottom:13px;">
+                <p:selectManyMenu id="people" value="#{theTrip.people}" var="perId" filter="true" filterMatchMode="contains" showCheckbox="true" style="width:300px;">
+                    <f:selectItems value="#{people.people}" var="p" itemLabel="#{p.first.concat(' ').concat(p.last)}" itemValue="#{p.id}" />
+
+                    <p:column>
+                        <h:outputText value="#{person.first} #{person.last}">
+                            <jsft:event type="beforeEncode">
+                                person = people.getPerson(perId);
+                            </jsft:event>
+                        </h:outputText>
+                    </p:column>
+                </p:selectManyMenu>
+            </p:fieldset>
+                <!-- p:selectManyMenu id="people" value="#{theTrip.people}" converter="#{themeConverter}" var="t" filter="true" filterMatchMode="contains" showCheckbox="true" -->
+
+            <p:fieldset id="events" legend="The Plan" style="margin-bottom:13px;">
+            </p:fieldset>
+
             <h:outputScript target="body">
                 $(document).ready(function() {
                     <h:outputText rendered="#{theTrip.title == '' || theTrip.title == null}" value="PF('tripname').show();" />
-                    <h:outputText rendered="#{theTrip.description == '' || theTrip.description == null}" value="PF('descEditor').show();" />
+                    <h:outputText rendered="#{theTrip.description == '' || theTrip.description == null}" value="PF('desc').show();" />
                     <h:outputText rendered="#{theTrip.startDate == '' || theTrip.startDate == null}" value="PF('tStart').show();" />
                     <h:outputText rendered="#{theTrip.endDate == '' || theTrip.endDate == null}" value="PF('tEnd').show();" />
                 })
