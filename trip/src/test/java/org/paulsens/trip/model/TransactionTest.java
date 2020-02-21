@@ -2,7 +2,7 @@ package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
-import java.time.OffsetDateTime;
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import nl.jqno.equalsverifier.EqualsVerifier;
@@ -20,7 +20,7 @@ public class TransactionTest {
     @Test
     public void canSerializeDeserialize() throws IOException {
         final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
-        final Transaction orig = new Transaction("userId", OffsetDateTime.now(ZoneOffset.UTC), 12.0f, "category", null);
+        final Transaction orig = new Transaction(null, "userId", LocalDateTime.now(ZoneOffset.UTC), 12.0f, "category", null);
         final String json = mapper.writeValueAsString(orig);
         final Transaction restored = mapper.readValue(json, Transaction.class);
         Assert.assertEquals(restored, orig, "[de]serialization failed!");
@@ -29,8 +29,8 @@ public class TransactionTest {
     @Test
     public void deletePersists() throws IOException {
         final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
-        final OffsetDateTime date = OffsetDateTime.now(ZoneOffset.UTC);
-        final Transaction orig = new Transaction("userId", date, null, null, null);
+        final LocalDateTime date = LocalDateTime.now(ZoneOffset.UTC);
+        final Transaction orig = new Transaction(null, "userId", date, null, null, null);
         orig.setDeleted(orig.getTxDate().plus(2, ChronoUnit.HOURS));
         final String json = mapper.writeValueAsString(orig);
         System.out.println("JSON: " + json);
@@ -40,9 +40,9 @@ public class TransactionTest {
 
     @Test
     public void deleteNowWorks() {
-        final Transaction tx = new Transaction();
+        final Transaction tx = new Transaction("userId");
         Assert.assertNull(tx.getDeleted(), "Deleted should start out as null!");
-        final OffsetDateTime delTime = tx.delete();
+        final LocalDateTime delTime = tx.delete();
         Assert.assertNotNull(tx.getDeleted(), "Should have set the deleted date!");
         Assert.assertEquals(delTime, tx.getDeleted(), "Deleted time returned doesn't match!");
     }

@@ -75,10 +75,10 @@
 
             <h:outputScript target="body">
                 $(document).ready(function() {
-                    <h:outputText rendered="#{theTrip.title == '' || theTrip.title == null}" value="PF('tripname').show();" />
-                    <h:outputText rendered="#{theTrip.description == '' || theTrip.description == null}" value="PF('desc').show();" />
-                    <h:outputText rendered="#{theTrip.startDate == '' || theTrip.startDate == null}" value="PF('tStart').show();" />
                     <h:outputText rendered="#{theTrip.endDate == '' || theTrip.endDate == null}" value="PF('tEnd').show();" />
+                    <h:outputText rendered="#{theTrip.startDate == '' || theTrip.startDate == null}" value="PF('tStart').show();" />
+                    <h:outputText rendered="#{theTrip.description == '' || theTrip.description == null}" value="PF('desc').show();" />
+                    <h:outputText rendered="#{theTrip.title == '' || theTrip.title == null}" value="PF('tripname').show();" />
                 })
             </h:outputScript>
             <div style="float:right">

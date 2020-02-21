@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.io.IOException;
-import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -15,6 +14,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -60,7 +60,7 @@ public class DynamoUtils {
     private static final String ID = "id";
     private static final String USER_ID = "userId";
     private static final String CONTENT = "content";
-    private static final String TX_DATE = "txDate";
+    private static final String TX_ID = "txId";
     private static final String EMAIL = "email";
     private static final String PRIV = "priv";
     private static final String PW = "pass";
@@ -170,20 +170,21 @@ public class DynamoUtils {
                 .thenApply(resp -> resp.items().stream()
                         .map(m -> toTransaction(m.get(CONTENT)))
                         .filter(tx -> (tx != null) && (tx.getDeleted() == null))
+                        .sorted(Comparator.comparing(Transaction::getTxDate))
                         .collect(Collectors.toList()))
-                .thenApply(list -> cacheAll(userTxCache, list, this::getTxCacheId));
+                .thenApply(list -> cacheAll(userTxCache, list, Transaction::getTxId));
     }
 
-    public CompletableFuture<Optional<Transaction>> getTransaction(final String userId, final OffsetDateTime date) {
+    public CompletableFuture<Optional<Transaction>> getTransaction(final String userId, final String txId) {
         return getTransactions(userId) // Ensure user transactions are already loaded into memory
-                .thenApply(na -> getTxCacheForUser(userId).get(getTxCacheId(userId, date)))  // Read from cache
+                .thenApply(na -> getTxCacheForUser(userId).get(txId))  // Read from cache
                 .thenApply(Optional::ofNullable);
     }
 
     public CompletableFuture<Boolean> saveTransaction(final Transaction tx) throws IOException {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(USER_ID, AttributeValue.builder().s(tx.getUserId()).build());
-        map.put(TX_DATE, AttributeValue.builder().n("" + tx.getTxDate().toInstant().toEpochMilli()).build());
+        map.put(TX_ID, AttributeValue.builder().s(tx.getTxId()).build());
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(tx)).build());
         return client.putItem(b -> b.tableName(TRANSACTION_TABLE).item(map))
                 .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
@@ -194,9 +195,9 @@ public class DynamoUtils {
         final Map<String, Transaction> userTxs = getTxCacheForUser(tx.getUserId());
         if (success) {
             if (tx.getDeleted() == null) {
-                cacheOne(userTxs, tx, getTxCacheId(tx), true); // Normal, just cache it
+                cacheOne(userTxs, tx, tx.getTxId(), true); // Normal, just cache it
             } else {
-                userTxs.remove(getTxCacheId(tx)); // It is now deleted, remove it from cache
+                userTxs.remove(tx.getTxId()); // It is now deleted, remove it from cache
             }
         } else {
             clearCache(userTxs, false); // Error... clear all cache values
@@ -204,16 +205,9 @@ public class DynamoUtils {
         return success;
     }
 
-    private String getTxCacheId(final String userId, final OffsetDateTime dateTime) {
-        return userId + "_" + dateTime.toInstant().toEpochMilli();
-    }
-
-    private String getTxCacheId(final Transaction tx) {
-        return tx.getUserId() + "_" + tx.getTxDate().toInstant().toEpochMilli();
-    }
-
     private Map<String, Transaction> getTxCacheForUser(final String userId) {
-        return txCache.computeIfAbsent(userId, k -> new HashMap<>());
+        // Use a map that preserves order for sorting
+        return txCache.computeIfAbsent(userId, k -> new ConcurrentSkipListMap<>());
     }
 
     private Creds toCreds(final GetItemResponse resp, final String email, final String pass) {

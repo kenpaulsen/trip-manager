@@ -14,7 +14,7 @@
                 if (viewScope.person == null) {
                     if (param.id != null) {
                         viewScope.person = people.getPerson(param.id);
-                        viewScope.tx = people.getTransactionStr(param.id, param.date);
+                        viewScope.tx = txCmds.getTransaction(param.id, param.txId);
                         viewScope.reqId = param.id;
                         viewScope.reqPriv = "admin";
                     } else {
@@ -34,8 +34,8 @@
                 <p:panelGrid columns="2" styleClass="ui-noborder">
                     <h:outputText value="Transaction Date: "/>
                     <p:inplace id="transDate" disabled="#{!showAll}" widgetVar="transDate" emptyLabel="Enter Tx Date" editor="false" style="margin-left:20px;" pattern="MM-dd-yyyy">
-                        <p:calendar id="txd" value="#{viewScope.tx.txDate}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm:ss ZZ" yearRange="-1:c">
-                            <f:convertDateTime type="offsetDateTime" pattern="#{component.pattern}" />
+                        <p:calendar id="txd" value="#{viewScope.tx.txDate}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm:ss" yearRange="-1:c">
+                            <f:convertDateTime type="localDateTime" pattern="#{component.pattern}" />
                         </p:calendar>
                     </p:inplace>
 
@@ -60,9 +60,9 @@
             </p:fieldset>
             <h:outputScript target="body">
                 $(document).ready(function() {
-                    <h:outputText rendered="#{tx.amount == 0.0}" value="PF('amount').show();" />
-                    <h:outputText rendered="#{tx.category == '' || tx.category == null}" value="PF('category').show();" />
                     <h:outputText rendered="#{tx.note == '' || tx.note == null}" value="PF('note').show();" />
+                    <h:outputText rendered="#{tx.category == '' || tx.category == null}" value="PF('category').show();" />
+                    <h:outputText rendered="#{tx.amount == null}" value="PF('amount').show();" />
                 })
             </h:outputScript>
             <div style="float:right">
@@ -73,7 +73,7 @@
                 </p:commandButton>
                 <p:commandButton id="saveTrans" value="Save" update="growl">
                     <jsft:event type="command">
-                        if (people.saveTransaction(viewScope.tx)) {
+                        if (txCmds.saveTransaction(viewScope.tx)) {
                             jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id));
                         }
                     </jsft:event>

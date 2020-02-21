@@ -26,22 +26,20 @@
 
             <h2>Edit Profile</h2>
             <p:fieldset id="nme" legend="Name &amp; Birthdate" style="margin-bottom:13px;">
+                <p:inplace id="firstName" widgetVar="firstName" emptyLabel="First" editor="false" style="margin-left:8px;">
+                    <p:inputText id="first" value="#{person.first}" label="First Name" required="true" style="margin-top:8px;" />
+                    <p:watermark for="first" value="First Name" id="firstWater" />
+                </p:inplace>
+                <p:inplace id="middleName" widgetVar="middleName" emptyLabel="Middle" editor="false" style="margin-left:20px;">
+                    <p:inputText id="middle" value="#{person.middle}" label="Middle Name" />
+                    <p:watermark for="middle" value="Middle Name" id="middleWater" />
+                </p:inplace>
+                <p:inplace id="lastName" widgetVar="lastName" emptyLabel="Last" editor="false" style="margin-left:20px;">
+                    <p:inputText id="last" value="#{person.last}" label="Last Name" required="true" />
+                    <p:watermark for="last" value="Last Name" id="lastWater" />
+                </p:inplace>
+                <br /><br />
                 <p:panelGrid columns="2" styleClass="ui-noborder">
-                    <h:outputText value="First Name: "/>
-                    <p:inplace id="firstName" widgetVar="firstName" emptyLabel="First" editor="false" style="margin-left:20px;">
-                        <p:inputText id="first" value="#{person.first}" label="First Name" required="true" />
-                        <p:watermark for="first" value="First Name" id="firstWater" />
-                    </p:inplace>
-                    <h:outputText value="Middle Name(s): "/>
-                    <p:inplace id="middleName" widgetVar="middleName" emptyLabel="Middle" editor="false" style="margin-left:20px;">
-                        <p:inputText id="middle" value="#{person.middle}" label="Middle Name" />
-                        <p:watermark for="middle" value="Middle Name" id="middleWater" />
-                    </p:inplace>
-                    <h:outputText value="Last Name: "/>
-                    <p:inplace id="lastName" widgetVar="lastName" emptyLabel="Last" editor="false" style="margin-left:20px;">
-                        <p:inputText id="last" value="#{person.last}" label="Last Name" required="true" />
-                        <p:watermark for="last" value="Last Name" id="lastWater" />
-                    </p:inplace>
                     <h:outputText value="Birthdate: "/>
                     <p:inplace id="birthDate" widgetVar="birthDate" emptyLabel="Enter Birthdate" editor="false" style="margin-left:20px;" pattern="MM-dd-yyyy">
                         <p:calendar id="bd" value="#{person.birthdate}" navigator="true" showOn="both" pattern="MM-dd-yyyy" yearRange="-100:c">
@@ -52,7 +50,7 @@
             </p:fieldset>
             <p:fieldset id="addr" legend="Address" style="margin-bottom:13px;">
                 <p:inplace id="addressEditor" widgetVar="address" emptyLabel="Enter Street Address" editor="false" style="margin-left:20px;">
-                    <p:inputText id="address" value="#{person.address.street}" label="Street Address" />
+                    <p:inputText id="address" value="#{person.address.street}" label="Street Address" size="69" style="margin-bottom:8px;" />
                     <p:watermark for="address" value="Enter Your Street Address" id="streetWater" />
                 </p:inplace>
                 <br />
@@ -125,18 +123,18 @@
                     <h:outputText rendered="#{person.cell == '' || person.cell == null}" value="PF('cell').show();" />
                     <h:outputText rendered="#{person.email == '' || person.email == null}" value="PF('email').show();" />
                     <h:outputText rendered="#{person.tsa == '' || person.tsa == null}" value="PF('tsa').show();" />
+                    <h:outputText rendered="#{person.passport.issued == '' || person.passport.issued == null}" value="PF('issDate').show();" />
+                    <h:outputText rendered="#{person.passport.expires == '' || person.passport.expires == null}" value="PF('expDate').show();" />
                     <h:outputText rendered="#{person.passport.country == '' || person.passport.country == null}" value="PF('passCountry').show();" />
                     <h:outputText rendered="#{person.passport.number == '' || person.passport.number == null}" value="PF('passport').show();" />
                     <h:outputText rendered="#{person.address.zip == '' || person.address.zip == null}" value="PF('zip').show();" />
                     <h:outputText rendered="#{person.address.state == '' || person.address.state == null}" value="PF('state').show();" />
                     <h:outputText rendered="#{person.address.city == '' || person.address.city == null}" value="PF('city').show();" />
                     <h:outputText rendered="#{person.address.street == '' || person.address.street == null}" value="PF('address').show();" />
+                    <h:outputText rendered="#{person.birthdate == '' || person.birthdate == null}" value="PF('birthDate').show();" />
                     <h:outputText rendered="#{person.last == '' || person.last == null}" value="PF('lastName').show();" />
                     <h:outputText rendered="#{person.middle == '' || person.middle == null}" value="PF('middleName').show();" />
                     <h:outputText rendered="#{person.first == '' || person.first == null}" value="PF('firstName').show();" />
-                    <h:outputText rendered="#{person.birthdate == '' || person.birthdate == null}" value="PF('birthDate').show();" />
-                    <h:outputText rendered="#{person.passport.issued == '' || person.passport.issued == null}" value="PF('issDate').show();" />
-                    <h:outputText rendered="#{person.passport.expires == '' || person.passport.expires == null}" value="PF('expDate').show();" />
                 })
             </h:outputScript>
             <div style="float:right">
