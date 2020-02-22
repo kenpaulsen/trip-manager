@@ -89,19 +89,18 @@ public class CommandEventListener extends Command implements ComponentSystemEven
 		getExternalContext().getRequestMap();
 
 	// Need to ensure we don't fire the event too many times...
-	if ((event instanceof PostAddToViewEvent)
-		|| (event instanceof InitPageEvent)) {
+	if ((event instanceof PostAddToViewEvent) || (event instanceof InitPageEvent)) {
 	    // PostAddToView gets fired too many times b/c the impl may add it
 	    // multiple times!  Only handle the 1st time...
-	    Map<Integer, Integer> eventMap = (Map<Integer, Integer>)
-		    reqMap.get("jsftDupEvnts");
+	    Map<Integer, Integer> eventMap = (Map<Integer, Integer>) reqMap.get("jsftDupEvnts");
 	    if (eventMap == null) {
-		eventMap = new HashMap<Integer, Integer>();
+		eventMap = new HashMap<>();
 		reqMap.put("jsftDupEvnts", eventMap);
 	    }
 	    // Hash based on source object...
-	    int code = event.getSource().hashCode();
-// FIXME: Need to revisit code where I create the event and make sure I don't create it multiple times.  If I don't already have a hashCode() impl on the event, I may have to create one so I can use it as the key.
+	    int code = (event instanceof InitPageEvent) ? event.hashCode() : event.getSource().hashCode();
+// FIXME: Need to revisit code where I create the event and make sure I don't create it multiple times.  If I don't
+// FIXME: already have a hashCode() impl on the event, I may have to create one so I can use it as the key.
 	    // Separate name space for each event type...
 	    code += event.getClass().getName().hashCode();
 	    Integer count = eventMap.get(code);

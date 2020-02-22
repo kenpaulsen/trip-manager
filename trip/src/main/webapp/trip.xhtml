@@ -16,9 +16,6 @@
                     if (theTrip == null) {
                         jsft.redirect("person.jsf?id=".concat(userId)); // No trips to view
                     } else {
-                        if (sessionScope.priv.contains("admin")) {
-                            viewScope.showAll = true;
-                        }
                         viewScope.pilgrims = theTrip.getPeople();
                         activeTab=trip.trips.indexOf(theTrip);
                     }

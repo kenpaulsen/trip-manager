@@ -138,10 +138,12 @@
                 })
             </h:outputScript>
             <div style="float:right">
-                <p:commandButton id="savePerson" value="Save" update="growl">
+                <p:commandButton id="savePerson" value="Save">
                     <jsft:event type="command">
                         if (people.savePerson(viewScope.person)) {
                             jsft.redirect("trip.jsf");
+                        } else {
+                            tripUtil.warnMsg("Unable to save!", "Not sure what's wrong.");
                         }
                     </jsft:event>
                 </p:commandButton>
