@@ -1,6 +1,7 @@
 package org.paulsens.trip.action;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -36,6 +37,19 @@ public class TransactionsCommands {
             result = false;
         }
         return result;
+    }
+
+    public boolean saveBatch(final LocalDateTime date, final float amount, final String cat,
+            final String note, final String ... people) {
+        if (people == null) {
+            return true;
+        }
+        for (final String person : people) {
+            if (!saveTransaction(new Transaction(null, person, date, amount, cat, note))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public List<Transaction> getTransactions(final String userId) {

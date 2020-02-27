@@ -41,26 +41,16 @@ public final class Person implements Serializable {
         this.cell = cell;
         this.email = email;
         this.tsa = tsa;
-        this.address = address;
-        this.passport = passport;
+        this.address = (address == null) ? new Address() : address;
+        this.passport = (passport == null) ? new Passport() : passport;
         this.notes = notes;
     }
 
     public Person() {
-        this.id = getNewId();
-        this.first = null;
-        this.middle = null;
-        this.last = null;
-        this.birthdate = null;
-        this.cell = null;
-        this.email = null;
-        this.tsa = null;
-        this.address = new Address();
-        this.passport = new Passport();
-        this.notes = null;
+        this(getNewId(), null, null, null, null, null, null, null, null, null, null);
     }
 
-    private String getNewId() {
+    private static String getNewId() {
         return UUID.randomUUID().toString();
     }
 }

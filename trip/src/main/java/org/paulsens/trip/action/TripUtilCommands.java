@@ -1,6 +1,8 @@
 package org.paulsens.trip.action;
 
 import java.lang.reflect.Array;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
@@ -58,6 +60,14 @@ public class TripUtilCommands {
 
     public <T> List<T> asList(final Collection<T> collection) {
         return (collection instanceof List) ? ((List<T>) collection) : new ArrayList<>(collection);
+    }
+
+    public LocalDateTime localDateTimeNow() {
+        return LocalDateTime.now();
+    }
+
+    public LocalDate localDateNow() {
+        return LocalDate.now();
     }
 
     public <T> List<T> getMapValues(Map<?, T> map) {

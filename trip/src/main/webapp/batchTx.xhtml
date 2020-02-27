@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" 
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"
+    xmlns:jsft="http://jsftemplating.java.net/jsft"
+    xmlns:ui="http://java.sun.com/jsf/facelets"
+    xmlns:p="http://primefaces.org/ui"
+    xmlns:pe="http://primefaces.org/ui/extensions"
+    xmlns:f="http://java.sun.com/jsf/core"
+    xmlns:h="http://java.sun.com/jsf/html">
+    <ui:composition template="template.xhtml">
+        <ui:define name="content">
+            <jsft:event type="initPage">
+                if (!showAll) {
+                    jsft.redirect("trip.jsf");
+                }
+                viewScope.txDate = tripUtil.localDateTimeNow();
+                //viewScope.tx = txCmds.getTransaction(param.id, param.txId);
+                activeTab=trip.trips.size();
+            </jsft:event>
+            <jsft:event type="afterCreate" insert="defaultAuth" />
+
+            <h2></h2>
+
+            <p:fieldset id="nme" legend="Enter Batch Transaction" style="margin-bottom:13px;">
+                <p:panelGrid columns="2" styleClass="ui-noborder">
+                    <h:outputText value="Transaction Date: "/>
+                    <p:inplace id="transDate" disabled="#{!showAll}" widgetVar="transDate" emptyLabel="Enter Tx Date" editor="false" style="margin-left:20px;" pattern="MM-dd-yyyy">
+                        <p:calendar id="txd" value="#{viewScope.txDate}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm:ss" yearRange="-1:c">
+                            <f:convertDateTime type="localDateTime" pattern="#{component.pattern}" />
+                        </p:calendar>
+                    </p:inplace>
+
+                    <h:outputText value="Amount: "/>
+                    <p:inplace id="amount" disabled="#{!showAll}" widgetVar="amount" emptyLabel="Enter Amount" editor="false" style="margin-left:20px;">
+                        <p:inputText id="amt" value="#{viewScope.amount}" label="Amount" size="40" />
+                        <p:watermark for="amt" value="Enter Amount" id="amtWater" />
+                    </p:inplace>
+
+                    <h:outputText value="Category: "/>
+                    <p:inplace id="category" disabled="#{!showAll}" widgetVar="category" emptyLabel="Enter Category" editor="false" style="margin-left:20px;">
+                        <p:inputText id="ctgy" value="#{viewScope.category}" label="Category" size="40" />
+                        <p:watermark for="ctgy" value="Enter Category" id="ctgyWater" />
+                    </p:inplace>
+
+                    <h:outputText value="Note: "/>
+                    <p:inplace id="note" widgetVar="note" emptyLabel="Enter Note" editor="false" style="margin-left:20px;">
+                        <p:inputText id="nte" value="#{viewScope.note}" label="Note" size="60" />
+                        <p:watermark for="nte" value="Enter Note" id="nteWater" />
+                    </p:inplace>
+                </p:panelGrid>
+            </p:fieldset>
+            <p:fieldset id="peoplefield" legend="Who's charge?" style="margin-bottom:13px;">
+                <p:selectManyMenu id="people" value="#{viewScope.batchPeople}" var="perId" filter="true" filterMatchMode="contains" showCheckbox="true" style="width:300px;">
+                    <f:selectItems value="#{people.people}" var="p" itemLabel="#{p.first.concat(' ').concat(p.last)}" itemValue="#{p.id}" />
+
+                    <p:column>
+                        <h:outputText value="#{person.first} #{person.last}">
+                            <jsft:event type="beforeEncode">
+                                person = people.getPerson(perId);
+                            </jsft:event>
+                        </h:outputText>
+                    </p:column>
+                </p:selectManyMenu>
+            </p:fieldset>
+            <h:outputScript target="body">
+                $(document).ready(function() {
+                    <h:outputText rendered="#{note == '' || note == null}" value="PF('note').show();" />
+                    <h:outputText rendered="#{category == '' || category == null}" value="PF('category').show();" />
+                    <h:outputText rendered="#{amount == null}" value="PF('amount').show();" />
+                })
+            </h:outputScript>
+            <div style="float:right">
+                <p:commandButton immediate="true" id="cancel" value="Cancel" update="growl">
+                    <jsft:event type="command">
+                        jsft.redirect("trip.jsf");
+                    </jsft:event>
+                </p:commandButton>
+                <p:commandButton id="saveTrans" value="Save" update="growl">
+                    <jsft:event type="command">
+                        if (txCmds.saveBatch(txDate, amount, category, note, batchPeople)) {
+                            // FIXME: Implement save
+                        }
+                        jsft.redirect("trip.jsf");
+                    </jsft:event>
+                </p:commandButton>
+            </div>
+        </ui:define>
+    </ui:composition>
+</html>

@@ -73,16 +73,24 @@ public class DynamoUtils {
         mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
         mapper.registerModule(new JavaTimeModule());
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        this.mapper = mapper;
+        // fc will be null in a test environment that doesn't full start the server w/ JSF installed.
         final FacesContext fc = FacesContext.getCurrentInstance();
-        if ((fc != null) && "true".equals(((ServletContext) fc.getExternalContext().getContext())
+        if ((fc == null) || "true".equals(((ServletContext) fc.getExternalContext().getContext())
                 .getServletRegistration(FACES_SERVLET).getInitParameter(LOCAL))) {
             // Local development only -- don't talk to dynamo
             this.client = new DynamoUtils.TripPersistence() {};
+            // Setup a Sample trip
+            try {
+                saveTrip(new Trip("faketrip", "Demo", "desc", null, null, Collections.singletonList("admin"), null));
+                savePerson(new Person("admin", "Joe", "Bob", "Smith", null, null, null, null, null, null, null));
+            } catch (IOException ex) {
+                log.error("Unable to create faketrip!");
+            }
         } else {
             // The real deal
             this.client = new DynamoUtils.DynamoTripPersistence();
         }
-        this.mapper = mapper;
     }
 
     public static DynamoUtils getInstance() {
@@ -191,6 +199,13 @@ public class DynamoUtils {
                 .thenApply(r -> cacheOneTx(r, tx));
     }
 
+    /* Package-private for testing */
+    void clearAllCaches() {
+        peopleCache.clear();
+        tripCache.clear();
+        txCache.clear();
+    }
+
     private boolean cacheOneTx(final boolean success, final Transaction tx) {
         final Map<String, Transaction> userTxs = getTxCacheForUser(tx.getUserId());
         if (success) {
@@ -212,7 +227,7 @@ public class DynamoUtils {
 
     private Creds toCreds(final GetItemResponse resp, final String email, final String pass) {
         if (!resp.hasItem()) {
-            log.warn("No Creds for user with email (" + email + ")! Checking if user exists...");
+            log.warn("User with email (" + email + ") has not logged in before! Checking if user exists...");
             return createCreds(email).map(creds -> validateCreds(email, pass, creds)).orElse(null);
         }
         final Map<String, AttributeValue> at = resp.item();
@@ -362,10 +377,13 @@ public class DynamoUtils {
             if (PASS_TABLE.equals(giReq.tableName())) {
                 final AttributeValue email = giReq.key().get(EMAIL);
                 final AttributeValue priv;
-                if (giReq.key().get(EMAIL).s().startsWith("admin")) {
+                if (email.s().startsWith("admin")) {
                     priv = AttributeValue.builder().s("admin").build();
-                } else {
+                } else if (email.s().startsWith("user")) {
                     priv = AttributeValue.builder().s("user").build();
+                } else {
+                    // Not authorized
+                    return CompletableFuture.completedFuture(GetItemResponse.builder().item(null).build());
                 }
                 attrs.put(EMAIL, email);
                 attrs.put(USER_ID, email);

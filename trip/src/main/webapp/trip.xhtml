@@ -30,11 +30,6 @@
                             jsft.redirect("editTrip.jsf?id=".concat(theTrip.id));
                         </jsft:event>
                     </p:commandButton>
-                    <p:commandButton id="personDetail" rendered="#{showAll}" value="Add Person" style="float:right">
-                        <jsft:event type="command">
-                            jsft.redirect("person.jsf");
-                        </jsft:event>
-                    </p:commandButton>
                 </f:facet>
                 <p:column headerText="Name" width="180">
                     <h:outputText value="#{person.first}">
