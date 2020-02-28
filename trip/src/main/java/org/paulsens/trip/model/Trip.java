@@ -31,8 +31,8 @@ public final class Trip implements Serializable {
         this.description = description;
         this.startDate = startDate;
         this.endDate = endDate;
-        this.people = people;
-        this.tripEvents = tripEvents;
+        this.people = (people == null) ? new ArrayList<>() : people;
+        this.tripEvents = (tripEvents == null) ? new ArrayList<>() : tripEvents;
     }
 
     public Trip() {
@@ -43,5 +43,29 @@ public final class Trip implements Serializable {
         this.endDate = LocalDateTime.now().plusDays(70);
         this.people = new ArrayList<>();
         this.tripEvents = new ArrayList<>();
+    }
+
+    public void addTripEvent(final String title, final String notes, final LocalDateTime date) {
+        // Very simple validation check...
+        tripEvents.stream().filter(te -> matchingTE(te, title, date)).findAny().ifPresent(te -> {
+            throw new IllegalStateException(
+                    "Trip Event with title (" + title + ") and date (" + date + ") already exists!");
+        });
+        // Add it
+        tripEvents.add(new TripEvent(UUID.randomUUID().toString(), title, notes, date, null));
+    }
+
+// FIXME: Move this somewhere else
+    public void editTripEvent(final String id, final String title, final String notes, final LocalDateTime date) {
+        // Ensure we have the TripEvent to edit
+        final TripEvent te = tripEvents.stream().filter(e -> e.getId().equals(id)).findAny()
+                .orElseThrow(() -> new IllegalArgumentException("TripEvent id (" + id + ") not found!"));
+        te.setTitle(title);
+        te.setNotes(notes);
+        te.setStart(date);
+    }
+
+    private boolean matchingTE(final TripEvent te, final String title, final LocalDateTime date) {
+        return title.equals(te.getTitle()) && date.equals(te.getStart());
     }
 }

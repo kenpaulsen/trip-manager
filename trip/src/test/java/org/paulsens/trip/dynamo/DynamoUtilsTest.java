@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.paulsens.trip.model.Address;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Passport;
@@ -56,7 +57,8 @@ public class DynamoUtilsTest {
         final LocalDateTime start = LocalDateTime.now();
         final LocalDateTime end = LocalDateTime.now().plusDays(2);
         final Map<String, String> peopleTripEventStatus = Collections.singletonMap("admin", "Conf #abc123");
-        final List<TripEvent> te = Collections.singletonList(new TripEvent("NY Flight", start, peopleTripEventStatus));
+        final List<TripEvent> te = Collections.singletonList(
+                new TripEvent(UUID.randomUUID().toString(), "NY Flight", "description", start, peopleTripEventStatus));
         final Trip trip = new Trip(id, title, desc, start, end, Collections.singletonList("joe"), te);
 
         DB_UTILS.clearAllCaches();

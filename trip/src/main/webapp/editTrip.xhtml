@@ -25,11 +25,10 @@
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
 
-            <h2>
-            <p:inplace id="tripname" widgetVar="tripname" emptyLabel="Enter trip title" editor="false" style="margin-left:20px;">
-                <p:inputText id="tn" value="#{theTrip.title}" label="Trip Name" required="true" />
-                <p:watermark for="tn" value="Trip Name" id="tnWater" />
-            </p:inplace>
+            <h2><p:inplace id="tripnameIP" widgetVar="tripname" emptyLabel="Enter trip title" editor="false" style="margin-left:20px;">
+                    <p:inputText id="tripname" value="#{theTrip.title}" label="Trip Name" required="true" />
+                    <p:watermark for="tripname" value="Trip Name" />
+                </p:inplace>
             </h2>
             <p:fieldset id="info" legend="Trip Info" style="margin-bottom:13px;">
                 <p:inplace id="descEditor" widgetVar="desc" emptyLabel="Enter Trip Description" editor="false">
@@ -41,36 +40,125 @@
                 </p:inplace>
                 <p:panelGrid columns="2" styleClass="ui-noborder" columnClasses="propSheetLabel,propSheetValue">
                     <h:outputText value="Trip Start: "/>
-                    <p:inplace id="tStart" widgetVar="tripStart" emptyLabel="Enter Trip Start Date" editor="false" style="margin-left:20px;">
-                        <p:calendar id="startDate" value="#{theTrip.startDate}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm" yearRange="-1:c+5">
+                    <p:inplace id="tStart" widgetVar="tStart" emptyLabel="Enter Trip Start Date" editor="false" style="margin-left:20px;">
+                        <p:calendar id="startDate" value="#{theTrip.startDate}" navigator="true" showOn="both" pattern="dd-MMM-yyyy HH:mm" yearRange="-1:c+5">
                             <f:convertDateTime type="localDateTime" pattern="#{component.pattern}" />
                         </p:calendar>
                     </p:inplace>
                     <h:outputText value="Trip End: " />
-                    <p:inplace id="tEnd" widgetVar="tripEnd" emptyLabel="Enter Trip End Date" editor="false" style="margin-left:20px;">
-                        <p:calendar id="endDate" value="#{theTrip.endDate}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm" yearRange="-1:c+5">
+                    <p:inplace id="tEnd" widgetVar="tEnd" emptyLabel="Enter Trip End Date" editor="false" style="margin-left:20px;">
+                        <p:calendar id="endDate" value="#{theTrip.endDate}" navigator="true" showOn="both" pattern="dd-MMM-yyyy HH:mm" yearRange="-1:c+5">
                             <f:convertDateTime type="localDateTime" pattern="#{component.pattern}" />
                         </p:calendar>
                     </p:inplace>
                 </p:panelGrid>
             </p:fieldset>
 
-            <p:fieldset id="peoplefield" legend="Who's going?" style="margin-bottom:13px;">
-                <p:selectManyMenu id="people" value="#{theTrip.people}" var="perId" filter="true" filterMatchMode="contains" showCheckbox="true" style="width:300px;">
-                    <f:selectItems value="#{people.people}" var="p" itemLabel="#{p.first.concat(' ').concat(p.last)}" itemValue="#{p.id}" />
-
-                    <p:column>
-                        <h:outputText value="#{person.first} #{person.last}">
-                            <jsft:event type="beforeEncode">
-                                person = people.getPerson(perId);
-                            </jsft:event>
-                        </h:outputText>
-                    </p:column>
-                </p:selectManyMenu>
-            </p:fieldset>
-                <!-- p:selectManyMenu id="people" value="#{theTrip.people}" converter="#{themeConverter}" var="t" filter="true" filterMatchMode="contains" showCheckbox="true" -->
-
             <p:fieldset id="events" legend="The Plan" style="margin-bottom:13px;">
+                <p:commandButton id="newEvent" value="Add New Trip Event" type="button" />
+                <p:overlayPanel id="nePanel" widgetVar="nePanel" for="newEvent" hideEvent="mousedown" dismissable="true" showCloseIcon="true">
+                    <p:inputText id="eventTitle" widgetVar="eventTitle" value="#{requestScope.neTitle}" label="Event Title" required="true" />
+                    <p:watermark for="eventTitle" value="Enter Event Title" /><br />
+
+                    <p:calendar id="neStartDate" widgetVar="neStartDate" value="#{requestScope.neStartDate}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm" yearRange="-1:c+5" required="true">
+                        <f:convertDateTime type="localDateTime" pattern="#{component.pattern}" />
+                    </p:calendar>
+
+                    <p:textEditor id="neNotes" value="#{requestScope.neNotes}" label="Trip Event Notes" height="75" />
+                    <p:watermark for="neNotes" value="Enter Trip Event Notes" id="neNotesWater" />
+
+                    <p:commandButton id="addNewEvent" value="Add New Event" update="form:growl,form:events" onclick="PF('nePanel').hide();return true;">
+                        <jsft:event type="command">
+                            theTrip.addTripEvent(neTitle, neNotes, neStartDate);
+                        </jsft:event>
+                    </p:commandButton>
+                </p:overlayPanel>
+<!--
+                <p:overlayPanel id="eePanel" widgetVar="eePanel" for="form:plans:editEvent" hideEvent="mousedown" dismissable="true" showCloseIcon="true">
+                    <p:inputText id="eeId" widgetVar="eeId" value="#{requestScope.eeId}" type="hidden" />
+
+                    <p:inputText id="eeTitle" widgetVar="eeTitle" value="#{requestScope.eeTitle}" label="Event Title" />
+                    <p:watermark for="eeTitle" value="Enter Event Title" /><br />
+
+                    <p:calendar id="eeStart" widgetVar="eeStart" value="#{requestScope.eeStart}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm" yearRange="-1:c+5" >
+                        <f:convertDateTime type="localDateTime" pattern="#{component.pattern}" />
+                    </p:calendar>
+
+                    <p:textEditor id="eeNotes" widgetVar="eeNotes" value="#{requestScope.eeNotes}" label="Trip Event Notes" height="75" />
+                    <p:watermark for="eeNotes" value="Enter Trip Event Notes" id="eeNotesWater" />
+
+                    <p:commandButton value="Edit" immediate="true" update="form:growl,form:events" onclick="PF('eePanel').hide();return true;">
+                        <jsft:event type="command">
+                            theTrip.editTripEvent(eeId, eeTitle, eeNotes, eeStart);
+                        </jsft:event>
+                    </p:commandButton>
+                </p:overlayPanel>
+-->
+
+                <p:dataTable id="plans" var="plan" value="#{theTrip.tripEvents}" sortBy="#{plan.start}">
+                    <p:column>
+                        <h:outputText value="#{plan.start}">
+                            <f:convertDateTime type="localDateTime" pattern="dd-MMM-yyyy HH:mm" />
+                        </h:outputText>: <h:outputText value="#{plan.title}" /><br />
+                        <h:outputText value="#{plan.notes}" escape="false" />
+                    </p:column>
+                    <p:column width="100">
+                        <!-- Edit -->
+                        <!-- FIXME: change to a separate page and first do a save before proceeding... probs w/ a confirm box -->
+                        <a href="editTripEvent.jsf?trip=#{theTrip.id}&amp;event=#{plan.id}">Edit</a>
+
+                        <p:commandButton value="delete" immediate="true" update="form:growl">
+                            <jsft:event type="command">
+                                println("WARNING: Deleting trip event: ".concat(plan));
+                                theTrip.deleteTripEvent(plan);
+                            </jsft:event>
+                            <f:setPropertyActionListener value="#{plan}" target="#{requestScope.plan}" />
+                            <p:confirm header="Confirmation" message="Are you sure?" icon="pi pi-exclamation-triangle" />
+                        </p:commandButton>
+                    </p:column>
+                </p:dataTable>
+                <p:confirmDialog widgetVar="conf" global="true" showEffect="fade" hideEffect="fade">
+                    <h:panelGroup id="confirmContent" style="display:block;text-align:center;">
+                        This action <strong style="color:#FF0000">cannot be undone</strong>.<br />
+                        All user-data stored with this trip<br />
+                        event will be <u>permanently lost</u>.<br />
+                        If you are unsure, click <b>No</b>.<br /><br />
+                        <p:commandButton value="No" type="button" immediate="true" styleClass="ui-confirmdialog-no" />
+                        <p:commandButton value="Yes" type="button" immediate="true" styleClass="ui-confirmdialog-yes" />
+                    </h:panelGroup>
+                </p:confirmDialog>
+                <!-- FIXME: add new screen on the trip tab which shows "the plan" and provides a personalized checklist of confirmations / todo items -->
+                <!-- FIXME: data structure stored under events is fine... for a given event, we can query this map by user to get their status for the event -->
+                <!-- FIXME:                                               for a given event, we can also provide an admin view to show the status across users -->
+                <!-- God is GREAT! -->
+            </p:fieldset>
+
+            <p:fieldset id="peoplefield" legend="Who's going?" style="margin-bottom:13px;">
+                Click list to edit.
+                <p:inplace id="peopleEdit" widgetVar="editPeople" editor="false" style="margin-left:20px;">
+                    <f:facet name="output">
+                        <ul>
+                        <ui:repeat var="uid" value="#{theTrip.people}">
+                            <li><h:outputText value="#{person.first} #{person.last}">
+                                    <jsft:event type="beforeEncode">
+                                        person = people.getPerson(uid);
+                                    </jsft:event>
+                                </h:outputText>
+                            </li>
+                        </ui:repeat>
+                        </ul>
+                    </f:facet>
+                    <p:selectManyMenu id="people" value="#{theTrip.people}" var="perId" filter="true" filterMatchMode="contains" showCheckbox="true" style="width:300px;">
+                        <f:selectItems value="#{people.people}" var="p" itemLabel="#{p.first.concat(' ').concat(p.last)}" itemValue="#{p.id}" />
+                        <p:column>
+                            <h:outputText value="#{person.first} #{person.last}">
+                                <jsft:event type="beforeEncode">
+                                    person = people.getPerson(perId);
+                                </jsft:event>
+                            </h:outputText>
+                        </p:column>
+                    </p:selectManyMenu>
+                </p:inplace>
             </p:fieldset>
 
             <h:outputScript target="body">
@@ -87,7 +175,7 @@
                         jsft.redirect("trip.jsf?tripId=".concat(theTrip.id));
                     </jsft:event>
                 </p:commandButton>
-                <p:commandButton id="savePerson" value="Save" update="growl">
+                <p:commandButton id="savePerson" value="Save" update="form:growl" onclick="PF('neStartDate').disable();PF('eventTitle').disable();  return true;">
                     <jsft:event type="command">
                         if (trip.saveTrip(viewScope.theTrip)) {
                             jsft.redirect("trip.jsf?tripId=".concat(theTrip.id));
