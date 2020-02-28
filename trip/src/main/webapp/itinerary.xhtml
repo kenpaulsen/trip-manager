@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" 
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"
+    xmlns:jsft="http://jsftemplating.java.net/jsft"
+    xmlns:ui="http://java.sun.com/jsf/facelets"
+    xmlns:p="http://primefaces.org/ui"
+    xmlns:pe="http://primefaces.org/ui/extensions"
+    xmlns:f="http://java.sun.com/jsf/core"
+    xmlns:h="http://java.sun.com/jsf/html">
+    <ui:composition template="template.xhtml">
+        <ui:define name="content">
+            <jsft:event type="initPage">
+                if (viewScope.person == null) {
+                    if (param.id != null) {
+                        viewScope.person = people.getPerson(param.id);
+                        viewScope.tx = txCmds.getTransaction(param.id, param.txId);
+                        viewScope.reqId = param.id;
+                        viewScope.reqPriv = "admin";
+                        if (param.trip != null) {
+                            viewScope.theTrip = trip.getTrip(param.trip);
+                            if ((viewScope.person == null) || (viewScope.theTrip == null)) {
+                                jsft.redirect("hello.jsf");
+                            }
+                        } else {
+                            jsft.redirect("hello.jsf");
+                        }
+                    } else {
+                        jsft.redirect("hello.jsf");
+                    }
+                }
+                activeTab=trip.trips.indexOf(theTrip);
+            </jsft:event>
+            <jsft:event type="afterCreate" insert="defaultAuth" />
+
+            <h2>#{person.first}'s #{theTrip.title} Itinerary</h2>
+            <p:fieldset id="info" legend="Trip Info" style="margin-bottom:13px;">
+                <h:outputText value="#{theTrip.description}" escape="false" />
+                <p:panelGrid columns="2" styleClass="ui-noborder" columnClasses="propSheetLabel,propSheetValue">
+                    <h:outputText value="Trip Start: "/>
+                    <h:outputText value="#{theTrip.startDate}">
+                        <f:convertDateTime type="localDateTime" pattern="dd-MMM-yyyy" />
+                    </h:outputText>
+                    <h:outputText value="Trip End: " />
+                    <h:outputText value="#{theTrip.endDate}">
+                        <f:convertDateTime type="localDateTime" pattern="dd-MMM-yyyy" />
+                    </h:outputText>
+                </p:panelGrid>
+            </p:fieldset>
+
+            <p:fieldset id="events" legend="The Plan" style="margin-bottom:13px;">
+                <p:dataTable id="plans" var="plan" value="#{theTrip.tripEvents}" editable="true" editMode="cell" sortBy="#{plan.start}">
+                    <p:ajax event="cellEdit" update="form:growl" />
+                    <jsft:event type="ajax">
+                        trip.saveTrip(viewScope.theTrip);
+                        tripUtil.infoMsg("Updated to:", plan.people[person.id]);
+                    </jsft:event>
+                    <p:column width="115" style="text-align:center">
+                        <h:outputText value="#{plan.start}">
+                            <f:convertDateTime type="localDateTime" pattern="dd-MMM-yyyy" />
+                        </h:outputText><br />
+                        <h:outputText value="#{plan.start}">
+                            <f:convertDateTime type="localDateTime" pattern="HH:mm a" />
+                        </h:outputText>
+                    </p:column>
+                    <p:column width="340">
+                        <h:outputText value="#{plan.title}" /><br />
+                        <h:outputText value="#{plan.notes}" escape="false" />
+                    </p:column>
+                    <p:column>
+                        <p:cellEditor>
+                            <f:facet name="output">
+                                <h:panelGroup>
+                                    <h:outputText value="#{plan.people[person.id]}" escape="false" />
+                                    <h:outputText rendered="#{plan.people[person.id] == null || plan.people[person.id] == ''}" value="Click here to edit." />
+                                </h:panelGroup>
+                            </f:facet>
+                            <f:facet name="input">
+                                <p:inputTextarea id="eventNotes" value="#{plan.people[person.id]}" label="Trip Event Notes" rows="4" cols="84" />
+                                <p:watermark id="water" for="eventNotes" value="Enter notes for #{person.first}" />
+                            </f:facet>
+                        </p:cellEditor>
+                    </p:column>
+                </p:dataTable>
+            </p:fieldset>
+
+            <div style="float:right">
+                <p:commandButton immediate="true" id="cancel" value="Cancel" update="growl">
+                    <jsft:event type="command">
+                        jsft.redirect("trip.jsf?tripId=".concat(theTrip.id));
+                    </jsft:event>
+                </p:commandButton>
+                <p:commandButton id="save" value="Save" update="form:growl">
+                    <jsft:event type="command">
+                        if (trip.saveTrip(viewScope.theTrip)) {
+                            jsft.redirect("trip.jsf?tripId=".concat(theTrip.id));
+                        }
+                    </jsft:event>
+                </p:commandButton>
+            </div>
+        </ui:define>
+    </ui:composition>
+</html>

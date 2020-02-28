@@ -41,7 +41,11 @@
                     <h:panelGroup rendered="#{showAll || person.id.equals(sessionScope.userId)}">
                         <h:outputLink value="transactions.jsf?id=#{person.id}" style="color:#227722;font-weight:bold;font-size:12px;">Balance</h:outputLink>
                         &nbsp;<span style="font-size:12px"> | </span>&nbsp;
-                        <h:outputLink value="person.jsf?id=#{person.id}" style="color:#222277;font-weight:bold;font-size:12px;">Profile</h:outputLink>
+                        <h:outputLink value="itinerary.jsf?trip=#{theTrip.id}&amp;id=#{person.id}" style="color:#222277;font-weight:bold;font-size:12px;">Itinerary</h:outputLink>
+                    </h:panelGroup>
+                    <h:panelGroup rendered="#{showAll}">
+                        &nbsp;<span style="font-size:12px"> | </span>&nbsp;
+                        <h:outputLink value="person.jsf?id=#{person.id}" style="color:#772222;font-weight:bold;font-size:12px;">Profile</h:outputLink>
                     </h:panelGroup>
                 </p:column>
                 <p:column headerText="Email" width="230">

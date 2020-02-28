@@ -55,6 +55,10 @@ public final class Trip implements Serializable {
         tripEvents.add(new TripEvent(UUID.randomUUID().toString(), title, notes, date, null));
     }
 
+    public void deleteTripEvent(final TripEvent te) {
+        tripEvents.remove(te);
+    }
+
 // FIXME: Move this somewhere else
     public void editTripEvent(final String id, final String title, final String notes, final LocalDateTime date) {
         // Ensure we have the TripEvent to edit

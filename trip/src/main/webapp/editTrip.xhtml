@@ -67,7 +67,7 @@
                     <p:textEditor id="neNotes" value="#{requestScope.neNotes}" label="Trip Event Notes" height="75" />
                     <p:watermark for="neNotes" value="Enter Trip Event Notes" id="neNotesWater" />
 
-                    <p:commandButton id="addNewEvent" value="Add New Event" update="form:growl,form:events" onclick="PF('nePanel').hide();return true;">
+                    <p:commandButton id="addNewEvent" value="Add New Event" update="form:growl,form:events" oncomplete="PF('nePanel').hide();return true;">
                         <jsft:event type="command">
                             theTrip.addTripEvent(neTitle, neNotes, neStartDate);
                         </jsft:event>
@@ -107,7 +107,7 @@
                         <!-- FIXME: change to a separate page and first do a save before proceeding... probs w/ a confirm box -->
                         <a href="editTripEvent.jsf?trip=#{theTrip.id}&amp;event=#{plan.id}">Edit</a>
 
-                        <p:commandButton value="delete" immediate="true" update="form:growl">
+                        <p:commandButton value="delete" immediate="true" update="form:growl,form:events">
                             <jsft:event type="command">
                                 println("WARNING: Deleting trip event: ".concat(plan));
                                 theTrip.deleteTripEvent(plan);
