@@ -55,18 +55,20 @@ public final class Trip implements Serializable {
         tripEvents.add(new TripEvent(UUID.randomUUID().toString(), title, notes, date, null));
     }
 
+    public TripEvent getTripEvent(final String teId) {
+        return tripEvents.stream().filter(e -> e.getId().equals(teId)).findAny().orElse(null);
+    }
+
     public void deleteTripEvent(final TripEvent te) {
         tripEvents.remove(te);
     }
 
-// FIXME: Move this somewhere else
-    public void editTripEvent(final String id, final String title, final String notes, final LocalDateTime date) {
+    public void editTripEvent(final TripEvent newTE) {
         // Ensure we have the TripEvent to edit
-        final TripEvent te = tripEvents.stream().filter(e -> e.getId().equals(id)).findAny()
-                .orElseThrow(() -> new IllegalArgumentException("TripEvent id (" + id + ") not found!"));
-        te.setTitle(title);
-        te.setNotes(notes);
-        te.setStart(date);
+        final TripEvent oldTE = tripEvents.stream().filter(e -> e.getId().equals(newTE.getId())).findAny()
+                .orElseThrow(() -> new IllegalArgumentException("TripEvent id (" + newTE.getId() + ") not found!"));
+        tripEvents.remove(oldTE);
+        tripEvents.add(newTE);
     }
 
     private boolean matchingTE(final TripEvent te, final String title, final LocalDateTime date) {

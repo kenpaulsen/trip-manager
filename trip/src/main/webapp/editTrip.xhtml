@@ -33,9 +33,9 @@
             <p:fieldset id="info" legend="Trip Info" style="margin-bottom:13px;">
                 <p:inplace id="descEditor" widgetVar="desc" emptyLabel="Enter Trip Description" editor="false">
                     <f:facet name="output">
-                        <h:outputText value="#{theTrip.description}" escape="false" />
+                        <h:outputText value="#{(theTrip.description == null || theTrip.description.isEmpty()) ? 'Click here to edit.' : theTrip.description}" escape="false" />
                     </f:facet>
-                    <p:textEditor id="description" widgetVar="descField" value="#{theTrip.description}" label="Trip Description" style="margin-bottom:10px;margin-left:40px;margin-right:40px;" height="150" />
+                    <p:textEditor id="description" widgetVar="descField" value="#{theTrip.description}" label="Trip Description" placeholder="Enter Trip Description" style="margin-bottom:10px;margin-left:40px;margin-right:40px;" height="150" />
                     <p:watermark for="description" value="Enter Description" id="descWater" />
                 </p:inplace>
                 <p:panelGrid columns="2" styleClass="ui-noborder" columnClasses="propSheetLabel,propSheetValue">
@@ -73,27 +73,6 @@
                         </jsft:event>
                     </p:commandButton>
                 </p:overlayPanel>
-<!--
-                <p:overlayPanel id="eePanel" widgetVar="eePanel" for="form:plans:editEvent" hideEvent="mousedown" dismissable="true" showCloseIcon="true">
-                    <p:inputText id="eeId" widgetVar="eeId" value="#{requestScope.eeId}" type="hidden" />
-
-                    <p:inputText id="eeTitle" widgetVar="eeTitle" value="#{requestScope.eeTitle}" label="Event Title" />
-                    <p:watermark for="eeTitle" value="Enter Event Title" /><br />
-
-                    <p:calendar id="eeStart" widgetVar="eeStart" value="#{requestScope.eeStart}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm" yearRange="-1:c+5" >
-                        <f:convertDateTime type="localDateTime" pattern="#{component.pattern}" />
-                    </p:calendar>
-
-                    <p:textEditor id="eeNotes" widgetVar="eeNotes" value="#{requestScope.eeNotes}" label="Trip Event Notes" height="75" />
-                    <p:watermark for="eeNotes" value="Enter Trip Event Notes" id="eeNotesWater" />
-
-                    <p:commandButton value="Edit" immediate="true" update="form:growl,form:events" onclick="PF('eePanel').hide();return true;">
-                        <jsft:event type="command">
-                            theTrip.editTripEvent(eeId, eeTitle, eeNotes, eeStart);
-                        </jsft:event>
-                    </p:commandButton>
-                </p:overlayPanel>
--->
 
                 <p:dataTable id="plans" var="plan" value="#{theTrip.tripEvents}" sortBy="#{plan.start}">
                     <p:column>
@@ -103,18 +82,15 @@
                         <h:outputText value="#{plan.notes}" escape="false" />
                     </p:column>
                     <p:column width="100">
-                        <!-- Edit -->
-                        <!-- FIXME: change to a separate page and first do a save before proceeding... probs w/ a confirm box -->
                         <a href="editTripEvent.jsf?trip=#{theTrip.id}&amp;event=#{plan.id}">Edit</a>
-
-                        <p:commandButton value="delete" immediate="true" update="form:growl,form:events">
+                        <br />
+                        <p:commandLink value="Delete" immediate="true" update="form:growl,form:events">
                             <jsft:event type="command">
                                 println("WARNING: Deleting trip event: ".concat(plan));
                                 theTrip.deleteTripEvent(plan);
                             </jsft:event>
-                            <f:setPropertyActionListener value="#{plan}" target="#{requestScope.plan}" />
                             <p:confirm header="Confirmation" message="Are you sure?" icon="pi pi-exclamation-triangle" />
-                        </p:commandButton>
+                        </p:commandLink>
                     </p:column>
                 </p:dataTable>
                 <p:confirmDialog widgetVar="conf" global="true" showEffect="fade" hideEffect="fade">
@@ -127,16 +103,13 @@
                         <p:commandButton value="Yes" type="button" immediate="true" styleClass="ui-confirmdialog-yes" />
                     </h:panelGroup>
                 </p:confirmDialog>
-                <!-- FIXME: add new screen on the trip tab which shows "the plan" and provides a personalized checklist of confirmations / todo items -->
-                <!-- FIXME: data structure stored under events is fine... for a given event, we can query this map by user to get their status for the event -->
-                <!-- FIXME:                                               for a given event, we can also provide an admin view to show the status across users -->
-                <!-- God is GREAT! -->
             </p:fieldset>
 
             <p:fieldset id="peoplefield" legend="Who's going?" style="margin-bottom:13px;">
-                Click list to edit.
+                <h:outputText value="Click below to edit trip list." rendered="#{theTrip.people != null &amp;&amp; !theTrip.people.isEmpty()}" />
                 <p:inplace id="peopleEdit" widgetVar="editPeople" editor="false" style="margin-left:20px;">
                     <f:facet name="output">
+                        <h:outputText value="&lt;br&gt;Click here to add people to this trip." rendered="#{theTrip.people == null || theTrip.people.isEmpty()}" escape="false" />
                         <ul>
                         <ui:repeat var="uid" value="#{theTrip.people}">
                             <li><h:outputText value="#{person.first} #{person.last}">

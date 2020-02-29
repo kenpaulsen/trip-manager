@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" 
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"
+    xmlns:jsft="http://jsftemplating.java.net/jsft"
+    xmlns:ui="http://java.sun.com/jsf/facelets"
+    xmlns:p="http://primefaces.org/ui"
+    xmlns:pe="http://primefaces.org/ui/extensions"
+    xmlns:f="http://java.sun.com/jsf/core"
+    xmlns:h="http://java.sun.com/jsf/html">
+    <ui:composition template="template.xhtml">
+        <ui:define name="content">
+            <jsft:event type="initPage">
+                if (viewScope.theTrip == null) {
+                    viewScope.reqPriv = "admin";
+                    if ((param.trip != null) &amp;&amp; (param.event != null)) {
+                        viewScope.theTrip = trip.getTrip(param.trip);
+                        viewScope.plan = theTrip.getTripEvent(param.event);
+                        if ((theTrip == null) || (plan == null)) {
+                            jsft.redirect("hello.jsf");
+                        }
+                    } else {
+                        jsft.redirect("hello.jsf");
+                    }
+                }
+                activeTab=trip.trips.indexOf(theTrip);
+            </jsft:event>
+            <jsft:event type="afterCreate" insert="defaultAuth" />
+
+            <h2>#{theTrip.title} - Edit Trip Event</h2>
+
+            <p:fieldset id="events" legend="The Plan" style="margin-bottom:13px;">
+                <p:panelGrid columns="2" styleClass="ui-noborder" columnClasses="propSheetLabel,propSheetValue">
+                    <h:outputText value="Title:" />
+                    <p:inplace id="eeTitleIP" widgetVar="eeTitle" emptyLabel="Enter Trip Event Title" editor="false">
+                        <p:inputText id="eeTitle" value="#{plan.title}" label="Event Title" required="true" />
+                        <p:watermark for="eeTitle" value="Enter Event Title" /><br />
+                    </p:inplace>
+                    <h:outputText value="Starts at:" />
+                    <p:inplace id="eeStartIP" widgetVar="eeStart" emptyLabel="Enter Trip Start Date" editor="false">
+                        <p:calendar id="eeStart" value="#{plan.start}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm" yearRange="-1:c+5" required="true">
+                            <f:convertDateTime type="localDateTime" pattern="#{component.pattern}" />
+                        </p:calendar>
+                    </p:inplace>
+                    <h:outputText value="Notes:" />
+                    <p:inplace id="notesEditor" widgetVar="notes" emptyLabel="Enter Trip Event Notes" editor="false">
+                        <f:facet name="output">
+                            <h:outputText value="#{(plan.notes == null || plan.notes.isEmpty()) ? 'Click here to edit.' : plan.notes}" escape="false" />
+                        </f:facet>
+                        <p:textEditor id="eeNotes" value="#{plan.notes}" label="Trip Event Notes" height="75" placeholder="Enter Trip Event Notes" />
+                    </p:inplace>
+                </p:panelGrid>
+                <p:commandButton value="Save" update="form:growl">
+                    <jsft:event type="command">
+                        theTrip.editTripEvent(plan);
+                        jsft.redirect("trip.jsf?tripId=".concat(theTrip.id));
+                    </jsft:event>
+                </p:commandButton>
+            </p:fieldset>
+
+            <h:outputScript target="body">
+                $(document).ready(function() {
+                    <h:outputText rendered="#{plan.notes == '' || plan.notes == null}" value="PF('eeNotes').show();" />
+                    <h:outputText rendered="#{plan.start == '' || plan.start == null}" value="PF('eeStart').show();" />
+                    <h:outputText rendered="#{plan.title == '' || plan.title == null}" value="PF('eeTitle').show();" />
+                })
+            </h:outputScript>
+            <div style="float:right">
+                <p:commandButton immediate="true" id="cancel" value="Cancel" update="growl">
+                    <jsft:event type="command">
+                        jsft.redirect("trip.jsf?tripId=".concat(theTrip.id));
+                    </jsft:event>
+                </p:commandButton>
+            </div>
+        </ui:define>
+    </ui:composition>
+</html>
