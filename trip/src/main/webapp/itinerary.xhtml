@@ -55,16 +55,16 @@
                         trip.saveTrip(viewScope.theTrip);
                         tripUtil.infoMsg("Updated to:", plan.people[person.id]);
                     </jsft:event>
-                    <p:column width="115" style="text-align:center">
+                    <p:column width="105" style="text-align:center">
                         <h:outputText value="#{plan.start}">
                             <f:convertDateTime type="localDateTime" pattern="dd-MMM-yyyy" />
                         </h:outputText><br />
                         <h:outputText value="#{plan.start}">
-                            <f:convertDateTime type="localDateTime" pattern="HH:mm a" />
+                            <f:convertDateTime type="localDateTime" pattern="h:mm a" />
                         </h:outputText>
                     </p:column>
-                    <p:column width="340">
-                        <h:outputText value="#{plan.title}" /><br />
+                    <p:column width="470">
+                        <b><h:outputText value="#{plan.title}" /></b><br />
                         <h:outputText value="#{plan.notes}" escape="false" styleClass="small-p" />
                     </p:column>
                     <p:column>

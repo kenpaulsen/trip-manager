@@ -68,7 +68,7 @@
             <div style="float:right">
                 <p:commandButton immediate="true" id="cancel" value="Cancel" update="growl">
                     <jsft:event type="command">
-                        jsft.redirect("trip.jsf?tripId=".concat(theTrip.id));
+                        jsft.redirect("editTrip.jsf?id=".concat(theTrip.id));
                     </jsft:event>
                 </p:commandButton>
             </div>
