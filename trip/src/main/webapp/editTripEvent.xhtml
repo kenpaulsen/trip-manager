@@ -45,7 +45,7 @@
                     <h:outputText value="Notes:" />
                     <p:inplace id="notesEditor" widgetVar="notes" emptyLabel="Enter Trip Event Notes" editor="false">
                         <f:facet name="output">
-                            <h:outputText value="#{(plan.notes == null || plan.notes.isEmpty()) ? 'Click here to edit.' : plan.notes}" escape="false" />
+                            <h:outputText value="#{(plan.notes == null || plan.notes.isEmpty()) ? 'Click here to edit.' : plan.notes}" escape="false" styleClass="small-p" />
                         </f:facet>
                         <p:textEditor id="eeNotes" value="#{plan.notes}" label="Trip Event Notes" height="75" placeholder="Enter Trip Event Notes" />
                     </p:inplace>
@@ -53,7 +53,7 @@
                 <p:commandButton value="Save" update="form:growl">
                     <jsft:event type="command">
                         theTrip.editTripEvent(plan);
-                        jsft.redirect("trip.jsf?tripId=".concat(theTrip.id));
+                        jsft.redirect("editTrip.jsf?id=".concat(theTrip.id));
                     </jsft:event>
                 </p:commandButton>
             </p:fieldset>

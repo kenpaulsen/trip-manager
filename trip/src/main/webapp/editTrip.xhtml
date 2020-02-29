@@ -79,7 +79,7 @@
                         <h:outputText value="#{plan.start}">
                             <f:convertDateTime type="localDateTime" pattern="dd-MMM-yyyy HH:mm" />
                         </h:outputText>: <h:outputText value="#{plan.title}" /><br />
-                        <h:outputText value="#{plan.notes}" escape="false" />
+                        <h:outputText value="#{plan.notes}" escape="false" styleClass="small-p" />
                     </p:column>
                     <p:column width="100">
                         <a href="editTripEvent.jsf?trip=#{theTrip.id}&amp;event=#{plan.id}">Edit</a>
