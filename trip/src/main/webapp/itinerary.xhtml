@@ -49,7 +49,7 @@
             </p:fieldset>
 
             <p:fieldset id="events" legend="The Plan" style="margin-bottom:13px;">
-                <p:dataTable id="plans" var="plan" value="#{theTrip.tripEvents}" editable="true" editMode="cell" sortBy="#{plan.start}">
+                <p:dataTable id="plans" var="plan" value="#{theTrip.getTripEventsForUser(person.id)}" editable="true" editMode="cell" sortBy="#{plan.start}">
                     <p:ajax event="cellEdit" update="form:growl" />
                     <jsft:event type="ajax">
                         trip.saveTrip(viewScope.theTrip);

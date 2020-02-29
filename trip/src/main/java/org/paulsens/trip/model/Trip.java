@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.Data;
 
 @Data
@@ -17,6 +18,8 @@ public final class Trip implements Serializable {
     private LocalDateTime endDate;      // End of trip
     private List<String> people;        // UserIds
     private List<TripEvent> tripEvents; // The stuff needed to book, airfare, hotel, etc. w/ conf #'s or yes/no/NA/?
+
+    public static final String EXCLUDE = "{na}";
 
     public Trip(
             @JsonProperty("id") String id,
@@ -57,6 +60,10 @@ public final class Trip implements Serializable {
 
     public TripEvent getTripEvent(final String teId) {
         return tripEvents.stream().filter(e -> e.getId().equals(teId)).findAny().orElse(null);
+    }
+
+    public List<TripEvent> getTripEventsForUser(final String userId) {
+        return tripEvents.stream().filter(e -> !EXCLUDE.equals(e.getPeople().get(userId))).collect(Collectors.toList());
     }
 
     public void deleteTripEvent(final TripEvent te) {
