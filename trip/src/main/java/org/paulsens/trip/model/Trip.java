@@ -19,8 +19,6 @@ public final class Trip implements Serializable {
     private List<String> people;        // UserIds
     private List<TripEvent> tripEvents; // The stuff needed to book, airfare, hotel, etc. w/ conf #'s or yes/no/NA/?
 
-    public static final String EXCLUDE = "{na}";
-
     public Trip(
             @JsonProperty("id") String id,
             @JsonProperty("title") String title,
@@ -63,7 +61,7 @@ public final class Trip implements Serializable {
     }
 
     public List<TripEvent> getTripEventsForUser(final String userId) {
-        return tripEvents.stream().filter(e -> !EXCLUDE.equals(e.getPeople().get(userId))).collect(Collectors.toList());
+        return tripEvents.stream().filter(e -> !e.isHidden(userId)).collect(Collectors.toList());
     }
 
     public void deleteTripEvent(final TripEvent te) {

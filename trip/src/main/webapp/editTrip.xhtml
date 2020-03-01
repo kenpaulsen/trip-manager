@@ -41,7 +41,7 @@
                 <p:panelGrid columns="2" styleClass="ui-noborder" columnClasses="propSheetLabel,propSheetValue">
                     <h:outputText value="Trip Start: "/>
                     <p:inplace id="tStart" widgetVar="tStart" emptyLabel="Enter Trip Start Date" editor="false" style="margin-left:20px;">
-                        <p:calendar id="startDate" value="#{theTrip.startDate}" navigator="true" showOn="both" pattern="dd-MMM-yyyy h:mm a" yearRange="-1:c+5">
+                        <p:calendar id="startDate" value="#{theTrip.startDate}" navigator="true" showOn="both" pattern="dd-MMM-yyyy h:mm a" yearRange="-1:c+5" required="true">
                             <f:convertDateTime type="localDateTime" pattern="#{component.pattern}" />
                         </p:calendar>
                     </p:inplace>

@@ -29,7 +29,7 @@
 
             <h2>#{theTrip.title} - Edit Trip Event</h2>
 
-            <p:fieldset id="events" legend="The Plan" style="margin-bottom:13px;">
+            <p:fieldset id="events" legend="Event Details" style="margin-bottom:13px;">
                 <p:panelGrid columns="2" styleClass="ui-noborder" columnClasses="propSheetLabel,propSheetValue">
                     <h:outputText value="Title:" />
                     <p:inplace id="eeTitleIP" widgetVar="eeTitle" emptyLabel="Enter Trip Event Title" editor="false">
@@ -50,12 +50,35 @@
                         <p:textEditor id="eeNotes" value="#{plan.notes}" label="Trip Event Notes" height="75" placeholder="Enter Trip Event Notes" />
                     </p:inplace>
                 </p:panelGrid>
-                <p:commandButton value="Save" update="form:growl">
-                    <jsft:event type="command">
-                        theTrip.editTripEvent(plan);
-                        jsft.redirect("editTrip.jsf?id=".concat(theTrip.id));
-                    </jsft:event>
-                </p:commandButton>
+            </p:fieldset>
+
+            <p:fieldset id="peoplefield" legend="Who's does this apply to?" style="margin-bottom:13px;">
+                <h:outputText value="Click below to edit." rendered="#{!plan.participants.isEmpty()}" />
+                <p:inplace id="peopleEdit" widgetVar="editPeople" editor="false" style="margin-left:20px;">
+                    <f:facet name="output">
+                        <h:outputText value="&lt;br&gt;Click here to add people to this trip." rendered="#{plan.participants.isEmpty()}" escape="false" />
+                        <ul>
+                        <ui:repeat var="uid" value="#{plan.participants}">
+                            <li><h:outputText value="#{person.first} #{person.last}">
+                                    <jsft:event type="beforeEncode">
+                                        person = people.getPerson(uid);
+                                    </jsft:event>
+                                </h:outputText>
+                            </li>
+                        </ui:repeat>
+                        </ul>
+                    </f:facet>
+                    <p:selectManyMenu id="people" value="#{plan.participants}" var="perId" filter="true" filterMatchMode="contains" showCheckbox="true" style="width:300px;">
+                        <f:selectItems value="#{theTrip.people}" var="p" itemLabel="#{people.getPerson(p).first.concat(' ').concat(people.getPerson(p).last)}" itemValue="#{p}" />
+                        <p:column>
+                            <h:outputText value="#{person.first} #{person.last}">
+                                <jsft:event type="beforeEncode">
+                                    person = people.getPerson(perId);
+                                </jsft:event>
+                            </h:outputText>
+                        </p:column>
+                    </p:selectManyMenu>
+                </p:inplace>
             </p:fieldset>
 
             <h:outputScript target="body">
@@ -66,6 +89,12 @@
                 })
             </h:outputScript>
             <div style="float:right">
+                <p:commandButton value="Save" update="form:growl">
+                    <jsft:event type="command">
+                        theTrip.editTripEvent(plan);
+                        jsft.redirect("editTrip.jsf?id=".concat(theTrip.id));
+                    </jsft:event>
+                </p:commandButton>
                 <p:commandButton immediate="true" id="cancel" value="Cancel" update="growl">
                     <jsft:event type="command">
                         jsft.redirect("editTrip.jsf?id=".concat(theTrip.id));
