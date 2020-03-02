@@ -68,7 +68,8 @@
                 <p:menuButton value="Admin" rendered="#{showAll}" style="margin-right:10px;float:right">
                     <p:menuitem value="Add Person" update="growl" url="person.jsf" />
                     <p:menuitem value="Add Trip" update="growl" url="editTrip.jsf" />
-                    <p:menuitem value="Batch Transaction" update="growl" url="batchTx.jsf" />
+                    <p:menuitem value="Batch Transaction" update="growl" url="batchTx.jsf?type=Batch" />
+                    <p:menuitem value="Shared Transaction" update="growl" url="batchTx.jsf?type=Shared" />
                     <p:menuitem value="Edit Profile" update="growl" url="person.jsf?id=#{sessionScope.userId}" />
                 </p:menuButton>
             </div>

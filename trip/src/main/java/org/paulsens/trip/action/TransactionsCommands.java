@@ -101,15 +101,6 @@ public class TransactionsCommands {
         return result.get();
     }
 
-    private Transaction createOrUpdateTx(
-            final Transaction tx, final LocalDateTime date, final Float amount, final String cat, final String note) {
-        tx.setTxDate(date);
-        tx.setAmount(amount);
-        tx.setCategory(cat);
-        tx.setNote(note);
-        return tx;
-    }
-
     /**
      * Returns the {@link Transaction} for the given userId if it exists. It <em>WILL</em> return deleted
      * {@code Transaction}s.
@@ -133,6 +124,27 @@ public class TransactionsCommands {
         return DynamoUtils.getInstance().getPeople().thenApply(all -> all.stream().map(Person::getId)
                 .filter(userId -> hasGroupTransaction(userId, groupId).join()).collect(Collectors.toList()))
                 .join();
+    }
+
+    /**
+     * This returns the portion of the transaction the user is responsible for. Normally it is all of the amount,
+     * however, shared transactions are split between people, so it may not be all for this user.
+     * @return The amount the user is responsible for.
+     */
+    public Float getUserAmount(final Transaction tx) {
+        if (tx == null || tx.getAmount() == null) {
+            return null;
+        }
+        return tx.isShared() ? tx.getAmount() / getUserIdsForGroupId(tx.getGroupId()).size() : tx.getAmount();
+    }
+
+    private Transaction createOrUpdateTx(
+    final Transaction tx, final LocalDateTime date, final Float amount, final String cat, final String note) {
+        tx.setTxDate(date);
+        tx.setAmount(amount);
+        tx.setCategory(cat);
+        tx.setNote(note);
+        return tx;
     }
 
     private CompletableFuture<Boolean> hasGroupTransaction(final String userId, final String groupId) {

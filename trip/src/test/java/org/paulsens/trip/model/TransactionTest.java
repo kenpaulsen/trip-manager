@@ -46,7 +46,6 @@ public class TransactionTest {
         final Transaction orig = new Transaction(null, "userId", null, null, date, null, null, null);
         orig.setDeleted(orig.getTxDate().plus(2, ChronoUnit.HOURS));
         final String json = mapper.writeValueAsString(orig);
-        System.out.println("JSON: " + json);
         final Transaction restored = mapper.readValue(json, Transaction.class);
         Assert.assertEquals(restored, orig, "[de]serialization failed!");
     }

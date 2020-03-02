@@ -15,25 +15,27 @@
                     jsft.redirect("trip.jsf");
                 }
                 viewScope.reqPriv = "admin";
-                if (param.id != null &amp;&amp; param.txId != null) {
-                    requestScope.tx = txCmds.getTransaction(param.id, param.txId);
-                    if (tx.batch || tx.shared) {
-                        viewScope.fromUserId = param.id;
-                        viewScope.groupId = tx.groupId;
-                        viewScope.type = tx.type;
-                        viewScope.txDate = tx.txDate;
-                        viewScope.amount = tx.amount;
-                        viewScope.category = tx.category;
-                        viewScope.note = tx.note;
-                        viewScope.batchPeople = txCmds.getUserIdsForGroupId(groupId);
+                if (viewScope.type == null) {
+                    if (param.id != null &amp;&amp; param.txId != null) {
+                        requestScope.tx = txCmds.getTransaction(param.id, param.txId);
+                        if (tx.batch || tx.shared) {
+                            viewScope.fromUserId = param.id;
+                            viewScope.groupId = tx.groupId;
+                            viewScope.type = tx.type;
+                            viewScope.txDate = tx.txDate;
+                            viewScope.amount = tx.amount;    // Show total amount in case of shared, not getUserAmount()
+                            viewScope.category = tx.category;
+                            viewScope.note = tx.note;
+                            viewScope.batchPeople = txCmds.getUserIdsForGroupId(groupId);
+                        } else {
+                            // Trying to edit a batch that's not a batch, send away!
+                            jsft.redirect("transactions.jsf?id=".concat(param.id));
+                        }
                     } else {
-                        // Trying to edit a batch that's not a batch, send away!
-                        jsft.redirect("transactions.jsf?id=".concat(param.id));
+                        viewScope.type = "Shared".equals(param.type) ? "Shared" : "Batch";
+                        viewScope.txDate = tripUtil.localDateTimeNow();
+                        viewScope.batchPeople = util.createList();
                     }
-                } else {
-                    viewScope.type = "Batch";
-                    viewScope.txDate = tripUtil.localDateTimeNow();
-                    viewScope.batchPeople = util.createList();
                 }
                 activeTab=trip.trips.size();
             </jsft:event>

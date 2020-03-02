@@ -29,6 +29,12 @@
 
             <p:fieldset id="nme" legend="#{person.first.concat(' ').concat(person.last).concat('\'s Transaction')}" style="margin-bottom:13px;">
                 <p:panelGrid columns="2" styleClass="ui-noborder">
+                    <h:outputText rendered="#{showAll}" value="Transaction Type: " />
+                    <h:panelGroup rendered="#{showAll}" style="margin-left:20px;">
+                        #{tx.type == null ? 'Tx' : tx.type} 
+                        <h:outputLink rendered="#{tx.batch || tx.shared}" value="batchTx.jsf?id=#{person.id}&amp;txId=#{tx.txId}" style="color:#222277;font-weight:bold;font-size:12px;">(Edit Group Transaction)</h:outputLink>
+                    </h:panelGroup>
+
                     <h:outputText value="Transaction Date: "/>
                     <p:inplace id="transDate" disabled="#{!showAll || tx.batch || tx.shared}" widgetVar="transDate" emptyLabel="Enter Tx Date" editor="false" style="margin-left:20px;" pattern="MM-dd-yyyy">
                         <p:calendar id="txd" value="#{viewScope.tx.txDate}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm:ss" yearRange="-1:c">
@@ -37,10 +43,15 @@
                     </p:inplace>
 
                     <h:outputText value="Amount: "/>
-                    <p:inplace id="amount" disabled="#{!showAll || tx.batch || tx.shared}" widgetVar="amount" emptyLabel="Enter Amount" editor="false" style="margin-left:20px;">
+                    <p:inplace id="amount" rendered="#{showAll &amp;&amp; !tx.batch &amp;&amp; !tx.shared}" widgetVar="amount" emptyLabel="Enter Amount" editor="false" style="margin-left:20px;">
                         <p:inputText id="amt" value="#{viewScope.tx.amount}" label="Amount" size="40" />
                         <p:watermark for="amt" value="Enter Amount" id="amtWater" />
                     </p:inplace>
+                    <h:panelGroup rendered="#{!showAll || tx.batch || tx.shared}" style="margin-left:20px;">
+                        <h:outputText value="#{txCmds.getUserAmount(viewScope.tx)}" style="#{viewScope.tx.amount > 0 ? '' : 'color:#DD0000'}">
+                            <f:convertNumber type="currency" currencySymbol="$" locale="en_US" />
+                        </h:outputText>
+                    </h:panelGroup>
 
                     <h:outputText value="Category: "/>
                     <p:inplace id="category" disabled="#{!showAll || tx.batch || tx.shared}" widgetVar="category" emptyLabel="Enter Category" editor="false" style="margin-left:20px;">
@@ -61,12 +72,6 @@
                             }
                         </jsft:event>
                     </p:inplace>
-
-                    <h:outputText rendered="#{showAll}" value="Tx Type: " />
-                    <h:panelGroup rendered="#{showAll}" style="margin-left:20px;">
-                        #{tx.type == null ? 'Normal' : tx.type} 
-                        <h:outputLink value="batchTx.jsf?id=#{person.id}&amp;txId=#{tx.txId}" style="color:#222277;font-weight:bold;font-size:12px;">(Edit This Batch Transaction)</h:outputLink>
-                    </h:panelGroup>
 
                     <h:outputText rendered="#{showAll &amp;&amp; tx.deleted != null}" value="Deleted: " />
                     <h:outputText rendered="#{showAll &amp;&amp; tx.deleted != null}" value="#{tx.deleted}" style="margin-left:20px;" />

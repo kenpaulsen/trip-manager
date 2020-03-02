@@ -63,26 +63,26 @@
                     <h:outputText value="#{tx.note}" />
                 </p:column>
                 <p:column headerText="Payments" width="85">
-                    <h:outputText rendered="#{tx.amount &gt; 0}" value="#{tx.amount}" style="float:right">
+                    <h:outputText rendered="#{tx.amount &gt; 0}" value="#{txCmds.getUserAmount(tx)}" style="float:right">
                         <f:convertNumber type="currency" currencySymbol="$" locale="en_US" />
-                        <jsft:event type="beforeEncode">
-                            totalCredits = totalCredits + tx.amount;
-                        </jsft:event>
+                        <!-- jsft:event type="beforeEncode">
+                            totalCredits = totalCredits + txCmds.getUserAmount(tx);
+                        </jsft:event -->
                     </h:outputText>
                 </p:column>
                 <p:column headerText="Charges" width="85">
-                    <h:outputText rendered="#{tx.amount &lt; 0}" value="#{tx.amount}" style="color:#DD0000;float:right;">
+                    <h:outputText rendered="#{tx.amount &lt; 0}" value="#{txCmds.getUserAmount(tx)}" style="color:#DD0000;float:right;">
                         <f:convertNumber type="currency" currencySymbol="$" locale="en_US" />
-                        <jsft:event type="beforeEncode">
-                            totalDebits = totalDebits + tx.amount;
-                        </jsft:event>
+                        <!-- jsft:event type="beforeEncode">
+                            totalDebits = totalDebits + txCmds.getUserAmount(tx);
+                        </jsft:event -->
                     </h:outputText>
                 </p:column>
                 <p:column headerText="Balance" width="85">
                     <h:outputText value="#{total}" style="float:right;#{total &lt; 0 ? 'color:#DD0000' : ''}">
                         <f:convertNumber type="currency" currencySymbol="$" locale="en_US" />
                         <jsft:event type="beforeEncode">
-                            total = total + tx.amount;
+                            total = total + txCmds.getUserAmount(tx);
                         </jsft:event>
                     </h:outputText>
                 </p:column>
@@ -112,12 +112,13 @@
             <p:confirmDialog widgetVar="conf" global="true" showEffect="fade" hideEffect="fade">
                 <h:panelGroup style="display:block;text-align:center;">
                     This action <strong style="color:#FF0000">cannot be undone</strong>.<br />
-                    This transaction be <u>permanently lost</u>.<br />
-                    If you are unsure, click <b>No</b>.<br /><br />
+                    This transaction will be <u>permanently lost</u>.<br />
+                    <br />If you are unsure, click <b>No</b>.<br /><br />
                     <p:commandButton value="No" type="button" immediate="true" styleClass="ui-confirmdialog-no" />
                     <p:commandButton value="Yes" type="button" immediate="true" styleClass="ui-confirmdialog-yes" />
                 </h:panelGroup>
             </p:confirmDialog>
+
         </ui:define>
     </ui:composition>
 </html>
