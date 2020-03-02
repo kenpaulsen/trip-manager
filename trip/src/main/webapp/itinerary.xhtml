@@ -84,16 +84,9 @@
             </p:fieldset>
 
             <div style="float:right">
-                <p:commandButton immediate="true" id="cancel" value="Cancel" update="growl">
+                <p:commandButton immediate="true" id="back" value="Back" update="growl">
                     <jsft:event type="command">
                         jsft.redirect("trip.jsf?tripId=".concat(theTrip.id));
-                    </jsft:event>
-                </p:commandButton>
-                <p:commandButton id="save" value="Save" update="form:growl">
-                    <jsft:event type="command">
-                        if (trip.saveTrip(viewScope.theTrip)) {
-                            jsft.redirect("trip.jsf?tripId=".concat(theTrip.id));
-                        }
                     </jsft:event>
                 </p:commandButton>
             </div>

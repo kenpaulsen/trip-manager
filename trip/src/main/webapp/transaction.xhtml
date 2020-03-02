@@ -32,7 +32,9 @@
                     <h:outputText rendered="#{showAll}" value="Transaction Type: " />
                     <h:panelGroup rendered="#{showAll}" style="margin-left:20px;">
                         #{tx.type == null ? 'Tx' : tx.type} 
-                        <h:outputLink rendered="#{tx.batch || tx.shared}" value="batchTx.jsf?id=#{person.id}&amp;txId=#{tx.txId}" style="color:#222277;font-weight:bold;font-size:12px;">(Edit Group Transaction)</h:outputLink>
+                        <h:outputLink rendered="#{tx.batch || tx.shared}" value="batchTx.jsf?id=#{person.id}&amp;txId=#{tx.txId}" style="margin-left:30px; color:#222277;font-weight:bold;font-size:12px;">Edit Group Transaction</h:outputLink>
+                        <h:outputLink rendered="#{txCmds.getTransaction(person.id, tx.txId) == null}" value="batchTx.jsf?type=Batch" style="margin-left:30px; color:#222277;font-weight:bold;font-size:12px;">Create Batch Instead</h:outputLink>
+                        <h:outputLink rendered="#{txCmds.getTransaction(person.id, tx.txId) == null}" value="batchTx.jsf?type=Shared" style="margin-left:20px; color:#222277;font-weight:bold;font-size:12px;">Create Shared Instead</h:outputLink>
                     </h:panelGroup>
 
                     <h:outputText value="Transaction Date: "/>
@@ -103,7 +105,7 @@
                         jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id));
                     </jsft:event>
                 </p:commandButton>
-                <p:commandButton rendered="#{showAll}" immediate="true" id="deltx" update="form:growl" value="Delete">
+                <p:commandButton rendered="#{showAll &amp;&amp; txCmds.getTransaction(person.id, tx.txId) != null}" immediate="true" id="deltx" update="form:growl" value="Delete">
                     <jsft:event type="command">
                         if (showAll) {
                             tx.delete();

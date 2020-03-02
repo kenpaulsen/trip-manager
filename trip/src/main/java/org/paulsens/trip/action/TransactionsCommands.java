@@ -66,8 +66,7 @@ public class TransactionsCommands {
                 .exceptionally(ex -> {
                     log.error("Error while getting Tx (" + txId + ") for userId: '" + userId + "'!", ex);
                     return Optional.empty();
-                }).join().orElseThrow(
-                        () -> new IllegalArgumentException("Tx (" + txId + ") not found for user (" + userId + ")."));
+                }).join().orElse(null);
     }
 
     public boolean saveGroupTx(final String gid, final Type type, final LocalDateTime date, final Float amount,

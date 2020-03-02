@@ -49,7 +49,7 @@
                     <h:outputText value="#{tx.category}" />
                 </p:column>
                 <p:column width="20" rendered="#{showAll}" style="text-align:center">
-                    <p:commandLink id="deltx" ajax="false">
+                    <p:commandLink id="deltx" rendered="#{!tx.batch &amp;&amp; !tx.shared}" ajax="false">
                         <img src="images/trash.png" width="20" style="margin-top:3px;margin-bottom:-3px;" />
                         <jsft:event type="command">
                             tx.delete();
