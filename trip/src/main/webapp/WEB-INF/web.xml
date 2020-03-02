@@ -41,6 +41,11 @@
         </init-param>
         <load-on-startup>1</load-on-startup>
     </servlet>
+    <session-config>
+      <session-timeout>
+        240
+      </session-timeout>
+    </session-config>
 
     <!-- Map these files with JSF -->
     <servlet-mapping>

@@ -12,6 +12,7 @@ import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Passport;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
+import org.paulsens.trip.model.Transaction.Type;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.testutil.TestData;
@@ -115,11 +116,12 @@ public class DynamoUtilsTest {
     public void testGetTransactions() throws IOException {
         final String id = TestData.genAlpha(7);
         final String userId = TestData.genAlpha(8);
+        final String groupId = TestData.genAlpha(17);
         final String category = TestData.genAlpha(9);
         final String note = TestData.genAlpha(6);
         final LocalDateTime txDate = LocalDateTime.now();
-        final Transaction tx = new Transaction(id, userId, txDate, 0.45f, category, note);
-        final Transaction tx2 = new Transaction(userId);
+        final Transaction tx = new Transaction(id, userId, groupId, Type.Shared, txDate, 0.45f, category, note);
+        final Transaction tx2 = new Transaction(userId, groupId, Type.Shared);
         DB_UTILS.clearAllCaches();
         Assert.assertEquals(DB_UTILS.getTransactions(userId).join().size(), 0, "Should start w/ no txs.");
         Assert.assertEquals(Boolean.TRUE, DB_UTILS.saveTransaction(tx).join());

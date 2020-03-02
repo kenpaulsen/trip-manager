@@ -5,19 +5,21 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import javax.enterprise.context.ApplicationScoped;
 import javax.faces.application.FacesMessage;
 import javax.inject.Named;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DynamoUtils;
 import org.paulsens.trip.model.Transaction;
+import org.paulsens.trip.model.Transaction.Type;
 
 @Slf4j
 @Named("txCmds")
 @ApplicationScoped
 public class TransactionsCommands {
     public Transaction createTransaction(final String userId) {
-        return new Transaction(userId);
+        return new Transaction(userId, null, null);
     }
 
     public boolean saveTransaction(final Transaction tx) {
@@ -44,8 +46,9 @@ public class TransactionsCommands {
         if (people == null) {
             return true;
         }
+        final String batchId = UUID.randomUUID().toString();
         for (final String person : people) {
-            if (!saveTransaction(new Transaction(null, person, date, amount, cat, note))) {
+            if (!saveTransaction(new Transaction(null, person, batchId, Type.Batch, date, amount, cat, note))) {
                 return false;
             }
         }

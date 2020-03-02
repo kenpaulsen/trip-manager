@@ -30,29 +30,43 @@
             <p:fieldset id="nme" legend="#{person.first.concat(' ').concat(person.last).concat('\'s Transaction')}" style="margin-bottom:13px;">
                 <p:panelGrid columns="2" styleClass="ui-noborder">
                     <h:outputText value="Transaction Date: "/>
-                    <p:inplace id="transDate" disabled="#{!showAll}" widgetVar="transDate" emptyLabel="Enter Tx Date" editor="false" style="margin-left:20px;" pattern="MM-dd-yyyy">
+                    <p:inplace id="transDate" disabled="#{!showAll || tx.batch || tx.shared}" widgetVar="transDate" emptyLabel="Enter Tx Date" editor="false" style="margin-left:20px;" pattern="MM-dd-yyyy">
                         <p:calendar id="txd" value="#{viewScope.tx.txDate}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm:ss" yearRange="-1:c">
                             <f:convertDateTime type="localDateTime" pattern="#{component.pattern}" />
                         </p:calendar>
                     </p:inplace>
 
                     <h:outputText value="Amount: "/>
-                    <p:inplace id="amount" disabled="#{!showAll}" widgetVar="amount" emptyLabel="Enter Amount" editor="false" style="margin-left:20px;">
+                    <p:inplace id="amount" disabled="#{!showAll || tx.batch || tx.shared}" widgetVar="amount" emptyLabel="Enter Amount" editor="false" style="margin-left:20px;">
                         <p:inputText id="amt" value="#{viewScope.tx.amount}" label="Amount" size="40" />
                         <p:watermark for="amt" value="Enter Amount" id="amtWater" />
                     </p:inplace>
 
                     <h:outputText value="Category: "/>
-                    <p:inplace id="category" disabled="#{!showAll}" widgetVar="category" emptyLabel="Enter Category" editor="false" style="margin-left:20px;">
+                    <p:inplace id="category" disabled="#{!showAll || tx.batch || tx.shared}" widgetVar="category" emptyLabel="Enter Category" editor="false" style="margin-left:20px;">
                         <p:inputText id="ctgy" value="#{viewScope.tx.category}" label="Category" size="40" />
                         <p:watermark for="ctgy" value="Enter Category" id="ctgyWater" />
                     </p:inplace>
 
                     <h:outputText value="Note: "/>
-                    <p:inplace id="note" widgetVar="note" emptyLabel="Enter Note" editor="false" style="margin-left:20px;">
+                    <p:inplace id="note" disabled="#{viewScope.tx.batch || viewScope.tx.shared}" widgetVar="note" emptyLabel="Enter Note" editor="true" style="margin-left:20px;">
                         <p:inputText id="nte" value="#{viewScope.tx.note}" label="Note" size="60" />
                         <p:watermark for="nte" value="Enter Note" id="nteWater" />
+                        <p:ajax event="save" update="form:growl,#{component.clientId}" />
+                        <jsft:event type="ajax">
+                            if (txCmds.saveTransaction(viewScope.tx)) {
+                                tripUtil.infoMsg("Saved Note!", tx.note);
+                            } else {
+                                tripUtil.errorMsg("Failed to save note!", tx.note);
+                            }
+                        </jsft:event>
                     </p:inplace>
+
+                    <h:outputText rendered="#{showAll}" value="Tx Type: " />
+                    <h:outputText rendered="#{showAll}" value="#{tx.type == null ? 'Normal' : tx.type}" style="margin-left:20px;" />
+
+                    <h:outputText rendered="#{showAll &amp;&amp; tx.deleted != null}" value="Deleted: " />
+                    <h:outputText rendered="#{showAll &amp;&amp; tx.deleted != null}" value="#{tx.deleted}" style="margin-left:20px;" />
                 </p:panelGrid>
             </p:fieldset>
             <h:outputScript target="body">
@@ -62,13 +76,38 @@
                     <h:outputText rendered="#{tx.amount == null}" value="PF('amount').show();" />
                 })
             </h:outputScript>
+            <p:confirmDialog widgetVar="conf" global="true" showEffect="fade" hideEffect="fade">
+                <h:panelGroup style="display:block;text-align:center;">
+                    This action <strong style="color:#FF0000">cannot be undone</strong>.<br />
+                    This transaction will be <u>permanently lost</u>.<br />
+                    <h:panelGroup rendered="#{tx.batch || tx.shared}">
+                    <br />This is a <u>#{tx.type}</u> transaction, it will<br />
+                    <em>ONLY</em> be deleted for <strong style="color:#FF0000">#{person.first}</strong>.<br />
+                    </h:panelGroup>
+                    <br />If you are unsure, click <b>No</b>.<br /><br />
+                    <p:commandButton value="No" type="button" immediate="true" styleClass="ui-confirmdialog-no" />
+                    <p:commandButton value="Yes" type="button" immediate="true" styleClass="ui-confirmdialog-yes" />
+                </h:panelGroup>
+            </p:confirmDialog>
             <div style="float:right">
-                <p:commandButton immediate="true" id="cancel" value="Cancel" update="growl">
+                <p:commandButton rendered="#{showAll}" immediate="true" id="deltx" update="form:growl" value="Delete">
+                    <jsft:event type="command">
+                        if (showAll) {
+                            tx.delete();
+                            txCmds.saveTransaction(tx);
+                            jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id));
+                        } else {
+                            tripUtil.errorMsg("Delete not allowed!", "You are not an Admin");
+                        }
+                    </jsft:event>
+                    <p:confirm header="Confirmation" message="Are you sure?" icon="pi pi-exclamation-triangle" />
+                </p:commandButton>
+                <p:commandButton immediate="true" id="cancel" value="Back" update="growl">
                     <jsft:event type="command">
                         jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id));
                     </jsft:event>
                 </p:commandButton>
-                <p:commandButton id="saveTrans" value="Save" update="growl">
+                <p:commandButton id="saveTrans" rendered="#{showAll}" value="Save" update="growl">
                     <jsft:event type="command">
                         if (txCmds.saveTransaction(viewScope.tx)) {
                             jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id));

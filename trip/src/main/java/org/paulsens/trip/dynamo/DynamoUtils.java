@@ -80,13 +80,21 @@ public class DynamoUtils {
                 .getServletRegistration(FACES_SERVLET).getInitParameter(LOCAL))) {
             // Local development only -- don't talk to dynamo
             this.client = new DynamoUtils.TripPersistence() {};
-            // Setup a Sample trip
-            try {
-                saveTrip(new Trip("faketrip", "Demo", "desc", null, null, Collections.singletonList("admin"), null));
-                savePerson(new Person("admin", "Joe", "Bob", "Smith", null, null, null, null, null, null, null));
-            } catch (IOException ex) {
-                log.error("Unable to create faketrip!");
-            }
+            // Setup some sample data
+            FakeData.getFakePeople().forEach(p -> {
+                try {
+                    savePerson(p);
+                } catch (IOException ex) {
+                    throw new IllegalStateException("Should have worked...");
+                }
+            });
+            FakeData.getFakeTrips().forEach(t -> {
+                try {
+                    saveTrip(t);
+                } catch (IOException ex) {
+                    throw new IllegalStateException("Should have worked...");
+                }
+            });
         } else {
             // The real deal
             this.client = new DynamoUtils.DynamoTripPersistence();
@@ -386,7 +394,11 @@ public class DynamoUtils {
                     return CompletableFuture.completedFuture(GetItemResponse.builder().item(null).build());
                 }
                 attrs.put(EMAIL, email);
-                attrs.put(USER_ID, email);
+                final AttributeValue userId = DynamoUtils.getInstance().getPeople().join().stream()
+                        .filter(p -> email.s().equals(p.getEmail())).findAny()
+                        .map(Person::getId).map(id -> AttributeValue.builder().s(id).build())
+                        .orElse(email);
+                attrs.put(USER_ID, userId);
                 attrs.put(PRIV, priv);
                 attrs.put(PW, priv);
             }

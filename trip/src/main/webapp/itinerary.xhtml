@@ -14,7 +14,6 @@
                 if (viewScope.person == null) {
                     if (param.id != null) {
                         viewScope.person = people.getPerson(param.id);
-                        viewScope.tx = txCmds.getTransaction(param.id, param.txId);
                         viewScope.reqId = param.id;
                         viewScope.reqPriv = "admin";
                         if (param.trip != null) {

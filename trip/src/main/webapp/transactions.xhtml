@@ -56,6 +56,7 @@
                             txCmds.saveTransaction(tx);
                             jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id));
                         </jsft:event>
+                        <p:confirm header="Confirmation" message="Are you sure?" icon="pi pi-exclamation-triangle" />
                     </p:commandLink>
                 </p:column>
                 <p:column headerText="Note">
@@ -108,6 +109,15 @@
                 </p:summaryRow>
                 -->
             </p:dataTable>
+            <p:confirmDialog widgetVar="conf" global="true" showEffect="fade" hideEffect="fade">
+                <h:panelGroup style="display:block;text-align:center;">
+                    This action <strong style="color:#FF0000">cannot be undone</strong>.<br />
+                    This transaction be <u>permanently lost</u>.<br />
+                    If you are unsure, click <b>No</b>.<br /><br />
+                    <p:commandButton value="No" type="button" immediate="true" styleClass="ui-confirmdialog-no" />
+                    <p:commandButton value="Yes" type="button" immediate="true" styleClass="ui-confirmdialog-yes" />
+                </h:panelGroup>
+            </p:confirmDialog>
         </ui:define>
     </ui:composition>
 </html>
