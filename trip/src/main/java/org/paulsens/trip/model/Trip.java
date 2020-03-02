@@ -1,5 +1,6 @@
 package org.paulsens.trip.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -56,14 +57,17 @@ public final class Trip implements Serializable {
         tripEvents.add(new TripEvent(UUID.randomUUID().toString(), title, notes, date, null));
     }
 
+    @JsonIgnore
     public TripEvent getTripEvent(final String teId) {
         return tripEvents.stream().filter(e -> e.getId().equals(teId)).findAny().orElse(null);
     }
 
+    @JsonIgnore
     public List<TripEvent> getTripEventsForUser(final String userId) {
         return tripEvents.stream().filter(e -> !e.isHidden(userId)).collect(Collectors.toList());
     }
 
+    @JsonIgnore
     public void deleteTripEvent(final TripEvent te) {
         tripEvents.remove(te);
     }

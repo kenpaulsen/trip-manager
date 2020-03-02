@@ -14,16 +14,40 @@
                 if (!showAll) {
                     jsft.redirect("trip.jsf");
                 }
-                viewScope.txDate = tripUtil.localDateTimeNow();
-                //viewScope.tx = txCmds.getTransaction(param.id, param.txId);
+                viewScope.reqPriv = "admin";
+                if (param.id != null &amp;&amp; param.txId != null) {
+                    requestScope.tx = txCmds.getTransaction(param.id, param.txId);
+                    if (tx.batch || tx.shared) {
+                        viewScope.fromUserId = param.id;
+                        viewScope.groupId = tx.groupId;
+                        viewScope.type = tx.type;
+                        viewScope.txDate = tx.txDate;
+                        viewScope.amount = tx.amount;
+                        viewScope.category = tx.category;
+                        viewScope.note = tx.note;
+                        viewScope.batchPeople = txCmds.getUserIdsForGroupId(groupId);
+                    } else {
+                        // Trying to edit a batch that's not a batch, send away!
+                        jsft.redirect("transactions.jsf?id=".concat(param.id));
+                    }
+                } else {
+                    viewScope.type = "Batch";
+                    viewScope.txDate = tripUtil.localDateTimeNow();
+                    viewScope.batchPeople = util.createList();
+                }
                 activeTab=trip.trips.size();
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
 
             <h2></h2>
 
-            <p:fieldset id="nme" legend="Enter Batch Transaction" style="margin-bottom:13px;">
+            <p:fieldset id="nme" legend="#{type} Transaction" style="margin-bottom:13px;">
                 <p:panelGrid columns="2" styleClass="ui-noborder">
+                    <h:outputText value="Transaction Type: "/>
+                    <h:panelGroup style="margin-left:20px;">
+                        <h:outputText value="#{type}" style="color:#222277;font-weight:bold;" />
+                    </h:panelGroup>
+
                     <h:outputText value="Transaction Date: "/>
                     <p:inplace id="transDate" disabled="#{!showAll}" widgetVar="transDate" emptyLabel="Enter Tx Date" editor="false" style="margin-left:20px;" pattern="MM-dd-yyyy">
                         <p:calendar id="txd" value="#{viewScope.txDate}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm:ss" yearRange="-1:c">
@@ -50,10 +74,9 @@
                     </p:inplace>
                 </p:panelGrid>
             </p:fieldset>
-            <p:fieldset id="peoplefield" legend="Who's charge?" style="margin-bottom:13px;">
+            <p:fieldset id="peoplefield" legend="Who does this apply to?" style="margin-bottom:13px;">
                 <p:selectManyMenu id="people" value="#{viewScope.batchPeople}" var="perId" filter="true" filterMatchMode="contains" showCheckbox="true" style="width:300px;">
                     <f:selectItems value="#{people.people}" var="p" itemLabel="#{p.first.concat(' ').concat(p.last)}" itemValue="#{p.id}" />
-
                     <p:column>
                         <h:outputText value="#{person.first} #{person.last}">
                             <jsft:event type="beforeEncode">
@@ -73,15 +96,24 @@
             <div style="float:right">
                 <p:commandButton immediate="true" id="cancel" value="Cancel" update="growl">
                     <jsft:event type="command">
-                        jsft.redirect("trip.jsf");
+                        if (fromUserId != null) {
+                            jsft.redirect("transactions.jsf?id=".concat(fromUserId));
+                        } else {
+                            jsft.redirect("trip.jsf");
+                        }
                     </jsft:event>
                 </p:commandButton>
-                <p:commandButton id="saveTrans" value="Save" update="growl">
+                <p:commandButton id="saveTrans" value="Save" update="form:growl">
                     <jsft:event type="command">
-                        if (txCmds.saveBatch(txDate, amount, category, note, batchPeople)) {
-                            // FIXME: Implement save
+                        if (txCmds.saveGroupTx(groupId, type, txDate, amount, category, note, batchPeople)) {
+                            if (fromUserId != null) {
+                                jsft.redirect("transactions.jsf?id=".concat(fromUserId));
+                            } else {
+                                jsft.redirect("trip.jsf");
+                            }
+                        } else {
+                            tripUtil.error("Failed to save!", note);
                         }
-                        jsft.redirect("trip.jsf");
                     </jsft:event>
                 </p:commandButton>
             </div>

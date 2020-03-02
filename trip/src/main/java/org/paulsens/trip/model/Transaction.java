@@ -57,7 +57,6 @@ public final class Transaction implements Serializable {
     }
 
     public LocalDateTime delete() {
-        // FIXME: Do I need to do something different for Batch? Shared?
         this.deleted = LocalDateTime.now();
         return deleted;
     }

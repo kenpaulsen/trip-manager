@@ -63,7 +63,10 @@
                     </p:inplace>
 
                     <h:outputText rendered="#{showAll}" value="Tx Type: " />
-                    <h:outputText rendered="#{showAll}" value="#{tx.type == null ? 'Normal' : tx.type}" style="margin-left:20px;" />
+                    <h:panelGroup rendered="#{showAll}" style="margin-left:20px;">
+                        #{tx.type == null ? 'Normal' : tx.type} 
+                        <h:outputLink value="batchTx.jsf?id=#{person.id}&amp;txId=#{tx.txId}" style="color:#222277;font-weight:bold;font-size:12px;">(Edit This Batch Transaction)</h:outputLink>
+                    </h:panelGroup>
 
                     <h:outputText rendered="#{showAll &amp;&amp; tx.deleted != null}" value="Deleted: " />
                     <h:outputText rendered="#{showAll &amp;&amp; tx.deleted != null}" value="#{tx.deleted}" style="margin-left:20px;" />
@@ -90,6 +93,11 @@
                 </h:panelGroup>
             </p:confirmDialog>
             <div style="float:right">
+                <p:commandButton immediate="true" id="cancel" value="Back" update="growl">
+                    <jsft:event type="command">
+                        jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id));
+                    </jsft:event>
+                </p:commandButton>
                 <p:commandButton rendered="#{showAll}" immediate="true" id="deltx" update="form:growl" value="Delete">
                     <jsft:event type="command">
                         if (showAll) {
@@ -102,15 +110,12 @@
                     </jsft:event>
                     <p:confirm header="Confirmation" message="Are you sure?" icon="pi pi-exclamation-triangle" />
                 </p:commandButton>
-                <p:commandButton immediate="true" id="cancel" value="Back" update="growl">
-                    <jsft:event type="command">
-                        jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id));
-                    </jsft:event>
-                </p:commandButton>
-                <p:commandButton id="saveTrans" rendered="#{showAll}" value="Save" update="growl">
+                <p:commandButton id="saveTrans" rendered="#{showAll}" value="Save" update="form:growl">
                     <jsft:event type="command">
                         if (txCmds.saveTransaction(viewScope.tx)) {
                             jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id));
+                        } else {
+                            tripUtil.error("Failed to save!", tx.note);
                         }
                     </jsft:event>
                 </p:commandButton>

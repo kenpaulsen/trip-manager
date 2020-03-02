@@ -2,15 +2,20 @@ package org.paulsens.trip.action;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 import javax.enterprise.context.ApplicationScoped;
 import javax.faces.application.FacesMessage;
 import javax.inject.Named;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Transaction.Type;
 
@@ -41,20 +46,6 @@ public class TransactionsCommands {
         return result;
     }
 
-    public boolean saveBatch(final LocalDateTime date, final float amount, final String cat,
-            final String note, final String ... people) {
-        if (people == null) {
-            return true;
-        }
-        final String batchId = UUID.randomUUID().toString();
-        for (final String person : people) {
-            if (!saveTransaction(new Transaction(null, person, batchId, Type.Batch, date, amount, cat, note))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     public List<Transaction> getTransactions(final String userId) {
         return DynamoUtils.getInstance().getTransactions(userId)
                 .exceptionally(ex -> {
@@ -64,10 +55,10 @@ public class TransactionsCommands {
     }
 
     public Transaction getTransaction(final String userId, final String txId) {
-        if ((userId == null) || userId.isEmpty()) {
+        if (isNullOrEmpty(userId)) {
             throw new IllegalArgumentException("You must provide the userId!");
         }
-        if ((txId == null)  || txId.isEmpty()) {
+        if (isNullOrEmpty(txId)) {
             // Create a new Tx
             return createTransaction(userId);
         }
@@ -77,5 +68,79 @@ public class TransactionsCommands {
                     return Optional.empty();
                 }).join().orElseThrow(
                         () -> new IllegalArgumentException("Tx (" + txId + ") not found for user (" + userId + ")."));
+    }
+
+    public boolean saveGroupTx(final String gid, final Type type, final LocalDateTime date, final Float amount,
+                               final String cat, final String note, final String ... peopleArr) {
+        final List<String> txPeople = peopleArr == null ? Collections.emptyList() : Arrays.asList(peopleArr);
+        final String groupId = isNullOrEmpty(gid) ? UUID.randomUUID().toString() : gid;
+        final AtomicBoolean result = new AtomicBoolean(true);
+
+        // Find existing that should no longer be part of this, delete their existing tx
+        final List<String> existing = getUserIdsForGroupId(groupId);
+        existing.stream().filter(uid -> !txPeople.contains(uid))
+                .map(uid -> getGroupTransactionForUser(uid, groupId))
+                .forEach(optTx -> optTx.ifPresent(tx -> {
+                    tx.delete();
+                    if (!saveTransaction(createOrUpdateTx(tx, date, amount, cat, note)))  {
+                        log.error("Unable to delete group tx ({}) with note: {}", groupId, note);
+                        result.set(false);
+                    }
+                }));
+
+        // Find existing, update or create their tx (our "existing" variable doesn't contained deleted, search 1 by 1)
+        txPeople.forEach(uid -> {
+            final Transaction old = getGroupTransactionForUser(uid, groupId)
+                    .orElseGet(() -> new Transaction(uid, groupId, type));
+            old.setDeleted(null); // Ensure not deleted
+            if (!saveTransaction(createOrUpdateTx(old, date, amount, cat, note))) {
+                log.error("Unable to save group tx ({}) with note: {}", groupId, note);
+                result.set(false);
+            }
+        });
+        return result.get();
+    }
+
+    private Transaction createOrUpdateTx(
+            final Transaction tx, final LocalDateTime date, final Float amount, final String cat, final String note) {
+        tx.setTxDate(date);
+        tx.setAmount(amount);
+        tx.setCategory(cat);
+        tx.setNote(note);
+        return tx;
+    }
+
+    /**
+     * Returns the {@link Transaction} for the given userId if it exists. It <em>WILL</em> return deleted
+     * {@code Transaction}s.
+     * @param userId    The user to search.
+     * @param groupId   The groupId to match.
+     * @return  Optionally the matching {@code Transaction}.
+     */
+    public Optional<Transaction> getGroupTransactionForUser(final String userId, final String groupId) {
+        return DynamoUtils.getInstance().getTransactions(userId).thenApply(
+                txs -> txs.stream().filter(tx -> groupId.equals(tx.getGroupId())).findAny()).join();
+    }
+
+    /**
+     * Returns the people who are part of the given {@code groupId}. Deleted {@link Transaction}s are ignored.
+     * @param groupId   The {@link Type#Batch} or {@link Type#Shared} groupId.
+     * @return  The userId's which share in the batch or shared transaction.
+     */
+    public List<String> getUserIdsForGroupId(final String groupId) {
+        // FIXME: It might be nice to have each transaction associated w/ a Trip, currently it isn't so we can't
+        // FIXME: limit the potential people in a Batch.
+        return DynamoUtils.getInstance().getPeople().thenApply(all -> all.stream().map(Person::getId)
+                .filter(userId -> hasGroupTransaction(userId, groupId).join()).collect(Collectors.toList()))
+                .join();
+    }
+
+    private CompletableFuture<Boolean> hasGroupTransaction(final String userId, final String groupId) {
+        return DynamoUtils.getInstance().getTransactions(userId).thenApply(
+                txs -> txs.stream().anyMatch(tx -> groupId.equals(tx.getGroupId()) && (tx.getDeleted() == null)));
+    }
+
+    private boolean isNullOrEmpty(final String str) {
+        return (str == null) || str.isEmpty();
     }
 }
