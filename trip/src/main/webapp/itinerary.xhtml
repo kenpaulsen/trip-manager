@@ -11,28 +11,32 @@
     <ui:composition template="template.xhtml">
         <ui:define name="content">
             <jsft:event type="initPage">
-                if (viewScope.person == null) {
-                    if (param.id != null) {
-                        viewScope.person = people.getPerson(param.id);
-                        viewScope.reqId = param.id;
-                        viewScope.reqPriv = "admin";
-                        if (param.trip != null) {
-                            viewScope.theTrip = trip.getTrip(param.trip);
-                            if ((viewScope.person == null) || (viewScope.theTrip == null)) {
-                                jsft.redirect("hello.jsf");
-                            }
-                        } else {
-                            jsft.redirect("hello.jsf");
-                        }
+                if (sessionScope.userId == null) {
+                    jsft.redirect("login.jsf"); // Not logged in
+                } else {
+                    if (viewScope.person == null) {
+                        viewScope.person = people.getPerson((param.id == null) ? userId : param.id);
+                    }
+                    viewScope.theTrip = trip.getTripForUser(theTrip, person.id, priv, param.trip);
+                    if ((viewScope.person == null) || (viewScope.theTrip == null)) {
+                        jsft.redirect("person.jsf?id=".concat(userId)); // No trips to view
                     } else {
-                        jsft.redirect("hello.jsf");
+                        viewScope.reqId = person.id;
+                        viewScope.reqPriv = "admin";
+                        // FIXME: This doesn't work:
+                        activeTab=trip.trips.indexOf(theTrip);
                     }
                 }
-                activeTab=trip.trips.indexOf(theTrip);
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
 
-            <h2>#{person.first}'s #{theTrip.title} Itinerary</h2>
+            <p:tabMenu activeIndex="0">
+                <p:menuitem value="Itinerary" url="itinerary.jsf?trip=#{theTrip.id}&amp;id=#{person.id}" />
+                <p:menuitem value="Contacts" url="tripContacts.jsf?tripId=#{theTrip.id}" />
+            </p:tabMenu>
+            <h2>#{person.first}'s #{theTrip.title} Itinerary
+                <h:outputLink rendered="#{showAll}" value="editTrip.jsf?id=#{theTrip.id}" style="color:#222277;font-weight:bold;font-size:13px;">Edit Trip</h:outputLink>
+            </h2>
             <p:fieldset id="info" legend="Trip Info" style="margin-bottom:13px;">
                 <h:outputText value="#{theTrip.description}" escape="false" />
                 <p:panelGrid columns="2" styleClass="ui-noborder" columnClasses="propSheetLabel,propSheetValue">
@@ -84,11 +88,12 @@
             </p:fieldset>
 
             <div style="float:right">
-                <p:commandButton immediate="true" id="back" value="Back" update="growl">
+                <!--p:commandButton immediate="true" id="back" value="Back" update="growl">
                     <jsft:event type="command">
+                    // FIXME: Decide the navigation on this page.
                         jsft.redirect("trip.jsf?tripId=".concat(theTrip.id));
                     </jsft:event>
-                </p:commandButton>
+                </p:commandButton -->
             </div>
         </ui:define>
     </ui:composition>

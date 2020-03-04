@@ -141,7 +141,7 @@
                 <p:commandButton id="savePerson" value="Save">
                     <jsft:event type="command">
                         if (people.savePerson(viewScope.person)) {
-                            jsft.redirect("trip.jsf");
+                            jsft.redirect("itinerary.jsf?id=".concat(person.id));
                         } else {
                             tripUtil.warnMsg("Unable to save!", "Not sure what's wrong.");
                         }

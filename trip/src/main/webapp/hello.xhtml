@@ -10,7 +10,7 @@
     <ui:composition template="template.xhtml">
         <ui:define name="content">
             <jsft:event type="afterCreate">
-                jsft.redirect("trip.jsf");
+                jsft.redirect("itinerary.jsf?id=".concat(sessionScope.userId));
             </jsft:event>
         </ui:define>
     </ui:composition>

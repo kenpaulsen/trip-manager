@@ -12,7 +12,7 @@
         <ui:define name="content">
             <jsft:event type="initPage">
                 if (!showAll) {
-                    jsft.redirect("trip.jsf");
+                    jsft.redirect("hello.jsf");
                 }
                 viewScope.reqPriv = "admin";
                 if (viewScope.type == null) {
@@ -101,7 +101,7 @@
                         if (fromUserId != null) {
                             jsft.redirect("transactions.jsf?id=".concat(fromUserId));
                         } else {
-                            jsft.redirect("trip.jsf");
+                            jsft.redirect("tripContacts.jsf");
                         }
                     </jsft:event>
                 </p:commandButton>
@@ -111,7 +111,7 @@
                             if (fromUserId != null) {
                                 jsft.redirect("transactions.jsf?id=".concat(fromUserId));
                             } else {
-                                jsft.redirect("trip.jsf");
+                                jsft.redirect("tripContacts.jsf");
                             }
                         } else {
                             tripUtil.error("Failed to save!", note);

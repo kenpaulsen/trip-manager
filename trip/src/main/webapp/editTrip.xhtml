@@ -147,13 +147,13 @@
             <div style="float:right">
                 <p:commandButton immediate="true" id="cancel" value="Cancel" update="growl">
                     <jsft:event type="command">
-                        jsft.redirect("trip.jsf?tripId=".concat(theTrip.id));
+                        jsft.redirect("tripContacts.jsf?tripId=".concat(theTrip.id));
                     </jsft:event>
                 </p:commandButton>
                 <p:commandButton id="savePerson" value="Save" update="form:growl" onclick="PF('neStartDate').disable();PF('eventTitle').disable();  return true;">
                     <jsft:event type="command">
                         if (trip.saveTrip(viewScope.theTrip)) {
-                            jsft.redirect("trip.jsf?tripId=".concat(theTrip.id));
+                            jsft.redirect("tripContacts.jsf?tripId=".concat(theTrip.id));
                         }
                     </jsft:event>
                 </p:commandButton>

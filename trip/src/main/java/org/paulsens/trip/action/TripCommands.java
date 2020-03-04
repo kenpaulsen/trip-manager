@@ -57,7 +57,6 @@ public class TripCommands {
      * This is used to help determine the correct trip to show for the particular user. The chosen trip depends on the
      * user's permissions, what trips they are part of, and whether they already have the trip they need.
      *
-     * @param trips     The complete list of trips.
      * @param currTrip  The resolved trip, which may already be calculated, if supplied this will be returned.
      * @param userId    The userId.
      * @param tripId    The desired tripId -- will be returned if it exists and the user is part of the trip or admin.
@@ -65,15 +64,14 @@ public class TripCommands {
      *
      * @return  The trip to display, or null if the user should not see any trips.
      */
-    public Trip getTripForUser(
-            final List<Trip> trips, final Trip currTrip, final String userId, final String priv, final String tripId) {
+    public Trip getTripForUser(final Trip currTrip, final String userId, final String priv, final String tripId) {
         final Trip result;
         if (canSeeTrip(currTrip, userId, priv)) {
             result = currTrip;                          // Use current trip
         } else if ((tripId != null) && canSeeTrip(findTrip(tripId), userId, priv)) {
             result = findTrip(tripId);                  // Use requested trip
         } else {
-            result = findTrip(trips, userId, priv);     // Anything the user can see... or null
+            result = findTrip(getTrips(), userId, priv);     // Anything the user can see... or null
         }
         return result;
     }

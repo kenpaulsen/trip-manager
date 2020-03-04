@@ -82,7 +82,7 @@
                             if (tab.getPeople().contains(userId) || showAll) {
                                 comp = jsftComp.createComponent(null, "org.primefaces.component.UIMenuItem", null);
                                 comp.value = tab.title;
-                                comp.url = "trip.jsf?tripId=".concat(tab.id);
+                                comp.url = "itinerary.jsf?trip=".concat(tab.id).concat("&amp;id=".concat(sessionScope.userId));
                                 jsftComp.insertUIComponentBefore(component, comp);
                             }
                         }

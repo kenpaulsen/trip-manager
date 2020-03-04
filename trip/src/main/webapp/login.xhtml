@@ -48,7 +48,7 @@
                         } else {
                             sessionScope.priv = ucreds.priv;
                             sessionScope.userId = ucreds.userId;
-                            jsft.redirect("trip.jsf");
+                            jsft.redirect("itinerary.jsf?id=".concat(ucreds.userId));
                         }
                     </jsft:event>
                 </p:commandButton>
