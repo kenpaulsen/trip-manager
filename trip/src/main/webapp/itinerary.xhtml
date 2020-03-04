@@ -23,13 +23,10 @@
                     } else {
                         viewScope.reqId = person.id;
                         viewScope.reqPriv = "admin";
-                        // FIXME: This doesn't work:
-                        activeTab=trip.trips.indexOf(theTrip);
                     }
                 }
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
-
             <p:tabMenu activeIndex="0">
                 <p:menuitem value="Itinerary" url="itinerary.jsf?trip=#{theTrip.id}&amp;id=#{person.id}" />
                 <p:menuitem value="Contacts" url="tripContacts.jsf?tripId=#{theTrip.id}" />

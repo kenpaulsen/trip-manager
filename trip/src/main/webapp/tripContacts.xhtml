@@ -17,8 +17,6 @@
                         jsft.redirect("person.jsf?id=".concat(userId)); // No trips to view
                     } else {
                         viewScope.pilgrims = theTrip.getPeople();
-                // FIXME: This doesn't work, need to match tabs b/c some may be missing.
-                        activeTab=trip.trips.indexOf(theTrip);
                     }
                 }
             </jsft:event>

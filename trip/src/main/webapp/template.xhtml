@@ -78,13 +78,21 @@
                     <f:param name="id" value="#{sessionScope.userId}" />
                     <jsft:event type="afterCreate">
                         trips = trip.getTrips();
+                        tabMap = util.createMap();
+                        tabIdx = 0;
                         foreach("tab", trips) {
                             if (tab.getPeople().contains(userId) || showAll) {
                                 comp = jsftComp.createComponent(null, "org.primefaces.component.UIMenuItem", null);
                                 comp.value = tab.title;
                                 comp.url = "itinerary.jsf?trip=".concat(tab.id).concat("&amp;id=".concat(sessionScope.userId));
                                 jsftComp.insertUIComponentBefore(component, comp);
+                                tabMap.put(tab.title, tabIdx);
+                                tabIdx = tabIdx + 1;
                             }
+                        }
+                        tabMap.put("balance", tabIdx);
+                        if (activeTab == null) {
+                            activeTab=tabMap.get((theTrip == null) ? "balance" : theTrip.title);
                         }
                     </jsft:event>
                 </p:menuitem>
