@@ -5,6 +5,7 @@ import javax.inject.Named;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DynamoUtils;
 import org.paulsens.trip.model.Creds;
+import org.paulsens.trip.model.Person;
 
 @Slf4j
 @Named("pass")
@@ -16,5 +17,15 @@ public class PassCommands {
                     log.error("Failed to get creds for: " + email, ex);
                     return null;
                 }).join();
+    }
+
+    /**
+     * Tests to see if {@code userId} has access to {@code reqId}.
+     * @param person    The user whom is requesting access.
+     * @param reqId     The id to test for access.
+     * @return  {@code true} if {@code userId} can access {@code reqId}.
+     */
+    public boolean canAccessUserId(final Person person, final String reqId) {
+        return person.getId().equals(reqId) || person.getManagedUsers().contains(reqId);
     }
 }

@@ -42,12 +42,13 @@
                         </jsft:event>
                     </h:outputText>
                     &nbsp;<h:outputText value="#{person.last}" /><br />
-                    <h:panelGroup rendered="#{showAll || person.id.equals(sessionScope.userId)}">
+                    <h:panelGroup rendered="#{showAll || pass.canAccessUserId(currUser, person.id)}">
                         <h:outputLink value="transactions.jsf?id=#{person.id}" style="color:#227722;font-weight:bold;font-size:12px;">Balance</h:outputLink>
                         &nbsp;<span style="font-size:12px"> | </span>&nbsp;
                         <h:outputLink value="itinerary.jsf?trip=#{theTrip.id}&amp;id=#{person.id}" style="color:#222277;font-weight:bold;font-size:12px;">Itinerary</h:outputLink>
                     </h:panelGroup>
-                    <h:panelGroup rendered="#{showAll}">
+                    <!-- Don't show own, only for managed ones... i.e. kid's accounts -->
+                    <h:panelGroup rendered="#{showAll || (!person.id.equals(currUser.id) &amp;&amp; pass.canAccessUserId(currUser, person.id))}">
                         &nbsp;<span style="font-size:12px"> | </span>&nbsp;
                         <h:outputLink value="person.jsf?id=#{person.id}" style="color:#772222;font-weight:bold;font-size:12px;">Profile</h:outputLink>
                     </h:panelGroup>

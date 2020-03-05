@@ -45,15 +45,16 @@
             viewScope.showAll = sessionScope.priv.contains("admin");
         </jsft:event>
         <jsft:event id="defaultAuth">
+            currUser = people.getPerson(sessionScope.userId);
             if ((viewScope.reqPriv != null) &amp;&amp; !sessionScope.priv.equalsIgnoreCase(viewScope.reqPriv)) {
                 // Missing req priv
-                if ((reqId == null) || !sessionScope.userId.equals(reqId)) {
+                if ((reqId == null) || !pass.canAccessUserId(currUser, reqId)) {
                     // No user-override... redirect
                     jsft.redirect("/trip/login.jsf");
                 }
             } else if (viewScope.reqPriv == null) {
                 // No priv requirement... is there a user requirement?
-                if ((reqId != null) &amp;&amp; !sessionScope.userId.equals(reqId)) {
+                if ((reqId != null) &amp;&amp; !pass.canAccessUserId(currUser, reqId)) {
                     // No user-override... redirect
                     jsft.redirect("/trip/login.jsf");
                 }

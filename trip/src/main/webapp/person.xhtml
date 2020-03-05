@@ -121,6 +121,36 @@
                     </p:inplace>
                 </p:panelGrid>
             </p:fieldset>
+
+            <p:fieldset rendered="#{showAll}" id="managedUsers" legend="Who can this user see/edit?" style="margin-bottom:13px;">
+                <h:outputText value="Click below to edit the list." rendered="#{person.managedUsers != null &amp;&amp; !person.managedUsers.isEmpty()}" />
+                <p:inplace id="manUsers" widgetVar="manUsers" editor="false" style="margin-left:20px;">
+                    <f:facet name="output">
+                        <h:outputText value="&lt;br&gt;Click here to add people to this trip." rendered="#{person.managedUsers == null || person.managedUsers.isEmpty()}" escape="false" />
+                        <ul>
+                        <ui:repeat var="uid" value="#{person.managedUsers}">
+                            <li><h:outputText value="#{per.last}, #{per.preferredName}">
+                                    <jsft:event type="beforeEncode">
+                                        per = people.getPerson(uid);
+                                    </jsft:event>
+                                </h:outputText>
+                            </li>
+                        </ui:repeat>
+                        </ul>
+                    </f:facet>
+                    <p:selectManyMenu id="people" value="#{person.managedUsers}" var="perId" filter="true" filterMatchMode="contains" showCheckbox="true" style="width:300px;">
+                        <f:selectItems value="#{people.people}" var="p" itemLabel="#{p.last.concat(', ').concat(p.preferredName)}" itemValue="#{p.id}" />
+                        <p:column>
+                            <h:outputText value="#{per.last}, #{per.preferredName}">
+                                <jsft:event type="beforeEncode">
+                                    per = people.getPerson(perId);
+                                </jsft:event>
+                            </h:outputText>
+                        </p:column>
+                    </p:selectManyMenu>
+                </p:inplace>
+            </p:fieldset>
+
             <h:outputScript target="body">
                 $(document).ready(function() {
                     <h:outputText rendered="#{person.notes == '' || person.notes == null}" value="PF('notes').show();" />

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serializable;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import lombok.Data;
@@ -22,6 +24,7 @@ public final class Person implements Serializable {
     private Address address;
     private Passport passport;
     private String notes;
+    private List<String> managedUsers;
 
     public Person(
             @JsonProperty("id") String id,
@@ -35,7 +38,8 @@ public final class Person implements Serializable {
             @JsonProperty("tsa") String tsa,
             @JsonProperty("address") Address address,
             @JsonProperty("passport") Passport passport,
-            @JsonProperty("notes") String notes) {
+            @JsonProperty("notes") String notes,
+            @JsonProperty("managedUsers")List<String> managedUsers) {
         this.id = ((id == null) || id.isEmpty()) ? getNewId() : id;
         this.nickname = nickname;
         this.first = first;
@@ -48,10 +52,11 @@ public final class Person implements Serializable {
         this.address = (address == null) ? new Address() : address;
         this.passport = (passport == null) ? new Passport() : passport;
         this.notes = notes;
+        this.managedUsers = (managedUsers == null) ? new ArrayList<>() : managedUsers;
     }
 
     public Person() {
-        this(getNewId(), null, null, null, null, null, null, null, null, null, null, null);
+        this(getNewId(), null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     private static String getNewId() {

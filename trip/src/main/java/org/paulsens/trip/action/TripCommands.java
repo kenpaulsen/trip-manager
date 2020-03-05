@@ -93,7 +93,7 @@ public class TripCommands {
 
     /**
      * This findTrip method looks for a specific Trip by id. Only used for the
-     * {@link #getTripForUser(List, Trip, String, String, String)} method.
+     * {@link #getTripForUser(Trip, String, String, String)} method.
      *
      * @param tripId    The trip id.
      * @return The trip or null if not found.
@@ -110,6 +110,8 @@ public class TripCommands {
      * @return  True if the user is allowed to see this Trip.
      */
     private boolean canSeeTrip(final Trip trip, final String userId, final String priv) {
+        // FIXME: we should load the Person and look at the user's `managedUsers` property if they aren't directly in
+        // FIXME: the trip. (i.e. parent has kid in trip, but not themselves). For now, we won't support that usecase.
         if ((trip == null) || (userId == null)) {
             return false;
         }

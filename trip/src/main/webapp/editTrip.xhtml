@@ -123,9 +123,9 @@
                         <h:outputText value="&lt;br&gt;Click here to add people to this trip." rendered="#{theTrip.people == null || theTrip.people.isEmpty()}" escape="false" />
                         <ul>
                         <ui:repeat var="uid" value="#{theTrip.people}">
-                            <li><h:outputText value="#{person.last}, #{person.preferredName}">
+                            <li><h:outputText value="#{thePer.last}, #{thePer.preferredName}">
                                     <jsft:event type="beforeEncode">
-                                        person = people.getPerson(uid);
+                                        thePer = people.getPerson(uid);
                                     </jsft:event>
                                 </h:outputText>
                             </li>
@@ -135,9 +135,9 @@
                     <p:selectManyMenu id="people" value="#{theTrip.people}" var="perId" filter="true" filterMatchMode="contains" showCheckbox="true" style="width:300px;">
                         <f:selectItems value="#{people.people}" var="p" itemLabel="#{p.last.concat(', ').concat(p.preferredName)}" itemValue="#{p.id}" />
                         <p:column>
-                            <h:outputText value="#{person.last} #{person.preferredName}">
+                            <h:outputText value="#{thePer.last}, #{thePer.preferredName}">
                                 <jsft:event type="beforeEncode">
-                                    person = people.getPerson(perId);
+                                    thePer = people.getPerson(perId);
                                 </jsft:event>
                             </h:outputText>
                         </p:column>
