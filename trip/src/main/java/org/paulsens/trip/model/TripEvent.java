@@ -67,7 +67,8 @@ public final class TripEvent implements Serializable {
     @JsonIgnore
     public List<String> getParticipants() {
         return getTrip().getPeople().stream()
-                .filter(pid -> !people.containsKey(pid) || !people.get(pid).startsWith(HIDDEN))
+                .map(people::get)
+                .filter(note -> (note == null) || !note.startsWith(HIDDEN))
                 .collect(Collectors.toList());
     }
 
