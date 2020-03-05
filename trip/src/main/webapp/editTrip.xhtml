@@ -25,7 +25,7 @@
             <jsft:event type="afterCreate" insert="defaultAuth" />
 
             <h2><p:inplace id="tripnameIP" widgetVar="tripname" emptyLabel="Enter trip title" editor="false" style="margin-left:20px;">
-                    <p:inputText id="tripname" value="#{theTrip.title}" label="Trip Name" required="true" />
+                    <p:inputText id="tripname" value="#{theTrip.title}" size="50" label="Trip Name" required="true" />
                     <p:watermark for="tripname" value="Trip Name" />
                 </p:inplace>
             </h2>
@@ -56,7 +56,7 @@
             <p:fieldset id="events" legend="The Plan" style="margin-bottom:13px;">
                 <p:commandButton id="newEvent" value="Add New Trip Event" type="button" />
                 <p:overlayPanel id="nePanel" widgetVar="nePanel" for="newEvent" hideEvent="mousedown" dismissable="true" showCloseIcon="true">
-                    <p:inputText id="eventTitle" widgetVar="eventTitle" value="#{requestScope.neTitle}" label="Event Title" required="true" />
+                    <p:inputText id="eventTitle" widgetVar="eventTitle" value="#{requestScope.neTitle}" size="50" label="Event Title" required="true" />
                     <p:watermark for="eventTitle" value="Enter Event Title" /><br />
 
                     <p:calendar id="neStartDate" widgetVar="neStartDate" value="#{requestScope.neStartDate}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm" yearRange="-1:c+5" required="true">

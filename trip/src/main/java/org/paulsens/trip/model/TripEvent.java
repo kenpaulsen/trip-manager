@@ -94,7 +94,8 @@ public final class TripEvent implements Serializable {
      */
     @JsonIgnore
     public boolean isHidden(final String userId) {
-        return getPeople().containsKey(userId) && getPeople().get(userId).startsWith(HIDDEN);
+        final String note = getPeople().get(userId);
+        return note != null && note.startsWith(HIDDEN);
     }
 
     /**
