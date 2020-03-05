@@ -1,5 +1,6 @@
 package org.paulsens.trip.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serializable;
 import java.time.LocalDate;
@@ -10,6 +11,7 @@ import lombok.Data;
 @Data
 public final class Person implements Serializable {
     private String id;
+    private String nickname;
     private String first;
     private String middle;
     private String last;
@@ -23,6 +25,7 @@ public final class Person implements Serializable {
 
     public Person(
             @JsonProperty("id") String id,
+            @JsonProperty("nickname") String nickname,
             @JsonProperty("first") String first,
             @JsonProperty("middle") String middle,
             @JsonProperty("last") String last,
@@ -34,6 +37,7 @@ public final class Person implements Serializable {
             @JsonProperty("passport") Passport passport,
             @JsonProperty("notes") String notes) {
         this.id = ((id == null) || id.isEmpty()) ? getNewId() : id;
+        this.nickname = nickname;
         this.first = first;
         this.middle = middle;
         this.last = last;
@@ -47,10 +51,15 @@ public final class Person implements Serializable {
     }
 
     public Person() {
-        this(getNewId(), null, null, null, null, null, null, null, null, null, null);
+        this(getNewId(), null, null, null, null, null, null, null, null, null, null, null);
     }
 
     private static String getNewId() {
         return UUID.randomUUID().toString();
+    }
+
+    @JsonIgnore
+    public String getPreferredName() {
+        return nickname == null ? first : nickname;
     }
 }

@@ -26,16 +26,20 @@
 
             <h2>Edit Profile</h2>
             <p:fieldset id="nme" legend="Name &amp; Birthdate" style="margin-bottom:13px;">
+                <p:inplace id="prefName" widgetVar="prefName" emptyLabel="Preferred Name" editor="false" style="margin-left:8px;">
+                    <p:inputText id="nickname" value="#{person.nickname}" size="30" label="Preferred Name" style="margin-top:8px;" />
+                    <p:watermark for="nickname" value="Enter your preferred First Name" id="preferredWater" />
+                </p:inplace><br />
                 <p:inplace id="firstName" widgetVar="firstName" emptyLabel="First" editor="false" style="margin-left:8px;">
-                    <p:inputText id="first" value="#{person.first}" label="First Name" required="true" style="margin-top:8px;" />
+                    <p:inputText id="first" value="#{person.first}" size="30" label="First Name" required="true" style="margin-top:8px;" />
                     <p:watermark for="first" value="First Name" id="firstWater" />
                 </p:inplace>
                 <p:inplace id="middleName" widgetVar="middleName" emptyLabel="Middle" editor="false" style="margin-left:20px;">
-                    <p:inputText id="middle" value="#{person.middle}" label="Middle Name" />
+                    <p:inputText id="middle" value="#{person.middle}" size="30" label="Middle Name" />
                     <p:watermark for="middle" value="Middle Name" id="middleWater" />
                 </p:inplace>
                 <p:inplace id="lastName" widgetVar="lastName" emptyLabel="Last" editor="false" style="margin-left:20px;">
-                    <p:inputText id="last" value="#{person.last}" label="Last Name" required="true" />
+                    <p:inputText id="last" value="#{person.last}" size="30" label="Last Name" required="true" />
                     <p:watermark for="last" value="Last Name" id="lastWater" />
                 </p:inplace>
                 <br /><br />
@@ -135,6 +139,7 @@
                     <h:outputText rendered="#{person.last == '' || person.last == null}" value="PF('lastName').show();" />
                     <h:outputText rendered="#{person.middle == '' || person.middle == null}" value="PF('middleName').show();" />
                     <h:outputText rendered="#{person.first == '' || person.first == null}" value="PF('firstName').show();" />
+                    <h:outputText rendered="#{person.nickname == '' || person.nickname == null}" value="PF('prefName').show();" />
                 })
             </h:outputScript>
             <div style="float:right">

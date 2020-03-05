@@ -18,18 +18,18 @@ public class FakeData {
 
     static List<Person> initFakePeople() {
         final List<Person> people = new ArrayList<>();
-        people.add(new Person(
-                null, "Joe", "Bob", "Smith", LocalDate.of(1947, 2, 11), null, "user1", null, null, null, null));
-        people.add(new Person(
-                null, "Ken", "", "Paulsen", LocalDate.of(1977, 12, 11), null, "user2", null, null, null, null));
-        people.add(new Person(
-                null, "Kevin", "David", "Paulsen", LocalDate.of(1987, 9, 27), null,"user3", null, null, null, null));
-        people.add(new Person(
-                null, "Trinity", "Anne", "Paulsen", LocalDate.of(1979, 12, 11), null, "user4", null, null, null, null));
-        people.add(new Person(
-                null, "David", "A", "Robinson", LocalDate.of(1999, 1, 30), null, "user5", null, null, null, null));
-        people.add(new Person(
-                null, "Matt", null, "Smith", LocalDate.of(2010, 6, 1), null, "user6", null, null, null, null));
+        people.add(new Person(null, "Joe",
+                "Joseph", "Bob", "Smith", LocalDate.of(1947, 2, 11), null, "user1", null, null, null, null));
+        people.add(new Person(null, "Ken",
+                "Kenneth", "", "Paulsen", LocalDate.of(1977, 12, 11), null, "user2", null, null, null, null));
+        people.add(new Person(null, null,
+                "Kevin", "David", "Paulsen", LocalDate.of(1987, 9, 27), null,"user3", null, null, null, null));
+        people.add(new Person(null, "Trinity",
+                "Trinity", "Anne", "Paulsen", LocalDate.of(1979, 12, 11), null, "user4", null, null, null, null));
+        people.add(new Person(null, "Dave",
+                "David", "A", "Robinson", LocalDate.of(1999, 1, 30), null, "user5", null, null, null, null));
+        people.add(new Person(null, "Matt",
+                "Matthew", null, "Smith", LocalDate.of(2010, 6, 1), null, "user6", null, null, null, null));
         return people;
     }
 

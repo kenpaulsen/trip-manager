@@ -44,7 +44,7 @@ public class TransactionsCommandsTest {
 
         private String createPerson() {
             final String id = UUID.randomUUID().toString();
-            personCmds.savePerson(new Person(id, "first", "middle", "last", LocalDate.now(),
+            personCmds.savePerson(new Person(id, "preferredName", "first", "middle", "last", LocalDate.now(),
                     null, null, null, null, null, null));
             return id;
         }

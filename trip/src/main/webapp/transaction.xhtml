@@ -26,7 +26,7 @@
 
             <h2></h2>
 
-            <p:fieldset id="nme" legend="#{person.first.concat(' ').concat(person.last).concat('\'s Transaction')}" style="margin-bottom:13px;">
+            <p:fieldset id="nme" legend="#{person.preferredName.concat(' ').concat(person.last).concat('\'s Transaction')}" style="margin-bottom:13px;">
                 <p:panelGrid columns="2" styleClass="ui-noborder">
                     <h:outputText rendered="#{showAll}" value="Transaction Type: " />
                     <h:panelGroup rendered="#{showAll}" style="margin-left:20px;">
@@ -91,7 +91,7 @@
                     This transaction will be <u>permanently lost</u>.<br />
                     <h:panelGroup rendered="#{tx.batch || tx.shared}">
                     <br />This is a <u>#{tx.type}</u> transaction, it will<br />
-                    <em>ONLY</em> be deleted for <strong style="color:#FF0000">#{person.first}</strong>.<br />
+                    <em>ONLY</em> be deleted for <strong style="color:#FF0000">#{person.preferredName}</strong>.<br />
                     </h:panelGroup>
                     <br />If you are unsure, click <b>No</b>.<br /><br />
                     <p:commandButton value="No" type="button" immediate="true" styleClass="ui-confirmdialog-no" />

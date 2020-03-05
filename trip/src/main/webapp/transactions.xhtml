@@ -24,7 +24,7 @@
 
             <p:dataTable id="txs" var="tx" value="#{transactions}" sortBy="#{true}">
                 <f:facet name="header">
-                    <h:outputText value="#{person.first} #{person.last}'s Balance" style="margin-top:200px;" />
+                    <h:outputText value="#{person.preferredName} #{person.last}'s Balance" style="margin-top:200px;" />
                     <p:commandButton id="newTx" rendered="#{showAll}" value="Add Transaction" style="float:right">
                         <jsft:event type="command">
                             jsft.redirect("transaction.jsf?id=".concat(viewScope.person.id));

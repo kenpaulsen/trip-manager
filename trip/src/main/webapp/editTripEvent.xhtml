@@ -32,7 +32,7 @@
                 <p:panelGrid columns="2" styleClass="ui-noborder" columnClasses="propSheetLabel,propSheetValue">
                     <h:outputText value="Title:" />
                     <p:inplace id="eeTitleIP" widgetVar="eeTitle" emptyLabel="Enter Trip Event Title" editor="false">
-                        <p:inputText id="eeTitle" value="#{plan.title}" label="Event Title" required="true" />
+                        <p:inputText id="eeTitle" value="#{plan.title}" size="60" label="Event Title" required="true" />
                         <p:watermark for="eeTitle" value="Enter Event Title" /><br />
                     </p:inplace>
                     <h:outputText value="Starts at:" />
@@ -58,7 +58,7 @@
                         <h:outputText value="&lt;br&gt;Click here to add people to this trip." rendered="#{plan.participants.isEmpty()}" escape="false" />
                         <ul>
                         <ui:repeat var="uid" value="#{plan.participants}">
-                            <li><h:outputText value="#{person.first} #{person.last}">
+                            <li><h:outputText value="#{person.last}, #{person.preferredName}">
                                     <jsft:event type="beforeEncode">
                                         person = people.getPerson(uid);
                                     </jsft:event>
@@ -68,9 +68,9 @@
                         </ul>
                     </f:facet>
                     <p:selectManyMenu id="people" value="#{plan.participants}" var="perId" filter="true" filterMatchMode="contains" showCheckbox="true" style="width:300px;">
-                        <f:selectItems value="#{theTrip.people}" var="p" itemLabel="#{people.getPerson(p).first.concat(' ').concat(people.getPerson(p).last)}" itemValue="#{p}" />
+                        <f:selectItems value="#{theTrip.people}" var="p" itemLabel="#{people.getPerson(p).last.concat(', ').concat(people.getPerson(p).preferredName)}" itemValue="#{p}" />
                         <p:column>
-                            <h:outputText value="#{person.first} #{person.last}">
+                            <h:outputText value="#{person.last}, #{person.preferredName}">
                                 <jsft:event type="beforeEncode">
                                     person = people.getPerson(perId);
                                 </jsft:event>

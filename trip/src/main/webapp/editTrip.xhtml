@@ -77,8 +77,17 @@
                     <p:column>
                         <b><h:outputText value="#{plan.start}">
                             <f:convertDateTime type="localDateTime" pattern="dd-MMM-yyyy h:mm a" />
-                        </h:outputText>: <h:outputText value="#{plan.title}" /></b>
-                        <span style="color:#227722;font-weight:bold">(#{plan.participants.size()} people)</span>
+                        </h:outputText>: <h:outputText value="#{plan.title}" /></b>&nbsp;
+                        <h:outputText id="eventPeople" value="(#{plan.participants.size()} people)" style="color:#227722;font-weight:bold" />
+                        <p:tooltip for="eventPeople" trackMouse="false">
+                            <p:dataList value="#{plan.participants}" var="perId" type="ordered">
+                                <h:outputText value="#{per.last}, #{per.preferredName}">
+                                    <jsft:event type="beforeEncode">
+                                        per = people.getPerson(perId);
+                                    </jsft:event>
+                                </h:outputText>
+                            </p:dataList>
+                        </p:tooltip>
                         <div style="margin-left: 30px;margin-top:8px;">
                             <h:outputText value="#{plan.notes}" escape="false" styleClass="small-p" />
                         </div>
@@ -114,7 +123,7 @@
                         <h:outputText value="&lt;br&gt;Click here to add people to this trip." rendered="#{theTrip.people == null || theTrip.people.isEmpty()}" escape="false" />
                         <ul>
                         <ui:repeat var="uid" value="#{theTrip.people}">
-                            <li><h:outputText value="#{person.first} #{person.last}">
+                            <li><h:outputText value="#{person.last}, #{person.preferredName}">
                                     <jsft:event type="beforeEncode">
                                         person = people.getPerson(uid);
                                     </jsft:event>
@@ -124,9 +133,9 @@
                         </ul>
                     </f:facet>
                     <p:selectManyMenu id="people" value="#{theTrip.people}" var="perId" filter="true" filterMatchMode="contains" showCheckbox="true" style="width:300px;">
-                        <f:selectItems value="#{people.people}" var="p" itemLabel="#{p.first.concat(' ').concat(p.last)}" itemValue="#{p.id}" />
+                        <f:selectItems value="#{people.people}" var="p" itemLabel="#{p.last.concat(', ').concat(p.preferredName)}" itemValue="#{p.id}" />
                         <p:column>
-                            <h:outputText value="#{person.first} #{person.last}">
+                            <h:outputText value="#{person.last} #{person.preferredName}">
                                 <jsft:event type="beforeEncode">
                                     person = people.getPerson(perId);
                                 </jsft:event>

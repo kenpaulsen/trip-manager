@@ -36,7 +36,7 @@
                     </p:commandButton>
                 </f:facet>
                 <p:column headerText="Name" width="180">
-                    <h:outputText value="#{person.first}">
+                    <h:outputText value="#{person.preferredName}">
                         <jsft:event type="beforeEncode">
                             person = people.getPerson(personId);
                         </jsft:event>

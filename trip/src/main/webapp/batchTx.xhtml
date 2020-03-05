@@ -78,9 +78,9 @@
             </p:fieldset>
             <p:fieldset id="peoplefield" legend="Who does this apply to?" style="margin-bottom:13px;">
                 <p:selectManyMenu id="people" value="#{viewScope.batchPeople}" var="perId" filter="true" filterMatchMode="contains" showCheckbox="true" style="width:300px;">
-                    <f:selectItems value="#{people.people}" var="p" itemLabel="#{p.first.concat(' ').concat(p.last)}" itemValue="#{p.id}" />
+                    <f:selectItems value="#{people.people}" var="p" itemLabel="#{p.last.concat(', ').concat(p.preferredName)}" itemValue="#{p.id}" />
                     <p:column>
-                        <h:outputText value="#{person.first} #{person.last}">
+                        <h:outputText value="#{person.last}, #{person.preferredName}">
                             <jsft:event type="beforeEncode">
                                 person = people.getPerson(perId);
                             </jsft:event>

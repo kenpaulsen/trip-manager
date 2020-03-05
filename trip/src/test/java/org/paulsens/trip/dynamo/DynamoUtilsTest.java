@@ -28,7 +28,7 @@ public class DynamoUtilsTest {
         final String id = TestData.genAlpha(7);
         final String first = TestData.genAlpha(5);
         final String last = TestData.genAlpha(9);
-        final Person person = new Person(id, first, null, last, null, null, null, null, null, null, null);
+        final Person person = new Person(id, null, first, null, last, null, null, null, null, null, null, null);
         Assert.assertEquals(Boolean.TRUE, DB_UTILS.savePerson(person).join());
         final Person samePerson = DB_UTILS.getPerson(id).join().orElse(null);
         Assert.assertEquals(person, samePerson);
@@ -37,10 +37,10 @@ public class DynamoUtilsTest {
     @Test
     public void testGetPeople() throws IOException {
         DB_UTILS.clearAllCaches();
-        final Person person1 = new Person("1", "n1", "middle", "l1", LocalDate.now(), "cell", "email",
+        final Person person1 = new Person("1", "nick", "n1", "middle", "l1", LocalDate.now(), "cell", "email",
                 "tsa", new Address(), new Passport(), "notes");
-        final Person person2 = new Person("2", "n2", null, "l2", null, null, null, null, null, null, null);
-        final Person person3 = new Person("3", "n3", null, "l3", null, null, null, null, null, null, null);
+        final Person person2 = new Person("2", null, "n2", null, "l2", null, null, null, null, null, null, null);
+        final Person person3 = new Person("3", "n3", "n3", null, "l3", null, null, null, null, null, null, null);
         Assert.assertEquals(Boolean.TRUE, DB_UTILS.savePerson(person2).join());
         Assert.assertEquals(Boolean.TRUE, DB_UTILS.savePerson(person1).join());
         Assert.assertEquals(Boolean.TRUE, DB_UTILS.savePerson(person3).join());
