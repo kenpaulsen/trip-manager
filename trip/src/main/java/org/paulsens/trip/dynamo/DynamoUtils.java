@@ -172,7 +172,7 @@ public class DynamoUtils {
             return CompletableFuture.completedFuture(null);
         }
         final Map<String, AttributeValue> key =
-                Collections.singletonMap(EMAIL, AttributeValue.builder().s(email).build());
+                Collections.singletonMap(EMAIL, AttributeValue.builder().s(email.toLowerCase()).build());
         return client.getItem(b -> b.key(key).tableName(PASS_TABLE).build())
                 .thenApply(item -> toCreds(item, email, pass));
     }
@@ -256,7 +256,7 @@ public class DynamoUtils {
         if (user == null) {
             throw new IllegalArgumentException("Invalid Email Address!");
         }
-        final Creds creds = new Creds(email, user.getId(), USER_PRIV, user.getLast());
+        final Creds creds = new Creds(email.toLowerCase(), user.getId(), USER_PRIV, user.getLast());
         return Optional.ofNullable(saveCreds(creds).join() ? creds : null);
     }
 
@@ -276,7 +276,7 @@ public class DynamoUtils {
 
     private CompletableFuture<Person> getPersonByEmail(final String email) {
         return getPeople().thenApply(people -> people.stream()
-                .filter(person -> email.equals(person.getEmail())).findAny().orElse(null));
+                .filter(person -> email.equalsIgnoreCase(person.getEmail())).findAny().orElse(null));
     }
 
     private Transaction toTransaction(final AttributeValue content) {
@@ -385,9 +385,9 @@ public class DynamoUtils {
             if (PASS_TABLE.equals(giReq.tableName())) {
                 final AttributeValue email = giReq.key().get(EMAIL);
                 final AttributeValue priv;
-                if (email.s().startsWith("admin")) {
+                if (email.s().toLowerCase().startsWith("admin")) {
                     priv = AttributeValue.builder().s("admin").build();
-                } else if (email.s().startsWith("user")) {
+                } else if (email.s().toLowerCase().startsWith("user")) {
                     priv = AttributeValue.builder().s("user").build();
                 } else {
                     // Not authorized
@@ -395,7 +395,7 @@ public class DynamoUtils {
                 }
                 attrs.put(EMAIL, email);
                 final AttributeValue userId = DynamoUtils.getInstance().getPeople().join().stream()
-                        .filter(p -> email.s().equals(p.getEmail())).findAny()
+                        .filter(p -> email.s().equalsIgnoreCase(p.getEmail())).findAny()
                         .map(Person::getId).map(id -> AttributeValue.builder().s(id).build())
                         .orElse(email);
                 attrs.put(USER_ID, userId);
