@@ -12,7 +12,7 @@
                 if (sessionScope.userId == null) {
                     jsft.redirect("login.jsf"); // Not logged in
                 } else {
-                    viewScope.theTrip = trip.getTripForUser(theTrip, userId, priv, param.tripId);
+                    viewScope.theTrip = trip.getTripForUser(theTrip, userId, showAll, param.tripId);
                     if (theTrip == null) {
                         jsft.redirect("person.jsf?id=".concat(userId)); // No trips to view
                     } else {
@@ -55,6 +55,17 @@
                 </p:column>
                 <p:column headerText="Email" width="230">
                     <h:outputLink value="mailto:#{person.email}" rendered="#{person.email != null}">#{person.email}</h:outputLink><br />
+                    <h:panelGroup rendered="#{sessionScope.aUser != null}">
+                        <p:commandLink value="View As #{person.preferredName}" immediate="true" ajax="false" style="color:#227722;font-weight:bold;font-size:12px;">
+                            <jsft:event type="command">
+                                tripUtil.infoMsg("Viewing as user", people.getPerson(personId).preferredName);
+                                sessionScope.userId = personId;
+                                sessionScope.priv = 'user';
+                                viewScope.showAll = false;
+                                jsft.redirect("tripContacts.jsf?tripId=".concat(theTrip.id));
+                            </jsft:event>
+                        </p:commandLink>
+                    </h:panelGroup>
                 </p:column>
                 <p:column headerText="Phone" width="130">
                     <h:outputText value="#{person.cell}" />

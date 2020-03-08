@@ -48,6 +48,7 @@
                         } else {
                             sessionScope.priv = ucreds.priv;
                             sessionScope.userId = ucreds.userId;
+                            sessionScope.aUser = sessionScope.priv.contains("admin") ? ucreds.userId : null;
                             jsft.redirect("itinerary.jsf?id=".concat(ucreds.userId));
                         }
                     </jsft:event>

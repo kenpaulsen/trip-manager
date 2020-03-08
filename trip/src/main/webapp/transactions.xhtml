@@ -22,7 +22,7 @@
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
 
-            <p:dataTable id="txs" var="tx" value="#{transactions}" sortBy="#{true}">
+            <p:dataTable id="txs" var="tx" value="#{transactions}" sortBy="#{tx.txDate}">
                 <f:facet name="header">
                     <h:outputText value="#{person.preferredName} #{person.last}'s Balance" style="margin-top:200px;" />
                     <p:commandButton id="newTx" rendered="#{showAll}" value="Add Transaction" style="float:right">

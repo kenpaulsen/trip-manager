@@ -17,7 +17,7 @@
                     if (viewScope.person == null) {
                         viewScope.person = people.getPerson((param.id == null) ? userId : param.id);
                     }
-                    viewScope.theTrip = trip.getTripForUser(theTrip, person.id, priv, param.trip);
+                    viewScope.theTrip = trip.getTripForUser(theTrip, person.id, showAll, param.trip);
                     if ((viewScope.person == null) || (viewScope.theTrip == null)) {
                         jsft.redirect("person.jsf?id=".concat(userId)); // No trips to view
                     } else {

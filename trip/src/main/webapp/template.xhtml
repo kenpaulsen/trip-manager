@@ -66,6 +66,17 @@
                 <p:linkButton id="Profile" value="Edit Profile" rendered="#{!showAll}" style="margin-right:8px;float:right" href="person.jsf">
                     <f:param name="id" value="#{sessionScope.userId}" />
                 </p:linkButton>
+                <p:commandButton id="back2Admin" value="Back to Admin" rendered="#{(sessionScope.aUser != null) &amp;&amp; 'user'.equals(sessionScope.priv)}" style="margin-right:8px;float:right">
+                    <jsft:event type="command">
+                        if (aUser != null) {
+                            tripUtil.infoMsg("Back to admin!", people.getPerson(aUser).preferredName);
+                            sessionScope.userId = aUser;
+                            sessionScope.priv = 'admin';
+                            viewScope.showAll = true;
+                            jsft.redirect("tripContacts.jsf");
+                        }
+                    </jsft:event>
+                </p:commandButton>
                 <p:menuButton value="Admin" rendered="#{showAll}" style="margin-right:10px;float:right">
                     <p:menuitem value="Add Person" update="growl" url="person.jsf" />
                     <p:menuitem value="Add Trip" update="growl" url="editTrip.jsf" />

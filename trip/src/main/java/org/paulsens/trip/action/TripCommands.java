@@ -60,18 +60,18 @@ public class TripCommands {
      * @param currTrip  The resolved trip, which may already be calculated, if supplied this will be returned.
      * @param userId    The userId.
      * @param tripId    The desired tripId -- will be returned if it exists and the user is part of the trip or admin.
-     * @param priv      The user's privileges.
+     * @param showAll   True if the user is an admin (can see all).
      *
      * @return  The trip to display, or null if the user should not see any trips.
      */
-    public Trip getTripForUser(final Trip currTrip, final String userId, final String priv, final String tripId) {
+    public Trip getTripForUser(final Trip currTrip, final String userId, final Boolean showAll, final String tripId) {
         final Trip result;
-        if (canSeeTrip(currTrip, userId, priv)) {
+        if (canSeeTrip(currTrip, userId, showAll)) {
             result = currTrip;                          // Use current trip
-        } else if ((tripId != null) && canSeeTrip(findTrip(tripId), userId, priv)) {
+        } else if ((tripId != null) && canSeeTrip(findTrip(tripId), userId, showAll)) {
             result = findTrip(tripId);                  // Use requested trip
         } else {
-            result = findTrip(getTrips(), userId, priv);     // Anything the user can see... or null
+            result = findTrip(getTrips(), userId, showAll);     // Anything the user can see... or null
         }
         return result;
     }
@@ -81,19 +81,19 @@ public class TripCommands {
      * the user.
      * @param trips     All the possible trips.
      * @param userId    The userId.
-     * @param priv      The user's privileges (admin's can see everything.
+     * @param showAll   True if an admin (admins can see everything).
      * @return  The trip to show the user, if any. {@code null} if none.
      */
-    private Trip findTrip(final List<Trip> trips, final String userId, final String priv) {
+    private Trip findTrip(final List<Trip> trips, final String userId, final Boolean showAll) {
         if (trips == null) {
             return null;
         }
-        return trips.stream().filter(t -> canSeeTrip(t, userId, priv)).findAny().orElse(null);
+        return trips.stream().filter(t -> canSeeTrip(t, userId, showAll)).findAny().orElse(null);
     }
 
     /**
      * This findTrip method looks for a specific Trip by id. Only used for the
-     * {@link #getTripForUser(Trip, String, String, String)} method.
+     * {@link #getTripForUser(Trip, String, Boolean, String)} method.
      *
      * @param tripId    The trip id.
      * @return The trip or null if not found.
@@ -109,12 +109,12 @@ public class TripCommands {
      * @param priv      The user's privileges.
      * @return  True if the user is allowed to see this Trip.
      */
-    private boolean canSeeTrip(final Trip trip, final String userId, final String priv) {
+    private boolean canSeeTrip(final Trip trip, final String userId, final Boolean priv) {
         // FIXME: we should load the Person and look at the user's `managedUsers` property if they aren't directly in
         // FIXME: the trip. (i.e. parent has kid in trip, but not themselves). For now, we won't support that usecase.
         if ((trip == null) || (userId == null)) {
             return false;
         }
-        return trip.getPeople().contains(userId) || ((priv != null) && priv.contains("admin"));
+        return trip.getPeople().contains(userId) || ((priv != null) && priv);
     }
 }
