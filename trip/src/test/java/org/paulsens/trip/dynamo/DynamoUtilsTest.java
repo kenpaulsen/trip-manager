@@ -144,12 +144,12 @@ public class DynamoUtilsTest {
         final List<Transaction> txs = new ArrayList<>();
         txs.add(tx);
         txs.add(tx2);
-        final Map<String, Transaction> userTxs = DB_UTILS.getTxCacheForUser(userId);
+        final Map<String, Transaction> userTxs = DB_UTILS.getTxCacheForUser(userId).join();
         Assert.assertEquals(userTxs.size(), 0, "Expected cache to start at 0.");
         DB_UTILS.cacheAll(userTxs, txs, Transaction::getTxId);
         Assert.assertEquals(userTxs.size(), 2, "Expected cache to add 2 items!");
 
-        final Map<String, Transaction> verifySave = DB_UTILS.getTxCacheForUser(userId);
+        final Map<String, Transaction> verifySave = DB_UTILS.getTxCacheForUser(userId).join();
         Assert.assertEquals(verifySave.size(), 2, "Expected cache to start at 2 this time!");
         DB_UTILS.cacheAll(verifySave, txs, Transaction::getTxId);
         Assert.assertEquals(verifySave.size(), 2, "Expected cache to add 2 items!");

@@ -178,23 +178,12 @@ public class DynamoUtils {
     }
 
     public CompletableFuture<List<Transaction>> getTransactions(final String userId) {
-        final Map<String, Transaction> userTxCache = getTxCacheForUser(userId);
-        if (!userTxCache.isEmpty()) {
-            return CompletableFuture.completedFuture(new ArrayList<>(userTxCache.values()));
-        }
-System.out.println("Cache Miss for tx userId: " + userId);
-        return client.query(qb -> txByUserId(qb, userId))
-                .thenApply(resp -> resp.items().stream()
-                        .map(m -> toTransaction(m.get(CONTENT)))
-                        .filter(tx -> (tx != null) && (tx.getDeleted() == null))
-                        .sorted(Comparator.comparing(Transaction::getTxDate))
-                        .collect(Collectors.toList()))
-                .thenApply(list -> cacheAll(userTxCache, list, Transaction::getTxId));
+        return getTxCacheForUser(userId).thenApply(map -> new ArrayList<>(map.values()));
     }
 
     public CompletableFuture<Optional<Transaction>> getTransaction(final String userId, final String txId) {
-        return getTransactions(userId) // Ensure user transactions are already loaded into memory
-                .thenApply(na -> getTxCacheForUser(userId).get(txId))  // Read from cache
+        return getTxCacheForUser(userId) // Ensure user transactions are already loaded into memory
+                .thenApply(map -> map.get(txId))  // Read from cache
                 .thenApply(Optional::ofNullable);
     }
 
@@ -205,7 +194,7 @@ System.out.println("Cache Miss for tx userId: " + userId);
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(tx)).build());
         return client.putItem(b -> b.tableName(TRANSACTION_TABLE).item(map))
                 .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
-                .thenApply(r -> cacheOneTx(r, tx));
+                .thenCompose(r -> cacheOneTxAsync(r, tx));
     }
 
     /* Package-private for testing */
@@ -215,8 +204,11 @@ System.out.println("Cache Miss for tx userId: " + userId);
         txCache.clear();
     }
 
-    private boolean cacheOneTx(final boolean success, final Transaction tx) {
-        final Map<String, Transaction> userTxs = getTxCacheForUser(tx.getUserId());
+    private CompletableFuture<Boolean> cacheOneTxAsync(final boolean success, final Transaction tx) {
+        return getTxCacheForUser(tx.getUserId()).thenApply(userTxs -> cacheOneTx(userTxs, success, tx));
+    }
+
+    private boolean cacheOneTx(final Map<String, Transaction> userTxs, final boolean success, final Transaction tx) {
         if (success) {
             if (tx.getDeleted() == null) {
                 cacheOne(userTxs, tx, tx.getTxId(), true); // Normal, just cache it
@@ -230,9 +222,31 @@ System.out.println("Cache Miss for tx userId: " + userId);
     }
 
     /* Package-private for testing */
-    Map<String, Transaction> getTxCacheForUser(final String userId) {
+    CompletableFuture<Map<String, Transaction>> getTxCacheForUser(final String userId) {
+        final Map<String, Transaction> result = txCache.get(userId);
+        return (result == null) ? cacheTxData(userId) : CompletableFuture.completedFuture(result);
+    }
+
+    private CompletableFuture<Map<String, Transaction>> cacheTxData(final String userId) {
+        return loadUserTxData(userId)
+                .thenApply(cache -> {
+                    txCache.put(userId, cache);
+                    return cache;
+                });
+    }
+
+    private CompletableFuture<Map<String, Transaction>> loadUserTxData(final String userId) {
+        System.out.println("Cache Miss for tx userId: " + userId);
         // Use a map that preserves order for sorting
-        return txCache.computeIfAbsent(userId, k -> new ConcurrentSkipListMap<>());
+        final Map<String, Transaction> result = new ConcurrentSkipListMap<>();
+        return client.query(qb -> txByUserId(qb, userId))
+                .thenApply(resp -> resp.items().stream()
+                        .map(m -> toTransaction(m.get(CONTENT)))
+                        .filter(tx -> (tx != null) && (tx.getDeleted() == null))
+                        .sorted(Comparator.comparing(Transaction::getTxDate))
+                        .collect(Collectors.toList()))
+                .thenApply(list -> cacheAll(result, list, Transaction::getTxId))
+                .thenApply(na -> result);
     }
 
     private Creds toCreds(final GetItemResponse resp, final String email, final String pass) {
