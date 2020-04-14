@@ -138,7 +138,7 @@ public class TransactionsCommands {
     }
 
     private Transaction createOrUpdateTx(
-    final Transaction tx, final LocalDateTime date, final Float amount, final String cat, final String note) {
+            final Transaction tx, final LocalDateTime date, final Float amount, final String cat, final String note) {
         tx.setTxDate(date);
         tx.setAmount(amount);
         tx.setCategory(cat);

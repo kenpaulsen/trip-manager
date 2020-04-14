@@ -66,7 +66,7 @@ public class DynamoUtils {
     private static final String PW = "pass";
     private static final String USER_PRIV = "user";
 
-    private static final DynamoUtils instance = new DynamoUtils();
+    private static final DynamoUtils INSTANCE = new DynamoUtils();
 
     private DynamoUtils() {
         final ObjectMapper mapper = new ObjectMapper();
@@ -102,7 +102,7 @@ public class DynamoUtils {
     }
 
     public static DynamoUtils getInstance() {
-        return instance;
+        return INSTANCE;
     }
 
     public CompletableFuture<Boolean> savePerson(final Person person) throws IOException {
@@ -182,6 +182,7 @@ public class DynamoUtils {
         if (!userTxCache.isEmpty()) {
             return CompletableFuture.completedFuture(new ArrayList<>(userTxCache.values()));
         }
+System.out.println("Cache Miss for tx userId: " + userId);
         return client.query(qb -> txByUserId(qb, userId))
                 .thenApply(resp -> resp.items().stream()
                         .map(m -> toTransaction(m.get(CONTENT)))
@@ -228,7 +229,8 @@ public class DynamoUtils {
         return success;
     }
 
-    private Map<String, Transaction> getTxCacheForUser(final String userId) {
+    /* Package-private for testing */
+    Map<String, Transaction> getTxCacheForUser(final String userId) {
         // Use a map that preserves order for sorting
         return txCache.computeIfAbsent(userId, k -> new ConcurrentSkipListMap<>());
     }
@@ -333,7 +335,8 @@ public class DynamoUtils {
         return returnValue;
     }
 
-    private <T> List<T> cacheAll(final Map<String, T> cacheMap, final List<T> items, final Function<T, String> getKey) {
+    /* Package-private for testing */
+    <T> List<T> cacheAll(final Map<String, T> cacheMap, final List<T> items, final Function<T, String> getKey) {
         cacheMap.clear();
         items.forEach(item -> cacheMap.put(getKey.apply(item), item));
         return items;

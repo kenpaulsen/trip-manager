@@ -3,6 +3,7 @@ package org.paulsens.trip.dynamo;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -125,12 +126,32 @@ public class DynamoUtilsTest {
         DB_UTILS.clearAllCaches();
         Assert.assertEquals(DB_UTILS.getTransactions(userId).join().size(), 0, "Should start w/ no txs.");
         Assert.assertEquals(Boolean.TRUE, DB_UTILS.saveTransaction(tx).join());
-        Assert.assertEquals( DB_UTILS.getTransactions(userId).join().size(), 1, "Expected 1 to be added.");
+        Assert.assertEquals(DB_UTILS.getTransactions(userId).join().size(), 1, "Expected 1 to be added.");
         Assert.assertEquals(Boolean.TRUE, DB_UTILS.saveTransaction(tx).join()); // Verify idempotency, should be 1
         Assert.assertEquals(DB_UTILS.getTransactions(userId).join().size(), 1, "Expected only 1 still.");
         Assert.assertEquals(Boolean.TRUE, DB_UTILS.saveTransaction(tx2).join()); // Now should be 2
         Assert.assertEquals(DB_UTILS.getTransactions(userId).join().size(), 2, "Expected 2 now.");
         final Transaction sameTx = DB_UTILS.getTransaction(userId, id).join().orElse(null);
         Assert.assertEquals(tx, sameTx, "Getting tx should be equal.");
+    }
+
+    @Test
+    public void testCacheAll() {
+        final String userId = TestData.genAlpha(5);
+        final String groupId = TestData.genAlpha(4);
+        final Transaction tx = new Transaction(userId, groupId, Type.Shared);
+        final Transaction tx2 = new Transaction(userId, groupId, Type.Shared);
+        final List<Transaction> txs = new ArrayList<>();
+        txs.add(tx);
+        txs.add(tx2);
+        final Map<String, Transaction> userTxs = DB_UTILS.getTxCacheForUser(userId);
+        Assert.assertEquals(userTxs.size(), 0, "Expected cache to start at 0.");
+        DB_UTILS.cacheAll(userTxs, txs, Transaction::getTxId);
+        Assert.assertEquals(userTxs.size(), 2, "Expected cache to add 2 items!");
+
+        final Map<String, Transaction> verifySave = DB_UTILS.getTxCacheForUser(userId);
+        Assert.assertEquals(verifySave.size(), 2, "Expected cache to start at 2 this time!");
+        DB_UTILS.cacheAll(verifySave, txs, Transaction::getTxId);
+        Assert.assertEquals(verifySave.size(), 2, "Expected cache to add 2 items!");
     }
 }
