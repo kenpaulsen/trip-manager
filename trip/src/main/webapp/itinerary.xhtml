@@ -63,7 +63,7 @@
                             <f:convertDateTime type="localDateTime" pattern="h:mm a" />
                         </h:outputText>
                     </p:column>
-                    <p:column width="470">
+                    <p:column>
                         <b><h:outputText value="#{plan.title}" /></b>&nbsp;
                             <h:outputText id="eventPeople" value="(#{plan.participants.size()} people)" style="color:#227722;font-weight:bold" />
                             <p:tooltip for="eventPeople" trackMouse="false">
@@ -78,7 +78,7 @@
                         <br />
                         <h:outputText value="#{plan.notes}" escape="false" styleClass="small-p" />
                     </p:column>
-                    <p:column>
+                    <p:column width="350">
                         <p:cellEditor>
                             <f:facet name="output">
                                 <h:panelGroup>
@@ -87,7 +87,7 @@
                                 </h:panelGroup>
                             </f:facet>
                             <f:facet name="input">
-                                <p:inputTextarea id="eventNotes" value="#{plan.people[person.id]}" label="Trip Event Notes" rows="4" cols="84" />
+                                <p:inputTextarea id="eventNotes" value="#{plan.people[person.id]}" label="Trip Event Notes" rows="4" cols="38" />
                                 <p:watermark id="water" for="eventNotes" value="Enter notes for #{person.preferredName}" />
                             </f:facet>
                         </p:cellEditor>

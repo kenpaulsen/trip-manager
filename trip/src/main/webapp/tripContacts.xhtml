@@ -41,7 +41,16 @@
                             person = people.getPerson(personId);
                         </jsft:event>
                     </h:outputText>
-                    &nbsp;<h:outputText value="#{person.last}" /><br />
+                    &nbsp;<h:outputText value="#{person.last}" />
+                    <h:outputText rendered="#{showAll}" value="#{balance}" style="padding-top:2px;font-size:12px;float:right;#{balance &lt; 0 ? 'color:#DD0000' : ''}">
+                        <f:convertNumber type="currency" currencySymbol="$" locale="en_US" />
+                        <jsft:event type="beforeEncode">
+                            balance = 0;
+                            foreach("tx", txCmds.getTransactions(personId)) {
+                                balance = balance + txCmds.getUserAmount(tx);
+                            }
+                        </jsft:event>
+                    </h:outputText><br />
                     <h:panelGroup rendered="#{showAll || pass.canAccessUserId(currUser, person.id)}">
                         <h:outputLink value="transactions.jsf?id=#{person.id}" style="color:#227722;font-weight:bold;font-size:12px;">Balance</h:outputLink>
                         &nbsp;<span style="font-size:12px"> | </span>&nbsp;
