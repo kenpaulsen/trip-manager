@@ -2,13 +2,21 @@ package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.util.StdConverter;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import lombok.Data;
+import org.paulsens.trip.dynamo.DynamoUtils;
 
 @Data
 public final class Trip implements Serializable {
@@ -18,7 +26,9 @@ public final class Trip implements Serializable {
     private LocalDateTime startDate;    // Start of trip
     private LocalDateTime endDate;      // End of trip
     private List<String> people;        // UserIds
-    private List<TripEvent> tripEvents; // The stuff needed to book, airfare, hotel, etc. w/ conf #'s or yes/no/NA/?
+    @JsonSerialize(converter = TripEventsSerializer.class)
+    @JsonDeserialize(converter = TripEventsDeserializer.class)
+    private List<TripEvent2> tripEvents; // The stuff needed to book, airfare, hotel, etc. w/ conf #'s or yes/no/NA/?
 
     public Trip(
             @JsonProperty("id") String id,
@@ -27,7 +37,7 @@ public final class Trip implements Serializable {
             @JsonProperty("startDate") LocalDateTime startDate,
             @JsonProperty("endDate") LocalDateTime endDate,
             @JsonProperty("people") List<String> people,
-            @JsonProperty("tripEvents") List<TripEvent> tripEvents) {
+            @JsonProperty("tripEvents") List<TripEvent2> tripEvents) {
         this.id = id;
         this.title = title;
         this.description = description;
@@ -55,38 +65,60 @@ public final class Trip implements Serializable {
         });
         // Add it
         final String id = UUID.randomUUID().toString();
-        tripEvents.add(new TripEvent(id, title, notes, date, null));
+        tripEvents.add(new TripEvent2(id, title, notes, date, null, null));
         return id;
     }
 
     @JsonIgnore
-    public TripEvent getTripEvent(final String teId) {
+    public TripEvent2 getTripEvent(final String teId) {
         return tripEvents.stream().filter(e -> e.getId().equals(teId)).findAny().orElse(null);
     }
 
     @JsonIgnore
-    public List<TripEvent> getTripEventsForUser(final String userId) {
-        return tripEvents.stream().filter(e -> !e.isHidden(userId)).collect(Collectors.toList());
+    public List<TripEvent2> getTripEventsForUser(final String userId) {
+        return tripEvents.stream().filter(te -> te.getParticipants().contains(userId)).collect(Collectors.toList());
     }
 
     @JsonIgnore
-    public void deleteTripEvent(final TripEvent te) {
+    public void deleteTripEvent(final TripEvent2 te) {
         tripEvents.remove(te);
     }
 
-    public void editTripEvent(final TripEvent newTE) {
+    public void editTripEvent(final TripEvent2 newTE) {
         // Ensure we have the TripEvent to edit
-        final TripEvent oldTE = tripEvents.stream().filter(e -> e.getId().equals(newTE.getId())).findAny()
+        final TripEvent2 oldTE = tripEvents.stream().filter(e -> e.getId().equals(newTE.getId())).findAny()
                 .orElseThrow(() -> new IllegalArgumentException("TripEvent id (" + newTE.getId() + ") not found!"));
         tripEvents.remove(oldTE);
         tripEvents.add(newTE);
     }
 
-    private boolean matchingTE(final TripEvent te, final String title, final LocalDateTime date) {
+    private boolean matchingTE(final TripEvent2 te, final String title, final LocalDateTime date) {
         return title.equals(te.getTitle()) && date.equals(te.getStart());
     }
 
-    private List<TripEvent2> toTE2List() {
-        return tripEvents.stream().map(TripEvent2::new).collect(Collectors.toList());
+    static class TripEventsSerializer extends StdConverter<List<TripEvent2>, List<String>> {
+        @Override
+        public List<String> convert(final List<TripEvent2> events) {
+            if (events == null) {
+                return Collections.emptyList();
+            }
+            return events.stream().map(TripEvent2::getId).collect(Collectors.toList());
+        }
+    }
+
+    static class TripEventsDeserializer extends StdConverter<List<String>, List<TripEvent2>> {
+        @Override
+        public List<TripEvent2> convert(final List<String> ids) {
+            if (ids == null) {
+                return Collections.emptyList();
+            }
+            final DynamoUtils dynamo = DynamoUtils.getInstance();
+            final CompletableFuture<?>[] tes = ids.stream().map(dynamo::getTripEvent).toArray(CompletableFuture[]::new);
+            return CompletableFuture.allOf(tes).thenApply(v -> Arrays.stream(tes)
+                    .map(fut -> (TripEvent2) fut.join())
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList()))
+                    .join();
+        }
     }
 }

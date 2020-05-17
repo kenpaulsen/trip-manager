@@ -8,7 +8,7 @@ import java.util.stream.Collectors;
 import lombok.Getter;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
-import org.paulsens.trip.model.TripEvent;
+import org.paulsens.trip.model.TripEvent2;
 
 public class FakeData {
     @Getter
@@ -37,13 +37,15 @@ public class FakeData {
         // Trip 1
         final List<Trip> trips = new ArrayList<>();
         final List<String> allPeople = getFakePeople().stream().map(Person::getId).collect(Collectors.toList());
-        final List<TripEvent> events = new ArrayList<>();
-        events.add(new TripEvent("te2", "Hotel", "Super Duper Palace", LocalDateTime.of(2020, 3, 27, 14, 0), null));
-        events.add(new TripEvent("te1", "PDX -> EWR", "Alaska flight 54", LocalDateTime.of(2020, 3, 26, 6, 10), null));
-        final TripEvent charter = new TripEvent("te3", "SPU -> SEA", "Direct charter flight",
-                LocalDateTime.of(2020, 4, 6, 8, 33), null);
-        charter.setHidden(allPeople.get(4), true);
-        charter.setHidden(allPeople.get(1), true);
+        final List<TripEvent2> events = new ArrayList<>();
+        events.add(new TripEvent2("te2", "Hotel", "Super Duper Palace", LocalDateTime.of(2020, 3, 27, 14, 0), null, null));
+        events.add(new TripEvent2("te1", "PDX -> EWR", "Alaska flight 54", LocalDateTime.of(2020, 3, 26, 6, 10), null, null));
+        final TripEvent2 charter = new TripEvent2("te3", "SPU -> SEA", "Direct charter flight",
+                LocalDateTime.of(2020, 4, 6, 8, 33), null, null);
+        charter.getParticipants().add(allPeople.get(2));
+        charter.getParticipants().add(allPeople.get(5));
+        charter.getParticipants().add(allPeople.get(3));
+        charter.getParticipants().add(allPeople.get(0));
         events.add(charter);
         trips.add(new Trip("faketrip", "Spring Demo Trip", "desc", LocalDateTime.of(2020, 3, 26, 6, 10),
                 LocalDateTime.of(2020, 4, 6, 16, 40), allPeople, events));
@@ -51,12 +53,12 @@ public class FakeData {
         // Trip 2
         final List<String> somePeople = getFakePeople().stream().filter(p -> !p.getLast().equals("Paulsen"))
                 .map(Person::getId).collect(Collectors.toList());
-        final List<TripEvent> events2 = new ArrayList<>();
-        events2.add(new TripEvent("te2", "Hotel", "Hilton", LocalDateTime.of(2020, 7, 30, 14, 0), null));
-        events2.add(new TripEvent("te1", "SEA -> LGW", "Alaska flight 255",
-                LocalDateTime.of(2020, 7, 29, 6, 10), null));
-        events2.add(new TripEvent("te3", "DBV -> KEF", "Trip for 1 to Iceland",
-                LocalDateTime.of(2020, 8, 6, 8, 33), null));
+        final List<TripEvent2> events2 = new ArrayList<>();
+        events2.add(new TripEvent2("te2", "Hotel", "Hilton", LocalDateTime.of(2020, 7, 30, 14, 0), null, null));
+        events2.add(new TripEvent2("te1", "SEA -> LGW", "Alaska flight 255",
+                LocalDateTime.of(2020, 7, 29, 6, 10), null, null));
+        events2.add(new TripEvent2("te3", "DBV -> KEF", "Trip for 1 to Iceland",
+                LocalDateTime.of(2020, 8, 6, 8, 33), null, null));
         trips.add(new Trip("Fake2", "Summer Demo Trip", "Trip Description",
                 LocalDateTime.of(2020, 7, 29, 6, 10), LocalDateTime.of(2020, 8, 6, 16, 40), somePeople, events2));
         return trips;

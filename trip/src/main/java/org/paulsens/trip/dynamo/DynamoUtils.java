@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -101,15 +102,15 @@ public class DynamoUtils {
         }
     }
 
-    private boolean isLocal() {
+    public static DynamoUtils getInstance() {
+        return INSTANCE;
+    }
+
+    public static boolean isLocal() {
         // fc will be null in a test environment that doesn't full start the server w/ JSF installed.
         final FacesContext fc = FacesContext.getCurrentInstance();
         return (fc == null) || "true".equals(((ServletContext) fc.getExternalContext().getContext())
                 .getServletRegistration(FACES_SERVLET).getInitParameter(LOCAL));
-    }
-
-    public static DynamoUtils getInstance() {
-        return INSTANCE;
     }
 
     public CompletableFuture<Boolean> savePerson(final Person person) throws IOException {
@@ -147,32 +148,43 @@ public class DynamoUtils {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(ID, toStrAttr(trip.getId()));
         map.put(CONTENT, toStrAttr(mapper.writeValueAsString(trip)));
-if (!isLocal()) {
-    saveAllTripEvents(trip);
-}
-        return client.putItem(b -> b.tableName(TRIP_TABLE).item(map))
+        final CompletableFuture<Boolean> saveTripEvents = saveAllTripEvents(trip);
+        final CompletableFuture<Boolean> saveTrip = client.putItem(b -> b.tableName(TRIP_TABLE).item(map))
                 .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
                 .thenApply(r -> r ? cacheOne(tripCache, trip, trip.getId(), true) : clearCache(tripCache, false));
+        return CompletableFuture.allOf(saveTrip, saveTripEvents)
+                .thenApply(v -> saveTrip.join() && saveTripEvents.join())
+                .exceptionally(ex -> false);
     }
 
-    // FIXME: This method is temporary... do not keep it... it is not async
-    private void saveAllTripEvents(final Trip trip) {
-        trip.getTripEvents().forEach(te -> {
-            try {
-                saveTripEvent(new TripEvent2(te)).join();
-            } catch (final IOException ex) {
-                throw new RuntimeException(ex);
-            }
-        });
+    private CompletableFuture<Boolean> saveAllTripEvents(final Trip trip) {
+        final CompletableFuture<?>[] saves = trip.getTripEvents().stream()
+                .map(this::saveTripEvent).toArray(CompletableFuture[]::new);
+        return CompletableFuture.allOf(saves)
+                // If any returned false, then fail
+                .thenApply((v) -> Arrays.stream(saves).allMatch(fut -> (Boolean) fut.join()));
     }
 
-    public CompletableFuture<Boolean> saveTripEvent(final TripEvent2 te) throws IOException {
+    public CompletableFuture<Boolean> saveTripEvent(final TripEvent2 te) {
+        // Fixme: should we check if we need to save?
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(ID, toStrAttr(te.getId()));
-        map.put(CONTENT, toStrAttr(mapper.writeValueAsString(te)));
+        try {
+            map.put(CONTENT, toStrAttr(mapper.writeValueAsString(te)));
+        } catch (final IOException ex) {
+            throw new RuntimeException(ex);
+        }
         return client.putItem(b -> b.tableName(TRIP_EVENT_TABLE).item(map))
                 .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
                 .thenApply(r -> r ? cacheOne(tripEventCache, te, te.getId(), true) : clearCache(tripEventCache, false));
+    }
+
+    public CompletableFuture<Optional<Trip>> getTrip(final String id) {
+        final Trip trip = tripCache.get(id);
+        if (trip != null) {
+            return CompletableFuture.completedFuture(Optional.of(trip));
+        }
+        return getTrips().thenApply(trips -> Optional.ofNullable(tripCache.get(id))); // Load all the trips
     }
 
     public CompletableFuture<List<Trip>> getTrips() {
@@ -189,12 +201,14 @@ if (!isLocal()) {
                 .thenApply(list -> cacheAll(tripCache, list, Trip::getId));
     }
 
-    public CompletableFuture<Optional<Trip>> getTrip(final String id) {
-        final Trip trip = tripCache.get(id);
-        if (trip != null) {
-            return CompletableFuture.completedFuture(Optional.of(trip));
+    public CompletableFuture<TripEvent2> getTripEvent(final String id) {
+        final TripEvent2 te = tripEventCache.get(id);
+        if (te != null) {
+            return CompletableFuture.completedFuture(te);
         }
-        return getTrips().thenApply(trips -> Optional.ofNullable(tripCache.get(id))); // Load all the trips
+        final Map<String, AttributeValue> key = Collections.singletonMap(ID, AttributeValue.builder().s(id).build());
+        return client.getItem(b -> b.key(key).tableName(TRIP_EVENT_TABLE).build())
+                .thenApply(item -> toTripEvent(item, id));
     }
 
     public CompletableFuture<Creds> getCredsByEmailAndPass(final String email, final String pass) {
@@ -362,6 +376,24 @@ if (!isLocal()) {
             return mapper.readValue(content.s(), Trip.class);
         } catch (final IOException ex) {
             log.error("Unable to parse trip record: " + content, ex);
+            return null;
+        }
+    }
+
+    private TripEvent2 toTripEvent(final GetItemResponse resp, final String teId) {
+        if (!resp.hasItem()) {
+            log.warn("TripEvent (" + teId + ") not found!");
+            return null;
+        }
+        final AttributeValue content = resp.item().get(CONTENT);
+        if (content == null) {
+            log.error("TripEvent (" + teId + ") is missing content!!");
+            return null;
+        }
+        try {
+            return mapper.readValue(content.s(), TripEvent2.class);
+        } catch (final IOException ex) {
+            log.error("Unable to parse TripEvent record: " + content, ex);
             return null;
         }
     }
