@@ -34,7 +34,7 @@ public final class Trip implements Serializable {
         this.startDate = startDate;
         this.endDate = endDate;
         this.people = (people == null) ? new ArrayList<>() : people;
-        this.tripEvents = (tripEvents == null) ? new ArrayList<>() : tripEvents;
+        this.tripEvents = (tripEvents == null) ? new ArrayList<>() : new ArrayList<>(tripEvents);
     }
 
     public Trip() {
@@ -47,14 +47,16 @@ public final class Trip implements Serializable {
         this.tripEvents = new ArrayList<>();
     }
 
-    public void addTripEvent(final String title, final String notes, final LocalDateTime date) {
+    public String addTripEvent(final String title, final String notes, final LocalDateTime date) {
         // Very simple validation check...
         tripEvents.stream().filter(te -> matchingTE(te, title, date)).findAny().ifPresent(te -> {
             throw new IllegalStateException(
                     "Trip Event with title (" + title + ") and date (" + date + ") already exists!");
         });
         // Add it
-        tripEvents.add(new TripEvent(UUID.randomUUID().toString(), title, notes, date, null));
+        final String id = UUID.randomUUID().toString();
+        tripEvents.add(new TripEvent(id, title, notes, date, null));
+        return id;
     }
 
     @JsonIgnore
@@ -82,5 +84,9 @@ public final class Trip implements Serializable {
 
     private boolean matchingTE(final TripEvent te, final String title, final LocalDateTime date) {
         return title.equals(te.getTitle()) && date.equals(te.getStart());
+    }
+
+    private List<TripEvent2> toTE2List() {
+        return tripEvents.stream().map(TripEvent2::new).collect(Collectors.toList());
     }
 }

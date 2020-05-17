@@ -222,8 +222,10 @@ public class JSFTCommands {
     public static void redirect(String page) {
 	FacesContext ctx = FacesContext.getCurrentInstance();
 	try {
-	    ctx.getExternalContext().redirect(page);
-	    ctx.responseComplete();
+	    if (!ctx.getResponseComplete()) {
+                ctx.getExternalContext().redirect(page);
+                ctx.responseComplete();
+            }
 	} catch (IOException ex) {
 	    throw new RuntimeException(
 		    "Unable to navigate to page '" + page + "'!", ex);

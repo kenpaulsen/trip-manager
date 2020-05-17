@@ -26,6 +26,7 @@ import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.TripEvent2;
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.http.SdkHttpResponse;
 import software.amazon.awssdk.regions.Region;
@@ -48,6 +49,7 @@ public class DynamoUtils {
 
     private final Map<String, Person> peopleCache = new ConcurrentHashMap<>();
     private final Map<String, Trip> tripCache = new ConcurrentHashMap<>();
+    private final Map<String, TripEvent2> tripEventCache = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Transaction>> txCache = new ConcurrentHashMap<>();
 
     // This flag is set in the web.xml via the login page via the
@@ -57,6 +59,7 @@ public class DynamoUtils {
     private static final String PERSON_TABLE = "people";
     private static final String TRANSACTION_TABLE = "transactions";
     private static final String TRIP_TABLE = "trips";
+    private static final String TRIP_EVENT_TABLE = "trip_events";
     private static final String ID = "id";
     private static final String USER_ID = "userId";
     private static final String CONTENT = "content";
@@ -74,10 +77,7 @@ public class DynamoUtils {
         mapper.registerModule(new JavaTimeModule());
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         this.mapper = mapper;
-        // fc will be null in a test environment that doesn't full start the server w/ JSF installed.
-        final FacesContext fc = FacesContext.getCurrentInstance();
-        if ((fc == null) || "true".equals(((ServletContext) fc.getExternalContext().getContext())
-                .getServletRegistration(FACES_SERVLET).getInitParameter(LOCAL))) {
+        if (isLocal()) {
             // Local development only -- don't talk to dynamo
             this.client = new DynamoUtils.TripPersistence() {};
             // Setup some sample data
@@ -99,6 +99,13 @@ public class DynamoUtils {
             // The real deal
             this.client = new DynamoUtils.DynamoTripPersistence();
         }
+    }
+
+    private boolean isLocal() {
+        // fc will be null in a test environment that doesn't full start the server w/ JSF installed.
+        final FacesContext fc = FacesContext.getCurrentInstance();
+        return (fc == null) || "true".equals(((ServletContext) fc.getExternalContext().getContext())
+                .getServletRegistration(FACES_SERVLET).getInitParameter(LOCAL));
     }
 
     public static DynamoUtils getInstance() {
@@ -140,9 +147,32 @@ public class DynamoUtils {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(ID, toStrAttr(trip.getId()));
         map.put(CONTENT, toStrAttr(mapper.writeValueAsString(trip)));
+if (!isLocal()) {
+    saveAllTripEvents(trip);
+}
         return client.putItem(b -> b.tableName(TRIP_TABLE).item(map))
                 .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
                 .thenApply(r -> r ? cacheOne(tripCache, trip, trip.getId(), true) : clearCache(tripCache, false));
+    }
+
+    // FIXME: This method is temporary... do not keep it... it is not async
+    private void saveAllTripEvents(final Trip trip) {
+        trip.getTripEvents().forEach(te -> {
+            try {
+                saveTripEvent(new TripEvent2(te)).join();
+            } catch (final IOException ex) {
+                throw new RuntimeException(ex);
+            }
+        });
+    }
+
+    public CompletableFuture<Boolean> saveTripEvent(final TripEvent2 te) throws IOException {
+        final Map<String, AttributeValue> map = new HashMap<>();
+        map.put(ID, toStrAttr(te.getId()));
+        map.put(CONTENT, toStrAttr(mapper.writeValueAsString(te)));
+        return client.putItem(b -> b.tableName(TRIP_EVENT_TABLE).item(map))
+                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
+                .thenApply(r -> r ? cacheOne(tripEventCache, te, te.getId(), true) : clearCache(tripEventCache, false));
     }
 
     public CompletableFuture<List<Trip>> getTrips() {
@@ -201,6 +231,7 @@ public class DynamoUtils {
     void clearAllCaches() {
         peopleCache.clear();
         tripCache.clear();
+        tripEventCache.clear();
         txCache.clear();
     }
 

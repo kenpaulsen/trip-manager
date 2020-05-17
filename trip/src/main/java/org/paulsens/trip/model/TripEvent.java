@@ -14,11 +14,13 @@ import lombok.AccessLevel;
 import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.ToString;
 import org.paulsens.trip.dynamo.DynamoUtils;
 
 @Data
+@ToString(exclude = "trip")
 public final class TripEvent implements Serializable {
-    private final String id;                    // Trip ID
+    private final String id;                    // TripEvent ID
     private String title;                       // Event title
     private String notes;                       // Event notes
     private LocalDateTime start;                // Start of the event
