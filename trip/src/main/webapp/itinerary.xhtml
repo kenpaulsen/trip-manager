@@ -53,7 +53,7 @@
                     <p:ajax event="cellEdit" update="form:growl" />
                     <jsft:event type="ajax">
                         trip.saveTrip(viewScope.theTrip);
-                        tripUtil.infoMsg("Updated to:", plan.people[person.id]);
+                        tripUtil.infoMsg("Updated to:", plan.privNotes[person.id]);
                     </jsft:event>
                     <p:column width="105" style="text-align:center">
                         <h:outputText value="#{plan.start}">
@@ -82,12 +82,12 @@
                         <p:cellEditor>
                             <f:facet name="output">
                                 <h:panelGroup>
-                                    <h:outputText value="#{plan.people[person.id]}" escape="false" />
-                                    <h:outputText rendered="#{plan.people[person.id] == null || plan.people[person.id] == ''}" value="Click here to edit." />
+                                    <h:outputText value="#{plan.privNotes[person.id]}" escape="false" />
+                                    <h:outputText rendered="#{plan.privNotes[person.id] == null || plan.privNotes[person.id] == ''}" value="Click here to edit." />
                                 </h:panelGroup>
                             </f:facet>
                             <f:facet name="input">
-                                <p:inputTextarea id="eventNotes" value="#{plan.people[person.id]}" label="Trip Event Notes" rows="4" cols="38" />
+                                <p:inputTextarea id="eventNotes" value="#{plan.privNotes[person.id]}" label="Trip Event Notes" rows="4" cols="38" />
                                 <p:watermark id="water" for="eventNotes" value="Enter notes for #{person.preferredName}" />
                             </f:facet>
                         </p:cellEditor>

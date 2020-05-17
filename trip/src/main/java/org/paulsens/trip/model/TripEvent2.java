@@ -4,7 +4,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -42,6 +41,7 @@ public final class TripEvent2 implements Serializable {
         this(UUID.randomUUID().toString(), "", null, null, null, null);
     }
 
+    /*
     public TripEvent2(final TripEvent oldTE) {
         this(oldTE.getId(), oldTE.getTitle(), oldTE.getNotes(), oldTE.getStart(), oldTE.getParticipants(),
                 getIndividualNotes(oldTE));
@@ -60,6 +60,7 @@ public final class TripEvent2 implements Serializable {
         orig.putAll(copyOfOrig);
         return result;
     }
+     */
 
     public synchronized boolean joinTripEvent(final String personId) {
         boolean added = false;

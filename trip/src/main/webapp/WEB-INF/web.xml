@@ -27,7 +27,8 @@
     </context-param>
     <context-param>
 	<param-name>primefaces.THEME</param-name>
-	<param-value>luna-blue</param-value>
+	<!--param-value>luna-blue</param-value -->
+	<param-value>omega</param-value>
     </context-param>
 
     <!-- Welcome page -->
