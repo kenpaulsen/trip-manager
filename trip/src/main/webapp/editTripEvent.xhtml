@@ -67,6 +67,15 @@
                         </ui:repeat>
                         </ul>
                     </f:facet>
+                    <p:selectBooleanCheckbox value="#{requestScope.selAll}" itemLabel="Select All">
+                        <p:ajax update="people" />
+                        <jsft:event type="ajax">
+                            trEvent.participants = util.createList();
+                            if (selAll) {
+                                trEvent.participants.addAll(theTrip.people);
+                            }
+                        </jsft:event>
+                    </p:selectBooleanCheckbox>
                     <p:selectManyMenu id="people" value="#{trEvent.participants}" var="perId" filter="true" filterMatchMode="contains" showCheckbox="true" style="width:300px;">
                         <f:selectItems value="#{theTrip.people}" var="p" itemLabel="#{people.getPerson(p).last.concat(', ').concat(people.getPerson(p).preferredName)}" itemValue="#{p}" />
                         <p:column>

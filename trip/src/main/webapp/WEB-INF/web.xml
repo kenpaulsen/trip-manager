@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <web-app xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xmlns="http://java.sun.com/xml/ns/javaee" xmlns:web="http://java.sun.com/xml/ns/javaee/web-app_2_5.xsd"
-    xsi:schemaLocation="http://java.sun.com/xml/ns/javaee 
-    http://java.sun.com/xml/ns/javaee/web-app_2_5.xsd"
+    xsi:schemaLocation="http://java.sun.com/xml/ns/javaee http://java.sun.com/xml/ns/javaee/web-app_2_5.xsd"
     id="WebApp_ID" version="2.5">
 
     <display-name>JavaServerFaces</display-name>
@@ -28,13 +27,30 @@
     <context-param>
 	<param-name>primefaces.THEME</param-name>
 	<!--param-value>luna-blue</param-value -->
-	<param-value>omega</param-value>
+	<param-value>#{dark ? 'luna-blue' : 'omega'}</param-value>
     </context-param>
 
     <!-- Welcome page -->
     <welcome-file-list>
         <welcome-file>hello.jsf</welcome-file>
     </welcome-file-list>
+
+    <mime-mapping>
+        <extension>eot</extension>
+        <mime-type>application/vnd.ms-fontobject</mime-type>
+    </mime-mapping>
+    <mime-mapping>
+        <extension>svg</extension>
+        <mime-type>image/svg+xml</mime-type>
+    </mime-mapping>
+    <mime-mapping>
+        <extension>ttf</extension>
+        <mime-type>application/x-font-ttf</mime-type>
+    </mime-mapping>
+    <mime-mapping>
+        <extension>woff</extension>
+        <mime-type>application/x-font-woff</mime-type>
+    </mime-mapping>
 
     <!-- JSF mapping -->
     <servlet>

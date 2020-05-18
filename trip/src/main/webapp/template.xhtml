@@ -39,7 +39,7 @@
         <ui:insert name="pagecss" />
     </style>
 </h:head>
-<h:body>
+<h:body style="background-color:#{dark ? '#444444' : '#eeeeee'}">
     <h:form id="form">
         <jsft:event type="initPage">
             viewScope.showAll = sessionScope.priv.contains("admin");
