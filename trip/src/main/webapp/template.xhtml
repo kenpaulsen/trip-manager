@@ -17,6 +17,14 @@
         .propSheetLabel {
             vertical-align:top;
         }
+        .editorHover:hover {
+            background-color: #186bae;
+            color: #ffffff;
+        }
+        .editorHover {
+            border:none;
+            display:block;
+        }
         .ui-datatable-header {
             height: 34px
         }
@@ -42,7 +50,14 @@
 <h:body style="background-color:#{dark ? '#444444' : '#eeeeee'}">
     <h:form id="form">
         <jsft:event type="initPage">
-            viewScope.showAll = sessionScope.priv.contains("admin");
+            if (!request.secure &amp;&amp; !request.serverName.equals("localhost")) {
+                jsft.redirect(request.requestURL.toString().replaceFirst("^http:", "https:"));
+            } else {
+                viewScope.showAll = sessionScope.priv.contains("admin");
+            }
+            if (sessionScope.dark == null) {
+                sessionScope.dark = false;
+            }
         </jsft:event>
         <jsft:event id="defaultAuth">
             currUser = people.getPerson(sessionScope.userId);
@@ -66,6 +81,13 @@
                 <p:linkButton id="Profile" value="Edit Profile" rendered="#{!showAll}" style="margin-right:8px;float:right" href="person.jsf">
                     <f:param name="id" value="#{sessionScope.userId}" />
                 </p:linkButton>
+                <h:inputHidden type="hidden" id="url" />
+                <p:toggleSwitch value="#{sessionScope.dark}" onchange="document.getElementById('form:url').value=window.location;">
+                    <p:ajax />
+                    <jsft:event type="ajax">
+                        jsft.redirect(param['form:url']);
+                    </jsft:event>
+                </p:toggleSwitch>
                 <p:commandButton id="back2Admin" value="Back to Admin" rendered="#{(sessionScope.aUser != null) &amp;&amp; 'user'.equals(sessionScope.priv)}" style="margin-right:8px;float:right">
                     <jsft:event type="command">
                         if (aUser != null) {

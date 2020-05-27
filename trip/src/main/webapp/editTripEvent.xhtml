@@ -44,7 +44,7 @@
                     <h:outputText value="Notes:" />
                     <p:inplace id="notesEditor" widgetVar="notes" emptyLabel="Enter Trip Event Notes" editor="false">
                         <f:facet name="output">
-                            <h:outputText value="#{(trEvent.notes == null || trEvent.notes.isEmpty()) ? 'Click here to edit.' : trEvent.notes}" escape="false" styleClass="small-p" />
+                            <h:outputText styleClass="editorHover small-p" value="#{(trEvent.notes == null || trEvent.notes.isEmpty()) ? 'Click here to edit.' : trEvent.notes}" escape="false" />
                         </f:facet>
                         <p:textEditor id="eeNotes" value="#{trEvent.notes}" label="Trip Event Notes" height="75" placeholder="Enter Trip Event Notes" />
                     </p:inplace>
@@ -55,8 +55,8 @@
                 <h:outputText value="Click below to edit." rendered="#{!trEvent.participants.isEmpty()}" />
                 <p:inplace id="peopleEdit" widgetVar="editPeople" editor="false" style="margin-left:20px;">
                     <f:facet name="output">
-                        <h:outputText value="&lt;br&gt;Click here to add people to this trip." rendered="#{trEvent.participants.isEmpty()}" escape="false" />
-                        <ul>
+                        <h:outputText styleClass="editorHover" value="&lt;br&gt;Click here to add people to this trip." rendered="#{trEvent.participants.isEmpty()}" escape="false" />
+                        <ul class="editorHover">
                         <ui:repeat var="uid" value="#{trEvent.participants}">
                             <li><h:outputText value="#{person.last}, #{person.preferredName}">
                                     <jsft:event type="beforeEncode">

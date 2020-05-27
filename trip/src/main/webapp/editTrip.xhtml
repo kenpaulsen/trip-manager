@@ -32,7 +32,7 @@
             <p:fieldset id="info" legend="Trip Info" style="margin-bottom:13px;">
                 <p:inplace id="descEditor" widgetVar="desc" emptyLabel="Enter Trip Description" editor="false">
                     <f:facet name="output">
-                        <h:outputText value="#{(theTrip.description == null || theTrip.description.isEmpty()) ? 'Click here to edit.' : theTrip.description}" escape="false" />
+                        <h:outputText styleClass="editorHover" value="#{(theTrip.description == null || theTrip.description.isEmpty()) ? 'Click here to edit.' : theTrip.description}" escape="false" />
                     </f:facet>
                     <p:textEditor id="description" widgetVar="descField" value="#{theTrip.description}" label="Trip Description" placeholder="Enter Trip Description" style="margin-bottom:10px;margin-left:40px;margin-right:40px;" height="150" />
                     <p:watermark for="description" value="Enter Description" id="descWater" />
@@ -120,8 +120,8 @@
                 <h:outputText value="Click below to edit trip list." rendered="#{theTrip.people != null &amp;&amp; !theTrip.people.isEmpty()}" />
                 <p:inplace id="peopleEdit" widgetVar="editPeople" editor="false" style="margin-left:20px;">
                     <f:facet name="output">
-                        <h:outputText value="&lt;br&gt;Click here to add people to this trip." rendered="#{theTrip.people == null || theTrip.people.isEmpty()}" escape="false" />
-                        <ul>
+                        <h:outputText styleClass="editorHover" value="&lt;br&gt;Click here to add people to this trip." rendered="#{theTrip.people == null || theTrip.people.isEmpty()}" escape="false" />
+                        <ul class="editorHover">
                         <ui:repeat var="uid" value="#{theTrip.people}">
                             <li><h:outputText value="#{thePer.last}, #{thePer.preferredName}">
                                     <jsft:event type="beforeEncode">

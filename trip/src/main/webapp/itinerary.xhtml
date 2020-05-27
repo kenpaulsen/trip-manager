@@ -82,8 +82,8 @@
                         <p:cellEditor>
                             <f:facet name="output">
                                 <h:panelGroup>
-                                    <h:outputText value="#{plan.privNotes[person.id]}" escape="false" />
-                                    <h:outputText rendered="#{plan.privNotes[person.id] == null || plan.privNotes[person.id] == ''}" value="Click here to edit." />
+                                    <h:outputText styleClass="editorHover" value="#{plan.privNotes[person.id]}" escape="false" />
+                                    <h:outputText styleClass="editorHover" rendered="#{plan.privNotes[person.id] == null || plan.privNotes[person.id] == ''}" value="Click here to edit." />
                                 </h:panelGroup>
                             </f:facet>
                             <f:facet name="input">
