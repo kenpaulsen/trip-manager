@@ -126,8 +126,8 @@
                 <h:outputText value="Click below to edit the list." rendered="#{person.managedUsers != null &amp;&amp; !person.managedUsers.isEmpty()}" />
                 <p:inplace id="manUsers" widgetVar="manUsers" editor="false" style="margin-left:20px;">
                     <f:facet name="output">
-                        <h:outputText value="&lt;br&gt;Click here to add people." rendered="#{person.managedUsers == null || person.managedUsers.isEmpty()}" escape="false" />
-                        <ul>
+                        <h:outputText styleClass="editorHover" value="&lt;br&gt;Click here to add people." rendered="#{person.managedUsers == null || person.managedUsers.isEmpty()}" escape="false" />
+                        <ul class="editorHover">
                         <ui:repeat var="uid" value="#{person.managedUsers}">
                             <li><h:outputText value="#{per.last}, #{per.preferredName}">
                                     <jsft:event type="beforeEncode">
