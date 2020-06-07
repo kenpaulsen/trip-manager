@@ -11,16 +11,19 @@ public final class Creds implements Serializable {
     private String userId;
     private String priv;
     private String pass;
+    private Long   lastLogin;
 
     @JsonCreator
     public Creds(
             @JsonProperty("email") String email,
             @JsonProperty("userId") String userId,
             @JsonProperty("priv") String priv,
-            @JsonProperty("pass") String pass) {
+            @JsonProperty("pass") String pass,
+            @JsonProperty("lastLogin") Long lastLogin) {
         this.email = email;
         this.userId = userId;
         this.priv = priv;
         this.pass = pass;
+        this.lastLogin = lastLogin;
     }
 }

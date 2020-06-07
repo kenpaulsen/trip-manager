@@ -3,6 +3,7 @@ package org.paulsens.trip.action;
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Named;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.dynamo.DynamoUtils;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
@@ -11,6 +12,18 @@ import org.paulsens.trip.model.Person;
 @Named("pass")
 @ApplicationScoped
 public class PassCommands {
+    public Creds login(final String email, final String pass) {
+        final Creds creds = getCreds(email, pass);
+        if (creds != null) {
+            // login successful
+            final String prevUpdateTime = Audit.formatEpochSeconds(DynamoUtils.getInstance().updateLastLogin(creds));
+            Audit.log(email, "LOGIN", "User " + email + " logged in, previous login was: " + prevUpdateTime);
+        } else {
+            Audit.log(email, "LOGIN", "Login Failed!");
+        }
+        return creds;
+    }
+
     public Creds getCreds(final String email, final String pass) {
         return DynamoUtils.getInstance().getCredsByEmailAndPass(email, pass)
                 .exceptionally(ex -> {

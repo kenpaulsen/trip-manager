@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -68,6 +69,7 @@ public class DynamoUtils {
     private static final String EMAIL = "email";
     private static final String PRIV = "priv";
     private static final String PW = "pass";
+    private static final String LAST_LOGIN = "lastLogin";
     private static final String USER_PRIV = "user";
 
     private static final DynamoUtils INSTANCE = new DynamoUtils();
@@ -221,6 +223,26 @@ public class DynamoUtils {
                 .thenApply(item -> toCreds(item, email, pass));
     }
 
+    /**
+     * This method sets the last login timestamp for the given user (via {@link Creds}). It returns the previous last
+     * login, or {@code null} if the user hasn't logged in before.
+     *
+     * @param creds     The {@link Creds} to update.
+     * @return The previous last login in Epoch seconds.
+     */
+    public Long updateLastLogin(final Creds creds) {
+        if (creds == null) {
+            return null;
+        }
+        final Long prevLast = creds.getLastLogin();
+        creds.setLastLogin(Instant.now().getEpochSecond());
+        // If the previous login was more than 2 seconds ago, save the new login time.
+        if ((prevLast == null) || (prevLast < creds.getLastLogin() - 2)) {
+            saveCreds(creds);
+        }
+        return prevLast;
+    }
+
     public CompletableFuture<List<Transaction>> getTransactions(final String userId) {
         return getTxCacheForUser(userId).thenApply(map -> new ArrayList<>(map.values()));
     }
@@ -300,7 +322,9 @@ public class DynamoUtils {
             return createCreds(email).map(creds -> validateCreds(email, pass, creds)).orElse(null);
         }
         final Map<String, AttributeValue> at = resp.item();
-        final Creds creds = new Creds(at.get(EMAIL).s(), at.get(USER_ID).s(), at.get(PRIV).s(), at.get(PW).s());
+        final AttributeValue last = at.get(LAST_LOGIN);
+        final Creds creds = new Creds(at.get(EMAIL).s(), at.get(USER_ID).s(), at.get(PRIV).s(), at.get(PW).s(),
+                last == null ? null : Long.parseLong(last.n()));
         return validateCreds(email, pass, creds);
     }
 
@@ -317,16 +341,18 @@ public class DynamoUtils {
         if (user == null) {
             throw new IllegalArgumentException("Invalid Email Address!");
         }
-        final Creds creds = new Creds(email.toLowerCase(), user.getId(), USER_PRIV, user.getLast());
+        final Creds creds = new Creds(
+                email.toLowerCase(), user.getId(), USER_PRIV, user.getLast(), Instant.now().getEpochSecond());
         return Optional.ofNullable(saveCreds(creds).join() ? creds : null);
     }
 
-    private CompletableFuture<Boolean> saveCreds(Creds creds) {
+    private CompletableFuture<Boolean> saveCreds(final Creds creds) {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(EMAIL, AttributeValue.builder().s(creds.getEmail()).build());
         map.put(USER_ID, AttributeValue.builder().s(creds.getUserId()).build());
         map.put(PW, AttributeValue.builder().s(creds.getPass()).build());
         map.put(PRIV, AttributeValue.builder().s(creds.getPriv()).build());
+        map.put(LAST_LOGIN, AttributeValue.builder().n("" + creds.getLastLogin()).build());
         return client.putItem(b -> b.tableName(PASS_TABLE).item(map))
                 .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
                 .exceptionally(ex -> {

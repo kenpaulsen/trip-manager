@@ -42,7 +42,7 @@
                 <div />
                 <p:commandButton value="Login" update="growl" styleClass="loginFont">
                     <jsft:event type="command">
-                        ucreds = pass.getCreds(requestScope.email, requestScope.pass);
+                        ucreds = pass.login(requestScope.email, requestScope.pass);
                         if (ucreds == null) {
                             tripUtil.warnMsg("Login Failed!", "Please try again.");
                         } else {
