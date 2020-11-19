@@ -1,9 +1,12 @@
 package org.paulsens.trip.action;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
+import static java.time.temporal.ChronoUnit.DAYS;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import javax.enterprise.context.ApplicationScoped;
 import javax.faces.application.FacesMessage;
 import javax.inject.Named;
@@ -35,6 +38,18 @@ public class TripCommands {
             result = false;
         }
         return result;
+    }
+
+    public List<Trip> getActiveTrips(final int pastDaysToCountAsActive) {
+        return getTrips().stream()
+                .filter(trip -> trip.getEndDate().isAfter(LocalDateTime.now().minus(pastDaysToCountAsActive, DAYS)))
+                .collect(Collectors.toList());
+    }
+
+    public List<Trip> getInactiveTrips(final int pastDaysToCountAsActive) {
+        return getTrips().stream()
+                .filter(trip -> trip.getEndDate().isBefore(LocalDateTime.now().minus(pastDaysToCountAsActive, DAYS)))
+                .collect(Collectors.toList());
     }
 
     public List<Trip> getTrips() {
