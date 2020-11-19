@@ -112,7 +112,9 @@
                 <p:menuitem value="Account Balance" url="transactions.jsf">
                     <f:param name="id" value="#{sessionScope.userId}" />
                     <jsft:event type="afterCreate">
-                        trips = trip.getTrips();
+                        daysAfterTripItBecomesInactive = 90;
+                        oldTrips = trip.getInactiveTrips(daysAfterTripItBecomesInactive);
+                        trips = trip.getActiveTrips(daysAfterTripItBecomesInactive);
                         tabMap = util.createMap();
                         tabIdx = 0;
                         foreach("tab", trips) {
@@ -131,6 +133,7 @@
                         }
                     </jsft:event>
                 </p:menuitem>
+                <p:menuitem value="Past Trips" url="pastTrips.jsf" rendered="#{!oldTrips.isEmpty()}" />
             </p:tabMenu>
         </ui:insert>
         <p:growl id="growl" showDetail="true" showSummary="true" autoUpdate="false" />

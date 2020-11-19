@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" 
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"
+    xmlns:jsft="http://jsftemplating.java.net/jsft"
+    xmlns:ui="http://java.sun.com/jsf/facelets"
+    xmlns:p="http://primefaces.org/ui"
+    xmlns:pe="http://primefaces.org/ui/extensions"
+    xmlns:f="http://java.sun.com/jsf/core"
+    xmlns:h="http://java.sun.com/jsf/html">
+    <ui:composition template="template.xhtml">
+        <ui:define name="content">
+            <jsft:event type="initPage">
+                if (sessionScope.userId == null) {
+                    jsft.redirect("login.jsf"); // Not logged in
+                } else {
+                    if (viewScope.person == null) {
+                        viewScope.person = people.getPerson((param.id == null) ? userId : param.id);
+                    }
+                    viewScope.theTrip = trip.getTripForUser(theTrip, person.id, showAll, param.trip);
+                    if ((viewScope.person == null) || (viewScope.theTrip == null)) {
+                        jsft.redirect("person.jsf?id=".concat(userId)); // No trips to view
+                    } else {
+                        viewScope.reqId = person.id;
+                        viewScope.reqPriv = "admin";
+                    }
+                }
+            </jsft:event>
+            <jsft:event type="afterCreate" insert="defaultAuth" />
+            <h2>#{person.preferredName}'s Past Trips</h2>
+
+            <p:fieldset id="info" style="margin-bottom:13px;">
+                <ul><ui:repeat var="pastTrip" value="#{oldTrips}">
+                        <li><h:outputText value="#{pastTrip.startDate}">
+                                <f:convertDateTime type="localDateTime" pattern="dd-MMM-yyyy" />
+                            </h:outputText>
+                            -
+                            <h:outputText value="#{pastTrip.endDate}">
+                                <f:convertDateTime type="localDateTime" pattern="dd-MMM-yyyy" />
+                            </h:outputText>: <a href="itinerary.jsf?trip=#{pastTrip.id}&amp;id=#{sessionScope.userId}">#{pastTrip.title}</a>
+                            <br /><br />
+                        </li>
+                    </ui:repeat></ul>
+            </p:fieldset>
+
+        </ui:define>
+    </ui:composition>
+</html>
