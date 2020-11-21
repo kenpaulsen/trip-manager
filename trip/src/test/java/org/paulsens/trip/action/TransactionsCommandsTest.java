@@ -3,7 +3,6 @@ package org.paulsens.trip.action;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.UUID;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.testutil.TestData;
@@ -17,7 +16,7 @@ public class TransactionsCommandsTest {
 
     @Test
     public void getUserAmountReturnsNullWhenTxIsNull() {
-        final Transaction tx = txCmds.getTransaction("foo", null);
+        final Transaction tx = txCmds.getTransaction(Person.Id.from("foo"), null);
         final Float amount = txCmds.getUserAmount(tx);
         assertNull(amount);
     }
@@ -30,7 +29,7 @@ public class TransactionsCommandsTest {
         final float amount = -103.5f;
         txCmds.saveGroupTx(sharedGroup, Transaction.Type.Shared, LocalDateTime.now(), amount, cat, note,
                 createPerson(), createPerson(), createPerson(), createPerson());
-        final List<String> groupUsers = txCmds.getUserIdsForGroupId(sharedGroup);
+        final List<Person.Id> groupUsers = txCmds.getUserIdsForGroupId(sharedGroup);
         assertEquals(groupUsers.size(), 4);
         final Transaction tx0 = txCmds.getGroupTransactionForUser(groupUsers.get(0), sharedGroup).orElse(null);
         assertEquals(txCmds.getUserAmount(tx0), amount / 4);
@@ -42,8 +41,8 @@ public class TransactionsCommandsTest {
         assertEquals(txCmds.getUserAmount(tx3), amount / 4);
     }
 
-    private String createPerson() {
-        final String id = UUID.randomUUID().toString();
+    private Person.Id createPerson() {
+        final Person.Id id = Person.Id.newInstance();
         personCmds.savePerson(new Person(id, "preferredName", "first", "middle", "last", LocalDate.now(),
                 null, null, null, null, null, null, null));
         return id;

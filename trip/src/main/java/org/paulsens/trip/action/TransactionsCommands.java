@@ -23,7 +23,7 @@ import org.paulsens.trip.model.Transaction.Type;
 @Named("txCmds")
 @ApplicationScoped
 public class TransactionsCommands {
-    public Transaction createTransaction(final String userId) {
+    public Transaction createTransaction(final Person.Id userId) {
         return new Transaction(userId, null, null);
     }
 
@@ -46,7 +46,7 @@ public class TransactionsCommands {
         return result;
     }
 
-    public List<Transaction> getTransactions(final String userId) {
+    public List<Transaction> getTransactions(final Person.Id userId) {
         return DynamoUtils.getInstance().getTransactions(userId)
                 .exceptionally(ex -> {
                     log.error("Error querying transactions for user " + userId + ": ", ex);
@@ -54,8 +54,8 @@ public class TransactionsCommands {
                 }).join();
     }
 
-    public Transaction getTransaction(final String userId, final String txId) {
-        if (isNullOrEmpty(userId)) {
+    public Transaction getTransaction(final Person.Id userId, final String txId) {
+        if (userId == null) {
             throw new IllegalArgumentException("You must provide the userId!");
         }
         if (isNullOrEmpty(txId)) {
@@ -70,13 +70,13 @@ public class TransactionsCommands {
     }
 
     public boolean saveGroupTx(final String gid, final Type type, final LocalDateTime date, final Float amount,
-                               final String cat, final String note, final String ... peopleArr) {
-        final List<String> txPeople = peopleArr == null ? Collections.emptyList() : Arrays.asList(peopleArr);
+                               final String cat, final String note, final Person.Id ... peopleArr) {
+        final List<Person.Id> txPeople = peopleArr == null ? Collections.emptyList() : Arrays.asList(peopleArr);
         final String groupId = isNullOrEmpty(gid) ? UUID.randomUUID().toString() : gid;
         final AtomicBoolean result = new AtomicBoolean(true);
 
         // Find existing that should no longer be part of this, delete their existing tx
-        final List<String> existing = getUserIdsForGroupId(groupId);
+        final List<Person.Id> existing = getUserIdsForGroupId(groupId);
         existing.stream().filter(uid -> !txPeople.contains(uid))
                 .map(uid -> getGroupTransactionForUser(uid, groupId))
                 .forEach(optTx -> optTx.ifPresent(tx -> {
@@ -107,7 +107,7 @@ public class TransactionsCommands {
      * @param groupId   The groupId to match.
      * @return  Optionally the matching {@code Transaction}.
      */
-    public Optional<Transaction> getGroupTransactionForUser(final String userId, final String groupId) {
+    public Optional<Transaction> getGroupTransactionForUser(final Person.Id userId, final String groupId) {
         return DynamoUtils.getInstance().getTransactions(userId).thenApply(
                 txs -> txs.stream().filter(tx -> groupId.equals(tx.getGroupId())).findAny()).join();
     }
@@ -117,11 +117,13 @@ public class TransactionsCommands {
      * @param groupId   The {@link Type#Batch} or {@link Type#Shared} groupId.
      * @return  The userId's which share in the batch or shared transaction.
      */
-    public List<String> getUserIdsForGroupId(final String groupId) {
+    public List<Person.Id> getUserIdsForGroupId(final String groupId) {
         // FIXME: It might be nice to have each transaction associated w/ a Trip, currently it isn't so we can't
         // FIXME: limit the potential people in a Batch.
-        return DynamoUtils.getInstance().getPeople().thenApply(all -> all.stream().map(Person::getId)
-                .filter(userId -> hasGroupTransaction(userId, groupId).join()).collect(Collectors.toList()))
+        return DynamoUtils.getInstance().getPeople()
+                .thenApply(all -> all.stream().map(Person::getId)
+                        .filter(userId -> hasGroupTransaction(userId, groupId).join())
+                        .collect(Collectors.toList()))
                 .join();
     }
 
@@ -146,7 +148,7 @@ public class TransactionsCommands {
         return tx;
     }
 
-    private CompletableFuture<Boolean> hasGroupTransaction(final String userId, final String groupId) {
+    private CompletableFuture<Boolean> hasGroupTransaction(final Person.Id userId, final String groupId) {
         return DynamoUtils.getInstance().getTransactions(userId).thenApply(
                 txs -> txs.stream().anyMatch(tx -> groupId.equals(tx.getGroupId()) && (tx.getDeleted() == null)));
     }

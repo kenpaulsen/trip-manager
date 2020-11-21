@@ -15,15 +15,15 @@
                     jsft.redirect("login.jsf"); // Not logged in
                 } else {
                     if (viewScope.person == null) {
-                        viewScope.person = people.getPerson((param.id == null) ? userId : param.id);
+                        viewScope.person = people.getPerson((param.id == null) ? userId : people.id(param.id));
                     }
                     if (param.trip != null) {
                         viewScope.theTrip = trip.getTrip(param.trip);
                     }
                     if ((viewScope.person == null) || (viewScope.theTrip == null)) {
-                        jsft.redirect("person.jsf?id=".concat(userId)); // No trips to view
+                        jsft.redirect("person.jsf?id=".concat(userId.value)); // No trips to view
                     } else if (!theTrip.openToPublic) {
-                        jsft.redirect("itinerary.jsf?trip=".concat(theTrip.id).concat("&amp;id=").concat(userId)); // Can't self-join this trip
+                        jsft.redirect("itinerary.jsf?trip=".concat(theTrip.id).concat("&amp;id=").concat(userId.value)); // Can't self-join this trip
                     } else {
                         viewScope.reqId = person.id;
                         viewScope.reqPriv = "admin";
@@ -89,7 +89,7 @@
                         #{person.tsa}
                     </h:panelGroup>
                     <h:outputText value=""/>
-                    <p:link href="person.jsf?id=#{person.id}" style="display:inline-block;color:#D03F68;margin-top:20px">Make Changes</p:link>
+                    <p:link href="person.jsf?id=#{person.id.value}" style="display:inline-block;color:#D03F68;margin-top:20px">Make Changes</p:link>
                 </p:panelGrid>
             </p:fieldset>
 

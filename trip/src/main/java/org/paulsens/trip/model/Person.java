@@ -1,7 +1,9 @@
 package org.paulsens.trip.model;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonValue;
 import java.io.Serializable;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -9,10 +11,11 @@ import java.util.List;
 import java.util.UUID;
 
 import lombok.Data;
+import lombok.Value;
 
 @Data
 public final class Person implements Serializable {
-    private String id;
+    private Id id;
     private String nickname;
     private String first;
     private String middle;
@@ -24,10 +27,11 @@ public final class Person implements Serializable {
     private Address address;
     private Passport passport;
     private String notes;
-    private List<String> managedUsers;
+    private List<Person.Id> managedUsers;
 
+    @JsonCreator
     public Person(
-            @JsonProperty("id") String id,
+            @JsonProperty("id") Id id,
             @JsonProperty("nickname") String nickname,
             @JsonProperty("first") String first,
             @JsonProperty("middle") String middle,
@@ -39,8 +43,8 @@ public final class Person implements Serializable {
             @JsonProperty("address") Address address,
             @JsonProperty("passport") Passport passport,
             @JsonProperty("notes") String notes,
-            @JsonProperty("managedUsers")List<String> managedUsers) {
-        this.id = ((id == null) || id.isEmpty()) ? getNewId() : id;
+            @JsonProperty("managedUsers") List<Person.Id> managedUsers) {
+        this.id = (id == null) ? Id.newInstance() : id;
         this.nickname = nickname;
         this.first = first;
         this.middle = middle;
@@ -56,15 +60,25 @@ public final class Person implements Serializable {
     }
 
     public Person() {
-        this(getNewId(), null, null, null, null, null, null, null, null, null, null, null, null);
-    }
-
-    private static String getNewId() {
-        return UUID.randomUUID().toString();
+        this(null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     @JsonIgnore
     public String getPreferredName() {
         return nickname == null ? first : nickname;
+    }
+
+    @Value
+    public static class Id {
+        @JsonValue
+        String value;
+
+        public static Id from(final String id) {
+            return new Id(id);
+        }
+
+        public static Id newInstance() {
+            return new Id(UUID.randomUUID().toString());
+        }
     }
 }

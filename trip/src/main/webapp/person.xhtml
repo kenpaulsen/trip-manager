@@ -14,8 +14,8 @@
                 if (viewScope.person == null) {
                     viewScope.reqPriv = "admin";
                     if (param.id != null) {
-                        viewScope.person = people.getPerson(param.id);
-                        viewScope.reqId = param.id;
+                        viewScope.person = people.getPerson(people.id(param.id));
+                        viewScope.reqId = people.id(param.id);
                     } else {
                         viewScope.person = people.createPerson();
                     }
@@ -176,7 +176,7 @@
                 <p:commandButton id="savePerson" value="Save">
                     <jsft:event type="command">
                         if (people.savePerson(viewScope.person)) {
-                            jsft.redirect("itinerary.jsf?id=".concat(person.id));
+                            jsft.redirect("itinerary.jsf?id=".concat(person.id.value));
                         } else {
                             tripUtil.warnMsg("Unable to save!", "Not sure what's wrong.");
                         }

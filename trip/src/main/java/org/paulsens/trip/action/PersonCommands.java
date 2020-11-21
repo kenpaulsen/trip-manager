@@ -46,11 +46,15 @@ public class PersonCommands {
                 .join();
     }
 
-    public Person getPerson(final String id) {
+    public Person getPerson(final Person.Id id) {
         return DynamoUtils.getInstance().getPerson(id)
                 .exceptionally(ex -> {
                     log.error("Failed to get person '" + id + "'!", ex);
                     return Optional.empty();
                 }).join().orElse(new Person());
+    }
+
+    public Person.Id id(final String id) {
+        return Person.Id.from(id);
     }
 }

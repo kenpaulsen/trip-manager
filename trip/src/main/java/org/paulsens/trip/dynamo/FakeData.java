@@ -36,7 +36,7 @@ public class FakeData {
     static List<Trip> initFakeTrips() {
         // Trip 1
         final List<Trip> trips = new ArrayList<>();
-        final List<String> allPeople = getFakePeople().stream().map(Person::getId).collect(Collectors.toList());
+        final List<Person.Id> allPeople = getFakePeople().stream().map(Person::getId).collect(Collectors.toList());
         final List<TripEvent> events = new ArrayList<>();
         events.add(new TripEvent("te2", "Hotel", "Super Duper Palace", LocalDateTime.of(2020, 3, 27, 14, 0), null, null));
         events.add(new TripEvent("te1", "PDX -> EWR", "Alaska flight 54", LocalDateTime.of(2020, 3, 26, 6, 10), null, null));
@@ -51,8 +51,10 @@ public class FakeData {
                 LocalDateTime.of(2021, 4, 6, 16, 40), allPeople, events));
 
         // Trip 2
-        final List<String> somePeople = getFakePeople().stream().filter(p -> !p.getLast().equals("Paulsen"))
-                .map(Person::getId).collect(Collectors.toList());
+        final List<Person.Id> somePeople = getFakePeople().stream()
+                .filter(p -> !p.getLast().equals("Paulsen"))
+                .map(Person::getId)
+                .collect(Collectors.toList());
         final List<TripEvent> events2 = new ArrayList<>();
         events2.add(new TripEvent("te2", "Hotel", "Hilton", LocalDateTime.of(2020, 7, 30, 14, 0), null, null));
         events2.add(new TripEvent("te1", "SEA -> LGW", "Alaska flight 255",

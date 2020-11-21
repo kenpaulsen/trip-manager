@@ -15,11 +15,11 @@
                     jsft.redirect("login.jsf"); // Not logged in
                 } else {
                     if (viewScope.person == null) {
-                        viewScope.person = people.getPerson((param.id == null) ? userId : param.id);
+                        viewScope.person = people.getPerson((param.id == null) ? userId : people.id(param.id));
                     }
                     viewScope.theTrip = trip.getTripForUser(theTrip, person.id, showAll, param.trip);
                     if ((viewScope.person == null) || (viewScope.theTrip == null)) {
-                        jsft.redirect("person.jsf?id=".concat(userId)); // No trips to view
+                        jsft.redirect("person.jsf?id=".concat(userId.value)); // No trips to view
                     } else {
                         viewScope.reqId = person.id;
                         viewScope.reqPriv = "admin";

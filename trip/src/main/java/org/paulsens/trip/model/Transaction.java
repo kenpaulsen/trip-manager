@@ -4,14 +4,13 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serializable;
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.UUID;
 import lombok.Data;
 
 @Data
 public final class Transaction implements Serializable {
     private final String txId;
-    private final String userId;
+    private final Person.Id userId;
     private final String groupId;       // Shared or Batch Group Id
     private final Type type;            // Shared, Batch, or Tx (defaults to Tx if null)
     private LocalDateTime txDate;
@@ -22,7 +21,7 @@ public final class Transaction implements Serializable {
 
     public Transaction(
             @JsonProperty("txId") String txId,
-            @JsonProperty("userId") String userId,
+            @JsonProperty("userId") Person.Id userId,
             @JsonProperty("groupId") String groupId,
             @JsonProperty("type") Type type,
             @JsonProperty("txDate") LocalDateTime txDate,
@@ -43,7 +42,7 @@ public final class Transaction implements Serializable {
         this.deleted = null;
     }
 
-    public Transaction(final String userId, final String groupId, final Type type) {
+    public Transaction(final Person.Id userId, final String groupId, final Type type) {
         if (userId == null) {
             throw new IllegalArgumentException("You must provide a userId for a new Transaction!");
         }

@@ -16,7 +16,7 @@ public final class TripEvent implements Serializable {
     private String title;                       // Event title
     private String notes;                       // Event notes
     private LocalDateTime start;                // Start of the event
-    private List<String> participants;          // Who's doing this thing?
+    private List<Person.Id> participants;          // Who's doing this thing?
     private final Map<String, String> privNotes; // Mapping of userId to Status
 
     public TripEvent(
@@ -24,7 +24,7 @@ public final class TripEvent implements Serializable {
             @JsonProperty("title") String title,
             @JsonProperty("notes") String notes,
             @JsonProperty("start") LocalDateTime start,
-            @JsonProperty("participants") List<String> participants,
+            @JsonProperty("participants") List<Person.Id> participants,
             @JsonProperty("privNotes") Map<String, String> privNotes) {
         if (id == null) {
             throw new IllegalArgumentException("ID is required!");
@@ -62,7 +62,7 @@ public final class TripEvent implements Serializable {
     }
      */
 
-    public synchronized boolean joinTripEvent(final String personId) {
+    public synchronized boolean joinTripEvent(final Person.Id personId) {
         boolean added = false;
         if (!participants.contains(personId)) {
             added = participants.add(personId);
@@ -70,7 +70,7 @@ public final class TripEvent implements Serializable {
         return added;
     }
 
-    public synchronized boolean leaveTripEvent(final String personId) {
+    public synchronized boolean leaveTripEvent(final Person.Id personId) {
         return participants.remove(personId);
     }
 }

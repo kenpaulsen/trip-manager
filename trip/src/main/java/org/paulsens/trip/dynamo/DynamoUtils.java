@@ -50,10 +50,10 @@ public class DynamoUtils {
     private final ObjectMapper mapper;
     private final TripPersistence client;
 
-    private final Map<String, Person> peopleCache = new ConcurrentHashMap<>();
+    private final Map<Person.Id, Person> peopleCache = new ConcurrentHashMap<>();
     private final Map<String, Trip> tripCache = new ConcurrentHashMap<>();
     private final Map<String, TripEvent> tripEventCache = new ConcurrentHashMap<>();
-    private final Map<String, Map<String, Transaction>> txCache = new ConcurrentHashMap<>();
+    private final Map<Person.Id, Map<String, Transaction>> txCache = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Registration>> regCache = new ConcurrentHashMap<>();
 
     // This flag is set in the web.xml via the login page via the
@@ -119,7 +119,7 @@ public class DynamoUtils {
 
     public CompletableFuture<Boolean> savePerson(final Person person) throws IOException {
         final Map<String, AttributeValue> map = new HashMap<>();
-        map.put(ID, AttributeValue.builder().s(person.getId()).build());
+        map.put(ID, AttributeValue.builder().s(person.getId().getValue()).build());
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(person)).build());
         return client.putItem(b -> b.tableName(PERSON_TABLE).item(map))
             .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
@@ -140,7 +140,7 @@ public class DynamoUtils {
                 .thenApply(list -> cacheAll(peopleCache, list, Person::getId));
     }
 
-    public CompletableFuture<Optional<Person>> getPerson(final String id) {
+    public CompletableFuture<Optional<Person>> getPerson(final Person.Id id) {
         final Person person = peopleCache.get(id);
         if (person != null) {
             return CompletableFuture.completedFuture(Optional.of(person));
@@ -245,11 +245,11 @@ public class DynamoUtils {
         return prevLast;
     }
 
-    public CompletableFuture<List<Transaction>> getTransactions(final String userId) {
+    public CompletableFuture<List<Transaction>> getTransactions(final Person.Id userId) {
         return getTxCacheForUser(userId).thenApply(map -> new ArrayList<>(map.values()));
     }
 
-    public CompletableFuture<Optional<Transaction>> getTransaction(final String userId, final String txId) {
+    public CompletableFuture<Optional<Transaction>> getTransaction(final Person.Id userId, final String txId) {
         return getTxCacheForUser(userId) // Ensure user transactions are already loaded into memory
                 .thenApply(map -> map.get(txId))  // Read from cache
                 .thenApply(Optional::ofNullable);
@@ -257,7 +257,7 @@ public class DynamoUtils {
 
     public CompletableFuture<Boolean> saveTransaction(final Transaction tx) throws IOException {
         final Map<String, AttributeValue> map = new HashMap<>();
-        map.put(USER_ID, AttributeValue.builder().s(tx.getUserId()).build());
+        map.put(USER_ID, AttributeValue.builder().s(tx.getUserId().getValue()).build());
         map.put(TX_ID, AttributeValue.builder().s(tx.getTxId()).build());
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(tx)).build());
         return client.putItem(b -> b.tableName(TRANSACTION_TABLE).item(map))
@@ -291,12 +291,12 @@ public class DynamoUtils {
     }
 
     /* Package-private for testing */
-    CompletableFuture<Map<String, Transaction>> getTxCacheForUser(final String userId) {
+    CompletableFuture<Map<String, Transaction>> getTxCacheForUser(final Person.Id userId) {
         final Map<String, Transaction> result = txCache.get(userId);
         return (result == null) ? cacheTxData(userId) : CompletableFuture.completedFuture(result);
     }
 
-    private CompletableFuture<Map<String, Transaction>> cacheTxData(final String userId) {
+    private CompletableFuture<Map<String, Transaction>> cacheTxData(final Person.Id userId) {
         return loadUserTxData(userId)
                 .thenApply(cache -> {
                     txCache.put(userId, cache);
@@ -304,7 +304,7 @@ public class DynamoUtils {
                 });
     }
 
-    private CompletableFuture<Map<String, Transaction>> loadUserTxData(final String userId) {
+    private CompletableFuture<Map<String, Transaction>> loadUserTxData(final Person.Id userId) {
         System.out.println("Cache Miss for tx userId: " + userId);
         // Use a map that preserves order for sorting
         final Map<String, Transaction> result = new ConcurrentSkipListMap<>();
@@ -325,7 +325,11 @@ public class DynamoUtils {
         }
         final Map<String, AttributeValue> at = resp.item();
         final AttributeValue last = at.get(LAST_LOGIN);
-        final Creds creds = new Creds(at.get(EMAIL).s(), at.get(USER_ID).s(), at.get(PRIV).s(), at.get(PW).s(),
+        final Creds creds = new Creds(
+                at.get(EMAIL).s(),
+                Person.Id.from(at.get(USER_ID).s()),
+                at.get(PRIV).s(),
+                at.get(PW).s(),
                 last == null ? null : Long.parseLong(last.n()));
         return validateCreds(email, pass, creds);
     }
@@ -351,7 +355,7 @@ public class DynamoUtils {
     private CompletableFuture<Boolean> saveCreds(final Creds creds) {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(EMAIL, AttributeValue.builder().s(creds.getEmail()).build());
-        map.put(USER_ID, AttributeValue.builder().s(creds.getUserId()).build());
+        map.put(USER_ID, AttributeValue.builder().s(creds.getUserId().getValue()).build());
         map.put(PW, AttributeValue.builder().s(creds.getPass()).build());
         map.put(PRIV, AttributeValue.builder().s(creds.getPriv()).build());
         map.put(LAST_LOGIN, AttributeValue.builder().n("" + creds.getLastLogin()).build());
@@ -377,11 +381,11 @@ public class DynamoUtils {
         }
     }
 
-    private void txByUserId(final QueryRequest.Builder qb, final String userId) {
+    private void txByUserId(final QueryRequest.Builder qb, final Person.Id userId) {
         qb.tableName(TRANSACTION_TABLE)
                 .keyConditionExpression("userId = :userIdVal")
                 .expressionAttributeValues(
-                        Collections.singletonMap(":userIdVal", AttributeValue.builder().s(userId).build()));
+                        Collections.singletonMap(":userIdVal", AttributeValue.builder().s(userId.getValue()).build()));
     }
 
     private Person toPerson(final AttributeValue content) {
@@ -426,7 +430,7 @@ public class DynamoUtils {
         }
     }
 
-    private <T, R> R clearCache(Map<String, T> cacheMap, R returnValue) {
+    private <K, T, R> R clearCache(Map<K, T> cacheMap, R returnValue) {
         // To avoid the chance of a slow scan returning and caching the result AFTER we clear, but before we may
         // have added/deleted content, introduce a cache clear delay.
         CompletableFuture.runAsync(() -> {
@@ -441,7 +445,7 @@ public class DynamoUtils {
     }
 
     /* Package-private for testing */
-    <T> List<T> cacheAll(final Map<String, T> cacheMap, final List<T> items, final Function<T, String> getKey) {
+    <K, T> List<T> cacheAll(final Map<K, T> cacheMap, final List<T> items, final Function<T, K> getKey) {
         cacheMap.clear();
         items.forEach(item -> cacheMap.put(getKey.apply(item), item));
         return items;
@@ -461,7 +465,7 @@ public class DynamoUtils {
      * @param <R>           The return value type.
      * @return  It always returns the {@code returnValue} passed in.
      */
-    private <T, R> R cacheOne(final Map<String, T> cacheMap, final T item, String key, final R returnValue) {
+    private <K, T, R> R cacheOne(final Map<K, T> cacheMap, final T item, K key, final R returnValue) {
         cacheMap.put(key, item);
         return returnValue;
     }
@@ -504,7 +508,7 @@ public class DynamoUtils {
                 attrs.put(EMAIL, email);
                 final AttributeValue userId = DynamoUtils.getInstance().getPeople().join().stream()
                         .filter(p -> email.s().equalsIgnoreCase(p.getEmail())).findAny()
-                        .map(Person::getId).map(id -> AttributeValue.builder().s(id).build())
+                        .map(Person::getId).map(id -> AttributeValue.builder().s(id.getValue()).build())
                         .orElse(email);
                 attrs.put(USER_ID, userId);
                 attrs.put(PRIV, priv);

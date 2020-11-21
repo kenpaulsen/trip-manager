@@ -26,7 +26,7 @@ public final class Trip implements Serializable {
     private String description;         // Describes the trip
     private LocalDateTime startDate;    // Start of trip
     private LocalDateTime endDate;      // End of trip
-    private List<String> people;        // UserIds
+    private List<Person.Id> people;        // UserIds
     @JsonSerialize(converter = TripEventsSerializer.class)
     @JsonDeserialize(converter = TripEventsDeserializer.class)
     private List<TripEvent> tripEvents; // The stuff needed to book, airfare, hotel, etc. w/ conf #'s or yes/no/NA/?
@@ -38,7 +38,7 @@ public final class Trip implements Serializable {
             @JsonProperty("description") String description,
             @JsonProperty("startDate") LocalDateTime startDate,
             @JsonProperty("endDate") LocalDateTime endDate,
-            @JsonProperty("people") List<String> people,
+            @JsonProperty("people") List<Person.Id> people,
             @JsonProperty("tripEvents") List<TripEvent> tripEvents) {
         this.id = id;
         this.title = title;

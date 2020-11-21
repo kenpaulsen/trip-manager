@@ -8,7 +8,7 @@ import lombok.Data;
 @Data
 public final class Creds implements Serializable {
     private String email;
-    private String userId;
+    private Person.Id userId;
     private String priv;
     private String pass;
     private Long   lastLogin;
@@ -16,7 +16,7 @@ public final class Creds implements Serializable {
     @JsonCreator
     public Creds(
             @JsonProperty("email") String email,
-            @JsonProperty("userId") String userId,
+            @JsonProperty("userId") Person.Id userId,
             @JsonProperty("priv") String priv,
             @JsonProperty("pass") String pass,
             @JsonProperty("lastLogin") Long lastLogin) {

@@ -38,7 +38,7 @@ public class PassCommands {
      * @param reqId     The id to test for access.
      * @return  {@code true} if {@code userId} can access {@code reqId}.
      */
-    public boolean canAccessUserId(final Person person, final String reqId) {
+    public boolean canAccessUserId(final Person person, final Person.Id reqId) {
         return person.getId().equals(reqId) || person.getManagedUsers().contains(reqId);
     }
 }

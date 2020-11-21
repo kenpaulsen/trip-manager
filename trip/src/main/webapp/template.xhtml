@@ -79,7 +79,7 @@
             <div style="background-image:url('images/medjbanner.jpg'); background-size:cover; height:100px;">
                 <div class="siteheading">Medjugorje Trip Manager</div>
                 <h:panelGroup style="margin-right:8px;float:right" rendered="#{!showAll}">
-                    <p:splitButton id="Profile" value="Edit Profile" onclick="document.location='person.jsf?id=#{sessionScope.userId}';return false;">
+                    <p:splitButton id="Profile" value="Edit Profile" onclick="document.location='person.jsf?id=#{sessionScope.userId.value}';return false;">
                         <p:menuitem value="Logout" update="growl" url="login.jsf" />
                     </p:splitButton>
                 </h:panelGroup>
@@ -106,13 +106,13 @@
                     <p:menuitem value="Add Trip" update="growl" url="editTrip.jsf" />
                     <p:menuitem value="Batch Transaction" update="growl" url="batchTx.jsf?type=Batch" />
                     <p:menuitem value="Shared Transaction" update="growl" url="batchTx.jsf?type=Shared" />
-                    <p:menuitem value="Edit Profile" update="growl" url="person.jsf?id=#{sessionScope.userId}" />
+                    <p:menuitem value="Edit Profile" update="growl" url="person.jsf?id=#{sessionScope.userId.value}" />
                     <p:menuitem value="Logout" update="growl" url="login.jsf" />
                 </p:menuButton>
             </div>
             <p:tabMenu activeIndex="#{activeTab}">
                 <p:menuitem value="Account Balance" url="transactions.jsf">
-                    <f:param name="id" value="#{sessionScope.userId}" />
+                    <f:param name="id" value="#{sessionScope.userId.value}" />
                     <jsft:event type="afterCreate">
                         daysAfterTripItBecomesInactive = 90;
                         oldTrips = trip.getInactiveTrips(daysAfterTripItBecomesInactive);
@@ -123,14 +123,14 @@
                             if (tab.getPeople().contains(userId) || showAll) {
                                 comp = jsftComp.createComponent(null, "org.primefaces.component.UIMenuItem", null);
                                 comp.value = tab.title;
-                                comp.url = "itinerary.jsf?trip=".concat(tab.id).concat("&amp;id=".concat(sessionScope.userId));
+                                comp.url = "itinerary.jsf?trip=".concat(tab.id).concat("&amp;id=".concat(sessionScope.userId.value));
                                 jsftComp.insertUIComponentBefore(component, comp);
                                 tabMap.put(tab.title, tabIdx);
                                 tabIdx = tabIdx + 1;
                             } else if (tab.openToPublic) {
                                 comp = jsftComp.createComponent(null, "org.primefaces.component.UIMenuItem", null);
                                 comp.value = 'Join '.concat(tab.title);
-                                comp.url = "joinTrip.jsf?trip=".concat(tab.id).concat("&amp;id=".concat(sessionScope.userId));
+                                comp.url = "joinTrip.jsf?trip=".concat(tab.id).concat("&amp;id=".concat(sessionScope.userId.value));
                                 jsftComp.insertUIComponentBefore(component, comp);
                                 tabMap.put(tab.title, tabIdx);
                                 tabIdx = tabIdx + 1;

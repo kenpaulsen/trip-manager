@@ -11,13 +11,13 @@ import org.paulsens.trip.model.Person;
 public class PersonConverter implements Converter {
     @Override
     public Object getAsObject(FacesContext ctx, UIComponent comp, String value) {
-        return DynamoUtils.getInstance().getPerson(value);
+        return DynamoUtils.getInstance().getPerson(Person.Id.from(value));
     }
 
     @Override
     public String getAsString(FacesContext ctx, UIComponent comp, Object value) {
         if (value instanceof Person) {
-            return ((Person) value).getId();
+            return ((Person) value).getId().getValue();
         } else if (value instanceof String) {
             return (String) value;
         }

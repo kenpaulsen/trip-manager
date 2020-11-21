@@ -13,9 +13,9 @@
             <jsft:event type="initPage">
                 if (viewScope.person == null) {
                     if (param.id != null) {
-                        viewScope.person = people.getPerson(param.id);
-                        viewScope.tx = txCmds.getTransaction(param.id, param.txId);
-                        viewScope.reqId = param.id;
+                        viewScope.person = people.getPerson(people.id(param.id));
+                        viewScope.tx = txCmds.getTransaction(people.id(param.id), param.txId);
+                        viewScope.reqId = people.id(param.id);
                         viewScope.reqPriv = "admin";
                     } else {
                         jsft.redirect("hello.jsf");
@@ -101,7 +101,7 @@
             <div style="float:right">
                 <p:commandButton immediate="true" id="cancel" value="Back" update="growl">
                     <jsft:event type="command">
-                        jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id));
+                        jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id.value));
                     </jsft:event>
                 </p:commandButton>
                 <p:commandButton rendered="#{showAll &amp;&amp; txCmds.getTransaction(person.id, tx.txId) != null}" immediate="true" id="deltx" update="form:growl" value="Delete">
@@ -109,7 +109,7 @@
                         if (showAll) {
                             tx.delete();
                             txCmds.saveTransaction(tx);
-                            jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id));
+                            jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id.value));
                         } else {
                             tripUtil.errorMsg("Delete not allowed!", "You are not an Admin");
                         }
@@ -119,7 +119,7 @@
                 <p:commandButton id="saveTrans" rendered="#{showAll}" value="Save" update="form:growl">
                     <jsft:event type="command">
                         if (txCmds.saveTransaction(viewScope.tx)) {
-                            jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id));
+                            jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id.value));
                         } else {
                             tripUtil.error("Failed to save!", tx.note);
                         }

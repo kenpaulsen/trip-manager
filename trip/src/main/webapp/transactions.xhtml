@@ -11,9 +11,9 @@
             <jsft:event type="initPage">
                 if (viewScope.transactions == null) {
                     if (param.id != null) {
-                        viewScope.person = people.getPerson(param.id);
-                        viewScope.transactions = txCmds.getTransactions(param.id);
-                        viewScope.reqId = param.id;
+                        viewScope.person = people.getPerson(people.id(param.id));
+                        viewScope.transactions = txCmds.getTransactions(people.id(param.id));
+                        viewScope.reqId = people.id(param.id);
                         viewScope.reqPriv = "admin";
                     } else {
                         jsft.redirect("hello.jsf");
@@ -27,7 +27,7 @@
                     <h:outputText value="#{person.preferredName} #{person.last}'s Balance" style="margin-top:200px;" />
                     <p:commandButton id="newTx" rendered="#{showAll}" value="Add Transaction" style="float:right">
                         <jsft:event type="command">
-                            jsft.redirect("transaction.jsf?id=".concat(viewScope.person.id));
+                            jsft.redirect("transaction.jsf?id=".concat(viewScope.person.id.value));
                         </jsft:event>
                     </p:commandButton>
                 </f:facet>
@@ -39,7 +39,7 @@
                     </h:outputText>
                 </p:column>
                 <p:column headerText="Date" width="120" style="text-align:center">
-                    <a href="transaction.jsf?id=#{person.id}&amp;txId=#{tx.txId}">
+                    <a href="transaction.jsf?id=#{person.id.value}&amp;txId=#{tx.txId}">
                         <h:outputText value="#{tx.txDate}">
                             <f:convertDateTime type="offsetDateTime" pattern="MMM dd, yyyy" />
                         </h:outputText></a>
@@ -53,7 +53,7 @@
                         <jsft:event type="command">
                             tx.delete();
                             txCmds.saveTransaction(tx);
-                            jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id));
+                            jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id.value));
                         </jsft:event>
                         <p:confirm header="Confirmation" message="Are you sure?" icon="pi pi-exclamation-triangle" />
                     </p:commandLink>

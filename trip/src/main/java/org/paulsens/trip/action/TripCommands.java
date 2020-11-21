@@ -12,6 +12,7 @@ import javax.faces.application.FacesMessage;
 import javax.inject.Named;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 
 @Slf4j
@@ -79,7 +80,7 @@ public class TripCommands {
      *
      * @return  The trip to display, or null if the user should not see any trips.
      */
-    public Trip getTripForUser(final Trip currTrip, final String userId, final Boolean showAll, final String tripId) {
+    public Trip getTripForUser(final Trip currTrip, final Person.Id userId, final Boolean showAll, final String tripId) {
         final Trip result;
         if (canSeeTrip(currTrip, userId, showAll)) {
             result = currTrip;                          // Use current trip
@@ -99,7 +100,7 @@ public class TripCommands {
      * @param showAll   True if an admin (admins can see everything).
      * @return  The trip to show the user, if any. {@code null} if none.
      */
-    private Trip findTrip(final List<Trip> trips, final String userId, final Boolean showAll) {
+    private Trip findTrip(final List<Trip> trips, final Person.Id userId, final Boolean showAll) {
         if (trips == null) {
             return null;
         }
@@ -108,7 +109,7 @@ public class TripCommands {
 
     /**
      * This findTrip method looks for a specific Trip by id. Only used for the
-     * {@link #getTripForUser(Trip, String, Boolean, String)} method.
+     * {@link #getTripForUser(Trip, Person.Id, Boolean, String)} method.
      *
      * @param tripId    The trip id.
      * @return The trip or null if not found.
@@ -124,7 +125,7 @@ public class TripCommands {
      * @param priv      The user's privileges.
      * @return  True if the user is allowed to see this Trip.
      */
-    private boolean canSeeTrip(final Trip trip, final String userId, final Boolean priv) {
+    private boolean canSeeTrip(final Trip trip, final Person.Id userId, final Boolean priv) {
         // FIXME: we should load the Person and look at the user's `managedUsers` property if they aren't directly in
         // FIXME: the trip. (i.e. parent has kid in trip, but not themselves). For now, we won't support that usecase.
         if ((trip == null) || (userId == null)) {

@@ -25,7 +25,7 @@ public class DynamoUtilsTest {
 
     @Test
     public void testSavePerson() throws IOException {
-        final String id = TestData.genAlpha(7);
+        final Person.Id id = Person.Id.from(TestData.genAlpha(7));
         final String first = TestData.genAlpha(5);
         final String last = TestData.genAlpha(9);
         final Person person = new Person(id, null, first, null, last, null, null, null, null, null, null, null, null);
@@ -37,16 +37,18 @@ public class DynamoUtilsTest {
     @Test
     public void testGetPeople() throws IOException {
         DB_UTILS.clearAllCaches();
-        final Person person1 = new Person("1", "nick", "n1", "middle", "l1", LocalDate.now(), "cell", "email",
-                "tsa", new Address(), new Passport(), "notes", null);
-        final Person person2 = new Person("2", null, "n2", null, "l2", null, null, null, null, null, null, null, null);
-        final Person person3 = new Person("3", "n3", "n3", null, "l3", null, null, null, null, null, null, null, null);
+        final Person person1 = new Person(Person.Id.from("1"), "nick", "n1", "middle", "l1", LocalDate.now(),
+                "cell", "email", "tsa", new Address(), new Passport(), "notes", null);
+        final Person person2 = new Person(
+                Person.Id.from("2"), null, "n2", null, "l2", null, null, null, null, null, null, null, null);
+        final Person person3 = new Person(
+                Person.Id.from("3"), "n3", "n3", null, "l3", null, null, null, null, null, null, null, null);
         Assert.assertEquals(Boolean.TRUE, DB_UTILS.savePerson(person2).join());
         Assert.assertEquals(Boolean.TRUE, DB_UTILS.savePerson(person1).join());
         Assert.assertEquals(Boolean.TRUE, DB_UTILS.savePerson(person3).join());
         final List<Person> people = DB_UTILS.getPeople().join();
         Assert.assertEquals(people.size(), 3);
-        final Person person = people.stream().filter(p -> "1".equals(p.getId())).findAny().orElse(null);
+        final Person person = people.stream().filter(p -> Person.Id.from("1").equals(p.getId())).findAny().orElse(null);
         Assert.assertEquals(person1, person);
     }
 
@@ -60,7 +62,8 @@ public class DynamoUtilsTest {
         final Map<String, String> peopleTripEventStatus = Collections.singletonMap("admin", "Conf #abc123");
         final List<TripEvent> te = Collections.singletonList(new TripEvent(UUID.randomUUID().toString(),
                 "NY Flight", "description", start, null, peopleTripEventStatus));
-        final Trip trip = new Trip(id, title, true, desc, start, end, Collections.singletonList("joe"), te);
+        final Trip trip = new Trip(
+                id, title, true, desc, start, end, Collections.singletonList(Person.Id.from("joe")), te);
 
         DB_UTILS.clearAllCaches();
         Assert.assertEquals(0, DB_UTILS.getTrips().join().size(), "Should start w/ no trips.");
@@ -115,7 +118,7 @@ public class DynamoUtilsTest {
     @Test
     public void testGetTransactions() throws IOException {
         final String id = TestData.genAlpha(7);
-        final String userId = TestData.genAlpha(8);
+        final Person.Id userId = Person.Id.from(TestData.genAlpha(8));
         final String groupId = TestData.genAlpha(17);
         final String category = TestData.genAlpha(9);
         final String note = TestData.genAlpha(6);
@@ -136,7 +139,7 @@ public class DynamoUtilsTest {
 
     @Test
     public void testCacheAll() {
-        final String userId = TestData.genAlpha(5);
+        final Person.Id userId = Person.Id.from(TestData.genAlpha(5));
         final String groupId = TestData.genAlpha(4);
         final Transaction tx = new Transaction(userId, groupId, Type.Shared);
         final Transaction tx2 = new Transaction(userId, groupId, Type.Shared);

@@ -17,9 +17,9 @@
                 viewScope.reqPriv = "admin";
                 if (viewScope.type == null) {
                     if (param.id != null &amp;&amp; param.txId != null) {
-                        requestScope.tx = txCmds.getTransaction(param.id, param.txId);
+                        requestScope.tx = txCmds.getTransaction(people.id(param.id), param.txId);
                         if (tx.batch || tx.shared) {
-                            viewScope.fromUserId = param.id;
+                            viewScope.fromUserId = people.id(param.id);
                             viewScope.groupId = tx.groupId;
                             viewScope.type = tx.type;
                             viewScope.txDate = tx.txDate;
@@ -99,7 +99,7 @@
                 <p:commandButton immediate="true" id="cancel" value="Cancel" update="growl">
                     <jsft:event type="command">
                         if (fromUserId != null) {
-                            jsft.redirect("transactions.jsf?id=".concat(fromUserId));
+                            jsft.redirect("transactions.jsf?id=".concat(fromUserId.value));
                         } else {
                             jsft.redirect("tripContacts.jsf");
                         }
@@ -109,7 +109,7 @@
                     <jsft:event type="command">
                         if (txCmds.saveGroupTx(groupId, type, txDate, amount, category, note, batchPeople)) {
                             if (fromUserId != null) {
-                                jsft.redirect("transactions.jsf?id=".concat(fromUserId));
+                                jsft.redirect("transactions.jsf?id=".concat(fromUserId.value));
                             } else {
                                 jsft.redirect("tripContacts.jsf");
                             }
