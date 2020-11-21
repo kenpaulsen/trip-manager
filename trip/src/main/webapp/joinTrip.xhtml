@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" 
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"
+    xmlns:jsft="http://jsftemplating.java.net/jsft"
+    xmlns:ui="http://java.sun.com/jsf/facelets"
+    xmlns:p="http://primefaces.org/ui"
+    xmlns:pe="http://primefaces.org/ui/extensions"
+    xmlns:f="http://java.sun.com/jsf/core"
+    xmlns:h="http://java.sun.com/jsf/html">
+    <ui:composition template="template.xhtml">
+        <ui:define name="content">
+            <jsft:event type="initPage">
+                if (sessionScope.userId == null) {
+                    jsft.redirect("login.jsf"); // Not logged in
+                } else {
+                    if (viewScope.person == null) {
+                        viewScope.person = people.getPerson((param.id == null) ? userId : param.id);
+                    }
+                    if (param.trip != null) {
+                        viewScope.theTrip = trip.getTrip(param.trip);
+                    }
+                    if ((viewScope.person == null) || (viewScope.theTrip == null)) {
+                        jsft.redirect("person.jsf?id=".concat(userId)); // No trips to view
+                    } else if (!theTrip.openToPublic) {
+                        jsft.redirect("itinerary.jsf?trip=".concat(theTrip.id).concat("&amp;id=").concat(userId)); // Can't self-join this trip
+                    } else {
+                        viewScope.reqId = person.id;
+                        viewScope.reqPriv = "admin";
+                    }
+                }
+            </jsft:event>
+            <jsft:event type="afterCreate" insert="defaultAuth" />
+            <h2>#{theTrip.title} Registration
+                <h:outputLink rendered="#{showAll}" value="editTrip.jsf?id=#{theTrip.id}" style="color:#222277;font-weight:bold;font-size:13px;">Edit Trip</h:outputLink>
+            </h2>
+            <p:fieldset id="info" legend="Trip Info" style="margin-bottom:13px;">
+                <h:outputText value="#{theTrip.description}" escape="false" />
+                <p:panelGrid columns="2" styleClass="ui-noborder" columnClasses="propSheetLabel,propSheetValue">
+                    <h:outputText value="Trip Start: "/>
+                    <h:outputText value="#{theTrip.startDate}">
+                        <f:convertDateTime type="localDateTime" pattern="dd-MMM-yyyy" />
+                    </h:outputText>
+                    <h:outputText value="Trip End: " />
+                    <h:outputText value="#{theTrip.endDate}">
+                        <f:convertDateTime type="localDateTime" pattern="dd-MMM-yyyy" />
+                    </h:outputText>
+                </p:panelGrid>
+            </p:fieldset>
+
+            <p:fieldset id="userDetails" legend="Your Information" style="margin-bottom:13px;">
+                <p:panelGrid columns="2" styleClass="ui-noborder" columnClasses="propSheetLabel,propSheetValue">
+                    <h:outputText value="Full Name: "/>
+                    #{person.first} #{person.middle} #{person.last}
+                    <h:outputText value="Preferred Name: "/>
+                    #{person.nickname == null ? person.first : person.nickname}
+                    <h:outputText value="Cell Phone: "/>
+                    #{person.cell == null ? '&lt;missing&gt;' : person.cell}
+                    <h:outputText value="Email: "/>
+                    #{person.email == null ? '&lt;missing&gt;' : person.email}
+                    <h:outputText value="Birthdate: "/>
+                    <h:outputText value="#{person.birthdate}">
+                        <f:convertDateTime type="offsetDateTime" pattern="MMM dd, yyyy" />
+                    </h:outputText>
+                    <h:outputText value="Address: "/>
+                    <h:panelGroup>
+                        <h:outputText value="#{person.address.street}&lt;br /&gt;" rendered="#{person.address.street != null}" escape="false" />
+                        <h:outputText value="&amp;lt;missing street address&amp;gt;&lt;br /&gt;" rendered="#{person.address.street == null}" escape="false" />
+                        <h:outputText value="&amp;lt;missing city&amp;gt;" rendered="#{person.address.street == null}" escape="false" />
+                        <h:outputText value="#{person.address.city}" rendered="#{person.address.city != null}" />,
+                        <h:outputText value="#{person.address.state} #{person.address.zip}" rendered="#{person.address.state != null}" escape="false" />
+                        <h:outputText value="&amp;lt;missing state&amp;gt;" rendered="#{person.address.state == null}" escape="false" />
+                        #{person.address.zip}
+                    </h:panelGroup>
+                    <h:outputText value="Passport: "/>
+                    <h:panelGroup>
+                        <h:outputText value="&lt;missing passport number&gt;" rendered="#{person.passport.number == null}" />
+                        <h:outputText value="#{person.passport.country} #{person.passport.number} " rendered="#{person.passport.number != null}" />
+                        <h:panelGroup rendered="#{person.passport.expires != null and person.passport.number != null}">
+                            (expires:
+                            <h:outputText value="#{person.passport.expires}">
+                                <f:convertDateTime type="offsetDateTime" pattern="MMM dd, yyyy" />
+                            </h:outputText>
+                            )
+                        </h:panelGroup>
+                    </h:panelGroup>
+                    <h:outputText value="TSA Known Traveler ID Number: " rendered="#{person.tsa != nul}" />
+                    <h:panelGroup rendered="#{person.tsa != null}">
+                        #{person.tsa}
+                    </h:panelGroup>
+                    <h:outputText value=""/>
+                    <p:link href="person.jsf?id=#{person.id}" style="display:inline-block;color:#D03F68;margin-top:20px">Make Changes</p:link>
+                </p:panelGrid>
+            </p:fieldset>
+
+            <p:fieldset id="regStatus" legend="Registration Status" style="margin-bottom:13px;">
+            </p:fieldset>
+
+        </ui:define>
+    </ui:composition>
+</html>

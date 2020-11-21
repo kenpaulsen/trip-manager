@@ -78,9 +78,11 @@
         <ui:insert name="header">
             <div style="background-image:url('images/medjbanner.jpg'); background-size:cover; height:100px;">
                 <div class="siteheading">Medjugorje Trip Manager</div>
-                <p:linkButton id="Profile" value="Edit Profile" rendered="#{!showAll}" style="margin-right:8px;float:right" href="person.jsf">
-                    <f:param name="id" value="#{sessionScope.userId}" />
-                </p:linkButton>
+                <h:panelGroup style="margin-right:8px;float:right" rendered="#{!showAll}">
+                    <p:splitButton id="Profile" value="Edit Profile" onclick="document.location='person.jsf?id=#{sessionScope.userId}';return false;">
+                        <p:menuitem value="Logout" update="growl" url="login.jsf" />
+                    </p:splitButton>
+                </h:panelGroup>
                 <h:inputHidden type="hidden" id="url" />
                 <p:toggleSwitch value="#{sessionScope.dark}" onchange="document.getElementById('form:url').value=window.location;">
                     <p:ajax />
@@ -122,6 +124,13 @@
                                 comp = jsftComp.createComponent(null, "org.primefaces.component.UIMenuItem", null);
                                 comp.value = tab.title;
                                 comp.url = "itinerary.jsf?trip=".concat(tab.id).concat("&amp;id=".concat(sessionScope.userId));
+                                jsftComp.insertUIComponentBefore(component, comp);
+                                tabMap.put(tab.title, tabIdx);
+                                tabIdx = tabIdx + 1;
+                            } else if (tab.openToPublic) {
+                                comp = jsftComp.createComponent(null, "org.primefaces.component.UIMenuItem", null);
+                                comp.value = 'Join '.concat(tab.title);
+                                comp.url = "joinTrip.jsf?trip=".concat(tab.id).concat("&amp;id=".concat(sessionScope.userId));
                                 jsftComp.insertUIComponentBefore(component, comp);
                                 tabMap.put(tab.title, tabIdx);
                                 tabIdx = tabIdx + 1;

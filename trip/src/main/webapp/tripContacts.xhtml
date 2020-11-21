@@ -63,7 +63,7 @@
                     </h:panelGroup>
                 </p:column>
                 <p:column headerText="Email" width="230">
-                    <h:outputLink value="mailto:#{person.email}" rendered="#{person.email != null}">#{person.email}</h:outputLink><br />
+                    <h:outputText value="#{person.email}" rendered="#{person.email != null}">#{person.email}</h:outputText><br />
                     <h:panelGroup rendered="#{sessionScope.aUser != null}">
                         <p:commandLink value="View As #{person.preferredName}" immediate="true" ajax="false" style="color:#227722;font-weight:bold;font-size:12px;">
                             <jsft:event type="command">

@@ -22,6 +22,7 @@ import org.paulsens.trip.dynamo.DynamoUtils;
 public final class Trip implements Serializable {
     private String id;                  // Trip ID
     private String title;               // Title of trip
+    private Boolean openToPublic;       // True if people can register themselves
     private String description;         // Describes the trip
     private LocalDateTime startDate;    // Start of trip
     private LocalDateTime endDate;      // End of trip
@@ -33,6 +34,7 @@ public final class Trip implements Serializable {
     public Trip(
             @JsonProperty("id") String id,
             @JsonProperty("title") String title,
+            @JsonProperty("openToPublic") Boolean openToPublic,
             @JsonProperty("description") String description,
             @JsonProperty("startDate") LocalDateTime startDate,
             @JsonProperty("endDate") LocalDateTime endDate,
@@ -40,6 +42,7 @@ public final class Trip implements Serializable {
             @JsonProperty("tripEvents") List<TripEvent2> tripEvents) {
         this.id = id;
         this.title = title;
+        this.openToPublic = openToPublic == null || openToPublic;
         this.description = description;
         this.startDate = startDate;
         this.endDate = endDate;

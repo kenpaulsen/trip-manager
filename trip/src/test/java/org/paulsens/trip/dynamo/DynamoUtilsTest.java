@@ -21,8 +21,7 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 public class DynamoUtilsTest {
-
-    private static DynamoUtils DB_UTILS = DynamoUtils.getInstance();
+    private static final DynamoUtils DB_UTILS = DynamoUtils.getInstance();
 
     @Test
     public void testSavePerson() throws IOException {
@@ -61,7 +60,7 @@ public class DynamoUtilsTest {
         final Map<String, String> peopleTripEventStatus = Collections.singletonMap("admin", "Conf #abc123");
         final List<TripEvent2> te = Collections.singletonList(new TripEvent2(UUID.randomUUID().toString(),
                 "NY Flight", "description", start, null, peopleTripEventStatus));
-        final Trip trip = new Trip(id, title, desc, start, end, Collections.singletonList("joe"), te);
+        final Trip trip = new Trip(id, title, true, desc, start, end, Collections.singletonList("joe"), te);
 
         DB_UTILS.clearAllCaches();
         Assert.assertEquals(0, DB_UTILS.getTrips().join().size(), "Should start w/ no trips.");
