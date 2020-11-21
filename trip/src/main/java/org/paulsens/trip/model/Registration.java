@@ -1,32 +1,33 @@
 package org.paulsens.trip.model;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
-import lombok.Data;
+import lombok.Value;
 
-@Data
-public final class Registration implements Serializable {
-    private String id;                  // Registration ID
-    private String tripId;              // The trip id
-    private LocalDateTime created;      // When they first registered
-    private Map<String, String> notes;  // Extra information
+@Value
+public class Registration implements Serializable {
+    String tripId;              // The trip id (partition key)
+    String userId;              // The user id (sort key)
+    LocalDateTime created;      // When they first registered
+    Map<String, String> notes;  // Extra information
 
+    @JsonCreator
     public Registration(
-            @JsonProperty("id") String id,
-            @JsonProperty("tripId") String tripId,
-            @JsonProperty("created") LocalDateTime created,
-            @JsonProperty("notes") Map<String, String> notes) {
-        this.id = (id == null) ? UUID.randomUUID().toString() : id;
+            @JsonProperty("tripId") final String tripId,
+            @JsonProperty("userId") final String userId,
+            @JsonProperty("created") final LocalDateTime created,
+            @JsonProperty("notes") final Map<String, String> notes) {
         this.tripId = tripId;
+        this.userId = userId;
         this.created = (created == null) ? LocalDateTime.now() : created;
-        this.notes = notes;
+        this.notes = (notes == null) ? new HashMap<>() : notes;
     }
 
-    public Registration(final String tripId) {
-        this(null, tripId, null, new HashMap<>());
+    public Registration(final String tripId, final String userId) {
+        this(tripId, userId, null, null);
     }
 }

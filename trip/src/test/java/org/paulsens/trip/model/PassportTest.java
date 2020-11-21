@@ -1,12 +1,11 @@
 package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.io.IOException;
 import java.time.LocalDate;
 import nl.jqno.equalsverifier.EqualsVerifier;
 import nl.jqno.equalsverifier.Warning;
+import org.paulsens.trip.dynamo.DynamoUtils;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -83,9 +82,7 @@ public class PassportTest {
 
     @Test
     public void canSerializePassport() throws IOException {
-        final ObjectMapper mapper = new ObjectMapper();
-        mapper.registerModule(new JavaTimeModule());
-        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
 
         final Passport orig = getTestPassport(NUMBER, COUNTRY, EXPIRES, ISSUED);
         final String json = mapper.writeValueAsString(orig);

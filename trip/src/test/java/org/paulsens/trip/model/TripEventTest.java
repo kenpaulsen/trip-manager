@@ -1,11 +1,10 @@
 package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.io.IOException;
 import nl.jqno.equalsverifier.EqualsVerifier;
 import nl.jqno.equalsverifier.Warning;
+import org.paulsens.trip.dynamo.DynamoUtils;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -17,9 +16,7 @@ public class TripEventTest {
 
     @Test
     void canSerializeTripEvent() throws IOException {
-        final ObjectMapper mapper = new ObjectMapper();
-        mapper.registerModule(new JavaTimeModule());
-        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
 
         final TripEvent te1  = new TripEvent();
         final String json1 = mapper.writeValueAsString(te1);

@@ -26,6 +26,7 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
@@ -53,6 +54,7 @@ public class DynamoUtils {
     private final Map<String, Trip> tripCache = new ConcurrentHashMap<>();
     private final Map<String, TripEvent> tripEventCache = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Transaction>> txCache = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, Registration>> regCache = new ConcurrentHashMap<>();
 
     // This flag is set in the web.xml via the login page via the
     private static final String FACES_SERVLET = "Faces Servlet";
