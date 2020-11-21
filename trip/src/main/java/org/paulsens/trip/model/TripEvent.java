@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import lombok.Data;
 
 @Data
-public final class TripEvent2 implements Serializable {
+public final class TripEvent implements Serializable {
     private final String id;                    // TripEvent ID
     private String title;                       // Event title
     private String notes;                       // Event notes
@@ -19,7 +19,7 @@ public final class TripEvent2 implements Serializable {
     private List<String> participants;          // Who's doing this thing?
     private final Map<String, String> privNotes; // Mapping of userId to Status
 
-    public TripEvent2(
+    public TripEvent(
             @JsonProperty("id") String id,
             @JsonProperty("title") String title,
             @JsonProperty("notes") String notes,
@@ -37,12 +37,12 @@ public final class TripEvent2 implements Serializable {
         this.privNotes = (privNotes == null) ? new ConcurrentHashMap<>() : new ConcurrentHashMap<>(privNotes);
     }
 
-    public TripEvent2() {
+    public TripEvent() {
         this(UUID.randomUUID().toString(), "", null, null, null, null);
     }
 
     /*
-    public TripEvent2(final TripEvent oldTE) {
+    public TripEvent(final TripEvent oldTE) {
         this(oldTE.getId(), oldTE.getTitle(), oldTE.getNotes(), oldTE.getStart(), oldTE.getParticipants(),
                 getIndividualNotes(oldTE));
     }

@@ -29,7 +29,7 @@ public final class Trip implements Serializable {
     private List<String> people;        // UserIds
     @JsonSerialize(converter = TripEventsSerializer.class)
     @JsonDeserialize(converter = TripEventsDeserializer.class)
-    private List<TripEvent2> tripEvents; // The stuff needed to book, airfare, hotel, etc. w/ conf #'s or yes/no/NA/?
+    private List<TripEvent> tripEvents; // The stuff needed to book, airfare, hotel, etc. w/ conf #'s or yes/no/NA/?
 
     public Trip(
             @JsonProperty("id") String id,
@@ -39,7 +39,7 @@ public final class Trip implements Serializable {
             @JsonProperty("startDate") LocalDateTime startDate,
             @JsonProperty("endDate") LocalDateTime endDate,
             @JsonProperty("people") List<String> people,
-            @JsonProperty("tripEvents") List<TripEvent2> tripEvents) {
+            @JsonProperty("tripEvents") List<TripEvent> tripEvents) {
         this.id = id;
         this.title = title;
         this.openToPublic = openToPublic == null || openToPublic;
@@ -68,57 +68,57 @@ public final class Trip implements Serializable {
         });
         // Add it
         final String id = UUID.randomUUID().toString();
-        tripEvents.add(new TripEvent2(id, title, notes, date, null, null));
+        tripEvents.add(new TripEvent(id, title, notes, date, null, null));
         return id;
     }
 
     @JsonIgnore
-    public TripEvent2 getTripEvent(final String teId) {
+    public TripEvent getTripEvent(final String teId) {
         return tripEvents.stream().filter(e -> e.getId().equals(teId)).findAny().orElse(null);
     }
 
     @JsonIgnore
-    public List<TripEvent2> getTripEventsForUser(final String userId) {
+    public List<TripEvent> getTripEventsForUser(final String userId) {
         return tripEvents.stream().filter(te -> te.getParticipants().contains(userId)).collect(Collectors.toList());
     }
 
     @JsonIgnore
-    public void deleteTripEvent(final TripEvent2 te) {
+    public void deleteTripEvent(final TripEvent te) {
         tripEvents.remove(te);
     }
 
-    public void editTripEvent(final TripEvent2 newTE) {
+    public void editTripEvent(final TripEvent newTE) {
         // Ensure we have the TripEvent to edit
-        final TripEvent2 oldTE = tripEvents.stream().filter(e -> e.getId().equals(newTE.getId())).findAny()
+        final TripEvent oldTE = tripEvents.stream().filter(e -> e.getId().equals(newTE.getId())).findAny()
                 .orElseThrow(() -> new IllegalArgumentException("TripEvent id (" + newTE.getId() + ") not found!"));
         tripEvents.remove(oldTE);
         tripEvents.add(newTE);
     }
 
-    private boolean matchingTE(final TripEvent2 te, final String title, final LocalDateTime date) {
+    private boolean matchingTE(final TripEvent te, final String title, final LocalDateTime date) {
         return title.equals(te.getTitle()) && date.equals(te.getStart());
     }
 
-    static class TripEventsSerializer extends StdConverter<List<TripEvent2>, List<String>> {
+    static class TripEventsSerializer extends StdConverter<List<TripEvent>, List<String>> {
         @Override
-        public List<String> convert(final List<TripEvent2> events) {
+        public List<String> convert(final List<TripEvent> events) {
             if (events == null) {
                 return Collections.emptyList();
             }
-            return events.stream().map(TripEvent2::getId).collect(Collectors.toList());
+            return events.stream().map(TripEvent::getId).collect(Collectors.toList());
         }
     }
 
-    static class TripEventsDeserializer extends StdConverter<List<String>, List<TripEvent2>> {
+    static class TripEventsDeserializer extends StdConverter<List<String>, List<TripEvent>> {
         @Override
-        public List<TripEvent2> convert(final List<String> ids) {
+        public List<TripEvent> convert(final List<String> ids) {
             if (ids == null) {
                 return Collections.emptyList();
             }
             final DynamoUtils dynamo = DynamoUtils.getInstance();
             final CompletableFuture<?>[] tes = ids.stream().map(dynamo::getTripEvent).toArray(CompletableFuture[]::new);
             return CompletableFuture.allOf(tes).thenApply(v -> Arrays.stream(tes)
-                    .map(fut -> (TripEvent2) fut.join())
+                    .map(fut -> (TripEvent) fut.join())
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList()))
                     .join();

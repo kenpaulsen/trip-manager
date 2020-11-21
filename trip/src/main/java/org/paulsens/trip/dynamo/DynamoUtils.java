@@ -28,7 +28,7 @@ import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
-import org.paulsens.trip.model.TripEvent2;
+import org.paulsens.trip.model.TripEvent;
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.http.SdkHttpResponse;
 import software.amazon.awssdk.regions.Region;
@@ -51,7 +51,7 @@ public class DynamoUtils {
 
     private final Map<String, Person> peopleCache = new ConcurrentHashMap<>();
     private final Map<String, Trip> tripCache = new ConcurrentHashMap<>();
-    private final Map<String, TripEvent2> tripEventCache = new ConcurrentHashMap<>();
+    private final Map<String, TripEvent> tripEventCache = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Transaction>> txCache = new ConcurrentHashMap<>();
 
     // This flag is set in the web.xml via the login page via the
@@ -167,7 +167,7 @@ public class DynamoUtils {
                 .thenApply((v) -> Arrays.stream(saves).allMatch(fut -> (Boolean) fut.join()));
     }
 
-    public CompletableFuture<Boolean> saveTripEvent(final TripEvent2 te) {
+    public CompletableFuture<Boolean> saveTripEvent(final TripEvent te) {
         // Fixme: should we check if we need to save?
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(ID, toStrAttr(te.getId()));
@@ -203,8 +203,8 @@ public class DynamoUtils {
                 .thenApply(list -> cacheAll(tripCache, list, Trip::getId));
     }
 
-    public CompletableFuture<TripEvent2> getTripEvent(final String id) {
-        final TripEvent2 te = tripEventCache.get(id);
+    public CompletableFuture<TripEvent> getTripEvent(final String id) {
+        final TripEvent te = tripEventCache.get(id);
         if (te != null) {
             return CompletableFuture.completedFuture(te);
         }
@@ -406,7 +406,7 @@ public class DynamoUtils {
         }
     }
 
-    private TripEvent2 toTripEvent(final GetItemResponse resp, final String teId) {
+    private TripEvent toTripEvent(final GetItemResponse resp, final String teId) {
         if (!resp.hasItem()) {
             log.warn("TripEvent (" + teId + ") not found!");
             return null;
@@ -417,7 +417,7 @@ public class DynamoUtils {
             return null;
         }
         try {
-            return mapper.readValue(content.s(), TripEvent2.class);
+            return mapper.readValue(content.s(), TripEvent.class);
         } catch (final IOException ex) {
             log.error("Unable to parse TripEvent record: " + content, ex);
             return null;

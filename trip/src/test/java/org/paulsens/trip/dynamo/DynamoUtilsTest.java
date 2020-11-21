@@ -15,7 +15,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Transaction.Type;
 import org.paulsens.trip.model.Trip;
-import org.paulsens.trip.model.TripEvent2;
+import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.testutil.TestData;
 import org.testng.Assert;
 import org.testng.annotations.Test;
@@ -58,7 +58,7 @@ public class DynamoUtilsTest {
         final LocalDateTime start = LocalDateTime.now();
         final LocalDateTime end = LocalDateTime.now().plusDays(2);
         final Map<String, String> peopleTripEventStatus = Collections.singletonMap("admin", "Conf #abc123");
-        final List<TripEvent2> te = Collections.singletonList(new TripEvent2(UUID.randomUUID().toString(),
+        final List<TripEvent> te = Collections.singletonList(new TripEvent(UUID.randomUUID().toString(),
                 "NY Flight", "description", start, null, peopleTripEventStatus));
         final Trip trip = new Trip(id, title, true, desc, start, end, Collections.singletonList("joe"), te);
 

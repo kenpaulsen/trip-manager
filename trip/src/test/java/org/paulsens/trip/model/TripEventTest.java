@@ -12,7 +12,7 @@ import org.testng.annotations.Test;
 public class TripEventTest {
     @Test
     public void equalsTest() {
-        EqualsVerifier.forClass(TripEvent2.class).suppress(Warning.NONFINAL_FIELDS).verify();
+        EqualsVerifier.forClass(TripEvent.class).suppress(Warning.NONFINAL_FIELDS).verify();
     }
 
     @Test
@@ -21,9 +21,9 @@ public class TripEventTest {
         mapper.registerModule(new JavaTimeModule());
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
-        final TripEvent2 te1  = new TripEvent2();
+        final TripEvent te1  = new TripEvent();
         final String json1 = mapper.writeValueAsString(te1);
-        final TripEvent2 restoredTE1 = mapper.readValue(json1, TripEvent2.class);
+        final TripEvent restoredTE1 = mapper.readValue(json1, TripEvent.class);
         Assert.assertEquals(te1, restoredTE1);
     }
 }
