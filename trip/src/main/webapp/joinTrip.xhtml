@@ -21,10 +21,11 @@
                         viewScope.theTrip = trip.getTrip(param.trip);
                     }
                     if ((viewScope.person == null) || (viewScope.theTrip == null)) {
-                        jsft.redirect("person.jsf?id=".concat(userId.value)); // No trips to view
-                    } else if (!theTrip.openToPublic) {
-                        jsft.redirect("itinerary.jsf?trip=".concat(theTrip.id).concat("&amp;id=").concat(userId.value)); // Can't self-join this trip
+                        jsft.redirect("hello.jsf"); // Invalid
                     } else {
+                        if (viewScope.registration == null) {
+                            viewScope.registration = reg.getRegistration(theTrip.id, person.id);
+                        }
                         viewScope.reqId = person.id;
                         viewScope.reqPriv = "admin";
                     }
@@ -34,6 +35,12 @@
             <h2>#{theTrip.title} Registration
                 <h:outputLink rendered="#{showAll}" value="editTrip.jsf?id=#{theTrip.id}" style="color:#222277;font-weight:bold;font-size:13px;">Edit Trip</h:outputLink>
             </h2>
+
+            <p:fieldset id="regStatus" legend="Registration Status" style="margin-bottom:13px;">
+                <h:panelGroup style="padding-left:30px;width:80%;display:inline-block;font-size:24px;font-weight:bold;color:#D03F68;">
+                    <h:outputText value="#{registration.status}" style="display:inline-block;padding-top:6px;padding-bottom:6px;"/>
+                </h:panelGroup>
+            </p:fieldset>
             <p:fieldset id="info" legend="Trip Info" style="margin-bottom:13px;">
                 <h:outputText value="#{theTrip.description}" escape="false" />
                 <p:panelGrid columns="2" styleClass="ui-noborder" columnClasses="propSheetLabel,propSheetValue">
@@ -91,7 +98,40 @@
                 </p:panelGrid>
             </p:fieldset>
 
-            <p:fieldset id="regStatus" legend="Registration Status" style="margin-bottom:13px;">
+            <p:fieldset id="getDetails" legend="Trip Options" style="margin-bottom:13px;">
+                <p:panelGrid columns="2" styleClass="ui-noborder" columnClasses="propSheetLabel,propSheetValue">
+                    <jsft:event type="afterCreate">
+                        tripOptsComp = component;
+                        foreach("opt", theTrip.regOptions) {
+                            comp = jsftComp.createComponent('optLabel'.concat(opt.id), "org.primefaces.component.OutputLabel", component);
+                            comp.value = opt.shortDesc;
+                            comp.for = 'opt'.concat(opt.id);
+                            panelComp = jsftComp.createComponent('optPanel'.concat(opt.id), "javax.faces.HtmlPanelGroup", component);
+                            comp = jsftComp.createComponent('opt'.concat(opt.id), "org.primefaces.component.InputText", panelComp);
+                            tmpstr = '#{registration.options["'.concat(opt.id).concat('"]}');
+                            comp.setValueExpression("value", jsftComp.createValueExpression(tmpstr));
+                            comp.size = 60;
+                            
+                            comp = jsftComp.createComponent(null, "javax.faces.HtmlOutputText", panelComp);
+                            comp.value = '&lt;br&gt;'.concat(opt.longDesc);
+                            comp.style = 'color:#888888;font-size:12px;';
+                            comp.escape = false;
+                        }
+                    </jsft:event>
+                </p:panelGrid>
+                <p:commandButton id="Register" value="#{registration.status == 'Not Registered' ? 'Register' : 'Save'}" style="margin-top:10px;">
+                    <jsft:event type="command">
+                        if (registration.status == 'Not Registered') {
+                            viewScope.registration = registration.withStatus('Pending');
+                        }
+                        reg.saveRegistration(viewScope.registration);
+                        jsft.redirect("itinerary.jsf?trip=".concat(theTrip.id).concat('&amp;id=').concat(person.id.value));
+                    </jsft:event>
+                    <jsft:event type="afterCreate">
+                        jsftComp.createComponent(null, "javax.faces.HtmlOutputText", tripOptsComp);
+                        jsftComp.addUIComponent(tripOptsComp, component);
+                    </jsft:event>
+                </p:commandButton>
             </p:fieldset>
 
         </ui:define>

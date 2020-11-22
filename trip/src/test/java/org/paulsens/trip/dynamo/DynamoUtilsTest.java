@@ -63,7 +63,8 @@ public class DynamoUtilsTest {
         final List<TripEvent> te = Collections.singletonList(new TripEvent(UUID.randomUUID().toString(),
                 "NY Flight", "description", start, null, peopleTripEventStatus));
         final Trip trip = new Trip(
-                id, title, true, desc, start, end, Collections.singletonList(Person.Id.from("joe")), te);
+                id, title, true, desc, start, end, Collections.singletonList(Person.Id.from("joe")), te,
+                FakeData.getDefaultOptions());
 
         DB_UTILS.clearAllCaches();
         Assert.assertEquals(0, DB_UTILS.getTrips().join().size(), "Should start w/ no trips.");

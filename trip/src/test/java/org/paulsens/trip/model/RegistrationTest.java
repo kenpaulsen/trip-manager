@@ -26,13 +26,13 @@ public class RegistrationTest {
         Assert.assertNotEquals(reg, reg2, "Timestamps should be different.");
 
         final String customVal = TestData.genAlpha(13);
-        reg.getNotes().put("Custom", customVal);
+        reg.getOptions().put("Custom", customVal);
         final String json = mapper.writeValueAsString(reg);
         final Registration restoredReg = mapper.readValue(json, Registration.class);
         Assert.assertEquals(reg, restoredReg);
         Assert.assertEquals(userId, restoredReg.getUserId());
         Assert.assertEquals(tripId, restoredReg.getTripId());
-        Assert.assertEquals(customVal, restoredReg.getNotes().get("Custom"));
+        Assert.assertEquals(customVal, restoredReg.getOptions().get("Custom"));
     }
 
     @Test

@@ -39,7 +39,7 @@
  * holder.
  */
 
-/**
+/*
  *  UtilCommands.java
  *
  *  Created  April 2, 2011
@@ -91,7 +91,7 @@ public class JSFTCommands {
     /**
      *	<p> This command iterates over the given List and sets given
      */
-    public void foreach(String var, List list) {
+    public void foreach(String var, Iterable<?> list) {
 	// Get the Request Map
 	Map<String, Object> reqMap = FacesContext.getCurrentInstance().
 		getExternalContext().getRequestMap();
@@ -139,7 +139,7 @@ public class JSFTCommands {
      *	<p> This command writes using
      *	    <code>FacesContext.getResponseWriter()</code>.</p>
      *
-     *	@param	context	The HandlerContext.
+     *	@param	text	The text to write.
      */
     public static void write(String text) {
 	if (text == null) {
@@ -163,8 +163,6 @@ public class JSFTCommands {
      *	    additional response will be sent.  This is useful if you've
      *	    provided a response already and you don't want JSF to do it again
      *	    (it may cause problems to do it 2x).</p>
-     *
-     *	@param	context	The HandlerContext.
      */
     public static void responseComplete() {
 	FacesContext.getCurrentInstance().responseComplete();
@@ -178,8 +176,6 @@ public class JSFTCommands {
      *	    an error ocurrs or validation fails.  Typically the page the user
      *	    is on will be reshown (although if navigation has already
      *	    occurred, the new page will be shown.</p>
-     *
-     *	@param	context	The HandlerContext.
      */
     public void renderResponse() {
 	FacesContext.getCurrentInstance().renderResponse();
@@ -275,7 +271,7 @@ public class JSFTCommands {
 	    // Get the UIViewRoot by name...
 	    root = getUIViewRoot((String) page);
         } else if (page instanceof UIViewRoot) {
-            // We recieved a UIViewRoot, use it...
+            // We received a UIViewRoot, use it...
             root = (UIViewRoot) page;
         } else {
             throw new IllegalArgumentException("Type '"
@@ -291,5 +287,5 @@ public class JSFTCommands {
      *	<p> This is application scoped, so it is not safe to change.  Use
      *	    caution.</p>
      */
-    private long nanoStartTime = System.nanoTime();
+    private final long nanoStartTime = System.nanoTime();
 }

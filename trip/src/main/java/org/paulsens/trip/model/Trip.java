@@ -20,16 +20,17 @@ import org.paulsens.trip.dynamo.DynamoUtils;
 
 @Data
 public final class Trip implements Serializable {
-    private String id;                  // Trip ID
-    private String title;               // Title of trip
-    private Boolean openToPublic;       // True if people can register themselves
-    private String description;         // Describes the trip
-    private LocalDateTime startDate;    // Start of trip
-    private LocalDateTime endDate;      // End of trip
-    private List<Person.Id> people;        // UserIds
+    private String id;                              // Trip ID
+    private String title;                           // Title of trip
+    private Boolean openToPublic;                   // True if people can register themselves
+    private String description;                     // Describes the trip
+    private LocalDateTime startDate;                // Start of trip
+    private LocalDateTime endDate;                  // End of trip
+    private List<Person.Id> people;                 // UserIds
     @JsonSerialize(converter = TripEventsSerializer.class)
     @JsonDeserialize(converter = TripEventsDeserializer.class)
-    private List<TripEvent> tripEvents; // The stuff needed to book, airfare, hotel, etc. w/ conf #'s or yes/no/NA/?
+    private List<TripEvent> tripEvents;             // The stuff needed to book, airfare, hotel, etc.
+    private List<RegistrationQuestion> regOptions;    // Registration page questions
 
     public Trip(
             @JsonProperty("id") String id,
@@ -39,7 +40,8 @@ public final class Trip implements Serializable {
             @JsonProperty("startDate") LocalDateTime startDate,
             @JsonProperty("endDate") LocalDateTime endDate,
             @JsonProperty("people") List<Person.Id> people,
-            @JsonProperty("tripEvents") List<TripEvent> tripEvents) {
+            @JsonProperty("tripEvents") List<TripEvent> tripEvents,
+            @JsonProperty("regOptions") List<RegistrationQuestion> regOptions) {
         this.id = id;
         this.title = title;
         this.openToPublic = openToPublic == null || openToPublic;
@@ -48,6 +50,7 @@ public final class Trip implements Serializable {
         this.endDate = endDate;
         this.people = (people == null) ? new ArrayList<>() : people;
         this.tripEvents = (tripEvents == null) ? new ArrayList<>() : new ArrayList<>(tripEvents);
+        this.regOptions = (regOptions == null) ? new ArrayList<>() : regOptions;
     }
 
     public Trip() {

@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 import lombok.Getter;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.RegistrationQuestion;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 
@@ -48,7 +49,7 @@ public class FakeData {
         charter.getParticipants().add(allPeople.get(0));
         events.add(charter);
         trips.add(new Trip("faketrip", "Spring Demo Trip", false, "desc", LocalDateTime.of(2021, 3, 26, 6, 10),
-                LocalDateTime.of(2021, 4, 6, 16, 40), allPeople, events));
+                LocalDateTime.of(2021, 4, 6, 16, 40), allPeople, events, getDefaultOptions()));
 
         // Trip 2
         final List<Person.Id> somePeople = getFakePeople().stream()
@@ -61,8 +62,29 @@ public class FakeData {
                 LocalDateTime.of(2020, 7, 29, 6, 10), null, null));
         events2.add(new TripEvent("te3", "DBV -> KEF", "Trip for 1 to Iceland",
                 LocalDateTime.of(2020, 8, 6, 8, 33), null, null));
-        trips.add(new Trip("Fake2", "Summer Demo Trip", true, "Trip Description",
-                LocalDateTime.of(2021, 7, 29, 6, 10), LocalDateTime.of(2021, 8, 6, 16, 40), somePeople, events2));
+        trips.add(new Trip("Fake2", "Summer Demo Trip", true, "Trip Description", LocalDateTime.of(2021, 7, 29, 6, 10),
+                LocalDateTime.of(2021, 8, 6, 16, 40), somePeople, events2, getDefaultOptions()));
         return trips;
+    }
+
+    static List<RegistrationQuestion> getDefaultOptions() {
+        final List<RegistrationQuestion> result = new ArrayList<>();
+        result.add(new RegistrationQuestion(1, "Room Preference:",
+                "Private room ($15 more per night) or shared?"));
+        result.add(new RegistrationQuestion(2, "Roommate request?",
+                "If you are sharing a room, do you have someone in mind?"));
+        result.add(new RegistrationQuestion(3, "Preferred Departure Airport?",
+                "What airport would you like to leave from?"));
+        result.add(new RegistrationQuestion(4, "Trip Insurance?",
+                "Price is will be paid directly to insurance company, typically $100+."));
+        result.add(new RegistrationQuestion(6, "Portugal excursion?",
+                "Those interested will visit Fatima before the main trip."));
+        result.add(new RegistrationQuestion(5, "Check luggage?",
+                "Will you need to check luggage?"));
+        result.add(new RegistrationQuestion(7, "Special Requests?",
+                "Do you have any special requests for this trip?"));
+        result.add(new RegistrationQuestion(8, "Agree to Terms?",
+                "Type your full name to agree."));
+        return result;
     }
 }

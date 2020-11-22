@@ -53,6 +53,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import javax.el.ValueExpression;
 import javax.faces.component.UIComponent;
 import javax.faces.context.FacesContext;
 import javax.faces.bean.ManagedBean;
@@ -247,7 +248,7 @@ parent.setInView(inview);
      *	    removed.</p>
      *
      *	@param	old	The component to replace.
-     *	@param	comp	The replacement component.
+     *	@param	newComp	The replacement component.
      */
     public void replaceUIComponent(UIComponent old, UIComponent newComp) {
 	// Verify that we have the old component...
@@ -510,6 +511,10 @@ parent.setInView(inview);
 		fixUIInstructions(kid, replace);
 	    }
 	}
+    }
+
+    public ValueExpression createValueExpression(final String el) {
+        return ELUtil.getInstance().getValueExpression(FacesContext.getCurrentInstance(), el);
     }
 
     /**
