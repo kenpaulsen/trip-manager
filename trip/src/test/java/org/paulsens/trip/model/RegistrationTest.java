@@ -17,7 +17,7 @@ public class RegistrationTest {
     @Test
     void canSerializeTripEvent() throws Exception {
         final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
-        final String userId = TestData.genAlpha(15);
+        final Person.Id userId = Person.Id.newInstance();
         final String tripId = TestData.genAlpha(18);
 
         final Registration reg  = new Registration(tripId, userId);
@@ -38,8 +38,11 @@ public class RegistrationTest {
     @Test
     void createDateIsPreserved() throws Exception {
         final LocalDateTime createTime = LocalDateTime.now();
+        final String status = TestData.genAlpha(12);
         Thread.sleep(1L);
-        final Registration reg = new Registration(TestData.genAlpha(3), TestData.genAlpha(5), createTime, null);
+        final Registration reg = new Registration(
+                TestData.genAlpha(3), Person.Id.newInstance(), createTime, status, null);
         Assert.assertEquals(createTime, reg.getCreated());
+        Assert.assertEquals(status, reg.getStatus());
     }
 }

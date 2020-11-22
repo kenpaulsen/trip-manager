@@ -31,12 +31,14 @@ public class TransactionsCommands {
         // FIXME: Add Validations
         boolean result;
         try {
-            result = DynamoUtils.getInstance().saveTransaction(tx).exceptionally(ex -> {
-                    TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                            "Unable to save transaction for userId: " + tx.getUserId(), ex.getMessage());
-                    log.error("Error while saving transaction: ", ex);
-                    return false;
-                }).join();
+            result = DynamoUtils.getInstance()
+                    .saveTransaction(tx)
+                    .exceptionally(ex -> {
+                        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
+                                "Unable to save transaction for userId: " + tx.getUserId(), ex.getMessage());
+                        log.error("Error while saving transaction: ", ex);
+                        return false;
+                    }).join();
         } catch (final IOException ex) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Unable to save transaction for userId: "
                     + tx.getUserId(), ex.getMessage());

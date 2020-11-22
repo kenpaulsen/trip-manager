@@ -11,23 +11,26 @@ import lombok.Value;
 @Value
 public class Registration implements Serializable {
     String tripId;              // The trip id (partition key)
-    String userId;              // The user id (sort key)
+    Person.Id userId;           // The user id (sort key)
     LocalDateTime created;      // When they first registered
+    String status;              // Registration Status
     Map<String, String> notes;  // Extra information
 
     @JsonCreator
     public Registration(
             @JsonProperty("tripId") final String tripId,
-            @JsonProperty("userId") final String userId,
+            @JsonProperty("userId") final Person.Id userId,
             @JsonProperty("created") final LocalDateTime created,
+            @JsonProperty("status") final String status,
             @JsonProperty("notes") final Map<String, String> notes) {
         this.tripId = tripId;
         this.userId = userId;
         this.created = (created == null) ? LocalDateTime.now() : created;
+        this.status = (status == null) ? "Pending" : status;
         this.notes = (notes == null) ? new HashMap<>() : notes;
     }
 
-    public Registration(final String tripId, final String userId) {
-        this(tripId, userId, null, null);
+    public Registration(final String tripId, final Person.Id userId) {
+        this(tripId, userId, null, null, null);
     }
 }

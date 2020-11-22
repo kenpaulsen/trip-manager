@@ -54,16 +54,19 @@ public class DynamoUtils {
     private final Map<String, Trip> tripCache = new ConcurrentHashMap<>();
     private final Map<String, TripEvent> tripEventCache = new ConcurrentHashMap<>();
     private final Map<Person.Id, Map<String, Transaction>> txCache = new ConcurrentHashMap<>();
-    private final Map<String, Map<String, Registration>> regCache = new ConcurrentHashMap<>();
+    private final Map<String, Map<Person.Id, Registration>> regCache = new ConcurrentHashMap<>();
 
-    // This flag is set in the web.xml via the login page via the
-    private static final String FACES_SERVLET = "Faces Servlet";
+    // This flag is set in the web.xml
     private static final String LOCAL = "local";
+    private static final String FACES_SERVLET = "Faces Servlet";
     private static final String PASS_TABLE = "pass";
     private static final String PERSON_TABLE = "people";
     private static final String TRANSACTION_TABLE = "transactions";
     private static final String TRIP_TABLE = "trips";
     private static final String TRIP_EVENT_TABLE = "trip_events";
+    private static final String TRIP_ID = "tripId";
+    private static final String REGISTRATION_TABLE = "registrations";
+    private static final String DELETED = "deleted";
     private static final String ID = "id";
     private static final String USER_ID = "userId";
     private static final String CONTENT = "content";
@@ -161,16 +164,8 @@ public class DynamoUtils {
                 .exceptionally(ex -> false);
     }
 
-    private CompletableFuture<Boolean> saveAllTripEvents(final Trip trip) {
-        final CompletableFuture<?>[] saves = trip.getTripEvents().stream()
-                .map(this::saveTripEvent).toArray(CompletableFuture[]::new);
-        return CompletableFuture.allOf(saves)
-                // If any returned false, then fail
-                .thenApply((v) -> Arrays.stream(saves).allMatch(fut -> (Boolean) fut.join()));
-    }
-
     public CompletableFuture<Boolean> saveTripEvent(final TripEvent te) {
-        // Fixme: should we check if we need to save?
+        // FIXME: should we check if we need to save?
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(ID, toStrAttr(te.getId()));
         try {
@@ -215,6 +210,30 @@ public class DynamoUtils {
                 .thenApply(item -> toTripEvent(item, id));
     }
 
+    public CompletableFuture<Boolean> saveRegistration(final Registration reg) throws IOException {
+        final Map<String, AttributeValue> map = new HashMap<>();
+        map.put(TRIP_ID, toStrAttr(reg.getTripId()));
+        map.put(USER_ID, toStrAttr(reg.getUserId().getValue()));
+        map.put(CONTENT, toStrAttr(mapper.writeValueAsString(reg)));
+        final CompletableFuture<Map<Person.Id, Registration>> futTripRegs = getTripRegistrationCache(reg.getTripId());
+        return client.putItem(b -> b.tableName(REGISTRATION_TABLE).item(map))
+                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
+                .thenCombine(futTripRegs, (success, tripRegs) -> success ? tripRegs : null)
+                .thenApply(tripRegs -> cacheOne(tripRegs, reg, reg.getUserId(), tripRegs != null))
+                .exceptionally(ex -> false);
+    }
+
+    public CompletableFuture<List<Registration>> getRegistrations(final String tripId) {
+        return getTripRegistrationCache(tripId)
+                .thenApply(map -> new ArrayList<>(map.values()));
+    }
+
+    public CompletableFuture<Optional<Registration>> getRegistration(final String tripId, final Person.Id userId) {
+        return getTripRegistrationCache(tripId)     // Ensure registrations for this trip are loaded into memory
+                .thenApply(map -> map.get(userId))  // Read from cache
+                .thenApply(Optional::ofNullable);
+    }
+
     public CompletableFuture<Creds> getCredsByEmailAndPass(final String email, final String pass) {
         if ((email == null) || email.isEmpty() || (pass == null) || pass.isEmpty()) {
             return CompletableFuture.completedFuture(null);
@@ -246,7 +265,8 @@ public class DynamoUtils {
     }
 
     public CompletableFuture<List<Transaction>> getTransactions(final Person.Id userId) {
-        return getTxCacheForUser(userId).thenApply(map -> new ArrayList<>(map.values()));
+        return getTxCacheForUser(userId)
+                .thenApply(map -> new ArrayList<>(map.values()));
     }
 
     public CompletableFuture<Optional<Transaction>> getTransaction(final Person.Id userId, final String txId) {
@@ -273,8 +293,51 @@ public class DynamoUtils {
         txCache.clear();
     }
 
+    private CompletableFuture<Boolean> saveAllTripEvents(final Trip trip) {
+        final CompletableFuture<?>[] saves = trip.getTripEvents().stream()
+                .map(this::saveTripEvent).toArray(CompletableFuture[]::new);
+        return CompletableFuture.allOf(saves)
+                // If any returned false, then fail
+                .thenApply((v) -> Arrays.stream(saves).allMatch(fut -> (Boolean) fut.join()));
+    }
+
+    private CompletableFuture<Map<Person.Id, Registration>> getTripRegistrationCache(final String tripId) {
+        final Map<Person.Id, Registration> result = regCache.get(tripId);
+        return (result == null) ? cacheTripRegData(tripId) : CompletableFuture.completedFuture(result);
+    }
+
+    private CompletableFuture<Map<Person.Id, Registration>> cacheTripRegData(final String tripId) {
+        return loadTripRegData(tripId)
+                .thenApply(cache -> {
+                    regCache.put(tripId, cache);
+                    return cache;
+                });
+    }
+
+    private CompletableFuture<Map<Person.Id, Registration>> loadTripRegData(final String tripId) {
+        System.out.println("Cache miss for reg data for tripId: " + tripId);
+        // Use a map that preserves order for sorting
+        final Map<Person.Id, Registration> result = new ConcurrentSkipListMap<>();
+        return client.query(qb -> registrationsByTripId(qb, tripId))
+                .thenApply(resp -> resp.items().stream()
+                        .map(m -> toRegistration(m.get(CONTENT)))
+                        .filter(reg -> (reg != null) && (DELETED.equals(reg.getStatus())))
+                        .sorted(Comparator.comparing(Registration::getCreated))
+                        .collect(Collectors.toList()))
+                .thenAccept(list -> cacheAll(result, list, Registration::getUserId))
+                .thenApply(v -> result);
+    }
+
+    private void registrationsByTripId(final QueryRequest.Builder qb, final String tripId) {
+        qb.tableName(REGISTRATION_TABLE)
+                .keyConditionExpression(TRIP_ID + " = :tripIdVal")
+                .expressionAttributeValues(
+                        Collections.singletonMap(":tripIdVal", AttributeValue.builder().s(tripId).build()));
+    }
+
     private CompletableFuture<Boolean> cacheOneTxAsync(final boolean success, final Transaction tx) {
-        return getTxCacheForUser(tx.getUserId()).thenApply(userTxs -> cacheOneTx(userTxs, success, tx));
+        return getTxCacheForUser(tx.getUserId())
+                .thenApply(userTxs -> cacheOneTx(userTxs, success, tx));
     }
 
     private boolean cacheOneTx(final Map<String, Transaction> userTxs, final boolean success, final Transaction tx) {
@@ -372,6 +435,15 @@ public class DynamoUtils {
                 .filter(person -> email.equalsIgnoreCase(person.getEmail())).findAny().orElse(null));
     }
 
+    private Registration toRegistration(final AttributeValue content) {
+        try {
+            return mapper.readValue(content.s(), Registration.class);
+        } catch (IOException ex) {
+            log.error("Unable to parse registration record: " + content, ex);
+            return null;
+        }
+    }
+
     private Transaction toTransaction(final AttributeValue content) {
         try {
             return mapper.readValue(content.s(), Transaction.class);
@@ -466,7 +538,9 @@ public class DynamoUtils {
      * @return  It always returns the {@code returnValue} passed in.
      */
     private <K, T, R> R cacheOne(final Map<K, T> cacheMap, final T item, K key, final R returnValue) {
-        cacheMap.put(key, item);
+        if (cacheMap != null) {
+            cacheMap.put(key, item);
+        }
         return returnValue;
     }
 

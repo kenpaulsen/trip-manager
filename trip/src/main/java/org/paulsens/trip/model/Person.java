@@ -69,7 +69,7 @@ public final class Person implements Serializable {
     }
 
     @Value
-    public static class Id {
+    public static class Id implements Serializable, Comparable<Id> {
         @JsonValue
         String value;
 
@@ -79,6 +79,11 @@ public final class Person implements Serializable {
 
         public static Id newInstance() {
             return new Id(UUID.randomUUID().toString());
+        }
+
+        @Override
+        public int compareTo(Id o) {
+            return value.compareTo(o.getValue());
         }
     }
 }
