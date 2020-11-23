@@ -24,6 +24,7 @@
             <p:tabMenu activeIndex="1">
                 <p:menuitem value="Itinerary" url="itinerary.jsf?trip=#{theTrip.id}&amp;id=#{userId.value}" />
                 <p:menuitem value="Contacts" url="tripContacts.jsf?tripId=#{theTrip.id}" />
+                <p:menuitem value="Registrations" url="tripRegistrations.jsf?trip=#{theTrip.id}" rendered="#{showAll}" />
             </p:tabMenu>
 
             <p:dataTable id="peeps" var="personId" value="#{pilgrims}" sortBy="#{person.last}">

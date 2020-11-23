@@ -30,6 +30,7 @@
             <p:tabMenu activeIndex="0">
                 <p:menuitem value="Itinerary" url="itinerary.jsf?trip=#{theTrip.id}&amp;id=#{person.id}" />
                 <p:menuitem value="Contacts" url="tripContacts.jsf?tripId=#{theTrip.id}" />
+                <p:menuitem value="Registrations" url="tripRegistrations.jsf?trip=#{theTrip.id}" rendered="#{showAll}" />
             </p:tabMenu>
             <h2>#{person.preferredName}'s #{theTrip.title} Itinerary
                 <h:outputLink rendered="#{showAll}" value="editTrip.jsf?id=#{theTrip.id}" style="color:#222277;font-weight:bold;font-size:13px;">Edit Trip</h:outputLink>

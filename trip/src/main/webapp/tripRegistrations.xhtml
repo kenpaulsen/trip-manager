@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" 
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"
+    xmlns:jsft="http://jsftemplating.java.net/jsft"
+    xmlns:ui="http://java.sun.com/jsf/facelets"
+    xmlns:p="http://primefaces.org/ui"
+    xmlns:pe="http://primefaces.org/ui/extensions"
+    xmlns:f="http://java.sun.com/jsf/core"
+    xmlns:h="http://java.sun.com/jsf/html">
+    <ui:composition template="template.xhtml">
+        <ui:define name="content">
+            <jsft:event type="initPage">
+                viewScope.reqPriv = "admin";
+                if (sessionScope.userId == null) {
+                    jsft.redirect("login.jsf"); // Not logged in
+                } else {
+                    if (param.trip != null) {
+                        viewScope.theTrip = trip.getTrip(param.trip);
+                    }
+                    if (viewScope.theTrip == null) {
+                        jsft.redirect("hello.jsf"); // Invalid
+                    }
+                }
+            </jsft:event>
+            <jsft:event type="afterCreate" insert="defaultAuth" />
+            <p:tabMenu activeIndex="2">
+                <p:menuitem value="Itinerary" url="itinerary.jsf?trip=#{theTrip.id}&amp;id=#{person.id}" />
+                <p:menuitem value="Contacts" url="tripContacts.jsf?tripId=#{theTrip.id}" />
+                <p:menuitem value="Registrations" url="tripRegistrations.jsf?trip=#{theTrip.id}" />
+            </p:tabMenu>
+            <h2>#{theTrip.title} Registrations</h2>
+
+            <p:fieldset id="tripRegs" legend="Trip Registrations" style="margin-bottom:13px;">
+                <p:dataTable id="registrations" var="registration" value="#{reg.getRegistrations(theTrip.id)}" editable="true" editMode="cell" sortBy="#{registration.status}" style="text-align:center;">
+                    <p:column headerText="Registered" width="150" style="vertical-align:top;">
+                        <h:outputText value="#{registration.created}">
+                            <f:convertDateTime type="offsetDateTime" pattern="MMM dd, yyyy" />
+                        </h:outputText>
+                    </p:column>
+                    <p:column headerText="Person" width="200" style="vertical-align:top;">
+                        <p:link href="person.jsf?id=#{registration.userId.value}">
+                            #{people.getPerson(registration.userId).preferredName} #{people.getPerson(registration.userId).last}
+                        </p:link>
+                    </p:column>
+                    <p:column headerText="Status" width="100" style="vertical-align:top;">
+                        <h:outputText value="#{registration.status}" style="color:#D03F68;font-weight:bold;" /><br />
+                        <p:commandButton value="Approve" update=":form:registrations" rendered="#{registration.status == 'Pending'}">
+                            <jsft:event type="command">
+                                if ((registration.status == 'Pending') and theTrip.canJoin(registration.userId)) {
+                                    registration = registration.withStatus('Confirmed');
+                                    reg.saveRegistration(registration);
+                                    theTrip.people.add(registration.userId);
+                                    trip.saveTrip(theTrip);
+                                }
+                            </jsft:event>
+                        </p:commandButton>
+                    </p:column>
+                    <p:column headerText="Options" style="vertical-align:top;">
+                        <p:dataTable id="options" var="opt" value="#{theTrip.regOptions}">
+                            <p:column>
+                                <h:outputText value="#{opt.shortDesc}" style="" /><br />
+                            </p:column>
+                            <p:column>
+                                <h:outputText value="#{registration.options.get(''.concat(opt.id))}" style="margin-left:10px;font-weight:bold;color:#186bae;" /><br />
+                            </p:column>
+                        </p:dataTable>
+                    </p:column>
+                </p:dataTable>
+            </p:fieldset>
+
+        </ui:define>
+    </ui:composition>
+</html>
