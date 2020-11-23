@@ -117,16 +117,28 @@
                         }
                     </jsft:event>
                 </p:panelGrid>
-                <p:commandButton id="Register" value="#{registration.status == 'Not Registered' ? 'Register' : 'Save'}" style="margin-top:10px;">
+                <p:dialog header="Trip Registration" showEffect="blind" widgetVar="confirmReg" modal="true" width="500" height="200">
+                    <h:panelGroup style="display:inline-block;padding-left:20px;padding-right:20px;font-size:18px;">
+                    <div style="color:#18ae6b;text-align:center;font-size:24px;font-weight:bold;margin-bottom:10px;">Success!</div>
+                    <p>Your registration has been submitted. You may update this information any time. If you have questions
+                    please call, text, or email Ken:</p>
+                    <div style="text-align:center;">
+                    360-852-1088<br />
+                    kenapaulsen@gmail.com
+                    </div>
+                    </h:panelGroup>
+                </p:dialog>
+                <p:commandButton id="Register" value="#{registration.status == 'Not Registered' ? 'Register' : 'Save'}" style="margin-top:10px;" update=":form" onsuccess="PF('confirmReg').show();return true;">
                     <jsft:event type="command">
                         if (registration.status == 'Not Registered') {
                             viewScope.registration = registration.withStatus('Pending');
                         }
                         reg.saveRegistration(viewScope.registration);
-                        jsft.redirect("itinerary.jsf?trip=".concat(theTrip.id).concat('&amp;id=').concat(person.id.value));
                     </jsft:event>
                     <jsft:event type="afterCreate">
-                        jsftComp.createComponent(null, "javax.faces.HtmlOutputText", tripOptsComp);
+                        if (null eq jsftComp.getUIComponent(':form:spacer')) {
+                            jsftComp.createComponent('spacer', "javax.faces.HtmlOutputText", tripOptsComp);
+                        }
                         jsftComp.addUIComponent(tripOptsComp, component);
                     </jsft:event>
                 </p:commandButton>

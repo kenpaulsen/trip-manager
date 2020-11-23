@@ -130,7 +130,7 @@
                                 tabIdx = tabIdx + 1;
                             } else if (tab.canJoin(userId)) {
                                 comp = jsftComp.createComponent(null, "org.primefaces.component.UIMenuItem", null);
-                                comp.value = 'Join '.concat(tab.title);
+                                comp.value = (reg.getRegistration(tab.id, userId).status == 'Not Registered') ? 'Join '.concat(tab.title) : tab.title;
                                 comp.url = "joinTrip.jsf?trip=".concat(tab.id).concat("&amp;id=".concat(sessionScope.userId.value));
                                 jsftComp.insertUIComponentBefore(balanceComp, comp);
                                 tabMap.put(tab.title, tabIdx);
