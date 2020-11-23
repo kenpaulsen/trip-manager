@@ -138,17 +138,27 @@
                             }
                         }
                         tabMap.put("balance", tabIdx);
-                        if (activeTab == null) {
-                            activeTab=tabMap.get((theTrip == null) ? "balance" : theTrip.title);
-                        }
                     </jsft:event>
                 </p:menuitem>
                 <p:menuitem value="Past Trips" url="pastTrips.jsf" rendered="#{!oldTrips.isEmpty()}">
                     <jsft:event type="afterCreate">
                         jsftComp.insertUIComponentBefore(balanceComp, component);
+                        tabMap.put("pastTrips", tabIdx);
+                        tabMap.put("balance", tabIdx + 1);
                     </jsft:event>
                 </p:menuitem>
             </p:tabMenu>
+            <h:outputText value="">
+                <jsft:event type="afterCreate">
+                    if (activeTab == null) {
+                        tabIdx = (tabName == null) ? ((theTrip == null) ? null : theTrip.title) : tabName;
+                        activeTab = (tabIdx == null) ? -1 : tabMap.get(tabIdx);
+                        if ((activeTab == null) and (theTrip != null)) {
+                            activeTab = tabMap.get('pastTrips');
+                        }
+                    }
+                </jsft:event>
+            </h:outputText>
         </ui:insert>
         <p:growl id="growl" showDetail="true" showSummary="true" autoUpdate="false" />
         <ui:insert name="content">

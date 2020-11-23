@@ -11,6 +11,7 @@
     <ui:composition template="template.xhtml">
         <ui:define name="content">
             <jsft:event type="initPage">
+                tabName = 'balance';
                 if (viewScope.person == null) {
                     if (param.id != null) {
                         viewScope.person = people.getPerson(people.id(param.id));
