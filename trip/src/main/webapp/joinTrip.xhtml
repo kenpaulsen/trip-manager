@@ -57,14 +57,10 @@
 
             <p:fieldset id="userDetails" legend="Your Information" style="margin-bottom:13px;">
                 <p:panelGrid columns="2" styleClass="ui-noborder" columnClasses="propSheetLabel,propSheetValue">
-                    <h:outputText value="Full Name: "/>
-                    #{person.first} #{person.middle} #{person.last}
-                    <h:outputText value="Preferred Name: "/>
-                    #{person.nickname == null ? person.first : person.nickname}
-                    <h:outputText value="Cell Phone: "/>
-                    #{person.cell == null ? '&lt;missing&gt;' : person.cell}
-                    <h:outputText value="Email: "/>
-                    #{person.email == null ? '&lt;missing&gt;' : person.email}
+                    <h:outputText value="Full Name: "/> #{person.first} #{person.middle} #{person.last}
+                    <h:outputText value="Preferred Name: "/> #{person.preferredName}
+                    <h:outputText value="Cell Phone: "/> #{person.cell == null ? '&lt;missing&gt;' : person.cell}
+                    <h:outputText value="Email: "/> #{person.email == null ? '&lt;missing&gt;' : person.email}
                     <h:outputText value="Birthdate: "/>
                     <h:outputText value="#{person.birthdate}">
                         <f:convertDateTime type="offsetDateTime" pattern="MMM dd, yyyy" />

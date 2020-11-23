@@ -114,6 +114,7 @@
                 <p:menuitem value="Account Balance" url="transactions.jsf">
                     <f:param name="id" value="#{sessionScope.userId.value}" />
                     <jsft:event type="afterCreate">
+                        balanceComp = component;
                         daysAfterTripItBecomesInactive = 90;
                         oldTrips = trip.getInactiveTrips(userId, showAll, daysAfterTripItBecomesInactive);
                         trips = trip.getActiveTrips(daysAfterTripItBecomesInactive);
@@ -124,14 +125,14 @@
                                 comp = jsftComp.createComponent(null, "org.primefaces.component.UIMenuItem", null);
                                 comp.value = tab.title;
                                 comp.url = "itinerary.jsf?trip=".concat(tab.id).concat("&amp;id=".concat(sessionScope.userId.value));
-                                jsftComp.insertUIComponentBefore(component, comp);
+                                jsftComp.insertUIComponentBefore(balanceComp, comp);
                                 tabMap.put(tab.title, tabIdx);
                                 tabIdx = tabIdx + 1;
                             } else if (tab.canJoin(userId)) {
                                 comp = jsftComp.createComponent(null, "org.primefaces.component.UIMenuItem", null);
                                 comp.value = 'Join '.concat(tab.title);
                                 comp.url = "joinTrip.jsf?trip=".concat(tab.id).concat("&amp;id=".concat(sessionScope.userId.value));
-                                jsftComp.insertUIComponentBefore(component, comp);
+                                jsftComp.insertUIComponentBefore(balanceComp, comp);
                                 tabMap.put(tab.title, tabIdx);
                                 tabIdx = tabIdx + 1;
                             }
@@ -142,7 +143,11 @@
                         }
                     </jsft:event>
                 </p:menuitem>
-                <p:menuitem value="Past Trips" url="pastTrips.jsf" rendered="#{!oldTrips.isEmpty()}" />
+                <p:menuitem value="Past Trips" url="pastTrips.jsf" rendered="#{!oldTrips.isEmpty()}">
+                    <jsft:event type="afterCreate">
+                        jsftComp.insertUIComponentBefore(balanceComp, component);
+                    </jsft:event>
+                </p:menuitem>
             </p:tabMenu>
         </ui:insert>
         <p:growl id="growl" showDetail="true" showSummary="true" autoUpdate="false" />

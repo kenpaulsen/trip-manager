@@ -22,7 +22,7 @@
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
             <p:tabMenu activeIndex="1">
-                <p:menuitem value="Itinerary" url="itinerary.jsf?trip=#{theTrip.id}&amp;id=#{userId}" />
+                <p:menuitem value="Itinerary" url="itinerary.jsf?trip=#{theTrip.id}&amp;id=#{userId.value}" />
                 <p:menuitem value="Contacts" url="tripContacts.jsf?tripId=#{theTrip.id}" />
             </p:tabMenu>
 
