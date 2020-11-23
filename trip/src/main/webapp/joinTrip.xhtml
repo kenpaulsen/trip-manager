@@ -103,19 +103,21 @@
                     <jsft:event type="afterCreate">
                         tripOptsComp = component;
                         foreach("opt", theTrip.regOptions) {
-                            comp = jsftComp.createComponent('optLabel'.concat(opt.id), "org.primefaces.component.OutputLabel", component);
-                            comp.value = opt.shortDesc;
-                            comp.for = 'opt'.concat(opt.id);
-                            panelComp = jsftComp.createComponent('optPanel'.concat(opt.id), "javax.faces.HtmlPanelGroup", component);
-                            comp = jsftComp.createComponent('opt'.concat(opt.id), "org.primefaces.component.InputText", panelComp);
-                            tmpstr = '#{registration.options["'.concat(opt.id).concat('"]}');
-                            comp.setValueExpression("value", jsftComp.createValueExpression(tmpstr));
-                            comp.size = 60;
-                            
-                            comp = jsftComp.createComponent(null, "javax.faces.HtmlOutputText", panelComp);
-                            comp.value = '&lt;br&gt;'.concat(opt.longDesc);
-                            comp.style = 'color:#888888;font-size:12px;';
-                            comp.escape = false;
+                            if (opt.show) {
+                                comp = jsftComp.createComponent('optLabel'.concat(opt.id), "org.primefaces.component.OutputLabel", component);
+                                comp.value = opt.shortDesc;
+                                comp.for = 'opt'.concat(opt.id);
+                                panelComp = jsftComp.createComponent('optPanel'.concat(opt.id), "javax.faces.HtmlPanelGroup", component);
+                                comp = jsftComp.createComponent('opt'.concat(opt.id), "org.primefaces.component.InputText", panelComp);
+                                tmpstr = '#{registration.options["'.concat(opt.id).concat('"]}');
+                                comp.setValueExpression("value", jsftComp.createValueExpression(tmpstr));
+                                comp.size = 60;
+                                
+                                comp = jsftComp.createComponent(null, "javax.faces.HtmlOutputText", panelComp);
+                                comp.value = '&lt;br&gt;'.concat(opt.longDesc);
+                                comp.style = 'color:#888888;font-size:12px;';
+                                comp.escape = false;
+                            }
                         }
                     </jsft:event>
                 </p:panelGrid>

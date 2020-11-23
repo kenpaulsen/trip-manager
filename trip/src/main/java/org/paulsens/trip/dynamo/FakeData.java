@@ -70,21 +70,21 @@ public class FakeData {
     static List<RegistrationOption> getDefaultOptions() {
         final List<RegistrationOption> result = new ArrayList<>();
         result.add(new RegistrationOption(1, "Room Preference:",
-                "Private room ($15 more per night) or shared?"));
+                "Private room ($15 more per night) or shared?", true));
         result.add(new RegistrationOption(2, "Roommate request?",
-                "If you are sharing a room, do you have someone in mind?"));
+                "If you are sharing a room, do you have someone in mind?", true));
         result.add(new RegistrationOption(3, "Preferred Departure Airport?",
-                "What airport would you like to leave from?"));
+                "What airport would you like to leave from?", true));
         result.add(new RegistrationOption(4, "Trip Insurance?",
-                "Price is will be paid directly to insurance company, typically $100+."));
+                "Price is will be paid directly to insurance company, typically $100+.", true));
         result.add(new RegistrationOption(6, "Portugal excursion?",
-                "Those interested will visit Fatima before the main trip."));
+                "Those interested will visit Fatima before the main trip.", true));
         result.add(new RegistrationOption(5, "Check luggage?",
-                "Will you need to check luggage?"));
+                "Will you need to check luggage?", true));
         result.add(new RegistrationOption(7, "Special Requests?",
-                "Do you have any special requests for this trip?"));
+                "Do you have any special requests for this trip?", true));
         result.add(new RegistrationOption(8, "Agree to Terms?",
-                "Type your full name to agree."));
+                "Type your full name to agree.", true));
         return result;
     }
 }

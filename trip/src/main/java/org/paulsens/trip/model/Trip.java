@@ -106,6 +106,10 @@ public final class Trip implements Serializable {
         tripEvents.add(newTE);
     }
 
+    public void addTripOption() {
+        regOptions.add(new RegistrationOption(regOptions.size(), "New Option", "New Option Description", false));
+    }
+
     private boolean matchingTE(final TripEvent te, final String title, final LocalDateTime date) {
         return title.equals(te.getTitle()) && date.equals(te.getStart());
     }
