@@ -115,7 +115,7 @@
                     <f:param name="id" value="#{sessionScope.userId.value}" />
                     <jsft:event type="afterCreate">
                         daysAfterTripItBecomesInactive = 90;
-                        oldTrips = trip.getInactiveTrips(daysAfterTripItBecomesInactive);
+                        oldTrips = trip.getInactiveTrips(userId, showAll, daysAfterTripItBecomesInactive);
                         trips = trip.getActiveTrips(daysAfterTripItBecomesInactive);
                         tabMap = util.createMap();
                         tabIdx = 0;

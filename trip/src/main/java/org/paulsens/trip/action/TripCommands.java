@@ -47,9 +47,11 @@ public class TripCommands {
                 .collect(Collectors.toList());
     }
 
-    public List<Trip> getInactiveTrips(final int pastDaysToCountAsActive) {
+    public List<Trip> getInactiveTrips(
+            final Person.Id userId, final boolean isAdmin, final int pastDaysToCountAsActive) {
         return getTrips().stream()
                 .filter(trip -> trip.getEndDate().isBefore(LocalDateTime.now().minus(pastDaysToCountAsActive, DAYS)))
+                .filter((trip -> isAdmin || trip.getPeople().contains(userId)))
                 .collect(Collectors.toList());
     }
 
@@ -104,7 +106,8 @@ public class TripCommands {
         if (trips == null) {
             return null;
         }
-        return trips.stream().filter(t -> canSeeTrip(t, userId, showAll)).findAny().orElse(null);
+        final List<Trip> ans = trips.stream().filter(t -> canSeeTrip(t, userId, showAll)).collect(Collectors.toList());
+        return ans.isEmpty() ? null : ans.get(ans.size() - 1);
     }
 
     /**

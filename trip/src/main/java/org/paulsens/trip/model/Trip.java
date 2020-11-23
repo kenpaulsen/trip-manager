@@ -30,7 +30,7 @@ public final class Trip implements Serializable {
     @JsonSerialize(converter = TripEventsSerializer.class)
     @JsonDeserialize(converter = TripEventsDeserializer.class)
     private List<TripEvent> tripEvents;             // The stuff needed to book, airfare, hotel, etc.
-    private List<RegistrationOption> regOptions;  // Registration page questions
+    private List<RegistrationOption> regOptions;    // Registration page questions
 
     public Trip(
             @JsonProperty("id") String id,
@@ -54,13 +54,8 @@ public final class Trip implements Serializable {
     }
 
     public Trip() {
-        this.id = UUID.randomUUID().toString();
-        this.title = null;
-        this.description = null;
-        this.startDate = LocalDateTime.now().plusDays(60);
-        this.endDate = LocalDateTime.now().plusDays(70);
-        this.people = new ArrayList<>();
-        this.tripEvents = new ArrayList<>();
+        this(UUID.randomUUID().toString(), null, null, null, LocalDateTime.now().plusDays(60),
+                LocalDateTime.now().plusDays(70), null, null, null);
     }
 
     /**
