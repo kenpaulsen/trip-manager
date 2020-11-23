@@ -127,7 +127,7 @@
                                 jsftComp.insertUIComponentBefore(component, comp);
                                 tabMap.put(tab.title, tabIdx);
                                 tabIdx = tabIdx + 1;
-                            } else if (tab.openToPublic) {
+                            } else if (tab.canJoin(userId)) {
                                 comp = jsftComp.createComponent(null, "org.primefaces.component.UIMenuItem", null);
                                 comp.value = 'Join '.concat(tab.title);
                                 comp.url = "joinTrip.jsf?trip=".concat(tab.id).concat("&amp;id=".concat(sessionScope.userId.value));

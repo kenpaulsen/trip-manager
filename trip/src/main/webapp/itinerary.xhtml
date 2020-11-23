@@ -45,6 +45,16 @@
                     <h:outputText value="#{theTrip.endDate}">
                         <f:convertDateTime type="localDateTime" pattern="dd-MMM-yyyy" />
                     </h:outputText>
+                    <h:outputText value="Registration: " />
+                    <h:panelGroup>
+                        <jsft:event type="afterCreate">
+                            if (viewScope.registration == null) {
+                                viewScope.registration = reg.getRegistration(theTrip.id, person.id);
+                            }
+                        </jsft:event>
+                        <b><h:outputText value="#{registration.status}" /></b>
+                        <p:linkButton value="View Registration" href="joinTrip.jsf?trip=#{theTrip.id}&amp;id=#{person.id.value}" style="margin-left: 20px;padding:0px;font-size:14px;" />
+                    </h:panelGroup>
                 </p:panelGrid>
             </p:fieldset>
 

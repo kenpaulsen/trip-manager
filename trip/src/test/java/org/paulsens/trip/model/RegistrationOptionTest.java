@@ -7,10 +7,10 @@ import org.paulsens.trip.testutil.TestData;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-public class RegistrationQuestionTest {
+public class RegistrationOptionTest {
     @Test
     public void equalsTest() {
-        EqualsVerifier.forClass(RegistrationQuestion.class).verify();
+        EqualsVerifier.forClass(RegistrationOption.class).verify();
     }
 
     @Test
@@ -20,10 +20,10 @@ public class RegistrationQuestionTest {
         final int id = 7;
         final String shortDesc = TestData.genAlpha(28);
         final String longDesc = TestData.genAlpha(78);
-        final RegistrationQuestion question  = new RegistrationQuestion(id, shortDesc, longDesc);
+        final RegistrationOption question  = new RegistrationOption(id, shortDesc, longDesc);
 
         final String json = mapper.writeValueAsString(question);
-        final RegistrationQuestion restoredQuestion = mapper.readValue(json, RegistrationQuestion.class);
+        final RegistrationOption restoredQuestion = mapper.readValue(json, RegistrationOption.class);
         Assert.assertEquals(question, restoredQuestion);
         Assert.assertEquals(id, restoredQuestion.getId());
         Assert.assertEquals(shortDesc, restoredQuestion.getShortDesc());

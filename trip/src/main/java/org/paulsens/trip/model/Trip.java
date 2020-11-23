@@ -30,7 +30,7 @@ public final class Trip implements Serializable {
     @JsonSerialize(converter = TripEventsSerializer.class)
     @JsonDeserialize(converter = TripEventsDeserializer.class)
     private List<TripEvent> tripEvents;             // The stuff needed to book, airfare, hotel, etc.
-    private List<RegistrationQuestion> regOptions;    // Registration page questions
+    private List<RegistrationOption> regOptions;  // Registration page questions
 
     public Trip(
             @JsonProperty("id") String id,
@@ -41,7 +41,7 @@ public final class Trip implements Serializable {
             @JsonProperty("endDate") LocalDateTime endDate,
             @JsonProperty("people") List<Person.Id> people,
             @JsonProperty("tripEvents") List<TripEvent> tripEvents,
-            @JsonProperty("regOptions") List<RegistrationQuestion> regOptions) {
+            @JsonProperty("regOptions") List<RegistrationOption> regOptions) {
         this.id = id;
         this.title = title;
         this.openToPublic = openToPublic == null || openToPublic;
@@ -61,6 +61,14 @@ public final class Trip implements Serializable {
         this.endDate = LocalDateTime.now().plusDays(70);
         this.people = new ArrayList<>();
         this.tripEvents = new ArrayList<>();
+    }
+
+    /**
+     * Returns {@code true} if the the given person can join this Trip. This requires the Trip to be open to the
+     * public, not already be on the trip, and for the trip to not yet be started.
+     */
+    public boolean canJoin(final Person.Id userId) {
+        return openToPublic && !people.contains(userId) && startDate.isAfter(LocalDateTime.now());
     }
 
     public String addTripEvent(final String title, final String notes, final LocalDateTime date) {

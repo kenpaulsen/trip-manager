@@ -6,13 +6,13 @@ import java.io.Serializable;
 import lombok.Value;
 
 @Value
-public class RegistrationQuestion implements Serializable {
+public class RegistrationOption implements Serializable {
     int id;
     String shortDesc;
     String longDesc;
 
     @JsonCreator
-    public RegistrationQuestion(
+    public RegistrationOption(
             @JsonProperty("id") int id,
             @JsonProperty("shortDesc") String shortDesc,
             @JsonProperty("longDesc") String longDesc) {

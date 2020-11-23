@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 import lombok.Getter;
 import org.paulsens.trip.model.Person;
-import org.paulsens.trip.model.RegistrationQuestion;
+import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 
@@ -67,23 +67,23 @@ public class FakeData {
         return trips;
     }
 
-    static List<RegistrationQuestion> getDefaultOptions() {
-        final List<RegistrationQuestion> result = new ArrayList<>();
-        result.add(new RegistrationQuestion(1, "Room Preference:",
+    static List<RegistrationOption> getDefaultOptions() {
+        final List<RegistrationOption> result = new ArrayList<>();
+        result.add(new RegistrationOption(1, "Room Preference:",
                 "Private room ($15 more per night) or shared?"));
-        result.add(new RegistrationQuestion(2, "Roommate request?",
+        result.add(new RegistrationOption(2, "Roommate request?",
                 "If you are sharing a room, do you have someone in mind?"));
-        result.add(new RegistrationQuestion(3, "Preferred Departure Airport?",
+        result.add(new RegistrationOption(3, "Preferred Departure Airport?",
                 "What airport would you like to leave from?"));
-        result.add(new RegistrationQuestion(4, "Trip Insurance?",
+        result.add(new RegistrationOption(4, "Trip Insurance?",
                 "Price is will be paid directly to insurance company, typically $100+."));
-        result.add(new RegistrationQuestion(6, "Portugal excursion?",
+        result.add(new RegistrationOption(6, "Portugal excursion?",
                 "Those interested will visit Fatima before the main trip."));
-        result.add(new RegistrationQuestion(5, "Check luggage?",
+        result.add(new RegistrationOption(5, "Check luggage?",
                 "Will you need to check luggage?"));
-        result.add(new RegistrationQuestion(7, "Special Requests?",
+        result.add(new RegistrationOption(7, "Special Requests?",
                 "Do you have any special requests for this trip?"));
-        result.add(new RegistrationQuestion(8, "Agree to Terms?",
+        result.add(new RegistrationOption(8, "Agree to Terms?",
                 "Type your full name to agree."));
         return result;
     }

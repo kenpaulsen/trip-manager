@@ -50,6 +50,11 @@
                             <f:convertDateTime type="localDateTime" pattern="#{component.pattern}" />
                         </p:calendar>
                     </p:inplace>
+                    <h:outputLabel value="Public Registration?" for="isPublic" />
+                    <h:panelGroup>
+                        <p:toggleSwitch id="isPublic" value="#{theTrip.openToPublic}" style="margin-left:18px;vertical-align:middle;" />
+                        <p:link value="Edit Registration Options" href="editRegistrationOptions.jsf?trip=#{theTrip.id}" style="margin-left:20px;" />
+                    </h:panelGroup>
                 </p:panelGrid>
             </p:fieldset>
 

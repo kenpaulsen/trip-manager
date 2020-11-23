@@ -24,7 +24,7 @@ public class Registration implements Serializable {
             @JsonProperty("userId") final Person.Id userId,
             @JsonProperty("created") final LocalDateTime created,
             @JsonProperty("status") final String status,
-            @JsonProperty("notes") final Map<String, String> options) {
+            @JsonProperty("options") final Map<String, String> options) {
         this.tripId = tripId;
         this.userId = userId;
         this.created = (created == null) ? LocalDateTime.now() : created;
