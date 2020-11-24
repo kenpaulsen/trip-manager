@@ -18,8 +18,10 @@
                         viewScope.person = people.getPerson((param.id == null) ? userId : people.id(param.id));
                     }
                     viewScope.theTrip = trip.getTripForUser(theTrip, person.id, showAll, param.trip);
-                    if ((viewScope.person == null) || (viewScope.theTrip == null)) {
-                        jsft.redirect("person.jsf?id=".concat(userId.value)); // No trips to view
+                    if (!showAll and !theTrip.people.contains(person.id)) {
+                        jsft.redirect("joinTrip.jsf?trip=".concat(theTrip.id).concat("&amp;id=").concat(person.id.value)); // Shouldn't see the trip yet, ask to join first
+                    } else if ((viewScope.person == null) || (viewScope.theTrip == null)) {
+                        jsft.redirect("person.jsf?id=".concat(person.id.value)); // No trips to view
                     } else {
                         viewScope.reqId = person.id;
                         viewScope.reqPriv = "admin";

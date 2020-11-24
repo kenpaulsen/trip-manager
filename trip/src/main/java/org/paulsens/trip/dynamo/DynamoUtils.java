@@ -291,12 +291,50 @@ public class DynamoUtils {
                 .thenCompose(r -> cacheOneTxAsync(r, tx));
     }
 
+    public CompletableFuture<Person> getPersonByEmail(final String email) {
+        return getPeople().thenApply(people -> people.stream()
+                .filter(person -> email.equalsIgnoreCase(person.getEmail())).findAny().orElse(null));
+    }
+
+    public Optional<Creds> createCreds(final String email) {
+        final Person user = getPersonByEmail(email).join();
+        if (user == null) {
+            throw new IllegalArgumentException("Invalid Email Address!");
+        }
+        final Creds creds = new Creds(
+                email.toLowerCase(), user.getId(), USER_PRIV, user.getLast(), Instant.now().getEpochSecond());
+        return Optional.ofNullable(saveCreds(creds).join() ? creds : null);
+    }
+
+    public CompletableFuture<Boolean> saveCreds(final Creds creds) {
+        final Map<String, AttributeValue> map = new HashMap<>();
+        map.put(EMAIL, AttributeValue.builder().s(creds.getEmail()).build());
+        map.put(USER_ID, AttributeValue.builder().s(creds.getUserId().getValue()).build());
+        map.put(PW, AttributeValue.builder().s(creds.getPass()).build());
+        map.put(PRIV, AttributeValue.builder().s(creds.getPriv()).build());
+        if (creds.getLastLogin() != null) {
+            map.put(LAST_LOGIN, AttributeValue.builder().n("" + creds.getLastLogin()).build());
+        }
+        return client.putItem(b -> b.tableName(PASS_TABLE).item(map))
+                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
+                .exceptionally(ex -> {
+                    log.error("Failed to save credentials!", ex);
+                    return false;
+                });
+    }
+
     /* Package-private for testing */
     void clearAllCaches() {
         peopleCache.clear();
         tripCache.clear();
         tripEventCache.clear();
         txCache.clear();
+    }
+
+    /* Package-private for testing */
+    CompletableFuture<Map<String, Transaction>> getTxCacheForUser(final Person.Id userId) {
+        final Map<String, Transaction> result = txCache.get(userId);
+        return (result == null) ? cacheTxData(userId) : CompletableFuture.completedFuture(result);
     }
 
     private CompletableFuture<Boolean> saveAllTripEvents(final Trip trip) {
@@ -363,12 +401,6 @@ public class DynamoUtils {
         return success;
     }
 
-    /* Package-private for testing */
-    CompletableFuture<Map<String, Transaction>> getTxCacheForUser(final Person.Id userId) {
-        final Map<String, Transaction> result = txCache.get(userId);
-        return (result == null) ? cacheTxData(userId) : CompletableFuture.completedFuture(result);
-    }
-
     private CompletableFuture<Map<String, Transaction>> cacheTxData(final Person.Id userId) {
         return loadUserTxData(userId)
                 .thenApply(cache -> {
@@ -413,36 +445,6 @@ public class DynamoUtils {
             return null;
         }
         return creds;
-    }
-
-    private Optional<Creds> createCreds(final String email) {
-        final Person user = getPersonByEmail(email).join();
-        if (user == null) {
-            throw new IllegalArgumentException("Invalid Email Address!");
-        }
-        final Creds creds = new Creds(
-                email.toLowerCase(), user.getId(), USER_PRIV, user.getLast(), Instant.now().getEpochSecond());
-        return Optional.ofNullable(saveCreds(creds).join() ? creds : null);
-    }
-
-    private CompletableFuture<Boolean> saveCreds(final Creds creds) {
-        final Map<String, AttributeValue> map = new HashMap<>();
-        map.put(EMAIL, AttributeValue.builder().s(creds.getEmail()).build());
-        map.put(USER_ID, AttributeValue.builder().s(creds.getUserId().getValue()).build());
-        map.put(PW, AttributeValue.builder().s(creds.getPass()).build());
-        map.put(PRIV, AttributeValue.builder().s(creds.getPriv()).build());
-        map.put(LAST_LOGIN, AttributeValue.builder().n("" + creds.getLastLogin()).build());
-        return client.putItem(b -> b.tableName(PASS_TABLE).item(map))
-                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
-                .exceptionally(ex -> {
-                    log.error("Failed to save credentials!", ex);
-                    return false;
-                });
-    }
-
-    private CompletableFuture<Person> getPersonByEmail(final String email) {
-        return getPeople().thenApply(people -> people.stream()
-                .filter(person -> email.equalsIgnoreCase(person.getEmail())).findAny().orElse(null));
     }
 
     private Registration toRegistration(final AttributeValue content) {

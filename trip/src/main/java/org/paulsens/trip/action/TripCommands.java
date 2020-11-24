@@ -83,13 +83,19 @@ public class TripCommands {
      * @return  The trip to display, or null if the user should not see any trips.
      */
     public Trip getTripForUser(final Trip currTrip, final Person.Id userId, final Boolean showAll, final String tripId) {
-        final Trip result;
+        Trip result;
         if (canSeeTrip(currTrip, userId, showAll)) {
             result = currTrip;                          // Use current trip
         } else if ((tripId != null) && canSeeTrip(findTrip(tripId), userId, showAll)) {
             result = findTrip(tripId);                  // Use requested trip
         } else {
-            result = findTrip(getTrips(), userId, showAll);     // Anything the user can see... or null
+            // Anything the user can see... or null
+            final List<Trip> trips = getTrips();
+            result = findTrip(trips, userId, showAll);
+            if (result == null) {
+                // See if there's anything they can join
+                result = trips.stream().filter(trip -> trip.canJoin(userId)).findAny().orElse(null);
+            }
         }
         return result;
     }

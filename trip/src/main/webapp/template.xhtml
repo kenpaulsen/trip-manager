@@ -142,9 +142,11 @@
                 </p:menuitem>
                 <p:menuitem value="Past Trips" url="pastTrips.jsf" rendered="#{!oldTrips.isEmpty()}">
                     <jsft:event type="afterCreate">
-                        jsftComp.insertUIComponentBefore(balanceComp, component);
-                        tabMap.put("pastTrips", tabIdx);
-                        tabMap.put("balance", tabIdx + 1);
+                        if (!oldTrips.isEmpty()) {
+                            jsftComp.insertUIComponentBefore(balanceComp, component);
+                            tabMap.put("pastTrips", tabIdx);
+                            tabMap.put("balance", tabIdx + 1);
+                        }
                     </jsft:event>
                 </p:menuitem>
             </p:tabMenu>

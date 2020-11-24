@@ -54,6 +54,14 @@ public class PersonCommands {
                 }).join().orElse(new Person());
     }
 
+    public Person getPersonByEmail(final String email) {
+        return DynamoUtils.getInstance().getPersonByEmail(email)
+                .exceptionally(ex -> {
+                    log.error("Exception while trying to find person with email: " + email);
+                    throw new IllegalStateException(ex);
+                }).join();
+    }
+
     public Person.Id id(final String id) {
         return Person.Id.from(id);
     }

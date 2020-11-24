@@ -33,6 +33,24 @@ public class PassCommands {
     }
 
     /**
+     * This should only be called for a Person that exists, but does NOT have creds in the db yet. See
+     * createAccount.xhtml.
+     *
+     * @param email     The user's unique email address.
+     * @param newPass   The new password to force-set.
+     * @return The newly created Creds (which are also persisted to the db) or null if it fails.
+     */
+    public Creds createCreds(final String email, final String newPass) {
+        final DynamoUtils dynamo = DynamoUtils.getInstance();
+        final Creds creds = dynamo.createCreds(email).orElse(null);
+        if (creds != null) {
+            creds.setPass(newPass);
+            dynamo.saveCreds(creds);
+        }
+        return creds;
+    }
+
+    /**
      * Tests to see if {@code userId} has access to {@code reqId}.
      * @param person    The user whom is requesting access.
      * @param reqId     The id to test for access.
