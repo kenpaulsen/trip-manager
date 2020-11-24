@@ -325,13 +325,13 @@ public class DynamoUtils {
     }
 
     private CompletableFuture<Map<Person.Id, Registration>> loadTripRegData(final String tripId) {
-        System.out.println("Cache miss for reg data for tripId: " + tripId);
+        log.info("Cache miss for registration data for tripId: {}", tripId);
         // Use a map that preserves order for sorting
         final Map<Person.Id, Registration> result = new ConcurrentSkipListMap<>();
         return client.query(qb -> registrationsByTripId(qb, tripId))
                 .thenApply(resp -> resp.items().stream()
                         .map(m -> toRegistration(m.get(CONTENT)))
-                        .filter(reg -> (reg != null) && (DELETED.equals(reg.getStatus())))
+                        .filter(reg -> (reg != null) && !DELETED.equals(reg.getStatus()))
                         .sorted(Comparator.comparing(Registration::getCreated))
                         .collect(Collectors.toList()))
                 .thenAccept(list -> cacheAll(result, list, Registration::getUserId))
