@@ -161,7 +161,10 @@ public class DynamoUtils {
                 .thenApply(r -> r ? cacheOne(tripCache, trip, trip.getId(), true) : clearCache(tripCache, false));
         return CompletableFuture.allOf(saveTrip, saveTripEvents)
                 .thenApply(v -> saveTrip.join() && saveTripEvents.join())
-                .exceptionally(ex -> false);
+                .exceptionally(ex -> {
+                    log.error("Failed to save trip!", ex);
+                    return false;
+                });
     }
 
     public CompletableFuture<Boolean> saveTripEvent(final TripEvent te) {
@@ -220,7 +223,10 @@ public class DynamoUtils {
                 .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
                 .thenCombine(futTripRegs, (success, tripRegs) -> success ? tripRegs : null)
                 .thenApply(tripRegs -> cacheOne(tripRegs, reg, reg.getUserId(), tripRegs != null))
-                .exceptionally(ex -> false);
+                .exceptionally(ex -> {
+                    log.error("Failed to save registration!", ex);
+                    return false;
+                });
     }
 
     public CompletableFuture<List<Registration>> getRegistrations(final String tripId) {
@@ -311,6 +317,10 @@ public class DynamoUtils {
                 .thenApply(cache -> {
                     regCache.put(tripId, cache);
                     return cache;
+                })
+                .exceptionally(ex -> {
+                    log.error("Unable to load and cache Trip Registration data!", ex);
+                    throw new IllegalStateException(ex);
                 });
     }
 
@@ -425,7 +435,7 @@ public class DynamoUtils {
         return client.putItem(b -> b.tableName(PASS_TABLE).item(map))
                 .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
                 .exceptionally(ex -> {
-                    log.error("Failed to save creds!", ex);
+                    log.error("Failed to save credentials!", ex);
                     return false;
                 });
     }
