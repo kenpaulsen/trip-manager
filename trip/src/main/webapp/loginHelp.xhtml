@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" 
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"
+    xmlns:jsft="http://jsftemplating.java.net/jsft"
+    xmlns:ui="http://java.sun.com/jsf/facelets"
+    xmlns:p="http://primefaces.org/ui"
+    xmlns:pe="http://primefaces.org/ui/extensions"
+    xmlns:f="http://java.sun.com/jsf/core"
+    xmlns:h="http://java.sun.com/jsf/html">
+    <ui:composition template="template.xhtml">
+        <ui:define name="pagecss">
+            body {
+                background-image: url("images/rainbow.jpg");
+                background-repeat: no-repeat;
+                background-attachment: fixed;
+                background-size: cover;
+            }
+            .loginFont {
+                font-weight: bold;
+                font-family: Arial, Helvetica, sans-serif;
+                font-size: 22px;
+                color: #BF686F;
+            }
+        </ui:define>
+        <ui:define name="header" />
+        <ui:define name="footer" />
+
+        <ui:define name="content">
+            <jsft:event type="initPage">
+                if (applicationScope.local == null) {
+                    applicationScope.local = "true".equals(facesContext.externalContext.getContext().getServletRegistration("Faces Servlet").getInitParameter("local"));
+                }
+            </jsft:event>
+            <div style="width:100%;text-align:center;">
+            <h:panelGrid columns="1" cellpadding="5" styleClass="loginFont" style="margin-right:auto;margin-left:8%;margin-top:7%;text-align:right;width:50%">
+                <div>Welcome to the Visit Queen of Peace Trip Manager</div>
+                <div>&nbsp;</div>
+                <div style="font-size:16px;text-align:left;color:#6F68BF">
+                    If you forgot your password, cannot create an account, or have any other questions, please reach out to Ken Paulsen. Below is his contact information:
+                </div>
+                <div style="font-size:16px;text-align:left;color:#6F68BF;padding-left:45px;padding-top:20px;">
+                    Ken Paulsen<br />
+                    kenapaulsen@gmail.com<br />
+                    +1 360.852.1088 (text or voice)<br />
+                </div>
+                <p:link href="login.jsf" styleClass="loginFont" style="font-size:16px;margin-right:40px;">Back to Login Page</p:link>
+            </h:panelGrid>
+            </div>
+        </ui:define>
+    </ui:composition>
+</html>
