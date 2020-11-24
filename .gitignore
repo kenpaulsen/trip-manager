@@ -29,3 +29,7 @@ hs_err_pid*
 *.iml
 *.swp
 .idea
+
+# Project files
+trip/logs
+trip/src/main/webapp/WEB-INF/glassfish-web.xml
