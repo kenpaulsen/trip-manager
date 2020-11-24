@@ -3,16 +3,13 @@ package com.sun.jsft.facelets;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-
-import org.junit.Assert;
-import org.junit.Test;
-
+import org.testng.Assert;
+import org.testng.annotations.Test;
 
 /**
  * @author Ken Paulsen (kenapaulsen@gmail.com)
  */
 public class CommandParserTest {
-
     @Test
     public void testReadUntilWithHtmlComments() throws IOException {
 	// Run Test...

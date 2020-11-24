@@ -1,17 +1,15 @@
 package com.sun.jsft.util;
 
-import org.junit.Assert;
-import org.junit.Test;
-
+import org.testng.Assert;
+import org.testng.annotations.Test;
 
 /**
  * @author Ken Paulsen (kenapaulsen@gmail.com)
  */
 public class UtilTest {
-
     @Test
     public void testHtmlEscape() {
-	Assert.assertEquals(null, Util.htmlEscape(null));
+	Assert.assertNull(Util.htmlEscape(null));
 	// Test <> and &
 	Assert.assertEquals("&lt;p&gt;&amp;nbsp;&lt;/p&gt;", Util.htmlEscape("<p>&nbsp;</p>"));
 	// Test quotes and backslash (backslash should passthru)
@@ -27,7 +25,7 @@ public class UtilTest {
     @Test
     public void testUnHtmlEscape() {
 	// Noop tests...
-	Assert.assertEquals(null, Util.unHtmlEscape(null));
+	Assert.assertNull(Util.unHtmlEscape(null));
 	Assert.assertEquals("", Util.unHtmlEscape(""));
 	Assert.assertEquals("A", Util.unHtmlEscape("A"));
 	Assert.assertEquals("&", Util.unHtmlEscape("&"));
