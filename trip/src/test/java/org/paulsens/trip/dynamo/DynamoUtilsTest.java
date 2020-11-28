@@ -59,7 +59,8 @@ public class DynamoUtilsTest {
         final String desc = TestData.genAlpha(9);
         final LocalDateTime start = LocalDateTime.now();
         final LocalDateTime end = LocalDateTime.now().plusDays(2);
-        final Map<String, String> peopleTripEventStatus = Collections.singletonMap("admin", "Conf #abc123");
+        final Map<Person.Id, String> peopleTripEventStatus = Collections.singletonMap(
+                Person.Id.from("admin"), "Conf #abc123");
         final List<TripEvent> te = Collections.singletonList(new TripEvent(UUID.randomUUID().toString(),
                 "NY Flight", "description", start, null, peopleTripEventStatus));
         final Trip trip = new Trip(

@@ -17,7 +17,7 @@ public final class TripEvent implements Serializable {
     private String notes;                       // Event notes
     private LocalDateTime start;                // Start of the event
     private List<Person.Id> participants;          // Who's doing this thing?
-    private final Map<String, String> privNotes; // Mapping of userId to Status
+    private final Map<Person.Id, String> privNotes; // Mapping of userId to Status
 
     public TripEvent(
             @JsonProperty("id") String id,
@@ -25,7 +25,7 @@ public final class TripEvent implements Serializable {
             @JsonProperty("notes") String notes,
             @JsonProperty("start") LocalDateTime start,
             @JsonProperty("participants") List<Person.Id> participants,
-            @JsonProperty("privNotes") Map<String, String> privNotes) {
+            @JsonProperty("privNotes") Map<Person.Id, String> privNotes) {
         if (id == null) {
             throw new IllegalArgumentException("ID is required!");
         }
