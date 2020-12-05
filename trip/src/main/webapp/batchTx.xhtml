@@ -21,7 +21,7 @@
                         if (tx.batch || tx.shared) {
                             viewScope.fromUserId = people.id(param.id);
                             viewScope.groupId = tx.groupId;
-                            viewScope.type = tx.type;
+                            viewScope.type = tx.type.name;
                             viewScope.txDate = tx.txDate;
                             viewScope.amount = tx.amount;    // Show total amount in case of shared, not getUserAmount()
                             viewScope.category = tx.category;

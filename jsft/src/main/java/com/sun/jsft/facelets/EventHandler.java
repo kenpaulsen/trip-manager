@@ -55,7 +55,6 @@ import com.sun.jsft.util.Util;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import javax.faces.FacesException;
@@ -264,18 +263,16 @@ public class EventHandler extends TagHandler {
 			// Add AjaxBehaviorListener to the AjaxBehavior
 			AjaxBehavior ajaxBehavior = null;
 			ajaxBehavior = (AjaxBehavior) behave;
-			AjaxBehaviorEventListener listener =
-				new AjaxBehaviorEventListener(entry.getKey());
+			AjaxBehaviorEventListener listener = new AjaxBehaviorEventListener(entry.getKey());
 			// Remove first, then re-add (to be safe not to add it 2x)
 			ajaxBehavior.removeAjaxBehaviorListener(listener);
 			ajaxBehavior.addAjaxBehaviorListener(listener);
 			found = true;
 		    } else if (behave instanceof org.primefaces.behavior.ajax.AjaxBehavior) {
 			// Add AjaxBehaviorListener to the PF AjaxBehavior
-			org.primefaces.behavior.ajax.AjaxBehavior pfAjaxBehave = 
+			org.primefaces.behavior.ajax.AjaxBehavior pfAjaxBehave =
 				(org.primefaces.behavior.ajax.AjaxBehavior) behave;
-			PFAjaxBehaviorEventListener listener =
-				new PFAjaxBehaviorEventListener(entry.getKey());
+			PFAjaxBehaviorEventListener listener = new PFAjaxBehaviorEventListener(entry.getKey());
 			// Remove first, then re-add (to be safe not to add it 2x)
 			pfAjaxBehave.removeAjaxBehaviorListener(listener);
 			pfAjaxBehave.addAjaxBehaviorListener(listener);
@@ -436,14 +433,16 @@ public class EventHandler extends TagHandler {
      *	@return	    The <code>SystemEvent</code> class associated with the
      *		    event type.
      */
+    @SuppressWarnings("unchecked")
     protected Class<? extends SystemEvent> getEventClass(FaceletContext ctx) {
-	Class cls = null;
+	Class<? extends SystemEvent> cls = null;
 
 	// Only attempt to resolve the type if the attribute was specified...
 	if (type != null) {
 	    String eventType = (String) this.type.getValueExpression(ctx, String.class).getValue(ctx);
 	    if (eventType == null) {
-		throw new FacesException("Attribute 'type' resolved to null!");
+	    	final String msg = "Attribute 'type' resolved to null!";
+		throw new FacesException(msg, new IllegalStateException(msg));
 	    }
 
 	    // Check the pre-defined types / aliases
@@ -452,7 +451,7 @@ public class EventHandler extends TagHandler {
 	    if (cls == null) {
 		// Not found, try reflection...
 		try {
-		    cls = Util.loadClass(eventType, eventType);
+		    cls = (Class<? extends SystemEvent>) Util.loadClass(eventType, eventType);
 		} catch (ClassNotFoundException ex) {
 		    throw new FacesException("Invalid event type: " + eventType, ex);
 		}
@@ -469,14 +468,13 @@ public class EventHandler extends TagHandler {
     @Override
     public String toString() {
 	StringBuilder buf = new StringBuilder("");
-	Iterator<Command> it = commands.iterator();
-	while (it.hasNext()) {
-	    buf.append(it.next().toString());
+	for (Command command : commands) {
+	    buf.append(command.toString());
 	}
 	return buf.toString();
     }
 
-    private static Map<String, Class<? extends SystemEvent>> eventAliases = new HashMap<String, Class<? extends SystemEvent>>(20);
+    private static final Map<String, Class<? extends SystemEvent>> eventAliases = new HashMap<>(20);
     static {
 	eventAliases.put("beforeEncode", PreRenderComponentEvent.class);
 	eventAliases.put("preRenderComponent", PreRenderComponentEvent.class);

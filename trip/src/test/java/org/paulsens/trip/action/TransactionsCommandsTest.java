@@ -41,10 +41,10 @@ public class TransactionsCommandsTest {
         assertEquals(txCmds.getUserAmount(tx3), amount / 4);
     }
 
-    private Person.Id createPerson() {
+    private String createPerson() {
         final Person.Id id = Person.Id.newInstance();
         personCmds.savePerson(new Person(id, "preferredName", "first", "middle", "last", LocalDate.now(),
                 null, null, null, null, null, null, null));
-        return id;
+        return id.getValue();
     }
 }
