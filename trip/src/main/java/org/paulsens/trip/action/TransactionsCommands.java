@@ -35,13 +35,13 @@ public class TransactionsCommands {
                     .saveTransaction(tx)
                     .exceptionally(ex -> {
                         TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                                "Unable to save transaction for userId: " + tx.getUserId(), ex.getMessage());
+                                "Unable to save transaction for userId: " + tx.getUserId().getValue(), ex.getMessage());
                         log.error("Error while saving transaction: ", ex);
                         return false;
                     }).join();
         } catch (final IOException ex) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Unable to save transaction for userId: "
-                    + tx.getUserId(), ex.getMessage());
+                    + tx.getUserId().getValue(), ex.getMessage());
             log.error("Error while saving transaction: ", ex);
             result = false;
         }
@@ -72,9 +72,9 @@ public class TransactionsCommands {
     }
 
     public boolean saveGroupTx(final String gid, final Type type, final LocalDateTime date, final Float amount,
-                               final String cat, final String note, final String ... peopleArr) {
-        final List<Person.Id> txPeople = peopleArr == null ? Collections.emptyList() :
-                Arrays.asList(peopleArr).stream().map(Person.Id::from).collect(Collectors.toList());
+                               final String cat, final String note, final Object ... objArr) {
+        final List<Person.Id> txPeople = (objArr == null) ? Collections.emptyList() :
+                Arrays.stream(objArr).map(o -> (Person.Id) o).collect(Collectors.toList());
         final String groupId = isNullOrEmpty(gid) ? UUID.randomUUID().toString() : gid;
         final AtomicBoolean result = new AtomicBoolean(true);
 

@@ -21,7 +21,7 @@
                         if (tx.batch || tx.shared) {
                             viewScope.fromUserId = people.id(param.id);
                             viewScope.groupId = tx.groupId;
-                            viewScope.type = tx.type.name;
+                            viewScope.type = tx.type.name();
                             viewScope.txDate = tx.txDate;
                             viewScope.amount = tx.amount;    // Show total amount in case of shared, not getUserAmount()
                             viewScope.category = tx.category;
@@ -78,6 +78,7 @@
             </p:fieldset>
             <p:fieldset id="peoplefield" legend="Who does this apply to?" style="margin-bottom:13px;">
                 <p:selectManyMenu id="people" value="#{viewScope.batchPeople}" var="perId" filter="true" filterMatchMode="contains" showCheckbox="true" style="width:300px;">
+                    <f:converter converterId="personId" />
                     <f:selectItems value="#{people.people}" var="p" itemLabel="#{p.last.concat(', ').concat(p.preferredName)}" itemValue="#{p.id}" />
                     <p:column>
                         <h:outputText value="#{person.last}, #{person.preferredName}">

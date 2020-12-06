@@ -410,7 +410,7 @@ public class DynamoUtils {
     }
 
     private CompletableFuture<Map<String, Transaction>> loadUserTxData(final Person.Id userId) {
-        System.out.println("Cache Miss for tx userId: " + userId);
+        System.out.println("Cache Miss for tx userId: " + userId.getValue());
         // Use a map that preserves order for sorting
         final Map<String, Transaction> result = new ConcurrentSkipListMap<>();
         return client.query(qb -> txByUserId(qb, userId))
