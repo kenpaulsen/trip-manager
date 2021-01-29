@@ -33,3 +33,4 @@ hs_err_pid*
 # Project files
 trip/logs
 trip/src/main/webapp/WEB-INF/glassfish-web.xml
+backup

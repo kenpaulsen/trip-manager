@@ -39,7 +39,7 @@
  * holder.
  */
 
-/**
+/*
  *  UtilCommands.java
  *
  *  Created March 29, 2011
@@ -48,6 +48,7 @@
 package com.sun.jsft.commands;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -145,11 +146,13 @@ public class UtilCommands {
 
     /**
      *  <p> This method creates and returns a List&lt;Object&gt;.  The output value from this command is "result".</p>
-     *
-     *  @param  context The HandlerContext
      */
     public List<Object> createList() {
-	return new ArrayList<Object>();
+	return new ArrayList<>();
+    }
+
+    public List<Object> asList(Object[] values) {
+	return Arrays.asList(values);
     }
 
     /**
@@ -157,7 +160,7 @@ public class UtilCommands {
      *      The output value from this command is "result".</p>
      */
     public Map<Object, Object> createMap() {
-	return new HashMap<Object, Object>();
+	return new HashMap<>();
     }
 
     /**

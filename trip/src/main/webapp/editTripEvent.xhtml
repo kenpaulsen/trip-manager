@@ -18,6 +18,10 @@
                         viewScope.trEvent = theTrip.getTripEvent(param.event);
                         if ((theTrip == null) || (trEvent == null)) {
                             jsft.redirect("hello.jsf");
+                        } else {
+                            // Clone participants to edit w/o changing until "save" is clicked
+                            viewScope.participants = util.createList();
+                            viewScope.participants.addAll(trEvent.participants)
                         }
                     } else {
                         jsft.redirect("hello.jsf");
@@ -52,12 +56,12 @@
             </p:fieldset>
 
             <p:fieldset id="peoplefield" legend="Who does this apply to?" style="margin-bottom:13px;">
-                <h:outputText value="Click below to edit." rendered="#{!trEvent.participants.isEmpty()}" />
+                <h:outputText value="Click below to edit." rendered="#{!viewScope.participants.isEmpty()}" />
                 <p:inplace id="peopleEdit" widgetVar="editPeople" editor="false" style="margin-left:20px;">
                     <f:facet name="output">
-                        <h:outputText styleClass="editorHover" value="&lt;br&gt;Click here to add people to this trip." rendered="#{trEvent.participants.isEmpty()}" escape="false" />
+                        <h:outputText styleClass="editorHover" value="&lt;br&gt;Click here to add people to this trip." rendered="#{viewScope.participants.isEmpty()}" escape="false" />
                         <ul class="editorHover">
-                        <ui:repeat var="uid" value="#{trEvent.participants}">
+                        <ui:repeat var="uid" value="#{viewScope.participants}">
                             <li><h:outputText value="#{person.last}, #{person.preferredName}">
                                     <jsft:event type="beforeEncode">
                                         person = people.getPerson(uid);
@@ -70,13 +74,14 @@
                     <p:selectBooleanCheckbox value="#{requestScope.selAll}" itemLabel="Select All">
                         <p:ajax update="people" />
                         <jsft:event type="ajax">
-                            trEvent.participants = util.createList();
+                            viewScope.participants = util.createList();
                             if (selAll) {
-                                trEvent.participants.addAll(theTrip.people);
+                                viewScope.participants.addAll(theTrip.people);
                             }
                         </jsft:event>
                     </p:selectBooleanCheckbox>
-                    <p:selectManyMenu id="people" value="#{trEvent.participants}" var="perId" filter="true" filterMatchMode="contains" showCheckbox="true" style="width:300px;">
+                    <p:selectManyMenu id="people" value="#{viewScope.participants}" var="perId" filter="true" filterMatchMode="contains" showCheckbox="true" style="width:300px;">
+                        <f:converter converterId="personId" />
                         <f:selectItems value="#{theTrip.people}" var="p" itemLabel="#{people.getPerson(p).last.concat(', ').concat(people.getPerson(p).preferredName)}" itemValue="#{p}" />
                         <p:column>
                             <h:outputText value="#{person.last}, #{person.preferredName}">
@@ -99,6 +104,7 @@
             <div style="float:right">
                 <p:commandButton value="Save" update="form:growl">
                     <jsft:event type="command">
+                        trEvent.participants = util.asList(viewScope.participants);
                         theTrip.editTripEvent(trEvent);
                         jsft.redirect("editTrip.jsf?id=".concat(theTrip.id));
                     </jsft:event>

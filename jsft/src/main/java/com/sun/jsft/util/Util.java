@@ -371,7 +371,7 @@ public final class Util {
      *	<p> This method reverses html-escaping in the given String.  It is
      *	    meant to be the converse of {@link #htmlEscape(String)}.  It does
      *	    not convert every entity, it only converts those supported by
-     *	    <code>htmlEscape(String}</code>.  In other words:</p>
+     *	    <code>htmlEscape(String)</code>.  In other words:</p>
      *
      *	<ul><li>&amp;amp; to &amp;</li>
      *	    <li>&amp;lt; to &lt;</li>
