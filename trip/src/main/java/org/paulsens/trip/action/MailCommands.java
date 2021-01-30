@@ -1,0 +1,56 @@
+package org.paulsens.trip.action;
+
+import java.util.concurrent.CompletableFuture;
+import javax.faces.bean.ApplicationScoped;
+import javax.faces.bean.ManagedBean;
+import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.audit.Audit;
+import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.ses.SesAsyncClient;
+import software.amazon.awssdk.services.ses.model.Body;
+import software.amazon.awssdk.services.ses.model.Content;
+import software.amazon.awssdk.services.ses.model.Destination;
+import software.amazon.awssdk.services.ses.model.Message;
+import software.amazon.awssdk.services.ses.model.SendEmailRequest;
+import software.amazon.awssdk.services.ses.model.SendEmailResponse;
+
+/**
+ * This class contains methods that perform mail actions.
+ */
+@ApplicationScoped
+@ManagedBean(name="mail")
+@SuppressWarnings("unused")
+@Slf4j
+public class MailCommands {
+    final SesAsyncClient client = SesAsyncClient.builder()
+            .region(Region.US_WEST_2)
+            .credentialsProvider(ProfileCredentialsProvider.builder().build())
+            .build();
+
+    public CompletableFuture<SendEmailResponse> sendEmail(
+            final String from, final String to, final String replyTo, final String subjectStr, final String bodyStr) {
+        final Content subject = Content.builder()
+                .data(subjectStr)
+                .build();
+        final Body body = Body.builder()
+                //.html(Content.builder().data(bodyHtml).build())
+                .text(Content.builder().data(bodyStr).build())
+                .build();
+        final SendEmailRequest req = SendEmailRequest.builder()
+                .source(from)
+                .destination(Destination.builder().toAddresses(to).build())
+                .message(Message.builder().body(body).subject(subject).build())
+                .replyToAddresses(replyTo)
+                .returnPath(replyTo)
+                .build();
+        return client.sendEmail(req)
+                .exceptionally(ex -> logException(to, ex));
+    }
+
+    private <T> T logException(final String user, final Throwable ex) {
+        Audit.log(user, "EMAIL", "Unable to send email: " + ex.getMessage());
+        log.warn("Unable to send email to " + user, ex);
+        return null;
+    }
+}

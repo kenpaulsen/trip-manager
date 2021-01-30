@@ -18,6 +18,7 @@ import javax.inject.Named;
 
 @ApplicationScoped
 @Named("tripUtil")
+@SuppressWarnings("unused")
 public class TripUtilCommands {
     /**
      *  This method creates a {@code FacesMessage}.  It takes 3 String arguments: severity, summary, and detail.

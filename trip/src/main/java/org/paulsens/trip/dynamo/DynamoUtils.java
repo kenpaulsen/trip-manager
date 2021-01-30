@@ -610,7 +610,7 @@ public class DynamoUtils {
         DynamoTripPersistence() {
             this.client = DynamoDbAsyncClient.builder()
                 .region(Region.US_WEST_2)
-                    .credentialsProvider(ProfileCredentialsProvider.builder().build())
+                .credentialsProvider(ProfileCredentialsProvider.builder().build())
                 .build();
         }
 

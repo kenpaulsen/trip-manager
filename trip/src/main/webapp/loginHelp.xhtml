@@ -45,6 +45,11 @@
                     +1 360.852.1088 (text or voice)<br />
                 </div>
                 <p:link href="login.jsf" styleClass="loginFont" style="font-size:16px;margin-right:40px;">Back to Login Page</p:link>
+                <p:commandButton value="test" update="growl" styleClass="loginFont">
+                    <jsft:event type="command">
+                        mail.sendEmail("noreply@visitqueenofpeace.com", "kenapaulsen@gmail.com", "kenapaulsen@gmail.com", "Test Email", "This is the message body");
+                    </jsft:event>
+                </p:commandButton>
             </h:panelGrid>
             </div>
         </ui:define>
