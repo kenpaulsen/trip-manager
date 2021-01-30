@@ -28,7 +28,7 @@ public class MailCommands {
             .credentialsProvider(ProfileCredentialsProvider.builder().build())
             .build();
 
-    public CompletableFuture<SendEmailResponse> sendEmail(
+    public CompletableFuture<SendEmailResponse> send(
             final String from, final String to, final String replyTo, final String subjectStr, final String bodyStr) {
         final Content subject = Content.builder()
                 .data(subjectStr)
@@ -45,7 +45,13 @@ public class MailCommands {
                 .returnPath(replyTo)
                 .build();
         return client.sendEmail(req)
+                .thenApply(r -> logAndReturn(r, to, "Email sent to: " + to))
                 .exceptionally(ex -> logException(to, ex));
+    }
+
+    private <T> T logAndReturn(final T response, final String user, final String msg) {
+        Audit.log(user, "EMAIL", msg);
+        return response;
     }
 
     private <T> T logException(final String user, final Throwable ex) {
