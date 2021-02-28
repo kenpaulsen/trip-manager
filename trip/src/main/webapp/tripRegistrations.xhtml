@@ -26,7 +26,7 @@
             <jsft:event type="afterCreate" insert="defaultAuth" />
             <p:tabMenu activeIndex="2">
                 <p:menuitem value="Itinerary" url="itinerary.jsf?trip=#{theTrip.id}&amp;id=#{userId.value}" />
-                <p:menuitem value="Contacts" url="tripContacts.jsf?tripId=#{theTrip.id}" />
+                <p:menuitem value="Contacts (#{theTrip.people.size()})" url="tripContacts.jsf?tripId=#{theTrip.id}" />
                 <p:menuitem value="Registrations" url="tripRegistrations.jsf?trip=#{theTrip.id}" />
             </p:tabMenu>
             <h2>#{theTrip.title} Registrations</h2>

@@ -23,7 +23,7 @@
             <jsft:event type="afterCreate" insert="defaultAuth" />
             <p:tabMenu activeIndex="1">
                 <p:menuitem value="Itinerary" url="itinerary.jsf?trip=#{theTrip.id}&amp;id=#{userId.value}" />
-                <p:menuitem value="Contacts" url="tripContacts.jsf?tripId=#{theTrip.id}" />
+                <p:menuitem value="Contacts (#{pilgrims.size()})" url="tripContacts.jsf?tripId=#{theTrip.id}" />
                 <p:menuitem value="Registrations" url="tripRegistrations.jsf?trip=#{theTrip.id}" rendered="#{showAll}" />
             </p:tabMenu>
 
@@ -43,7 +43,7 @@
                         </jsft:event>
                     </h:outputText>
                     &nbsp;<h:outputText value="#{person.last}" />
-                    <h:outputText rendered="#{showAll}" value="#{balance}" style="padding-top:2px;font-size:12px;float:right;#{balance &lt; 0 ? 'color:#DD0000' : ''}">
+                    <h:outputText rendered="#{showAll || pass.canAccessUserId(currUser, person.id)}" value="#{balance}" style="padding-top:2px;font-size:12px;float:right;#{balance &lt; 0 ? 'color:#DD0000' : ''}">
                         <f:convertNumber type="currency" currencySymbol="$" locale="en_US" />
                         <jsft:event type="beforeEncode">
                             balance = 0;
