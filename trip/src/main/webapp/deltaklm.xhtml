@@ -16,25 +16,15 @@
             <jsft:event type="initPage">
                 if (sessionScope.userId == null) {
                     jsft.redirect("login.jsf"); // Not logged in
-                } else {
-                    if (viewScope.person == null) {
-                        viewScope.person = people.getPerson((param.id == null) ? userId : people.id(param.id));
-                    }
-                    if (viewScope.person == null) {
-                        jsft.redirect("person.jsf?id=".concat(person.id.value)); // No trips to view
-                    } else {
-                        viewScope.reqId = person.id;
-                        viewScope.reqPriv = "admin";
-                    }
                 }
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
-            <h2>#{person.preferredName}'s Delta / KLM Instructions</h2>
+            <h2>Delta / KLM Instructions</h2>
             <p:fieldset id="delta" legend="Delta Instructions" style="margin-bottom:13px;">
                 <h:outputText value="#{theTrip.description}" escape="false" />
                 <h3>Login to Delta to view / edit your trip:</h3>
-                <ol><li style="margin-bottom:5px;">Goto: <a href="https://www.delta.com/mytrips/findPnr.action"
-                    style="color:#6F68BF">https://www.delta.com/mytrips/findPnr.action</a></li>
+                <ol><li style="margin-bottom:5px;">Goto: <h:outputLink value="https://www.delta.com/mytrips/findPnr.action"
+                    style="color:#6F68BF;" target="_blank">https://www.delta.com/mytrips/findPnr.action</h:outputLink></li>
                     <li style="margin-bottom:5px;"><span style="color:#6F68BF">First Name</span> type:
                     <font color="#D03F68">#{param.first == null ? '[first name on ticket]' : param.first}</font></li>
                     <li style="margin-bottom:5px;"><span style="color:#6F68BF">Last Name</span> type:
@@ -73,8 +63,8 @@
                     <li style="margin-bottom:19px;">After clicking "My Trip" it will take you out to a login
                         page. You may feel like you're going backward, but you're on the right track!<br />
                         Use the "<font color="#D03F68">Booking Code</font>" from the previous step, and
-                        '<font color="#D03F68">#{param.last == null ? 'your last name on your ticket' :
-                        param.last}</font>' for "Last name".<br />
+                        "<font color="#D03F68">#{param.last == null ? 'your last name on your ticket' :
+                        param.last}</font>" for "Last name".<br />
                         <img src="images/KLMLogin.jpg" style="width:50%;margin:12px;" /><br />
                         Click "<font color="#D03F68">Search</font>".</li>
                     <li>You will now be able to scroll down and click the <font color="#D03F68">Select your

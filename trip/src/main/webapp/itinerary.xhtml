@@ -95,7 +95,7 @@
                         <h:outputText value="#{plan.notes}" escape="false" styleClass="small-p" />
                     </p:column>
                     <p:column width="350">
-                        <p:cellEditor>
+                        <p:cellEditor rendered="#{showAll}">
                             <f:facet name="output">
                                 <h:panelGroup>
                                     <h:outputText styleClass="editorHover" value="#{plan.privNotes[person.id]}" escape="false" />
@@ -107,6 +107,7 @@
                                 <p:watermark id="water" for="eventNotes" value="Enter notes for #{person.preferredName}" />
                             </f:facet>
                         </p:cellEditor>
+                        <h:outputText rendered="#{!showAll}" value="#{plan.privNotes[person.id]}" escape="false" />
                     </p:column>
                 </p:dataTable>
             </p:fieldset>
