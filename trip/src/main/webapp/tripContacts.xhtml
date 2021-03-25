@@ -50,6 +50,9 @@
                             foreach("tx", txCmds.getTransactions(personId)) {
                                 balance = balance + txCmds.getUserAmount(tx);
                             }
+                            if ((balance gt -0.01) and (balance lt 0.01)) {
+                                balance = 0;
+                            }
                         </jsft:event>
                     </h:outputText><br />
                     <h:panelGroup rendered="#{showAll || pass.canAccessUserId(currUser, person.id)}">
@@ -86,6 +89,7 @@
                 </p:column>
                 <p:column rendered="#{showAll}" headerText="Passport #" width="150">
                     <h:outputText value="#{person.passport.country} #{person.passport.number}" /><br />
+                    <h:outputText value="#{person.passport.expires}" />
                 </p:column>
                 <p:column rendered="#{showAll}" headerText="Birth Date" width="100" style="text-align:center">
                     <h:outputText value="#{person.birthdate}" />
