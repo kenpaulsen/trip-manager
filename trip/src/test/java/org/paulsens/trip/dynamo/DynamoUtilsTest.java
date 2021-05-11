@@ -16,7 +16,7 @@ import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Transaction.Type;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
-import org.paulsens.trip.testutil.TestData;
+import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -25,9 +25,9 @@ public class DynamoUtilsTest {
 
     @Test
     public void testSavePerson() throws IOException {
-        final Person.Id id = Person.Id.from(TestData.genAlpha(7));
-        final String first = TestData.genAlpha(5);
-        final String last = TestData.genAlpha(9);
+        final Person.Id id = Person.Id.from(RandomData.genAlpha(7));
+        final String first = RandomData.genAlpha(5);
+        final String last = RandomData.genAlpha(9);
         final Person person = new Person(id, null, first, null, last, null, null, null, null, null, null, null, null);
         Assert.assertEquals(Boolean.TRUE, DB_UTILS.savePerson(person).join());
         final Person samePerson = DB_UTILS.getPerson(id).join().orElse(null);
@@ -54,9 +54,9 @@ public class DynamoUtilsTest {
 
     @Test
     public void testGetTrips() throws IOException {
-        final String id = TestData.genAlpha(7);
-        final String title = TestData.genAlpha(5);
-        final String desc = TestData.genAlpha(9);
+        final String id = RandomData.genAlpha(7);
+        final String title = RandomData.genAlpha(5);
+        final String desc = RandomData.genAlpha(9);
         final LocalDateTime start = LocalDateTime.now();
         final LocalDateTime end = LocalDateTime.now().plusDays(2);
         final Map<Person.Id, String> peopleTripEventStatus = Collections.singletonMap(
@@ -73,7 +73,7 @@ public class DynamoUtilsTest {
         Assert.assertEquals(1, DB_UTILS.getTrips().join().size(), "Expected 1 to be added.");
         Assert.assertEquals(Boolean.TRUE, DB_UTILS.saveTrip(trip).join()); // Verify idempotency, should still be 1
         Assert.assertEquals(1, DB_UTILS.getTrips().join().size(), "Expected only 1 still.");
-        trip.setId(TestData.genAlpha(10));
+        trip.setId(RandomData.genAlpha(10));
         Assert.assertEquals(Boolean.TRUE, DB_UTILS.saveTrip(trip).join()); // Verify idempotency, should still be 1
         Assert.assertEquals(2, DB_UTILS.getTrips().join().size(), "Expected 2 now.");
         final Trip sameTrip = DB_UTILS.getTrip(id).join().orElse(null);
@@ -82,48 +82,48 @@ public class DynamoUtilsTest {
 
     @Test
     public void nullEmailOrPassReturnsNothing() {
-        Assert.assertNull(DB_UTILS.getCredsByEmailAndPass(null, TestData.genAlpha(5)).join());
-        Assert.assertNull(DB_UTILS.getCredsByEmailAndPass(TestData.genAlpha(5), null).join());
+        Assert.assertNull(DB_UTILS.getCredsByEmailAndPass(null, RandomData.genAlpha(5)).join());
+        Assert.assertNull(DB_UTILS.getCredsByEmailAndPass(RandomData.genAlpha(5), null).join());
         Assert.assertNull(DB_UTILS.getCredsByEmailAndPass(null, null).join());
-        Assert.assertTrue(DB_UTILS.getCredsByEmailAndPass(TestData.genAlpha(5), TestData.genAlpha(4))
+        Assert.assertTrue(DB_UTILS.getCredsByEmailAndPass(RandomData.genAlpha(5), RandomData.genAlpha(4))
                 .isCompletedExceptionally());
     }
 
     @Test
     public void adminCanLogin() {
-        final String adminUN = "admin" + TestData.genAlpha(8);
+        final String adminUN = "admin" + RandomData.genAlpha(8);
         final Creds creds = DB_UTILS.getCredsByEmailAndPass(adminUN, "admin").join();
         Assert.assertEquals(creds.getPriv(), "admin");
     }
 
     @Test
     public void userCanLogin() {
-        final String userUN = "user" + TestData.genAlpha(8);
+        final String userUN = "user" + RandomData.genAlpha(8);
         final Creds creds = DB_UTILS.getCredsByEmailAndPass(userUN, "user").join();
         Assert.assertEquals(creds.getPriv(), "user");
     }
 
     @Test
     public void adminPasswordIsChecked() {
-        final String adminUN = "admin" + TestData.genAlpha(8);
-        final String adminPW = TestData.genAlpha(4);
+        final String adminUN = "admin" + RandomData.genAlpha(8);
+        final String adminPW = RandomData.genAlpha(4);
         Assert.assertNull(DB_UTILS.getCredsByEmailAndPass(adminUN, adminPW).join());
     }
 
     @Test
     public void userPasswordIsChecked() {
-        final String userUN = "user" + TestData.genAlpha(8);
-        final String userPW = TestData.genAlpha(4);
+        final String userUN = "user" + RandomData.genAlpha(8);
+        final String userPW = RandomData.genAlpha(4);
         Assert.assertNull(DB_UTILS.getCredsByEmailAndPass(userUN, userPW).join());
     }
 
     @Test
     public void testGetTransactions() throws IOException {
-        final String id = TestData.genAlpha(7);
-        final Person.Id userId = Person.Id.from(TestData.genAlpha(8));
-        final String groupId = TestData.genAlpha(17);
-        final String category = TestData.genAlpha(9);
-        final String note = TestData.genAlpha(6);
+        final String id = RandomData.genAlpha(7);
+        final Person.Id userId = Person.Id.from(RandomData.genAlpha(8));
+        final String groupId = RandomData.genAlpha(17);
+        final String category = RandomData.genAlpha(9);
+        final String note = RandomData.genAlpha(6);
         final LocalDateTime txDate = LocalDateTime.now();
         final Transaction tx = new Transaction(id, userId, groupId, Type.Shared, txDate, 0.45f, category, note);
         final Transaction tx2 = new Transaction(userId, groupId, Type.Shared);
@@ -141,8 +141,8 @@ public class DynamoUtilsTest {
 
     @Test
     public void testCacheAll() {
-        final Person.Id userId = Person.Id.from(TestData.genAlpha(5));
-        final String groupId = TestData.genAlpha(4);
+        final Person.Id userId = Person.Id.from(RandomData.genAlpha(5));
+        final String groupId = RandomData.genAlpha(4);
         final Transaction tx = new Transaction(userId, groupId, Type.Shared);
         final Transaction tx2 = new Transaction(userId, groupId, Type.Shared);
         final List<Transaction> txs = new ArrayList<>();

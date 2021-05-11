@@ -8,7 +8,7 @@ import java.time.temporal.ChronoUnit;
 import nl.jqno.equalsverifier.EqualsVerifier;
 import nl.jqno.equalsverifier.Warning;
 import org.paulsens.trip.dynamo.DynamoUtils;
-import org.paulsens.trip.testutil.TestData;
+import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -32,7 +32,7 @@ public class TransactionTest {
     @Test
     public void canSerializeDeserialize() throws IOException {
         final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
-        final Transaction orig = new Transaction(null, Person.Id.from("userId"), TestData.genAlpha(5),
+        final Transaction orig = new Transaction(null, Person.Id.from("userId"), RandomData.genAlpha(5),
                 Transaction.Type.Tx, LocalDateTime.now(ZoneOffset.UTC), 12.0f, "category", null);
         final String json = mapper.writeValueAsString(orig);
         final Transaction restored = mapper.readValue(json, Transaction.class);
@@ -52,7 +52,7 @@ public class TransactionTest {
 
     @Test
     public void deleteNowWorks() {
-        final Transaction tx = new Transaction(Person.Id.from("userId"), TestData.genAlpha(32), Transaction.Type.Batch);
+        final Transaction tx = new Transaction(Person.Id.from("userId"), RandomData.genAlpha(32), Transaction.Type.Batch);
         Assert.assertNull(tx.getDeleted(), "Deleted should start out as null!");
         final LocalDateTime delTime = tx.delete();
         Assert.assertNotNull(tx.getDeleted(), "Should have set the deleted date!");

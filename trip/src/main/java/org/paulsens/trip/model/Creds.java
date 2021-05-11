@@ -7,6 +7,7 @@ import lombok.Data;
 
 @Data
 public final class Creds implements Serializable {
+    public static final String USER_PRIV = "user";
     private String email;
     private Person.Id userId;
     private String priv;
@@ -25,5 +26,9 @@ public final class Creds implements Serializable {
         this.priv = priv;
         this.pass = pass;
         this.lastLogin = lastLogin;
+    }
+
+    public Creds(final String email, final Person.Id id, final String pass) {
+        this(email, id, USER_PRIV, pass, null);
     }
 }

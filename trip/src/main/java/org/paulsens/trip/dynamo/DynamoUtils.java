@@ -75,7 +75,6 @@ public class DynamoUtils {
     private static final String PRIV = "priv";
     private static final String PW = "pass";
     private static final String LAST_LOGIN = "lastLogin";
-    private static final String USER_PRIV = "user";
 
     private static final DynamoUtils INSTANCE = new DynamoUtils();
 
@@ -292,8 +291,11 @@ public class DynamoUtils {
     }
 
     public CompletableFuture<Person> getPersonByEmail(final String email) {
-        return getPeople().thenApply(people -> people.stream()
-                .filter(person -> email.equalsIgnoreCase(person.getEmail())).findAny().orElse(null));
+        return getPeople()
+                .thenApply(people -> people.stream()
+                        .filter(person -> email.equalsIgnoreCase(person.getEmail()))
+                        .findAny()
+                        .orElse(null));
     }
 
     public Optional<Creds> createCreds(final String email) {
@@ -302,7 +304,7 @@ public class DynamoUtils {
             throw new IllegalArgumentException("Invalid Email Address!");
         }
         final Creds creds = new Creds(
-                email.toLowerCase(), user.getId(), USER_PRIV, user.getLast(), Instant.now().getEpochSecond());
+                email.toLowerCase(), user.getId(), Creds.USER_PRIV, user.getLast(), Instant.now().getEpochSecond());
         return Optional.ofNullable(saveCreds(creds).join() ? creds : null);
     }
 

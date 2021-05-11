@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import nl.jqno.equalsverifier.EqualsVerifier;
 import nl.jqno.equalsverifier.Warning;
 import org.paulsens.trip.dynamo.DynamoUtils;
-import org.paulsens.trip.testutil.TestData;
+import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -19,8 +19,8 @@ public class RegistrationOptionTest {
         final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
 
         final int id = 7;
-        final String shortDesc = TestData.genAlpha(28);
-        final String longDesc = TestData.genAlpha(78);
+        final String shortDesc = RandomData.genAlpha(28);
+        final String longDesc = RandomData.genAlpha(78);
         final RegistrationOption question  = new RegistrationOption(id, shortDesc, longDesc, false);
 
         final String json = mapper.writeValueAsString(question);

@@ -31,6 +31,9 @@
                 if (applicationScope.local == null) {
                     applicationScope.local = "true".equals(facesContext.externalContext.getContext().getServletRegistration("Faces Servlet").getInitParameter("local"));
                 }
+                if (param.info != null) {
+                    tripUtil.infoMsg(param.info, "");
+                }
             </jsft:event>
             <a href="http://visitqueenofpeace.com" class="loginFont" style="font-size:12px;">Visit Main Website</a>
             <div style="width:100%;text-align:center;margin-top:14%;" class="loginFont">

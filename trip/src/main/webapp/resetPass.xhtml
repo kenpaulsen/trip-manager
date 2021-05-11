@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" 
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"
+    xmlns:jsft="http://jsftemplating.java.net/jsft"
+    xmlns:ui="http://java.sun.com/jsf/facelets"
+    xmlns:p="http://primefaces.org/ui"
+    xmlns:pe="http://primefaces.org/ui/extensions"
+    xmlns:f="http://java.sun.com/jsf/core"
+    xmlns:h="http://java.sun.com/jsf/html">
+    <ui:composition template="template.xhtml">
+        <ui:define name="pagecss">
+            body {
+                background-image: url("images/rainbow.jpg");
+                background-repeat: no-repeat;
+                background-attachment: fixed;
+                background-size: cover;
+            }
+            .loginFont {
+                font-weight: bold;
+                font-family: Arial, Helvetica, sans-serif;
+                font-size: 22px;
+                color: #BF686F;
+            }
+        </ui:define>
+        <ui:define name="header" />
+        <ui:define name="footer" />
+
+        <ui:define name="content">
+            <jsft:event type="initPage">
+                if (applicationScope.local == null) {
+                    applicationScope.local = "true".equals(facesContext.externalContext.getContext().getServletRegistration("Faces Servlet").getInitParameter("local"));
+                }
+            </jsft:event>
+            <div style="width:100%;text-align:center;">
+            <h:panelGrid columns="1" cellpadding="5" styleClass="loginFont" style="margin-right:auto;margin-left:8%;margin-top:7%;text-align:center;width:50%">
+                <div>Visit Queen of Peace Trip Manager</div>
+                <div>&nbsp;</div>
+                <div style="font-size:16px;text-align:left;color:#6F68BF">
+                    Forgot your password? Fill out this form to have a new password emailed to you.
+                </div>
+                <h:panelGrid columns="2" cellpadding="5" style="margin-left:auto;margin-right:12%;text-align:right;">
+                    <h:outputLabel for="email" value="Email" styleClass="loginFont" />
+                    <p:inputText id="email" value="#{requestScope.email}" required="true" label="username" size="25" />
+                    <h:outputLabel for="lastname" value="Last Name" styleClass="loginFont" />
+                    <p:inputText id="lastname" value="#{requestScope.lastName}" required="true" label="Last Name" size="25" />
+                    <div />
+                    <p:commandButton value="Email New Password" update="growl" styleClass="loginFont" style="width:100%;">
+                        <jsft:event type="command">
+                            msg = pass.resetPass(email, lastName, 'Visit Queen of Peace Password Reset');
+                            if (msg != null) {
+                                mail.send("Visit Queen of Peace &lt;no-reply@visitqueenofpeace.com&gt;", email, "kenapaulsen@gmail.com", "Password Reset", msg);
+                                jsft.redirect("login.jsf?info=".concat("Check your email for your new password."));
+                            } else {
+                                tripUtil.warnMsg("Reset Failed!", "Please try again.");
+                            }
+                        </jsft:event>
+                    </p:commandButton>
+                    <h:outputText value="" />
+                    <p:link href="login.jsf" styleClass="loginFont" style="text-align:right;font-size:16px;margin-right:0px;">Cancel</p:link>
+                </h:panelGrid>
+            </h:panelGrid>
+            </div>
+        </ui:define>
+    </ui:composition>
+</html>
