@@ -1,6 +1,7 @@
 package org.paulsens.trip.action;
 
 import javax.enterprise.context.ApplicationScoped;
+import javax.faces.application.FacesMessage;
 import javax.faces.context.FacesContext;
 import javax.inject.Named;
 import javax.servlet.http.HttpServletRequest;
@@ -54,21 +55,48 @@ public class PassCommands {
     }
 
     /**
-     * Warning this is a dangerous command that allows a password to be directly set. Do not allow the user to
-     * set this email address directly.
+     * This method allows the user to change their password.
      * @param email     The email address (login) to receive a new password.
+     * @param currPass  The current password.
      * @param pass      The new password.
      * @param pass2     The new password again (in case these 2 values come from a set password form).
      * @return  True if the password was set, False otherwise.
      */
-    public Boolean setPass(final String email, final String pass, final String pass2) {
+    public Boolean setPass(final String email, final String currPass, final String pass, final String pass2) {
         if (!pass.equals(pass2)) {
-            throw new IllegalArgumentException("Passwords do not match!");
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Passwords do not match!", "");
+            return false;
         }
         final DynamoUtils dynamo = DynamoUtils.getInstance();
         final Person person = dynamo.getPersonByEmail(email).join();
+        final Creds currCreds = getCreds(email, currPass);
+        if ((currCreds == null) || (person == null)) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Person or credentials missing!", "");
+            return false;
+        }
+        if (!currCreds.getUserId().equals(person.getId())) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
+                    "You do not have permission to change this person's password!", "");
+            return false;
+        }
+        return setPass(email, pass);
+    }
+
+    /**
+     * Warning this is a dangerous command that allows a password to be directly set. Do not allow the user to
+     * set the email parameter directly. Do not call this method directly from the UI (private for a reason). See
+     * the setPass() which requires the old password, or the resetPass instead.
+     * @param email     The email address (login) to receive a new password.
+     * @param pass      The new password.
+     * @return  True if the password was set, False otherwise.
+     */
+    private Boolean setPass(final String email, final String pass) {
+        final DynamoUtils dynamo = DynamoUtils.getInstance();
+        final Person person = dynamo.getPersonByEmail(email).join();
         if (person == null) {
-            throw new IllegalArgumentException("Check email address, and make sure you have registered.");
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
+                    "Check email address, and make sure you have registered.", "");
+            return false;
         }
         final Creds creds = new Creds(email, person.getId(), pass);
         return dynamo.saveCreds(creds).join();
@@ -104,11 +132,13 @@ public class PassCommands {
             // Exists, send email w/ new password
             final String newPass = genNewPass();
             // Save the new password
-            if (setPass(email, newPass, newPass)) {
+            if (setPass(email, newPass)) {
                 // Return email content
                 result = newPassEmail(emailTitle, newPass);
             } else {
-                throw new IllegalStateException("Error changing password! Please tell Ken.");
+                TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
+                        "Error changing password! Please tell Ken.", "");
+                result = null;
             }
         }
         return result;

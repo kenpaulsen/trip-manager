@@ -52,7 +52,7 @@
                                 mail.send("Visit Queen of Peace &lt;no-reply@visitqueenofpeace.com&gt;", email, "kenapaulsen@gmail.com", "Password Reset", msg);
                                 jsft.redirect("login.jsf?info=".concat("Check your email for your new password."));
                             } else {
-                                tripUtil.warnMsg("Reset Failed!", "Please try again.");
+                                tripUtil.warnMsg("Invalid email or incorrect last name!", "Please try again.");
                             }
                         </jsft:event>
                     </p:commandButton>

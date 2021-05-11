@@ -143,6 +143,9 @@ public class DynamoUtils {
     }
 
     public CompletableFuture<Optional<Person>> getPerson(final Person.Id id) {
+        if (id == null) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
         final Person person = peopleCache.get(id);
         if (person != null) {
             return CompletableFuture.completedFuture(Optional.of(person));

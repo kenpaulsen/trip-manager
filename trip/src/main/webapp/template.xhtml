@@ -80,6 +80,7 @@
                 <div class="siteheading">Medjugorje Trip Manager</div>
                 <h:panelGroup style="margin-right:8px;float:right" rendered="#{!showAll}">
                     <p:splitButton id="Profile" value="Edit Profile" onclick="document.location='person.jsf?id=#{sessionScope.userId.value}';return false;">
+                        <p:menuitem value="Set Password" update="growl" url="setPass.jsf?id=#{sessionScope.userId.value}" />
                         <p:menuitem value="Logout" update="growl" url="login.jsf" />
                     </p:splitButton>
                 </h:panelGroup>

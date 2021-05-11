@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" 
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"
+    xmlns:jsft="http://jsftemplating.java.net/jsft"
+    xmlns:ui="http://java.sun.com/jsf/facelets"
+    xmlns:p="http://primefaces.org/ui"
+    xmlns:pe="http://primefaces.org/ui/extensions"
+    xmlns:f="http://java.sun.com/jsf/core"
+    xmlns:h="http://java.sun.com/jsf/html">
+    <ui:composition template="template.xhtml">
+        <ui:define name="footer" />
+        <ui:define name="content">
+            <h2>Change Your Password</h2>
+            <jsft:event type="initPage">
+                if (viewScope.person == null) {
+                    viewScope.reqPriv = "admin";
+                    if (param.id != null) {
+                        viewScope.person = people.getPerson(people.id(param.id));
+                        viewScope.reqId = people.id(param.id);
+                    } else {
+                        jsft.redirect("/trip");
+                    }
+                }
+                activeTab=-1;
+            </jsft:event>
+            <jsft:event type="afterCreate" insert="defaultAuth" />
+
+            <div style="width:100%;text-align:center;">
+            <h:panelGrid columns="1" cellpadding="5" styleClass="loginFont" style="margin-right:auto;margin-left:8%;margin-top:7%;text-align:center;width:50%">
+                <div>&nbsp;</div>
+                <h:panelGrid columns="2" cellpadding="5" style="margin-left:auto;margin-right:12%;text-align:right;">
+                    <p:outputLabel for="current" value="Current Password" />
+                    <p:password id="current" value="#{requestScope.current}" required="true" label="current" size="25" />
+                    <p:outputLabel for="newpass" value="New Password" />
+                    <p:password id="newpass" value="#{requestScope.newpass}" required="true" label="new pass" size="25" />
+                    <p:outputLabel for="newpass2" value="New Password Again" />
+                    <p:password id="newpass2" value="#{requestScope.newpass2}" required="true" label="new pass again" size="25" />
+                    <div />
+                    <p:commandButton value="Set Password" update="growl" style="width:100%;">
+                        <jsft:event type="command">
+                                tripUtil.warnMsg(viewScope.person.email, "Please try again.");
+                            if (pass.setPass(viewScope.person.email, current, newpass, newpass2)) {
+                                jsft.redirect("login.jsf?info=".concat("Password reset, please login again."));
+                            } else {
+                                tripUtil.warnMsg("Unable to reset password! Check your old password and ensure passwords match.", "Please try again.");
+                            }
+                        </jsft:event>
+                    </p:commandButton>
+                </h:panelGrid>
+            </h:panelGrid>
+            </div>
+        </ui:define>
+    </ui:composition>
+</html>
