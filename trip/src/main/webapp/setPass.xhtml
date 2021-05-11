@@ -39,7 +39,6 @@
                     <div />
                     <p:commandButton value="Set Password" update="growl" style="width:100%;">
                         <jsft:event type="command">
-                                tripUtil.warnMsg(viewScope.person.email, "Please try again.");
                             if (pass.setPass(viewScope.person.email, current, newpass, newpass2)) {
                                 jsft.redirect("login.jsf?info=".concat("Password reset, please login again."));
                             } else {
