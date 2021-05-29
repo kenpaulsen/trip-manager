@@ -43,14 +43,15 @@
             <p:fieldset id="info" legend="Trip Info" style="margin-bottom:13px;">
                 <h:outputText value="#{theTrip.description}" escape="false" />
                 <p:panelGrid columns="2" styleClass="ui-noborder" columnClasses="propSheetLabel,propSheetValue">
-                    <h:outputText value="Trip Start: "/>
-                    <h:outputText value="#{theTrip.startDate}">
-                        <f:convertDateTime type="localDateTime" pattern="dd-MMM-yyyy" />
-                    </h:outputText>
-                    <h:outputText value="Trip End: " />
-                    <h:outputText value="#{theTrip.endDate}">
-                        <f:convertDateTime type="localDateTime" pattern="dd-MMM-yyyy" />
-                    </h:outputText>
+                    <h:outputText value="Trip dates: "/>
+                    <h:panelGroup>
+                        <b><h:outputText value="#{theTrip.startDate}">
+                            <f:convertDateTime type="localDateTime" pattern="MMM dd, yyyy" />
+                        </h:outputText></b> -
+                        <b><h:outputText value="#{theTrip.endDate}">
+                            <f:convertDateTime type="localDateTime" pattern="MMM dd, yyyy" />
+                        </h:outputText></b>
+                    </h:panelGroup>
                     <h:outputText value="Registration: " />
                     <h:panelGroup>
                         <jsft:event type="afterCreate">
