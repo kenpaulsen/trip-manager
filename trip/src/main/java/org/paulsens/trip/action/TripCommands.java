@@ -42,9 +42,7 @@ public class TripCommands {
     }
 
     public List<Trip> getActiveTrips(final int pastDaysToCountAsActive) {
-        return getTrips().stream()
-                .filter(trip -> trip.getEndDate().isAfter(LocalDateTime.now().minus(pastDaysToCountAsActive, DAYS)))
-                .collect(Collectors.toList());
+        return filterActiveTrips(getTrips(), pastDaysToCountAsActive);
     }
 
     public List<Trip> getInactiveTrips(
@@ -113,7 +111,23 @@ public class TripCommands {
             return null;
         }
         final List<Trip> ans = trips.stream().filter(t -> canSeeTrip(t, userId, showAll)).collect(Collectors.toList());
-        return ans.isEmpty() ? null : ans.get(ans.size() - 1);
+        return ans.isEmpty() ? null : getFirstActiveOrLastTrip(ans);
+    }
+
+    /**
+     *  This method requires a non-null, non-empty List of trips. It will return the first active trip. If none
+     *  exist, it will return the last trip in the list (typically the last trip that started).
+     */
+    private Trip getFirstActiveOrLastTrip(final List<Trip> trips) {
+        final List<Trip> active = filterActiveTrips(trips, 0);
+        return active.isEmpty() ? trips.get(trips.size() - 1) : active.get(0);
+    }
+
+    private List<Trip> filterActiveTrips(final List<Trip> trips, final int pastDaysToCountAsActive) {
+        final LocalDateTime cutoff = LocalDateTime.now().minus(pastDaysToCountAsActive, DAYS);
+        return trips.stream()
+                .filter(trip -> trip.getEndDate().isAfter(cutoff))
+                .collect(Collectors.toList());
     }
 
     /**

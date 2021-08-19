@@ -64,10 +64,14 @@
                                 person.email = email;
                                 if (people.savePerson(person)) {
                                     ucreds = pass.createCreds(email, pw);
-                                    sessionScope.priv = ucreds.priv;
-                                    sessionScope.userId = ucreds.userId;
-                                    sessionScope.aUser = sessionScope.priv.contains("admin") ? ucreds.userId : null;
-                                    jsft.redirect("itinerary.jsf?id=".concat(ucreds.userId.value));
+                                    if (ucreds == null) {
+                                        tripUtil.warnMsg("Something bad happened!", "Please ask for help.");
+                                    } else {
+                                        sessionScope.priv = ucreds.priv;
+                                        sessionScope.userId = ucreds.userId;
+                                        sessionScope.aUser = sessionScope.priv.contains("admin") ? ucreds.userId : null;
+                                        jsft.redirect("itinerary.jsf?id=".concat(ucreds.userId.value));
+                                    }
                                 } else {
                                     tripUtil.errorMsg("Unable to create account for ".concat(email), "Please ask for help.");
                                 }

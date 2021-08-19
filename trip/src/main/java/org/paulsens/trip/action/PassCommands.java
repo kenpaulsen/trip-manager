@@ -50,6 +50,9 @@ public class PassCommands {
         if (creds != null) {
             creds.setPass(newPass);
             dynamo.saveCreds(creds);
+            Audit.log(email, "CREATE_CREDS", "Created credentials.");
+        } else {
+            Audit.log(email, "CREATE_CREDS", "Failed to create credentials!");
         }
         return creds;
     }
