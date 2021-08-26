@@ -21,6 +21,9 @@
                     if (viewScope.theTrip == null) {
                         jsft.redirect("hello.jsf"); // Invalid
                     }
+                    if (viewScope.regList == null) {
+                        viewScope.regList = reg.getRegistrations(theTrip.id);
+                    }
                 }
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
@@ -32,7 +35,7 @@
             <h2>#{theTrip.title} Registrations</h2>
 
             <p:fieldset id="tripRegs" legend="Trip Registrations" style="margin-bottom:13px;">
-                <p:dataTable id="registrations" var="registration" value="#{reg.getRegistrations(theTrip.id)}" editable="true" editMode="cell" sortBy="#{registration.status}" style="text-align:center;">
+                <p:dataTable id="registrations" var="registration" value="#{regList}" editable="true" editMode="cell" sortBy="#{registration.created}" style="text-align:center;" sortOrder="DESCENDING">
                     <p:column headerText="Registered" width="150" style="vertical-align:top;">
                         <h:outputText value="#{registration.created}">
                             <f:convertDateTime type="offsetDateTime" pattern="MMM dd, yyyy" />
@@ -52,6 +55,7 @@
                                     reg.saveRegistration(registration);
                                     theTrip.people.add(registration.userId);
                                     trip.saveTrip(theTrip);
+                                    viewScope.regList = reg.getRegistrations(theTrip.id);
                                 }
                             </jsft:event>
                         </p:commandButton>
