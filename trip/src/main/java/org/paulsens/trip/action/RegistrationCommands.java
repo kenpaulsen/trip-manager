@@ -50,6 +50,14 @@ public class RegistrationCommands {
     }
 
     public Registration getRegistration(final String tripId, final Person.Id userId) {
+        if (tripId == null) {
+            log.error("getRegistration() called with null tripId");
+            return null;
+        }
+        if (userId == null) {
+            log.error("getRegistration() called with null userId");
+            return null;
+        }
         return DynamoUtils.getInstance()
                 .getRegistration(tripId, userId)
                 .exceptionally(ex -> {
