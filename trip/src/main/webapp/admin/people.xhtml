@@ -6,38 +6,62 @@
     xmlns:p="http://primefaces.org/ui"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="../template.xhtml">
         <ui:define name="content">
             <jsft:event type="initPage">
                 if (sessionScope.userId == null) {
-                    jsft.redirect("login.jsf"); // Not logged in
+                    jsft.redirect("../login.jsf"); // Not logged in
                 } else {
                     viewScope.reqPriv = "admin";
+                    viewScope.tripFilter = null;
                     if (thePeople == null) {
                         viewScope.thePeople = people.getPeople();
+                        viewScope.filtered = util.createList();
+                        viewScope.filtered.addAll(thePeople);
                     }
                 }
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
 
-            <p:dataTable id="peeps" var="personId" value="#{thePeople}" sortBy="#{person.last}">
-                <p:column headerText="Name" width="100">
-                    <h:outputText value="#{person.first}">
+            <p:dataTable id="peeps" var="person" value="#{viewScope.thePeople}" sortBy="#{person.last.concat(person.first)}" filteredValue="#{viewScope.filtered}">
+                <p:column headerText="" width="10">
+                    <h:outputText value="#{personCount}">
                         <jsft:event type="beforeEncode">
-                            person = people.getPerson(personId);
+                            personCount = personCount + 1;
                         </jsft:event>
                     </h:outputText>
                 </p:column>
-                <p:column headerText="Middle" width="100">
-                    <h:outputText value="#{person.middle}" />
+                <p:column headerText="Person" width="100" filterBy="#{person.last}, #{person.first} #{person.nickname} #{person.cell} #{person.email}" filterMatchMode="contains">
+                    <p:link href="../person.jsf?id=#{person.id.value}">
+                        <h:outputText value="#{person.last}, #{person.first}" />
+                    </p:link>
+                    <h:outputText value=" (#{person.nickname})" rendered="#{person.nickname != null and person.nickname != person.first}" />
+                    <br />
+                    <h:panelGroup style="font-size:0.65em;display:block;line-height:120%;">
+                        <h:outputText value="#{person.cell}" />
+                        <h:outputText value="&lt;br /&gt;" escape="false" rendered="#{person.cell != null}" />
+                        <h:outputText value=" #{person.email}" />
+                    </h:panelGroup>
                 </p:column>
-                <p:column headerText="Last" width="100">
-                    <h:outputText value="#{person.last}" />
+                <p:column width="100" style="text-align:center">
+                    <f:facet name="header">
+                        Trips<br />
+                        <p:selectOneMenu id="tripFilter" value="#{viewScope.tripFilter}">
+                            <p:ajax update="peeps" />
+                            <f:selectItem itemLabel="All" itemValue="#{null}" noSelectionOption="true" />
+                            <f:selectItems value="#{trip.trips}" var="t" itemLabel="#{t.title}" itemValue="#{t.id}" />
+                        </p:selectOneMenu>
+                    </f:facet>
+                    <ui:repeat var="atrip" value="#{trip.trips}">
+                        <h:panelGroup style="font-size:0.85em" rendered="#{tripFilter == null or tripFilter == atrip.id}">
+                            <p:link href="../itinerary.jsf?trip=#{atrip.id}&amp;id=#{person.id.value}" rendered="#{atrip.people.contains(person.id)}">
+                                <h:outputText value="#{atrip.title}&lt;br /&gt;" escape="false" />
+                            </p:link>
+                        </h:panelGroup>
+                    </ui:repeat>
                 </p:column>
-                <p:column rendered="#{showAll}" headerText="Birth Date" width="100" style="text-align:center">
-                    <h:outputText value="#{person.birthdate}">
-                        <f:convertDateTime type="localDate" pattern="MM/dd/yyyy" />
-                    </h:outputText>
+                <p:column headerText="Notes" width="100" style="font-size:0.85em">
+                    <h:outputText value="#{person.notes}" />
                 </p:column>
             </p:dataTable>
         </ui:define>

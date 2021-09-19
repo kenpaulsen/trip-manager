@@ -76,12 +76,12 @@
             }
         </jsft:event>
         <ui:insert name="header">
-            <div style="background-image:url('images/medjbanner.jpg'); background-size:cover; height:100px;">
+            <div style="background-image:url('/trip/images/medjbanner.jpg'); background-size:cover; height:100px;">
                 <div class="siteheading">Medjugorje Trip Manager</div>
                 <h:panelGroup style="margin-right:8px;float:right" rendered="#{!showAll}">
-                    <p:splitButton id="Profile" value="Edit Profile" onclick="document.location='person.jsf?id=#{sessionScope.userId.value}';return false;">
-                        <p:menuitem value="Set Password" update="growl" url="setPass.jsf?id=#{sessionScope.userId.value}" />
-                        <p:menuitem value="Logout" update="growl" url="login.jsf" />
+                    <p:splitButton id="Profile" value="Edit Profile" onclick="document.location='/trip/person.jsf?id=#{sessionScope.userId.value}';return false;">
+                        <p:menuitem value="Set Password" update="growl" url="/trip/setPass.jsf?id=#{sessionScope.userId.value}" />
+                        <p:menuitem value="Logout" update="growl" url="/trip/login.jsf" />
                     </p:splitButton>
                 </h:panelGroup>
                 <h:inputHidden type="hidden" id="url" />
@@ -98,21 +98,21 @@
                             sessionScope.userId = aUser;
                             sessionScope.priv = 'admin';
                             viewScope.showAll = true;
-                            jsft.redirect("tripContacts.jsf");
+                            jsft.redirect("/trip/tripContacts.jsf");
                         }
                     </jsft:event>
                 </p:commandButton>
                 <p:menuButton value="Admin" rendered="#{showAll}" style="margin-right:10px;float:right">
-                    <p:menuitem value="Add Person" update="growl" url="person.jsf" />
-                    <p:menuitem value="Add Trip" update="growl" url="editTrip.jsf" />
-                    <p:menuitem value="Batch Transaction" update="growl" url="batchTx.jsf?type=Batch" />
-                    <p:menuitem value="Shared Transaction" update="growl" url="batchTx.jsf?type=Shared" />
-                    <p:menuitem value="Edit Profile" update="growl" url="person.jsf?id=#{sessionScope.userId.value}" />
-                    <p:menuitem value="Logout" update="growl" url="login.jsf" />
+                    <p:menuitem value="Add Person" update="growl" url="/trip/person.jsf" />
+                    <p:menuitem value="Add Trip" update="growl" url="/trip/editTrip.jsf" />
+                    <p:menuitem value="Batch Transaction" update="growl" url="/trip/batchTx.jsf?type=Batch" />
+                    <p:menuitem value="Shared Transaction" update="growl" url="/trip/batchTx.jsf?type=Shared" />
+                    <p:menuitem value="Edit Profile" update="growl" url="/trip/person.jsf?id=#{sessionScope.userId.value}" />
+                    <p:menuitem value="Logout" update="growl" url="/trip/login.jsf" />
                 </p:menuButton>
             </div>
             <p:tabMenu activeIndex="#{activeTab}">
-                <p:menuitem value="Account Balance" url="transactions.jsf">
+                <p:menuitem value="Account Balance" url="/trip/transactions.jsf">
                     <f:param name="id" value="#{sessionScope.userId.value}" />
                     <jsft:event type="afterCreate">
                         balanceComp = component;
@@ -125,14 +125,14 @@
                             if (tab.getPeople().contains(userId) || showAll) {
                                 comp = jsftComp.createComponent(null, "org.primefaces.component.UIMenuItem", null);
                                 comp.value = tab.title;
-                                comp.url = "itinerary.jsf?trip=".concat(tab.id).concat("&amp;id=".concat(sessionScope.userId.value));
+                                comp.url = "/trip/itinerary.jsf?trip=".concat(tab.id).concat("&amp;id=".concat(sessionScope.userId.value));
                                 jsftComp.insertUIComponentBefore(balanceComp, comp);
                                 tabMap.put(tab.title, tabIdx);
                                 tabIdx = tabIdx + 1;
                             } else if (tab.canJoin(userId)) {
                                 comp = jsftComp.createComponent(null, "org.primefaces.component.UIMenuItem", null);
                                 comp.value = (reg.getRegistration(tab.id, userId).status == 'Not Registered') ? 'Join '.concat(tab.title) : tab.title;
-                                comp.url = "joinTrip.jsf?trip=".concat(tab.id).concat("&amp;id=".concat(sessionScope.userId.value));
+                                comp.url = "/trip/joinTrip.jsf?trip=".concat(tab.id).concat("&amp;id=".concat(sessionScope.userId.value));
                                 jsftComp.insertUIComponentBefore(balanceComp, comp);
                                 tabMap.put(tab.title, tabIdx);
                                 tabIdx = tabIdx + 1;
@@ -141,7 +141,7 @@
                         tabMap.put("balance", tabIdx);
                     </jsft:event>
                 </p:menuitem>
-                <p:menuitem value="Past Trips" url="pastTrips.jsf" rendered="#{!oldTrips.isEmpty()}">
+                <p:menuitem value="Past Trips" url="/trip/pastTrips.jsf" rendered="#{!oldTrips.isEmpty()}">
                     <jsft:event type="afterCreate">
                         if (!oldTrips.isEmpty()) {
                             jsftComp.insertUIComponentBefore(balanceComp, component);
