@@ -10,7 +10,6 @@ import java.util.stream.Collectors;
 import javax.enterprise.context.ApplicationScoped;
 import javax.faces.application.FacesMessage;
 import javax.inject.Named;
-import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DynamoUtils;
 import org.paulsens.trip.model.Person;
@@ -18,7 +17,6 @@ import org.paulsens.trip.model.Trip;
 
 @Slf4j
 @Named("trip")
-@Singleton
 @ApplicationScoped
 public class TripCommands {
     public Trip createTrip() {

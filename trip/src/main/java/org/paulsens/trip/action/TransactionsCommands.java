@@ -13,7 +13,6 @@ import java.util.stream.Collectors;
 import javax.enterprise.context.ApplicationScoped;
 import javax.faces.application.FacesMessage;
 import javax.inject.Named;
-import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DynamoUtils;
 import org.paulsens.trip.model.Person;
@@ -22,7 +21,6 @@ import org.paulsens.trip.model.Transaction.Type;
 
 @Slf4j
 @Named("txCmds")
-@Singleton
 @ApplicationScoped
 public class TransactionsCommands {
     public Transaction createTransaction(final Person.Id userId) {

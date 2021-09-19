@@ -7,14 +7,12 @@ import java.util.Optional;
 import javax.enterprise.context.ApplicationScoped;
 import javax.faces.application.FacesMessage;
 import javax.inject.Named;
-import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DynamoUtils;
 import org.paulsens.trip.model.Person;
 
 @Slf4j
 @Named("people")
-@Singleton
 @ApplicationScoped
 public class PersonCommands {
     public Person createPerson() {

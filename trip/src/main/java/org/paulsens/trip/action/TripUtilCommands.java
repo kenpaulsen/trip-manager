@@ -15,10 +15,8 @@ import javax.faces.application.FacesMessage.Severity;
 import javax.faces.context.FacesContext;
 import javax.faces.model.SelectItem;
 import javax.inject.Named;
-import javax.inject.Singleton;
 
 @ApplicationScoped
-@Singleton
 @Named("tripUtil")
 @SuppressWarnings("unused")
 public class TripUtilCommands {
