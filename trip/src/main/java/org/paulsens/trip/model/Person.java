@@ -83,6 +83,13 @@ public final class Person implements Serializable {
                 .join();
     }
 
+    @JsonIgnore
+    public List<String> getTripIds() {
+        return getTrips().stream()
+                .map(Trip::getId)
+                .collect(Collectors.toList());
+    }
+
     @Value
     public static class Id implements Serializable, Comparable<Id> {
         @JsonValue

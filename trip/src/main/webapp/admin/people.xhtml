@@ -13,7 +13,6 @@
                     jsft.redirect("../login.jsf"); // Not logged in
                 } else {
                     viewScope.reqPriv = "admin";
-                    viewScope.tripFilter = null;
                     if (thePeople == null) {
                         viewScope.thePeople = people.getPeople();
                         viewScope.filtered = util.createList();
@@ -23,7 +22,7 @@
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
 
-            <p:dataTable id="peeps" var="person" value="#{viewScope.thePeople}" sortBy="#{person.last.concat(person.first)}" filteredValue="#{viewScope.filtered}">
+            <p:dataTable id="peeps" widgetVar="peopleTable" var="person" value="#{viewScope.thePeople}" sortBy="#{person.last.concat(person.first)}" filteredValue="#{viewScope.filtered}">
                 <p:column headerText="" width="10">
                     <h:outputText value="#{personCount}">
                         <jsft:event type="beforeEncode">
@@ -43,18 +42,16 @@
                         <h:outputText value=" #{person.email}" />
                     </h:panelGroup>
                 </p:column>
-                <p:column width="100" style="text-align:center">
-                    <f:facet name="header">
-                        Trips<br />
-                        <p:selectOneMenu id="tripFilter" value="#{viewScope.tripFilter}">
-                            <p:ajax update="peeps" />
+                <p:column headerText="Trips" width="100" style="text-align:center" filterBy="#{person.tripIds.toString()}" filterMatchMode="contains">
+                    <f:facet name="filter">
+                        <p:selectOneMenu onchange="PF('peopleTable').filter()">
                             <f:selectItem itemLabel="All" itemValue="#{null}" noSelectionOption="true" />
                             <f:selectItems value="#{trip.trips}" var="t" itemLabel="#{t.title}" itemValue="#{t.id}" />
                         </p:selectOneMenu>
                     </f:facet>
-                    <ui:repeat var="atrip" value="#{trip.trips}">
-                        <h:panelGroup style="font-size:0.85em" rendered="#{tripFilter == null or tripFilter == atrip.id}">
-                            <p:link href="../itinerary.jsf?trip=#{atrip.id}&amp;id=#{person.id.value}" rendered="#{atrip.people.contains(person.id)}">
+                    <ui:repeat var="atrip" value="#{person.trips}">
+                        <h:panelGroup style="font-size:0.85em">
+                            <p:link href="../itinerary.jsf?trip=#{atrip.id}&amp;id=#{person.id.value}">
                                 <h:outputText value="#{atrip.title}&lt;br /&gt;" escape="false" />
                             </p:link>
                         </h:panelGroup>
