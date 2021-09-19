@@ -3,6 +3,7 @@ package org.paulsens.trip.action;
 import java.util.concurrent.CompletableFuture;
 import javax.faces.bean.ApplicationScoped;
 import javax.faces.bean.ManagedBean;
+import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
@@ -18,6 +19,7 @@ import software.amazon.awssdk.services.ses.model.SendEmailResponse;
 /**
  * This class contains methods that perform mail actions.
  */
+@Singleton
 @ApplicationScoped
 @ManagedBean(name="mail")
 @SuppressWarnings("unused")

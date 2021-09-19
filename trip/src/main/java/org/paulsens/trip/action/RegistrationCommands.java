@@ -7,6 +7,7 @@ import java.util.Optional;
 import javax.enterprise.context.ApplicationScoped;
 import javax.faces.application.FacesMessage;
 import javax.inject.Named;
+import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DynamoUtils;
 import org.paulsens.trip.model.Person;
@@ -14,6 +15,7 @@ import org.paulsens.trip.model.Registration;
 
 @Slf4j
 @Named("reg")
+@Singleton
 @ApplicationScoped
 public class RegistrationCommands {
     public Registration createRegistration(final String tripId, final Person.Id userId) {

@@ -4,6 +4,7 @@ import javax.enterprise.context.ApplicationScoped;
 import javax.faces.application.FacesMessage;
 import javax.faces.context.FacesContext;
 import javax.inject.Named;
+import javax.inject.Singleton;
 import javax.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
@@ -14,6 +15,7 @@ import org.paulsens.trip.util.RandomData;
 
 @Slf4j
 @Named("pass")
+@Singleton
 @ApplicationScoped
 public class PassCommands {
     public Creds login(final String email, final String pass) {

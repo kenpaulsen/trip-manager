@@ -10,12 +10,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import java.util.stream.Collectors;
 import lombok.Data;
 import lombok.Value;
+import org.paulsens.trip.dynamo.DynamoUtils;
 
 @Data
 public final class Person implements Serializable {
-    private Id id;
+    private Person.Id id;
     private String nickname;
     private String first;
     private String middle;
@@ -66,6 +68,19 @@ public final class Person implements Serializable {
     @JsonIgnore
     public String getPreferredName() {
         return nickname == null ? first : nickname;
+    }
+
+    /**
+     * Get the trips that contain this user.
+     * @return List of trips the user has joined.
+     */
+    @JsonIgnore
+    public List<Trip> getTrips() {
+        return DynamoUtils.getInstance().getTrips()
+                .thenApply(trips -> trips.stream().filter(
+                        trip -> trip.getPeople().contains(getId())).collect(Collectors.toList()))
+                .exceptionally(ex -> new ArrayList<>())
+                .join();
     }
 
     @Value
