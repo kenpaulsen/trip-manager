@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"
+    xmlns:jsft="http://jsftemplating.java.net/jsft"
+    xmlns:ui="http://java.sun.com/jsf/facelets"
+    xmlns:p="http://primefaces.org/ui"
+    xmlns:f="http://java.sun.com/jsf/core"
+    xmlns:h="http://java.sun.com/jsf/html">
+    <ui:composition template="template.xhtml">
+        <ui:define name="content">
+            <jsft:event type="initPage">
+                if (sessionScope.userId == null) {
+                    jsft.redirect("login.jsf"); // Not logged in
+                } else {
+                    viewScope.reqPriv = "admin";
+                    if (thePeople == null) {
+                        viewScope.thePeople = people.getPeople();
+                    }
+                }
+            </jsft:event>
+            <jsft:event type="afterCreate" insert="defaultAuth" />
+
+            <p:dataTable id="peeps" var="personId" value="#{thePeople}" sortBy="#{person.last}">
+                <p:column headerText="Name" width="100">
+                    <h:outputText value="#{person.first}">
+                        <jsft:event type="beforeEncode">
+                            person = people.getPerson(personId);
+                        </jsft:event>
+                    </h:outputText>
+                </p:column>
+                <p:column headerText="Middle" width="100">
+                    <h:outputText value="#{person.middle}" />
+                </p:column>
+                <p:column headerText="Last" width="100">
+                    <h:outputText value="#{person.last}" />
+                </p:column>
+                <p:column rendered="#{showAll}" headerText="Birth Date" width="100" style="text-align:center">
+                    <h:outputText value="#{person.birthdate}">
+                        <f:convertDateTime type="localDate" pattern="MM/dd/yyyy" />
+                    </h:outputText>
+                </p:column>
+            </p:dataTable>
+        </ui:define>
+    </ui:composition>
+</html>
