@@ -42,6 +42,12 @@
                     <p:inputText id="last" value="#{person.last}" size="30" label="Last Name" required="true" />
                     <p:watermark for="last" value="Last Name" id="lastWater" />
                 </p:inplace>
+                <h:panelGroup rendered="#{showAll}" style="display:block;padding-left:8px;padding-top:8px;color:#D03F68">
+                    <h:outputText value="Last Login: " />
+                    <h:outputText value="#{tripUtil.epochSecondsToUTCLocalDateTime(pass.getCredsByAdmin(person.email, person.id).lastLogin)}">
+                        <f:convertDateTime type="localDateTime" pattern="MMM dd, yyyy 'at' HH:mm:ss" />
+                    </h:outputText>
+                </h:panelGroup>
                 <br /><br />
                 <p:panelGrid columns="2" styleClass="ui-noborder">
                     <h:outputText value="Birthdate: "/>

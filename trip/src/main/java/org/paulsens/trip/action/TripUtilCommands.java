@@ -72,8 +72,8 @@ public class TripUtilCommands {
         return LocalDate.now();
     }
 
-    public LocalDateTime epochSecondsToUTCLocalDateTime(final long epochSeconds) {
-        return LocalDateTime.ofEpochSecond(epochSeconds, 0, ZoneOffset.UTC);
+    public LocalDateTime epochSecondsToUTCLocalDateTime(final Long epochSeconds) {
+        return epochSeconds == null ? null : LocalDateTime.ofEpochSecond(epochSeconds, 0, ZoneOffset.UTC);
     }
 
     public <T> List<T> getMapValues(Map<?, T> map) {
