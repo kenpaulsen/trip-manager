@@ -3,6 +3,7 @@ package org.paulsens.trip.action;
 import java.lang.reflect.Array;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
@@ -69,6 +70,10 @@ public class TripUtilCommands {
 
     public LocalDate localDateNow() {
         return LocalDate.now();
+    }
+
+    public LocalDateTime epochSecondsToUTCLocalDateTime(final long epochSeconds) {
+        return LocalDateTime.ofEpochSecond(epochSeconds, 0, ZoneOffset.UTC);
     }
 
     public <T> List<T> getMapValues(Map<?, T> map) {
