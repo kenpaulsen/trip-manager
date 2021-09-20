@@ -23,7 +23,11 @@
             <jsft:event type="afterCreate" insert="defaultAuth" />
 
             <p:dataTable id="peeps" widgetVar="peopleTable" var="person" value="#{viewScope.thePeople}" sortBy="#{person.last.concat(person.first)}" filteredValue="#{viewScope.filtered}">
-                <p:column headerText="" width="10">
+                <f:facet name="header">
+                    <h:outputText value="People Manager" />
+                    <p:linkButton id="newPerson" value="New Person" style="float:right" href="/trip/person.jsf" />
+                </f:facet>
+                <p:column width="10" style="text-align:center">
                     <h:outputText value="#{personCount}">
                         <jsft:event type="beforeEncode">
                             personCount = personCount + 1;
@@ -57,6 +61,11 @@
                         </h:panelGroup>
                     </ui:repeat>
                 </p:column>
+                <!-- p:column headerText="Last Seen" width="100" style="font-size:0.85em">
+                    <h:outputText value="#{pass.getCredsByAdmin(person.email, person.id)}">
+                        <f:convertDateTime type="localDateTime" pattern="MMM dd, yyyy" />
+                    </h:outputText>
+                </p:column -->
                 <p:column headerText="Notes" width="100" style="font-size:0.85em">
                     <h:outputText value="#{person.notes}" />
                 </p:column>

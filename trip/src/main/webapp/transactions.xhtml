@@ -79,7 +79,7 @@
                     </h:outputText>
                 </p:column>
                 <p:column headerText="Balance" width="85">
-                    <h:outputText value="#{total}" style="float:right;#{total &lt; 0 ? 'color:#DD0000' : ''}">
+                    <h:outputText value="#{total}" style="float:right;#{total &lt; -0.0099 ? 'color:#DD0000' : ''}">
                         <f:convertNumber type="currency" currencySymbol="$" locale="en_US" />
                         <jsft:event type="beforeEncode">
                             total = total + txCmds.getUserAmount(tx);
