@@ -36,6 +36,14 @@ public class PassCommands {
                 }).join();
     }
 
+    public Creds getCredsByAdmin(final String email, final Person.Id id) {
+        return DynamoUtils.getInstance().getCredsByEmailAdminOnly(email, id)
+                .exceptionally(ex -> {
+                    log.error("Failed to get creds for: " + email, ex);
+                    return null;
+                }).join();
+    }
+
     /**
      * This should only be called for a Person that exists, but does NOT have creds in the db yet. See
      * createAccount.xhtml.

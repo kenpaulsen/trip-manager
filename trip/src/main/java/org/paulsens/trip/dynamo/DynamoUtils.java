@@ -253,6 +253,23 @@ public class DynamoUtils {
     }
 
     /**
+     * Only use by Admin. Getting Creds is not cached, so be careful about overusing this!
+     * @param email The email address for the {@link Creds} to retrieve.
+     * @param id    The {@link Person.Id} that is expected to own the {@link Creds} -- null returned if does not match.
+     * @return The Creds for the email if found and validated to match the given {@code id}, or null.
+     */
+    public CompletableFuture<Creds> getCredsByEmailAdminOnly(final String email, final Person.Id id) {
+        if ((email == null) || email.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        final Map<String, AttributeValue> key =
+                Collections.singletonMap(EMAIL, AttributeValue.builder().s(email.toLowerCase()).build());
+        return client.getItem(b -> b.key(key).tableName(PASS_TABLE).build())
+                .thenApply(item -> (item.hasItem()) ? credsFromResponse(item) : null)
+                .thenApply(creds -> (creds == null || creds.getUserId().equals(id)) ? creds : null);
+    }
+
+    /**
      * This method sets the last login timestamp for the given user (via {@link Creds}). It returns the previous last
      * login, or {@code null} if the user hasn't logged in before.
      *
@@ -433,15 +450,18 @@ public class DynamoUtils {
             log.warn("User with email (" + email + ") has not logged in before! Checking if user exists...");
             return createCreds(email).map(creds -> validateCreds(email, pass, creds)).orElse(null);
         }
+        return validateCreds(email, pass, credsFromResponse(resp));
+    }
+
+    private Creds credsFromResponse(final GetItemResponse resp) {
         final Map<String, AttributeValue> at = resp.item();
         final AttributeValue last = at.get(LAST_LOGIN);
-        final Creds creds = new Creds(
+        return new Creds(
                 at.get(EMAIL).s(),
                 Person.Id.from(at.get(USER_ID).s()),
                 at.get(PRIV).s(),
                 at.get(PW).s(),
                 last == null ? null : Long.parseLong(last.n()));
-        return validateCreds(email, pass, creds);
     }
 
     private Creds validateCreds(final String email, final String pass, final Creds creds) {
