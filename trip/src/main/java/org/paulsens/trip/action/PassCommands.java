@@ -1,6 +1,7 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.faces.annotation.FacesConfig;
 import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
@@ -14,6 +15,7 @@ import org.paulsens.trip.util.RandomData;
 
 @Slf4j
 @Named("pass")
+@FacesConfig
 @ApplicationScoped
 public class PassCommands {
     public Creds login(final String email, final String pass) {

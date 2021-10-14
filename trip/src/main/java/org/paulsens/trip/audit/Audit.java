@@ -45,11 +45,11 @@ public class Audit {
         System.out.println("Audit log file location: " + auditLogFile);
         PrintWriter pw = null;
         try {
-            pw = new PrintWriter(new FileWriter(new File(auditLogFile), true));
+            pw = new PrintWriter(new FileWriter(auditLogFile, true));
         } catch (IOException ex) {
             ex.printStackTrace();
         }
-        this.printWriter = pw;
+        this.printWriter = (pw == null) ? new PrintWriter(System.out) : pw;
     }
 
     /**
