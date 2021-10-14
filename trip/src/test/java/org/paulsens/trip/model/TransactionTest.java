@@ -25,7 +25,7 @@ public class TransactionTest {
                 + "-0fc348711fbc\",\"txDate\":\"2019-12-16T00:00:00\",\"amount\":221.07,\"category\":\"Car Rental\""
                 + ",\"note\":\"Lisbon Sixt Rental, conf # 989223558\"}";
         final Transaction restored = mapper.readValue(old, Transaction.class);
-        Assert.assertEquals(restored.getAmount(), 221.07f);
+        Assert.assertEquals((float) restored.getAmount(), 221.07f);
         Assert.assertEquals(restored.getCategory(), "Car Rental");
     }
 

@@ -50,7 +50,7 @@
                         <f:facet name="output">
                             <h:outputText styleClass="editorHover small-p" value="#{(trEvent.notes == null || trEvent.notes.isEmpty()) ? 'Click here to edit.' : trEvent.notes}" escape="false" />
                         </f:facet>
-                        <p:textEditor id="eeNotes" value="#{trEvent.notes}" label="Trip Event Notes" height="75" placeholder="Enter Trip Event Notes" />
+                        <p:textEditor id="eeNotes" value="#{trEvent.notes}" label="Trip Event Notes" height="75" placeholder="Enter Trip Event Notes" secure="false" />
                     </p:inplace>
                 </p:panelGrid>
             </p:fieldset>

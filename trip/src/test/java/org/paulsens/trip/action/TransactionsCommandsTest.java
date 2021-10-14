@@ -32,13 +32,13 @@ public class TransactionsCommandsTest {
         final List<Person.Id> groupUsers = txCmds.getUserIdsForGroupId(sharedGroup);
         assertEquals(groupUsers.size(), 4);
         final Transaction tx0 = txCmds.getGroupTransactionForUser(groupUsers.get(0), sharedGroup).orElse(null);
-        assertEquals(txCmds.getUserAmount(tx0), amount / 4);
+        assertEquals((float) txCmds.getUserAmount(tx0), amount / 4);
         final Transaction tx1 = txCmds.getGroupTransactionForUser(groupUsers.get(1), sharedGroup).orElse(null);
-        assertEquals(txCmds.getUserAmount(tx1), amount / 4);
+        assertEquals((float) txCmds.getUserAmount(tx1), amount / 4);
         final Transaction tx2 = txCmds.getGroupTransactionForUser(groupUsers.get(2), sharedGroup).orElse(null);
-        assertEquals(txCmds.getUserAmount(tx2), amount / 4);
+        assertEquals((float) txCmds.getUserAmount(tx2), amount / 4);
         final Transaction tx3 = txCmds.getGroupTransactionForUser(groupUsers.get(3), sharedGroup).orElse(null);
-        assertEquals(txCmds.getUserAmount(tx3), amount / 4);
+        assertEquals((float) txCmds.getUserAmount(tx3), amount / 4);
     }
 
     private Person.Id createPerson() {

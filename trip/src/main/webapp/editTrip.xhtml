@@ -34,7 +34,7 @@
                     <f:facet name="output">
                         <h:outputText styleClass="editorHover" value="#{(theTrip.description == null || theTrip.description.isEmpty()) ? 'Click here to edit.' : theTrip.description}" escape="false" />
                     </f:facet>
-                    <p:textEditor id="description" widgetVar="descField" value="#{theTrip.description}" label="Trip Description" placeholder="Enter Trip Description" style="margin-bottom:10px;margin-left:40px;margin-right:40px;" height="150" />
+                    <p:textEditor id="description" widgetVar="descField" value="#{theTrip.description}" label="Trip Description" placeholder="Enter Trip Description" style="margin-bottom:10px;margin-left:40px;margin-right:40px;" secure="false" height="150" />
                     <p:watermark for="description" value="Enter Description" id="descWater" />
                 </p:inplace>
                 <p:panelGrid columns="2" styleClass="ui-noborder" columnClasses="propSheetLabel,propSheetValue">
@@ -68,7 +68,7 @@
                         <f:convertDateTime type="localDateTime" pattern="#{component.pattern}" />
                     </p:calendar>
 
-                    <p:textEditor id="neNotes" value="#{requestScope.neNotes}" label="Trip Event Notes" height="75" />
+                    <p:textEditor id="neNotes" value="#{requestScope.neNotes}" label="Trip Event Notes" height="75" secure="false" />
                     <p:watermark for="neNotes" value="Enter Trip Event Notes" id="neNotesWater" />
 
                     <p:commandButton id="addNewEvent" value="Add New Event" update="form:growl,form:events" oncomplete="PF('nePanel').hide();return true;">
