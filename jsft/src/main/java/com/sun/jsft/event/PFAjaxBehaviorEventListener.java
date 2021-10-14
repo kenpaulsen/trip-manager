@@ -2,8 +2,8 @@ package com.sun.jsft.event;
 
 import java.util.Map;
 
-import javax.faces.event.AbortProcessingException;
-import javax.faces.event.AjaxBehaviorEvent;
+import jakarta.faces.event.AbortProcessingException;
+import jakarta.faces.event.AjaxBehaviorEvent;
 
 import org.primefaces.behavior.ajax.AjaxBehaviorListenerImpl;
 

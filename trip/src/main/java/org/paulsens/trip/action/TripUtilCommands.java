@@ -10,12 +10,12 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import javax.enterprise.context.ApplicationScoped;
-import javax.faces.application.FacesMessage;
-import javax.faces.application.FacesMessage.Severity;
-import javax.faces.context.FacesContext;
-import javax.faces.model.SelectItem;
-import javax.inject.Named;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.faces.application.FacesMessage;
+import jakarta.faces.application.FacesMessage.Severity;
+import jakarta.faces.context.FacesContext;
+import jakarta.faces.model.SelectItem;
+import jakarta.inject.Named;
 
 @ApplicationScoped
 @Named("tripUtil")
@@ -28,7 +28,7 @@ public class TripUtilCommands {
      *  @param  summary     The message summary field.
      *  @param  detail      The message detail field.
      *
-     *  @return A new instance of {@code javax.faces.application.FacesMessage}.
+     *  @return A new instance of {@code jakarta.faces.application.FacesMessage}.
      */
     public FacesMessage createFacesMessage(final String severity, final String summary, final String detail) {
         final Severity sevObj;

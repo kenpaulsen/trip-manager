@@ -3,11 +3,11 @@ package com.sun.jsft.component;
 import java.io.IOException;
 import java.util.Locale;
 
-import javax.faces.FacesException;
-import javax.faces.application.ViewHandler;
-import javax.faces.component.UIViewRoot;
-import javax.faces.context.FacesContext;
-import javax.faces.view.ViewDeclarationLanguage;
+import jakarta.faces.FacesException;
+import jakarta.faces.application.ViewHandler;
+import jakarta.faces.component.UIViewRoot;
+import jakarta.faces.context.FacesContext;
+import jakarta.faces.view.ViewDeclarationLanguage;
 
 
 /**
@@ -76,7 +76,12 @@ public class ViewScopeViewHandler extends ViewHandler {
     public String getResourceURL(FacesContext context, String path) {
         return _oldViewHandler.getResourceURL(context, path);
     }
-    
+
+    @Override
+    public String getWebsocketURL(final FacesContext ctx, final String str) {
+        return _oldViewHandler.getWebsocketURL(ctx, str);
+    }
+
     /**
      *	<p> Return a URL suitable for rendering (after optional encoding
      *	    performed by the <code>encodeActionURL()</code> method of

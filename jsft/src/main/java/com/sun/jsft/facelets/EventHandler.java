@@ -57,28 +57,28 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import javax.faces.FacesException;
-import javax.faces.component.ActionSource;
-import javax.faces.component.UIComponent;
-import javax.faces.component.behavior.AjaxBehavior;
-import javax.faces.component.behavior.ClientBehavior;
-import javax.faces.component.behavior.ClientBehaviorHolder;
-import javax.faces.context.FacesContext;
-import javax.faces.event.PostAddToViewEvent;
-import javax.faces.event.PostConstructViewMapEvent;
-import javax.faces.event.PostRestoreStateEvent;
-import javax.faces.event.PostValidateEvent;
-import javax.faces.event.PreDestroyViewMapEvent;
-import javax.faces.event.PreRemoveFromViewEvent;
-import javax.faces.event.PreRenderComponentEvent;
-import javax.faces.event.PreRenderViewEvent;
-import javax.faces.event.PreValidateEvent;
-import javax.faces.event.SystemEvent;
-import javax.faces.view.facelets.ComponentHandler;
-import javax.faces.view.facelets.FaceletContext;
-import javax.faces.view.facelets.TagAttribute;
-import javax.faces.view.facelets.TagConfig;
-import javax.faces.view.facelets.TagHandler;
+import jakarta.faces.FacesException;
+import jakarta.faces.component.ActionSource;
+import jakarta.faces.component.UIComponent;
+import jakarta.faces.component.behavior.AjaxBehavior;
+import jakarta.faces.component.behavior.ClientBehavior;
+import jakarta.faces.component.behavior.ClientBehaviorHolder;
+import jakarta.faces.context.FacesContext;
+import jakarta.faces.event.PostAddToViewEvent;
+import jakarta.faces.event.PostConstructViewMapEvent;
+import jakarta.faces.event.PostRestoreStateEvent;
+import jakarta.faces.event.PostValidateEvent;
+import jakarta.faces.event.PreDestroyViewMapEvent;
+import jakarta.faces.event.PreRemoveFromViewEvent;
+import jakarta.faces.event.PreRenderComponentEvent;
+import jakarta.faces.event.PreRenderViewEvent;
+import jakarta.faces.event.PreValidateEvent;
+import jakarta.faces.event.SystemEvent;
+import jakarta.faces.view.facelets.ComponentHandler;
+import jakarta.faces.view.facelets.FaceletContext;
+import jakarta.faces.view.facelets.TagAttribute;
+import jakarta.faces.view.facelets.TagConfig;
+import jakarta.faces.view.facelets.TagHandler;
 
 
 /**
@@ -406,23 +406,23 @@ public class EventHandler extends TagHandler {
      *		<li>initGet</li>
      *		<li>initPost</li>
      *		<li>preRenderComponent</li>
-     *		<li>javax.faces.event.PreRenderComponent</li>
+     *		<li>jakarta.faces.event.PreRenderComponent</li>
      *		<li>preRenderView</li>
-     *		<li>javax.faces.event.PreRenderView</li>
+     *		<li>jakarta.faces.event.PreRenderView</li>
      *		<li>postAddToView</li>
-     *		<li>javax.faces.event.PostAddToView</li>
+     *		<li>jakarta.faces.event.PostAddToView</li>
      *		<li>preValidate</li>
-     *		<li>javax.faces.event.PreValidate</li>
+     *		<li>jakarta.faces.event.PreValidate</li>
      *		<li>postValidate</li>
-     *		<li>javax.faces.event.PostValidate</li>
+     *		<li>jakarta.faces.event.PostValidate</li>
      *		<li>preRemoveFromView</li>
-     *		<li>javax.faces.event.PreRemoveFromViewEvent</li>
+     *		<li>jakarta.faces.event.PreRemoveFromViewEvent</li>
      *		<li>postRestoreState</li>
-     *		<li>javax.faces.event.PostRestoreStateEvent</li>
+     *		<li>jakarta.faces.event.PostRestoreStateEvent</li>
      *		<li>postConstructViewMap</li>
-     *		<li>javax.faces.event.PostConstructViewMapEvent</li>
+     *		<li>jakarta.faces.event.PostConstructViewMapEvent</li>
      *		<li>preDestroyViewMap</li>
-     *		<li>javax.faces.event.PreDestroyViewMapEvent</li>
+     *		<li>jakarta.faces.event.PreDestroyViewMapEvent</li>
      *	    </ul>
      *
      *	    <p>	The type may be <code>null</code> if the current event is
@@ -478,34 +478,34 @@ public class EventHandler extends TagHandler {
     static {
 	eventAliases.put("beforeEncode", PreRenderComponentEvent.class);
 	eventAliases.put("preRenderComponent", PreRenderComponentEvent.class);
-	eventAliases.put("javax.faces.event.PreRenderComponent", PreRenderComponentEvent.class);
+	eventAliases.put("jakarta.faces.event.PreRenderComponent", PreRenderComponentEvent.class);
 
 	eventAliases.put("beforeEncodeView", PreRenderViewEvent.class);
 	eventAliases.put("preRenderView", PreRenderViewEvent.class);
-	eventAliases.put("javax.faces.event.PreRenderView", PreRenderViewEvent.class);
+	eventAliases.put("jakarta.faces.event.PreRenderView", PreRenderViewEvent.class);
 
 	eventAliases.put("afterCreate", PostAddToViewEvent.class);
 	eventAliases.put("postAddToView", PostAddToViewEvent.class);
-	eventAliases.put("javax.faces.event.PostAddToView", PostAddToViewEvent.class);
+	eventAliases.put("jakarta.faces.event.PostAddToView", PostAddToViewEvent.class);
 
 	eventAliases.put("afterCreateView", PostRestoreStateEvent.class);
 	eventAliases.put("postRestoreState", PostRestoreStateEvent.class);
-	eventAliases.put("javax.faces.event.PostRestoreStateEvent", PostRestoreStateEvent.class);
+	eventAliases.put("jakarta.faces.event.PostRestoreStateEvent", PostRestoreStateEvent.class);
 
 	eventAliases.put("beforeValidate", PreValidateEvent.class);
 	eventAliases.put("preValidate", PreValidateEvent.class);
-	eventAliases.put("javax.faces.event.PreValidate", PreValidateEvent.class);
+	eventAliases.put("jakarta.faces.event.PreValidate", PreValidateEvent.class);
 
 	eventAliases.put("afterValidate", PostValidateEvent.class);
 	eventAliases.put("postValidate", PostValidateEvent.class);
-	eventAliases.put("javax.faces.event.PostValidate", PostValidateEvent.class);
+	eventAliases.put("jakarta.faces.event.PostValidate", PostValidateEvent.class);
 
 	eventAliases.put("preRemoveFromView", PreRemoveFromViewEvent.class);
-	eventAliases.put("javax.faces.event.PreRemoveFromViewEvent", PreRemoveFromViewEvent.class);
+	eventAliases.put("jakarta.faces.event.PreRemoveFromViewEvent", PreRemoveFromViewEvent.class);
 	eventAliases.put("postConstructViewMap", PostConstructViewMapEvent.class);
-	eventAliases.put("javax.faces.event.PostConstructViewMapEvent", PostConstructViewMapEvent.class);
+	eventAliases.put("jakarta.faces.event.PostConstructViewMapEvent", PostConstructViewMapEvent.class);
 	eventAliases.put("preDestroyViewMap", PreDestroyViewMapEvent.class);
-	eventAliases.put("javax.faces.event.PreDestroyViewMapEvent", PreDestroyViewMapEvent.class);
+	eventAliases.put("jakarta.faces.event.PreDestroyViewMapEvent", PreDestroyViewMapEvent.class);
 
 	// Action events... (i.e. buttons)
 	eventAliases.put("command", CommandActionEvent.class);

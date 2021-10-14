@@ -44,7 +44,7 @@ package com.sun.jsft.component.fragment;
 import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
-import javax.faces.event.SystemEventListener;
+import jakarta.faces.event.SystemEventListener;
 
 
 /**

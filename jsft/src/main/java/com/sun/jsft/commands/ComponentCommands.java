@@ -53,11 +53,11 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import javax.el.ValueExpression;
-import javax.faces.component.UIComponent;
-import javax.faces.context.FacesContext;
-import javax.faces.bean.ManagedBean;
-import javax.faces.bean.ApplicationScoped;
+import jakarta.el.ValueExpression;
+import jakarta.faces.component.UIComponent;
+import jakarta.faces.context.FacesContext;
+import jakarta.faces.bean.ManagedBean;
+import jakarta.faces.bean.ApplicationScoped;
 
 
 /**
@@ -162,7 +162,7 @@ parent.setInView(false);
 	// Create a temp component as a placeholder (otherwise the comp list
 	// will shrink when set() is called)
 	UIComponent tempComp = createComponent(
-		null, "javax.faces.HtmlOutputText", null);
+		null, "jakarta.faces.HtmlOutputText", null);
 
 	// Get the starting index (size-1)
 	int currIdx = children.size()-1;
@@ -456,7 +456,7 @@ parent.setInView(inview);
      *  <p> This method replaces all the children (recursively) of the
      *	given <code>UIComponenent</code> which are of type
      *	"*facelets.compiler.UIInstructions" with a component of
-     *	<code>ComponentType</code> "javax.faces.HtmlOutputText".
+     *	<code>ComponentType</code> "jakarta.faces.HtmlOutputText".
      *	This is because <code>UIInstructions</code> components are
      *	transient (and additinonally don't work correctly if set to
      *	!transient).  This causes them to be lost on POST requests
@@ -491,7 +491,7 @@ parent.setInView(inview);
 	    if (kid.getClass().getName().endsWith("facelets.compiler.UIInstructions")) {
 		// Perform Hack...
 		if (replace) {
-		    newComp = createComponent(null, "javax.faces.HtmlOutputText", null);
+		    newComp = createComponent(null, "jakarta.faces.HtmlOutputText", null);
 		    // Enable ValueExpresssions...
 		    newComp.setValueExpression("value",
 			    elutil.getValueExpression(ctx, kid.toString()));

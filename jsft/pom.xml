@@ -50,7 +50,7 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
     <groupId>com.sun.jsftemplating</groupId>
-    <version>2.2.5-SNAPSHOT</version>
+    <version>3.0.0-SNAPSHOT</version>
     <artifactId>jsft</artifactId>
 
     <build>
@@ -72,14 +72,14 @@
                           com.sun.jsft.event;version="${project.osgi.version}",
                           com.sun.jsft.facelets;version="${project.osgi.version}",
                           com.sun.jsft.util;version="${project.osgi.version}",
-                          javax.el;version="[2.1.2,3.0)",
-                          javax.faces;version="[2.0.0,3.0)",
-                          javax.faces.application;version="[2.0.0,3.0)",
-                          javax.faces.bean;version="[2.0.0,3.0)",
-                          javax.faces.component;version="[2.0.0,3.0)",
-                          javax.faces.context;version="[2.0.0,3.0)",
-                          javax.faces.event;version="[2.0.0,3.0)",
-                          javax.faces.view.facelets;version="[2.0.0,3.0)",*
+                          jakarta.el;version="[4.0.0,5.0)",
+                          jakarta.faces;version="[3.0.0,4.0)",
+                          jakarta.faces.application;version="[3.0.0,4.0)",
+                          jakarta.faces.bean;version="[3.0.0,4.0)",
+                          jakarta.faces.component;version="[3.0.0,4.0)",
+                          jakarta.faces.context;version="[3.0.0,4.0)",
+                          jakarta.faces.event;version="[3.0.0,4.0)",
+                          jakarta.faces.view.facelets;version="[3.0.0,4.0)",*
                         </Import-Package>
                       </configuration>
                   </execution>
@@ -90,9 +90,9 @@
 
     <dependencies>
         <dependency>
-          <groupId>javax.faces</groupId>
-          <artifactId>javax.faces-api</artifactId>
-          <version>2.2</version>
+          <groupId>jakarta.faces</groupId>
+          <artifactId>jakarta.faces-api</artifactId>
+          <version>3.0.0</version>
         </dependency>
         <dependency>
             <groupId>org.testng</groupId>

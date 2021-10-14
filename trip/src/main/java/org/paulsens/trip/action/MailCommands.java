@@ -1,8 +1,8 @@
 package org.paulsens.trip.action;
 
 import java.util.concurrent.CompletableFuture;
-import javax.faces.bean.ApplicationScoped;
-import javax.faces.bean.ManagedBean;
+import jakarta.faces.bean.ApplicationScoped;
+import jakarta.faces.bean.ManagedBean;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;

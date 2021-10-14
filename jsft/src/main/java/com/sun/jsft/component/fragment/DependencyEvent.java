@@ -41,7 +41,7 @@
 
 package com.sun.jsft.component.fragment;
 
-import javax.faces.event.SystemEvent;
+import jakarta.faces.event.SystemEvent;
 
 
 /**

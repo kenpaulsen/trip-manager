@@ -41,8 +41,8 @@
 
 package com.sun.jsft.event;
 
-import javax.faces.component.UIComponent;
-import javax.faces.event.ComponentSystemEvent;
+import jakarta.faces.component.UIComponent;
+import jakarta.faces.event.ComponentSystemEvent;
 
 
 /**

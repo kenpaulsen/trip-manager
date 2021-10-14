@@ -43,8 +43,8 @@ package com.sun.jsft.component.fragment;
 
 import java.util.List;
 import java.util.StringTokenizer;
-import javax.faces.event.SystemEvent;
-import javax.faces.event.SystemEventListener;
+import jakarta.faces.event.SystemEvent;
+import jakarta.faces.event.SystemEventListener;
 
 
 /**

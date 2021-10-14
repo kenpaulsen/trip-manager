@@ -1,9 +1,9 @@
 package org.paulsens.trip.jsf;
 
-import javax.faces.FacesException;
-import javax.faces.context.FacesContext;
-import javax.faces.context.FacesContextFactory;
-import javax.faces.lifecycle.Lifecycle;
+import jakarta.faces.FacesException;
+import jakarta.faces.context.FacesContext;
+import jakarta.faces.context.FacesContextFactory;
+import jakarta.faces.lifecycle.Lifecycle;
 
 public class TripFacesContextFactory extends FacesContextFactory {
     private final FacesContextFactory wrapped;
