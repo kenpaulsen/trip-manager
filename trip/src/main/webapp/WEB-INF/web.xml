@@ -1,33 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<web-app xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xmlns="http://java.sun.com/xml/ns/javaee" xmlns:web="http://java.sun.com/xml/ns/javaee/web-app_2_5.xsd"
-    xsi:schemaLocation="http://java.sun.com/xml/ns/javaee http://java.sun.com/xml/ns/javaee/web-app_2_5.xsd"
-    id="WebApp_ID" version="2.5">
+<web-app xmlns="jakarta.ee/xml/ns/jakartaee" xmlns:xsi="w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="jakarta.ee/xml/ns/jakartaee jakarta.ee/xml/ns/jakartaee/web-app_5_0.xsd" version="5.0" metadata-complete="true">
 
-    <display-name>JavaServerFaces</display-name>
+    <display-name>Trip Manager</display-name>
 
     <!-- Change to "Production" when you are ready to deploy -->
     <context-param>
-        <param-name>javax.faces.PROJECT_STAGE</param-name>
+        <param-name>jakarta.faces.PROJECT_STAGE</param-name>
         <param-value>Development</param-value>
     </context-param>
     <context-param>
-        <param-name>javax.faces.STATE_SAVING_METHOD</param-name>
+        <param-name>jakarta.faces.STATE_SAVING_METHOD</param-name>
         <!--<param-value>client</param-value>-->
         <param-value>server</param-value>
     </context-param>
     <context-param>
-        <param-name>javax.faces.INTERPRET_EMPTY_STRING_SUBMITTED_VALUES_AS_NULL</param-name>
+        <param-name>jakarta.faces.INTERPRET_EMPTY_STRING_SUBMITTED_VALUES_AS_NULL</param-name>
         <param-value>true</param-value>
     </context-param>
     <context-param>
-        <param-name>javax.faces.FACELETS_SKIP_COMMENTS</param-name>
+        <param-name>jakarta.faces.FACELETS_SKIP_COMMENTS</param-name>
         <param-value>true</param-value>
     </context-param>
     <context-param>
 	<param-name>primefaces.THEME</param-name>
-	<!--param-value>luna-blue</param-value -->
-	<param-value>#{dark ? 'luna-blue' : 'omega'}</param-value>
+        <!-- dark: luna-blue, arya, vela, luna-green, nova-dark -->
+	<param-value>#{dark ? 'luna-blue' : 'saga'}</param-value>
     </context-param>
 
     <!-- Welcome page -->
@@ -55,7 +53,7 @@
     <!-- JSF mapping -->
     <servlet>
         <servlet-name>Faces Servlet</servlet-name>
-        <servlet-class>javax.faces.webapp.FacesServlet</servlet-class>
+        <servlet-class>jakarta.faces.webapp.FacesServlet</servlet-class>
         <init-param>
             <param-name>local</param-name>
             <param-value>false</param-value>
@@ -72,17 +70,8 @@
     <servlet-mapping>
         <servlet-name>Faces Servlet</servlet-name>
         <url-pattern>/faces/*</url-pattern>
-    </servlet-mapping>
-    <servlet-mapping>
-        <servlet-name>Faces Servlet</servlet-name>
         <url-pattern>*.jsf</url-pattern>
-    </servlet-mapping>
-    <servlet-mapping>
-        <servlet-name>Faces Servlet</servlet-name>
         <url-pattern>*.faces</url-pattern>
-    </servlet-mapping>
-    <servlet-mapping>
-        <servlet-name>Faces Servlet</servlet-name>
         <url-pattern>*.xhtml</url-pattern>
     </servlet-mapping>
 </web-app>
