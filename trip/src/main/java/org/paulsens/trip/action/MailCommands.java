@@ -1,8 +1,8 @@
 package org.paulsens.trip.action;
 
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Named;
 import java.util.concurrent.CompletableFuture;
-import jakarta.faces.bean.ApplicationScoped;
-import jakarta.faces.bean.ManagedBean;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
@@ -18,10 +18,10 @@ import software.amazon.awssdk.services.ses.model.SendEmailResponse;
 /**
  * This class contains methods that perform mail actions.
  */
-@ApplicationScoped
-@ManagedBean(name="mail")
 @SuppressWarnings("unused")
 @Slf4j
+@Named
+@ApplicationScoped
 public class MailCommands {
     final SesAsyncClient client = SesAsyncClient.builder()
             .region(Region.US_WEST_2)

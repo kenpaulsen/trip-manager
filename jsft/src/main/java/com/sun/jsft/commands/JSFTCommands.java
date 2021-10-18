@@ -48,66 +48,60 @@
 package com.sun.jsft.commands;
 
 import com.sun.jsft.event.Command;
-
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.faces.component.UIViewRoot;
+import jakarta.faces.context.FacesContext;
+import jakarta.faces.context.ResponseWriter;
+import jakarta.inject.Named;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.List;
 import java.util.Map;
 
-import jakarta.faces.bean.ManagedBean;
-import jakarta.faces.bean.ApplicationScoped;
-import jakarta.faces.component.UIViewRoot;
-import jakarta.faces.context.FacesContext;
-import jakarta.faces.context.ResponseWriter;
-
-
 /**
- *  <p>	This class contains methods that perform common utility-type
- *	functionality.</p>
+ *  <p> This class contains methods that perform common utility-type
+ *      functionality.</p>
  *
  *  @author  Ken Paulsen (kenapaulsen@gmail.com)
  */
+@Named("jsft")
 @ApplicationScoped
-@ManagedBean(name="jsft")
 public class JSFTCommands {
-
     /**
-     *	<p> This command conditionally executes its child commands.</p>
+     * <p> This command conditionally executes its child commands.</p>
      */
-    public void ifCommand(boolean condition) {
-	Command command = (Command) FacesContext.getCurrentInstance().
-		getExternalContext().getRequestMap().get(Command.COMMAND_KEY);
-	if (condition) {
-	    command.invokeChildCommands();
-	} else {
-	    command = command.getElseCommand();
-	    if (command != null) {
-		command.invoke();
-	    }
-	}
+    public void ifCommand(final boolean condition) {
+        Command command = (Command) FacesContext.getCurrentInstance().
+                getExternalContext().getRequestMap().get(Command.COMMAND_KEY);
+        if (condition) {
+            command.invokeChildCommands();
+        } else {
+            command = command.getElseCommand();
+            if (command != null) {
+                command.invoke();
+            }
+        }
     }
 
     /**
-     *	<p> This command iterates over the given List and sets given
+     * <p> This command iterates over the given List and sets given
      */
-    public void foreach(String var, Iterable<?> list) {
-	// Get the Request Map
-	Map<String, Object> reqMap = FacesContext.getCurrentInstance().
-		getExternalContext().getRequestMap();
+    public void foreach(final String var, final Iterable<?> list) {
+        // Get the Request Map
+        final Map<String, Object> reqMap = FacesContext.getCurrentInstance().getExternalContext().getRequestMap();
 
-	// Get the Current Command...
-	Command command = (Command) reqMap.get(Command.COMMAND_KEY);
+        // Get the Current Command...
+        final Command command = (Command) reqMap.get(Command.COMMAND_KEY);
 
-	// Iterate over each item in the List
-	List<Command> childCommands = null;
+        // Iterate over each item in the List
         if (list != null) {
             for (Object item : list) {
                 // Set the item in the request scope under the given key
                 reqMap.put(var, item);
 
                 // Invoke all the child commands
-                childCommands = command.getChildCommands();
+                final List<Command> childCommands = command.getChildCommands();
                 if (childCommands != null) {
                     for (Command childCommand : childCommands) {
                         childCommand.invoke();
@@ -117,138 +111,124 @@ public class JSFTCommands {
         }
     }
 
-
     /**
-     *	<p> This command sets a requestScope attribute with the given
-     *	    <code>key</code> and <code>value</code>.</p>
+     * <p> This command sets a requestScope attribute with the given
+     *     <code>key</code> and <code>value</code>.</p>
      */
-    public void setAttribute(String key, Object value) {
-	FacesContext.getCurrentInstance().getExternalContext().
-		getRequestMap().put(key, value);
+    public void setAttribute(final String key, final Object value) {
+        FacesContext.getCurrentInstance().getExternalContext().getRequestMap().put(key, value);
     }
 
     /**
-     *	<p> This command writes output using <code>System.out.println</code>.
-     *	    It requires <code>value</code> to be supplied.</p>
+     * <p> This command writes output using <code>System.out.println</code>.
+     *     It requires <code>value</code> to be supplied.</p>
      */
-    public void println(String value) {
-	System.out.println(value);
+    public void println(final String value) {
+        System.out.println(value);
     }
 
     /**
-     *	<p> This command writes using
-     *	    <code>FacesContext.getResponseWriter()</code>.</p>
+     * <p> This command writes using
+     *     <code>FacesContext.getResponseWriter()</code>.</p>
      *
-     *	@param	text	The text to write.
+     *        @param        text        The text to write.
      */
-    public static void write(String text) {
-	if (text == null) {
-	    text = "";
-	}
-	ResponseWriter writer = FacesContext.getCurrentInstance().getResponseWriter();
-	if (writer == null) {
-	    throw new IllegalStateException("The ResponseWriter is currently"
-		    + "(null).  This typically means you are attempting to "
-		    + "write before the RenderResponse phase!");
-	}
-	try {
-	    writer.write(text);
-	} catch (IOException ex) {
-	    throw new RuntimeException(ex);
-	}
+    public static void write(final String text) {
+        final ResponseWriter writer = FacesContext.getCurrentInstance().getResponseWriter();
+        if (writer == null) {
+            throw new IllegalStateException("The ResponseWriter is currently"
+                    + "(null).  This typically means you are attempting to "
+                    + "write before the RenderResponse phase!");
+        }
+        try {
+            writer.write((text == null) ? "" : text);
+        } catch (IOException ex) {
+            throw new RuntimeException(ex);
+        }
     }
 
     /**
-     *	<p> This command marks the response complete.  This means that no
-     *	    additional response will be sent.  This is useful if you've
-     *	    provided a response already and you don't want JSF to do it again
-     *	    (it may cause problems to do it 2x).</p>
+     * <p> This command marks the response complete.  This means that no
+     *     additional response will be sent.  This is useful if you've
+     *     provided a response already and you don't want JSF to do it again
+     *     (it may cause problems to do it 2x).</p>
      */
     public static void responseComplete() {
-	FacesContext.getCurrentInstance().responseComplete();
+        FacesContext.getCurrentInstance().responseComplete();
     }
 
     /**
-     *	<p> This command indicates to JSF that the request should proceed
-     *	    immediately to the render response phase.  It will be ignored if
-     *	    rendering has already begun.  This is useful if you want to stop
-     *	    processing and jump to the response.  This is often the case when
-     *	    an error ocurrs or validation fails.  Typically the page the user
-     *	    is on will be reshown (although if navigation has already
-     *	    occurred, the new page will be shown.</p>
+     * <p> This command indicates to JSF that the request should proceed
+     *     immediately to the render response phase.  It will be ignored if
+     *     rendering has already begun.  This is useful if you want to stop
+     *     processing and jump to the response.  This is often the case when
+     *     an error ocurrs or validation fails.  Typically the page the user
+     *     is on will be reshown (although if navigation has already
+     *     occurred, the new page will be shown.</p>
      */
     public void renderResponse() {
-	FacesContext.getCurrentInstance().renderResponse();
+        FacesContext.getCurrentInstance().renderResponse();
     }
 
     /**
-     *	<p> This command provides a way to see the call stack by printing a
-     *	    stack trace.  The output will go to stderr and will also be
-     *	    returned in the output value "stackTrace".  An optional message
-     *	    may be provided to be included in the trace.</p>
+     * <p> This command provides a way to see the call stack by printing a
+     *     stack trace.  The output will go to stderr and will also be
+     *     returned in the output value "stackTrace".  An optional message
+     *     may be provided to be included in the trace.</p>
      */
-    public void printStackTrace(String msg) {
-	// See if we have a message to print w/ it
-	if (msg == null) {
-	    msg = "";
-	}
+    public void printStackTrace(final String msg) {
+        // Get the StackTrace
+        StringWriter strWriter = new StringWriter();
+        new RuntimeException((msg == null) ? "" : msg).printStackTrace(new PrintWriter(strWriter));
+        String trace = strWriter.toString();
 
-	// Get the StackTrace
-	StringWriter strWriter = new StringWriter();
-	new RuntimeException(msg).printStackTrace(new PrintWriter(strWriter));
-	String trace = strWriter.toString();
-
-	// Print it to stderr and return it
-	System.err.println(trace);
+        // Print it to stderr and return it
+        System.err.println(trace);
     }
 
     /**
-     *	<p> Returns the nano seconds since some point in time.  This is only
-     *	    useful for relative measurments.</p>
+     * <p> Returns the nano seconds since some point in time.  This is only
+     *     useful for relative measurments.</p>
      */
     public long getNanoTime() {
-	return nanoStartTime - System.nanoTime();
+        return nanoStartTime - System.nanoTime();
     }
 
     /**
-     *	<p> This handler redirects to the given page.</p>
+     * <p> This handler redirects to the given page.</p>
      *
-     *	@param page The page to redirect to.
+     * @param page The page to redirect to.
      */
-    public static void redirect(String page) {
-	FacesContext ctx = FacesContext.getCurrentInstance();
-	try {
-	    if (!ctx.getResponseComplete()) {
+    public static void redirect(final String page) {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        try {
+            if (!ctx.getResponseComplete()) {
                 ctx.getExternalContext().redirect(page);
                 ctx.responseComplete();
             }
-	} catch (IOException ex) {
-	    throw new RuntimeException(
-		    "Unable to navigate to page '" + page + "'!", ex);
-	}
+        } catch (final IOException ex) {
+            throw new RuntimeException("Unable to navigate to page '" + page + "'!", ex);
+        }
     }
 
     /**
-     *  <p> This returns a <code>UIViewRoot</code>.  If the
-     *	    <code>pageName</code> is supplied it will return the requested
-     *	    <code>UIViewRoot</code> (if found). If the <code>id</code> is
-     *	    <code>null</code>, it will return the current
-     *	    <code>UIViewRoot</code>.</p>
+     * <p> This returns a <code>UIViewRoot</code>.  If the
+     *     <code>pageName</code> is supplied it will return the requested
+     *     <code>UIViewRoot</code> (if found). If the <code>id</code> is
+     *     <code>null</code>, it will return the current
+     *     <code>UIViewRoot</code>.</p>
      */
-    public UIViewRoot getUIViewRoot(String pageName) {
-        FacesContext ctx = FacesContext.getCurrentInstance();
-        UIViewRoot root = null;
+    public UIViewRoot getUIViewRoot(final String pageName) {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        final UIViewRoot root;
         if (pageName == null) {
             root = ctx.getViewRoot();
         } else {
-            if (pageName.charAt(0) != '/') {
-                // Ensure we start w/ a '/'
-                pageName = "/" + pageName;
-            }
             root = ctx.getApplication().getViewHandler().
-                createView(ctx, pageName);
+                    // Ensure we start w/ a '/'
+                    createView(ctx, (pageName.charAt(0) == '/') ? pageName : "" + pageName);
         }
-	return root;
+        return root;
     }
 
     /**
@@ -259,33 +239,28 @@ public class JSFTCommands {
      *      create a new <code>UIViewRoot</code>.</p>
      *
      *  <p> {@link #getUIViewRoot(String)} provides a way to obtain a
-     *	    <code>UIViewRoot</code>.</p>
+     *      <code>UIViewRoot</code>.</p>
      *
-     *  @param page	<code>UIViewRoot</code> or page name in which to
-     *			navigate to.
+     *  @param page <code>UIViewRoot</code> or page name in which to navigate to.
      */
-    public void navigate(Object page) {
-        UIViewRoot root = null;
-        FacesContext ctx = FacesContext.getCurrentInstance();
+    public void navigate(final Object page) {
+        final UIViewRoot root;
         if (page instanceof String) {
-	    // Get the UIViewRoot by name...
-	    root = getUIViewRoot((String) page);
+            // Get the UIViewRoot by name...
+            root = getUIViewRoot((String) page);
         } else if (page instanceof UIViewRoot) {
             // We received a UIViewRoot, use it...
             root = (UIViewRoot) page;
         } else {
-            throw new IllegalArgumentException("Type '"
-                + page.getClass().getName()
-                + "' is not valid.  It must be a String or UIViewRoot.");
+            throw new IllegalArgumentException("Type '" + page.getClass().getName()
+                    + "' is not valid.  It must be a String or UIViewRoot.");
         }
-
         // Set the UIViewRoot so that it will be displayed
-        ctx.setViewRoot(root);
+        FacesContext.getCurrentInstance().setViewRoot(root);
     }
 
     /**
-     *	<p> This is application scoped, so it is not safe to change.  Use
-     *	    caution.</p>
+     * <p> This is application scoped, so it is not safe to change.  Use caution.</p>
      */
     private final long nanoStartTime = System.nanoTime();
 }

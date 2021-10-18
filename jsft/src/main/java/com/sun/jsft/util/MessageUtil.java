@@ -38,21 +38,16 @@
  * only if the new code is made subject to such option by the copyright
  * holder.
  */
-
 package com.sun.jsft.util;
 
+import jakarta.faces.context.FacesContext;
 import java.text.MessageFormat;
 import java.util.Locale;
 import java.util.MissingResourceException;
 import java.util.ResourceBundle;
 
-import jakarta.faces.context.FacesContext;
-
-import com.sun.jsft.util.ResourceBundleManager;
-
-
 /**
- *  <p>	This class gets ResourceBundle messages and formats them.</p>
+ * <p> This class gets ResourceBundle messages and formats them.</p>
  *
  *  Created  March 29, 2011
  *  @author  Ken Paulsen (kenapaulsen@gmail.com)
@@ -60,89 +55,79 @@ import com.sun.jsft.util.ResourceBundleManager;
 public final class MessageUtil {
 
     /**
-     *	<p> This class should not be instantiated directly.</p>
+     * <p> This class should not be instantiated directly.</p>
      */
     private MessageUtil() {
     }
 
     /**
-     *	<p> Use this to get an instance of this class.</p>
+     * <p> Use this to get an instance of this class.</p>
      */
     public static MessageUtil getInstance() {
-	return instance;
+        return instance;
     }
 
     /**
-     *	<p> This method returns a formatted String from the requested
-     *	    <code>ResourceBundle</code>.</p>
+     * <p> This method returns a formatted String from the requested <code>ResourceBundle</code>.</p>
      *
-     *	@param	baseName    The <code>ResourceBundle</code> name.
-     *	@param	key	    The  <code>ResourceBundle</code> key.
+     * @param baseName  The <code>ResourceBundle</code> name.
+     * @param key       The  <code>ResourceBundle</code> key.
      */
-    public String getMessage(String baseName, String key) {
-	return getMessage(baseName, key, null);
+    public String getMessage(final String baseName, final String key) {
+        return getMessage(baseName, key, null);
     }
 
     /**
-     *	<p> This method returns a formatted String from the requested
-     *	    <code>ResourceBundle</code>.</p>
+     * <p> This method returns a formatted String from the requested <code>ResourceBundle</code>.</p>
      *
-     *	@param	baseName    The <code>ResourceBundle</code> name.
-     *	@param	key	    The  <code>ResourceBundle</code> key.
-     *	@param	args	    The substitution values (may be null).
+     * @param baseName  The <code>ResourceBundle</code> name.
+     * @param key       The  <code>ResourceBundle</code> key.
+     * @param args      The substitution values (may be null).
      */
-    public String getMessage(String baseName, String key, Object args[]) {
-	return getMessage(null, baseName, key, args);
+    public String getMessage(final String baseName, final String key, final Object[] args) {
+        return getMessage(null, baseName, key, args);
     }
 
     /**
-     *	<p> This method returns a formatted String from the requested
-     *	    <code>ResourceBundle</code>.</p>
+     * <p> This method returns a formatted String from the requested <code>ResourceBundle</code>.</p>
      *
-     *	@param	locale	    The desired <code>Locale</code> (may be null).
-     *	@param	baseName    The <code>ResourceBundle</code> name.
-     *	@param	key	    The  <code>ResourceBundle</code> key.
-     *	@param	args	    The substitution values (may be null).
+     * @param loc       The desired <code>Locale</code> (may be null).
+     * @param baseName  The <code>ResourceBundle</code> name.
+     * @param key       The  <code>ResourceBundle</code> key.
+     * @param args      The substitution values (may be null).
      */
-    public String getMessage(Locale locale, String baseName, String key, Object args[]) {
-	if (key == null) {
-	    return null;
-	}
-	if (baseName == null) {
-	    throw new RuntimeException(
-		    "'baseName' is null for key '" + key + "'!");
-	}
-	FacesContext ctx = FacesContext.getCurrentInstance();
-	if (locale == null) {
-	    locale = Util.getLocale(ctx);
-	}
+    public String getMessage(final Locale loc, final String baseName, final String key, final Object[] args) {
+        if (key == null) {
+            return null;
+        }
+        if (baseName == null) {
+            throw new RuntimeException("'baseName' is null for key '" + key + "'!");
+        }
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        final Locale locale = (loc == null) ? Util.getLocale(ctx) : loc;
 
-	// Get the ResourceBundle
-	ResourceBundle bundle =
-	    ResourceBundleManager.getInstance(ctx).getBundle(baseName, locale);
-	if (bundle == null) {
+        // Get the ResourceBundle
+        final ResourceBundle bundle = ResourceBundleManager.getInstance(ctx).getBundle(baseName, locale);
+        if (bundle == null) {
             if (LogUtil.finestEnabled()) {
-                LogUtil.finest("Unable to find bundle (" + baseName + " / "
-                        + locale + ")");
+                LogUtil.finest("Unable to find bundle (" + baseName + " / " + locale + ")");
             }
-	    return key;
-	}
-
-	String message = null;
-	try {
-	    message = bundle.getString(key);
-	} catch (MissingResourceException ex) {
-	    // Key not found!
+            return key;
+        }
+        String message = null;
+        try {
+            message = bundle.getString(key);
+        } catch (MissingResourceException ex) {
+            // Key not found!
             if (LogUtil.infoEnabled()) {
                 LogUtil.info("Unable to find key (" + key + ")!", ex);
             }
-	}
-	if (message == null) {
-	    // No message found?
-	    return key;
-	}
-
-	return getFormattedMessage(message, args);
+        }
+        if (message == null) {
+            // No message found?
+            return key;
+        }
+        return getFormattedMessage(message, args);
     }
 
     /**
@@ -152,16 +137,16 @@ public final class MessageUtil {
      * @param args The arguments to be inserted into the string.
      */
     public static String getFormattedMessage(String message, Object args[]) {
-	// Sanity Check
-	if ((message == null) || (args == null) || (args.length == 0)) {
-	    return message;
-	}
+        // Sanity Check
+        if ((message == null) || (args == null) || (args.length == 0)) {
+            return message;
+        }
 
-	return new MessageFormat(message).format(args);
+        return new MessageFormat(message).format(args);
     }
 
     /**
-     *	<p> Singleton.  This one is OK to share across VMs (no state).</p>
+     * <p> Singleton.  This one is OK to share across VMs (no state).</p>
      */
     private static final MessageUtil instance = new MessageUtil();
 }

@@ -7,42 +7,42 @@
     version="2.0">
 
     <component>
-	<component-type>com.sun.jsft.component.uicomp.InsertComponent</component-type>
-	<component-class>com.sun.jsft.component.uicomp.InsertComponent</component-class>
+        <component-type>com.sun.jsft.component.uicomp.InsertComponent</component-type>
+        <component-class>com.sun.jsft.component.uicomp.InsertComponent</component-class>
     </component>
     <component>
-	<component-type>com.sun.jsft.component.uicomp.AddComponent</component-type>
-	<component-class>com.sun.jsft.component.uicomp.AddComponent</component-class>
+        <component-type>com.sun.jsft.component.uicomp.AddComponent</component-type>
+        <component-class>com.sun.jsft.component.uicomp.AddComponent</component-class>
     </component>
     <component>
-	<component-type>com.sun.jsft.component.uicomp.ReplaceComponent</component-type>
-	<component-class>com.sun.jsft.component.uicomp.ReplaceComponent</component-class>
+        <component-type>com.sun.jsft.component.uicomp.ReplaceComponent</component-type>
+        <component-class>com.sun.jsft.component.uicomp.ReplaceComponent</component-class>
     </component>
     <component>
-	<component-type>com.sun.jsft.component.uicomp.RemoveComponent</component-type>
-	<component-class>com.sun.jsft.component.uicomp.RemoveComponent</component-class>
+        <component-type>com.sun.jsft.component.uicomp.RemoveComponent</component-type>
+        <component-class>com.sun.jsft.component.uicomp.RemoveComponent</component-class>
     </component>
     <component>
-	<component-type>com.sun.jsft.component.uicomp.SetAttributeComponent</component-type>
-	<component-class>com.sun.jsft.component.uicomp.SetAttributeComponent</component-class>
+        <component-type>com.sun.jsft.component.uicomp.SetAttributeComponent</component-type>
+        <component-class>com.sun.jsft.component.uicomp.SetAttributeComponent</component-class>
     </component>
     <component>
-	<component-type>com.sun.jsft.component.fragment.DeferredFragment</component-type>
-	<component-class>com.sun.jsft.component.fragment.DeferredFragment</component-class>
+        <component-type>com.sun.jsft.component.fragment.DeferredFragment</component-type>
+        <component-class>com.sun.jsft.component.fragment.DeferredFragment</component-class>
     </component>
     <component>
-	<component-type>com.sun.jsft.component.fragment.FragmentRenderer</component-type>
-	<component-class>com.sun.jsft.component.fragment.FragmentRenderer</component-class>
+        <component-type>com.sun.jsft.component.fragment.FragmentRenderer</component-type>
+        <component-class>com.sun.jsft.component.fragment.FragmentRenderer</component-class>
     </component>
 
     <managed-bean>
-	<managed-bean-name>jsft</managed-bean-name>
-	<managed-bean-class>com.sun.jsft.commands.JSFTCommands</managed-bean-class>
-	<managed-bean-scope>application</managed-bean-scope>
+        <managed-bean-name>jsft</managed-bean-name>
+        <managed-bean-class>com.sun.jsft.commands.JSFTCommands</managed-bean-class>
+        <managed-bean-scope>application</managed-bean-scope>
     </managed-bean>
     <managed-bean>
-	<managed-bean-name>util</managed-bean-name>
-	<managed-bean-class>com.sun.jsft.commands.UtilCommands</managed-bean-class>
-	<managed-bean-scope>application</managed-bean-scope>
+        <managed-bean-name>util</managed-bean-name>
+        <managed-bean-class>com.sun.jsft.commands.UtilCommands</managed-bean-class>
+        <managed-bean-scope>application</managed-bean-scope>
     </managed-bean>
 </faces-config>

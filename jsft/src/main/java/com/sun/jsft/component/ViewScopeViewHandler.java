@@ -1,37 +1,33 @@
 package com.sun.jsft.component;
 
-import java.io.IOException;
-import java.util.Locale;
-
 import jakarta.faces.FacesException;
 import jakarta.faces.application.ViewHandler;
 import jakarta.faces.component.UIViewRoot;
 import jakarta.faces.context.FacesContext;
 import jakarta.faces.view.ViewDeclarationLanguage;
-
+import java.io.IOException;
+import java.util.Locale;
 
 /**
- *  <p>	This class stores the viewId for later access. It overrides
- *  	{@link #createView(FacesContext, String)} and
- *  	{@link #restoreView(FacesContext, String)} for the sole purpose of
- *  	saving the viewId, it delegates to the original ViewHandler after
- *  	doing so.  All other methods also delegate.</p>
+ * <p> This class stores the viewId for later access. It overrides {@link #createView(FacesContext, String)} and
+ *     {@link #restoreView(FacesContext, String)} for the sole purpose of saving the viewId, it delegates to the
+ *     original ViewHandler after doing so.  All other methods also delegate.</p>
  * 
  *  @author Ken Paulsen (kenapaulsen@gmail.com)
  */
 public class ViewScopeViewHandler extends ViewHandler {
 
     /**
-     *	<p> Constructor.</p>
+     * <p> Constructor.</p>
      *
-     *	@param	oldViewHandler	The old <code>ViewHandler</code>.
+     * @param oldViewHandler    The old <code>ViewHandler</code>.
      */
     public ViewScopeViewHandler(ViewHandler oldViewHandler) {
         _oldViewHandler = oldViewHandler;
     }
 
     /**
-     *	<p> Store viewId and delegate.</p>
+     * <p> Store viewId and delegate.</p>
      */
     @Override
     public UIViewRoot createView(FacesContext context, String viewId) {
@@ -42,7 +38,7 @@ public class ViewScopeViewHandler extends ViewHandler {
     }
 
     /**
-     *	<p> Store viewId and delegate.</p>
+     * <p> Store viewId and delegate.</p>
      */
     @Override
     public UIViewRoot restoreView(FacesContext context, String viewId) {
@@ -59,18 +55,15 @@ public class ViewScopeViewHandler extends ViewHandler {
     ///////////////////////////////////////////////////////////////
 
     /**
-     *	<p> Return a URL suitable for rendering (after optional encoding
-     *	    performed by the <code>encodeResourceURL()</code> method of
-     *	    <code>ExternalContext<code> that selects the specified web
-     *	    application resource.  If the specified path starts with a slash,
-     *	    it must be treated as context relative; otherwise, it must be
-     *	    treated as relative to the action URL of the current view.</p>
+     * <p> Return a URL suitable for rendering (after optional encoding performed by the
+     *     <code>encodeResourceURL()</code> method of <code>ExternalContext<code> that selects the specified web
+     *     application resource.  If the specified path starts with a slash, it must be treated as context relative;
+     *     otherwise, it must be treated as relative to the action URL of the current view.</p>
      *
-     *	@param context	<code>FacesContext</code> for the current request
-     *	@param path	Resource path to convert to a URL
+     * @param context   <code>FacesContext</code> for the current request.
+     * @param path      Resource path to convert to a URL.
      *
-     *	@exception  IllegalArgumentException	If <code>viewId</code> is not
-     *	    valid for this <code>ViewHandler</code>.
+     * @exception IllegalArgumentException If <code>viewId</code> is not valid for this <code>ViewHandler</code>.
      */
     @Override
     public String getResourceURL(FacesContext context, String path) {
@@ -83,16 +76,13 @@ public class ViewScopeViewHandler extends ViewHandler {
     }
 
     /**
-     *	<p> Return a URL suitable for rendering (after optional encoding
-     *	    performed by the <code>encodeActionURL()</code> method of
-     *	    <code>ExternalContext</code> that selects the specified view
-     *	    identifier.</p>
+     * <p> Return a URL suitable for rendering (after optional encoding performed by the <code>encodeActionURL()</code>
+     *     method of <code>ExternalContext</code> that selects the specified view identifier.</p>
      *
-     *	@param	context	<code>FacesContext</code> for this request
-     *	@param	viewId	View identifier of the desired view
+     * @param context   <code>FacesContext</code> for this request.
+     * @param viewId    View identifier of the desired view
      *
-     *	@exception  IllegalArgumentException	If <code>viewId</code> is not
-     *				valid for this <code>ViewHandler</code>.
+     * @exception IllegalArgumentException If <code>viewId</code> is not valid for this <code>ViewHandler</code>.
      */
     @Override
     public String getActionURL(FacesContext context, String viewId) {
@@ -124,5 +114,5 @@ public class ViewScopeViewHandler extends ViewHandler {
         return _oldViewHandler.getViewDeclarationLanguage(context, viewId);
     }
 
-    private ViewHandler _oldViewHandler			= null;
+    private ViewHandler _oldViewHandler = null;
 }

@@ -41,136 +41,96 @@
 
 package com.sun.jsft.event;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 import jakarta.faces.context.FacesContext;
 import jakarta.faces.event.AbortProcessingException;
 import jakarta.faces.event.ComponentSystemEvent;
 import jakarta.faces.event.ComponentSystemEventListener;
 import jakarta.faces.event.PostAddToViewEvent;
-
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import lombok.EqualsAndHashCode;
 
 /**
- *  <p>	This class handles the dispatching of events to commands.  Currently
- *	Commands delegate execution to EL.  In the future, other Command types
- *	may be supported.</p>
+ * <p> This class handles the dispatching of events to commands. Currently Commands delegate execution to EL. In the
+ *     future, other Command types may be supported.</p>
  *
  *  Created  March 29, 2011
  *  @author  Ken Paulsen (kenapaulsen@gmail.com)
  */
+@EqualsAndHashCode(callSuper = true)
 public class CommandEventListener extends Command implements ComponentSystemEventListener {
+    private static final long serialVersionUID = 6945415935164238929L;
 
     /**
-     *	<p> Default constructor needed for serialization.</p>
+     * <p> Default constructor needed for serialization.</p>
      */
     public CommandEventListener() {
         super();
     }
 
     /**
-     *	<p> Primary constructor used.  It is neeeded in order to supply a list
-     *	    of commands.</p>
+     * <p> Primary constructor used.  It is neeeded in order to supply a list
+     *     of commands.</p>
      */
     public CommandEventListener(List<Command> commands) {
-	super(commands, null);
+        super(commands, null);
     }
 
     /**
-     *	<p> This method is responsible for dispatching the event to the various
-     *	    EL expressions that are listening to this event.  It also stores
-     *	    the Event object in request scope under the key "theEvent" so that
-     *	    it can be accessed easiliy via EL.  For example:
-     *	    <code>util.println(theEvent);</code></p>
+     * <p> This method is responsible for dispatching the event to the various
+     *     EL expressions that are listening to this event.  It also stores
+     *     the Event object in request scope under the key "theEvent" so that
+     *     it can be accessed easiliy via EL.  For example:
+     *     <code>util.println(theEvent);</code></p>
      */
+    @SuppressWarnings("unchecked")
     public void processEvent(ComponentSystemEvent event) throws AbortProcessingException {
-	// Get the request map...
-	Map<String, Object> reqMap = FacesContext.getCurrentInstance().
-		getExternalContext().getRequestMap();
+        // Get the request map...
+        Map<String, Object> reqMap = FacesContext.getCurrentInstance().
+                getExternalContext().getRequestMap();
 
-	// Need to ensure we don't fire the event too many times...
-	if ((event instanceof PostAddToViewEvent) || (event instanceof InitPageEvent)) {
-	    // PostAddToView gets fired too many times b/c the impl may add it
-	    // multiple times!  Only handle the 1st time...
-	    Map<Integer, Integer> eventMap = (Map<Integer, Integer>) reqMap.get("jsftDupEvnts");
-	    if (eventMap == null) {
-		eventMap = new HashMap<>();
-		reqMap.put("jsftDupEvnts", eventMap);
-	    }
-	    // Hash based on source object...
-	    int code = (event instanceof InitPageEvent) ? event.hashCode() : event.getSource().hashCode();
+        // Need to ensure we don't fire the event too many times...
+        if ((event instanceof PostAddToViewEvent) || (event instanceof InitPageEvent)) {
+            // PostAddToView gets fired too many times b/c the impl may add it
+            // multiple times!  Only handle the 1st time...
+            Map<Integer, Integer> eventMap = (Map<Integer, Integer>) reqMap.get("jsftDupEvnts");
+            if (eventMap == null) {
+                eventMap = new HashMap<>();
+                reqMap.put("jsftDupEvnts", eventMap);
+            }
+            // Hash based on source object...
+            int code = (event instanceof InitPageEvent) ? event.hashCode() : event.getSource().hashCode();
 // FIXME: Need to revisit code where I create the event and make sure I don't create it multiple times.  If I don't
 // FIXME: already have a hashCode() impl on the event, I may have to create one so I can use it as the key.
-	    // Separate name space for each event type...
-	    code += event.getClass().getName().hashCode();
-	    Integer count = eventMap.get(code);
-	    if (count == null) {
-		count = 1;
-		eventMap.put(code, count);
-	    } else {
-		eventMap.put(code, ++count);
-		// Already processed once, don't do it again...
-		return;
-	    }
-	}
+            // Separate name space for each event type...
+            code += event.getClass().getName().hashCode();
+            Integer count = eventMap.get(code);
+            if (count == null) {
+                count = 1;
+                eventMap.put(code, count);
+            } else {
+                eventMap.put(code, ++count);
+                // Already processed once, don't do it again...
+                return;
+            }
+        }
 
-	// Store the event under the key "theEvent" in case we want to access
-	// it for some reason.
-	reqMap.put("theEvent", event);
+        // Store the event under the key "theEvent" in case we want to access
+        // it for some reason.
+        reqMap.put("theEvent", event);
 
-	// Execute the child commands
-	invoke();
+        // Execute the child commands
+        invoke();
     }
 
     /**
-     *	<p> This is the method responsible for performing the action.  It is
-     *	    also responsible for invoking any of its child commands.</p>
+     * <p> This is the method responsible for performing the action.  It is
+     *     also responsible for invoking any of its child commands.</p>
      */
     public Object invoke() throws AbortProcessingException {
-	// Invoke the child commands...
-	invokeChildCommands();
-
-	return null;
+        // Invoke the child commands...
+        invokeChildCommands();
+        return null;
     }
-
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj) {
-            return true;
-        }
-        if ((obj == null) || (getClass() != obj.getClass())) {
-            return false;
-        }
-
-        CommandEventListener that = (CommandEventListener) obj;
-	if (hashCode() != that.hashCode()) {
-	    return false;
-	}
-
-        return true;
-    }
-
-    @Override
-    public int hashCode() {
-	if (hash == -1) {
-	    StringBuilder builder = new StringBuilder("");
-	    List<Command> commands = getChildCommands();
-	    if (commands != null) {
-		for (Command command : commands) {
-		    builder.append(command.toString());
-		}
-	    }
-	    hash = builder.toString().hashCode();
-	}
-	return hash;
-    }
-
-    private void readObject(java.io.ObjectInputStream in) throws java.io.IOException, ClassNotFoundException {
-	in.defaultReadObject();
-	// Do this here or hash defaults to 0 (doesn't reinitialize to -1)
-	hash = -1;
-    }
-
-    private transient int hash = -1;
-    private static final long serialVersionUID = 6945415935164238929L;
 }

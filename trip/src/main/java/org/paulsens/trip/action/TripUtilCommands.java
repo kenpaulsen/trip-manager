@@ -1,5 +1,11 @@
 package org.paulsens.trip.action;
 
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.faces.application.FacesMessage;
+import jakarta.faces.application.FacesMessage.Severity;
+import jakarta.faces.context.FacesContext;
+import jakarta.faces.model.SelectItem;
+import jakarta.inject.Named;
 import java.lang.reflect.Array;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -9,13 +15,6 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.application.FacesMessage;
-import jakarta.faces.application.FacesMessage.Severity;
-import jakarta.faces.context.FacesContext;
-import jakarta.faces.model.SelectItem;
-import jakarta.inject.Named;
 
 @ApplicationScoped
 @Named("tripUtil")

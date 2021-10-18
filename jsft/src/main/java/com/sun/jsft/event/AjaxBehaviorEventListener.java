@@ -41,13 +41,11 @@
 
 package com.sun.jsft.event;
 
-import java.util.Map;
-
 import jakarta.faces.context.FacesContext;
 import jakarta.faces.event.AbortProcessingException;
 import jakarta.faces.event.AjaxBehaviorEvent;
 import jakarta.faces.event.AjaxBehaviorListener;
-
+import java.util.Map;
 
 /**
  *  <p> This class is used to handle an f:ajax event.</p>
@@ -55,12 +53,13 @@ import jakarta.faces.event.AjaxBehaviorListener;
  *  @author Ken Paulsen (kenapaulsen@gmail.com)
  */
 public class AjaxBehaviorEventListener implements AjaxBehaviorListener, java.io.Serializable {
+    private String eventType = null;
 
     /**
-     *	<p> This constructor should only be used during serialization.</p>
+     * <p> This constructor should only be used during serialization.</p>
      */
     public AjaxBehaviorEventListener() {
-	// For serialization.
+        // For serialization.
     }
 
     /**
@@ -68,15 +67,15 @@ public class AjaxBehaviorEventListener implements AjaxBehaviorListener, java.io.
      *      used later to distinguish between different Ajax events.</p>
      */
     public AjaxBehaviorEventListener(String type) {
-	super();
-	this.eventType = type;
+        super();
+        this.eventType = type;
     }
 
     public String getType() {
-	return this.eventType;
+        return this.eventType;
     }
     public void setType(String type) {
-	this.eventType = type;
+        this.eventType = type;
     }
 
     /**
@@ -87,48 +86,45 @@ public class AjaxBehaviorEventListener implements AjaxBehaviorListener, java.io.
      *  @throws AbortProcessingException if lifecycle processing should cease for this request.
      */
     public void processAjaxBehavior(AjaxBehaviorEvent event) throws AbortProcessingException {
-	FacesContext ctx = FacesContext.getCurrentInstance();
-	Map<String, Object> reqMap = ctx.getExternalContext().getRequestMap();
-	reqMap.put("_AjaxEvnt", event);
-	reqMap.put("_AjaxEvntType", getType());
+        FacesContext ctx = FacesContext.getCurrentInstance();
+        Map<String, Object> reqMap = ctx.getExternalContext().getRequestMap();
+        reqMap.put("_AjaxEvnt", event);
+        reqMap.put("_AjaxEvntType", getType());
 
-	ctx.getApplication().publishEvent(ctx, AjaxEvent.class, event.getComponent());
+        ctx.getApplication().publishEvent(ctx, AjaxEvent.class, event.getComponent());
     }
 
     @Override
     public boolean equals(Object obj) {
-	if (obj == null) {
-	    // Not if null
-	    return false;
-	}
-	if (obj == this) {
-	    // Same object
-	    return true;
-	}
+        if (obj == null) {
+            // Not if null
+            return false;
+        }
+        if (obj == this) {
+            // Same object
+            return true;
+        }
 
-	// Compare class names...
-	if (obj.getClass().equals(this.getClass())) {
-	    // Match... see if the eventTypes match
-	    String myType = getType();
-	    String otherType = ((AjaxBehaviorEventListener) obj).getType();
-	    if (myType == null) {
-		// Return true only of otherType is also (null)
-		return (otherType == null);
-	    }
+        // Compare class names...
+        if (obj.getClass().equals(this.getClass())) {
+            // Match... see if the eventTypes match
+            String myType = getType();
+            String otherType = ((AjaxBehaviorEventListener) obj).getType();
+            if (myType == null) {
+                // Return true only of otherType is also (null)
+                return (otherType == null);
+            }
 
-	    // Return true if the Strings are equal
-	    return myType.equals(otherType);
-	}
+            // Return true if the Strings are equal
+            return myType.equals(otherType);
+        }
 
-	// Not a match
-	return false;
+        // Not a match
+        return false;
     }
 
     @Override
     public int hashCode() {
-	return ("" + getType()).hashCode();
+        return ("" + getType()).hashCode();
     }
-
-
-    private String eventType = null;
 }

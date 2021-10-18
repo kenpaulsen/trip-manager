@@ -51,107 +51,107 @@
     <namespace>http://jsftemplating.java.net/jsft</namespace>
 
     <tag>
-	<tag-name>event</tag-name>
-	<handler-class>com.sun.jsft.facelets.EventHandler</handler-class>
-	<attribute>
-	    <description><![CDATA[
-		<p> Name of the event for which to install a listener. The
-		following table lists the valid values for this attribute,
-		and the corresponding event type for which the listener
-		action is registered.</p>
+        <tag-name>event</tag-name>
+        <handler-class>com.sun.jsft.facelets.EventHandler</handler-class>
+        <attribute>
+            <description><![CDATA[
+                <p> Name of the event for which to install a listener. The
+                following table lists the valid values for this attribute,
+                and the corresponding event type for which the listener
+                action is registered.</p>
 
-		<table border="1">
-		    <tr><th>value for "<code>type</code>" tag attribute</th>
-			<th>Type of event sent to listener method</th></tr>
-		    <tr><td>preRenderComponent</td>
-			<td>jakarta.faces.event.PreRenderComponentEvent</td></tr>
-		    <tr><td>postAddToView</td>
-			<td>jakarta.faces.event.PostAddToViewEvent</td></tr>
-		    <tr><td>preValidate</td>
-			<td>jakarta.faces.event.PreValidateEvent</td></tr>
-		    <tr><td>postValidate</td>
-			<td>jakarta.faces.event.PostValidateEvent</td></tr>
-		</table>
+                <table border="1">
+                    <tr><th>value for "<code>type</code>" tag attribute</th>
+                        <th>Type of event sent to listener method</th></tr>
+                    <tr><td>preRenderComponent</td>
+                        <td>jakarta.faces.event.PreRenderComponentEvent</td></tr>
+                    <tr><td>postAddToView</td>
+                        <td>jakarta.faces.event.PostAddToViewEvent</td></tr>
+                    <tr><td>preValidate</td>
+                        <td>jakarta.faces.event.PreValidateEvent</td></tr>
+                    <tr><td>postValidate</td>
+                        <td>jakarta.faces.event.PostValidateEvent</td></tr>
+                </table>
 
-		<p> In addition to these values, the fully qualified class
-		    name of any java class that extends
-		    <code>jakarta.faces.event.ComponentSystemEvent</code> may be
-		    used as the value of the "type" attribute.</p>
+                <p> In addition to these values, the fully qualified class
+                    name of any java class that extends
+                    <code>jakarta.faces.event.ComponentSystemEvent</code> may be
+                    used as the value of the "type" attribute.</p>
 
-		<p> The listener that is registered will dipatch to the
-		    expressions specified in the body of this element.  Each
-		    expression must be separated by a semicolon and need not
-		    be enclosed in #{}.</p>
-	    ]]></description>
-	    <name>type</name>
-	    <required>false</required>
-	    <type>java.lang.String</type>
-	</attribute>
-	<attribute>
-	    <description><![CDATA[
-		<p> Id used to identify the <code>command</code>s held by this
-		    <code>event</code>.  The id should be referenced from
-		    another event via its <code>insert</code> attribute.</p>
-	    ]]></description>
-	    <name>id</name>
-	    <required>false</required>
-	    <type>java.lang.String</type>
-	</attribute>
-	<attribute>
-	    <description><![CDATA[
-		<p> This attribute references the <code>id</code> of another
-		    <code>event</code> element.  It will cause the
-		    <code>commands</code> defined in the other
-		    <code>event</code> to be inserted into the current
-		    component as if they were defined directly inside this
-		    <code>event</code>.</p>
-	    ]]></description>
-	    <name>insert</name>
-	    <required>false</required>
-	    <type>java.lang.String</type>
-	</attribute>
+                <p> The listener that is registered will dipatch to the
+                    expressions specified in the body of this element.  Each
+                    expression must be separated by a semicolon and need not
+                    be enclosed in #{}.</p>
+            ]]></description>
+            <name>type</name>
+            <required>false</required>
+            <type>java.lang.String</type>
+        </attribute>
+        <attribute>
+            <description><![CDATA[
+                <p> Id used to identify the <code>command</code>s held by this
+                    <code>event</code>.  The id should be referenced from
+                    another event via its <code>insert</code> attribute.</p>
+            ]]></description>
+            <name>id</name>
+            <required>false</required>
+            <type>java.lang.String</type>
+        </attribute>
+        <attribute>
+            <description><![CDATA[
+                <p> This attribute references the <code>id</code> of another
+                    <code>event</code> element.  It will cause the
+                    <code>commands</code> defined in the other
+                    <code>event</code> to be inserted into the current
+                    component as if they were defined directly inside this
+                    <code>event</code>.</p>
+            ]]></description>
+            <name>insert</name>
+            <required>false</required>
+            <type>java.lang.String</type>
+        </attribute>
     </tag>
 
     <tag>
-	<tag-name>deferredFragment</tag-name>
-	<component>
-	    <component-type>com.sun.jsft.component.fragment.DeferredFragment</component-type>
-	</component>
+        <tag-name>deferredFragment</tag-name>
+        <component>
+            <component-type>com.sun.jsft.component.fragment.DeferredFragment</component-type>
+        </component>
     </tag>
 
     <tag>
-	<tag-name>insertComponent</tag-name>
-	<component>
-	    <component-type>com.sun.jsft.component.uicomp.InsertComponent</component-type>
-	</component>
+        <tag-name>insertComponent</tag-name>
+        <component>
+            <component-type>com.sun.jsft.component.uicomp.InsertComponent</component-type>
+        </component>
     </tag>
 
     <tag>
-	<tag-name>addComponent</tag-name>
-	<component>
-	    <component-type>com.sun.jsft.component.uicomp.AddComponent</component-type>
-	</component>
+        <tag-name>addComponent</tag-name>
+        <component>
+            <component-type>com.sun.jsft.component.uicomp.AddComponent</component-type>
+        </component>
     </tag>
 
     <tag>
-	<tag-name>replaceComponent</tag-name>
-	<component>
-	    <component-type>com.sun.jsft.component.uicomp.ReplaceComponent</component-type>
-	</component>
+        <tag-name>replaceComponent</tag-name>
+        <component>
+            <component-type>com.sun.jsft.component.uicomp.ReplaceComponent</component-type>
+        </component>
     </tag>
 
     <tag>
-	<tag-name>removeComponent</tag-name>
-	<component>
-	    <component-type>com.sun.jsft.component.uicomp.RemoveComponent</component-type>
-	</component>
+        <tag-name>removeComponent</tag-name>
+        <component>
+            <component-type>com.sun.jsft.component.uicomp.RemoveComponent</component-type>
+        </component>
     </tag>
 
     <tag>
-	<tag-name>setAttribute</tag-name>
-	<component>
-	    <component-type>com.sun.jsft.component.uicomp.SetAttributeComponent</component-type>
-	</component>
+        <tag-name>setAttribute</tag-name>
+        <component>
+            <component-type>com.sun.jsft.component.uicomp.SetAttributeComponent</component-type>
+        </component>
     </tag>
 
 </facelet-taglib>

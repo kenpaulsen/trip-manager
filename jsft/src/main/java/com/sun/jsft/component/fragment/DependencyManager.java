@@ -40,173 +40,151 @@
  */
 package com.sun.jsft.component.fragment;
 
+import jakarta.faces.context.FacesContext;
+import jakarta.faces.event.SystemEventListener;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import jakarta.faces.context.FacesContext;
-import jakarta.faces.event.SystemEventListener;
-
 
 /**
- *  <p>	To get an instance of this class, use {@link #getInstance()}.  This
- *	will check the "<code>com.sun.jsft.DEPENDENCY_MANAGER</code>"
- *	<code>web.xml</code> <code>context-param</code> to find the
- *	correct implementation to use.  If not specified, it will use the
- *	{@link DefaultDependencyManager}.  Alternatively, you can invoke
- *	{@link setDependencyManager(DependencyManager)} directly to specify the desired
- *	implementation.</p>
+ * <p> To get an instance of this class, use {@link #getInstance()}.  This will check the
+ *     "<code>com.sun.jsft.DEPENDENCY_MANAGER</code>" <code>web.xml</code> <code>context-param</code> to find the
+ *     correct implementation to use.  If not specified, it will use the {@link DefaultDependencyManager}.
+ *     Alternatively, you can invoke {@link #setDependencyManager(DependencyManager)} directly to specify the
+ *     desired implementation.</p>
  */
 public abstract class DependencyManager {
+    /**
+     * <p> This <code>Map</code> will hold all the {@link Dependency}'s.</p>
+     */
+    private final Map<String, Dependency> dependencies = new HashMap<>(2);
+    /**
+     * <p> The request scope key for holding the DEPENDENCY_MANAGER instance to make it easily obtained.</p>
+     */
+    private static final String DEPENDENCY_MANAGER  = "_jsftTM";
+    /**
+     * <p> The web.xml <code>context-param</code> for declaring the implementation of this class to use.</p>
+     */
+    public static final String IMPL_CLASS           = "com.sun.jsft.DEPENDENCY_MANAGER";
 
     /**
-     *	<p> This method is responsible for executing the queued Dependencies.  It is
-     *	    possible this method may be called more than once (not common), so
-     *	    care should be taken to ensure this is handled appropriately.  This
-     *	    method is normally executed after the page (excluding
-     *	    DefferedFragments, of course) have been rendered.</p>
+     * <p> This method is responsible for executing the queued Dependencies.  It is
+     *     possible this method may be called more than once (not common), so
+     *     care should be taken to ensure this is handled appropriately.  This
+     *     method is normally executed after the page (excluding
+     *     DefferedFragments, of course) have been rendered.</p>
      */
     public abstract void start();
 
     /**
-     *	<p> This method locates or creates the DependencyManager instance associated
-     *	    with this request.</p>
+     * <p> This method locates or creates the DependencyManager instance associated with this request.</p>
      */
     public static DependencyManager getInstance() {
-	// See if we already calculated the DependencyManager for this request
-	FacesContext ctx = FacesContext.getCurrentInstance();
-	DependencyManager dependencyManager = null;
-	Map<String, Object> requestMap = null;
-	if (ctx != null) {
-	    requestMap = ctx.getExternalContext().getRequestMap();
-	    dependencyManager = (DependencyManager) requestMap.get(DEPENDENCY_MANAGER);
-	}
-	if (dependencyManager == null) {
-	    Map initParams = ctx.getExternalContext().getInitParameterMap();
-	    String className = (String) initParams.get(IMPL_CLASS);
-	    if (className != null) {
-		try {
-		    dependencyManager = (DependencyManager) Class.forName(className).newInstance();
-		} catch (Exception ex) {
-		    throw new RuntimeException(ex);
-		}
-	    } else {
-		dependencyManager = new DefaultDependencyManager();
-	    }
-	    if (requestMap != null) {
-		requestMap.put(DEPENDENCY_MANAGER, dependencyManager);
-	    }
-	}
-	return dependencyManager;
+        // See if we already calculated the DependencyManager for this request
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        DependencyManager dependencyManager = null;
+        Map<String, Object> requestMap = null;
+        if (ctx != null) {
+            requestMap = ctx.getExternalContext().getRequestMap();
+            dependencyManager = (DependencyManager) requestMap.get(DEPENDENCY_MANAGER);
+        }
+        if (dependencyManager == null) {
+            final Map<String, String> initParams = ctx.getExternalContext().getInitParameterMap();
+            final String className = initParams.get(IMPL_CLASS);
+            if (className != null) {
+                try {
+                    dependencyManager = (DependencyManager) Class.forName(className).newInstance();
+                } catch (Exception ex) {
+                    throw new RuntimeException(ex);
+                }
+            } else {
+                dependencyManager = new DefaultDependencyManager();
+            }
+            if (requestMap != null) {
+                requestMap.put(DEPENDENCY_MANAGER, dependencyManager);
+            }
+        }
+        return dependencyManager;
     }
 
     /**
-     *	<p> This method is provided in case the developer would like to provide
-     *	    their own way to calculate and create the <code>DependencyManager</code>
-     *	    implementation to use.</p>
+     * <p> This method is provided in case the developer would like to provide their own way to calculate and create
+     *     the <code>DependencyManager</code> implementation to use.</p>
      */
     public static void setDependencyManager(DependencyManager dependencyManager) {
-	FacesContext ctx = FacesContext.getCurrentInstance();
-	if (ctx != null) {
-	    ctx.getExternalContext().getRequestMap().put(
-		    DEPENDENCY_MANAGER, dependencyManager);
-	} else {
-	    throw new RuntimeException(
-		"Currently only JSF is supported!  FacesContext not found.");
-	}
+        FacesContext ctx = FacesContext.getCurrentInstance();
+        if (ctx != null) {
+            ctx.getExternalContext().getRequestMap().put(
+                    DEPENDENCY_MANAGER, dependencyManager);
+        } else {
+            throw new RuntimeException(
+                "Currently only JSF is supported!  FacesContext not found.");
+        }
     }
 
     /**
-     *	<p> This method is responsible for queuing up a <code>dependency</code> to
-     *	    be performed.  The given <code>newListeners</code> will be fired
-     *	    according to the requested event <code>type</code>.  If the
-     *	    <code>type</code> is not specified, it will default to
-     *	    {@link Dependency#DEFAULT_EVENT_TYPE} indicating that the given
-     *	    <code>newListeners</code> should be fired when the dependency is
-     *	    satisfied.</p>
+     * <p> This method is responsible for queuing up a <code>dependency</code> to be performed.  The given
+     *     <code>newListeners</code> will be fired according to the requested event <code>type</code>.  If the
+     *     <code>type</code> is not specified, it will default to {@link Dependency#DEFAULT_EVENT_TYPE} indicating
+     *     that the given <code>newListeners</code> should be fired when the dependency is satisfied.</p>
      *
-     *	<p> Note: If the <code>dependency</code> is already queued, it will NOT be
-     *	    performed twice.  The <code>newListeners</code> will be added to
-     *	    the already-queued <code>dependency</code>.</p>
+     * <p> Note: If the <code>dependency</code> is already queued, it will NOT be performed twice. The
+     *           <code>newListeners</code> will be added to the already-queued <code>dependency</code>.</p>
      *
-     *	@param	dependency	A unique string identifying a dependency to perform. This is
-     *			implementation specific to the DependencyManager
-     *			implementation.
+     *  @param dependencyName A unique string identifying a dependency to perform. This is implementation
+     *                      specific to the DependencyManager implementation.
      *
-     *	@param	type	Optional String identifying the event name within the
-     *			dependency in which the given Listeners are associated.  If
-     *			no type is given, the listeners will be fired at the
-     *			end of the dependency ({@link Dependency#DEFAULT_EVENT_TYPE}).
+     *  @param type         Optional String identifying the event name within the dependency in which the
+     *                      given Listeners are associated.  If no type is given, the listeners will be fired at the
+     *                      end of the dependency ({@link Dependency#DEFAULT_EVENT_TYPE}).
      *
-     *	@param	newListeners	The SystemEventListener to be associated with this
-     *			dependency and optional type if specified.
+     *  @param newListeners The SystemEventListener associated with this dependency and optional type if specified.
      */
     protected void addDependency(String dependencyName, String type, SystemEventListener ... newListeners) {
 // FIXME: Do I want to accept priority too??  Or perhaps that is handled in
 // FIXME: the implementation-specific way dependencies are registered?  Or is priority
 // FIXME: only associated with DeferredFragments?
-	Dependency dependency = dependencies.get(dependencyName);
-	if (dependency == null) {
-	    // New Dependency, create and add...
-	    dependency = new Dependency(dependencyName);
-	    dependency.setListeners(type, toArrayList(newListeners));
-	    dependencies.put(dependencyName, dependency);
-	} else {
-	    // Dependency already created, add the listeners for this type...
-	    List<SystemEventListener> dependencyListeners = dependency.getListeners(type);
-	    if (dependencyListeners == null) {
-		dependency.setListeners(type, toArrayList(newListeners));
-	    } else {
-		dependencyListeners.addAll(toArrayList(newListeners));
-	    }
-	}
+        Dependency dependency = dependencies.get(dependencyName);
+        if (dependency == null) {
+            // New Dependency, create and add...
+            dependency = new Dependency(dependencyName);
+            dependency.setListeners(type, toArrayList(newListeners));
+            dependencies.put(dependencyName, dependency);
+        } else {
+            // Dependency already created, add the listeners for this type...
+            List<SystemEventListener> dependencyListeners = dependency.getListeners(type);
+            if (dependencyListeners == null) {
+                dependency.setListeners(type, toArrayList(newListeners));
+            } else {
+                dependencyListeners.addAll(toArrayList(newListeners));
+            }
+        }
     }
 
     /**
-     *	<p> This method is responsible for parsing the given dependency String
-     *	    according to the specific <code>DependencyManager</code> that is
-     *	    being used.  It then invokes {@link #addDependency(
-     *	    String dependency, String type, SystemEventListener ..
-     *	    newListeners)} for each of the derived dependencies and returns a
-     *	    count of them.</p>
+     * <p> This method is responsible for parsing the given dependency String according to the specific
+     *     <code>DependencyManager</code> that is being used.  It then invokes
+     *     {@link #addDependency(String, String, SystemEventListener...)} for each of the derived dependencies and
+     *     returns a count of them.</p>
      */
-    public abstract int addDependencies(String dependencyString, SystemEventListener ... newListeners);
+    public abstract int addDependencies(String dependencyString, SystemEventListener... newListeners);
 
     /**
-     *	<p> This method returns the <code>List&lt;Dependency&gt;</code>.</p>
+     * <p> This method returns the <code>List&lt;Dependency&gt;</code>.</p>
      */
     public Collection<Dependency> getDependencies() {
-	return dependencies.values();
+        return dependencies.values();
     }
 
     /**
-     *	<p> Convert an array of <code>T</code> to an
-     *	    <code>ArrayList&lt;T&gt;</code>.</p>
+     * <p> Convert an array of <code>T</code> to an <code>ArrayList&lt;T&gt;</code>.</p>
      */
-    private <T> List<T> toArrayList(T arr[]) {
-	ArrayList<T> list = new ArrayList<T>(arr.length);
-	for (T item : arr) {
-	    list.add(item);
-	}
-	return list;
+    private <T> List<T> toArrayList(final T[] arr) {
+        final ArrayList<T> list = new ArrayList<>(arr.length);
+        Collections.addAll(list, arr);
+        return list;
     }
-
-
-    /**
-     *	<p> This <code>Map</code> will hold all the {@link Dependencies}.</p>
-     */
-    private Map<String, Dependency> dependencies = new HashMap<String, Dependency>(2);
-
-    /**
-     *	<p> The request scope key for holding the DEPENDENCY_MANAGER instance to
-     *	    make it easily obtained.</p>
-     */
-    private static final String	DEPENDENCY_MANAGER	= "_jsftTM";
-
-    /**
-     *	<p> The web.xml <code>context-param</code> for declaring the
-     *	    implementation of this class to use.</p>
-     */
-    public static final String	IMPL_CLASS	= "com.sun.jsft.DEPENDENCY_MANAGER";
 }

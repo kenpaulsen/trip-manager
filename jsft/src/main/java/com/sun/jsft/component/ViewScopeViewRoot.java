@@ -1,33 +1,27 @@
 package com.sun.jsft.component;
 
-import java.util.Map;
-
 import jakarta.faces.FactoryFinder;
 import jakarta.faces.component.UIViewRoot;
 import jakarta.faces.context.FacesContext;
 import jakarta.faces.event.PhaseId;
 import jakarta.faces.render.RenderKitFactory;
 import jakarta.faces.render.ResponseStateManager;
-
+import java.util.Map;
 
 /**
- *  <p>	This UIViewRoot can be used to restore the ViewScope state upon
- *	creation.  This overcomes the JSF shortfall where the ViewScope is not
- *	available until after the UIViewTree is completely restored.  This
- *	means that events fired during creation cannot use the ViewScope.
- *	Caveat: ViewScope changes that happen during View creation are not
- *	likely to be persisted at this time since the data will likely be
- *	overwritten later in the cycle -- so it is best to treat ViewScope data
- *	during "postAddToView" events as "read-only" data.  I may fix this at
- *	some point in the future, however...</p>
+ * <p> This UIViewRoot can be used to restore the ViewScope state upon creation.  This overcomes the JSF shortfall
+ *     where the ViewScope is not available until after the UIViewTree is completely restored.  This means that events
+ *     fired during creation cannot use the ViewScope. Caveat: ViewScope changes that happen during View creation are
+ *     not likely to be persisted at this time since the data will likely be overwritten later in the cycle -- so it
+ *     is best to treat ViewScope data during "postAddToView" events as "read-only" data.  I may fix this at some
+ *     point in the future, however.</p>
  */
 public class ViewScopeViewRoot extends UIViewRoot {
 
     /**
-     *	<p> Must restore the ViewState in the constructor because events which
-     *	    may use it get fired very soon afterward.  Note: The setViewId()
-     *	    method may be called before the 1st event and may be another
-     *	    possible place to implement this code.</p>
+     * <p> Must restore the ViewState in the constructor because events which may use it get fired very soon
+     *     afterward.  Note: The setViewId() method may be called before the 1st event and may be another possible
+     *     place to implement this code.</p>
      */
     public ViewScopeViewRoot() {
         super();
@@ -98,7 +92,7 @@ public class ViewScopeViewRoot extends UIViewRoot {
     }
 
     /**
-     *	<p> This method saves the super state as well as the View Map.</p>
+     * <p> This method saves the super state as well as the View Map.</p>
      */
     @Override
     public Object saveState(FacesContext context) {
@@ -109,9 +103,8 @@ public class ViewScopeViewRoot extends UIViewRoot {
     }
 
     /**
-     *	<p> This is overriden to provide the ability to restore the View Map
-     *	    from the given state info.  If {@link restoreAllState} is false,
-     *	    it will restore only the View Map.</p>
+     * <p> This is overriden to provide the ability to restore the View Map from the given state info. If
+     *     {@link restoreAllState} is false, it will restore only the View Map.</p>
      */
     @Override
     public void restoreState(FacesContext context, Object state) {
@@ -149,10 +142,9 @@ public class ViewScopeViewRoot extends UIViewRoot {
 
 
     /**
-     *	<p> Only <code>UIComponent</code> seems to provide a valid
-     *	    equals(Object) method.  This method is important to ensure the view
-     *	    scope is reset when navigating to the same page.  In this case, the
-     *	    instance will be different... but equals() should be true.</p>
+     * <p> Only <code>UIComponent</code> seems to provide a valid equals(Object) method.  This method is important to
+     *     ensure the view scope is reset when navigating to the same page.  In this case, the instance will be
+     *     different... but equals() should be true.</p>
      */
     public boolean equals(Object obj) {
         // Sanity check
@@ -179,10 +171,10 @@ public class ViewScopeViewRoot extends UIViewRoot {
     private boolean restoreAllState = true;
 
     /**
-     *	<p> This Request-scoped key must be used to pass the current
-     *	    <code>viewId</code> from the ViewHandler <code>createView</code>
-     *	    and <code>restoreView</code> methods.  If this is not done, the
-     *	    viewScope state cannot be restored.</p>
+     *        <p> This Request-scoped key must be used to pass the current
+     *            <code>viewId</code> from the ViewHandler <code>createView</code>
+     *            and <code>restoreView</code> methods.  If this is not done, the
+     *            viewScope state cannot be restored.</p>
      */
-    public static String CURR_VIEW_ID	= "jsftCVID";
+    public static String CURR_VIEW_ID        = "jsftCVID";
 }

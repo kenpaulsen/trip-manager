@@ -1,12 +1,8 @@
 package com.sun.jsft.event;
 
-import java.util.Map;
-
 import jakarta.faces.event.AbortProcessingException;
 import jakarta.faces.event.AjaxBehaviorEvent;
-
 import org.primefaces.behavior.ajax.AjaxBehaviorListenerImpl;
-
 
 /**
  *  <p> This class is used to handle an p:ajax event.</p>
@@ -14,6 +10,7 @@ import org.primefaces.behavior.ajax.AjaxBehaviorListenerImpl;
  *  @author Ken Paulsen (kenapaulsen@gmail.com)
  */
 public class PFAjaxBehaviorEventListener extends AjaxBehaviorListenerImpl {
+    private final AjaxBehaviorEventListener delegate;
 
 // FIXME: I think this class may need to implement stateholder.... see superclass and ensure "type" is persisted across serialization!!
     /**
@@ -35,6 +32,4 @@ public class PFAjaxBehaviorEventListener extends AjaxBehaviorListenerImpl {
     public void processAjaxBehavior(AjaxBehaviorEvent event) throws AbortProcessingException {
         delegate.processAjaxBehavior(event);
     }
-
-    private AjaxBehaviorEventListener delegate = null;
 }

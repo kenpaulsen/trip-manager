@@ -38,89 +38,77 @@
  * only if the new code is made subject to such option by the copyright
  * holder.
  */
-
 package com.sun.jsft.component.fragment;
 
-import java.util.List;
-import java.util.StringTokenizer;
 import jakarta.faces.event.SystemEvent;
 import jakarta.faces.event.SystemEventListener;
-
+import java.util.List;
+import java.util.StringTokenizer;
 
 /**
- *  <p>	This is the default {@link DependencyManager} implementation.</p>
+ * <p> This is the default {@link DependencyManager} implementation.</p>
  */
 public class DefaultDependencyManager extends DependencyManager {
-
     /**
-     *	<p> Default constructor.</p>
+     * <p> Default constructor.</p>
      */
     protected DefaultDependencyManager() {
-	super();
+        super();
     }
 
     /**
-     *	<p> This method is responsible for parsing the given dependency String.
-     *	    In this implementation, it expects dependencies to be separated by
-     *	    semi-colons (;), and they can be further qualified by providing an
-     *	    event type after a colon (:).  For example:
+     * <p> This method is responsible for parsing the given dependency String. In this implementation, it expects
+     *     dependencies to be separated by semi-colons (;), and they can be further qualified by providing an
+     *     event type after a colon (:).  For example:
      *
-     *	    <blockquote>
-     *		<code>
-     *		    dependency1:anEventType;dep2:dependencyComplete
-     *		</code>
-     *	    </blockquote></p>
+     *     <blockquote>
+     *         <code>
+     *             dependency1:anEventType;dep2:dependencyComplete
+     *         </code>
+     *     </blockquote></p>
      *
-     *	    It then invokes {@link DependencyManager#addDependency(String
-     *	    dependency, String type, SystemEventListener .. newListeners)}
-     *	    for each of the derived dependencies and returns a count of
-     *	    them.</p>
+     *     It then invokes {@link DependencyManager#addDependency(String, String, SystemEventListener... )} for each
+     *     of the derived dependencies and returns a count of them.</p>
      */
-    public int addDependencies(String depString, SystemEventListener ... newListeners) {
-	StringTokenizer tok = new StringTokenizer(depString, ";");
-	int dependencyCnt = 0;
-	while (tok.hasMoreTokens()) {
-	    depString = tok.nextToken().trim();
+    public int addDependencies(final String depString, final SystemEventListener... newListeners) {
+        final StringTokenizer tok = new StringTokenizer(depString, ";");
+        int dependencyCnt = 0;
+        while (tok.hasMoreTokens()) {
+            final String tokStr = tok.nextToken().trim();
 
-	    // Check to see if we have dependency:listenerType
-	    int idx = depString.indexOf(':');
-	    String type = null;
-	    if (idx != -1) {
-		type = depString.substring(idx + 1);
-		depString = depString.substring(0, idx);
-	    }
+            // Check to see if we have dependency:listenerType
+            int idx = tokStr.indexOf(':');
+            final String type = (idx == -1) ? null : tokStr.substring(idx + 1);
+            final String name = (idx == -1) ? tokStr : tokStr.substring(0, idx);
 
-	    // Register the Dependency...
-	    addDependency(depString, type, newListeners);
+            // Register the Dependency...
+            addDependency(name, type, newListeners);
 
-	    // Count the dependencies we depend on...
-	    dependencyCnt++;
-	}
-	// Return the # of dependencies so the caller knows how many were
-	// registered.
-	return dependencyCnt++;
+            // Count the dependencies we depend on...
+            dependencyCnt++;
+        }
+        // Return the # of dependencies so the caller knows how many were registered.
+        return dependencyCnt;
     }
 
     /**
-     *	<p> This method is responsible for executing the queued Dependencies.  It is
-     *	    possible this method may be called more than once (not common), so
-     *	    care should be taken to ensure this is handled appropriately.  This
-     *	    method is normally executed after the page (excluding
-     *	    DefferedFragments, of course) have been rendered.</p>
+     * <p> This method is responsible for executing the queued Dependencies.  It is possible this method may be
+     *     called more than once (not common), so care should be taken to ensure this is handled appropriately. This
+     *     method is normally executed after the page (excluding DefferedFragments, of course) have been rendered.</p>
      */
     public void start() {
-	// Loop through the dependencies and execute them...
-	for (Dependency dependency : getDependencies()) {
+        // Loop through the dependencies and execute them...
+        for (Dependency dependency : getDependencies()) {
 // FIXME: This implementation is a no-op, it just loops through the dependencies and fires the DEPENDENCY_COMPLETE event.
 // FIXME: A real implementation would aggregate & dispatch the dependencies and register listeners with the "backend dispatcher" which would fire the DEPENDENCY_COMPLETE event.
 // FIXME: This method should not block.
-	    SystemEvent event = new DependencyEvent(dependency);
-	    List<SystemEventListener> listeners = dependency.getListeners(DependencyEvent.DEPENDENCY_COMPLETE);
-	    if (listeners != null) {
-		for (SystemEventListener listener : listeners) {
-		    listener.processEvent(event);
-		}
-	    }
-	}
+            final SystemEvent event = new DependencyEvent(dependency);
+            final List<SystemEventListener> listeners = dependency.getListeners(DependencyEvent.DEPENDENCY_COMPLETE);
+            if (listeners != null) {
+                for (SystemEventListener listener : listeners) {
+                    listener.processEvent(event);
+                }
+            }
+        }
     }
 }

@@ -38,22 +38,20 @@
  * only if the new code is made subject to such option by the copyright
  * holder.
  */
-
 package com.sun.jsft.event;
 
-import java.util.List;
 import jakarta.faces.context.FacesContext;
 import jakarta.faces.event.AbortProcessingException;
 import jakarta.faces.event.ActionEvent;
 import jakarta.faces.event.ActionListener;
-
+import lombok.EqualsAndHashCode;
 
 /**
- *  <p> This class is used to handle an event when an <code>AcitonSource</code>
+ *  <p> This class is used to handle an event when an <code>ActionSource</code>
  *      is activated.</p>
  */
+@EqualsAndHashCode
 public class CommandActionListener implements ActionListener {
-
     /**
      * <p>Invoked when the action described by the specified
      * <code>ActionEvent</code> occurs.</p>
@@ -64,30 +62,8 @@ public class CommandActionListener implements ActionListener {
      *  implementation that no further processing on the current event
      *  should be performed
      */
-    public void processAction(ActionEvent event) throws AbortProcessingException {
+    public void processAction(final ActionEvent event) throws AbortProcessingException {
         FacesContext ctx = FacesContext.getCurrentInstance();
         ctx.getApplication().publishEvent(ctx, CommandActionEvent.class, event.getComponent());
     }
-
-    @Override
-    public boolean equals(Object obj) {
-	if (obj == null) {
-	    // Not if null
-	    return false;
-	}
-	if (obj == this) {
-	    // Same object
-	    return true;
-	}
-
-	// Compare class names, no state... if match, then true.
-	return obj.getClass().equals(this.getClass());
-    }
-
-    @Override
-    public int hashCode() {
-	return HASH;
-    }
-
-    public static final int HASH    = 13;
 }

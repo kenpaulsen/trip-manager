@@ -43,16 +43,15 @@ package com.sun.jsft.component.fragment;
 
 import jakarta.faces.event.ComponentSystemEvent;
 
-
 /**
- *  <p>	This event is used for dispatching {@link Dependency} related events.</p>
+ * <p> This event is used for dispatching {@link Dependency} related events.</p>
  */
 public class FragmentReadyEvent extends ComponentSystemEvent {
 
     /**
-     *	<p> Constructor.</p>
+     * <p> Constructor.</p>
      */
     public FragmentReadyEvent(DeferredFragment source) {
-	super(source);
+        super(source);
     }
 }

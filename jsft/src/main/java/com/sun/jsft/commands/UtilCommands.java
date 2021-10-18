@@ -47,6 +47,9 @@
  */
 package com.sun.jsft.commands;
 
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.faces.component.UIComponent;
+import jakarta.inject.Named;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -54,105 +57,68 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import jakarta.faces.component.UIComponent;
-import jakarta.faces.bean.ManagedBean;
-import jakarta.faces.bean.ApplicationScoped;
-
-
 /**
- *  <p> This class contains methods that perform common utility-type
- *	functionality.</p>
+ *  <p> This class contains methods that perform common utility-type functionality.</p>
  *
  *  @author  Ken Paulsen (kenapaulsen@gmail.com)
  */
 @ApplicationScoped
-@ManagedBean(name="util")
+@Named("util")
 public class UtilCommands {
-
     /**
      *  <p> This command returns a String containing the name / values of
-     *	    all the given <code>UIComponent</code>'s attributes.</p>
+     *      all the given <code>UIComponent</code>'s attributes.</p>
      */
-    public String dumpAttributeMap(UIComponent comp) {
-	StringBuilder result = new StringBuilder();
-	if (comp != null) {
-	    Map.Entry entry;
-	    Map<String,Object> map = comp.getAttributes();
-	    for (Iterator iter = map.entrySet().iterator(); iter.hasNext();) {
-		entry = (Map.Entry) iter.next();
-		result.append("\"" + entry.getKey() + "\": \"" + entry.getValue() +"\"\n");
-	    }
-	} else {
-	    result.append("UIComponent is null");
-	}
-
-	return result.toString();
+    public String dumpAttributeMap(final UIComponent comp) {
+        final StringBuilder result = new StringBuilder();
+        if (comp != null) {
+            for (Map.Entry<String, Object> entry : comp.getAttributes().entrySet()) {
+                result.append("\"").append(entry.getKey()).append("\": \"").append(entry.getValue()).append("\"\n");
+            }
+        } else {
+            result.append("UIComponent is null");
+        }
+        return result.toString();
     }
 
     /**
-     *  <p> This method returns an <code>Iterator</code> for the given
-     *      <code>List</code>.  The <code>List</code> input value key is:
-     *      "list".  The output value key for the <code>Iterator</code> is:
-     *      "iterator".</p>
+     *  <p> This method returns an <code>Iterator</code> for the given <code>List</code>.
      *
-     *  @param  context The HandlerContext.
-    @Handler(id="getIterator",
-	input={
-	    @HandlerInput(name="list", type=List.class, required=true)},
-	output={
-	    @HandlerOutput(name="iterator", type=Iterator.class)})
-    public static void getIterator(HandlerContext context) {
-	List<Object> list = (List<Object>) context.getInputValue("list");
-	context.setOutputValue("iterator", list.iterator());
-    }
+     *  @param  list The List.
      */
+    public <T> Iterator<T> getIterator(final List<T> list) {
+        return list.iterator();
+    }
 
     /**
      *  <p> This method returns a <code>Boolean</code> value representing
      *      whether another value exists for the given <code>Iterator</code>.
-     *      The <code>Iterator</code> input value key is: "iterator".  The
-     *      output value key is "hasNext".</p>
      *
-     *  @param  context The HandlerContext.
-    @Handler(id="iteratorHasNext",
-	input={
-	    @HandlerInput(name="iterator", type=Iterator.class, required=true)},
-	output={
-	    @HandlerOutput(name="hasNext", type=Boolean.class)})
-    public static void iteratorHasNext(HandlerContext context) {
-	Iterator<Object> it = (Iterator<Object>) context.getInputValue("iterator");
-	context.setOutputValue("hasNext", Boolean.valueOf(it.hasNext()));
-    }
+     *  @param  it The Iterator.
      */
+    public <T> boolean iteratorHasNext(final Iterator<T> it) {
+        return it.hasNext();
+    }
 
     /**
-     *  <p> This method returns the next object in the <code>List</code> that
-     *      the given <code>Iterator</code> is iterating over.  The
-     *      <code>Iterator</code> input value key is: "iterator".  The
-     *      output value key is "next".</p>
+     *  <p> This method returns the next object in the <code>List</code> that the given <code>Iterator</code> is
+     *      iterating over.</p>
      *
-     *  @param  context The HandlerContext.
-    @Handler(id="iteratorNext",
-	input={
-	    @HandlerInput(name="iterator", type=Iterator.class, required=true)},
-	output={
-	    @HandlerOutput(name="next")})
-    public static void iteratorNext(HandlerContext context) {
-	Iterator<Object> it =
-		(Iterator<Object>) context.getInputValue("iterator");
-	context.setOutputValue("next", it.next());
-    }
+     *  @param  it The Iterator.
      */
+    public <T> T iteratorNext(final Iterator<T> it) {
+        return it.next();
+    }
 
     /**
      *  <p> This method creates and returns a List&lt;Object&gt;.  The output value from this command is "result".</p>
      */
     public List<Object> createList() {
-	return new ArrayList<>();
+        return new ArrayList<>();
     }
 
-    public List<Object> asList(Object[] values) {
-	return Arrays.asList(values);
+    public List<Object> asList(final Object[] values) {
+        return Arrays.asList(values);
     }
 
     /**
@@ -160,7 +126,7 @@ public class UtilCommands {
      *      The output value from this command is "result".</p>
      */
     public Map<Object, Object> createMap() {
-	return new HashMap<>();
+        return new HashMap<>();
     }
 
     /**
@@ -168,32 +134,26 @@ public class UtilCommands {
      *      null is given and it will use a default encoding of "UTF-8" if no
      *      encoding is specified.</p>
      */
-    public String urlencode(String value, String encoding) {
-	if (value != null) {
-	    if (encoding == null) {
-		encoding = "UTF-8";
-	    }
-
-	    try {
-		value = java.net.URLEncoder.encode(value, encoding);
-	    } catch (java.io.UnsupportedEncodingException ex) {
-		throw new IllegalArgumentException(ex);
-	    }
-	}
-
-	// Return the value
-	return value;
+    public String urlencode(final String value, final String encoding) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return java.net.URLEncoder.encode(value, (encoding == null) ? "UTF-8" : encoding);
+        } catch (java.io.UnsupportedEncodingException ex) {
+            throw new IllegalArgumentException(ex);
+        }
     }
 
     /**
      *  <p> This command gets the current system time in milliseconds.  It may
      *      be used to time things.</p>
     @Handler(id="getDate",
-	output={
-	    @HandlerOutput(name="time", type=Long.class)
-	})
+        output={
+            @HandlerOutput(name="time", type=Long.class)
+        })
     public static void getDate(HandlerContext context) {
-	context.setOutputValue("time", new java.util.Date().getTime());
+        context.setOutputValue("time", new java.util.Date().getTime());
     }
      */
 
@@ -204,8 +164,8 @@ public class UtilCommands {
      *      examples which might include HTML characters.  '&amp;' characters
      *      will also be converted to "&amp;amp;".</p>
      */
-    public String htmlEscape(String value) {
-	return com.sun.jsft.util.Util.htmlEscape(value);
+    public String htmlEscape(final String value) {
+        return com.sun.jsft.util.Util.htmlEscape(value);
     }
 
     /**
@@ -229,23 +189,23 @@ public class UtilCommands {
      *      <li><code>var</code> -- type: <code>String</code>; Request
      *          attribute to be set in the for loop to the value of the
      *          index.</li></ul>
-    public static boolean forLoop(int start, int end, String var) {
-	List<> commands =
-	    handlerCtx.getHandler().getChildHandlers();
-	if (commands.size() > 0) {
-	    // We have child commands in the loop... execute while we iterate
-	    Map<String, Object> requestMap = FacesContext.getCurrentInstance().
-		    getExternalContext().getRequestMap();
-	    for (int idx=start; idx < end; idx++) {
-		requestMap.put(var, idx);
-		// Ignore what is returned by the commands... we need to return
-		// false anyway to prevent children from being executed again
-		elt.dispatchHandlers(commands);
-	    }
-	}
+    public static boolean forLoop(final int start, final int end, final String var) {
+        List<> commands =
+            handlerCtx.getHandler().getChildHandlers();
+        if (commands.size() > 0) {
+            // We have child commands in the loop... execute while we iterate
+            Map<String, Object> requestMap = FacesContext.getCurrentInstance().
+                    getExternalContext().getRequestMap();
+            for (int idx=start; idx < end; idx++) {
+                requestMap.put(var, idx);
+                // Ignore what is returned by the commands... we need to return
+                // false anyway to prevent children from being executed again
+                elt.dispatchHandlers(commands);
+            }
+        }
 
-	// This will prevent the child commands from executing again
-	return false;
+        // This will prevent the child commands from executing again
+        return false;
     }
      */
 }

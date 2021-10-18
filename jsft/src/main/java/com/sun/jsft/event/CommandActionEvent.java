@@ -38,12 +38,10 @@
  * only if the new code is made subject to such option by the copyright
  * holder.
  */
-
 package com.sun.jsft.event;
 
 import jakarta.faces.component.UIComponent;
 import jakarta.faces.event.ComponentSystemEvent;
-
 
 /**
  *  <p> This event is used when <code>AcitonSource</code> fires an event.  We
@@ -52,7 +50,6 @@ import jakarta.faces.event.ComponentSystemEvent;
  *      <code>ActionEvent</code> does not work.</p>
  */
 public class CommandActionEvent extends ComponentSystemEvent {
-
     /**
      *  <p> Constructor.</p>
      */
