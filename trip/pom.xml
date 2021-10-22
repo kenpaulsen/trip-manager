@@ -88,11 +88,6 @@
             <artifactId>weld-servlet-shaded</artifactId>
             <version>4.0.2.Final</version>
         </dependency>
-        <dependency>
-            <groupId>ch.qos.logback</groupId>
-            <artifactId>logback-classic</artifactId>
-            <version>1.2.6</version>
-        </dependency>
 
         <dependency>
             <groupId>org.testng</groupId>
