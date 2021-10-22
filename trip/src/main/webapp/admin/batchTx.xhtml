@@ -8,11 +8,11 @@
     xmlns:pe="http://primefaces.org/ui/extensions"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="content">
             <jsft:event type="initPage">
                 if (!showAll) {
-                    jsft.redirect("hello.jsf");
+                    jsft.redirect("/trip/hello.jsf");
                 }
                 viewScope.reqPriv = "admin";
                 if (viewScope.type == null) {
@@ -29,7 +29,7 @@
                             viewScope.batchPeople = txCmds.getUserIdsForGroupId(groupId);
                         } else {
                             // Trying to edit a batch that's not a batch, send away!
-                            jsft.redirect("transactions.jsf?id=".concat(param.id));
+                            jsft.redirect("/trip/transactions.jsf?id=".concat(param.id));
                         }
                     } else {
                         viewScope.type = "Shared".equals(param.type) ? "Shared" : "Batch";
@@ -100,9 +100,9 @@
                 <p:commandButton immediate="true" id="cancel" value="Cancel" update="growl">
                     <jsft:event type="command">
                         if (fromUserId != null) {
-                            jsft.redirect("transactions.jsf?id=".concat(fromUserId.value));
+                            jsft.redirect("/trip/transactions.jsf?id=".concat(fromUserId.value));
                         } else {
-                            jsft.redirect("tripContacts.jsf");
+                            jsft.redirect("/trip/tripContacts.jsf");
                         }
                     </jsft:event>
                 </p:commandButton>
@@ -110,9 +110,9 @@
                     <jsft:event type="command">
                         if (txCmds.saveGroupTx(groupId, type, txDate, amount, category, note, batchPeople)) {
                             if (fromUserId != null) {
-                                jsft.redirect("transactions.jsf?id=".concat(fromUserId.value));
+                                jsft.redirect("/trip/transactions.jsf?id=".concat(fromUserId.value));
                             } else {
-                                jsft.redirect("tripContacts.jsf");
+                                jsft.redirect("/trip/tripContacts.jsf");
                             }
                         } else {
                             tripUtil.error("Failed to save!", note);

@@ -56,19 +56,21 @@ import jakarta.inject.Named;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  *  <p> This class contains methods that perform common utility-type functionality.</p>
  *
  *  @author  Ken Paulsen (kenapaulsen@gmail.com)
  */
-@ApplicationScoped
+@Slf4j
 @Named("jsftComp")
+@ApplicationScoped
 public class ComponentCommands {
     private static ComponentCommands instance = new ComponentCommands();
 
     /**
-     * <p> When these utilies are used via code, this method can be used to obtain an instance.</p>
+     * <p> When these utilities are used via code, this method can be used to obtain an instance.</p>
      */
     public static ComponentCommands getInstance() {
         return instance;
@@ -284,6 +286,7 @@ parent.setInView(inview);
         // Create the component...
         final FacesContext ctx = FacesContext.getCurrentInstance();
         final UIComponent comp = ctx.getApplication().createComponent(componentType);
+        log.warn("Unable to find UIComponent for: '{}'.", componentType);
         if ((id != null) && !id.trim().equals("")) {
             comp.setId(id);
         }

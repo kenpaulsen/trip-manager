@@ -13,37 +13,8 @@
 <h:head>
     <title>Medjugorje Trip Manager</title>
     <link rel="shortcut icon" type="image/png" href="/trip/favicon.ico"/>
+    <h:outputStylesheet library="css" name="trip.css"/>
     <style type="text/css">
-        .propSheetLabel {
-            vertical-align:top;
-        }
-        .editorHover:hover {
-            background-color: #186bae;
-            color: #ffffff;
-        }
-        .editorHover {
-            border:none;
-            display:block;
-        }
-        .ui-datatable-header {
-            height: 34px
-        }
-        .siteheading {
-            font-family: "Comic Sans MS", cursive, sans-serif;
-            font-size: 40px;
-            letter-spacing: -3px;
-            word-spacing: -8px;
-            color: #D03F68;
-            text-shadow: -1px -1px 0 #BBB, 1px -1px 0 #BBB, -1px 1px 0 #BBB, 1px 1px 0 #BBB;
-            font-weight: 700;
-            text-decoration: none;
-            font-variant: normal;
-            text-transform: none;
-            text-align: center;
-        }
-        .small-p P {
-            margin:0px;
-        }
         <ui:insert name="pagecss" />
     </style>
 </h:head>
@@ -105,8 +76,8 @@
                 <p:menuButton value="Admin" rendered="#{showAll}" style="margin-right:10px;float:right">
                     <p:menuitem value="Manage People" update="growl" url="/trip/admin/people.jsf" />
                     <p:menuitem value="Add Trip" update="growl" url="/trip/editTrip.jsf" />
-                    <p:menuitem value="Batch Transaction" update="growl" url="/trip/batchTx.jsf?type=Batch" />
-                    <p:menuitem value="Shared Transaction" update="growl" url="/trip/batchTx.jsf?type=Shared" />
+                    <p:menuitem value="Batch Transaction" update="growl" url="/trip/admin/batchTx.jsf?type=Batch" />
+                    <p:menuitem value="Shared Transaction" update="growl" url="/trip/admin/batchTx.jsf?type=Shared" />
                     <p:menuitem value="Edit Profile" update="growl" url="/trip/person.jsf?id=#{sessionScope.userId.value}" />
                     <p:menuitem value="Logout" update="growl" url="/trip/login.jsf" />
                 </p:menuButton>

@@ -70,7 +70,7 @@
                     <p:ajax event="cellEdit" update="form:growl" />
                     <jsft:event type="ajax">
                         trip.saveTrip(viewScope.theTrip);
-                        tripUtil.infoMsg("Updated to:", plan.privNotes[person.id]);
+                        tripUtil.infoMsg("Updated to: ".concat(plan.privNotes[person.id]), "");
                     </jsft:event>
                     <p:column width="105" style="text-align:center">
                         <h:outputText value="#{plan.start}">

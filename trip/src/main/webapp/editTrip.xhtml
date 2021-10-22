@@ -65,6 +65,11 @@
                     <p:watermark for="eventTitle" value="Enter Event Title" /><br />
 
                     <p:calendar id="neStartDate" widgetVar="neStartDate" value="#{requestScope.neStartDate}" navigator="true" showOn="both" pattern="MM/dd/yyyy HH:mm" yearRange="-1:c+5" required="true">
+                        <jsft:event type="afterCreate">
+                            if (neStartDate == null) {
+                                neStartDate = tripUtil.localDateTimeNow();
+                            }
+                        </jsft:event>
                         <f:convertDateTime type="localDateTime" pattern="#{component.pattern}" />
                     </p:calendar>
 
@@ -164,6 +169,7 @@
                         jsft.redirect("itinerary.jsf?trip=".concat(theTrip.id));
                     </jsft:event>
                 </p:commandButton>
+                &nbsp;
                 <p:commandButton id="saveTrip" value="Save" update="form:growl" onclick="PF('neStartDate').disable();PF('eventTitle').disable();  return true;">
                     <jsft:event type="command">
                         if (trip.saveTrip(viewScope.theTrip)) {

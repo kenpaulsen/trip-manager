@@ -41,6 +41,11 @@
         <managed-bean-scope>application</managed-bean-scope>
     </managed-bean>
     <managed-bean>
+        <managed-bean-name>jsftComp</managed-bean-name>
+        <managed-bean-class>com.sun.jsft.commands.ComponentCommands</managed-bean-class>
+        <managed-bean-scope>application</managed-bean-scope>
+    </managed-bean>
+    <managed-bean>
         <managed-bean-name>util</managed-bean-name>
         <managed-bean-class>com.sun.jsft.commands.UtilCommands</managed-bean-class>
         <managed-bean-scope>application</managed-bean-scope>

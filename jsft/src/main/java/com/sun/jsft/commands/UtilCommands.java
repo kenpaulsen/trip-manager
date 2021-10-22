@@ -62,8 +62,8 @@ import java.util.Map;
  *
  *  @author  Ken Paulsen (kenapaulsen@gmail.com)
  */
-@ApplicationScoped
 @Named("util")
+@ApplicationScoped
 public class UtilCommands {
     /**
      *  <p> This command returns a String containing the name / values of

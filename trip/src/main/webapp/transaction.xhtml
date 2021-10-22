@@ -32,9 +32,9 @@
                     <h:outputText rendered="#{showAll}" value="Transaction Type: " />
                     <h:panelGroup rendered="#{showAll}" style="margin-left:20px;">
                         #{tx.type == null ? 'Tx' : tx.type} 
-                        <h:outputLink rendered="#{tx.batch || tx.shared}" value="batchTx.jsf?id=#{person.id.value}&amp;txId=#{tx.txId}" style="margin-left:30px; color:#222277;font-weight:bold;font-size:12px;">Edit Group Transaction</h:outputLink>
-                        <h:outputLink rendered="#{txCmds.getTransaction(person.id, tx.txId) == null}" value="batchTx.jsf?type=Batch" style="margin-left:30px; color:#222277;font-weight:bold;font-size:12px;">Create Batch Instead</h:outputLink>
-                        <h:outputLink rendered="#{txCmds.getTransaction(person.id, tx.txId) == null}" value="batchTx.jsf?type=Shared" style="margin-left:20px; color:#222277;font-weight:bold;font-size:12px;">Create Shared Instead</h:outputLink>
+                        <h:outputLink rendered="#{tx.batch || tx.shared}" value="/trip/admin/batchTx.jsf?id=#{person.id.value}&amp;txId=#{tx.txId}" style="margin-left:30px; color:#222277;font-weight:bold;font-size:12px;">Edit Group Transaction</h:outputLink>
+                        <h:outputLink rendered="#{txCmds.getTransaction(person.id, tx.txId) == null}" value="/trip/admin/batchTx.jsf?type=Batch" style="margin-left:30px; color:#222277;font-weight:bold;font-size:12px;">Create Batch Instead</h:outputLink>
+                        <h:outputLink rendered="#{txCmds.getTransaction(person.id, tx.txId) == null}" value="/trip/admin/batchTx.jsf?type=Shared" style="margin-left:20px; color:#222277;font-weight:bold;font-size:12px;">Create Shared Instead</h:outputLink>
                     </h:panelGroup>
 
                     <h:outputText value="Transaction Date: "/>
@@ -62,7 +62,7 @@
                     </p:inplace>
 
                     <h:outputText value="Note: "/>
-                    <p:inplace id="note" disabled="#{viewScope.tx.batch || viewScope.tx.shared}" widgetVar="note" emptyLabel="Enter Note" editor="true" style="margin-left:20px;">
+                    <p:inplace id="note" disabled="#{!showAll || tx.batch || tx.shared}" widgetVar="note" emptyLabel="Enter Note" editor="true" style="margin-left:20px;">
                         <p:inputText id="nte" value="#{viewScope.tx.note}" label="Note" size="60" />
                         <p:watermark for="nte" value="Enter Note" id="nteWater" />
                         <p:ajax event="save" update="form:growl,#{component.clientId}" />

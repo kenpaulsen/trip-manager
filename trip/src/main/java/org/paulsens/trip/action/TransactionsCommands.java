@@ -13,6 +13,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DynamoUtils;
 import org.paulsens.trip.model.Person;
@@ -72,9 +73,9 @@ public class TransactionsCommands {
     }
 
     public boolean saveGroupTx(final String gid, final Type type, final LocalDateTime date, final Float amount,
-                               final String cat, final String note, final Object ... objArr) {
+                               final String cat, final String note, final Object... objArr) {
         final List<Person.Id> txPeople = (objArr == null) ? Collections.emptyList() :
-                Arrays.stream(objArr).map(o -> (Person.Id) o).collect(Collectors.toList());
+                Arrays.stream(objArr).flatMap(this::castToPersonId).collect(Collectors.toList());
         final String groupId = isNullOrEmpty(gid) ? UUID.randomUUID().toString() : gid;
         final AtomicBoolean result = new AtomicBoolean(true);
 
@@ -101,6 +102,21 @@ public class TransactionsCommands {
             }
         });
         return result.get();
+    }
+
+    private Stream<Person.Id> castToPersonId(final Object thing) {
+        if (thing instanceof Person.Id) {
+            return Stream.of((Person.Id) thing);
+        }
+        if (thing instanceof String) {
+            return Stream.of(Person.Id.from(thing.toString()));
+        }
+        if (thing instanceof Object[]) {
+            return Arrays.stream((Object[]) thing).flatMap(this::castToPersonId);
+        } else {
+            throw new IllegalArgumentException("Don't know how to turn "
+                    + thing.getClass().getName() + " into a Person.Id");
+        }
     }
 
     /**

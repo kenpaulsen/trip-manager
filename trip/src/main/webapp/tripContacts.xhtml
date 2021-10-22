@@ -29,12 +29,14 @@
 
             <p:dataTable id="peeps" var="personId" value="#{pilgrims}" sortBy="#{person.last}">
                 <f:facet name="header">
-                    <h:outputText value="#{theTrip.title} Contacts" />
-                    <p:commandButton id="editTrip" rendered="#{showAll}" value="Edit Trip" style="float:right">
-                        <jsft:event type="command">
-                            jsft.redirect("editTrip.jsf?id=".concat(theTrip.id));
-                        </jsft:event>
-                    </p:commandButton>
+                    <div class="table-title-button">
+                        <h:outputText value="#{theTrip.title} Contacts" />
+                        <p:commandButton id="editTrip" rendered="#{showAll}" value="Edit Trip">
+                            <jsft:event type="command">
+                                jsft.redirect("editTrip.jsf?id=".concat(theTrip.id));
+                            </jsft:event>
+                        </p:commandButton>
+                    </div>
                 </f:facet>
                 <p:column headerText="Name" width="180">
                     <h:outputText value="#{person.preferredName}">
