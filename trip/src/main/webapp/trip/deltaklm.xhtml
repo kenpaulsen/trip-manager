@@ -8,14 +8,14 @@
     xmlns:pe="http://primefaces.org/ui/extensions"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="header">
             <!-- Skip Header on this page -->
         </ui:define>
         <ui:define name="content">
             <jsft:event type="initPage">
                 if (sessionScope.userId == null) {
-                    jsft.redirect("login.jsf"); // Not logged in
+                    jsft.redirect("/account/login.jsf"); // Not logged in
                 }
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
@@ -36,12 +36,12 @@
                 <ul>
                     <li style="margin-bottom:9px;"><font color="#D03F68">Join Skymiles</font> or Enter your
                         existing SkyMiles #<br />
-                        <img src="images/Skymiles.jpg" style="width:50%;margin:12px;" />
+                        <img src="/images/Skymiles.jpg" style="width:50%;margin:12px;" />
                     </li>
                     <li style="margin-bottom:9px;"><font color="#D03F68">Select Seat</font> (For KLM flights see
                         KLM section below)</li>
                     <li>Make Special Requests<br />
-                        <img src="images/SpecialRequests.jpg" style="width:70%;margin:12px;" />
+                        <img src="/images/SpecialRequests.jpg" style="width:70%;margin:12px;" />
                     </li>
                 </ul>
             </p:fieldset>
@@ -52,12 +52,12 @@
                 Delta website. Below are the instructions to access the KLM website and upgrade your seats.</p>
                 <ol><li style="margin-bottom:19px;">First "<font color="#D03F68">Select Seat</font>" from the
                         Delta site (see above) for a KLM segment. You will get the following error:<br />
-                        <img src="images/DeltaKLMError.jpg" style="width:90%;margin:12px;" /><br />
+                        <img src="/images/DeltaKLMError.jpg" style="width:90%;margin:12px;" /><br />
                         Click on the <font color="#D03F68">KLM.com</font> link (you must click on it from here
                         for this to work).</li>
                     <li style="margin-bottom:19px;">Next write down the "<font color="#D03F68">Booking
                         Code</font>" found in the top-left of the screen. It should look something like this:<br />
-                        <img src="images/KLMBookingCode.jpg" style="width:50%;margin:12px;" /><br />
+                        <img src="/images/KLMBookingCode.jpg" style="width:50%;margin:12px;" /><br />
                         Once you have saved the "Booking Code", then click "<font color="#D03F68">My Trip</font>"
                         at the top (<font size="-1">their site doesn't work correctly unless you do this</font>).</li>
                     <li style="margin-bottom:19px;">After clicking "My Trip" it will take you out to a login
@@ -65,13 +65,13 @@
                         Use the "<font color="#D03F68">Booking Code</font>" from the previous step, and
                         "<font color="#D03F68">#{param.last == null ? 'your last name on your ticket' :
                         param.last}</font>" for "Last name".<br />
-                        <img src="images/KLMLogin.jpg" style="width:50%;margin:12px;" /><br />
+                        <img src="/images/KLMLogin.jpg" style="width:50%;margin:12px;" /><br />
                         Click "<font color="#D03F68">Search</font>".</li>
                     <li>You will now be able to scroll down and click the <font color="#D03F68">Select your
                         seat</font> option. Note, our seat selections are <b>not</b> free on KLM. However, 2 of
                         our 3 KLM flights have all aisle and window seats. The long flight back from AMS to SLC
                         does have middle seats, however.<br />
-                        <img src="images/KLMSeats.jpg" style="width:50%;margin:12px;" /></li>
+                        <img src="/images/KLMSeats.jpg" style="width:50%;margin:12px;" /></li>
                 </ol>
             </p:fieldset>
         </ui:define>

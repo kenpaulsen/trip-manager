@@ -56,7 +56,7 @@
         <servlet-class>jakarta.faces.webapp.FacesServlet</servlet-class>
         <init-param>
             <param-name>local</param-name>
-            <param-value>true</param-value>
+            <param-value>false</param-value>
         </init-param>
         <load-on-startup>1</load-on-startup>
     </servlet>

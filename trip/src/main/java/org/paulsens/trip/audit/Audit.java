@@ -16,9 +16,9 @@ public class Audit {
 
     private Audit() {
         // Determine log file name
-        final String logDir = "logs"; // (fa == null ? "logs" : new File(fa.getFile()).getParentFile().getAbsolutePath());
-        final String auditLogFile = logDir + "/../../logs/trip-audit.log";
-        System.out.println("Audit log file location: " + auditLogFile);
+        final String logDir = "logs";
+        final String auditLogFile = logDir + "/trip-audit.log";
+System.out.println("Audit log file location: " + auditLogFile);
         PrintWriter pw = null;
         try {
             pw = new PrintWriter(new FileWriter(auditLogFile, true));

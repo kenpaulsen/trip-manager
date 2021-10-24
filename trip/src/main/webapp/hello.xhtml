@@ -7,10 +7,10 @@
     xmlns:p="http://primefaces.org/ui"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="content">
             <jsft:event type="afterCreate">
-                jsft.redirect("itinerary.jsf?id=".concat(sessionScope.userId.value));
+                jsft.redirect("/trip/itinerary.jsf?id=".concat(sessionScope.userId.value));
             </jsft:event>
         </ui:define>
     </ui:composition>

@@ -6,15 +6,15 @@
     xmlns:p="http://primefaces.org/ui"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="content">
             <jsft:event type="initPage">
                 if (sessionScope.userId == null) {
-                    jsft.redirect("login.jsf"); // Not logged in
+                    jsft.redirect("/account/login.jsf"); // Not logged in
                 } else {
                     viewScope.theTrip = trip.getTripForUser(theTrip, userId, showAll, param.tripId);
                     if (theTrip == null) {
-                        jsft.redirect("person.jsf?id=".concat(userId.value)); // No trips to view
+                        jsft.redirect("/trip/person.jsf?id=".concat(userId.value)); // No trips to view
                     } else {
                         viewScope.pilgrims = theTrip.getPeople();
                     }
@@ -22,9 +22,9 @@
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
             <p:tabMenu activeIndex="1">
-                <p:menuitem value="Itinerary" url="itinerary.jsf?trip=#{theTrip.id}&amp;id=#{userId.value}" />
-                <p:menuitem value="Contacts (#{pilgrims.size()})" url="tripContacts.jsf?tripId=#{theTrip.id}" />
-                <p:menuitem value="Registrations" url="tripRegistrations.jsf?trip=#{theTrip.id}" rendered="#{showAll}" />
+                <p:menuitem value="Itinerary" url="/trip/itinerary.jsf?trip=#{theTrip.id}&amp;id=#{userId.value}" />
+                <p:menuitem value="Contacts (#{pilgrims.size()})" url="/trip/tripContacts.jsf?tripId=#{theTrip.id}" />
+                <p:menuitem value="Registrations" url="/admin/tripRegistrations.jsf?trip=#{theTrip.id}" rendered="#{showAll}" />
             </p:tabMenu>
 
             <p:dataTable id="peeps" var="personId" value="#{pilgrims}" sortBy="#{person.last}">
@@ -33,7 +33,7 @@
                         <h:outputText value="#{theTrip.title} Contacts" />
                         <p:commandButton id="editTrip" rendered="#{showAll}" value="Edit Trip">
                             <jsft:event type="command">
-                                jsft.redirect("editTrip.jsf?id=".concat(theTrip.id));
+                                jsft.redirect("/admin/editTrip.jsf?id=".concat(theTrip.id));
                             </jsft:event>
                         </p:commandButton>
                     </div>
@@ -58,14 +58,14 @@
                         </jsft:event>
                     </h:outputText><br />
                     <h:panelGroup rendered="#{showAll || pass.canAccessUserId(currUser, person.id)}">
-                        <h:outputLink value="transactions.jsf?id=#{person.id.value}" style="color:#227722;font-weight:bold;font-size:12px;">Balance</h:outputLink>
+                        <h:outputLink value="/trip/transactions.jsf?id=#{person.id.value}" style="color:#227722;font-weight:bold;font-size:12px;">Balance</h:outputLink>
                         &nbsp;<span style="font-size:12px"> | </span>&nbsp;
-                        <h:outputLink value="itinerary.jsf?trip=#{theTrip.id}&amp;id=#{person.id.value}" style="color:#222277;font-weight:bold;font-size:12px;">Itinerary</h:outputLink>
+                        <h:outputLink value="/trip/itinerary.jsf?trip=#{theTrip.id}&amp;id=#{person.id.value}" style="color:#222277;font-weight:bold;font-size:12px;">Itinerary</h:outputLink>
                     </h:panelGroup>
                     <!-- Don't show own, only for managed ones... i.e. kid's accounts -->
                     <h:panelGroup rendered="#{showAll || (!person.id.equals(currUser.id) &amp;&amp; pass.canAccessUserId(currUser, person.id))}">
                         &nbsp;<span style="font-size:12px"> | </span>&nbsp;
-                        <h:outputLink value="person.jsf?id=#{person.id.value}" style="color:#772222;font-weight:bold;font-size:12px;">Profile</h:outputLink>
+                        <h:outputLink value="/trip/person.jsf?id=#{person.id.value}" style="color:#772222;font-weight:bold;font-size:12px;">Profile</h:outputLink>
                     </h:panelGroup>
                 </p:column>
                 <p:column headerText="Email" width="230">
@@ -77,7 +77,7 @@
                                 sessionScope.userId = personId;
                                 sessionScope.priv = 'user';
                                 viewScope.showAll = false;
-                                jsft.redirect("tripContacts.jsf?tripId=".concat(theTrip.id));
+                                jsft.redirect("/trip/tripContacts.jsf?tripId=".concat(theTrip.id));
                             </jsft:event>
                         </p:commandLink>
                     </h:panelGroup>

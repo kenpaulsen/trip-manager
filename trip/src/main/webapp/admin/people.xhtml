@@ -6,11 +6,11 @@
     xmlns:p="http://primefaces.org/ui"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="../template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="content">
             <jsft:event type="initPage">
                 if (sessionScope.userId == null) {
-                    jsft.redirect("../login.jsf"); // Not logged in
+                    jsft.redirect("/account/login.jsf"); // Not logged in
                 } else {
                     viewScope.reqPriv = "admin";
                     if (thePeople == null) {
@@ -35,7 +35,7 @@
                     </h:outputText>
                 </p:column>
                 <p:column headerText="Person" width="100" filterBy="#{person.last}, #{person.first} #{person.nickname} #{person.cell} #{person.email}" filterMatchMode="contains">
-                    <p:link href="../person.jsf?id=#{person.id.value}">
+                    <p:link href="/trip/person.jsf?id=#{person.id.value}">
                         <h:outputText value="#{person.last}, #{person.first}" />
                     </p:link>
                     <h:outputText value=" (#{person.nickname})" rendered="#{person.nickname != null and person.nickname != person.first}" />
@@ -55,7 +55,7 @@
                     </f:facet>
                     <ui:repeat var="atrip" value="#{person.trips}">
                         <h:panelGroup style="font-size:0.85em">
-                            <p:link href="../itinerary.jsf?trip=#{atrip.id}&amp;id=#{person.id.value}">
+                            <p:link href="/trip/itinerary.jsf?trip=#{atrip.id}&amp;id=#{person.id.value}">
                                 <h:outputText value="#{atrip.title}&lt;br /&gt;" escape="false" />
                             </p:link>
                         </h:panelGroup>

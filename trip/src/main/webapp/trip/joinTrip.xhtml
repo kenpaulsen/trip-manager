@@ -8,11 +8,11 @@
     xmlns:pe="http://primefaces.org/ui/extensions"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="content">
             <jsft:event type="initPage">
                 if (sessionScope.userId == null) {
-                    jsft.redirect("login.jsf"); // Not logged in
+                    jsft.redirect("/account/login.jsf"); // Not logged in
                 } else {
                     if (viewScope.person == null) {
                         viewScope.person = people.getPerson((param.id == null) ? userId : people.id(param.id));
@@ -21,7 +21,7 @@
                         viewScope.theTrip = trip.getTrip(param.trip);
                     }
                     if ((viewScope.person == null) || (viewScope.theTrip == null)) {
-                        jsft.redirect("hello.jsf"); // Invalid
+                        jsft.redirect("/hello.jsf"); // Invalid
                     } else {
                         if (viewScope.registration == null) {
                             viewScope.registration = reg.getRegistration(theTrip.id, person.id);
@@ -33,7 +33,7 @@
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
             <h2>#{theTrip.title} Registration
-                <h:outputLink rendered="#{showAll}" value="editTrip.jsf?id=#{theTrip.id}" style="color:#222277;font-weight:bold;font-size:13px;">Edit Trip</h:outputLink>
+                <h:outputLink rendered="#{showAll}" value="/admin/editTrip.jsf?id=#{theTrip.id}" style="color:#222277;font-weight:bold;font-size:13px;">Edit Trip</h:outputLink>
             </h2>
 
             <p:fieldset id="regStatus" legend="Registration Status" style="margin-bottom:13px;">
@@ -90,7 +90,7 @@
                     <h:outputText value="TSA Known Traveler ID Number: " rendered="#{person.tsa != nul}" />
                     <h:outputText rendered="#{person.tsa != null}" value="#{person.tsa}" />
                     <h:outputText value=""/>
-                    <p:linkButton href="person.jsf?id=#{person.id.value}" style="display:inline-block;margin-top:20px" value="Make Changes" />
+                    <p:linkButton href="/trip/person.jsf?id=#{person.id.value}" style="display:inline-block;margin-top:20px" value="Make Changes" />
                 </p:panelGrid>
             </p:fieldset>
 

@@ -6,16 +6,16 @@
     xmlns:p="http://primefaces.org/ui"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="content">
             <jsft:event type="initPage">
                 if (sessionScope.userId == null) {
-                    jsft.redirect("login.jsf"); // Not logged in
+                    jsft.redirect("/account/login.jsf"); // Not logged in
                 } else {
                     viewScope.reqPriv = "admin";
                     viewScope.theTrip = trip.getTripForUser(theTrip, userId, showAll, param.tripId);
                     if (theTrip == null) {
-                        jsft.redirect("person.jsf?id=".concat(userId.value)); // No trips to view
+                        jsft.redirect("/trip/person.jsf?id=".concat(userId.value)); // No trips to view
                     } else {
                         viewScope.pilgrims = theTrip.getPeople();
                     }
@@ -23,9 +23,9 @@
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
             <p:tabMenu activeIndex="1">
-                <p:menuitem value="Itinerary" url="itinerary.jsf?trip=#{theTrip.id}&amp;id=#{userId.value}" />
-                <p:menuitem value="Contacts (#{pilgrims.size()})" url="tripContacts.jsf?tripId=#{theTrip.id}" />
-                <p:menuitem value="Registrations" url="tripRegistrations.jsf?trip=#{theTrip.id}" rendered="#{showAll}" />
+                <p:menuitem value="Itinerary" url="/trip/itinerary.jsf?trip=#{theTrip.id}&amp;id=#{userId.value}" />
+                <p:menuitem value="Contacts (#{pilgrims.size()})" url="/trip/tripContacts.jsf?tripId=#{theTrip.id}" />
+                <p:menuitem value="Registrations" url="/admin/tripRegistrations.jsf?trip=#{theTrip.id}" rendered="#{showAll}" />
             </p:tabMenu>
 
             <p:dataTable id="peeps" var="personId" value="#{pilgrims}" sortBy="#{person.last}">

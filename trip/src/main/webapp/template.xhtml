@@ -11,8 +11,8 @@
 <ui:composition>
 <html>
 <h:head>
-    <title>Medjugorje Trip Manager</title>
-    <link rel="shortcut icon" type="image/png" href="/trip/favicon.ico"/>
+    <title>#{title}</title>
+    <link rel="shortcut icon" type="image/png" href="/favicon.ico"/>
     <h:outputStylesheet library="css" name="trip.css"/>
     <style type="text/css">
         <ui:insert name="pagecss" />
@@ -36,23 +36,23 @@
                 // Missing req priv
                 if ((reqId == null) || !pass.canAccessUserId(currUser, reqId)) {
                     // No user-override... redirect
-                    jsft.redirect("/trip/login.jsf");
+                    jsft.redirect("/account/login.jsf");
                 }
             } else if (viewScope.reqPriv == null) {
                 // No priv requirement... is there a user requirement?
                 if ((reqId != null) &amp;&amp; !pass.canAccessUserId(currUser, reqId)) {
                     // No user-override... redirect
-                    jsft.redirect("/trip/login.jsf");
+                    jsft.redirect("/account/login.jsf");
                 }
             }
         </jsft:event>
         <ui:insert name="header">
-            <div style="background-image:url('/trip/images/medjbanner.jpg'); background-size:cover; height:100px;">
+            <div style="background-image:url('/images/medjbanner.jpg'); background-size:cover; height:100px;">
                 <div class="siteheading">Medjugorje Trip Manager</div>
                 <h:panelGroup style="margin-right:8px;float:right" rendered="#{!showAll}">
                     <p:splitButton id="Profile" value="Edit Profile" onclick="document.location='/trip/person.jsf?id=#{sessionScope.userId.value}';return false;">
-                        <p:menuitem value="Set Password" update="growl" url="/trip/setPass.jsf?id=#{sessionScope.userId.value}" />
-                        <p:menuitem value="Logout" update="growl" url="/trip/login.jsf" />
+                        <p:menuitem value="Set Password" update="growl" url="/account/setPass.jsf?id=#{sessionScope.userId.value}" />
+                        <p:menuitem value="Logout" update="growl" url="/account/login.jsf" />
                     </p:splitButton>
                 </h:panelGroup>
                 <h:inputHidden type="hidden" id="url" />
@@ -74,12 +74,12 @@
                     </jsft:event>
                 </p:commandButton>
                 <p:menuButton value="Admin" rendered="#{showAll}" style="margin-right:10px;float:right">
-                    <p:menuitem value="Manage People" update="growl" url="/trip/admin/people.jsf" />
-                    <p:menuitem value="Add Trip" update="growl" url="/trip/editTrip.jsf" />
-                    <p:menuitem value="Batch Transaction" update="growl" url="/trip/admin/batchTx.jsf?type=Batch" />
-                    <p:menuitem value="Shared Transaction" update="growl" url="/trip/admin/batchTx.jsf?type=Shared" />
+                    <p:menuitem value="Manage People" update="growl" url="/admin/people.jsf" />
+                    <p:menuitem value="Add Trip" update="growl" url="/admin/editTrip.jsf" />
+                    <p:menuitem value="Batch Transaction" update="growl" url="/admin/batchTx.jsf?type=Batch" />
+                    <p:menuitem value="Shared Transaction" update="growl" url="/admin/batchTx.jsf?type=Shared" />
                     <p:menuitem value="Edit Profile" update="growl" url="/trip/person.jsf?id=#{sessionScope.userId.value}" />
-                    <p:menuitem value="Logout" update="growl" url="/trip/login.jsf" />
+                    <p:menuitem value="Logout" update="growl" url="/account/login.jsf" />
                 </p:menuButton>
             </div>
             <p:tabMenu activeIndex="#{activeTab}">

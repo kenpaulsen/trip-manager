@@ -8,7 +8,7 @@
     xmlns:pe="http://primefaces.org/ui/extensions"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="footer" />
         <ui:define name="content">
             <h2>Change Your Password</h2>
@@ -40,7 +40,7 @@
                     <p:commandButton value="Set Password" update="growl" style="width:100%;">
                         <jsft:event type="command">
                             if (pass.setPass(viewScope.person.email, current, newpass, newpass2)) {
-                                jsft.redirect("login.jsf?info=".concat("Password reset, please login again."));
+                                jsft.redirect("/account/login.jsf?info=".concat("Password reset, please login again."));
                             } else {
                                 tripUtil.warnMsg("Unable to reset password! Check your old password and ensure passwords match.", "Please try again.");
                             }

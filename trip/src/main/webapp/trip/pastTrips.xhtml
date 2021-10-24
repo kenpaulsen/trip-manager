@@ -8,19 +8,19 @@
     xmlns:pe="http://primefaces.org/ui/extensions"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="content">
             <jsft:event type="initPage">
                 tabName = 'pastTrips';
                 if (sessionScope.userId == null) {
-                    jsft.redirect("login.jsf"); // Not logged in
+                    jsft.redirect("/account/login.jsf"); // Not logged in
                 } else {
                     if (viewScope.person == null) {
                         viewScope.person = people.getPerson((param.id == null) ? userId : people.id(param.id));
                     }
                     viewScope.theTrip = trip.getTripForUser(theTrip, person.id, showAll, param.trip);
                     if ((viewScope.person == null) || (viewScope.theTrip == null)) {
-                        jsft.redirect("person.jsf?id=".concat(userId.value)); // No trips to view
+                        jsft.redirect("/trip/person.jsf?id=".concat(userId.value)); // No trips to view
                     } else {
                         viewScope.reqId = person.id;
                         viewScope.reqPriv = "admin";
@@ -38,7 +38,7 @@
                             -
                             <h:outputText value="#{pastTrip.endDate}">
                                 <f:convertDateTime type="localDateTime" pattern="dd-MMM-yyyy" />
-                            </h:outputText>: <a href="itinerary.jsf?trip=#{pastTrip.id}&amp;id=#{sessionScope.userId.value}">#{pastTrip.title}</a>
+                            </h:outputText>: <a href="/trip/itinerary.jsf?trip=#{pastTrip.id}&amp;id=#{sessionScope.userId.value}">#{pastTrip.title}</a>
                             <br /><br />
                         </li>
                     </ui:repeat></ul>

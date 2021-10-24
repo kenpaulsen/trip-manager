@@ -8,7 +8,7 @@
     xmlns:pe="http://primefaces.org/ui/extensions"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="content">
             <jsft:event type="initPage">
                 if (viewScope.person == null) {
@@ -182,7 +182,7 @@
                 <p:commandButton id="savePerson" value="Save" update="growl">
                     <jsft:event type="command">
                         if (people.savePerson(viewScope.person)) {
-                            jsft.redirect("itinerary.jsf?info=".concat(person.first).concat("'s profile saved."));
+                            jsft.redirect("/trip/itinerary.jsf?info=".concat(person.first).concat("'s profile saved."));
                         } else {
                             tripUtil.warnMsg("Unable to save!", "Not sure what's wrong.");
                         }

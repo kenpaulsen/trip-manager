@@ -8,17 +8,17 @@
     xmlns:pe="http://primefaces.org/ui/extensions"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="content">
             <jsft:event type="initPage">
                 if (sessionScope.userId == null) {
-                    jsft.redirect("login.jsf"); // Not logged in
+                    jsft.redirect("/account/login.jsf"); // Not logged in
                 } else {
                     if (param.trip != null) {
                         viewScope.theTrip = trip.getTrip(param.trip);
                     }
                     if (viewScope.theTrip == null) {
-                        jsft.redirect("hello.jsf"); // Invalid
+                        jsft.redirect("/hello.jsf"); // Invalid
                     } else {
                         viewScope.reqPriv = "admin";
                     }
@@ -56,12 +56,11 @@
                     <p:commandButton id="save" value="Save Trip Options">
                         <jsft:event type="command">
                             trip.saveTrip(viewScope.theTrip);
-                            jsft.redirect("editTrip.jsf?id=".concat(theTrip.id));
+                            jsft.redirect("/admin/editTrip.jsf?id=".concat(theTrip.id));
                         </jsft:event>
                     </p:commandButton>
                 </h:panelGroup>
             </p:fieldset>
-
         </ui:define>
     </ui:composition>
 </html>

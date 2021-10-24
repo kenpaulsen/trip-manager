@@ -8,10 +8,10 @@
     xmlns:pe="http://primefaces.org/ui/extensions"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="pagecss">
             body {
-                background-image: url("images/rainbow.jpg");
+                background-image: url("/images/rainbow.jpg");
                 background-repeat: no-repeat;
                 background-attachment: fixed;
                 background-size: cover;
@@ -35,7 +35,7 @@
                     tripUtil.infoMsg(param.info, "");
                 }
             </jsft:event>
-            <a href="http://visitqueenofpeace.com" class="loginFont" style="font-size:12px;">Visit Main Website</a>
+            <a href="https://visitqueenofpeace.com" class="loginFont" style="font-size:12px;">Visit Main Website</a>
             <div style="width:100%;text-align:center;margin-top:14%;" class="loginFont">
             <h:panelGrid columns="2" cellpadding="5" style="margin-left:auto;margin-right:12%;text-align:right;">
                 <h:outputLabel for="email" value="Email" styleClass="loginFont" />
@@ -52,15 +52,15 @@
                             sessionScope.priv = ucreds.priv;
                             sessionScope.userId = ucreds.userId;
                             sessionScope.aUser = sessionScope.priv.contains("admin") ? ucreds.userId : null;
-                            jsft.redirect("itinerary.jsf?id=".concat(ucreds.userId.value));
+                            jsft.redirect("/trip/itinerary.jsf?id=".concat(ucreds.userId.value));
                         }
                     </jsft:event>
                 </p:commandButton>
                 <div />
                 <h:panelGroup style="text-align:center;display:block">
-                    <p:link href="createAccount.jsf" styleClass="loginFont" style="font-size:16px;">Create Login</p:link>
+                    <p:link href="/account/createAccount.jsf" styleClass="loginFont" style="font-size:16px;">Create Login</p:link>
                     &nbsp; 
-                    <p:link href="resetPass.jsf" styleClass="loginFont" style="font-size:16px;">Reset Password</p:link>
+                    <p:link href="/account/resetPass.jsf" styleClass="loginFont" style="font-size:16px;">Reset Password</p:link>
                 </h:panelGroup>
                 <div />
             </h:panelGrid>

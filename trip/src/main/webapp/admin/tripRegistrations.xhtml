@@ -8,18 +8,18 @@
     xmlns:pe="http://primefaces.org/ui/extensions"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="content">
             <jsft:event type="initPage">
                 viewScope.reqPriv = "admin";
                 if (sessionScope.userId == null) {
-                    jsft.redirect("login.jsf"); // Not logged in
+                    jsft.redirect("/account/login.jsf"); // Not logged in
                 } else {
                     if (param.trip != null) {
                         viewScope.theTrip = trip.getTrip(param.trip);
                     }
                     if (viewScope.theTrip == null) {
-                        jsft.redirect("hello.jsf"); // Invalid
+                        jsft.redirect("/hello.jsf"); // Invalid
                     }
                     if (viewScope.regList == null) {
                         viewScope.regList = reg.getRegistrations(theTrip.id);
@@ -28,9 +28,9 @@
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
             <p:tabMenu activeIndex="2">
-                <p:menuitem value="Itinerary" url="itinerary.jsf?trip=#{theTrip.id}&amp;id=#{userId.value}" />
-                <p:menuitem value="Contacts (#{theTrip.people.size()})" url="tripContacts.jsf?tripId=#{theTrip.id}" />
-                <p:menuitem value="Registrations" url="tripRegistrations.jsf?trip=#{theTrip.id}" />
+                <p:menuitem value="Itinerary" url="/trip/itinerary.jsf?trip=#{theTrip.id}&amp;id=#{userId.value}" />
+                <p:menuitem value="Contacts (#{theTrip.people.size()})" url="/trip/tripContacts.jsf?tripId=#{theTrip.id}" />
+                <p:menuitem value="Registrations" url="/admin/tripRegistrations.jsf?trip=#{theTrip.id}" />
             </p:tabMenu>
             <h2>#{theTrip.title} Registrations</h2>
 
@@ -42,7 +42,7 @@
                         </h:outputText>
                     </p:column>
                     <p:column headerText="Person" width="200" style="vertical-align:top;">
-                        <p:link href="person.jsf?id=#{registration.userId.value}">
+                        <p:link href="/trip/person.jsf?id=#{registration.userId.value}">
                             #{people.getPerson(registration.userId).preferredName} #{people.getPerson(registration.userId).last}
                         </p:link>
                     </p:column>
@@ -72,7 +72,6 @@
                     </p:column>
                 </p:dataTable>
             </p:fieldset>
-
         </ui:define>
     </ui:composition>
 </html>

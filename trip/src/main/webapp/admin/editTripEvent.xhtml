@@ -8,7 +8,7 @@
     xmlns:pe="http://primefaces.org/ui/extensions"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="content">
             <jsft:event type="initPage">
                 if (viewScope.theTrip == null) {
@@ -17,14 +17,14 @@
                         viewScope.theTrip = trip.getTrip(param.trip);
                         viewScope.trEvent = theTrip.getTripEvent(param.event);
                         if ((theTrip == null) || (trEvent == null)) {
-                            jsft.redirect("hello.jsf");
+                            jsft.redirect("/hello.jsf");
                         } else {
                             // Clone participants to edit w/o changing until "save" is clicked
                             viewScope.participants = util.createList();
                             viewScope.participants.addAll(trEvent.participants)
                         }
                     } else {
-                        jsft.redirect("hello.jsf");
+                        jsft.redirect("/hello.jsf");
                     }
                 }
             </jsft:event>
@@ -106,12 +106,12 @@
                     <jsft:event type="command">
                         trEvent.participants = util.asList(viewScope.participants);
                         theTrip.editTripEvent(trEvent);
-                        jsft.redirect("editTrip.jsf?id=".concat(theTrip.id));
+                        jsft.redirect("/admin/editTrip.jsf?id=".concat(theTrip.id));
                     </jsft:event>
                 </p:commandButton>
                 <p:commandButton immediate="true" id="cancel" value="Cancel" update="growl">
                     <jsft:event type="command">
-                        jsft.redirect("editTrip.jsf?id=".concat(theTrip.id));
+                        jsft.redirect("/admin/editTrip.jsf?id=".concat(theTrip.id));
                     </jsft:event>
                 </p:commandButton>
             </div>

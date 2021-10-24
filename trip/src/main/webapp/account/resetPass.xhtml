@@ -8,10 +8,10 @@
     xmlns:pe="http://primefaces.org/ui/extensions"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="pagecss">
             body {
-                background-image: url("images/rainbow.jpg");
+                background-image: url("/images/rainbow.jpg");
                 background-repeat: no-repeat;
                 background-attachment: fixed;
                 background-size: cover;
@@ -50,14 +50,14 @@
                             msg = pass.resetPass(email, lastName, 'Visit Queen of Peace Password Reset');
                             if (msg != null) {
                                 mail.send("Visit Queen of Peace &lt;no-reply@visitqueenofpeace.com&gt;", email, "kenapaulsen@gmail.com", "Password Reset", msg);
-                                jsft.redirect("login.jsf?info=".concat("Check your email for your new password."));
+                                jsft.redirect("/account/login.jsf?info=".concat("Check your email for your new password."));
                             } else {
                                 tripUtil.warnMsg("Invalid email or incorrect last name!", "Please try again.");
                             }
                         </jsft:event>
                     </p:commandButton>
                     <h:outputText value="" />
-                    <p:link href="login.jsf" styleClass="loginFont" style="text-align:right;font-size:16px;margin-right:0px;">Cancel</p:link>
+                    <p:link href="/account/login.jsf" styleClass="loginFont" style="text-align:right;font-size:16px;margin-right:0px;">Cancel</p:link>
                 </h:panelGrid>
                 <div style="font-family:Arial,Helvetica,sans-serif;font-size:16px;text-align:center;color:#6F68BF;font-weight:normal">
                     <b>NOTE:</b> An Email with the title "<b>Password Reset</b>" will be sent.<br />

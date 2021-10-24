@@ -8,11 +8,11 @@
     xmlns:pe="http://primefaces.org/ui/extensions"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="content">
             <jsft:event type="initPage">
                 if (sessionScope.userId == null) {
-                    jsft.redirect("login.jsf"); // Not logged in
+                    jsft.redirect("/account/login.jsf"); // Not logged in
                 } else {
                     if (param.info != null) {
                         tripUtil.infoMsg(param.info, "");
@@ -22,9 +22,9 @@
                     }
                     viewScope.theTrip = trip.getTripForUser(theTrip, person.id, showAll, param.trip);
                     if (!showAll and !theTrip.people.contains(person.id)) {
-                        jsft.redirect("joinTrip.jsf?trip=".concat(theTrip.id).concat("&amp;id=").concat(person.id.value)); // Shouldn't see the trip yet, ask to join first
+                        jsft.redirect("/trip/joinTrip.jsf?trip=".concat(theTrip.id).concat("&amp;id=").concat(person.id.value)); // Shouldn't see the trip yet, ask to join first
                     } else if ((viewScope.person == null) || (viewScope.theTrip == null)) {
-                        jsft.redirect("person.jsf?id=".concat(person.id.value)); // No trips to view
+                        jsft.redirect("/trip/person.jsf?id=".concat(person.id.value)); // No trips to view
                     } else {
                         viewScope.reqId = person.id;
                         viewScope.reqPriv = "admin";
@@ -33,12 +33,12 @@
             </jsft:event>
             <jsft:event type="afterCreate" insert="defaultAuth" />
             <p:tabMenu activeIndex="0">
-                <p:menuitem value="Itinerary" url="itinerary.jsf?trip=#{theTrip.id}&amp;id=#{person.id.value}" />
-                <p:menuitem value="Contacts (#{theTrip.people.size()})" url="tripContacts.jsf?tripId=#{theTrip.id}" />
-                <p:menuitem value="Registrations" url="tripRegistrations.jsf?trip=#{theTrip.id}" rendered="#{showAll}" />
+                <p:menuitem value="Itinerary" url="/trip/itinerary.jsf?trip=#{theTrip.id}&amp;id=#{person.id.value}" />
+                <p:menuitem value="Contacts (#{theTrip.people.size()})" url="/trip/tripContacts.jsf?tripId=#{theTrip.id}" />
+                <p:menuitem value="Registrations" url="/admin/tripRegistrations.jsf?trip=#{theTrip.id}" rendered="#{showAll}" />
             </p:tabMenu>
             <h2>#{person.preferredName}'s #{theTrip.title} Itinerary
-                <h:outputLink rendered="#{showAll}" value="editTrip.jsf?id=#{theTrip.id}" style="color:#222277;font-weight:bold;font-size:13px;">Edit Trip</h:outputLink>
+                <h:outputLink rendered="#{showAll}" value="/admin/editTrip.jsf?id=#{theTrip.id}" style="color:#222277;font-weight:bold;font-size:13px;">Edit Trip</h:outputLink>
             </h2>
             <p:fieldset id="info" legend="Trip Info" style="margin-bottom:13px;">
                 <h:outputText value="#{theTrip.description}" escape="false" />
@@ -60,7 +60,7 @@
                             }
                         </jsft:event>
                         <b><h:outputText value="#{registration.status}" /></b>
-                        <p:linkButton value="View Registration" href="joinTrip.jsf?trip=#{theTrip.id}&amp;id=#{person.id.value}" style="margin-left: 20px;padding:0px;font-size:14px;" />
+                        <p:linkButton value="View Registration" href="/trip/joinTrip.jsf?trip=#{theTrip.id}&amp;id=#{person.id.value}" style="margin-left: 20px;padding:0px;font-size:14px;" />
                     </h:panelGroup>
                 </p:panelGrid>
             </p:fieldset>

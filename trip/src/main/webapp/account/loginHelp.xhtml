@@ -8,10 +8,10 @@
     xmlns:pe="http://primefaces.org/ui/extensions"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="pagecss">
             body {
-                background-image: url("images/rainbow.jpg");
+                background-image: url("/images/rainbow.jpg");
                 background-repeat: no-repeat;
                 background-attachment: fixed;
                 background-size: cover;
@@ -44,7 +44,7 @@
                     kenapaulsen@gmail.com<br />
                     +1 360.852.1088 (text or voice)<br />
                 </div>
-                <p:link href="login.jsf" styleClass="loginFont" style="font-size:16px;margin-right:40px;">Back to Login Page</p:link>
+                <p:link href="/account/login.jsf" styleClass="loginFont" style="font-size:16px;margin-right:40px;">Back to Login</p:link>
             </h:panelGrid>
             </div>
         </ui:define>

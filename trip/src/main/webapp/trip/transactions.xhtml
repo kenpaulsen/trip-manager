@@ -6,7 +6,7 @@
     xmlns:p="http://primefaces.org/ui"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="content">
             <jsft:event type="initPage">
                 tabName = 'balance';
@@ -17,7 +17,7 @@
                         viewScope.reqId = people.id(param.id);
                         viewScope.reqPriv = "admin";
                     } else {
-                        jsft.redirect("hello.jsf");
+                        jsft.redirect("/hello.jsf");
                     }
                 }
             </jsft:event>
@@ -29,7 +29,7 @@
                         <h:outputText value="#{person.preferredName} #{person.last}'s Balance" />
                         <p:commandButton id="newTx" rendered="#{showAll}" value="Add Transaction">
                             <jsft:event type="command">
-                                jsft.redirect("transaction.jsf?id=".concat(viewScope.person.id.value));
+                                jsft.redirect("/trip/transaction.jsf?id=".concat(viewScope.person.id.value));
                             </jsft:event>
                         </p:commandButton>
                     </div>
@@ -42,7 +42,7 @@
                     </h:outputText>
                 </p:column>
                 <p:column headerText="Date" width="120" style="text-align:center">
-                    <a href="transaction.jsf?id=#{person.id.value}&amp;txId=#{tx.txId}">
+                    <a href="/trip/transaction.jsf?id=#{person.id.value}&amp;txId=#{tx.txId}">
                         <h:outputText value="#{tx.txDate}">
                             <f:convertDateTime type="offsetDateTime" pattern="MMM dd, yyyy" />
                         </h:outputText></a>
@@ -52,11 +52,11 @@
                 </p:column>
                 <p:column width="20" rendered="#{showAll}" style="text-align:center">
                     <p:commandLink id="deltx" rendered="#{!tx.batch &amp;&amp; !tx.shared}" ajax="false">
-                        <img src="images/trash.png" width="20" style="margin-top:3px;margin-bottom:-3px;" />
+                        <img src="/images/trash.png" width="20" style="margin-top:3px;margin-bottom:-3px;" />
                         <jsft:event type="command">
                             tx.delete();
                             txCmds.saveTransaction(tx);
-                            jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id.value));
+                            jsft.redirect("/trip/transactions.jsf?id=".concat(viewScope.person.id.value));
                         </jsft:event>
                         <p:confirm header="Confirmation" message="Are you sure?" icon="pi pi-exclamation-triangle" />
                     </p:commandLink>

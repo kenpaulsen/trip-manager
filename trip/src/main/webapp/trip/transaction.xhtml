@@ -8,7 +8,7 @@
     xmlns:pe="http://primefaces.org/ui/extensions"
     xmlns:f="http://java.sun.com/jsf/core"
     xmlns:h="http://java.sun.com/jsf/html">
-    <ui:composition template="template.xhtml">
+    <ui:composition template="/template.xhtml">
         <ui:define name="content">
             <jsft:event type="initPage">
                 tabName = 'balance';
@@ -19,7 +19,7 @@
                         viewScope.reqId = people.id(param.id);
                         viewScope.reqPriv = "admin";
                     } else {
-                        jsft.redirect("hello.jsf");
+                        jsft.redirect("/hello.jsf");
                     }
                 }
             </jsft:event>
@@ -32,9 +32,9 @@
                     <h:outputText rendered="#{showAll}" value="Transaction Type: " />
                     <h:panelGroup rendered="#{showAll}" style="margin-left:20px;">
                         #{tx.type == null ? 'Tx' : tx.type} 
-                        <h:outputLink rendered="#{tx.batch || tx.shared}" value="/trip/admin/batchTx.jsf?id=#{person.id.value}&amp;txId=#{tx.txId}" style="margin-left:30px; color:#222277;font-weight:bold;font-size:12px;">Edit Group Transaction</h:outputLink>
-                        <h:outputLink rendered="#{txCmds.getTransaction(person.id, tx.txId) == null}" value="/trip/admin/batchTx.jsf?type=Batch" style="margin-left:30px; color:#222277;font-weight:bold;font-size:12px;">Create Batch Instead</h:outputLink>
-                        <h:outputLink rendered="#{txCmds.getTransaction(person.id, tx.txId) == null}" value="/trip/admin/batchTx.jsf?type=Shared" style="margin-left:20px; color:#222277;font-weight:bold;font-size:12px;">Create Shared Instead</h:outputLink>
+                        <h:outputLink rendered="#{tx.batch || tx.shared}" value="/admin/batchTx.jsf?id=#{person.id.value}&amp;txId=#{tx.txId}" style="margin-left:30px; color:#222277;font-weight:bold;font-size:12px;">Edit Group Transaction</h:outputLink>
+                        <h:outputLink rendered="#{txCmds.getTransaction(person.id, tx.txId) == null}" value="/admin/batchTx.jsf?type=Batch" style="margin-left:30px; color:#222277;font-weight:bold;font-size:12px;">Create Batch Instead</h:outputLink>
+                        <h:outputLink rendered="#{txCmds.getTransaction(person.id, tx.txId) == null}" value="/admin/batchTx.jsf?type=Shared" style="margin-left:20px; color:#222277;font-weight:bold;font-size:12px;">Create Shared Instead</h:outputLink>
                     </h:panelGroup>
 
                     <h:outputText value="Transaction Date: "/>
@@ -102,7 +102,7 @@
             <div style="float:right">
                 <p:commandButton immediate="true" id="cancel" value="Back" update="growl">
                     <jsft:event type="command">
-                        jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id.value));
+                        jsft.redirect("/trip/transactions.jsf?id=".concat(viewScope.person.id.value));
                     </jsft:event>
                 </p:commandButton>
                 <p:commandButton rendered="#{showAll &amp;&amp; txCmds.getTransaction(person.id, tx.txId) != null}" immediate="true" id="deltx" update="form:growl" value="Delete">
@@ -110,7 +110,7 @@
                         if (showAll) {
                             tx.delete();
                             txCmds.saveTransaction(tx);
-                            jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id.value));
+                            jsft.redirect("/trip/transactions.jsf?id=".concat(viewScope.person.id.value));
                         } else {
                             tripUtil.errorMsg("Delete not allowed!", "You are not an Admin");
                         }
@@ -120,7 +120,7 @@
                 <p:commandButton id="saveTrans" rendered="#{showAll}" value="Save" update="form:growl">
                     <jsft:event type="command">
                         if (txCmds.saveTransaction(viewScope.tx)) {
-                            jsft.redirect("transactions.jsf?id=".concat(viewScope.person.id.value));
+                            jsft.redirect("/trip/transactions.jsf?id=".concat(viewScope.person.id.value));
                         } else {
                             tripUtil.error("Failed to save!", tx.note);
                         }
