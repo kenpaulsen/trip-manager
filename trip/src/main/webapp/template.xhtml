@@ -17,8 +17,9 @@
     <style type="text/css">
         <ui:insert name="pagecss" />
     </style>
+    <ui:insert name="pageextrahead" />
 </h:head>
-<h:body style="background-color:#{dark ? '#444444' : '#eeeeee'}">
+<h:body id="body" style="background-color:#{dark ? '#444444' : '#eeeeee'}">
     <h:form id="form">
         <jsft:event type="initPage">
             if (!request.secure &amp;&amp; !request.serverName.equals("localhost")) {
@@ -139,8 +140,9 @@
             <h2>This is a template, be sure to pass "content"!</h2>
         </ui:insert>
         <ui:insert name="footer">
-            <br /><br />
-            <div style="text-align:center"><a href="http://visitqueenofpeace.com" style="color:#D03F68;font-weight:bold">Visit Queen of Peace Website</a></div>
+            <br />
+            <div style="text-align:center"><a href="https://visitqueenofpeace.com" style="color:#D03F68;font-weight:bold">Visit Queen of Peace Website</a></div>
+            <br />
         </ui:insert>
     </h:form>
 </h:body>
