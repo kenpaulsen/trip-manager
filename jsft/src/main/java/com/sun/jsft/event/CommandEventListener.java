@@ -81,7 +81,7 @@ public class CommandEventListener extends Command implements ComponentSystemEven
      * <p> This method is responsible for dispatching the event to the various
      *     EL expressions that are listening to this event.  It also stores
      *     the Event object in request scope under the key "theEvent" so that
-     *     it can be accessed easiliy via EL.  For example:
+     *     it can be accessed easily via EL.  For example:
      *     <code>util.println(theEvent);</code></p>
      */
     @SuppressWarnings("unchecked")

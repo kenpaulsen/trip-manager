@@ -48,12 +48,14 @@ import jakarta.faces.event.AbortProcessingException;
 import jakarta.faces.view.facelets.FaceletContext;
 import java.util.List;
 import lombok.EqualsAndHashCode;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * <p> This class represents a Command that is processed via Unified EL.</p>
  * Created  March 31, 2011
  * @author  Ken Paulsen (kenapaulsen@gmail.com)
  */
+@Slf4j
 @EqualsAndHashCode(callSuper = true)
 public class ELCommand extends Command {
     private static final long serialVersionUID = 6201115935174238909L;
@@ -91,14 +93,13 @@ public class ELCommand extends Command {
      */
     public Object invoke() throws AbortProcessingException {
         // Get the FacesContext
-        FacesContext ctx = FacesContext.getCurrentInstance();
+        final FacesContext ctx = FacesContext.getCurrentInstance();
 
         // This is needed in order to recognize ui:param's.  However,
         // ui:param's are not available after the view is created, so you
         // can't access them in beforeEncode events or other events which
         // occur later.
-        ELContext elCtx = (ELContext) ctx.getAttributes().get(
-                FaceletContext.FACELET_CONTEXT_KEY);
+        ELContext elCtx = (ELContext) ctx.getAttributes().get(FaceletContext.FACELET_CONTEXT_KEY);
         if (elCtx == null) {
             // Just in case...
             elCtx = ctx.getELContext();
@@ -110,10 +111,10 @@ public class ELCommand extends Command {
         ctx.getExternalContext().getRequestMap().put(COMMAND_KEY, this);
 
         // Create expression
-        ExpressionFactory fact = ctx.getApplication().getExpressionFactory();
-        ValueExpression ve = null;
+        final ExpressionFactory fact = ctx.getApplication().getExpressionFactory();
         Object result = null;
         if (this.el.length() > 0) {
+            ValueExpression ve;
             ve = fact.createValueExpression(
                     elCtx, "#{" + this.el + "}", Object.class);
             // Execute expression
@@ -123,7 +124,11 @@ public class ELCommand extends Command {
             if (this.resultVar != null) {
                 ve = fact.createValueExpression(
                         elCtx, "#{" + this.resultVar + "}", Object.class);
-                ve.setValue(elCtx, result);
+                try {
+                    ve.setValue(elCtx, result);
+                } catch (final RuntimeException ex) {
+                    log.warn("Unable to set '" + resultVar + "' to '" + result + "'", ex);
+                }
             }
         } else {
             // Do this since we have no command to execute (which is normally
