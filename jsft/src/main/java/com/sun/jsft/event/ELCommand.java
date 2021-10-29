@@ -114,18 +114,18 @@ public class ELCommand extends Command {
         final ExpressionFactory fact = ctx.getApplication().getExpressionFactory();
         Object result = null;
         if (this.el.length() > 0) {
-            ValueExpression ve;
-            ve = fact.createValueExpression(
-                    elCtx, "#{" + this.el + "}", Object.class);
+            // Get the value
+            final ValueExpression ve =
+                    fact.createValueExpression(elCtx, "#{" + this.el + "}", Object.class);
             // Execute expression
             result = ve.getValue(elCtx);
 
             // If we should store the result... do it.
             if (this.resultVar != null) {
-                ve = fact.createValueExpression(
-                        elCtx, "#{" + this.resultVar + "}", Object.class);
                 try {
-                    ve.setValue(elCtx, result);
+                    final ValueExpression leftVal =
+                            fact.createValueExpression(elCtx, "#{" + this.resultVar + "}", Object.class);
+                    leftVal.setValue(elCtx, result);
                 } catch (final RuntimeException ex) {
                     log.warn("Unable to set '" + resultVar + "' to '" + result + "'", ex);
                 }

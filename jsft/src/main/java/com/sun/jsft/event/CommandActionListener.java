@@ -63,7 +63,7 @@ public class CommandActionListener implements ActionListener {
      *  should be performed
      */
     public void processAction(final ActionEvent event) throws AbortProcessingException {
-        FacesContext ctx = FacesContext.getCurrentInstance();
+        final FacesContext ctx = event.getFacesContext();
         ctx.getApplication().publishEvent(ctx, CommandActionEvent.class, event.getComponent());
     }
 }

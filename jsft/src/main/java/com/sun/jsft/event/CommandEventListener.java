@@ -41,6 +41,7 @@
 
 package com.sun.jsft.event;
 
+import com.sun.jsft.commands.JSFTCommands;
 import jakarta.faces.context.FacesContext;
 import jakarta.faces.event.AbortProcessingException;
 import jakarta.faces.event.ComponentSystemEvent;
@@ -86,9 +87,13 @@ public class CommandEventListener extends Command implements ComponentSystemEven
      */
     @SuppressWarnings("unchecked")
     public void processEvent(ComponentSystemEvent event) throws AbortProcessingException {
+        final FacesContext ctx = event.getFacesContext();
+        if (JSFTCommands.isComplete(ctx)) {
+            // If we redirect, processing for that same phase continues... we don't want that, just stop.
+            return;
+        }
         // Get the request map...
-        Map<String, Object> reqMap = FacesContext.getCurrentInstance().
-                getExternalContext().getRequestMap();
+        final Map<String, Object> reqMap = ctx.getExternalContext().getRequestMap();
 
         // Need to ensure we don't fire the event too many times...
         if ((event instanceof PostAddToViewEvent) || (event instanceof InitPageEvent)) {

@@ -44,7 +44,7 @@ import jakarta.faces.component.UIComponent;
 import jakarta.faces.event.ComponentSystemEvent;
 
 /**
- *  <p> This event is used when <code>AcitonSource</code> fires an event.  We
+ *  <p> This event is used when <code>ActionSource</code> fires an event.  We
  *      need this event as opposed to an <code>ActionEvent</code> because
  *      JSF Event code requires a <code>ComponentSystemEvent</code>, so
  *      <code>ActionEvent</code> does not work.</p>
