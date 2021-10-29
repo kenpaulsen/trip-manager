@@ -285,6 +285,9 @@ parent.setInView(inview);
     public UIComponent createComponent(final String id, final String componentType, final UIComponent parent) {
         // Create the component...
         final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (JSFTCommands.isComplete(ctx)) {
+            return null;
+        }
         final UIComponent comp = ctx.getApplication().createComponent(componentType);
         log.warn("Unable to find UIComponent for: '{}'.", componentType);
         if ((id != null) && !id.trim().equals("")) {
@@ -306,7 +309,11 @@ parent.setInView(inview);
      * @return The component found, or <code>null</code>.
      */
     public UIComponent getUIComponent(final String clientId) {
-        return FacesContext.getCurrentInstance().getViewRoot().findComponent(clientId);
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (JSFTCommands.isComplete(ctx)) {
+            return null;
+        }
+        return ctx.getViewRoot().findComponent(clientId);
     }
 
     /**
@@ -356,7 +363,11 @@ parent.setInView(inview);
      * @return The child <code>UIComponent</code> if it exists, null otherwise.
      */
     public UIComponent findUIComponent(final String id) {
-        return findUIComponent(FacesContext.getCurrentInstance().getViewRoot(), id);
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (JSFTCommands.isComplete(ctx)) {
+            return null;
+        }
+        return findUIComponent(ctx.getViewRoot(), id);
     }
 
     /**
@@ -373,7 +384,6 @@ parent.setInView(inview);
         if (comp == null) {
             return null;
         }
-
         // The component
         UIComponent result = null;
 
@@ -396,14 +406,18 @@ parent.setInView(inview);
      * <p> This handler will print out the structure of a <code>UIComponent</code> tree from the given UIComponent.</p>
      */
     public String dumpUIComponentTree(final UIComponent comp) {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (comp == null && JSFTCommands.isComplete(ctx)) {
+            return null;
+        }
 // FIXME: Add flag to dump attributes also, perhaps facets should be optional as well?
         // Find the root UIComponent to use...
-        final UIComponent compToUse = (comp == null) ? FacesContext.getCurrentInstance().getViewRoot() : comp;
+        final UIComponent compToUse = (comp == null) ? ctx.getViewRoot() : comp;
         if (compToUse == null) {
             throw new IllegalArgumentException("Unable to determine UIComponent to dump!");
         }
         // Create the buffer and populate it...
-        return dumpTree(comp, new StringBuilder("UIComponent Tree:\n"), "    ").toString();
+        return dumpTree(compToUse, new StringBuilder("UIComponent Tree:\n"), "    ").toString();
     }
 
     /**
@@ -420,13 +434,13 @@ parent.setInView(inview);
      *                  <code>false</code> to remove each <code>UIInstructions</code> from the tree.
      */
     public void fixUIInstructions(final UIComponent comp, final boolean replace) {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        final ELUtil elutil = ELUtil.getInstance();
         UIComponent kid, newComp;
-        FacesContext ctx = FacesContext.getCurrentInstance();
-        ELUtil elutil = ELUtil.getInstance();
 
         // HACK due to https://java.net/jira/browse/JAVASERVERFACES-3333:
         // Replace all UIInstructions components with HtmlOutputText
-        List<UIComponent> kids = comp.getChildren();
+        final List<UIComponent> kids = comp.getChildren();
         int numKids = kids.size();
         // Note: can't use for (x : List) -- concurrent modification
         for (int idx = 0; idx<numKids; idx++) {
@@ -440,8 +454,7 @@ parent.setInView(inview);
                 if (replace) {
                     newComp = createComponent(null, "jakarta.faces.HtmlOutputText", null);
                     // Enable ValueExpresssions...
-                    newComp.setValueExpression("value",
-                            elutil.getValueExpression(ctx, kid.toString()));
+                    newComp.setValueExpression("value", elutil.getValueExpression(ctx, kid.toString()));
                     newComp.getAttributes().putAll(kid.getAttributes());
                     newComp.getAttributes().put("escape", false);
                     // Swap UIInstructions out w/ new UIOutput
@@ -449,7 +462,6 @@ parent.setInView(inview);
                 } else {
                     // Just remove it...
                     kid.getParent().getChildren().remove(kid);
-
                     // We have one less kid now...
                     numKids--;
                 }

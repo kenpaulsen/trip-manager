@@ -1,5 +1,6 @@
 package com.sun.jsft.util;
 
+import com.sun.jsft.commands.JSFTCommands;
 import jakarta.el.ValueExpression;
 import jakarta.faces.context.FacesContext;
 
@@ -70,7 +71,8 @@ public class ELUtil {
      * <p> This method produces a <code>ValueExpression</code> from the given <code>el</code> String.</p>
      */
     public ValueExpression getValueExpression(final FacesContext ctx, final String el) {
-        // Create expression
-        return ctx.getApplication().getExpressionFactory().createValueExpression(ctx.getELContext(), el, Object.class);
+        // Create expression if we aren't done already
+        return JSFTCommands.isComplete(ctx) ? null :
+                ctx.getApplication().getExpressionFactory().createValueExpression(ctx.getELContext(), el, Object.class);
     }
 }

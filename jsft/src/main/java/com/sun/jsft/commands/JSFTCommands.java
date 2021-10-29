@@ -69,17 +69,25 @@ import java.util.Map;
 @ApplicationScoped
 public class JSFTCommands {
     /**
+     * <p> This is application scoped, so it is not safe to change.  Use caution.</p>
+     */
+    private final long nanoStartTime = System.nanoTime();
+
+    /**
      * <p> This command conditionally executes its child commands.</p>
      */
     public void ifCommand(final boolean condition) {
-        Command command = (Command) FacesContext.getCurrentInstance().
-                getExternalContext().getRequestMap().get(Command.COMMAND_KEY);
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (isComplete(ctx)) {
+            return;
+        }
+        final Command command = (Command) ctx.getExternalContext().getRequestMap().get(Command.COMMAND_KEY);
         if (condition) {
             command.invokeChildCommands();
         } else {
-            command = command.getElseCommand();
-            if (command != null) {
-                command.invoke();
+            final Command elseCommand = command.getElseCommand();
+            if (elseCommand != null) {
+                elseCommand.invoke();
             }
         }
     }
@@ -88,8 +96,12 @@ public class JSFTCommands {
      * <p> This command iterates over the given List and sets given
      */
     public void foreach(final String var, final Iterable<?> list) {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (isComplete(ctx)) {
+            return;
+        }
         // Get the Request Map
-        final Map<String, Object> reqMap = FacesContext.getCurrentInstance().getExternalContext().getRequestMap();
+        final Map<String, Object> reqMap = ctx.getExternalContext().getRequestMap();
 
         // Get the Current Command...
         final Command command = (Command) reqMap.get(Command.COMMAND_KEY);
@@ -116,7 +128,10 @@ public class JSFTCommands {
      *     <code>key</code> and <code>value</code>.</p>
      */
     public void setAttribute(final String key, final Object value) {
-        FacesContext.getCurrentInstance().getExternalContext().getRequestMap().put(key, value);
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (!isComplete(ctx)) {
+            ctx.getExternalContext().getRequestMap().put(key, value);
+        }
     }
 
     /**
@@ -133,16 +148,19 @@ public class JSFTCommands {
      *
      *        @param        text        The text to write.
      */
-    public static void write(final String text) {
-        final ResponseWriter writer = FacesContext.getCurrentInstance().getResponseWriter();
+    public void write(final String text) {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (isComplete(ctx)) {
+            return;
+        }
+        final ResponseWriter writer = ctx.getResponseWriter();
         if (writer == null) {
-            throw new IllegalStateException("The ResponseWriter is currently"
-                    + "(null).  This typically means you are attempting to "
-                    + "write before the RenderResponse phase!");
+            throw new IllegalStateException("The ResponseWriter is currently (null).  This typically "
+                    + "means you are attempting to write before the RenderResponse phase!");
         }
         try {
             writer.write((text == null) ? "" : text);
-        } catch (IOException ex) {
+        } catch (final IOException ex) {
             throw new RuntimeException(ex);
         }
     }
@@ -153,8 +171,11 @@ public class JSFTCommands {
      *     provided a response already and you don't want JSF to do it again
      *     (it may cause problems to do it 2x).</p>
      */
-    public static void responseComplete() {
-        FacesContext.getCurrentInstance().responseComplete();
+    public void responseComplete() {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (!isComplete(ctx)) {
+            FacesContext.getCurrentInstance().responseComplete();
+        }
     }
 
     /**
@@ -162,7 +183,7 @@ public class JSFTCommands {
      *     immediately to the render response phase.  It will be ignored if
      *     rendering has already begun.  This is useful if you want to stop
      *     processing and jump to the response.  This is often the case when
-     *     an error ocurrs or validation fails.  Typically the page the user
+     *     an error occurs or validation fails.  Typically the page the user
      *     is on will be reshown (although if navigation has already
      *     occurred, the new page will be shown.</p>
      */
@@ -178,20 +199,17 @@ public class JSFTCommands {
      */
     public void printStackTrace(final String msg) {
         // Get the StackTrace
-        StringWriter strWriter = new StringWriter();
+        final StringWriter strWriter = new StringWriter();
         new RuntimeException((msg == null) ? "" : msg).printStackTrace(new PrintWriter(strWriter));
-        String trace = strWriter.toString();
-
         // Print it to stderr and return it
-        System.err.println(trace);
+        System.err.println(strWriter.toString());
     }
 
     /**
-     * <p> Returns the nano seconds since some point in time.  This is only
-     *     useful for relative measurments.</p>
+     * <p> Returns the nano seconds since some point in time.  This is only useful for relative measurements.</p>
      */
     public long getNanoTime() {
-        return nanoStartTime - System.nanoTime();
+        return System.nanoTime() - nanoStartTime;
     }
 
     /**
@@ -199,13 +217,14 @@ public class JSFTCommands {
      *
      * @param page The page to redirect to.
      */
-    public static void redirect(final String page) {
+    public void redirect(final String page) {
         final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (isComplete(ctx)) {
+            return;
+        }
         try {
-            if (!ctx.getResponseComplete()) {
-                ctx.getExternalContext().redirect(page);
-                ctx.responseComplete();
-            }
+            ctx.getExternalContext().redirect(page);
+            ctx.responseComplete();
         } catch (final IOException ex) {
             throw new RuntimeException("Unable to navigate to page '" + page + "'!", ex);
         }
@@ -220,6 +239,9 @@ public class JSFTCommands {
      */
     public UIViewRoot getUIViewRoot(final String pageName) {
         final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (isComplete(ctx)) {
+            return null;
+        }
         final UIViewRoot root;
         if (pageName == null) {
             root = ctx.getViewRoot();
@@ -244,6 +266,10 @@ public class JSFTCommands {
      *  @param page <code>UIViewRoot</code> or page name in which to navigate to.
      */
     public void navigate(final Object page) {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (isComplete(ctx)) {
+            return;
+        }
         final UIViewRoot root;
         if (page instanceof String) {
             // Get the UIViewRoot by name...
@@ -256,11 +282,10 @@ public class JSFTCommands {
                     + "' is not valid.  It must be a String or UIViewRoot.");
         }
         // Set the UIViewRoot so that it will be displayed
-        FacesContext.getCurrentInstance().setViewRoot(root);
+        ctx.setViewRoot(root);
     }
 
-    /**
-     * <p> This is application scoped, so it is not safe to change.  Use caution.</p>
-     */
-    private final long nanoStartTime = System.nanoTime();
+    public static boolean isComplete(final FacesContext ctx) {
+        return (ctx == null || ctx.getResponseComplete());
+    }
 }
