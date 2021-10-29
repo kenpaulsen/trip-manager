@@ -75,4 +75,7 @@
         <url-pattern>*.faces</url-pattern>
         <url-pattern>*.xhtml</url-pattern>
     </servlet-mapping>
+    <error-page>
+        <location>/hello.jsf</location>
+    </error-page>
 </web-app>
