@@ -132,6 +132,7 @@ public class DynamoUtils {
     public CompletableFuture<List<Person>> getPeople() {
         if (!peopleCache.isEmpty()) {
             return CompletableFuture.completedFuture(peopleCache.values().stream()
+                    .sorted((a, b) -> getPersonSortStr(a).compareToIgnoreCase(getPersonSortStr(b)))
                     .sorted(Comparator.comparing(Person::getLast))
                     .collect(Collectors.toList()));
         }
@@ -590,6 +591,10 @@ public class DynamoUtils {
 
     private AttributeValue toStrAttr(final String val) {
         return AttributeValue.builder().s(val).build();
+    }
+
+    private String getPersonSortStr(final Person person) {
+        return "" + person.getLast() + "," + person.getFirst();
     }
 
     private interface TripPersistence {

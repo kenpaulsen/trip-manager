@@ -21,14 +21,14 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
-import org.testng.annotations.BeforeTest;
+import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 public class DynamoUtilsTest {
     private static final DynamoUtils DB_UTILS = DynamoUtils.getInstance();
     private static final long MONTH_IN_MILLIS = 86_400L * 31L * 1_000L;
 
-    @BeforeTest
+    @BeforeMethod
     public void setupTest() {
         DB_UTILS.clearAllCaches();
     }
