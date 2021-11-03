@@ -1,6 +1,7 @@
 package org.paulsens.trip.util;
 
 import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class RandomData {
     private static final Random rand = new Random();
@@ -23,5 +24,22 @@ public class RandomData {
             buf.append(chars[rand.nextInt(chars.length)]);
         }
         return buf.toString();
+    }
+
+    public static int randomInt(final int max) {
+        return ThreadLocalRandom.current().nextInt(max);
+    }
+
+    public static long randomLong(final long max) {
+        return ThreadLocalRandom.current().nextLong(max);
+    }
+
+    public static float randomFloat(final float max) {
+        return ThreadLocalRandom.current().nextFloat(max);
+    }
+
+    public static <E extends Enum<E>> E randomEnum(final Class<E> enumClass) {
+        final E[] possible = enumClass.getEnumConstants();
+        return possible[randomInt(possible.length)];
     }
 }

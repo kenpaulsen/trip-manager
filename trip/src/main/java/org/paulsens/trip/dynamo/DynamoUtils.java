@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -291,7 +292,13 @@ public class DynamoUtils {
 
     public CompletableFuture<List<Transaction>> getTransactions(final Person.Id userId) {
         return getTxCacheForUser(userId)
-                .thenApply(map -> new ArrayList<>(map.values()));
+                .thenApply(map -> sortList(map.values(), Comparator.comparing(Transaction::getTxDate)));
+    }
+
+    private <T> List<T> sortList(final Collection<T> txs, final Comparator<T> cmp) {
+        final ArrayList<T> result = new ArrayList<>(txs);
+        result.sort(cmp);
+        return result;
     }
 
     public CompletableFuture<Optional<Transaction>> getTransaction(final Person.Id userId, final String txId) {
