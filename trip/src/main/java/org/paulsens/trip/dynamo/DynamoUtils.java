@@ -14,6 +14,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -77,6 +78,9 @@ public class DynamoUtils {
     private static final String PW = "pass";
     private static final String LAST_LOGIN = "lastLogin";
 
+    private static final Comparator<Person> peopleSorter = (a, b) ->
+            getPersonSortStr(a).compareToIgnoreCase(getPersonSortStr(b));
+
     private static final DynamoUtils INSTANCE = new DynamoUtils();
 
     private DynamoUtils() {
@@ -131,15 +135,15 @@ public class DynamoUtils {
 
     public CompletableFuture<List<Person>> getPeople() {
         if (!peopleCache.isEmpty()) {
-            return CompletableFuture.completedFuture(peopleCache.values().stream()
-                    .sorted((a, b) -> getPersonSortStr(a).compareToIgnoreCase(getPersonSortStr(b)))
-                    .sorted(Comparator.comparing(Person::getLast))
-                    .collect(Collectors.toList()));
+            return CompletableFuture.completedFuture(
+                    peopleCache.values().stream()
+                            .sorted(peopleSorter)
+                            .toList());
         }
         return client.scan(b -> b.consistentRead(false).limit(1000).tableName(PERSON_TABLE).build())
                 .thenApply(resp -> resp.items().stream()
                         .map(it -> toPerson(it.get(CONTENT)))
-                        .sorted(Comparator.comparing(Person::getLast))
+                        .sorted(peopleSorter)
                         .collect(Collectors.toList()))
                 .thenApply(list -> cacheAll(peopleCache, list, Person::getId));
     }
@@ -294,12 +298,6 @@ public class DynamoUtils {
     public CompletableFuture<List<Transaction>> getTransactions(final Person.Id userId) {
         return getTxCacheForUser(userId)
                 .thenApply(map -> sortList(map.values(), Comparator.comparing(Transaction::getTxDate)));
-    }
-
-    private <T> List<T> sortList(final Collection<T> txs, final Comparator<T> cmp) {
-        final ArrayList<T> result = new ArrayList<>(txs);
-        result.sort(cmp);
-        return result;
     }
 
     public CompletableFuture<Optional<Transaction>> getTransaction(final Person.Id userId, final String txId) {
@@ -522,7 +520,7 @@ public class DynamoUtils {
             return null;
         }
         try {
-            return mapper.readValue(content.s(), Trip.class);
+            return sortTripPeople(mapper.readValue(content.s(), Trip.class));
         } catch (final IOException ex) {
             log.error("Unable to parse trip record: " + content, ex);
             return null;
@@ -545,6 +543,19 @@ public class DynamoUtils {
             log.error("Unable to parse TripEvent record: " + content, ex);
             return null;
         }
+    }
+
+    private Trip sortTripPeople(final Trip trip) {
+        final List<Person.Id> sortedIdList =
+                trip.getPeople().stream()
+                        .map(id -> getPerson(id).join())
+                        .map(opt -> opt.orElse(null))
+                        .filter(Objects::nonNull)
+                        .sorted(peopleSorter)
+                        .map(Person::getId)
+                        .toList();
+        trip.setPeople(sortedIdList);
+        return trip;
     }
 
     private <K, T, R> R clearCache(Map<K, T> cacheMap, R returnValue) {
@@ -593,7 +604,13 @@ public class DynamoUtils {
         return AttributeValue.builder().s(val).build();
     }
 
-    private String getPersonSortStr(final Person person) {
+    private <T> List<T> sortList(final Collection<T> txs, final Comparator<T> cmp) {
+        final ArrayList<T> result = new ArrayList<>(txs);
+        result.sort(cmp);
+        return result;
+    }
+
+    private static String getPersonSortStr(final Person person) {
         return "" + person.getLast() + "," + person.getFirst();
     }
 
