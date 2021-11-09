@@ -52,8 +52,8 @@
                             <jsft:event type="command">
                                 if ((registration.status == 'Pending') and theTrip.canJoin(registration.userId)) {
                                     registration = registration.withStatus('Confirmed');
-                                    reg.saveRegistration(registration);
                                     theTrip.people.add(registration.userId);
+                                    reg.saveRegistration(registration);
                                     trip.saveTrip(theTrip);
                                     viewScope.regList = reg.getRegistrations(theTrip.id);
                                 }

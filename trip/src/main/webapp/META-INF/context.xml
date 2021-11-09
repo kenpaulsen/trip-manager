@@ -1,4 +1,5 @@
 <Context>
+    <Resources override="true" allowLinking="true" />
     <Resource name="BeanManager" auth="Container"
         type="jakarta.enterprise.inject.spi.BeanManager"
         factory="org.jboss.weld.resources.ManagerObjectFactory" />

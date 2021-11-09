@@ -204,10 +204,10 @@ public class DynamoUtils {
                     .collect(Collectors.toList()));
         }
         return client.scan(b -> b.consistentRead(false).limit(1000).tableName(TRIP_TABLE).build())
-                .thenApply(resp -> resp.items().stream().map(it -> toTrip(it.get(CONTENT)))
+                .thenApply(resp -> resp.items().stream()
+                        .map(it -> toTrip(it.get(CONTENT)))
                         .sorted(Comparator.comparing(Trip::getStartDate))
-                        .collect(Collectors.toList())
-                )
+                        .toList())
                 .thenApply(list -> cacheAll(tripCache, list, Trip::getId));
     }
 
@@ -554,7 +554,7 @@ public class DynamoUtils {
                         .sorted(peopleSorter)
                         .map(Person::getId)
                         .toList();
-        trip.setPeople(sortedIdList);
+        trip.setPeople(new ArrayList<>(sortedIdList));
         return trip;
     }
 
