@@ -39,9 +39,9 @@
             <div style="width:100%;text-align:center;margin-top:14%;" class="loginFont">
             <h:panelGrid columns="2" cellpadding="5" style="margin-left:auto;margin-right:12%;text-align:right;">
                 <h:outputLabel for="email" value="Email" styleClass="loginFont" />
-                <p:inputText id="email" value="#{requestScope.email}" required="true" label="username" size="25" />
+                <p:inputText id="email" value="#{requestScope.email}" required="true" label="username" size="30" />
                 <h:outputLabel for="password" value="Password" styleClass="loginFont" />
-                <p:password id="password" value="#{requestScope.pass}" required="true" label="password" size="25" />
+                <p:password id="password" value="#{requestScope.pass}" required="true" label="password" size="30" />
                 <div />
                 <p:commandButton value="Login" update="growl" styleClass="loginFont" style="width:100%;">
                     <jsft:event type="command">

@@ -48,9 +48,9 @@ public final class Trip implements Serializable {
         this.description = description;
         this.startDate = startDate;
         this.endDate = endDate;
-        this.people = (people == null) ? new ArrayList<>() : people;
+        this.people = (people == null) ? new ArrayList<>() : new ArrayList<>(people);
         this.tripEvents = (tripEvents == null) ? new ArrayList<>() : new ArrayList<>(tripEvents);
-        this.regOptions = (regOptions == null) ? new ArrayList<>() : regOptions;
+        this.regOptions = (regOptions == null) ? new ArrayList<>() : new ArrayList<>(regOptions);
     }
 
     public Trip() {
