@@ -289,8 +289,11 @@ parent.setInView(inview);
             return null;
         }
         final UIComponent comp = ctx.getApplication().createComponent(componentType);
-        log.warn("Unable to find UIComponent for: '{}'.", componentType);
-        if ((id != null) && !id.trim().equals("")) {
+        if (comp == null) {
+            log.error("Unable to find UIComponent for: '{}'.", componentType);
+            throw new IllegalArgumentException("Unable to create component type: " + componentType);
+        }
+        if ((id != null) && !id.isBlank()) {
             comp.setId(id);
         }
         if (parent != null) {
