@@ -67,7 +67,7 @@ public final class Person implements Serializable {
 
     @JsonIgnore
     public String getPreferredName() {
-        return nickname == null ? first : nickname;
+        return nickname == null || nickname.isBlank() ? first : nickname;
     }
 
     /**
