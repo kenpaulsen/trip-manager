@@ -327,7 +327,8 @@ public class DynamoUtils {
     public Optional<Creds> createCreds(final String email) {
         final Person user = getPersonByEmail(email).join();
         if (user == null) {
-            throw new IllegalArgumentException("Invalid Email Address!");
+            log.warn("Email '{}' not found.", email);
+            return Optional.empty();
         }
         final Creds creds = new Creds(
                 email.toLowerCase(), user.getId(), Creds.USER_PRIV, user.getLast(), Instant.now().getEpochSecond());
@@ -438,7 +439,7 @@ public class DynamoUtils {
     }
 
     private CompletableFuture<Map<String, Transaction>> loadUserTxData(final Person.Id userId) {
-        System.out.println("Cache Miss for tx userId: " + userId.getValue());
+        log.info("Cache Miss for tx data for userId: {}", userId.getValue());
         // Use a map that preserves order for sorting
         final Map<String, Transaction> result = new ConcurrentSkipListMap<>();
         return client.query(qb -> txByUserId(qb, userId))

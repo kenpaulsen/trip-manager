@@ -93,8 +93,7 @@ public class DynamoUtilsTest {
         Assert.assertNull(DB_UTILS.getCredsByEmailAndPass(null, RandomData.genAlpha(5)).join());
         Assert.assertNull(DB_UTILS.getCredsByEmailAndPass(RandomData.genAlpha(5), null).join());
         Assert.assertNull(DB_UTILS.getCredsByEmailAndPass(null, null).join());
-        Assert.assertTrue(DB_UTILS.getCredsByEmailAndPass(RandomData.genAlpha(5), RandomData.genAlpha(4))
-                .isCompletedExceptionally());
+        Assert.assertNull(DB_UTILS.getCredsByEmailAndPass(RandomData.genAlpha(5), RandomData.genAlpha(4)).join());
     }
 
     @Test
