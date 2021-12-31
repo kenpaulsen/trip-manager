@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -75,6 +76,7 @@ public final class Trip implements Serializable {
         // Add it
         final String id = UUID.randomUUID().toString();
         tripEvents.add(new TripEvent(id, title, notes, date, null, null));
+        tripEvents.sort(Comparator.comparing(TripEvent::getStart));
         return id;
     }
 
@@ -99,6 +101,7 @@ public final class Trip implements Serializable {
                 .orElseThrow(() -> new IllegalArgumentException("TripEvent id (" + newTE.getId() + ") not found!"));
         tripEvents.remove(oldTE);
         tripEvents.add(newTE);
+        tripEvents.sort(Comparator.comparing(TripEvent::getStart));
     }
 
     public void addTripOption() {
