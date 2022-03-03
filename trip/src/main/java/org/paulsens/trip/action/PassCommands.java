@@ -163,7 +163,7 @@ public class PassCommands {
         final int port = req.getServerPort();
         final String portStr = ((port == 80) || (port == 443)) ? "" : (":" + port);
         final String url = req.getScheme() + "://" + req.getServerName() + portStr
-                + req.getContextPath() + "/login.jsf";
+                + req.getContextPath() + "/account/login.jsf";
         return title + "\n\n A request was made to reset your password. Your new password is: \n\n\t\t"
                 + pass + "\n\nYou may now login at: " + url + " with your email address and this new password.\n\n"
                 + "If you have any problems, reach out to Ken Paulsen (kenapaulsen@gmail.com).\n\n";

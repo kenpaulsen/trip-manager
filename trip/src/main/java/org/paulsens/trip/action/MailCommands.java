@@ -20,7 +20,7 @@ import software.amazon.awssdk.services.ses.model.SendEmailResponse;
  */
 @SuppressWarnings("unused")
 @Slf4j
-@Named
+@Named("mail")
 @ApplicationScoped
 public class MailCommands {
     final SesAsyncClient client = SesAsyncClient.builder()
