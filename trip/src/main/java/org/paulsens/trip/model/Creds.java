@@ -3,6 +3,7 @@ package org.paulsens.trip.model;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serializable;
+import java.util.Locale;
 import lombok.Data;
 
 @Data
@@ -21,7 +22,7 @@ public final class Creds implements Serializable {
             @JsonProperty("priv") String priv,
             @JsonProperty("pass") String pass,
             @JsonProperty("lastLogin") Long lastLogin) {
-        this.email = email;
+        this.email = email.toLowerCase(Locale.getDefault());
         this.userId = userId;
         this.priv = priv;
         this.pass = pass;
@@ -29,6 +30,6 @@ public final class Creds implements Serializable {
     }
 
     public Creds(final String email, final Person.Id id, final String pass) {
-        this(email, id, USER_PRIV, pass, null);
+        this(email.toLowerCase(Locale.getDefault()), id, USER_PRIV, pass, null);
     }
 }

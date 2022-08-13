@@ -8,6 +8,7 @@ import java.io.Serializable;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 import java.util.stream.Collectors;
@@ -53,7 +54,7 @@ public final class Person implements Serializable {
         this.last = last;
         this.birthdate = birthdate;
         this.cell = cell;
-        this.email = email;
+        this.email = email == null ? null : email.toLowerCase(Locale.getDefault());
         this.tsa = tsa;
         this.address = (address == null) ? new Address() : address;
         this.passport = (passport == null) ? new Passport() : passport;

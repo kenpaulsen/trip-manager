@@ -13,6 +13,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -252,10 +253,11 @@ public class DynamoUtils {
         if ((email == null) || email.isEmpty() || (pass == null) || pass.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         }
+        final String lowEmail = email.toLowerCase();
         final Map<String, AttributeValue> key =
-                Collections.singletonMap(EMAIL, AttributeValue.builder().s(email.toLowerCase()).build());
+                Collections.singletonMap(EMAIL, AttributeValue.builder().s(lowEmail).build());
         return client.getItem(b -> b.key(key).tableName(PASS_TABLE).build())
-                .thenApply(item -> toCreds(item, email, pass));
+                .thenApply(item -> toCreds(item, lowEmail, pass));
     }
 
     /**
@@ -317,9 +319,10 @@ public class DynamoUtils {
     }
 
     public CompletableFuture<Person> getPersonByEmail(final String email) {
+        final String lowEmail = email.toLowerCase(Locale.getDefault());
         return getPeople()
                 .thenApply(people -> people.stream()
-                        .filter(person -> email.equalsIgnoreCase(person.getEmail()))
+                        .filter(person -> lowEmail.equals(person.getEmail()))
                         .findAny()
                         .orElse(null));
     }
@@ -331,7 +334,7 @@ public class DynamoUtils {
             return Optional.empty();
         }
         final Creds creds = new Creds(
-                email.toLowerCase(), user.getId(), Creds.USER_PRIV, user.getLast(), Instant.now().getEpochSecond());
+                email, user.getId(), Creds.USER_PRIV, user.getLast(), Instant.now().getEpochSecond());
         return Optional.ofNullable(saveCreds(creds).join() ? creds : null);
     }
 
@@ -637,20 +640,21 @@ public class DynamoUtils {
             final GetItemRequest giReq = builder.build();
             if (PASS_TABLE.equals(giReq.tableName())) {
                 final AttributeValue email = giReq.key().get(EMAIL);
+                final AttributeValue lowEmail = email.toBuilder().s(email.s().toLowerCase(Locale.getDefault())).build();
                 final AttributeValue priv;
-                if (email.s().toLowerCase().startsWith("admin")) {
+                if (lowEmail.s().startsWith("admin")) {
                     priv = AttributeValue.builder().s("admin").build();
-                } else if (email.s().toLowerCase().startsWith("user")) {
+                } else if (lowEmail.s().startsWith("user")) {
                     priv = AttributeValue.builder().s("user").build();
                 } else {
                     // Not authorized
                     return CompletableFuture.completedFuture(GetItemResponse.builder().item(null).build());
                 }
-                attrs.put(EMAIL, email);
+                attrs.put(EMAIL, lowEmail);
                 final AttributeValue userId = DynamoUtils.getInstance().getPeople().join().stream()
-                        .filter(p -> email.s().equalsIgnoreCase(p.getEmail())).findAny()
+                        .filter(person -> lowEmail.s().equals(person.getEmail())).findAny()
                         .map(Person::getId).map(id -> AttributeValue.builder().s(id.getValue()).build())
-                        .orElse(email);
+                        .orElse(lowEmail);
                 attrs.put(USER_ID, userId);
                 attrs.put(PRIV, priv);
                 attrs.put(PW, priv);
