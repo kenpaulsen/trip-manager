@@ -9,7 +9,9 @@ import jakarta.inject.Named;
 import java.lang.reflect.Array;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
@@ -65,6 +67,10 @@ public class TripUtilCommands {
 
     public LocalDateTime localDateTimeNow() {
         return LocalDateTime.now();
+    }
+
+    public ZonedDateTime withTimeZone(final LocalDateTime time, final String zoneId) {
+        return time.atZone(ZoneId.of(zoneId));
     }
 
     public LocalDate localDateNow() {
