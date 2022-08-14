@@ -70,7 +70,7 @@ public class TripUtilCommands {
     }
 
     public ZonedDateTime withTimeZone(final LocalDateTime time, final String zoneId) {
-        return time.atZone(ZoneId.of(zoneId));
+        return time.atZone(ZoneId.of("UTC")).withZoneSameInstant(ZoneId.of(zoneId));
     }
 
     public LocalDate localDateNow() {
