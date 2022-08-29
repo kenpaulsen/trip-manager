@@ -46,6 +46,10 @@ public class PersonCommands {
                 .join();
     }
 
+    public List<Person> getPeopleByIds(final List<Person.Id> ids) {
+        return ids.stream().map(this::getPerson).toList();
+    }
+
     public Person getPerson(final Person.Id id) {
         return DynamoUtils.getInstance().getPerson(id)
                 .exceptionally(ex -> {
