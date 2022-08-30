@@ -322,7 +322,7 @@ public class DynamoUtils {
         final String lowEmail = email.toLowerCase(Locale.getDefault());
         return getPeople()
                 .thenApply(people -> people.stream()
-                        .filter(person -> lowEmail.equals(person.getEmail()))
+                        .filter(person -> lowEmail.equalsIgnoreCase(person.getEmail()))
                         .findAny()
                         .orElse(null));
     }
@@ -334,13 +334,17 @@ public class DynamoUtils {
             return Optional.empty();
         }
         final Creds creds = new Creds(
-                email, user.getId(), Creds.USER_PRIV, user.getLast(), Instant.now().getEpochSecond());
+                email.toLowerCase(Locale.getDefault()),
+                user.getId(),
+                Creds.USER_PRIV,
+                user.getLast(),
+                Instant.now().getEpochSecond());
         return Optional.ofNullable(saveCreds(creds).join() ? creds : null);
     }
 
     public CompletableFuture<Boolean> saveCreds(final Creds creds) {
         final Map<String, AttributeValue> map = new HashMap<>();
-        map.put(EMAIL, AttributeValue.builder().s(creds.getEmail()).build());
+        map.put(EMAIL, AttributeValue.builder().s(creds.getEmail().toLowerCase(Locale.getDefault())).build());
         map.put(USER_ID, AttributeValue.builder().s(creds.getUserId().getValue()).build());
         map.put(PW, AttributeValue.builder().s(creds.getPass()).build());
         map.put(PRIV, AttributeValue.builder().s(creds.getPriv()).build());
@@ -652,7 +656,7 @@ public class DynamoUtils {
                 }
                 attrs.put(EMAIL, lowEmail);
                 final AttributeValue userId = DynamoUtils.getInstance().getPeople().join().stream()
-                        .filter(person -> lowEmail.s().equals(person.getEmail())).findAny()
+                        .filter(person -> lowEmail.s().equalsIgnoreCase(person.getEmail())).findAny()
                         .map(Person::getId).map(id -> AttributeValue.builder().s(id.getValue()).build())
                         .orElse(lowEmail);
                 attrs.put(USER_ID, userId);
