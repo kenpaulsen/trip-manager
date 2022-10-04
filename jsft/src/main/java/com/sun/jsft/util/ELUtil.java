@@ -3,6 +3,10 @@ package com.sun.jsft.util;
 import com.sun.jsft.commands.JSFTCommands;
 import jakarta.el.ValueExpression;
 import jakarta.faces.context.FacesContext;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.util.Objects;
 
 /**
  * <p> This class provides methods to help work with EL expressions.</p>
@@ -74,5 +78,19 @@ public class ELUtil {
         // Create expression if we aren't done already
         return JSFTCommands.isComplete(ctx) ? null :
                 ctx.getApplication().getExpressionFactory().createValueExpression(ctx.getELContext(), el, Object.class);
+    }
+
+    public String readFile(final String filename) {
+        final StringBuilder templateBuilder = new StringBuilder();
+        try (final BufferedReader templateReader = new BufferedReader(new InputStreamReader(
+                Objects.requireNonNull(this.getClass().getClassLoader().getResourceAsStream(filename))))) {
+            String line;
+            while ((line = templateReader.readLine()) != null) {
+                templateBuilder.append(line).append("\n");
+            }
+        } catch (final IOException ex) {
+            return null;
+        }
+        return templateBuilder.toString();
     }
 }

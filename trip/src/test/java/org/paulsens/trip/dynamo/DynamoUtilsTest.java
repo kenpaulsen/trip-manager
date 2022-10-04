@@ -38,7 +38,8 @@ public class DynamoUtilsTest {
         final Person.Id id = Person.Id.from(RandomData.genAlpha(7));
         final String first = RandomData.genAlpha(5);
         final String last = RandomData.genAlpha(9);
-        final Person person = new Person(id, null, first, null, last, null, null, null, null, null, null, null, null);
+        final Person person = new Person(id, null, first, null, last,
+                null, null, null, null, null, null, null, null, null, null);
         Assert.assertEquals(Boolean.TRUE, DB_UTILS.savePerson(person).join());
         final Person samePerson = DB_UTILS.getPerson(id).join().orElse(null);
         Assert.assertEquals(person, samePerson);
@@ -47,11 +48,11 @@ public class DynamoUtilsTest {
     @Test
     public void testGetPeople() throws IOException {
         final Person person1 = new Person(Person.Id.from("1"), "nick", "n1", "middle", "l1", LocalDate.now(),
-                "cell", "email", "tsa", new Address(), new Passport(), "notes", null);
-        final Person person2 = new Person(
-                Person.Id.from("2"), null, "n2", null, "l2", null, null, null, null, null, null, null, null);
-        final Person person3 = new Person(
-                Person.Id.from("3"), "n3", "n3", null, "l3", null, null, null, null, null, null, null, null);
+                "cell", "email", "tsa", new Address(), new Passport(), "notes", null, null, null);
+        final Person person2 = new Person(Person.Id.from("2"), null, "n2", null, "l2", null,
+                null, null, null, null, null, null, null, null, null);
+        final Person person3 = new Person(Person.Id.from("3"), "n3", "n3", null, "l3", null,
+                null, null, null, null, null, null, null, null, null);
         Assert.assertEquals(Boolean.TRUE, DB_UTILS.savePerson(person2).join());
         Assert.assertEquals(Boolean.TRUE, DB_UTILS.savePerson(person1).join());
         Assert.assertEquals(Boolean.TRUE, DB_UTILS.savePerson(person3).join());

@@ -31,6 +31,8 @@ public final class Person implements Serializable {
     private Passport passport;
     private String notes;
     private List<Person.Id> managedUsers;
+    private String emergencyContactName;
+    private String emergencyContactPhone;
 
     @JsonCreator
     public Person(
@@ -46,7 +48,9 @@ public final class Person implements Serializable {
             @JsonProperty("address") Address address,
             @JsonProperty("passport") Passport passport,
             @JsonProperty("notes") String notes,
-            @JsonProperty("managedUsers") List<Person.Id> managedUsers) {
+            @JsonProperty("managedUsers") List<Person.Id> managedUsers,
+            @JsonProperty("emergencyName") String emergencyName,
+            @JsonProperty("emergencyPhone") String emergencyPhone) {
         this.id = (id == null) ? Id.newInstance() : id;
         this.nickname = nickname;
         this.first = first;
@@ -60,10 +64,12 @@ public final class Person implements Serializable {
         this.passport = (passport == null) ? new Passport() : passport;
         this.notes = notes;
         this.managedUsers = (managedUsers == null) ? new ArrayList<>() : managedUsers;
+        this.emergencyContactName = emergencyName;
+        this.emergencyContactPhone = emergencyPhone;
     }
 
     public Person() {
-        this(null, null, null, null, null, null, null, null, null, null, null, null, null);
+        this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     @JsonIgnore
