@@ -12,11 +12,13 @@ import java.util.Locale;
 import java.util.UUID;
 
 import java.util.stream.Collectors;
+import lombok.Builder;
 import lombok.Data;
 import lombok.Value;
 import org.paulsens.trip.dynamo.DynamoUtils;
 
 @Data
+@Builder
 public final class Person implements Serializable {
     private Person.Id id;
     private String nickname;
@@ -58,7 +60,7 @@ public final class Person implements Serializable {
         this.last = last;
         this.birthdate = birthdate;
         this.cell = cell;
-        this.email = email == null ? null : email.toLowerCase(Locale.getDefault());
+        this.email = email == null ? null : email.trim().toLowerCase(Locale.getDefault());
         this.tsa = tsa;
         this.address = (address == null) ? new Address() : address;
         this.passport = (passport == null) ? new Passport() : passport;
@@ -95,6 +97,10 @@ public final class Person implements Serializable {
         return getTrips().stream()
                 .map(Trip::getId)
                 .collect(Collectors.toList());
+    }
+
+    public void setEmail(final String email) {
+        this.email = (email == null) ? null : email.trim().toLowerCase(Locale.getDefault());
     }
 
     @Value
