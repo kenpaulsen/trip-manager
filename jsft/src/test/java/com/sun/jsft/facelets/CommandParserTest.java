@@ -17,7 +17,7 @@ public class CommandParserTest {
         String result = testReadUntil(testStr, "-->", false);
 
         // Verify result
-        Assert.assertEquals(testStr, result);
+        Assert.assertEquals(result, testStr);
     }
 
     @Test
@@ -28,7 +28,7 @@ public class CommandParserTest {
         String result = testReadUntil(testStr, "-->", false);
 
         // Verify result
-        Assert.assertEquals(expStr, result);
+        Assert.assertEquals(result, expStr);
     }
 
     @Test
@@ -39,7 +39,7 @@ public class CommandParserTest {
         String result = testReadUntil(testStr, "end", true);
 
         // Verify result
-        Assert.assertEquals(expStr, result);
+        Assert.assertEquals(result, expStr);
     }
 
     @Test
@@ -50,7 +50,7 @@ public class CommandParserTest {
         String result = testReadUntil(testStr, "end here", true);
 
         // Verify result
-        Assert.assertEquals(expStr, result);
+        Assert.assertEquals(result, expStr);
     }
 
     @Test
@@ -61,7 +61,7 @@ public class CommandParserTest {
         String result = testReadUntil(testStr, "end here", true);
 
         // Verify result
-        Assert.assertEquals(expStr, result);
+        Assert.assertEquals(result, expStr);
     }
 
     @Test
@@ -72,7 +72,15 @@ public class CommandParserTest {
         String result = testReadUntil(testStr, "end here", true);
 
         // Verify result
-        Assert.assertEquals(expStr, result);
+        Assert.assertEquals(result, expStr);
+    }
+
+    @Test
+    public void testSingleLineComments() throws IOException {
+        final String testStr = "a=b; // skipped\nc=d; // skipped\nthe end";
+        final String expected = "a=b; \nc=d; \nthe end";
+        final String result = testReadUntil(testStr, "the end", true);
+        Assert.assertEquals(result, expected);
     }
 
     /**

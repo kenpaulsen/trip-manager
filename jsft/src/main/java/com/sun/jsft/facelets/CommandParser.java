@@ -337,12 +337,14 @@ public class CommandParser {
                 case '#' :
                     // Skip rest of line
                     readLine();
+                    unread('\n');
                     break;
                 case '/' :
                     ch = nextChar();
                     if (ch == '/') {
                         // Skip rest of line
                         readLine();
+                        unread('\n');
                     } else if (ch == '*') {
                         // Throw away everything until '*' & '/'.
                         readUntil("*/", false);
