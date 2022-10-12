@@ -5,9 +5,11 @@ import java.util.concurrent.ThreadLocalRandom;
 
 public class RandomData {
     private static final Random rand = new Random();
-    private static final char[] ALPHA =
+    public static final char[] ALPHA =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".toCharArray();
-    private static final char[] PASS_CHARS =
+    public static final char[] ALPHA_NUM =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".toCharArray();
+    public static final char[] PASS_CHARS =
             "@#!*23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz".toCharArray();
 
     public static String genAlpha(final int len) {

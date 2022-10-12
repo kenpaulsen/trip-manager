@@ -9,20 +9,26 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.paulsens.trip.model.Address;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Passport;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.PersonDataValue;
+import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Transaction.Type;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.util.RandomData;
-import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertNull;
+import static org.testng.Assert.assertTrue;
 
 public class DynamoUtilsTest {
     private static final DynamoUtils DB_UTILS = DynamoUtils.getInstance();
@@ -40,9 +46,9 @@ public class DynamoUtilsTest {
         final String last = RandomData.genAlpha(9);
         final Person person = new Person(id, null, first, null, last,
                 null, null, null, null, null, null, null, null, null, null);
-        Assert.assertEquals(Boolean.TRUE, DB_UTILS.savePerson(person).join());
+        assertTrue(DB_UTILS.savePerson(person).join());
         final Person samePerson = DB_UTILS.getPerson(id).join().orElse(null);
-        Assert.assertEquals(person, samePerson);
+        assertEquals(samePerson, person);
     }
 
     @Test
@@ -53,13 +59,13 @@ public class DynamoUtilsTest {
                 null, null, null, null, null, null, null, null, null);
         final Person person3 = new Person(Person.Id.from("3"), "n3", "n3", null, "l3", null,
                 null, null, null, null, null, null, null, null, null);
-        Assert.assertEquals(Boolean.TRUE, DB_UTILS.savePerson(person2).join());
-        Assert.assertEquals(Boolean.TRUE, DB_UTILS.savePerson(person1).join());
-        Assert.assertEquals(Boolean.TRUE, DB_UTILS.savePerson(person3).join());
+        assertTrue(DB_UTILS.savePerson(person2).join());
+        assertTrue(DB_UTILS.savePerson(person1).join());
+        assertTrue(DB_UTILS.savePerson(person3).join());
         final List<Person> people = DB_UTILS.getPeople().join();
-        Assert.assertEquals(people.size(), 3);
+        assertEquals(people.size(), 3);
         final Person person = people.stream().filter(p -> Person.Id.from("1").equals(p.getId())).findAny().orElse(null);
-        Assert.assertEquals(person1, person);
+        assertEquals(person, person1);
     }
 
     @Test
@@ -77,52 +83,142 @@ public class DynamoUtilsTest {
                 id, title, true, desc, start, end, Collections.singletonList(Person.Id.from("joe")), te,
                 FakeData.getDefaultOptions());
 
-        Assert.assertEquals(0, DB_UTILS.getTrips().join().size(), "Should start w/ no trips.");
-        Assert.assertEquals(Boolean.TRUE, DB_UTILS.saveTrip(trip).join());
-        Assert.assertEquals(1, DB_UTILS.getTrips().join().size(), "Expected 1 to be added.");
-        Assert.assertEquals(Boolean.TRUE, DB_UTILS.saveTrip(trip).join()); // Verify idempotency, should still be 1
-        Assert.assertEquals(1, DB_UTILS.getTrips().join().size(), "Expected only 1 still.");
+        assertEquals(DB_UTILS.getTrips().join().size(), 0, "Should start w/ no trips.");
+        assertTrue(DB_UTILS.saveTrip(trip).join());
+        assertEquals(DB_UTILS.getTrips().join().size(), 1, "Expected 1 to be added.");
+        assertTrue(DB_UTILS.saveTrip(trip).join()); // Verify idempotency, should still be 1
+        assertEquals(DB_UTILS.getTrips().join().size(), 1, "Expected only 1 still.");
         trip.setId(RandomData.genAlpha(10));
-        Assert.assertEquals(Boolean.TRUE, DB_UTILS.saveTrip(trip).join()); // Verify idempotency, should still be 1
-        Assert.assertEquals(2, DB_UTILS.getTrips().join().size(), "Expected 2 now.");
+        assertTrue(DB_UTILS.saveTrip(trip).join()); // Verify idempotency, should still be 1
+        assertEquals(DB_UTILS.getTrips().join().size(), 2, "Expected 2 now.");
         final Trip sameTrip = DB_UTILS.getTrip(id).join().orElse(null);
-        Assert.assertEquals(trip, sameTrip, "Getting trip should be equal.");
+        assertEquals(sameTrip, trip, "Getting trip should be equal.");
+    }
+
+    @Test
+    public void canSaveAndRetrieveTodo() throws IOException {
+        final TodoItem todo = TodoItem.builder()
+                .tripId(RandomData.genAlpha(17))
+                .dataId(PersonDataValue.Id.newInstance())
+                .description(RandomData.genAlpha(19))
+                .build();
+        assertTrue(DB_UTILS.saveTodo(todo).join());
+        final TodoItem restoredItem = DB_UTILS.getTodoItem(todo.getTripId(), todo.getDataId()).join().orElse(null);
+        assertEquals(restoredItem, todo);
+    }
+
+    @Test
+    public void canRetreiveMultipleTodos() {
+        final int todoInsertSize = 25;
+        final String tripId = RandomData.genAlpha(13);
+        final List<TodoItem> goodValues = new ArrayList<>();
+        Stream.generate(() -> TodoItem.builder()
+                        .tripId(RandomData.genAlpha(22))
+                        .dataId(PersonDataValue.Id.newInstance())
+                        .description(RandomData.genAlpha(19))
+                        .moreDetails(RandomData.genAlpha(59))
+                        .created(LocalDateTime.now())
+                        .build())
+                .limit(3)
+                .peek(this::saveTodo)
+                .forEach(todo -> {});
+        Stream.generate(() -> TodoItem.builder()
+                        .tripId(tripId)
+                        .dataId(PersonDataValue.Id.newInstance())
+                        .description(RandomData.genAlpha(12))
+                        .moreDetails(RandomData.genAlpha(29))
+                        .build())
+                .limit(todoInsertSize)
+                .peek(this::saveTodo)
+                .forEach(goodValues::add);
+        assertEquals(goodValues.size(), todoInsertSize);
+        final List<TodoItem> result = DB_UTILS.getTodoItems(tripId).join();
+        assertEquals(goodValues.size(), result.size());
+        for (int idx = 0; idx < todoInsertSize; idx++) {
+            assertTrue(goodValues.contains(result.get(idx)));
+        }
+    }
+
+    @Test
+    public void canSaveAndRetrievePersonDataValue() throws IOException {
+        final PersonDataValue pdv = PersonDataValue.builder()
+                .dataId(PersonDataValue.Id.newInstance())
+                .userId(Person.Id.newInstance())
+                .type(RandomData.genAlpha(13))
+                .content(Map.of(RandomData.genAlpha(3), RandomData.genAlpha(33)))
+                .build();
+        assertEquals(DB_UTILS.getPersonDataValue(pdv.getUserId(), pdv.getDataId()).join(), Optional.empty());
+        DB_UTILS.savePersonDataValue(pdv);
+        final PersonDataValue restoredPDV = DB_UTILS.getPersonDataValue(pdv.getUserId(), pdv.getDataId())
+                .join().orElse(null);
+        assertEquals(restoredPDV, pdv);
+    }
+
+    @Test
+    public void canRetreiveMultiplePersonDataValues() {
+        final int pdvInsertSize = 13;
+        final Person.Id pid = Person.Id.newInstance();
+        final List<PersonDataValue> goodValues = new ArrayList<>();
+        Stream.generate(() -> PersonDataValue.builder()
+                        .dataId(PersonDataValue.Id.newInstance())
+                        .userId(Person.Id.newInstance())
+                        .type(RandomData.genAlpha(3))
+                        .content(RandomData.genAlpha(29))
+                        .build())
+                .limit(3)
+                .peek(this::savePersonDataValue)
+                .forEach(pdv -> {});
+        Stream.generate(() -> PersonDataValue.builder()
+                        .dataId(PersonDataValue.Id.newInstance())
+                        .userId(pid)
+                        .type(RandomData.genAlpha(12))
+                        .content(RandomData.genAlpha(29))
+                        .build())
+                .limit(pdvInsertSize)
+                .peek(this::savePersonDataValue)
+                .forEach(goodValues::add);
+        assertEquals(pdvInsertSize, goodValues.size());
+        final Map<PersonDataValue.Id, PersonDataValue> result = DB_UTILS.getPersonDataValues(pid).join();
+        assertEquals(goodValues.size(), result.size());
+        for (final PersonDataValue good : goodValues) {
+            assertTrue(result.containsKey(good.getDataId()));
+        }
     }
 
     @Test
     public void nullEmailOrPassReturnsNothing() {
-        Assert.assertNull(DB_UTILS.getCredsByEmailAndPass(null, RandomData.genAlpha(5)).join());
-        Assert.assertNull(DB_UTILS.getCredsByEmailAndPass(RandomData.genAlpha(5), null).join());
-        Assert.assertNull(DB_UTILS.getCredsByEmailAndPass(null, null).join());
-        Assert.assertNull(DB_UTILS.getCredsByEmailAndPass(RandomData.genAlpha(5), RandomData.genAlpha(4)).join());
+        assertNull(DB_UTILS.getCredsByEmailAndPass(null, RandomData.genAlpha(5)).join());
+        assertNull(DB_UTILS.getCredsByEmailAndPass(RandomData.genAlpha(5), null).join());
+        assertNull(DB_UTILS.getCredsByEmailAndPass(null, null).join());
+        assertNull(DB_UTILS.getCredsByEmailAndPass(RandomData.genAlpha(5), RandomData.genAlpha(4)).join());
     }
 
     @Test
     public void adminCanLogin() {
         final String adminUN = "admin" + RandomData.genAlpha(8);
         final Creds creds = DB_UTILS.getCredsByEmailAndPass(adminUN, "admin").join();
-        Assert.assertEquals(creds.getPriv(), "admin");
+        assertEquals(creds.getPriv(), "admin");
     }
 
     @Test
     public void userCanLogin() {
         final String userUN = "user" + RandomData.genAlpha(8);
         final Creds creds = DB_UTILS.getCredsByEmailAndPass(userUN, "user").join();
-        Assert.assertEquals(creds.getPriv(), "user");
+        assertEquals(creds.getPriv(), "user");
     }
 
     @Test
     public void adminPasswordIsChecked() {
         final String adminUN = "admin" + RandomData.genAlpha(8);
         final String adminPW = RandomData.genAlpha(4);
-        Assert.assertNull(DB_UTILS.getCredsByEmailAndPass(adminUN, adminPW).join());
+        assertNull(DB_UTILS.getCredsByEmailAndPass(adminUN, adminPW).join());
     }
 
     @Test
     public void userPasswordIsChecked() {
         final String userUN = "user" + RandomData.genAlpha(8);
         final String userPW = RandomData.genAlpha(4);
-        Assert.assertNull(DB_UTILS.getCredsByEmailAndPass(userUN, userPW).join());
+        assertNull(DB_UTILS.getCredsByEmailAndPass(userUN, userPW).join());
     }
 
     @Test
@@ -135,15 +231,15 @@ public class DynamoUtilsTest {
         final LocalDateTime txDate = LocalDateTime.now();
         final Transaction tx = new Transaction(id, userId, groupId, Type.Shared, txDate, 0.45f, category, note);
         final Transaction tx2 = new Transaction(userId, groupId, Type.Shared);
-        Assert.assertEquals(DB_UTILS.getTransactions(userId).join().size(), 0, "Should start w/ no txs.");
-        Assert.assertEquals(Boolean.TRUE, DB_UTILS.saveTransaction(tx).join());
-        Assert.assertEquals(DB_UTILS.getTransactions(userId).join().size(), 1, "Expected 1 to be added.");
-        Assert.assertEquals(Boolean.TRUE, DB_UTILS.saveTransaction(tx).join()); // Verify idempotency, should be 1
-        Assert.assertEquals(DB_UTILS.getTransactions(userId).join().size(), 1, "Expected only 1 still.");
-        Assert.assertEquals(Boolean.TRUE, DB_UTILS.saveTransaction(tx2).join()); // Now should be 2
-        Assert.assertEquals(DB_UTILS.getTransactions(userId).join().size(), 2, "Expected 2 now.");
+        assertEquals(DB_UTILS.getTransactions(userId).join().size(), 0, "Should start w/ no txs.");
+        assertTrue(DB_UTILS.saveTransaction(tx).join());
+        assertEquals(DB_UTILS.getTransactions(userId).join().size(), 1, "Expected 1 to be added.");
+        assertTrue(DB_UTILS.saveTransaction(tx).join()); // Verify idempotency, should be 1
+        assertEquals(DB_UTILS.getTransactions(userId).join().size(), 1, "Expected only 1 still.");
+        assertTrue(DB_UTILS.saveTransaction(tx2).join()); // Now should be 2
+        assertEquals(DB_UTILS.getTransactions(userId).join().size(), 2, "Expected 2 now.");
         final Transaction sameTx = DB_UTILS.getTransaction(userId, id).join().orElse(null);
-        Assert.assertEquals(tx, sameTx, "Getting tx should be equal.");
+        assertEquals(sameTx, tx, "Getting tx should be equal.");
     }
 
     @Test
@@ -156,14 +252,14 @@ public class DynamoUtilsTest {
         txs.add(tx);
         txs.add(tx2);
         final Map<String, Transaction> userTxs = DB_UTILS.getTxCacheForUser(userId).join();
-        Assert.assertEquals(userTxs.size(), 0, "Expected cache to start at 0.");
+        assertEquals(userTxs.size(), 0, "Expected cache to start at 0.");
         DB_UTILS.cacheAll(userTxs, txs, Transaction::getTxId);
-        Assert.assertEquals(userTxs.size(), 2, "Expected cache to add 2 items!");
+        assertEquals(userTxs.size(), 2, "Expected cache to add 2 items!");
 
         final Map<String, Transaction> verifySave = DB_UTILS.getTxCacheForUser(userId).join();
-        Assert.assertEquals(verifySave.size(), 2, "Expected cache to start at 2 this time!");
+        assertEquals(verifySave.size(), 2, "Expected cache to start at 2 this time!");
         DB_UTILS.cacheAll(verifySave, txs, Transaction::getTxId);
-        Assert.assertEquals(verifySave.size(), 2, "Expected cache to add 2 items!");
+        assertEquals(verifySave.size(), 2, "Expected cache to add 2 items!");
     }
 
     @Test
@@ -175,15 +271,31 @@ public class DynamoUtilsTest {
                 .peek(this::saveTransaction)
                 .forEach(tx -> txs.put(tx.getTxId(), tx));
         final List<Transaction> sortedTxs = DB_UTILS.getTransactions(person).join();
-        Assert.assertEquals(sortedTxs.size(), 20, "Should have 20 txs.");
+        assertEquals(sortedTxs.size(), 20, "Should have 20 txs.");
         for (int idx = 0; idx < sortedTxs.size() - 1; idx++) {
             final Transaction currTx = sortedTxs.get(idx);
-            Assert.assertTrue(currTx.getTxDate().isBefore(sortedTxs.get(idx + 1).getTxDate()), "Not in order.");
-            Assert.assertEquals(currTx, txs.get(currTx.getTxId()));
+            assertTrue(currTx.getTxDate().isBefore(sortedTxs.get(idx + 1).getTxDate()), "Not in order.");
+            assertEquals(currTx, txs.get(currTx.getTxId()));
             txs.remove(currTx.getTxId());
         }
-        Assert.assertEquals(1, txs.size());
-        Assert.assertEquals(sortedTxs.get(sortedTxs.size() - 1), txs.values().iterator().next());
+        assertEquals(txs.size(), 1);
+        assertEquals(txs.values().iterator().next(), sortedTxs.get(sortedTxs.size() - 1));
+    }
+
+    private void saveTodo(final TodoItem todo) {
+        try {
+            DB_UTILS.saveTodo(todo).join();
+        } catch (final IOException ex) {
+            throw new RuntimeException("failed to save TodoItem: " + todo, ex);
+        }
+    }
+
+    private void savePersonDataValue(final PersonDataValue pdv) {
+        try {
+            DB_UTILS.savePersonDataValue(pdv).join();
+        } catch (final IOException ex) {
+            throw new RuntimeException("failed to save PersonDataValue: " + pdv, ex);
+        }
     }
 
     private void saveTransaction(final Transaction tx) {

@@ -29,7 +29,9 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.Registration;
+import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
@@ -58,22 +60,29 @@ public class DynamoUtils {
     private final Map<String, TripEvent> tripEventCache = new ConcurrentHashMap<>();
     private final Map<Person.Id, Map<String, Transaction>> txCache = new ConcurrentHashMap<>();
     private final Map<String, Map<Person.Id, Registration>> regCache = new ConcurrentHashMap<>();
+    private final Map<String, Map<PersonDataValue.Id, TodoItem>> todoCache = new ConcurrentHashMap<>();
+    private final Map<Person.Id, Map<PersonDataValue.Id, PersonDataValue>> pdvCache = new ConcurrentHashMap<>();
 
     // This flag is set in the web.xml
     private static final String LOCAL = "local";
+
     private static final String FACES_SERVLET = "Faces Servlet";
     private static final String PASS_TABLE = "pass";
     private static final String PERSON_TABLE = "people";
     private static final String TRANSACTION_TABLE = "transactions";
     private static final String TRIP_TABLE = "trips";
     private static final String TRIP_EVENT_TABLE = "trip_events";
-    private static final String TRIP_ID = "tripId";
     private static final String REGISTRATION_TABLE = "registrations";
-    private static final String DELETED = "deleted";
+    private static final String TODO_ITEM_TABLE = "todo_items";
+    private static final String PERSON_DATA_VALUE_TABLE = "person_data";
+    private static final String DATA_ID = "dataId";
     private static final String ID = "id";
-    private static final String USER_ID = "userId";
-    private static final String CONTENT = "content";
+    private static final String TRIP_ID = "tripId";
     private static final String TX_ID = "txId";
+    private static final String TYPE = "type";
+    private static final String USER_ID = "userId";
+    private static final String DELETED = "deleted";
+    private static final String CONTENT = "content";
     private static final String EMAIL = "email";
     private static final String PRIV = "priv";
     private static final String PW = "pass";
@@ -365,6 +374,8 @@ public class DynamoUtils {
         tripCache.clear();
         tripEventCache.clear();
         txCache.clear();
+        todoCache.clear();
+        pdvCache.clear();
     }
 
     /* Package-private for testing */
@@ -417,6 +428,153 @@ public class DynamoUtils {
                 .keyConditionExpression(TRIP_ID + " = :tripIdVal")
                 .expressionAttributeValues(
                         Collections.singletonMap(":tripIdVal", AttributeValue.builder().s(tripId).build()));
+    }
+
+    public CompletableFuture<Boolean> saveTodo(final TodoItem todo) throws IOException {
+        final Map<String, AttributeValue> map = new HashMap<>();
+        map.put(TRIP_ID, toStrAttr(todo.getTripId()));
+        map.put(DATA_ID, toStrAttr(todo.getDataId().getValue()));
+        map.put(CONTENT, toStrAttr(mapper.writeValueAsString(todo)));
+        final CompletableFuture<Map<PersonDataValue.Id, TodoItem>> futTripTodos = getTodoItemCache(todo.getTripId());
+        return client.putItem(b -> b.tableName(TODO_ITEM_TABLE).item(map))
+                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
+                .thenCombine(futTripTodos, (success, tripRegs) -> success ? tripRegs : null)
+                .thenApply(tripTodos -> cacheOne(tripTodos, todo, todo.getDataId(), tripTodos != null))
+                .exceptionally(ex -> {
+                    log.error("Failed to save todo (" + todo.getDescription() + ")!", ex);
+                    return false;
+                });
+    }
+
+    public CompletableFuture<List<TodoItem>> getTodoItems(final String tripId) {
+        return getTodoItemCache(tripId)
+                .thenApply(map -> new ArrayList<>(map.values()));
+    }
+
+    public CompletableFuture<Optional<TodoItem>> getTodoItem(final String tripId, final PersonDataValue.Id pdvId){
+        return getTodoItemCache(tripId)             // Ensure todos for this trip are loaded into memory
+                .thenApply(map -> map.get(pdvId))   // Read from cache
+                .thenApply(Optional::ofNullable);
+    }
+
+    private CompletableFuture<Map<PersonDataValue.Id, TodoItem>> getTodoItemCache(final String tripId) {
+        final Map<PersonDataValue.Id, TodoItem> result = todoCache.get(tripId);
+        return (result == null) ? cacheTodoItems(tripId) : CompletableFuture.completedFuture(result);
+    }
+
+    private CompletableFuture<Map<PersonDataValue.Id, TodoItem>> cacheTodoItems(final String tripId) {
+        return loadTodoItems(tripId)
+                .thenApply(cache -> {
+                    todoCache.put(tripId, cache);
+                    return cache;
+                })
+                .exceptionally(ex -> {
+                    log.error("Unable to load and cache todo items for '" + tripId + "'!", ex);
+                    throw new IllegalStateException(ex);
+                });
+    }
+
+    private CompletableFuture<Map<PersonDataValue.Id, TodoItem>> loadTodoItems(final String tripId) {
+        log.info("Cache miss for todo items for tripId: {}", tripId);
+        // Use a map that preserves order for sorting
+        final Map<PersonDataValue.Id, TodoItem> result = new ConcurrentSkipListMap<>();
+        return client.query(qb -> queryTodoItemsByTrip(qb, tripId))
+                .thenApply(resp -> resp.items().stream()
+                        .map(m -> toTodoItem(m.get(CONTENT)))
+                        .filter(Objects::nonNull)
+                        .sorted(Comparator.comparing(TodoItem::getCreated))
+                        .toList())
+                .thenAccept(list -> cacheAll(result, list, TodoItem::getDataId))
+                .thenApply(v -> result);
+    }
+
+    private void queryTodoItemsByTrip(final QueryRequest.Builder qb, final String tripId) {
+        qb.tableName(TODO_ITEM_TABLE)
+                .keyConditionExpression(TRIP_ID + " = :tripIdVal")
+                .expressionAttributeValues(
+                        Collections.singletonMap(":tripIdVal", AttributeValue.builder().s(tripId).build()));
+    }
+
+    private TodoItem toTodoItem(final AttributeValue content) {
+        try {
+            return mapper.readValue(content.s(), TodoItem.class);
+        } catch (final IOException ex) {
+            log.error("Unable to parse Todo Item record: " + content, ex);
+            return null;
+        }
+    }
+
+    public CompletableFuture<Boolean> savePersonDataValue(final PersonDataValue pdv) throws IOException {
+        final Map<String, AttributeValue> map = new HashMap<>();
+        map.put(USER_ID, toStrAttr(pdv.getUserId().getValue()));
+        map.put(DATA_ID, toStrAttr(pdv.getDataId().getValue()));
+        map.put(TYPE, toStrAttr(pdv.getType()));
+        map.put(CONTENT, toStrAttr(mapper.writeValueAsString(pdv)));
+        final CompletableFuture<Map<PersonDataValue.Id, PersonDataValue>> futUserData = getPersonDataValueCache(pdv.getUserId());
+        return client.putItem(b -> b.tableName(PERSON_DATA_VALUE_TABLE).item(map))
+                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
+                .thenCombine(futUserData, (success, userData) -> success ? userData : null)
+                .thenApply(userData -> cacheOne(userData, pdv, pdv.getDataId(), userData != null))
+                .exceptionally(ex -> {
+                    log.error("Failed to save PDV '" + pdv.getDataId() + "': (" + pdv.getContent() + ")!", ex);
+                    return false;
+                });
+    }
+
+    public CompletableFuture<Map<PersonDataValue.Id, PersonDataValue>> getPersonDataValues(final Person.Id pid) {
+        return getPersonDataValueCache(pid);
+    }
+
+    public CompletableFuture<Optional<PersonDataValue>> getPersonDataValue(
+            final Person.Id pid, final PersonDataValue.Id pdvId) {
+        return getPersonDataValueCache(pid)         // Ensure data for this person is loaded into memory
+                .thenApply(map -> map.get(pdvId))   // Read from cache
+                .thenApply(Optional::ofNullable);
+    }
+
+    private CompletableFuture<Map<PersonDataValue.Id, PersonDataValue>> getPersonDataValueCache(final Person.Id pid) {
+        final Map<PersonDataValue.Id, PersonDataValue> result = pdvCache.get(pid);
+        return (result == null) ? cachePersonDataValues(pid) : CompletableFuture.completedFuture(result);
+    }
+
+    private CompletableFuture<Map<PersonDataValue.Id, PersonDataValue>> cachePersonDataValues(final Person.Id pid) {
+        return loadPersonDataValues(pid)
+                .thenApply(cache -> {
+                    pdvCache.put(pid, cache);
+                    return cache;
+                })
+                .exceptionally(ex -> {
+                    log.error("Unable to load and cache person data values for '" + pid + "'!", ex);
+                    throw new IllegalStateException(ex);
+                });
+    }
+
+    private CompletableFuture<Map<PersonDataValue.Id, PersonDataValue>> loadPersonDataValues(final Person.Id pid) {
+        log.info("Cache miss for person data values for person id: {}", pid);
+        final Map<PersonDataValue.Id, PersonDataValue> result = new ConcurrentHashMap<>();
+        return client.query(qb -> queryPersonDataValuesByPerson(qb, pid))
+                .thenApply(resp -> resp.items().stream()
+                        .map(m -> toPersonDataValue(m.get(CONTENT)))
+                        .filter(Objects::nonNull)
+                        .toList())
+                .thenAccept(list -> cacheAll(result, list, PersonDataValue::getDataId))
+                .thenApply(v -> result);
+    }
+
+    private void queryPersonDataValuesByPerson(final QueryRequest.Builder qb, final Person.Id pid) {
+        qb.tableName(PERSON_DATA_VALUE_TABLE)
+                .keyConditionExpression(USER_ID + " = :pid")
+                .expressionAttributeValues(
+                        Collections.singletonMap(":pid", AttributeValue.builder().s(pid.getValue()).build()));
+    }
+
+    private PersonDataValue toPersonDataValue(final AttributeValue content) {
+        try {
+            return mapper.readValue(content.s(), PersonDataValue.class);
+        } catch (final IOException ex) {
+            log.error("Unable to parse Person Data Value record: " + content, ex);
+            return null;
+        }
     }
 
     private CompletableFuture<Boolean> cacheOneTxAsync(final boolean success, final Transaction tx) {
