@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
+import org.paulsens.trip.model.Status;
 import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.TodoStatus;
 import org.paulsens.trip.util.RandomData;
@@ -69,7 +70,7 @@ public class TodoCommandsTest {
         final TodoItem todo = todoCommands.createTodo(tripId);
         final Person.Id pid = Person.Id.newInstance();
         final TodoStatus todoStatus = todoCommands.getTodoStatus(todo, pid);
-        assertEquals(todoStatus.getStatus().getValue(), TodoStatus.StatusValue.TODO);
+        assertEquals(todoStatus.getStatus().getValue(), Status.StatusValue.TODO);
         assertNull(todoStatus.getStatus().getNotes());
         assertEquals(todoStatus.getPersonDataValue().getType(), TodoStatus.TODO_PERSON_DATA_VALUE_TYPE);
         assertEquals(todoStatus.getPersonDataValue().getDataId(), todo.getDataId());
@@ -79,12 +80,12 @@ public class TodoCommandsTest {
         // Modify...
         final String notes = RandomData.genAlpha(32);
         todoStatus.getStatus().setNotes(notes);
-        todoStatus.getStatus().setValue(TodoStatus.StatusValue.IN_PROGRESS);
+        todoStatus.getStatus().setValue(Status.StatusValue.IN_PROGRESS);
         assertTrue(todoCommands.saveTodoStatus(todoStatus));
         // Get Again...
         final TodoStatus todoStatusFromGet = todoCommands.getTodoStatus(todo, pid);
         assertEquals(todoStatusFromGet.getStatus().getNotes(), notes);
-        assertEquals(todoStatusFromGet.getStatus().getValue(), TodoStatus.StatusValue.IN_PROGRESS);
+        assertEquals(todoStatusFromGet.getStatus().getValue(), Status.StatusValue.IN_PROGRESS);
         assertEquals(todoStatusFromGet, todoStatus);
     }
 }

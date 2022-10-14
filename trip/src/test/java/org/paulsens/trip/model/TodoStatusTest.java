@@ -19,7 +19,7 @@ public class TodoStatusTest {
         final Person.Id userId = Person.Id.from(RandomData.genAlpha(15));
         final PersonDataValue.Id dataId = PersonDataValue.Id.newInstance();
         final String type = RandomData.genAlpha(13);    // Random type will fail! Must be "todo"
-        getTestTodoStatus(userId, dataId, type, TodoStatus.Status.builder().build());
+        getTestTodoStatus(userId, dataId, type, Status.builder().build());
     }
 
     @Test(expectedExceptions = { IllegalStateException.class },
@@ -45,9 +45,12 @@ public class TodoStatusTest {
         final Person.Id userId = Person.Id.from(RandomData.genAlpha(15));
         final PersonDataValue.Id dataId = PersonDataValue.Id.newInstance();
         final String type = TodoStatus.TODO_PERSON_DATA_VALUE_TYPE;
-        final TodoStatus.Status status = TodoStatus.Status.builder()
-                .value(TodoStatus.StatusValue.DONE)
+        final Status status = Status.builder()
+                .value(Status.StatusValue.DONE)
                 .notes(RandomData.genAlpha(131))
+                .owner(Person.Id.newInstance())
+                .visibility(Status.Visibility.ADMIN)
+                .priority(Status.Priority.HIGH)
                 .build();
         final String statusJson = mapper.writeValueAsString(status);
         final TodoStatus todoStatus = getTestTodoStatus(userId, dataId, type, status);
@@ -59,14 +62,34 @@ public class TodoStatusTest {
                         .content(statusJson)
                         .build());
         assertEquals(todoStatusWithJsonStatus, todoStatus);
-        final TodoStatus todoStatusWithMap = new TodoStatus(todoStatus.getTodoItem(),
+        final TodoStatus todoStatusWithStringMap = new TodoStatus(todoStatus.getTodoItem(),
                 PersonDataValue.builder()
                         .userId(userId)
                         .dataId(dataId)
                         .type(type)
-                        .content(Map.of("value", "" + status.getValue(), "notes", status.getNotes()))
+                        .content(Map.of(
+                                "value", status.getValue().toString(),
+                                "notes", status.getNotes(),
+                                "lastUpdate", status.getLastUpdate().toString(),
+                                "owner", status.getOwner().getValue(),
+                                "priority", String.valueOf(status.getPriority()),
+                                "visibility", String.valueOf(status.getVisibility())))
                         .build());
-        assertEquals(todoStatusWithMap, todoStatus);
+        assertEquals(todoStatusWithStringMap, todoStatus);
+        final TodoStatus todoStatusWithObjectMap = new TodoStatus(todoStatus.getTodoItem(),
+                PersonDataValue.builder()
+                        .userId(userId)
+                        .dataId(dataId)
+                        .type(type)
+                        .content(Map.of(
+                                "value", status.getValue(),
+                                "notes", status.getNotes(),
+                                "lastUpdate", status.getLastUpdate(),
+                                "owner", status.getOwner(),
+                                "priority", status.getPriority(),
+                                "visibility", status.getVisibility()))
+                        .build());
+        assertEquals(todoStatusWithObjectMap, todoStatus);
     }
 
     private TodoStatus getTestTodoStatus(
@@ -87,8 +110,7 @@ public class TodoStatusTest {
     }
 
     @Test
-    public void testTestEquals() {
-        //EqualsVerifier.forClass(TodoStatus.class).suppress(Warning.NONFINAL_FIELDS).verify();
+    public void testEquals() {
         EqualsVerifier.forClass(TodoStatus.class).verify();
     }
 }

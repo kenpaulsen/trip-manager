@@ -1,12 +1,9 @@
 package org.paulsens.trip.model;
 
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
 import java.io.IOException;
 import java.io.Serializable;
+import java.time.LocalDateTime;
 import java.util.Map;
-import lombok.Builder;
-import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NonNull;
 import org.paulsens.trip.dynamo.DynamoUtils;
@@ -80,31 +77,22 @@ public final class TodoStatus implements Serializable {
         if (value == null) {
             throw new IllegalStateException("Status value cannot be null!");
         }
-        final Object notes = statusMap.get("notes");
+        final String notes = (String) statusMap.get("notes");
+        final Object priority = statusMap.get("priority");
+        final Object visibility = statusMap.get("visibility");
+        final Object owner = statusMap.get("owner");
+        final Object lastUpdate = statusMap.get("lastUpdate");
         return Status.builder()
-                .value(StatusValue.valueOf(String.valueOf(value)))
-                .notes(notes == null ? "" : String.valueOf(notes))
+                .value((value instanceof Status.StatusValue) ?
+                        (Status.StatusValue) value : Status.StatusValue.valueOf(String.valueOf(value)))
+                .priority((priority instanceof Status.Priority) ?
+                        (Status.Priority) priority : Status.Priority.valueOf(String.valueOf(priority)))
+                .visibility((visibility instanceof Status.Visibility) ?
+                        (Status.Visibility) visibility : Status.Visibility.valueOf(String.valueOf(visibility)))
+                .owner((owner instanceof Person.Id) ? (Person.Id) owner : Person.Id.from(String.valueOf(owner)))
+                .lastUpdate((lastUpdate instanceof LocalDateTime) ?
+                        (LocalDateTime) lastUpdate : LocalDateTime.parse(String.valueOf(lastUpdate)))
+                .notes(notes)
                 .build();
-    }
-
-    @JsonDeserialize(builder = Status.StatusBuilder.class)
-    @Data
-    @Builder
-    public static class Status implements Serializable {
-        @Builder.Default
-        private StatusValue value = StatusValue.TODO;
-        private String notes;
-
-        @JsonPOJOBuilder(withPrefix = "")
-        public static class StatusBuilder {
-        }
-    }
-
-    public enum StatusValue {
-        DONE,
-        TODO,
-        IN_PROGRESS,
-        NEED_HELP,
-        WAITING
     }
 }

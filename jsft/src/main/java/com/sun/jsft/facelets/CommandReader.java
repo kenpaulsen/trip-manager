@@ -86,7 +86,7 @@ public class CommandReader {
      */
     public CommandReader(String str) {
         this(new ByteArrayInputStream(
-                ("{" + CommandReader.unwrap(str) + "}").getBytes()));
+                ("{" + CommandReader.unwrap(str) + "\n}").getBytes()));
     }
 
     /**
