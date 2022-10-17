@@ -10,6 +10,7 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
 
@@ -21,7 +22,7 @@ public class PersonDataValueCommands {
 
     // FIXME: This was copied from RegistrationCommands... need to think through what commands we need and write them
     public static PersonDataValue createPersonDataValue(
-            final Person.Id userId, final PersonDataValue.Id pdvId, final String type) {
+            final Person.Id userId, final DataId pdvId, final String type) {
         return PersonDataValue.builder()
                 .userId(userId)
                 .dataId(pdvId)
@@ -54,7 +55,7 @@ public class PersonDataValueCommands {
         return result;
     }
 
-    public static Map<PersonDataValue.Id, PersonDataValue> getPersonDataValues(final Person.Id userId) {
+    public static Map<DataId, PersonDataValue> getPersonDataValues(final Person.Id userId) {
         return DynamoUtils.getInstance()
                 .getPersonDataValues(userId)
                 .orTimeout(DYNAMO_TIMEOUT, TimeUnit.MILLISECONDS)
@@ -64,7 +65,7 @@ public class PersonDataValueCommands {
                 }).join();
     }
 
-    public static PersonDataValue getPersonDataValue(final Person.Id userId, final PersonDataValue.Id pdvId) {
+    public static PersonDataValue getPersonDataValue(final Person.Id userId, final DataId pdvId) {
         if (userId == null) {
             log.error("getPersonDataValue() called with null userId.");
             return null;

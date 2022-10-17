@@ -14,6 +14,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 import org.paulsens.trip.model.Address;
 import org.paulsens.trip.model.Creds;
+import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Passport;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
@@ -99,7 +100,7 @@ public class DynamoUtilsTest {
     public void canSaveAndRetrieveTodo() throws IOException {
         final TodoItem todo = TodoItem.builder()
                 .tripId(RandomData.genAlpha(17))
-                .dataId(PersonDataValue.Id.newInstance())
+                .dataId(DataId.newInstance())
                 .description(RandomData.genAlpha(19))
                 .build();
         assertTrue(DB_UTILS.saveTodo(todo).join());
@@ -114,7 +115,7 @@ public class DynamoUtilsTest {
         final List<TodoItem> goodValues = new ArrayList<>();
         Stream.generate(() -> TodoItem.builder()
                         .tripId(RandomData.genAlpha(22))
-                        .dataId(PersonDataValue.Id.newInstance())
+                        .dataId(DataId.newInstance())
                         .description(RandomData.genAlpha(19))
                         .moreDetails(RandomData.genAlpha(59))
                         .created(LocalDateTime.now())
@@ -124,7 +125,7 @@ public class DynamoUtilsTest {
                 .forEach(todo -> {});
         Stream.generate(() -> TodoItem.builder()
                         .tripId(tripId)
-                        .dataId(PersonDataValue.Id.newInstance())
+                        .dataId(DataId.newInstance())
                         .description(RandomData.genAlpha(12))
                         .moreDetails(RandomData.genAlpha(29))
                         .build())
@@ -142,7 +143,7 @@ public class DynamoUtilsTest {
     @Test
     public void canSaveAndRetrievePersonDataValue() throws IOException {
         final PersonDataValue pdv = PersonDataValue.builder()
-                .dataId(PersonDataValue.Id.newInstance())
+                .dataId(DataId.newInstance())
                 .userId(Person.Id.newInstance())
                 .type(RandomData.genAlpha(13))
                 .content(Map.of(RandomData.genAlpha(3), RandomData.genAlpha(33)))
@@ -160,7 +161,7 @@ public class DynamoUtilsTest {
         final Person.Id pid = Person.Id.newInstance();
         final List<PersonDataValue> goodValues = new ArrayList<>();
         Stream.generate(() -> PersonDataValue.builder()
-                        .dataId(PersonDataValue.Id.newInstance())
+                        .dataId(DataId.newInstance())
                         .userId(Person.Id.newInstance())
                         .type(RandomData.genAlpha(3))
                         .content(RandomData.genAlpha(29))
@@ -169,7 +170,7 @@ public class DynamoUtilsTest {
                 .peek(this::savePersonDataValue)
                 .forEach(pdv -> {});
         Stream.generate(() -> PersonDataValue.builder()
-                        .dataId(PersonDataValue.Id.newInstance())
+                        .dataId(DataId.newInstance())
                         .userId(pid)
                         .type(RandomData.genAlpha(12))
                         .content(RandomData.genAlpha(29))
@@ -178,7 +179,7 @@ public class DynamoUtilsTest {
                 .peek(this::savePersonDataValue)
                 .forEach(goodValues::add);
         assertEquals(pdvInsertSize, goodValues.size());
-        final Map<PersonDataValue.Id, PersonDataValue> result = DB_UTILS.getPersonDataValues(pid).join();
+        final Map<DataId, PersonDataValue> result = DB_UTILS.getPersonDataValues(pid).join();
         assertEquals(goodValues.size(), result.size());
         for (final PersonDataValue good : goodValues) {
             assertTrue(result.containsKey(good.getDataId()));

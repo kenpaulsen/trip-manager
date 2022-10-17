@@ -14,10 +14,14 @@ import lombok.Setter;
 @Data
 @Builder
 public class Status implements Serializable {
-    @Builder.Default
     @NonNull
     @Setter(AccessLevel.NONE)
+    @Builder.Default
     private Status.StatusValue value = StatusValue.TODO;
+    // lastUpdate changes only when status or notes are changed (not owner, priority, or visibility)
+    @Setter(AccessLevel.NONE)
+    @Builder.Default
+    private LocalDateTime lastUpdate = LocalDateTime.now();
     private String notes;
 // FIXME: Make this happpen...
     // Only the Status owner, a manager of the Status owner, or an admin can change a status
@@ -28,10 +32,6 @@ public class Status implements Serializable {
     // Visibility is whether the user can see this item, or only an Admin
     @Builder.Default
     private Visibility visibility = Visibility.USER;
-    // lastUpdate changes only when status or notes are changed (not owner, priority, or visibility)
-    @Setter(AccessLevel.NONE)
-    @Builder.Default
-    private LocalDateTime lastUpdate = LocalDateTime.now();
 
     public void setValue(final Object statusValue) {
         final StatusValue newVal = (statusValue instanceof StatusValue) ?
@@ -50,11 +50,10 @@ public class Status implements Serializable {
     }
 
     public enum StatusValue {
-        DONE,
         TODO,
         IN_PROGRESS,
-        NEED_HELP,
-        WAITING
+        //BLOCKED, FIXME: May want to add this as a "tag" along w/ other tags, probably doesn't belong here
+        DONE
     }
 
     public enum Priority {

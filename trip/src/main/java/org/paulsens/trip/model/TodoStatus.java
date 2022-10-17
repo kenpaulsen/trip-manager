@@ -43,16 +43,105 @@ public final class TodoStatus implements Serializable {
         this(todoItem, createNewTodoPDV(todoItem, pid));
     }
 
-    public Status getStatus() {
-        return pdv.castContent();
+    public String getTripId() {
+        return getTodoItem().getTripId();
     }
 
-    public PersonDataValue getPersonDataValue() {
-        return pdv;
+    public DataId getDataId() {
+        return getTodoItem().getDataId();
+    }
+
+    /**
+     * The user is the person this {@link TodoItem} applies to. This is different from the owner, which is responsible
+     * for managing the {@code TodoItem}. For example, an admin might be the owner, but a normal user might be the
+     * user.
+     *
+     * @return The person this {@link TodoItem} applies to.
+     */
+    public Person.Id getUserId() {
+        return getPersonDataValue().getUserId();
+    }
+
+    public LocalDateTime getCreated() {
+        return getTodoItem().getCreated();
+    }
+
+    public String getDescription() {
+        return getTodoItem().getDescription();
+    }
+
+    public void setDescription(final String desc) {
+        getTodoItem().setDescription(desc);
+    }
+
+    public String getMoreDetails() {
+        return getTodoItem().getMoreDetails();
+    }
+
+    public void setMoreDetails(final String details) {
+        getTodoItem().setMoreDetails(details);
+    }
+
+    public Status.StatusValue getStatusValue() {
+        return getStatus().getValue();
+    }
+
+    public void setStatusValue(final Object statusValue) {
+        getStatus().setValue(statusValue);
+    }
+
+    public LocalDateTime getLastUpdate() {
+        return getStatus().getLastUpdate();
+    }
+
+    public String getNotes() {
+        return getStatus().getNotes();
+    }
+
+    public void setNotes(final String notes) {
+        getStatus().setNotes(notes);
+    }
+
+    /**
+     * This returns the person that can update this {@link TodoItem}. This is not necessarily the same as the user
+     * this that this item is about.
+     *
+     * @return The id of the person responsible for updating this {@link TodoItem}.
+     */
+    public Person.Id getOwner() {
+        return getStatus().getOwner();
+    }
+
+    public void setOwner(final Person.Id pid) {
+        getStatus().setOwner(pid);
+    }
+
+    public Status.Priority getPriority() {
+        return getStatus().getPriority();
+    }
+
+    public void setPriority(final Status.Priority priority) {
+        getStatus().setPriority(priority);
+    }
+
+    public Status.Visibility getVisibility() {
+        return getStatus().getVisibility();
+    }
+
+    public void setVisibility(final Status.Visibility visibility) {
+        getStatus().setVisibility(visibility);
     }
 
     public TodoItem getTodoItem() {
         return todoItem;
+    }
+
+    public Status getStatus() {
+        return getPersonDataValue().castContent();
+    }
+
+    public PersonDataValue getPersonDataValue() {
+        return pdv;
     }
 
     private static PersonDataValue createNewTodoPDV(final TodoItem todo, final Person.Id userId) {

@@ -28,6 +28,7 @@ import jakarta.servlet.ServletContext;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.Creds;
+import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.Registration;
@@ -60,8 +61,8 @@ public class DynamoUtils {
     private final Map<String, TripEvent> tripEventCache = new ConcurrentHashMap<>();
     private final Map<Person.Id, Map<String, Transaction>> txCache = new ConcurrentHashMap<>();
     private final Map<String, Map<Person.Id, Registration>> regCache = new ConcurrentHashMap<>();
-    private final Map<String, Map<PersonDataValue.Id, TodoItem>> todoCache = new ConcurrentHashMap<>();
-    private final Map<Person.Id, Map<PersonDataValue.Id, PersonDataValue>> pdvCache = new ConcurrentHashMap<>();
+    private final Map<String, Map<DataId, TodoItem>> todoCache = new ConcurrentHashMap<>();
+    private final Map<Person.Id, Map<DataId, PersonDataValue>> pdvCache = new ConcurrentHashMap<>();
 
     // This flag is set in the web.xml
     private static final String LOCAL = "local";
@@ -435,7 +436,7 @@ public class DynamoUtils {
         map.put(TRIP_ID, toStrAttr(todo.getTripId()));
         map.put(DATA_ID, toStrAttr(todo.getDataId().getValue()));
         map.put(CONTENT, toStrAttr(mapper.writeValueAsString(todo)));
-        final CompletableFuture<Map<PersonDataValue.Id, TodoItem>> futTripTodos = getTodoItemCache(todo.getTripId());
+        final CompletableFuture<Map<DataId, TodoItem>> futTripTodos = getTodoItemCache(todo.getTripId());
         return client.putItem(b -> b.tableName(TODO_ITEM_TABLE).item(map))
                 .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
                 .thenCombine(futTripTodos, (success, tripRegs) -> success ? tripRegs : null)
@@ -451,18 +452,18 @@ public class DynamoUtils {
                 .thenApply(map -> new ArrayList<>(map.values()));
     }
 
-    public CompletableFuture<Optional<TodoItem>> getTodoItem(final String tripId, final PersonDataValue.Id pdvId){
+    public CompletableFuture<Optional<TodoItem>> getTodoItem(final String tripId, final DataId pdvId){
         return getTodoItemCache(tripId)             // Ensure todos for this trip are loaded into memory
                 .thenApply(map -> map.get(pdvId))   // Read from cache
                 .thenApply(Optional::ofNullable);
     }
 
-    private CompletableFuture<Map<PersonDataValue.Id, TodoItem>> getTodoItemCache(final String tripId) {
-        final Map<PersonDataValue.Id, TodoItem> result = todoCache.get(tripId);
+    private CompletableFuture<Map<DataId, TodoItem>> getTodoItemCache(final String tripId) {
+        final Map<DataId, TodoItem> result = todoCache.get(tripId);
         return (result == null) ? cacheTodoItems(tripId) : CompletableFuture.completedFuture(result);
     }
 
-    private CompletableFuture<Map<PersonDataValue.Id, TodoItem>> cacheTodoItems(final String tripId) {
+    private CompletableFuture<Map<DataId, TodoItem>> cacheTodoItems(final String tripId) {
         return loadTodoItems(tripId)
                 .thenApply(cache -> {
                     todoCache.put(tripId, cache);
@@ -474,10 +475,10 @@ public class DynamoUtils {
                 });
     }
 
-    private CompletableFuture<Map<PersonDataValue.Id, TodoItem>> loadTodoItems(final String tripId) {
+    private CompletableFuture<Map<DataId, TodoItem>> loadTodoItems(final String tripId) {
         log.info("Cache miss for todo items for tripId: {}", tripId);
         // Use a map that preserves order for sorting
-        final Map<PersonDataValue.Id, TodoItem> result = new ConcurrentSkipListMap<>();
+        final Map<DataId, TodoItem> result = new ConcurrentSkipListMap<>();
         return client.query(qb -> queryTodoItemsByTrip(qb, tripId))
                 .thenApply(resp -> resp.items().stream()
                         .map(m -> toTodoItem(m.get(CONTENT)))
@@ -510,7 +511,7 @@ public class DynamoUtils {
         map.put(DATA_ID, toStrAttr(pdv.getDataId().getValue()));
         map.put(TYPE, toStrAttr(pdv.getType()));
         map.put(CONTENT, toStrAttr(mapper.writeValueAsString(pdv)));
-        final CompletableFuture<Map<PersonDataValue.Id, PersonDataValue>> futUserData = getPersonDataValueCache(pdv.getUserId());
+        final CompletableFuture<Map<DataId, PersonDataValue>> futUserData = getPersonDataValueCache(pdv.getUserId());
         return client.putItem(b -> b.tableName(PERSON_DATA_VALUE_TABLE).item(map))
                 .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
                 .thenCombine(futUserData, (success, userData) -> success ? userData : null)
@@ -521,23 +522,23 @@ public class DynamoUtils {
                 });
     }
 
-    public CompletableFuture<Map<PersonDataValue.Id, PersonDataValue>> getPersonDataValues(final Person.Id pid) {
+    public CompletableFuture<Map<DataId, PersonDataValue>> getPersonDataValues(final Person.Id pid) {
         return getPersonDataValueCache(pid);
     }
 
     public CompletableFuture<Optional<PersonDataValue>> getPersonDataValue(
-            final Person.Id pid, final PersonDataValue.Id pdvId) {
+            final Person.Id pid, final DataId pdvId) {
         return getPersonDataValueCache(pid)         // Ensure data for this person is loaded into memory
                 .thenApply(map -> map.get(pdvId))   // Read from cache
                 .thenApply(Optional::ofNullable);
     }
 
-    private CompletableFuture<Map<PersonDataValue.Id, PersonDataValue>> getPersonDataValueCache(final Person.Id pid) {
-        final Map<PersonDataValue.Id, PersonDataValue> result = pdvCache.get(pid);
+    private CompletableFuture<Map<DataId, PersonDataValue>> getPersonDataValueCache(final Person.Id pid) {
+        final Map<DataId, PersonDataValue> result = pdvCache.get(pid);
         return (result == null) ? cachePersonDataValues(pid) : CompletableFuture.completedFuture(result);
     }
 
-    private CompletableFuture<Map<PersonDataValue.Id, PersonDataValue>> cachePersonDataValues(final Person.Id pid) {
+    private CompletableFuture<Map<DataId, PersonDataValue>> cachePersonDataValues(final Person.Id pid) {
         return loadPersonDataValues(pid)
                 .thenApply(cache -> {
                     pdvCache.put(pid, cache);
@@ -549,9 +550,9 @@ public class DynamoUtils {
                 });
     }
 
-    private CompletableFuture<Map<PersonDataValue.Id, PersonDataValue>> loadPersonDataValues(final Person.Id pid) {
+    private CompletableFuture<Map<DataId, PersonDataValue>> loadPersonDataValues(final Person.Id pid) {
         log.info("Cache miss for person data values for person id: {}", pid);
-        final Map<PersonDataValue.Id, PersonDataValue> result = new ConcurrentHashMap<>();
+        final Map<DataId, PersonDataValue> result = new ConcurrentHashMap<>();
         return client.query(qb -> queryPersonDataValuesByPerson(qb, pid))
                 .thenApply(resp -> resp.items().stream()
                         .map(m -> toPersonDataValue(m.get(CONTENT)))

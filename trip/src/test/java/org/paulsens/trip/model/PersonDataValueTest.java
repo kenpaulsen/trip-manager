@@ -17,7 +17,7 @@ public class PersonDataValueTest {
         final Person.Id userId = Person.Id.from(RandomData.genAlpha(15));
         final PersonDataValue pdv = PersonDataValue.builder()
                 .userId(userId)
-                .dataId(PersonDataValue.Id.newInstance())
+                .dataId(DataId.newInstance())
                 .type(RandomData.genAlpha(5))
                 .content(RandomData.genAlpha(15))
                 .build();
@@ -26,7 +26,7 @@ public class PersonDataValueTest {
 
     @Test
     public void testDataId() {
-        final PersonDataValue.Id dataId = PersonDataValue.Id.from(RandomData.genAlpha(15));
+        final DataId dataId = DataId.from(RandomData.genAlpha(15));
         final PersonDataValue pdv = PersonDataValue.builder()
                 .userId(Person.Id.newInstance())
                 .dataId(dataId)
@@ -41,7 +41,7 @@ public class PersonDataValueTest {
         final String type = RandomData.genAlpha(15);
         final PersonDataValue pdv = PersonDataValue.builder()
                 .userId(Person.Id.newInstance())
-                .dataId(PersonDataValue.Id.newInstance())
+                .dataId(DataId.newInstance())
                 .type(type)
                 .content(RandomData.genAlpha(15))
                 .build();
@@ -53,7 +53,7 @@ public class PersonDataValueTest {
         final String content = RandomData.genAlpha(15);
         final PersonDataValue pdv = PersonDataValue.builder()
                 .userId(Person.Id.newInstance())
-                .dataId(PersonDataValue.Id.newInstance())
+                .dataId(DataId.newInstance())
                 .type(RandomData.genAlpha(13))
                 .content(content)
                 .build();
@@ -65,7 +65,7 @@ public class PersonDataValueTest {
         final String content = RandomData.genAlpha(15);
         final PersonDataValue pdv = PersonDataValue.builder()
                 .userId(Person.Id.newInstance())
-                .dataId(PersonDataValue.Id.newInstance())
+                .dataId(DataId.newInstance())
                 .type(RandomData.genAlpha(5))
                 .content(content)
                 .build();
@@ -78,7 +78,7 @@ public class PersonDataValueTest {
         final int content = RandomData.randomInt(Integer.MAX_VALUE);
         final PersonDataValue pdv = PersonDataValue.builder()
                 .userId(Person.Id.newInstance())
-                .dataId(PersonDataValue.Id.newInstance())
+                .dataId(DataId.newInstance())
                 .type(RandomData.genAlpha(5))
                 .content(content).build();
         final int result = pdv.castContent();
@@ -90,7 +90,7 @@ public class PersonDataValueTest {
         final Integer content = RandomData.randomInt(Integer.MAX_VALUE);
         final PersonDataValue pdv = PersonDataValue.builder()
                 .userId(Person.Id.newInstance())
-                .dataId(PersonDataValue.Id.newInstance())
+                .dataId(DataId.newInstance())
                 .type(RandomData.genAlpha(5))
                 .content(content).build();
         final Integer result = pdv.castContent();
@@ -102,7 +102,7 @@ public class PersonDataValueTest {
         final Integer content = RandomData.randomInt(Integer.MAX_VALUE);
         final PersonDataValue pdv = PersonDataValue.builder()
                 .userId(Person.Id.newInstance())
-                .dataId(PersonDataValue.Id.newInstance())
+                .dataId(DataId.newInstance())
                 .type(RandomData.genAlpha(5))
                 .content(content).build();
         assertThrows(ClassCastException.class, () -> { long l = pdv.castContent(); });
@@ -112,7 +112,7 @@ public class PersonDataValueTest {
     public void canSerializePDV() throws IOException {
         final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
         final Person.Id userId = Person.Id.from(RandomData.genAlpha(9));
-        final PersonDataValue.Id dataId = PersonDataValue.Id.from(RandomData.genAlpha(8));
+        final DataId dataId = DataId.from(RandomData.genAlpha(8));
         final String type = RandomData.genAlpha(12);
         final String content = RandomData.genAlpha(7);
         final PersonDataValue orig = PersonDataValue.builder()
@@ -131,6 +131,8 @@ public class PersonDataValueTest {
 
     @Test
     public void testTestEquals() {
-        EqualsVerifier.forClass(PersonDataValue.class).suppress(Warning.NONFINAL_FIELDS).verify();
+        EqualsVerifier.forClass(PersonDataValue.class)
+                .suppress(Warning.NONFINAL_FIELDS)
+                .suppress(Warning.STRICT_INHERITANCE).verify();
     }
 }

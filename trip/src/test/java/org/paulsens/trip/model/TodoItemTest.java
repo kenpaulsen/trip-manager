@@ -18,7 +18,7 @@ public class TodoItemTest {
         final String tripId = RandomData.genAlpha(15);
         final TodoItem todo = TodoItem.builder()
                 .tripId(tripId)
-                .dataId(PersonDataValue.Id.newInstance())
+                .dataId(DataId.newInstance())
                 .description(RandomData.genAlpha(11))
                 .build();
         assertEquals(todo.getTripId(), tripId);
@@ -26,7 +26,7 @@ public class TodoItemTest {
 
     @Test
     public void testDataId() {
-        final PersonDataValue.Id dataId = PersonDataValue.Id.from(RandomData.genAlpha(15));
+        final DataId dataId = DataId.from(RandomData.genAlpha(15));
         final TodoItem todo = TodoItem.builder()
                 .tripId(RandomData.genAlpha(13))
                 .dataId(dataId)
@@ -40,7 +40,7 @@ public class TodoItemTest {
         final String description = RandomData.genAlpha(15);
         final TodoItem todo = TodoItem.builder()
                 .tripId(RandomData.genAlpha(13))
-                .dataId(PersonDataValue.Id.newInstance())
+                .dataId(DataId.newInstance())
                 .description(description)
                 .build();
         assertEquals(todo.getDescription(), description);
@@ -51,7 +51,7 @@ public class TodoItemTest {
         final String moreDetails = RandomData.genAlpha(15);
         final TodoItem todo = TodoItem.builder()
                 .tripId(RandomData.genAlpha(13))
-                .dataId(PersonDataValue.Id.newInstance())
+                .dataId(DataId.newInstance())
                 .description(RandomData.genAlpha(11))
                 .moreDetails(moreDetails)
                 .build();
@@ -62,14 +62,14 @@ public class TodoItemTest {
     public void testCreated() {
         final TodoItem todo = TodoItem.builder()
                 .tripId(RandomData.genAlpha(13))
-                .dataId(PersonDataValue.Id.newInstance())
+                .dataId(DataId.newInstance())
                 .description(RandomData.genAlpha(11))
                 .build();
         assertNotNull(todo.getCreated());
         final LocalDateTime now = LocalDateTime.now();
         final TodoItem todoWithTime = TodoItem.builder()
                 .tripId(RandomData.genAlpha(13))
-                .dataId(PersonDataValue.Id.newInstance())
+                .dataId(DataId.newInstance())
                 .description(RandomData.genAlpha(11))
                 .created(now)
                 .build();
@@ -80,7 +80,7 @@ public class TodoItemTest {
     public void canSerializeTodo() throws IOException {
         final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
         final String tripId = RandomData.genAlpha(9);
-        final PersonDataValue.Id dataId = PersonDataValue.Id.from(RandomData.genAlpha(8));
+        final DataId dataId = DataId.from(RandomData.genAlpha(8));
         final String desc = RandomData.genAlpha(7);
         final String more = RandomData.genAlpha(6);
         final TodoItem orig = TodoItem.builder()
@@ -96,6 +96,8 @@ public class TodoItemTest {
 
     @Test
     public void testTestEquals() {
-        EqualsVerifier.forClass(TodoItem.class).suppress(Warning.NONFINAL_FIELDS).verify();
+        EqualsVerifier.forClass(TodoItem.class)
+                .suppress(Warning.STRICT_INHERITANCE)
+                .suppress(Warning.NONFINAL_FIELDS).verify();
     }
 }
