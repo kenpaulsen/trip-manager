@@ -13,6 +13,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
@@ -87,6 +88,13 @@ public class TripUtilCommands {
 
     public <T> List<T> getMapValues(Map<?, T> map) {
         return asList(map.values());
+    }
+
+    public <T> List<T> arrayToList(final T[] arr) {
+        if (arr == null || arr.length == 0) {
+            return List.of();
+        }
+        return Arrays.asList(arr);
     }
 
     public SelectItem[] getSelectItems(final Collection<String> labels, final Collection<Object> values) {

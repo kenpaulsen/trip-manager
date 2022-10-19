@@ -15,7 +15,7 @@ public class DataId implements Serializable, Comparable<DataId> {
     }
 
     public static DataId newInstance() {
-        return new DataId(RandomData.genString(8, RandomData.ALPHA_NUM));
+        return new DataId(RandomData.genString(18, RandomData.ALPHA_NUM));
     }
 
     @Override
