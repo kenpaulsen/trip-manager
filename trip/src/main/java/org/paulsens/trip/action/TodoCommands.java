@@ -1,11 +1,13 @@
 package org.paulsens.trip.action;
 
+import com.sun.jsft.util.ELUtil;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -56,6 +58,15 @@ public class TodoCommands {
 //    + description          = String
 //    + moreDetails          = String
 //    + notes                = String
+// FIXME: Add ability to edit notes for a todo
+// FIXME: Create an admin feature that lists todo's by:
+//          - All todo's for a trip (filter by person?) (maybe page loops through todoItem's lists description w/ 3 columns for people by status)
+//          - All people for a single todo (above might take care of that?)
+//          - Shows created/last updated fields somehow (user page too? maybe detail page)
+// FIXME: Create a person page that lists all their todo's regardless of trip
+// FIXME: Add "public" tasks where I can show my tasks so others know what I'm doing
+// FIXME: Add deadlines
+// FIXME: When a user tries to move one that only and admin can edit, provide a facesmessage explaining why it failed
 
     public boolean saveTodo(final TodoItem todo) {
         boolean result;
@@ -88,11 +99,16 @@ public class TodoCommands {
                 }).join();
     }
 
-    public List<TodoStatus> getTodosForUser(final String tripId, final Person.Id userId) {
+    public List<TodoStatus> getTodosForUser(final String tripId, final Person.Id userId, final boolean isAdmin) {
         return getTodos(tripId).stream()
                 .map(todo -> getTodoStatus(todo, userId))
                 .filter(Objects::nonNull)
+                .filter(status -> isAdmin || (status.getVisibility() == Status.Visibility.USER))
                 .toList();
+    }
+
+    public DataId dataIdFrom(final String id) {
+        return DataId.from(id);
     }
 
     public TodoItem getTodo(final String tripId, final DataId dataId) {
@@ -131,6 +147,86 @@ public class TodoCommands {
         return PersonDataValueCommands.savePersonDataValue(todoStatus.getPersonDataValue());
     }
 
+    /**
+     * This method will create or update todo metadata and apply common attributes to a list of users. If any of the
+     * users have custom values already set, those values may be overwritten because we don't know any better.
+     */
+    public void saveTodoAndStatuses(
+            final Person.Id[] people,
+            final DataId dataId,
+            final Trip theTrip,
+            final String todoOwner,
+            final String desc,
+            final String moreDetails,
+            final Status.Visibility todoVis,
+            final Status.Priority todoPriority) {
+        if (!checkRequiredInputs(people, desc)) {
+            // Abort
+            return;
+        }
+        // Todo info
+        final TodoItem theTodo;
+        if (dataId == null) {
+            theTodo = createTodo(theTrip.getId());
+        } else {
+            theTodo = getTodo(theTrip.getId(), dataId);
+        }
+        theTodo.setDescription(desc);
+        theTodo.setMoreDetails(moreDetails);
+        saveTodo(theTodo);
+
+        // Set Status info for all the people now assigned this task...
+        final HashSet<Person.Id> assignedPeople = new HashSet<>();
+        for (Person.Id pid : people) {
+            final TodoStatus userTodoStatus = getOrCreateTodoStatus(theTodo, pid);
+            userTodoStatus.setOwner(getTodoOwner(todoOwner, userTodoStatus, pid));
+            userTodoStatus.setVisibility(todoVis);
+            userTodoStatus.setPriority(todoPriority);
+            saveTodoStatus(userTodoStatus);
+            assignedPeople.add(pid);
+        }
+        // Now remove anyone that was prev assigned, but is no longer assigned...
+        for (final Person.Id pid : theTrip.getPeople()) {
+            if (assignedPeople.contains(pid)) {
+                continue;
+            }
+            // Make sure they don't have this assigned anymore..
+            final TodoStatus userTodoStatus = getTodoStatus(theTodo, pid);
+            if ((userTodoStatus != null) && (userTodoStatus.getVisibility() != Status.Visibility.DELETED)) {
+                // We will *ONLY* update to visibility == deleted
+                userTodoStatus.setVisibility(Status.Visibility.DELETED);
+                saveTodoStatus(userTodoStatus);
+            }
+        }
+        setRunScript("newTodoError = false;");
+        final String msg = "'" + desc + "' Todo Created!";
+        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO, msg, msg);
+    }
+
+    private boolean checkRequiredInputs(final Person.Id[] people, final String desc) {
+        boolean goodRequest = true;
+        if (people == null || people.length == 0) {
+            final String selPeopleId = (String) getRequestAttribute("selPeopleId").orElse(null);
+            final String msg = "You must select at least 1 person!";
+            TripUtilCommands.addMessage(selPeopleId, new FacesMessage(FacesMessage.SEVERITY_ERROR, msg, msg));
+            setRunScript("newTodoError = true;");
+            goodRequest = false;
+        }
+        if (desc == null || desc.isBlank()) {
+            final String descClientId = (String) getRequestAttribute("newTodoDescClientId").orElse(null);
+            final String msg = "You must provide a description!";
+            TripUtilCommands.addMessage(descClientId, new FacesMessage(FacesMessage.SEVERITY_ERROR, msg, msg));
+            setRunScript("newTodoError = true;");
+            goodRequest = false;
+        }
+        return goodRequest;
+    }
+
+    public boolean userCanEdit(final TodoStatus todoStatus, final Person.Id pid, final boolean isAdmin) {
+        final Person.Id owner = todoStatus.getOwner();
+        return isAdmin || ((owner != null) && owner.equals(pid));
+    }
+
     public DashboardModel getTodoDashboard(final String tripId, final Person.Id userId, final boolean showDone) {
         final DashboardModel model = new DefaultDashboardModel();
         model.addColumn(new DefaultDashboardColumn()); // To do
@@ -149,6 +245,24 @@ public class TodoCommands {
         return PersonDataValueCommands.getPersonDataValue(userId, todo.getDataId()) != null;
     }
 
+    public String statusToTagSeverity(final TodoStatus status) {
+        return switch (status.getStatusValue()) {
+            case TODO -> "warning";
+            case IN_PROGRESS -> "info";
+            case DONE -> "success";
+        };
+    }
+
+    public String priorityToTagSeverity(final TodoStatus status) {
+        return switch (status.getPriority()) {
+            case OPTIONAL -> "success";
+            case LOW -> "info";
+            case NORMAL -> "primary";
+            case HIGH -> "warning";
+            case CRITICAL -> "danger";
+        };
+    }
+
     /**
      * This effectively gets all the people assigned to a {@link TodoItem} plus the status.
      * @param todo      The {@link TodoItem} to search.
@@ -156,18 +270,23 @@ public class TodoCommands {
      */
     public List<TodoStatus> getTodoStatusesForTodo(final TodoItem todo) {
         if (todo == null) {
-            log.warn("getPeopleForTodo invoked with null todo!");
+            log.warn("getTodoStatusesForTodo invoked with null todo!");
             return List.of();
         }
         final Trip trip = getTripCommands().getTrip(todo.getTripId());
         if (trip == null) {
-            log.warn("Trip not found in getPeopleForTodo!");
+            log.warn("Trip not found in getTodoStatusesForTodo!");
             return List.of();
         }
         return trip.getPeople().stream()
                 .map(pid -> getTodoStatus(todo, pid))
                 .filter(Objects::nonNull)
+                .filter(status -> status.getVisibility() != Status.Visibility.DELETED)
                 .toList();
+    }
+
+    public List<Person.Id> getPeopleForTodoItem(final TodoItem todo) {
+        return getTodoStatusesForTodo(todo).stream().map(status -> status.getPersonDataValue().getUserId()).toList();
     }
 
     // Adds the dashboard model assuming 2 or 3 columns: "to do", "in progress", and optional "done". It adds these
@@ -193,9 +312,39 @@ public class TodoCommands {
     private TripCommands findTripCommands() {
         final FacesContext ctx = FacesContext.getCurrentInstance();
         if (ctx != null) {
-            return (TripCommands) FacesContext.getCurrentInstance().getExternalContext()
-                    .getApplicationMap().get("trip");
+            return (TripCommands) ELUtil.getInstance().eval("#{trip}");
         }
         return new TripCommands();
+    }
+
+    /**
+     * This method sets a request attribute that contains a JS script to be executed on page rendering.
+     * @param script    The script to execute.
+     */
+    public void setRunScript(final String script) {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (ctx != null) {
+            ctx.getExternalContext().getRequestMap().put("runScript", script);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T> Optional<T> getRequestAttribute(final String attName) {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        final T result = (ctx == null) ? null : (T) ctx.getExternalContext().getRequestMap().get(attName);
+        return Optional.ofNullable(result);
+    }
+
+    private Person.Id getTodoOwner(final String todoOwner, final TodoStatus status, final Person.Id currUser) {
+        final Person.Id result;
+        if (todoOwner == null || "ADMIN".equals(todoOwner.trim())) {
+            result = null;
+        } else if ("USER".equals(todoOwner.trim())) {
+            // If the owner is already set, leave it set
+            result = (status.getOwner() != null) ? status.getOwner() : currUser;
+        } else {
+            result = Person.Id.from(todoOwner.trim());
+        }
+        return result;
     }
 }

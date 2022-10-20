@@ -18,7 +18,9 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @ApplicationScoped
 @Named("tripUtil")
 @SuppressWarnings("unused")
@@ -59,7 +61,23 @@ public class TripUtilCommands {
         addFacesMessage(FacesMessage.SEVERITY_FATAL, summary, detail);
     }
     static void addFacesMessage(final Severity severity, final String summary, final String detail) {
-        FacesContext.getCurrentInstance().addMessage(null, new FacesMessage(severity, summary, detail));
+        addMessage(null, new FacesMessage(severity, summary, detail));
+    }
+
+    /**
+     * Use with {@link #createFacesMessage(String, String, String)} to create / send a message that is tied to
+     * a clientId.
+     * @param clientId  The clientId related to this message.
+     * @param msg       The {@code FacesMessage}.
+     */
+    public static void addMessage(final String clientId, final FacesMessage msg) {
+        FacesContext ctx = FacesContext.getCurrentInstance();
+        if (ctx != null) {
+            ctx.addMessage(clientId, msg);
+        } else {
+            log.warn("ClientId '" + clientId + "' had message: '" + msg.getSummary()
+                    + "', level: " + msg.getSeverity());
+        }
     }
 
     public <T> List<T> asList(final Collection<T> collection) {
@@ -90,7 +108,7 @@ public class TripUtilCommands {
         return asList(map.values());
     }
 
-    public <T> List<T> arrayToList(final T[] arr) {
+    public static <T> List<T> arrayToList(final T[] arr) {
         if (arr == null || arr.length == 0) {
             return List.of();
         }

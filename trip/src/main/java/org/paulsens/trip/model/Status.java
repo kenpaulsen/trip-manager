@@ -7,6 +7,7 @@ import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Data;
+import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
 
@@ -23,7 +24,6 @@ public class Status implements Serializable {
     @Builder.Default
     private LocalDateTime lastUpdate = LocalDateTime.now();
     private String notes;
-// FIXME: Make this happpen...
     // Only the Status owner, a manager of the Status owner, or an admin can change a status
     private Person.Id owner;
     // Priority is to help draw attention to the important items
@@ -50,21 +50,36 @@ public class Status implements Serializable {
     }
 
     public enum StatusValue {
-        TODO,
-        IN_PROGRESS,
-        //BLOCKED, FIXME: May want to add this as a "tag" along w/ other tags, probably doesn't belong here
-        DONE
+        TODO("To do"),
+        IN_PROGRESS("In Progress"),
+        //BLOCKED("Blocked"), FIXME: May want to add this as a "tag" along w/ other tags, probably doesn't belong here
+        DONE("Done");
+
+        @Getter
+        final String displayValue;
+
+        StatusValue(final String text) {
+            this.displayValue = text;
+        }
     }
 
     public enum Priority {
-        OPTIONAL,
-        LOW,
-        NORMAL,
-        HIGH,
-        CRITICAL
+        OPTIONAL("Optional"),
+        LOW("Low"),
+        NORMAL("Normal"),
+        HIGH("High"),
+        CRITICAL("Critical");
+
+        @Getter
+        final String displayValue;
+
+        Priority(final String text) {
+            this.displayValue = text;
+        }
     }
 
     public enum Visibility {
+        DELETED,
         USER,
         ADMIN
     }
