@@ -44,25 +44,10 @@ public class TodoCommands {
                 .build();
     }
 
-// TodoStatus Fields:
-//      tripId               = String (read only)
-//      userId               = Person.Id (read only)
-//      dataId               = DataId (read only)
-//      created              = LocalDateTime (read only)
-//      lastUpdate           = LocalDateTime (read only)
-//
-//      owner                = Person.Id
-//      visibility           = Status.Visibility.ADMIN, USER
-//    + priority             = Status.Priority.OPTIONAL, LOW, NORMAL, HIGH, CRITICAL
-//    + statusValue          = Status.StatusValue.DONE, TODO, IN_PROGRESS
-//    + description          = String
-//    + moreDetails          = String
-//    + notes                = String
-// FIXME: Add ability to edit notes for a todo
+// FIXME: Add ability for admin to visit user's todo's
 // FIXME: Create an admin feature that lists todo's by:
 //          - All todo's for a trip (filter by person?) (maybe page loops through todoItem's lists description w/ 3 columns for people by status)
 //          - All people for a single todo (above might take care of that?)
-//          - Shows created/last updated fields somehow (user page too? maybe detail page)
 // FIXME: Create a person page that lists all their todo's regardless of trip
 // FIXME: Add "public" tasks where I can show my tasks so others know what I'm doing
 // FIXME: Add deadlines
