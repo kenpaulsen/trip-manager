@@ -21,12 +21,12 @@ public class FakeData {
         final List<Person> people = new ArrayList<>();
         people.add(new Person(null, "Joe", "Joseph", "Bob", "Smith",
                 LocalDate.of(1947, 2, 11), null, "user1", null, null, null, null, null, null, null));
-        Person.builder()
+        people.add(Person.builder()
                 .id(Person.Id.from("admin"))
                 .first("admin")
                 .last("user")
                 .email("admin")
-                .build();
+                .build());
         people.add(new Person(null, "Ken", "Kenneth", "", "Paulsen",
                 LocalDate.of(1977, 12, 11), null, "user2", null, null, null, null, null, null, null));
         people.add(new Person(null, null, "Kevin", "David", "Paulsen",

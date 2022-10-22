@@ -94,7 +94,9 @@ public class TodoCommandsTest {
     public void emptyDashWorks() {
         final String tripId = RandomData.genAlpha(22);
         final Person.Id pid = Person.Id.newInstance();
-        final DashboardModel model = todoCommands.getTodoDashboard(tripId, pid, false);
+
+        final DashboardModel model = todoCommands.getTodoDashboard(
+                todoCommands.getTodosForUser(tripId, pid, true), false);
         assertEquals(model.getColumnCount(), 2);
         assertEquals(model.getColumn(0).getWidgetCount(), 0);
         assertEquals(model.getColumn(1).getWidgetCount(), 0);
@@ -114,22 +116,23 @@ public class TodoCommandsTest {
         setTodoStatusForUser(tripId, null, pid, Status.StatusValue.DONE);       // Add some more...
         setTodoStatusForUser(tripId, null, pid, Status.StatusValue.DONE);       // Add some more...
 
-        final DashboardModel model = todoCommands.getTodoDashboard(tripId, pid, true);
+        final List<TodoStatus> todosToShow = todoCommands.getTodosForUser(tripId, pid, false);
+        final DashboardModel model = todoCommands.getTodoDashboard(todosToShow, true);
         assertEquals(model.getColumnCount(), 3);
         assertEquals(model.getColumn(0).getWidgetCount(), 3);
         assertEquals(model.getColumn(1).getWidgetCount(), 1);
         assertEquals(model.getColumn(2).getWidgetCount(), 2);
-        assertEquals(model.getColumn(1).getWidget(0), TodoCommands.WIDGET_PREFIX + dataId);
+        assertEquals(model.getColumn(1).getWidget(0), TodoCommands.WIDGET_PREFIX + dataId + '-' + pid.getValue());
 
         // Modify status, rebuild DashboardModel... should see changes (even if we don't persist, due to caching)
         todoCommands.getOrCreateTodoStatus(todo, pid).getStatus().setValue("DONE");
-        final DashboardModel updatedModel = todoCommands.getTodoDashboard(tripId, pid, true);
+        final DashboardModel updatedModel = todoCommands.getTodoDashboard(todosToShow, true);
         assertEquals(updatedModel.getColumn(0).getWidgetCount(), 3);
         assertEquals(updatedModel.getColumn(1).getWidgetCount(), 0);
         final DashboardColumn col2 = updatedModel.getColumn(2);
         assertEquals(col2.getWidgetCount(), 3);
-        assertEquals(col2.getWidgets().get(col2.getWidgets().indexOf(TodoCommands.WIDGET_PREFIX + dataId)),
-                TodoCommands.WIDGET_PREFIX + todo.getDataId().getValue());
+        assertEquals(col2.getWidgets().get(col2.getWidgets().indexOf(todoCommands.getWidgetId(todo.getDataId(), pid))),
+                TodoCommands.WIDGET_PREFIX + todo.getDataId().getValue() + '-' + pid.getValue());
     }
 
     private void setTodoStatusForUser(

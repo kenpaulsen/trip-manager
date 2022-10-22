@@ -27,7 +27,6 @@ public class PersonTest {
         final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
         final Person before = people.get(0);
         final String personStr = mapper.writeValueAsString(people.get(0));
-        System.out.println(personStr);
         final Person after = mapper.readValue(personStr, Person.class);
         Assert.assertEquals(after, before, "To/from json failed!");
     }
@@ -57,20 +56,23 @@ public class PersonTest {
         Assert.assertEquals(people.get(0).getNickname(), "Joe");
         Assert.assertEquals(people.get(0).getPreferredName(), "Joe");
         Assert.assertEquals(people.get(0).getFirst(), "Joseph");
-        Assert.assertEquals(people.get(1).getNickname(), "Ken");
-        Assert.assertEquals(people.get(1).getPreferredName(), "Ken");
-        Assert.assertEquals(people.get(1).getFirst(), "Kenneth");
-        Assert.assertNull(people.get(2).getNickname());
-        Assert.assertEquals(people.get(2).getPreferredName(), "Kevin");
-        Assert.assertEquals(people.get(2).getFirst(), "Kevin");
-        Assert.assertEquals(people.get(3).getNickname(), "Trinity");
-        Assert.assertEquals(people.get(3).getPreferredName(), "Trinity");
-        Assert.assertEquals(people.get(3).getFirst(), "Trinity");
-        Assert.assertEquals(people.get(4).getNickname(), "Dave");
-        Assert.assertEquals(people.get(4).getPreferredName(), "Dave");
-        Assert.assertEquals(people.get(4).getFirst(), "David");
-        Assert.assertEquals(people.get(5).getNickname(), "Matt");
-        Assert.assertEquals(people.get(5).getPreferredName(), "Matt");
-        Assert.assertEquals(people.get(5).getFirst(), "Matthew");
+        Assert.assertNull(people.get(1).getNickname());
+        Assert.assertEquals(people.get(1).getPreferredName(), "admin");
+        Assert.assertEquals(people.get(1).getFirst(), "admin");
+        Assert.assertEquals(people.get(2).getNickname(), "Ken");
+        Assert.assertEquals(people.get(2).getPreferredName(), "Ken");
+        Assert.assertEquals(people.get(2).getFirst(), "Kenneth");
+        Assert.assertNull(people.get(3).getNickname());
+        Assert.assertEquals(people.get(3).getPreferredName(), "Kevin");
+        Assert.assertEquals(people.get(3).getFirst(), "Kevin");
+        Assert.assertEquals(people.get(4).getNickname(), "Trinity");
+        Assert.assertEquals(people.get(4).getPreferredName(), "Trinity");
+        Assert.assertEquals(people.get(4).getFirst(), "Trinity");
+        Assert.assertEquals(people.get(5).getNickname(), "Dave");
+        Assert.assertEquals(people.get(5).getPreferredName(), "Dave");
+        Assert.assertEquals(people.get(5).getFirst(), "David");
+        Assert.assertEquals(people.get(6).getNickname(), "Matt");
+        Assert.assertEquals(people.get(6).getPreferredName(), "Matt");
+        Assert.assertEquals(people.get(6).getFirst(), "Matthew");
     }
 }

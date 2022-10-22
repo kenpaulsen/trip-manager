@@ -44,10 +44,8 @@ public class TodoCommands {
                 .build();
     }
 
-// FIXME: Add ability for admin to visit user's todo's
 // FIXME: Create an admin feature that lists todo's by:
 //          - All todo's for a trip (filter by person?) (maybe page loops through todoItem's lists description w/ 3 columns for people by status)
-//          - All people for a single todo (above might take care of that?)
 // FIXME: Create a person page that lists all their todo's regardless of trip
 // FIXME: Add "public" tasks where I can show my tasks so others know what I'm doing
 // FIXME: Add deadlines
@@ -123,9 +121,30 @@ public class TodoCommands {
         return (pdv == null) ? null : new TodoStatus(todo, pdv);
     }
 
-    public TodoStatus getTodoStatusUsingWidgetId(final String trip, final Person.Id userId, final String widgetId) {
-        final TodoItem todo = getTodo(trip, DataId.from(widgetId.substring(WIDGET_PREFIX.length())));
-        return getTodoStatus(todo, userId);
+    public String getWidgetId(final DataId dataId, final Person.Id pid) {
+        if (dataId == null) {
+            log.warn("DataId is null, cannot create widget id!");
+            return null;
+        }
+        if (pid == null) {
+            log.warn("Person id is null, cannot create widget id!");
+            return null;
+        }
+        return WIDGET_PREFIX + dataId.getValue() + '-' + pid.getValue();
+    }
+
+    public TodoStatus getTodoStatusUsingWidgetId(final String trip, final String widgetId) {
+        final TodoItem todo = getTodo(trip, dataIdFromWidgetId(widgetId));
+        return getTodoStatus(todo, personIdFromWidgetId(widgetId));
+    }
+
+    private DataId dataIdFromWidgetId(final String widgetId) {
+        final String dataIdAndUserId = widgetId.substring(WIDGET_PREFIX.length());
+        return DataId.from(dataIdAndUserId.substring(0, dataIdAndUserId.indexOf('-')));
+    }
+
+    private Person.Id personIdFromWidgetId(final String widgetId) {
+        return Person.Id.from(widgetId.substring(widgetId.indexOf('-', WIDGET_PREFIX.length() + 1) + 1));
     }
 
     public boolean saveTodoStatus(final TodoStatus todoStatus) {
@@ -212,17 +231,14 @@ public class TodoCommands {
         return isAdmin || ((owner != null) && owner.equals(pid));
     }
 
-    public DashboardModel getTodoDashboard(final String tripId, final Person.Id userId, final boolean showDone) {
+    public DashboardModel getTodoDashboard(final List<TodoStatus> todos, final boolean showDone) {
         final DashboardModel model = new DefaultDashboardModel();
         model.addColumn(new DefaultDashboardColumn()); // To do
         model.addColumn(new DefaultDashboardColumn()); // In progress
         if (showDone) {
             model.addColumn(new DefaultDashboardColumn()); // Done
         }
-        getTodos(tripId).stream()
-                .map(todo -> getTodoStatus(todo, userId))
-                .filter(Objects::nonNull)
-                .forEach(todoStatus -> addTodoToDash(model, todoStatus, showDone));
+        todos.forEach(todoStatus -> addTodoToDash(model, todoStatus, showDone));
         return model;
     }
 
@@ -290,7 +306,7 @@ public class TodoCommands {
             column = -1;
         }
         if (column != -1) {
-            dashModel.getColumn(column).addWidget(WIDGET_PREFIX + status.getDataId().getValue());
+            dashModel.getColumn(column).addWidget(getWidgetId(status.getDataId(), status.getUserId()));
         }
     }
 
