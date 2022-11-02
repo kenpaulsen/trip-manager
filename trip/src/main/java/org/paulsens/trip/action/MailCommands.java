@@ -132,6 +132,16 @@ public class MailCommands {
         return current;
     }
 
+    public Collection<String> addRecipientsByPerson(
+            final Collection<String> current, final Collection<Person> newPeople) {
+        newPeople.forEach(per -> formatEmailMaybe(per).map(current::add));
+        return current;
+    }
+
+    private Optional<String> formatEmailMaybe(final Person person) {
+        return Optional.ofNullable(formatEmail(person));
+    }
+
     public String formatEmail(final Person person) {
         final String email = validateEmail(person.getEmail());
         if (email == null) {
