@@ -5,6 +5,7 @@ import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -46,12 +47,13 @@ public class TripCommands {
         return filterActiveTrips(getTrips(), pastDaysToCountAsActive);
     }
 
-    public List<Trip> getInactiveTrips(
-            final Person.Id userId, final boolean isAdmin, final int pastDaysToCountAsActive) {
-        return getTrips().stream()
-                .filter(trip -> trip.getEndDate().isBefore(LocalDateTime.now().minus(pastDaysToCountAsActive, DAYS)))
+    public List<Trip> getInactiveTrips(final Person.Id userId, final boolean isAdmin, final int pastDaysStillActive) {
+        final List<Trip> result = new ArrayList<>(getTrips().stream()
+                .filter(trip -> trip.getEndDate().isBefore(LocalDateTime.now().minus(pastDaysStillActive, DAYS)))
                 .filter((trip -> isAdmin || trip.getPeople().contains(userId)))
-                .collect(Collectors.toList());
+                .toList());
+        Collections.reverse(result);
+        return result;
     }
 
     public List<Trip> getTrips() {

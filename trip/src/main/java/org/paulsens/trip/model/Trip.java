@@ -60,11 +60,11 @@ public final class Trip implements Serializable {
     }
 
     /**
-     * Returns {@code true} if the the given person can join this Trip. This requires the Trip to be open to the
-     * public, not already be on the trip, and for the trip to not yet be started.
+     * Returns {@code true} if the the given person can join this Trip. This requires the Person to not already be on
+     * the trip, and for the trip to not yet be started.
      */
     public boolean canJoin(final Person.Id userId) {
-        return openToPublic && !people.contains(userId) && startDate.isAfter(LocalDateTime.now());
+        return !people.contains(userId) && startDate.isAfter(LocalDateTime.now());
     }
 
     public String addTripEvent(final String title, final String notes, final LocalDateTime date) {
