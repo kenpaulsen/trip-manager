@@ -1,5 +1,7 @@
 package org.paulsens.trip.action;
 
+import com.sun.jsft.util.ELUtil;
+import jakarta.el.ValueExpression;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.application.FacesMessage;
 import jakarta.faces.application.FacesMessage.Severity;
@@ -19,6 +21,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.primefaces.model.SortMeta;
 
 @Slf4j
 @ApplicationScoped
@@ -78,6 +81,12 @@ public class TripUtilCommands {
             log.warn("ClientId '" + clientId + "' had message: '" + msg.getSummary()
                     + "', level: " + msg.getSeverity());
         }
+    }
+
+    public SortMeta sortBy(final String sortBy) {
+        final String el = "#{" + sortBy + "}";
+        final ValueExpression ex = ELUtil.getInstance().getValueExpression(FacesContext.getCurrentInstance(), el);
+        return SortMeta.builder().sortBy(ex).build();
     }
 
     public <T> List<T> asList(final Collection<T> collection) {
