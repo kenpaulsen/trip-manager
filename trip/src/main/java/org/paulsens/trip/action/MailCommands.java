@@ -67,8 +67,8 @@ public class MailCommands {
 // Can use this to disable email for testing
         //return CompletableFuture.completedFuture(SendEmailResponse.builder().build())
         return client.sendEmail(req)
-                .thenApply(r -> logAndReturn(r, to,
-                        "Email sent to: '" + to + "' with message id: '" + r.messageId() + "'."))
+                .thenApply(r -> logAndReturn(r, to, "Email '" + subjectStr + "' sent. Response: "
+                                                + r.sdkHttpResponse().statusCode()))
                 .exceptionally(ex -> logException(to, ex));
     }
 

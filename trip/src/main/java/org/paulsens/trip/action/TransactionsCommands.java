@@ -19,6 +19,7 @@ import org.paulsens.trip.dynamo.DynamoUtils;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Transaction.Type;
+import org.paulsens.trip.model.Trip;
 
 @Slf4j
 @Named("txCmds")
@@ -55,6 +56,14 @@ public class TransactionsCommands {
                     log.error("Error querying transactions for user " + userId + ": ", ex);
                     return Collections.emptyList();
                 }).join();
+    }
+
+    public List<Transaction> getTripTransactions(final String tripId) {
+        return DynamoUtils.getInstance().getTrip(tripId)
+                .thenApply(optTrip -> optTrip.map(Trip::getPeople))
+                .thenApply(optPeople -> optPeople.orElse(List.of()))
+                .thenApply(people -> people.stream().flatMap(id -> getTransactions(id).stream()).toList())
+                .join();
     }
 
     public Transaction getTransaction(final Person.Id userId, final String txId) {
