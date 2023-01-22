@@ -15,7 +15,7 @@ import java.util.stream.Collectors;
 import lombok.Builder;
 import lombok.Data;
 import lombok.Value;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 
 @Data
 @Builder
@@ -85,7 +85,7 @@ public final class Person implements Serializable {
      */
     @JsonIgnore
     public List<Trip> getTrips() {
-        return DynamoUtils.getInstance().getTrips()
+        return DAO.getInstance().getTrips()
                 .thenApply(trips -> trips.stream().filter(
                         trip -> trip.getPeople().contains(getId())).collect(Collectors.toList()))
                 .exceptionally(ex -> new ArrayList<>())

@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
@@ -34,7 +34,7 @@ public class PersonDataValueCommands {
     public static boolean savePersonDataValue(final PersonDataValue pdv) {
         boolean result;
         try {
-            result = DynamoUtils.getInstance()
+            result = DAO.getInstance()
                     .savePersonDataValue(pdv)
                     .orTimeout(DYNAMO_TIMEOUT, TimeUnit.MILLISECONDS)
                     .exceptionally(ex -> {
@@ -56,7 +56,7 @@ public class PersonDataValueCommands {
     }
 
     public static Map<DataId, PersonDataValue> getPersonDataValues(final Person.Id userId) {
-        return DynamoUtils.getInstance()
+        return DAO.getInstance()
                 .getPersonDataValues(userId)
                 .orTimeout(DYNAMO_TIMEOUT, TimeUnit.MILLISECONDS)
                 .exceptionally(ex -> {
@@ -74,7 +74,7 @@ public class PersonDataValueCommands {
             log.error("getPersonDataValue() called with null PersonDataValue ID.");
             return null;
         }
-        return DynamoUtils.getInstance()
+        return DAO.getInstance()
                 .getPersonDataValue(userId, pdvId)
                 .orTimeout(DYNAMO_TIMEOUT, TimeUnit.MILLISECONDS)
                 .exceptionally(ex -> {

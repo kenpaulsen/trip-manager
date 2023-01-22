@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import nl.jqno.equalsverifier.EqualsVerifier;
 import nl.jqno.equalsverifier.Warning;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -16,7 +16,7 @@ public class TripEventTest {
 
     @Test
     void canSerializeTripEvent() throws IOException {
-        final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
 
         final TripEvent te1  = new TripEvent();
         final String json1 = mapper.writeValueAsString(te1);

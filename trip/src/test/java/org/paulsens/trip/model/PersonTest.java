@@ -5,7 +5,7 @@ import java.time.LocalDate;
 import java.util.List;
 import nl.jqno.equalsverifier.EqualsVerifier;
 import nl.jqno.equalsverifier.Warning;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
@@ -24,7 +24,7 @@ public class PersonTest {
 
     @Test
     public void canSerializeToFromJson() throws Exception {
-        final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
         final Person before = people.get(0);
         final String personStr = mapper.writeValueAsString(people.get(0));
         final Person after = mapper.readValue(personStr, Person.class);
@@ -33,7 +33,7 @@ public class PersonTest {
 
     @Test
     public void canReadOldStuff() throws Exception {
-        final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
         final Person after = mapper.readValue(OLD_SERIALIZED_PERSON_0, Person.class);
         Assert.assertEquals(after, people.get(0), "Reading old json failed!");
     }
@@ -42,7 +42,7 @@ public class PersonTest {
     public void canReadEmergencyContactInfo() throws Exception {
         final String contactName = "Jaye J.";
         final String contactPhone = "abc123";
-        final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
         final Person before = new Person(Person.Id.from(RandomData.genAlpha(19)), null, "Kevin", "David", "Paulsen",
                 LocalDate.of(1987, 9, 27), null,"user3", null, null, null, null, null, contactName, contactPhone);
         final String personStr = mapper.writeValueAsString(before);

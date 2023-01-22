@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Transaction.Type;
@@ -33,7 +33,7 @@ public class TransactionsCommands {
         // FIXME: Add Validations
         boolean result;
         try {
-            result = DynamoUtils.getInstance()
+            result = DAO.getInstance()
                     .saveTransaction(tx)
                     .exceptionally(ex -> {
                         TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
@@ -51,7 +51,7 @@ public class TransactionsCommands {
     }
 
     public List<Transaction> getTransactions(final Person.Id userId) {
-        return DynamoUtils.getInstance().getTransactions(userId)
+        return DAO.getInstance().getTransactions(userId)
                 .exceptionally(ex -> {
                     log.error("Error querying transactions for user " + userId + ": ", ex);
                     return Collections.emptyList();
@@ -59,7 +59,7 @@ public class TransactionsCommands {
     }
 
     public List<Transaction> getTripTransactions(final String tripId) {
-        return DynamoUtils.getInstance().getTrip(tripId)
+        return DAO.getInstance().getTrip(tripId)
                 .thenApply(optTrip -> optTrip.map(Trip::getPeople))
                 .thenApply(optPeople -> optPeople.orElse(List.of()))
                 .thenApply(people -> people.stream().flatMap(id -> getTransactions(id).stream()).toList())
@@ -74,7 +74,7 @@ public class TransactionsCommands {
             // Create a new Tx
             return createTransaction(userId);
         }
-        return DynamoUtils.getInstance().getTransaction(userId, txId)
+        return DAO.getInstance().getTransaction(userId, txId)
                 .exceptionally(ex -> {
                     log.error("Error while getting Tx (" + txId + ") for userId: '" + userId + "'!", ex);
                     return Optional.empty();
@@ -136,7 +136,7 @@ public class TransactionsCommands {
      * @return  Optionally the matching {@code Transaction}.
      */
     public Optional<Transaction> getGroupTransactionForUser(final Person.Id userId, final String groupId) {
-        return DynamoUtils.getInstance().getTransactions(userId).thenApply(
+        return DAO.getInstance().getTransactions(userId).thenApply(
                 txs -> txs.stream().filter(tx -> groupId.equals(tx.getGroupId())).findAny()).join();
     }
 
@@ -148,7 +148,7 @@ public class TransactionsCommands {
     public List<Person.Id> getUserIdsForGroupId(final String groupId) {
         // FIXME: It might be nice to have each transaction associated w/ a Trip, currently it isn't so we can't
         // FIXME: limit the potential people in a Batch.
-        return DynamoUtils.getInstance().getPeople()
+        return DAO.getInstance().getPeople()
                 .thenApply(all -> all.stream().map(Person::getId)
                         .filter(userId -> hasGroupTransaction(userId, groupId).join())
                         .collect(Collectors.toList()))
@@ -177,7 +177,7 @@ public class TransactionsCommands {
     }
 
     private CompletableFuture<Boolean> hasGroupTransaction(final Person.Id userId, final String groupId) {
-        return DynamoUtils.getInstance().getTransactions(userId).thenApply(
+        return DAO.getInstance().getTransactions(userId).thenApply(
                 txs -> txs.stream().anyMatch(tx -> groupId.equals(tx.getGroupId()) && (tx.getDeleted() == null)));
     }
 

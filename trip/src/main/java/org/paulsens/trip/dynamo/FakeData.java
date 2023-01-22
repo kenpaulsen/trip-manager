@@ -1,21 +1,39 @@
 package org.paulsens.trip.dynamo;
 
+import jakarta.faces.context.FacesContext;
+import jakarta.servlet.ServletContext;
+import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.Getter;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 
 public class FakeData {
+    private static final String LOCAL = "local";
+    private static final String FACES_SERVLET = "Faces Servlet";
+
     @Getter
     private static final List<Person> fakePeople = initFakePeople();
     @Getter
     private static final List<Trip> fakeTrips = initFakeTrips();
+
+    static boolean isLocal() {
+        // fc will be null in a test environment that doesn't full start the server w/ JSF installed.
+        final FacesContext fc = FacesContext.getCurrentInstance();
+        return (fc == null) || "true".equals(((ServletContext) fc.getExternalContext().getContext())
+                .getServletRegistration(FACES_SERVLET).getInitParameter(LOCAL));
+    }
 
     static List<Person> initFakePeople() {
         final List<Person> people = new ArrayList<>();
@@ -92,5 +110,51 @@ public class FakeData {
         result.add(new RegistrationOption(8, "Agree to Terms?",
                 "Type your full name to agree.", true));
         return result;
+    }
+
+    static Map<String, AttributeValue> getTestUserCreds(final GetItemRequest giReq) {
+        final AttributeValue email = giReq.key().get(CredentialsDAO.EMAIL);
+        final AttributeValue lowEmail = email.toBuilder().s(email.s().toLowerCase(Locale.getDefault())).build();
+        final AttributeValue priv;
+        if (lowEmail.s().startsWith("admin")) {
+            priv = AttributeValue.builder().s("admin").build();
+        } else if (lowEmail.s().startsWith("user")) {
+            priv = AttributeValue.builder().s("user").build();
+        } else {
+            // Not authorized
+            return null;
+        }
+        final Map<String, AttributeValue> attrs = new HashMap<>();
+        attrs.put(CredentialsDAO.EMAIL, lowEmail);
+        final AttributeValue userId = DAO.getInstance().getPeople().join().stream()
+                .filter(person -> lowEmail.s().equalsIgnoreCase(person.getEmail())).findAny()
+                .map(Person::getId).map(id -> AttributeValue.builder().s(id.getValue()).build())
+                .orElse(lowEmail);
+        attrs.put(CredentialsDAO.USER_ID, userId);
+        attrs.put(CredentialsDAO.PRIV, priv);
+        attrs.put(CredentialsDAO.PW, priv);
+        attrs.put(CredentialsDAO.LAST_LOGIN,
+                AttributeValue.builder().n("" + (System.currentTimeMillis() - 86_400_000L)).build());
+        return attrs;
+    }
+
+    static void addFakeData(final PersonDAO personDao, final TripDAO tripDao) {
+        if (isLocal()) {
+            // Setup some sample data
+            FakeData.getFakePeople().forEach(p -> {
+                try {
+                    personDao.savePerson(p);
+                } catch (IOException ex) {
+                    throw new IllegalStateException("Should have worked...");
+                }
+            });
+            FakeData.getFakeTrips().forEach(t -> {
+                try {
+                    tripDao.saveTrip(t);
+                } catch (IOException ex) {
+                    throw new IllegalStateException("Should have worked...");
+                }
+            });
+        }
     }
 }

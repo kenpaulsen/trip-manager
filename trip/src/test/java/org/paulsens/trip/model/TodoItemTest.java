@@ -5,7 +5,7 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import nl.jqno.equalsverifier.EqualsVerifier;
 import nl.jqno.equalsverifier.Warning;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.Test;
 
@@ -78,7 +78,7 @@ public class TodoItemTest {
 
     @Test
     public void canSerializeTodo() throws IOException {
-        final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
         final String tripId = RandomData.genAlpha(9);
         final DataId dataId = DataId.from(RandomData.genAlpha(8));
         final String desc = RandomData.genAlpha(7);

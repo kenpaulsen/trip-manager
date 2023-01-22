@@ -6,7 +6,7 @@ import java.time.LocalDateTime;
 import java.util.Map;
 import nl.jqno.equalsverifier.EqualsVerifier;
 import org.mockito.Mockito;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.Test;
 
@@ -16,7 +16,7 @@ import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 
 public class TodoStatusTest {
-    final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
+    final ObjectMapper mapper = DAO.getInstance().getMapper();
 
     @Test(expectedExceptions = { IllegalArgumentException.class },
             expectedExceptionsMessageRegExp = ".*TODO_PERSON_DATA_VALUE_TYPE.*")

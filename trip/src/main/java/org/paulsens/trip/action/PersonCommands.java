@@ -8,7 +8,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 
 @Slf4j
@@ -22,7 +22,7 @@ public class PersonCommands {
     public boolean savePerson(final Person person) {
         boolean result;
         try {
-             result = DynamoUtils.getInstance().savePerson(person).exceptionally(ex -> {
+             result = DAO.getInstance().savePerson(person).exceptionally(ex -> {
                     TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Error saving: " + person.getFirst()
                             + " " + person.getLast(), ex.getMessage());
                  log.error("Error while saving user: ", ex);
@@ -38,7 +38,7 @@ public class PersonCommands {
     }
 
     public List<Person> getPeople() {
-        return DynamoUtils.getInstance().getPeople()
+        return DAO.getInstance().getPeople()
                 .exceptionally(ex -> {
                     log.error("Failed to get list of people!", ex);
                     return Collections.emptyList();
@@ -51,7 +51,7 @@ public class PersonCommands {
     }
 
     public Person getPerson(final Person.Id id) {
-        return DynamoUtils.getInstance().getPerson(id)
+        return DAO.getInstance().getPerson(id)
                 .exceptionally(ex -> {
                     log.error("Failed to get person '" + id + "'!", ex);
                     return Optional.empty();
@@ -59,7 +59,7 @@ public class PersonCommands {
     }
 
     public Person getPersonByEmail(final String email) {
-        return DynamoUtils.getInstance().getPersonByEmail(email)
+        return DAO.getInstance().getPersonByEmail(email)
                 .exceptionally(ex -> {
                     log.error("Exception while trying to find person with email: " + email);
                     throw new IllegalStateException(ex);

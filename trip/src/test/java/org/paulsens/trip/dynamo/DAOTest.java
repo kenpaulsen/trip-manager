@@ -31,8 +31,8 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
-public class DynamoUtilsTest {
-    private static final DynamoUtils DB_UTILS = DynamoUtils.getInstance();
+public class DAOTest {
+    private static final DAO DB_UTILS = DAO.getInstance();
     private static final long MONTH_IN_MILLIS = 86_400L * 31L * 1_000L;
 
     @BeforeMethod
@@ -241,26 +241,6 @@ public class DynamoUtilsTest {
         assertEquals(DB_UTILS.getTransactions(userId).join().size(), 2, "Expected 2 now.");
         final Transaction sameTx = DB_UTILS.getTransaction(userId, id).join().orElse(null);
         assertEquals(sameTx, tx, "Getting tx should be equal.");
-    }
-
-    @Test
-    public void testCacheAll() {
-        final Person.Id userId = Person.Id.from(RandomData.genAlpha(5));
-        final String groupId = RandomData.genAlpha(4);
-        final Transaction tx = new Transaction(userId, groupId, Type.Shared);
-        final Transaction tx2 = new Transaction(userId, groupId, Type.Shared);
-        final List<Transaction> txs = new ArrayList<>();
-        txs.add(tx);
-        txs.add(tx2);
-        final Map<String, Transaction> userTxs = DB_UTILS.getTxCacheForUser(userId).join();
-        assertEquals(userTxs.size(), 0, "Expected cache to start at 0.");
-        DB_UTILS.cacheAll(userTxs, txs, Transaction::getTxId);
-        assertEquals(userTxs.size(), 2, "Expected cache to add 2 items!");
-
-        final Map<String, Transaction> verifySave = DB_UTILS.getTxCacheForUser(userId).join();
-        assertEquals(verifySave.size(), 2, "Expected cache to start at 2 this time!");
-        DB_UTILS.cacheAll(verifySave, txs, Transaction::getTxId);
-        assertEquals(verifySave.size(), 2, "Expected cache to add 2 items!");
     }
 
     @Test

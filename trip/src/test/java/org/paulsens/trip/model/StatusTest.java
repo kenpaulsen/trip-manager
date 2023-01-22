@@ -2,7 +2,7 @@ package org.paulsens.trip.model;
 
 import java.time.LocalDateTime;
 import nl.jqno.equalsverifier.EqualsVerifier;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.Test;
 
@@ -98,8 +98,8 @@ public class StatusTest {
                 .owner(Person.Id.newInstance())
                 .priority(Status.Priority.CRITICAL)
                 .visibility(Status.Visibility.ADMIN).build();
-        final String json = DynamoUtils.getInstance().getMapper().writeValueAsString(before);
-        final Status after = DynamoUtils.getInstance().getMapper().readValue(json, Status.class);
+        final String json = DAO.getInstance().getMapper().writeValueAsString(before);
+        final Status after = DAO.getInstance().getMapper().readValue(json, Status.class);
         assertEquals(after, before);
     }
 

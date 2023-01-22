@@ -3,7 +3,7 @@ package org.paulsens.trip.model;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import nl.jqno.equalsverifier.EqualsVerifier;
 import nl.jqno.equalsverifier.Warning;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
 import org.testng.annotations.Test;
@@ -16,7 +16,7 @@ public class RegistrationOptionTest {
 
     @Test
     void canSerializeTripEvent() throws Exception {
-        final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
 
         final int id = 7;
         final String shortDesc = RandomData.genAlpha(28);

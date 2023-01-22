@@ -5,7 +5,7 @@ import java.io.IOException;
 import java.time.LocalDate;
 import nl.jqno.equalsverifier.EqualsVerifier;
 import nl.jqno.equalsverifier.Warning;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -82,7 +82,7 @@ public class PassportTest {
 
     @Test
     public void canSerializePassport() throws IOException {
-        final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
 
         final Passport orig = getTestPassport(NUMBER, COUNTRY, EXPIRES, ISSUED);
         final String json = mapper.writeValueAsString(orig);

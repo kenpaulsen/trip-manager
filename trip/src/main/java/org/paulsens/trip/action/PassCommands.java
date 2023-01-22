@@ -8,7 +8,7 @@ import jakarta.inject.Named;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.RandomData;
@@ -22,7 +22,7 @@ public class PassCommands {
         final Creds creds = getCreds(email, pass);
         if (creds != null) {
             // login successful
-            final String prevUpdateTime = Audit.formatEpochSeconds(DynamoUtils.getInstance().updateLastLogin(creds));
+            final String prevUpdateTime = Audit.formatEpochSeconds(DAO.getInstance().updateLastLogin(creds));
             Audit.log(email, "LOGIN", "User " + email + " logged in, previous login was: " + prevUpdateTime);
         } else {
             Audit.log(email, "LOGIN", "Login Failed!");
@@ -31,7 +31,7 @@ public class PassCommands {
     }
 
     public Creds getCreds(final String email, final String pass) {
-        return DynamoUtils.getInstance().getCredsByEmailAndPass(email, pass)
+        return DAO.getInstance().getCredsByEmailAndPass(email, pass)
                 .exceptionally(ex -> {
                     log.error("Failed to get creds for: " + email, ex);
                     return null;
@@ -39,7 +39,7 @@ public class PassCommands {
     }
 
     public Creds getCredsByAdmin(final String email, final Person.Id id) {
-        return DynamoUtils.getInstance().getCredsByEmailAdminOnly(email, id)
+        return DAO.getInstance().getCredsByEmailAdminOnly(email, id)
                 .exceptionally(ex -> {
                     log.error("Failed to get creds for: " + email, ex);
                     return null;
@@ -55,11 +55,11 @@ public class PassCommands {
      * @return The newly created Creds (which are also persisted to the db) or null if it fails.
      */
     public Creds createCreds(final String email, final String newPass) {
-        final DynamoUtils dynamo = DynamoUtils.getInstance();
-        final Creds creds = dynamo.createCreds(email).orElse(null);
+        final DAO dao = DAO.getInstance();
+        final Creds creds = dao.createCreds(email).orElse(null);
         if (creds != null) {
             creds.setPass(newPass);
-            dynamo.saveCreds(creds);
+            dao.saveCreds(creds);
             Audit.log(email, "CREATE_CREDS", "Created credentials.");
         } else {
             Audit.log(email, "CREATE_CREDS", "Failed to create credentials!");
@@ -80,8 +80,8 @@ public class PassCommands {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Passwords do not match!", "");
             return false;
         }
-        final DynamoUtils dynamo = DynamoUtils.getInstance();
-        final Person person = dynamo.getPersonByEmail(email).join();
+        final DAO dao = DAO.getInstance();
+        final Person person = dao.getPersonByEmail(email).join();
         final Creds currCreds = getCreds(email, currPass);
         if ((currCreds == null) || (person == null)) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Person or credentials missing!", "");
@@ -104,15 +104,15 @@ public class PassCommands {
      * @return  True if the password was set, False otherwise.
      */
     private Boolean setPass(final String email, final String pass) {
-        final DynamoUtils dynamo = DynamoUtils.getInstance();
-        final Person person = dynamo.getPersonByEmail(email).join();
+        final DAO dao = DAO.getInstance();
+        final Person person = dao.getPersonByEmail(email).join();
         if (person == null) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
                     "Check email address, and make sure you have registered.", "");
             return false;
         }
         final Creds creds = new Creds(email, person.getId(), pass);
-        return dynamo.saveCreds(creds).join();
+        return dao.saveCreds(creds).join();
     }
 
     /**
@@ -136,7 +136,7 @@ public class PassCommands {
      */
     public String resetPass(final String email, final String lastName, final String emailTitle) {
         // Get the person by email
-        final Person person = DynamoUtils.getInstance().getPersonByEmail(email).join();
+        final Person person = DAO.getInstance().getPersonByEmail(email).join();
         final String result;
         if ((person == null) || !person.getLast().equalsIgnoreCase(lastName)) {
             // If not exist, error

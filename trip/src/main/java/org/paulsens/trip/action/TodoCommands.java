@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
@@ -54,7 +54,7 @@ public class TodoCommands {
     public boolean saveTodo(final TodoItem todo) {
         boolean result;
         try {
-            result = DynamoUtils.getInstance()
+            result = DAO.getInstance()
                     .saveTodo(todo)
                     .orTimeout(5_000L, TimeUnit.MILLISECONDS)
                     .exceptionally(ex -> {
@@ -74,7 +74,7 @@ public class TodoCommands {
     }
 
     public List<TodoItem> getTodos(final String tripId) {
-        return DynamoUtils.getInstance()
+        return DAO.getInstance()
                 .getTodoItems(tripId)
                 .exceptionally(ex -> {
                     log.error("Failed to get todos for trip '" + tripId + "'!", ex);
@@ -103,7 +103,7 @@ public class TodoCommands {
             log.error("getTodo() called with null PersonDataValue ID.");
             return null;
         }
-        return DynamoUtils.getInstance()
+        return DAO.getInstance()
                 .getTodoItem(tripId, dataId)
                 .exceptionally(ex -> {
                     log.error("Failed to get trip '" + tripId + "' todo for '" + dataId.getValue() + "'!", ex);

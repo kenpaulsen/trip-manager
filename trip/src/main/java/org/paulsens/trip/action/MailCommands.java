@@ -13,7 +13,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
@@ -33,7 +33,7 @@ import software.amazon.awssdk.services.ses.model.SendEmailResponse;
 @Named("mail")
 @ApplicationScoped
 public class MailCommands {
-    final DynamoUtils dynamoUtils = DynamoUtils.getInstance();
+    final DAO dao = DAO.getInstance();
     final ELUtil elUtil = ELUtil.getInstance();
     private static final String EMAIL_TPL_PREFIX = "mailTemplates/";
     private static final String EMAIL_TPL_SUFFIX = ".tpl";
@@ -126,7 +126,7 @@ public class MailCommands {
     }
 
     public Collection<String> addRecipients(final Collection<String> current, final Collection<Person.Id> newPeople) {
-        newPeople.forEach(pid -> dynamoUtils.getPerson(pid).join()
+        newPeople.forEach(pid -> dao.getPerson(pid).join()
                 .map(this::formatEmail)
                 .map(current::add));
         return current;
@@ -162,7 +162,7 @@ public class MailCommands {
         }
         return findPerson(person -> email.equals(formatEmail(person)))
                 .thenApply(maybePerson -> maybePerson.or(
-                        () -> Optional.ofNullable(dynamoUtils.getPersonByEmail(email).join())))
+                        () -> Optional.ofNullable(dao.getPersonByEmail(email).join())))
                 .thenApply(maybePerson -> maybePerson.orElse(Person.builder().email(email).build()))
                 .join();
     }
@@ -187,7 +187,7 @@ public class MailCommands {
     }
 
     private CompletableFuture<Optional<Person>> findPerson(final Predicate<Person> checkFunc) {
-        return dynamoUtils.getPeople()
+        return dao.getPeople()
                 .thenApply(people -> people.stream().filter(checkFunc).findAny());
     }
 

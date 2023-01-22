@@ -4,14 +4,14 @@ import jakarta.faces.component.UIComponent;
 import jakarta.faces.context.FacesContext;
 import jakarta.faces.convert.Converter;
 import jakarta.faces.convert.FacesConverter;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 
 @FacesConverter("person")
 public class PersonConverter implements Converter {
     @Override
     public Object getAsObject(FacesContext ctx, UIComponent comp, String value) {
-        return DynamoUtils.getInstance().getPerson(Person.Id.from(value));
+        return DAO.getInstance().getPerson(Person.Id.from(value));
     }
 
     @Override

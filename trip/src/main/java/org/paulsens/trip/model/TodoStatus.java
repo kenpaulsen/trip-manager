@@ -6,7 +6,7 @@ import java.time.LocalDateTime;
 import java.util.Map;
 import lombok.EqualsAndHashCode;
 import lombok.NonNull;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 
 @EqualsAndHashCode
 public final class TodoStatus implements Serializable {
@@ -155,7 +155,7 @@ public final class TodoStatus implements Serializable {
 
     private Status extractSerializedStatus(final String statusJson) {
         try {
-            return DynamoUtils.getInstance().getMapper().readValue(statusJson, Status.class);
+            return DAO.getInstance().getMapper().readValue(statusJson, Status.class);
         } catch (final IOException ex) {
             throw new IllegalStateException("Invalid JSON: " + statusJson);
         }

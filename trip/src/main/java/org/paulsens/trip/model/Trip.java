@@ -17,7 +17,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import lombok.Data;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 
 @Data
 public final class Trip implements Serializable {
@@ -128,8 +128,9 @@ public final class Trip implements Serializable {
             if (ids == null) {
                 return Collections.emptyList();
             }
-            final DynamoUtils dynamo = DynamoUtils.getInstance();
-            final CompletableFuture<?>[] tes = ids.stream().map(dynamo::getTripEvent).toArray(CompletableFuture[]::new);
+            final CompletableFuture<?>[] tes = ids.stream()
+                    .map(DAO.getInstance()::getTripEvent)
+                    .toArray(CompletableFuture[]::new);
             return CompletableFuture.allOf(tes).thenApply(v -> Arrays.stream(tes)
                     .map(fut -> (TripEvent) fut.join())
                     .filter(Objects::nonNull)

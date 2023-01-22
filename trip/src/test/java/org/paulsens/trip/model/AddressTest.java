@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import nl.jqno.equalsverifier.EqualsVerifier;
 import nl.jqno.equalsverifier.Warning;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -81,7 +81,7 @@ public class AddressTest {
 
     @Test
     public void canSerializeAddress() throws IOException {
-        final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
         final Address orig = getTestAddress(STREET, CITY, STATE, ZIP);
         final String json = mapper.writeValueAsString(orig);
         final Address restored = mapper.readValue(json, Address.class);

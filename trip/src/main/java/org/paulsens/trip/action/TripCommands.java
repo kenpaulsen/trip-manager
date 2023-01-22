@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 
@@ -28,7 +28,7 @@ public class TripCommands {
     public boolean saveTrip(final Trip trip) {
         boolean result;
         try {
-             result = DynamoUtils.getInstance().saveTrip(trip).exceptionally(ex -> {
+             result = DAO.getInstance().saveTrip(trip).exceptionally(ex -> {
                     TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Error saving '" + trip.getId()
                             + "': " + trip.getTitle(), ex.getMessage());
                      log.error("Error while saving trip: ", ex);
@@ -57,7 +57,7 @@ public class TripCommands {
     }
 
     public List<Trip> getTrips() {
-        return DynamoUtils.getInstance().getTrips()
+        return DAO.getInstance().getTrips()
                 .exceptionally(ex -> {
                     log.error("Failed to get list of trips!", ex);
                     return Collections.emptyList();
@@ -65,7 +65,7 @@ public class TripCommands {
     }
 
     public Trip getTrip(final String id) {
-        return DynamoUtils.getInstance().getTrip(id)
+        return DAO.getInstance().getTrip(id)
                 .exceptionally(ex -> {
                     log.error("Failed to get trip '" + id + "'!", ex);
                     return Optional.empty();
@@ -141,7 +141,7 @@ public class TripCommands {
      * @return The trip or null if not found.
      */
     private Trip findTrip(final String tripId) {
-        return DynamoUtils.getInstance().getTrip(tripId).join().orElse(null);
+        return DAO.getInstance().getTrip(tripId).join().orElse(null);
     }
 
     /**

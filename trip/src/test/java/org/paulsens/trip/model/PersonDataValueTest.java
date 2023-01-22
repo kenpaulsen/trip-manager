@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import nl.jqno.equalsverifier.EqualsVerifier;
 import nl.jqno.equalsverifier.Warning;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.Test;
 
@@ -110,7 +110,7 @@ public class PersonDataValueTest {
 
     @Test
     public void canSerializePDV() throws IOException {
-        final ObjectMapper mapper = DynamoUtils.getInstance().getMapper();
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
         final Person.Id userId = Person.Id.from(RandomData.genAlpha(9));
         final DataId dataId = DataId.from(RandomData.genAlpha(8));
         final String type = RandomData.genAlpha(12);

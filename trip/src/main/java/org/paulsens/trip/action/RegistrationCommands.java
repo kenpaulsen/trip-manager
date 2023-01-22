@@ -8,7 +8,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.dynamo.DynamoUtils;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Registration;
 
@@ -23,7 +23,7 @@ public class RegistrationCommands {
     public boolean saveRegistration(final Registration reg) {
         boolean result;
         try {
-             result = DynamoUtils.getInstance().saveRegistration(reg)
+             result = DAO.getInstance().saveRegistration(reg)
                      .exceptionally(ex -> {
                              TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
                                      "Error saving registration for '" + reg.getUserId() + "': " + reg.getTripId(),
@@ -41,7 +41,7 @@ public class RegistrationCommands {
     }
 
     public List<Registration> getRegistrations(final String tripId) {
-        return DynamoUtils.getInstance()
+        return DAO.getInstance()
                 .getRegistrations(tripId)
                 .exceptionally(ex -> {
                     log.error("Failed to get registrations for trip '" + tripId + "'!", ex);
@@ -58,7 +58,7 @@ public class RegistrationCommands {
             log.error("getRegistration() called with null userId");
             return null;
         }
-        return DynamoUtils.getInstance()
+        return DAO.getInstance()
                 .getRegistration(tripId, userId)
                 .exceptionally(ex -> {
                     log.error("Failed to get registration for user '" + userId.getValue()
