@@ -41,7 +41,7 @@ interface Persistence {
         getItemRequest.accept(builder); // Populate it from their consumer
         final GetItemRequest giReq = builder.build();
         final Map<String, AttributeValue> attrs = (CredentialsDAO.PASS_TABLE.equals(giReq.tableName())) ?
-                FakeData.getTestUserCreds(giReq) : new HashMap<>();
+                FakeData.getTestUserCreds(giReq) : null /*new HashMap<>()*/;
         return CompletableFuture.completedFuture(GetItemResponse.builder().item(attrs).build());
     }
 

@@ -28,11 +28,35 @@ public class FakeData {
     @Getter
     private static final List<Trip> fakeTrips = initFakeTrips();
 
-    static boolean isLocal() {
+    public static boolean isLocal() {
         // fc will be null in a test environment that doesn't full start the server w/ JSF installed.
         final FacesContext fc = FacesContext.getCurrentInstance();
         return (fc == null) || "true".equals(((ServletContext) fc.getExternalContext().getContext())
                 .getServletRegistration(FACES_SERVLET).getInitParameter(LOCAL));
+    }
+
+    public static Persistence createFakePersistence() {
+        return new Persistence() { };
+    }
+
+    public static void addFakeData(final PersonDAO personDao, final TripDAO tripDao) {
+        if (isLocal()) {
+            // Setup some sample data
+            FakeData.getFakePeople().forEach(p -> {
+                try {
+                    personDao.savePerson(p);
+                } catch (IOException ex) {
+                    throw new IllegalStateException("Should have worked...");
+                }
+            });
+            FakeData.getFakeTrips().forEach(t -> {
+                try {
+                    tripDao.saveTrip(t);
+                } catch (IOException ex) {
+                    throw new IllegalStateException("Should have worked...");
+                }
+            });
+        }
     }
 
     static List<Person> initFakePeople() {
@@ -136,25 +160,5 @@ public class FakeData {
         attrs.put(CredentialsDAO.LAST_LOGIN,
                 AttributeValue.builder().n("" + (System.currentTimeMillis() - 86_400_000L)).build());
         return attrs;
-    }
-
-    static void addFakeData(final PersonDAO personDao, final TripDAO tripDao) {
-        if (isLocal()) {
-            // Setup some sample data
-            FakeData.getFakePeople().forEach(p -> {
-                try {
-                    personDao.savePerson(p);
-                } catch (IOException ex) {
-                    throw new IllegalStateException("Should have worked...");
-                }
-            });
-            FakeData.getFakeTrips().forEach(t -> {
-                try {
-                    tripDao.saveTrip(t);
-                } catch (IOException ex) {
-                    throw new IllegalStateException("Should have worked...");
-                }
-            });
-        }
     }
 }

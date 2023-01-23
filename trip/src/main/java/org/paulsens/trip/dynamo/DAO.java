@@ -15,6 +15,7 @@ import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
+import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.Transaction;
@@ -33,6 +34,7 @@ public class DAO {
     private final CredentialsDAO credDao;
     private final TodoDAO todoDao;
     private final PersonDataValueDAO pdvDao;
+    private final PrivilegesDAO privDao;
 
     // This flag is set in the web.xml
     private static final DAO INSTANCE = new DAO();
@@ -48,6 +50,7 @@ public class DAO {
         this.credDao = new CredentialsDAO(persistence, personDao);
         this.todoDao = new TodoDAO(mapper, persistence);
         this.pdvDao = new PersonDataValueDAO(mapper, persistence);
+        this.privDao = new PrivilegesDAO(mapper, persistence);
         FakeData.addFakeData(personDao, tripDao);
     }
 
@@ -141,7 +144,7 @@ public class DAO {
         return todoDao.getTodoItem(tripId, pdvId);
     }
 
-    // Data stored per user
+    // Per-User Stored Data
     public CompletableFuture<Boolean> savePersonDataValue(final PersonDataValue pdv) throws IOException {
         return pdvDao.savePersonDataValue(pdv);
     }
@@ -150,6 +153,14 @@ public class DAO {
     }
     public CompletableFuture<Optional<PersonDataValue>> getPersonDataValue(final Person.Id pid, final DataId pdvId) {
         return pdvDao.getPersonDataValue(pid, pdvId);
+    }
+
+    // Privileges
+    public CompletableFuture<Boolean> savePrivilege(final Privilege priv) {
+        return privDao.savePrivilege(priv);
+    }
+    public CompletableFuture<Optional<Privilege>> getPrivilege(final String name) {
+        return privDao.getPrivilege(name);
     }
 
     /* Package-private for testing */
@@ -161,6 +172,7 @@ public class DAO {
         txDao.clearCache();
         todoDao.clearCache();
         pdvDao.clearCache();
+        privDao.clearCache();
     }
 
     private ObjectMapper createObjectMapper() {
@@ -175,7 +187,7 @@ public class DAO {
         final Persistence result;
         if (FakeData.isLocal()) {
             // Local development only -- don't talk to dynamo
-            result = new Persistence() {};
+            result = FakeData.createFakePersistence();
         } else {
             // The real deal
             result = new DynamoPersistence();
