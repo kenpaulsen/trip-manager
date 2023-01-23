@@ -19,6 +19,20 @@ public class PrivilegeCommands {
     private static final long TIMEOUT = 5_000;
     private final DAO dao = DAO.getInstance();
 
+    public Privilege createPrivilege(final String name, final String description, final List<Person.Id> people) {
+        if (getPrivilegeMaybe(name).isEmpty()) {
+            return new Privilege(name, description, people);
+        }
+        throw new IllegalStateException("Cannot create a privilege that already exists!");
+    }
+
+    public List<Privilege> getPrivileges() {
+        return dao.getPrivileges()
+                .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+                .exceptionally(ex -> logAndReturn(ex, List.of()))
+                .join();
+    }
+
     public Privilege getPrivilege(final String privName) {
         return getPrivilegeMaybe(privName).orElse(null);
     }
@@ -59,7 +73,7 @@ public class PrivilegeCommands {
                 .exceptionally(ex -> logAndReturn(ex, Optional.empty()))
                 .join();
         if (priv.isEmpty()) {
-            log.warn("Unknown privilege '" + privName + "'!");
+            log.debug("Unknown privilege '" + privName + "'!");
         }
         return priv;
     }

@@ -2,25 +2,30 @@ package org.paulsens.trip.dynamo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.Privilege;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
-import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 
 @Slf4j
 public class PrivilegesDAO {
     private static final String NAME = "name";
     private static final String CONTENT = "content";
     private static final String PRIVILEGE_TABLE = "privs";
+    protected static final Comparator<Privilege> privSorter = (a, b) ->
+            a.getName().compareToIgnoreCase(b.getName());
 
     private final Map<String, Privilege> privCache = new ConcurrentHashMap<>();
     private final ObjectMapper mapper;
     private final Persistence persistence;
+    private final AtomicBoolean hasScanned = new AtomicBoolean(false);
 
     protected PrivilegesDAO(final ObjectMapper mapper, final Persistence persistence) {
         this.mapper = mapper;
@@ -44,6 +49,18 @@ public class PrivilegesDAO {
                         persistence.clearCache(privCache, false));
     }
 
+    protected CompletableFuture<List<Privilege>> getPrivileges() {
+        if (hasScanned.getAndSet(true)) {
+            return CompletableFuture.completedFuture(privCache.values().stream().sorted(privSorter).toList());
+        }
+        return persistence.scan(b -> b.consistentRead(false).limit(1000).tableName(PRIVILEGE_TABLE).build())
+                .thenApply(resp -> resp.items().stream()
+                        .map(it -> toPrivilege(it.get(CONTENT)).get())
+                        .sorted(privSorter)
+                        .toList())
+                .thenApply(list -> persistence.cacheAll(privCache, list, Privilege::getName));
+    }
+
     protected CompletableFuture<Optional<Privilege>> getPrivilege(final String name) {
         final Privilege priv = privCache.get(name);
         if (priv != null) {
@@ -51,6 +68,7 @@ public class PrivilegesDAO {
         }
         final Map<String, AttributeValue> key = Map.of(NAME, AttributeValue.builder().s(name).build());
         return persistence.getItem(b -> b.key(key).tableName(PRIVILEGE_TABLE).build())
+                .thenApply(resp -> resp.item().get(CONTENT))
                 .thenApply(this::toPrivilege)
                 .exceptionally(ex -> logAndReturnEmpty(ex, name));
     }
@@ -59,13 +77,10 @@ public class PrivilegesDAO {
         privCache.clear();
     }
 
-    private Optional<Privilege> toPrivilege(final GetItemResponse resp) {
-        if (!resp.hasItem()) {
-            throw new IllegalStateException("Privilege not found.");
-        }
-        final AttributeValue content = resp.item().get(CONTENT);
+    private Optional<Privilege> toPrivilege(final AttributeValue content) {
         if (content == null) {
-            throw new IllegalStateException("Privilege is missing content!");
+            log.debug("No content returned for privilege from db, perhaps it doesn't exist?");
+            return Optional.empty();
         }
         try {
             return Optional.ofNullable(mapper.readValue(content.s(), Privilege.class));
@@ -75,7 +90,7 @@ public class PrivilegesDAO {
     }
 
     private Optional<Privilege> logAndReturnEmpty(final Throwable ex, final String name) {
-        log.warn("Unable to retrieve Privilege (" + name + ")!", ex);
+        log.debug("PrivilegesDAO: Unable to retrieve Privilege (" + name + ")!");
         return Optional.empty();
     }
 }

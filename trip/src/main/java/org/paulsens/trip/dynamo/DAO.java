@@ -162,9 +162,12 @@ public class DAO {
     public CompletableFuture<Optional<Privilege>> getPrivilege(final String name) {
         return privDao.getPrivilege(name);
     }
+    public CompletableFuture<List<Privilege>> getPrivileges() {
+        return privDao.getPrivileges();
+    }
 
     /* Package-private for testing */
-    void clearAllCaches() {
+    public void clearAllCaches() {
         personDao.clearCache();
         tripDao.clearCache();
         tripEventDao.clearCache();

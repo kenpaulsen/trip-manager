@@ -1,6 +1,7 @@
 package org.paulsens.trip.action;
 
 import java.util.List;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Privilege;
@@ -9,6 +10,7 @@ import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
 public class PrivilegeCommandsTest {
@@ -62,6 +64,40 @@ public class PrivilegeCommandsTest {
         assertFalse(privCmds.check(priv.getName(), hasAccess2));
         assertFalse(privCmds.check(priv.getName(), noAccess));
         assertTrue(privCmds.check(priv.getName(), hasAccess1));
+    }
+
+    @Test
+    public void canGetAllPrivs() {
+        DAO.getInstance().clearAllCaches();
+        privCmds.getPrivileges(); // mocked scan doesn't work need to scan here first
+        final Privilege priv1 = getTestPriv();
+        assertTrue(privCmds.savePrivilege(priv1));
+        final Privilege priv2 = getTestPriv();
+        assertTrue(privCmds.savePrivilege(priv2));
+        final List<Privilege> privs = privCmds.getPrivileges();
+        assertEquals(privs.size(), 2);
+        assertTrue(privs.contains(priv1));
+        assertTrue(privs.contains(priv2));
+    }
+
+    @Test
+    public void canCreateAPrivilege() {
+        final String name = RandomData.genAlpha(5);
+        final String description = RandomData.genAlpha(7);
+        final Privilege priv = privCmds.createPrivilege(name, description, List.of(hasAccess1, hasAccess2, noAccess));
+        assertNotNull(priv);
+        assertEquals(priv.getPeople().size(), 3);
+        assertEquals(priv.getName(), name);
+        assertEquals(priv.getDescription(), description);
+    }
+
+    @Test(expectedExceptions = IllegalStateException.class)
+    public void creatingAPrivilegeThatExistsThrows() {
+        final String name = RandomData.genAlpha(5);
+        final String description = RandomData.genAlpha(7);
+        final Privilege priv = privCmds.createPrivilege(name, description, List.of(hasAccess1));
+        privCmds.savePrivilege(priv);
+        privCmds.createPrivilege(name, description, List.of(hasAccess2));
     }
 
     private Privilege getTestPriv() {
