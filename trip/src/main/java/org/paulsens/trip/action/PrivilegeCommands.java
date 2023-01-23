@@ -13,7 +13,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Privilege;
 
 @Slf4j
-@Named("privCmd")
+@Named("priv")
 @ApplicationScoped
 public class PrivilegeCommands {
     private static final long TIMEOUT = 5_000;

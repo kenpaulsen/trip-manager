@@ -7,6 +7,7 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import java.io.Serializable;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -19,7 +20,9 @@ import org.paulsens.trip.dynamo.DAO;
 
 @Data
 @Builder
-public final class Person implements Serializable {
+public final class Person implements Serializable, Comparable<Person> {
+    public static final Comparator<Person> peopleSorter = (a, b) ->
+            getPersonSortStr(a).compareToIgnoreCase(getPersonSortStr(b));
     private Person.Id id;
     private String nickname;
     private String first;
@@ -103,6 +106,14 @@ public final class Person implements Serializable {
         this.email = (email == null) ? null : email.trim().toLowerCase(Locale.getDefault());
     }
 
+    public int compareTo(final Person other) {
+        return peopleSorter.compare(this, other);
+    }
+
+    private static String getPersonSortStr(final Person person) {
+        return "" + person.getLast() + "," + person.getFirst();
+    }
+
     @Value
     public static class Id implements Serializable, Comparable<Id> {
         @JsonValue
@@ -117,7 +128,7 @@ public final class Person implements Serializable {
         }
 
         @Override
-        public int compareTo(Id o) {
+        public int compareTo(final Id o) {
             return value.compareTo(o.getValue());
         }
     }

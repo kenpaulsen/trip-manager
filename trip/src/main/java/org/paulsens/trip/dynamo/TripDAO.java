@@ -2,17 +2,14 @@ package org.paulsens.trip.dynamo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
@@ -25,17 +22,14 @@ public class TripDAO {
     private final Map<String, Trip> tripCache = new ConcurrentHashMap<>();
     private final ObjectMapper mapper;
     private final Persistence persistence;
-    private final PersonDAO personDao;
     private final TripEventDAO tripEventDao;
 
     protected TripDAO(
             final ObjectMapper mapper,
             final Persistence persistence,
-            final PersonDAO personDao,
             final TripEventDAO tripEventDao) {
         this.mapper = mapper;
         this.persistence = persistence;
-        this.personDao = personDao;
         this.tripEventDao = tripEventDao;
     }
 
@@ -87,23 +81,10 @@ public class TripDAO {
             return null;
         }
         try {
-            return sortTripPeople(mapper.readValue(content.s(), Trip.class));
+            return mapper.readValue(content.s(), Trip.class);
         } catch (final IOException ex) {
             log.error("Unable to parse trip record: " + content, ex);
             return null;
         }
-    }
-
-    private Trip sortTripPeople(final Trip trip) {
-        final List<Person.Id> sortedIdList =
-                trip.getPeople().stream()
-                        .map(id -> personDao.getPerson(id).join())
-                        .map(opt -> opt.orElse(null))
-                        .filter(Objects::nonNull)
-                        .sorted(PersonDAO.peopleSorter)
-                        .map(Person::getId)
-                        .toList();
-        trip.setPeople(new ArrayList<>(sortedIdList));
-        return trip;
     }
 }

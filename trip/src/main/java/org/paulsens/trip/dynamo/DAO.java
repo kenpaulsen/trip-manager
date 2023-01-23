@@ -44,7 +44,7 @@ public class DAO {
         this.mapper = createObjectMapper();
         this.personDao = new PersonDAO(mapper, persistence);
         this.tripEventDao = new TripEventDAO(mapper, persistence);
-        this.tripDao = new TripDAO(mapper, persistence, personDao, tripEventDao);
+        this.tripDao = new TripDAO(mapper, persistence, tripEventDao);
         this.regDao = new RegistrationDAO(mapper, persistence);
         this.txDao = new TransactionDAO(mapper, persistence);
         this.credDao = new CredentialsDAO(persistence, personDao);

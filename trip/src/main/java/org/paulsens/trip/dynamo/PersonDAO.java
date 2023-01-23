@@ -2,7 +2,6 @@ package org.paulsens.trip.dynamo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -16,8 +15,6 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
 @Slf4j
 public class PersonDAO {
-    protected static final Comparator<Person> peopleSorter = (a, b) ->
-            getPersonSortStr(a).compareToIgnoreCase(getPersonSortStr(b));
     private static final String ID = "id";
     private static final String CONTENT = "content";
     private static final String PERSON_TABLE = "people";
@@ -46,13 +43,13 @@ public class PersonDAO {
         if (!peopleCache.isEmpty()) {
             return CompletableFuture.completedFuture(
                     peopleCache.values().stream()
-                            .sorted(peopleSorter)
+                            .sorted()
                             .toList());
         }
         return persistence.scan(b -> b.consistentRead(false).limit(1000).tableName(PERSON_TABLE).build())
                 .thenApply(resp -> resp.items().stream()
                         .map(it -> toPerson(it.get(CONTENT)))
-                        .sorted(peopleSorter)
+                        .sorted()
                         .toList())
                 .thenApply(list -> persistence.cacheAll(peopleCache, list, Person::getId));
     }
@@ -91,9 +88,5 @@ public class PersonDAO {
             log.error("Unable to parse person record: " + content, ex);
             return null;
         }
-    }
-
-    private static String getPersonSortStr(final Person person) {
-        return "" + person.getLast() + "," + person.getFirst();
     }
 }

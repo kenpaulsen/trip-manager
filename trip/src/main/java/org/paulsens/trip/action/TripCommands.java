@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -28,7 +29,7 @@ public class TripCommands {
     public boolean saveTrip(final Trip trip) {
         boolean result;
         try {
-             result = DAO.getInstance().saveTrip(trip).exceptionally(ex -> {
+             result = DAO.getInstance().saveTrip(sortTripPeople(trip)).exceptionally(ex -> {
                     TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Error saving '" + trip.getId()
                             + "': " + trip.getTitle(), ex.getMessage());
                      log.error("Error while saving trip: ", ex);
@@ -41,6 +42,19 @@ public class TripCommands {
             result = false;
         }
         return result;
+    }
+
+    public Trip sortTripPeople(final Trip trip) {
+        final List<Person.Id> sortedIdList =
+                trip.getPeople().stream()
+                        .map(id -> DAO.getInstance().getPerson(id).join())
+                        .map(opt -> opt.orElse(null))
+                        .filter(Objects::nonNull)
+                        .sorted()
+                        .map(Person::getId)
+                        .toList();
+        trip.setPeople(new ArrayList<>(sortedIdList));
+        return trip;
     }
 
     public List<Trip> getActiveTrips(final int pastDaysToCountAsActive) {
