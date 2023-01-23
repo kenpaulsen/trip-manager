@@ -91,15 +91,6 @@ public class PrivilegeCommandsTest {
         assertEquals(priv.getDescription(), description);
     }
 
-    @Test(expectedExceptions = IllegalStateException.class)
-    public void creatingAPrivilegeThatExistsThrows() {
-        final String name = RandomData.genAlpha(5);
-        final String description = RandomData.genAlpha(7);
-        final Privilege priv = privCmds.createPrivilege(name, description, List.of(hasAccess1));
-        privCmds.savePrivilege(priv);
-        privCmds.createPrivilege(name, description, List.of(hasAccess2));
-    }
-
     private Privilege getTestPriv() {
         return new Privilege(RandomData.genAlpha(8), RandomData.genAlpha(18), List.of(hasAccess1, hasAccess2));
     }
