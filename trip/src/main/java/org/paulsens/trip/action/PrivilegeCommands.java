@@ -20,10 +20,7 @@ public class PrivilegeCommands {
     private final DAO dao = DAO.getInstance();
 
     public Privilege createPrivilege(final String name, final String description, final List<Person.Id> people) {
-        if (getPrivilegeMaybe(name).isEmpty()) {
-            return new Privilege(name, description, people);
-        }
-        throw new IllegalStateException("Cannot create a privilege that already exists!");
+        return new Privilege(name, description, people);
     }
 
     public List<Privilege> getPrivileges() {
