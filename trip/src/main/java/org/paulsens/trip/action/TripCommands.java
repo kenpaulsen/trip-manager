@@ -106,7 +106,10 @@ public class TripCommands {
         } else {
             // Anything the user can see... or null
             final List<Trip> trips = getTrips();
-            result = findTrip(trips, userId, showAll);
+            result = findTrip(trips, userId, false); // Try w/o considering admin privs
+            if (result == null && showAll) {
+                result = findTrip(trips, userId, showAll);
+            }
             if (result == null) {
                 // See if there's anything they can join
                 result = trips.stream().filter(trip -> trip.canJoin(userId)).findAny().orElse(null);
