@@ -22,7 +22,6 @@ public class PersonDataValue implements Serializable {
     @NonNull
     @Setter(AccessLevel.NONE)
     private String type;
-    @NonNull
     private Object content;
 
     @SuppressWarnings("unchecked")
