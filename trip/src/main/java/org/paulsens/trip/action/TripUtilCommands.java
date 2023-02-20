@@ -1,5 +1,6 @@
 package org.paulsens.trip.action;
 
+import com.sun.jsft.util.ELUtil;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.application.FacesMessage;
 import jakarta.faces.application.FacesMessage.Severity;
@@ -144,6 +145,10 @@ public class TripUtilCommands {
 
         // Return the result
         return options;
+    }
+
+    public Object evalEL(final String str) {
+        return ELUtil.getInstance().eval(str);
     }
 
     public void throwException(final String msg) {
