@@ -56,15 +56,18 @@ public class PersonTest {
 
     @Test
     public void canReadEmergencyContactInfo() throws Exception {
-        final String contactName = "Jaye J.";
-        final String contactPhone = "abc123";
+        final String contactName = " Jaye J.";
+        final String contactPhone = "abc123 ";
         final ObjectMapper mapper = DAO.getInstance().getMapper();
-        final Person before = new Person(Person.Id.from(RandomData.genAlpha(19)), null, "Kevin", "David", "Paulsen",
+        final Person before = new Person(Person.Id.from(RandomData.genAlpha(19)), null, " Kevin", "David ", " Paulsen ",
                 null, LocalDate.of(1987, 9, 27), null,"user3", null, null, null, null, null, contactName, contactPhone);
         final String personStr = mapper.writeValueAsString(before);
         final Person after = mapper.readValue(personStr, Person.class);
-        Assert.assertEquals(after.getEmergencyContactName(), contactName);
-        Assert.assertEquals(after.getEmergencyContactPhone(), contactPhone);
+        Assert.assertEquals(after.getEmergencyContactName(), contactName.trim());
+        Assert.assertEquals(after.getEmergencyContactPhone(), contactPhone.trim());
+        Assert.assertEquals(after.getFirst(), "Kevin");
+        Assert.assertEquals(after.getMiddle(), "David");
+        Assert.assertEquals(after.getLast(), "Paulsen");
     }
 
     @Test

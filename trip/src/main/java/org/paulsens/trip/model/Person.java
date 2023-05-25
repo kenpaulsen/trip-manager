@@ -59,21 +59,21 @@ public final class Person implements Serializable, Comparable<Person> {
             @JsonProperty("emergencyName") String emergencyName,
             @JsonProperty("emergencyPhone") String emergencyPhone) {
         this.id = (id == null) ? Id.newInstance() : id;
-        this.nickname = nickname;
-        this.first = first;
-        this.middle = middle;
-        this.last = last;
+        this.nickname = trim(nickname);
+        this.first = trim(first);
+        this.middle = trim(middle);
+        this.last = trim(last);
         this.sex = sex;
         this.birthdate = birthdate;
-        this.cell = cell;
-        this.email = email == null ? null : email.trim().toLowerCase(Locale.getDefault());
-        this.tsa = tsa;
+        this.cell = trim(cell);
+        this.email = email == null ? null : trim(email).toLowerCase(Locale.getDefault());
+        this.tsa = trim(tsa);
         this.address = (address == null) ? new Address() : address;
         this.passport = (passport == null) ? new Passport() : passport;
-        this.notes = notes;
+        this.notes = trim(notes);
         this.managedUsers = (managedUsers == null) ? new ArrayList<>() : managedUsers;
-        this.emergencyContactName = emergencyName;
-        this.emergencyContactPhone = emergencyPhone;
+        this.emergencyContactName = trim(emergencyName);
+        this.emergencyContactPhone = trim(emergencyPhone);
     }
 
     public Person() {
@@ -138,5 +138,9 @@ public final class Person implements Serializable, Comparable<Person> {
         public int compareTo(final Id o) {
             return value.compareTo(o.getValue());
         }
+    }
+
+    private static String trim(final String str) {
+        return str == null ? null : str.trim();
     }
 }
