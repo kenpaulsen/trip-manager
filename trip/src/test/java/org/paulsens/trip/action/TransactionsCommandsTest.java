@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Person.Sex;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.util.RandomData;
 import static org.testng.Assert.assertEquals;
@@ -43,7 +44,7 @@ public class TransactionsCommandsTest {
 
     private Person.Id createPerson() {
         final Person.Id id = Person.Id.newInstance();
-        personCmds.savePerson(new Person(id, "preferredName", "first", "middle", "last", LocalDate.now(),
+        personCmds.savePerson(new Person(id, "preferredName", "first", "middle", "last", Sex.Female, LocalDate.now(),
                 null, null, null, null, null, null, null, null, null));
         return id;
     }

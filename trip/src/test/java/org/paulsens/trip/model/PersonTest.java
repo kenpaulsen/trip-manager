@@ -39,12 +39,28 @@ public class PersonTest {
     }
 
     @Test
+    public void canReadWithOutSexField() throws Exception {
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
+        final Person before = Person.builder()
+                .id(Person.Id.from(RandomData.genAlpha(5)))
+                .first(RandomData.genAlpha(12))
+                .last(RandomData.genAlpha(18))
+                .cell(RandomData.genString(10, new char[] {'1', '2', '3', '4', '5', '6', '7', '8', '9'}))
+                .birthdate(LocalDate.now())
+                .build();
+        final String json = mapper.writeValueAsString(before);
+        Assert.assertFalse(json.contains("sex"), "No sex specified, yet it appears in json: " + json);
+        final Person after = mapper.readValue(json, Person.class);
+        Assert.assertEquals(after, before, "Reading json w/o sex failed!");
+    }
+
+    @Test
     public void canReadEmergencyContactInfo() throws Exception {
         final String contactName = "Jaye J.";
         final String contactPhone = "abc123";
         final ObjectMapper mapper = DAO.getInstance().getMapper();
         final Person before = new Person(Person.Id.from(RandomData.genAlpha(19)), null, "Kevin", "David", "Paulsen",
-                LocalDate.of(1987, 9, 27), null,"user3", null, null, null, null, null, contactName, contactPhone);
+                null, LocalDate.of(1987, 9, 27), null,"user3", null, null, null, null, null, contactName, contactPhone);
         final String personStr = mapper.writeValueAsString(before);
         final Person after = mapper.readValue(personStr, Person.class);
         Assert.assertEquals(after.getEmergencyContactName(), contactName);

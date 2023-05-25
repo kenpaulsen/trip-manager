@@ -28,6 +28,7 @@ public final class Person implements Serializable, Comparable<Person> {
     private String first;
     private String middle;
     private String last;
+    private Sex sex;
     private LocalDate birthdate;
     private String cell;
     private String email;
@@ -46,6 +47,7 @@ public final class Person implements Serializable, Comparable<Person> {
             @JsonProperty("first") String first,
             @JsonProperty("middle") String middle,
             @JsonProperty("last") String last,
+            @JsonProperty("sex") Sex sex,
             @JsonProperty("birthdate") LocalDate birthdate,
             @JsonProperty("cell") String cell,
             @JsonProperty("email") String email,
@@ -61,6 +63,7 @@ public final class Person implements Serializable, Comparable<Person> {
         this.first = first;
         this.middle = middle;
         this.last = last;
+        this.sex = sex;
         this.birthdate = birthdate;
         this.cell = cell;
         this.email = email == null ? null : email.trim().toLowerCase(Locale.getDefault());
@@ -74,7 +77,7 @@ public final class Person implements Serializable, Comparable<Person> {
     }
 
     public Person() {
-        this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     @JsonIgnore
@@ -112,6 +115,10 @@ public final class Person implements Serializable, Comparable<Person> {
 
     private static String getPersonSortStr(final Person person) {
         return "" + person.getLast() + "," + person.getFirst();
+    }
+
+    public enum Sex {
+        Male, Female
     }
 
     @Value
