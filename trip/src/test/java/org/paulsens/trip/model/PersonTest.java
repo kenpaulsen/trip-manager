@@ -14,7 +14,7 @@ import org.testng.annotations.Test;
 public class PersonTest {
     private static final List<Person> people = FakeData.getFakePeople();
     private static final String OLD_SERIALIZED_PERSON_0 = "{\"id\":\"" + people.get(0).getId().getValue() + "\","
-            + "\"nickname\":\"Joe\",\"first\":\"Joseph\",\"middle\":\"Bob\",\"last\":\"Smith\","
+            + "\"nickname\":\"Joe\",\"first\":\"Joseph\",\"middle\":\"Bob\",\"last\":\"Smith\",\"sex\":\"Male\","
             + "\"birthdate\":\"1947-02-11\",\"email\":\"user1\",\"address\":{},\"passport\":{},\"managedUsers\":[]}";
 
     @Test
