@@ -11,6 +11,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
@@ -35,6 +36,7 @@ public class DAO {
     private final TodoDAO todoDao;
     private final PersonDataValueDAO pdvDao;
     private final PrivilegesDAO privDao;
+    private final BindingDAO bindingDao;
 
     // This flag is set in the web.xml
     private static final DAO INSTANCE = new DAO();
@@ -51,6 +53,7 @@ public class DAO {
         this.todoDao = new TodoDAO(mapper, persistence);
         this.pdvDao = new PersonDataValueDAO(mapper, persistence);
         this.privDao = new PrivilegesDAO(mapper, persistence);
+        this.bindingDao = new BindingDAO(persistence);
         FakeData.addFakeData(personDao, tripDao);
     }
 
@@ -166,6 +169,20 @@ public class DAO {
         return privDao.getPrivileges();
     }
 
+    // Bindings
+    public CompletableFuture<Boolean> saveBinding(final String id, final BindingType type,
+            final String destId, final BindingType destType, final boolean bidirectionalBindings) {
+        return bindingDao.saveBinding(id, type, destId, destType, bidirectionalBindings);
+    }
+    public CompletableFuture<List<String>> getBindings(
+            final String name, final BindingType type, BindingType destType) {
+        return bindingDao.getBindings(name, type, destType);
+    }
+    public CompletableFuture<Boolean> removeBinding(final String id, final BindingType type,
+            final String destId, final BindingType destType, final boolean bidirectionalBindings) {
+        return bindingDao.removeBinding(id, type, destId, destType, bidirectionalBindings);
+    }
+
     /* Package-private for testing */
     public void clearAllCaches() {
         personDao.clearCache();
@@ -176,6 +193,7 @@ public class DAO {
         todoDao.clearCache();
         pdvDao.clearCache();
         privDao.clearCache();
+        bindingDao.clearCache();
     }
 
     private ObjectMapper createObjectMapper() {

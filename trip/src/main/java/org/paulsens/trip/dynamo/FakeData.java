@@ -10,6 +10,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import lombok.Getter;
 import org.paulsens.trip.model.Person;
@@ -19,6 +21,8 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
+import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
 
 public class FakeData {
     private static final String LOCAL = "local";
@@ -38,6 +42,17 @@ public class FakeData {
 
     public static Persistence createFakePersistence() {
         return new Persistence() { };
+    }
+
+    public static Persistence createFakePersistenceWithQueryMonitor(
+            final Consumer<Consumer<QueryRequest.Builder>> whenQueryCalled) {
+        return new Persistence() {
+            @Override
+            public CompletableFuture<QueryResponse> query(Consumer<QueryRequest.Builder> queryRequest) {
+                whenQueryCalled.accept(queryRequest);
+                return CompletableFuture.completedFuture(QueryResponse.builder().items(new ArrayList<>()).build());
+            }
+        };
     }
 
     public static void addFakeData(final PersonDAO personDao, final TripDAO tripDao) {

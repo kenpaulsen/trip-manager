@@ -71,6 +71,10 @@ public class PersonTest {
     }
 
     @Test
+    public void test() {
+    }
+
+    @Test
     public void nicknameIsCorrect() {
         Assert.assertEquals(people.get(0).getNickname(), "Joe");
         Assert.assertEquals(people.get(0).getPreferredName(), "Joe");

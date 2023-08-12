@@ -117,6 +117,10 @@ public final class Person implements Serializable, Comparable<Person> {
         return "" + person.getLast() + "," + person.getFirst();
     }
 
+    private static String trim(final String str) {
+        return str == null ? null : str.trim();
+    }
+
     public enum Sex {
         Male, Female
     }
@@ -138,9 +142,5 @@ public final class Person implements Serializable, Comparable<Person> {
         public int compareTo(final Id o) {
             return value.compareTo(o.getValue());
         }
-    }
-
-    private static String trim(final String str) {
-        return str == null ? null : str.trim();
     }
 }
