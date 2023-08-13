@@ -6,14 +6,17 @@ import lombok.Getter;
 
 @Getter
 public enum BindingType {
-    PERSON(1),
-    TODO_ITEM(2),
-    REGISTRATION(3),
-    TRANSACTION(4),
-    TRIP(5),
-    TRIP_EVENT(6);
+    // NOTE: Do not change these numbers, they must match the db
+    PERSON(1, false),
+    TODO_ITEM(2, true),
+    REGISTRATION(3, true),
+    TRANSACTION(4, true),
+    TRIP(5, false),
+    TRIP_EVENT(6, false);
 
     private final int typeId;
+    private final boolean composite;
+
     private static final Map<Integer, BindingType> values = new HashMap<>();
 
     static {
@@ -22,8 +25,9 @@ public enum BindingType {
         }
     }
 
-    BindingType(final int typeId) {
+    BindingType(final int typeId, final boolean isComposite) {
         this.typeId = typeId;
+        this.composite = isComposite;
     }
 
     public static BindingType from(final int typeId) {

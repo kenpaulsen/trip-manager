@@ -11,6 +11,7 @@ import lombok.NonNull;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.BindingType;
+import org.paulsens.trip.model.CompositeKey;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
@@ -82,6 +83,11 @@ public class BindingDAO {
     }
 
     private CompletableFuture<Boolean> saveBinding(final TypeAndId key, final TypeAndId destKey, final boolean both) {
+        if (destKey.getId() == null || destKey.getId().equalsIgnoreCase("none")
+                || key.getId() == null || key.getId().equalsIgnoreCase("none")) {
+            // Ignore
+            return CompletableFuture.completedFuture(true);
+        }
         // If both flag is true, we will write 2 entries... one from id1 -> id2; the other id2 -> id1
         final CompletableFuture<Boolean> reverse = both ?
                 saveBinding(destKey, key, false) : CompletableFuture.completedFuture(true);
@@ -204,13 +210,19 @@ public class BindingDAO {
         @NonNull
         BindingType type;
 
-        @Override
-        public String toString() {
-            return getValue();
+        TypeAndId(final String id, final BindingType type) {
+            // We convert to a composite key for validation and normalization
+            this.id = type.isComposite() ? CompositeKey.from(id).getValue() : id;
+            this.type = type;
         }
 
         private String getValue() {
             return "" + type.getTypeId() + TYPE_SEPARATOR + id;
+        }
+
+        @Override
+        public String toString() {
+            return getValue();
         }
 
         private static TypeAndId from(final String combined) {

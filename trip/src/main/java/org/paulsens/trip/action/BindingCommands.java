@@ -8,9 +8,17 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.BindingType;
+import org.paulsens.trip.model.CompositeKey;
+import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Transaction;
+import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.TripEvent;
+import org.paulsens.trip.util.ScopeUtil;
 
 @Slf4j
 @Named("bind")
@@ -78,8 +86,49 @@ public class BindingCommands {
         return new ArrayList<>(oldIds);
     }
 
+    public Trip getBoundTrip(final String id, final String bindingType) {
+        return getBoundThing(id, bindingType, BindingType.TRIP,
+                tripId -> ScopeUtil.fromApplicationScope("trip", TripCommands::new).getTrip(tripId));
+    }
+
+    public TripEvent getBoundTripEvent(final String id, final String bindingType) {
+        return getBoundThing(id, bindingType, BindingType.TRIP_EVENT,
+                eventId -> ScopeUtil.fromApplicationScope("trip", TripCommands::new).getTripEvent(eventId));
+    }
+
+    public Transaction getBoundTransaction(final String id, final String bindingType) {
+        // Note: Tx's are keyed by people as part of the primary key, so we need both (i.e. "userId:txId")
+        return getBoundThing(id, bindingType, BindingType.TRANSACTION, comboKey -> compositeKeyGetter(comboKey,
+                (k1, k2) -> ScopeUtil.fromApplicationScope("txCmds", TransactionsCommands::new)
+                        .getTransaction(Person.Id.from(k1), k2)));
+    }
+
+    public String getCompositeKey(final String k1, final String k2) {
+        return CompositeKey.builder().partitionKey(k1).sortKey(k2).build().getValue();
+    }
+
+    public List<String> splitCompositeKey(final String compositeKey) {
+        final CompositeKey key = CompositeKey.from(compositeKey);
+        return List.of(key.getPartitionKey(), key.getSortKey());
+    }
+
     private <T> T logAndReturn(final Throwable ex, final T result) {
         log.warn("Exception!", ex);
         return result;
     }
+
+    private <T> T getBoundThing(
+            final String id, final String bindingType, final BindingType dest, final Function<String, T> thingGetter) {
+        final List<String> bindings = getBindings(id, BindingType.valueOf(bindingType), dest);
+        if (bindings.isEmpty()) {
+            return null;
+        }
+        return thingGetter.apply(bindings.get(0));
+    }
+
+    private <T> T compositeKeyGetter(final String combinedKey, final BiFunction<String, String, T> biGetter) {
+        final CompositeKey compositeKey = CompositeKey.from(combinedKey);
+        return biGetter.apply(compositeKey.getPartitionKey(), compositeKey.getSortKey());
+    }
+
 }

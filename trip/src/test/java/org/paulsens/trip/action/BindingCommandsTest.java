@@ -12,7 +12,7 @@ public class BindingCommandsTest {
     @Test
     public void canSaveBindings() {
         final BindingCommands bind = new BindingCommands();
-        final String srcId = RandomData.genAlpha(12);
+        final String srcId = RandomData.genAlpha(12) + ',' + RandomData.genAlpha(2);
         final String destId = RandomData.genAlpha(10);
         Assert.assertTrue(bind.saveBinding(srcId, BindingType.REGISTRATION, destId, BindingType.PERSON, true));
         Assert.assertEquals(bind.getBindings(srcId, BindingType.REGISTRATION, BindingType.PERSON), List.of(destId));
@@ -25,11 +25,17 @@ public class BindingCommandsTest {
         final BindingType t2 = BindingType.TRANSACTION;
         final String srcId = RandomData.genAlpha(12);
         final List<String> idsToRemove =
-                List.of(RandomData.genAlpha(1), RandomData.genAlpha(2),  RandomData.genAlpha(3));
+                List.of(RandomData.genAlpha(1) + ',' + RandomData.genAlpha(3),
+                        RandomData.genAlpha(2) + ',' + RandomData.genAlpha(2),
+                        RandomData.genAlpha(3) + ',' + RandomData.genAlpha(1));
         final List<String> idsUnchanged =
-                List.of(RandomData.genAlpha(7), RandomData.genAlpha(8),  RandomData.genAlpha(9));
+                List.of(RandomData.genAlpha(7) + ',' + RandomData.genAlpha(1),
+                        RandomData.genAlpha(8) + ',' + RandomData.genAlpha(2),
+                        RandomData.genAlpha(9) + ',' + RandomData.genAlpha(3));
         final List<String> idsToAdd =
-                List.of(RandomData.genAlpha(4), RandomData.genAlpha(5),  RandomData.genAlpha(6));
+                List.of(RandomData.genAlpha(4) + ',' + RandomData.genAlpha(2),
+                        RandomData.genAlpha(5) + ',' + RandomData.genAlpha(3),
+                        RandomData.genAlpha(6) + ',' + RandomData.genAlpha(1));
         // Setup...
         final List<String> startingIds = new ArrayList<>();
         startingIds.addAll(idsToRemove);

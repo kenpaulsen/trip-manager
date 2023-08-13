@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -92,6 +93,10 @@ public class TripUtilCommands {
 
     public <T> List<T> asList(final Collection<T> collection) {
         return (collection instanceof List) ? ((List<T>) collection) : new ArrayList<>(collection);
+    }
+
+    public DateTimeFormatter getDateTimeFormatter(final String pattern) {
+        return DateTimeFormatter.ofPattern(pattern);
     }
 
     public LocalDateTime localDateTimeNow() {

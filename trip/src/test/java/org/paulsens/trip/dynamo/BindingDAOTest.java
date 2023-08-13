@@ -17,9 +17,9 @@ public class BindingDAOTest {
     public void canRetrieveBindingAndReverseToo() {
         final BindingDAO dao = new BindingDAO(FakeData.createFakePersistence());
         final String id1 = RandomData.genAlpha(12);
-        final String id2 = RandomData.genAlpha(14);
+        final String id2 = RandomData.genAlpha(7) + ',' + RandomData.genAlpha(7);
         final String id3 = RandomData.genAlpha(10);
-        final String id4 = RandomData.genAlpha(8);
+        final String id4 = RandomData.genAlpha(8) + ',' + RandomData.genAlpha(7);
         // Save a binding
         Assert.assertTrue(get(dao.saveBinding(id1, BindingType.PERSON, id2, BindingType.TRANSACTION, true)));
 
@@ -60,15 +60,15 @@ public class BindingDAOTest {
         Assert.assertEquals(dbAccess.get(), 1);
         Assert.assertEquals(get(dao.getBindings(id1, BindingType.TRIP, BindingType.PERSON)), List.of());
         Assert.assertEquals(dbAccess.get(), 1);
-        Assert.assertEquals(get(dao.getBindings(id1, BindingType.REGISTRATION, BindingType.PERSON)), List.of());
+        Assert.assertEquals(get(dao.getBindings(id1, BindingType.PERSON, BindingType.PERSON)), List.of());
         Assert.assertEquals(dbAccess.get(), 2);
         dao.clearCache();
         Assert.assertEquals(dbAccess.get(), 2);
         Assert.assertEquals(get(dao.getBindings(id1, BindingType.TRIP, BindingType.PERSON)), List.of());
         Assert.assertEquals(dbAccess.get(), 3);
-        Assert.assertEquals(get(dao.getBindings(id1, BindingType.REGISTRATION, BindingType.PERSON)), List.of());
+        Assert.assertEquals(get(dao.getBindings(id1, BindingType.TRIP_EVENT, BindingType.PERSON)), List.of());
         Assert.assertEquals(dbAccess.get(), 4);
-        final String id2 = RandomData.genAlpha(4);
+        final String id2 = RandomData.genAlpha(4) + ',' + RandomData.genAlpha(3);
         Assert.assertTrue(get(dao.saveBinding(id1, BindingType.TRIP, id2, BindingType.TRANSACTION, false)));
         Assert.assertEquals(dbAccess.get(), 4);
         Assert.assertEquals(get(dao.getBindings(id1, BindingType.TRIP, BindingType.PERSON)), List.of());

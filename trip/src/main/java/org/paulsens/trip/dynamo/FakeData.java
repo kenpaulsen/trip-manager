@@ -103,17 +103,17 @@ public class FakeData {
         final List<Trip> trips = new ArrayList<>();
         final List<Person.Id> allPeople = getFakePeople().stream().map(Person::getId).collect(Collectors.toList());
         final List<TripEvent> events = new ArrayList<>();
-        events.add(new TripEvent("te2", "Hotel", "Super Duper Palace", LocalDateTime.of(2020, 3, 27, 14, 0), null, null));
-        events.add(new TripEvent("te1", "PDX -> EWR", "Alaska flight 54", LocalDateTime.of(2020, 3, 26, 6, 10), null, null));
-        final TripEvent charter = new TripEvent("te3", "SPU -> SEA", "Direct charter flight",
-                LocalDateTime.of(2020, 4, 6, 8, 33), null, null);
+        events.add(new TripEvent("t1e2", "Hotel", "Super Duper Palace", LocalDateTime.now().plusDays(49), null, null));
+        events.add(new TripEvent("t1e1", "PDX -> EWR", "Alaska flight 54", LocalDateTime.now().plusDays(48), null, null));
+        final TripEvent charter = new TripEvent("t1e3", "SPU -> SEA", "Direct charter flight",
+                LocalDateTime.now().plusDays(60), null, null);
         charter.getParticipants().add(allPeople.get(2));
         charter.getParticipants().add(allPeople.get(5));
         charter.getParticipants().add(allPeople.get(3));
         charter.getParticipants().add(allPeople.get(0));
         events.add(charter);
-        trips.add(new Trip("faketrip", "Spring Demo Trip", false, "desc", LocalDateTime.of(2021, 3, 26, 6, 10),
-                LocalDateTime.of(2021, 4, 6, 16, 40), allPeople, events, getDefaultOptions()));
+        trips.add(new Trip("faketrip", "Spring Demo Trip", false, "desc", LocalDateTime.now().plusDays(48),
+                LocalDateTime.now().plusDays(60), allPeople, events, getDefaultOptions()));
 
         // Trip 2
         final List<Person.Id> somePeople = getFakePeople().stream()
@@ -121,13 +121,13 @@ public class FakeData {
                 .map(Person::getId)
                 .collect(Collectors.toList());
         final List<TripEvent> events2 = new ArrayList<>();
-        events2.add(new TripEvent("te2", "Hotel", "Hilton", LocalDateTime.of(2020, 7, 30, 14, 0), null, null));
-        events2.add(new TripEvent("te1", "SEA -> LGW", "Alaska flight 255",
-                LocalDateTime.of(2020, 7, 29, 6, 10), null, null));
-        events2.add(new TripEvent("te3", "DBV -> KEF", "Trip for 1 to Iceland",
-                LocalDateTime.of(2020, 8, 6, 8, 33), null, null));
-        trips.add(new Trip("Fake2", "Summer Demo Trip", true, "Trip Description", LocalDateTime.of(2021, 7, 29, 6, 10),
-                LocalDateTime.of(2021, 8, 6, 16, 40), somePeople, events2, getDefaultOptions()));
+        events2.add(new TripEvent("t2e2", "Hotel", "Hilton", LocalDateTime.now().minusDays(4), null, null));
+        events2.add(new TripEvent("t2e1", "SEA -> LGW", "Alaska flight 255",
+                LocalDateTime.now().minusDays(5), null, null));
+        events2.add(new TripEvent("t2e3", "DBV -> KEF", "Trip for 1 to Iceland",
+                LocalDateTime.now(), null, null));
+        trips.add(new Trip("Fake2", "Summer Demo Trip", true, "Trip Description", LocalDateTime.now().minusDays(4),
+                LocalDateTime.now().plusDays(7), somePeople, events2, getDefaultOptions()));
         return trips;
     }
 

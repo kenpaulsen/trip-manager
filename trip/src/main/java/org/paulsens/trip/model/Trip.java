@@ -87,7 +87,7 @@ public final class Trip implements Serializable {
 
     @JsonIgnore
     public List<TripEvent> getTripEventsForUser(final Person.Id userId) {
-        return tripEvents.stream().filter(te -> te.getParticipants().contains(userId)).collect(Collectors.toList());
+        return tripEvents.stream().filter(te -> te.getParticipants().contains(userId)).toList();
     }
 
     @JsonIgnore

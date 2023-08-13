@@ -10,11 +10,13 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.TripEvent;
 
 import static java.time.temporal.ChronoUnit.DAYS;
 
@@ -22,6 +24,8 @@ import static java.time.temporal.ChronoUnit.DAYS;
 @Named("trip")
 @ApplicationScoped
 public class TripCommands {
+    private static final long TIMEOUT = 5_000L;
+
     public Trip createTrip() {
         return new Trip();
     }
@@ -118,6 +122,18 @@ public class TripCommands {
         return result;
     }
 
+    public List<Trip> getTripsForUser(final Person.Id userId) {
+        final List<Trip> result = getTrips();
+        return result.stream().filter(trip -> trip.getPeople().contains(userId)).toList();
+    }
+
+    public TripEvent getTripEvent(final String eventId) {
+        return DAO.getInstance().getTripEvent(eventId)
+                .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+                .exceptionally(ex -> logAndReturn(ex, null))
+                .join();
+    }
+
     /**
      * This findTrip method looks for any trip the user can see. It's the last resort way to resolve the trip to show
      * the user.
@@ -144,7 +160,7 @@ public class TripCommands {
     }
 
     private List<Trip> filterActiveTrips(final List<Trip> trips, final int pastDaysToCountAsActive) {
-        final LocalDateTime cutoff = LocalDateTime.now().minus(pastDaysToCountAsActive, DAYS);
+        final LocalDateTime cutoff = LocalDateTime.now().minusDays(pastDaysToCountAsActive);
         return trips.stream()
                 .filter(trip -> trip.getEndDate().isAfter(cutoff))
                 .collect(Collectors.toList());
@@ -175,5 +191,10 @@ public class TripCommands {
             return false;
         }
         return trip.getPeople().contains(userId) || ((priv != null) && priv);
+    }
+
+    private <T> T logAndReturn(final Throwable ex, final T result) {
+        log.warn("Exception!", ex);
+        return result;
     }
 }

@@ -84,7 +84,7 @@ public class TransactionsCommands {
     public boolean saveGroupTx(final String gid, final Type type, final LocalDateTime date, final Float amount,
                                final String cat, final String note, final Object... objArr) {
         final List<Person.Id> txPeople = (objArr == null) ? Collections.emptyList() :
-                Arrays.stream(objArr).flatMap(this::castToPersonId).collect(Collectors.toList());
+                Arrays.stream(objArr).flatMap(this::castToPersonId).toList();
         final String groupId = isNullOrEmpty(gid) ? UUID.randomUUID().toString() : gid;
         final AtomicBoolean result = new AtomicBoolean(true);
 
