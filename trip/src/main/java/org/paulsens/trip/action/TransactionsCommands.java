@@ -7,6 +7,7 @@ import jakarta.inject.Named;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -95,9 +96,9 @@ public class TransactionsCommands {
                 comboKey -> bind.compositeKeyGetter(comboKey, (k1, k2) -> getTransaction(Person.Id.from(k1), k2)));
     }
 
-    public boolean saveGroupTx(final String gid, final Type type, final LocalDateTime date, final Float amount,
-                               final String cat, final String note, final String tripId, final String eventId,
-                               final Object... objArr) {
+    public boolean saveGroupTx(final String gid, final Type type, final Transaction.TransactionType txType,
+                final LocalDateTime date, final Float amount, final String cat, final String note, final String tripId,
+                final String eventId, final Object... objArr) {
         final List<Person.Id> txPeople = (objArr == null) ? Collections.emptyList() :
                 Arrays.stream(objArr).flatMap(this::castToPersonId).toList();
         final String groupId = isNullOrEmpty(gid) ? UUID.randomUUID().toString() : gid;
@@ -109,7 +110,7 @@ public class TransactionsCommands {
                 .map(uid -> getGroupTransactionForUser(uid, groupId))
                 .forEach(optTx -> optTx.ifPresent(tx -> {
                     tx.delete();
-                    if (!saveTransaction(updateTx(tx, date, amount, cat, note)))  {
+                    if (!saveTransaction(updateTx(tx, date, amount, txType, cat, note)))  {
                         log.error("Unable to delete group tx ({}) with note: {}", groupId, note);
                         result.set(false);
                     }
@@ -118,7 +119,7 @@ public class TransactionsCommands {
         // Find existing, update or create their tx (our "existing" variable doesn't contain deleted, search 1 by 1)
         txPeople.forEach(uid -> persistTx(updateTx(getGroupTransactionForUser(uid, groupId)
                 .orElseGet(() -> new Transaction(uid, groupId, type)),
-                date, amount, cat, note), tripId, eventId, result));
+                date, amount, txType, cat, note), tripId, eventId, result));
 
         return result.get();
     }
@@ -150,10 +151,11 @@ public class TransactionsCommands {
         }
         if (thing instanceof Object[]) {
             return Arrays.stream((Object[]) thing).flatMap(this::castToPersonId);
-        } else {
-            throw new IllegalArgumentException("Don't know how to turn "
-                    + thing.getClass().getName() + " into a Person.Id");
         }
+        if (thing instanceof Collection<?>) {
+            return ((Collection<?>) thing).stream().flatMap(this::castToPersonId);
+        }
+        throw new IllegalArgumentException("Can't turn " + thing.getClass().getName() + " into a Person.Id");
     }
 
     /**
@@ -195,10 +197,11 @@ public class TransactionsCommands {
         return tx.isShared() ? tx.getAmount() / getUserIdsForGroupId(tx.getGroupId()).size() : tx.getAmount();
     }
 
-    private Transaction updateTx(
-            final Transaction tx, final LocalDateTime date, final Float amount, final String cat, final String note) {
+    private Transaction updateTx(final Transaction tx, final LocalDateTime date, final Float amount,
+            final Transaction.TransactionType txType, final String cat, final String note) {
         tx.setTxDate(date);
         tx.setAmount(amount);
+        tx.setTxType(txType);
         tx.setCategory(cat);
         tx.setNote(note);
         return tx;

@@ -28,8 +28,8 @@ public class TransactionsCommandsTest {
         final String cat = RandomData.genAlpha(9);
         final String note = RandomData.genAlpha(15);
         final float amount = -103.5f;
-        txCmds.saveGroupTx(sharedGroup, Transaction.Type.Shared, LocalDateTime.now(), amount, cat, note,
-                null /* tripId */, null /* eventId */,
+        txCmds.saveGroupTx(sharedGroup, Transaction.Type.Shared, Transaction.TransactionType.Bill, LocalDateTime.now(),
+                amount, cat, note, null /* tripId */, null /* eventId */,
                 createPerson(), createPerson(), createPerson(), createPerson());
         final List<Person.Id> groupUsers = txCmds.getUserIdsForGroupId(sharedGroup);
         assertEquals(groupUsers.size(), 4);
