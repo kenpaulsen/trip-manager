@@ -2,6 +2,7 @@ package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.application.FacesMessage;
+import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -14,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
@@ -25,6 +27,9 @@ import static java.time.temporal.ChronoUnit.DAYS;
 @ApplicationScoped
 public class TripCommands {
     private static final long TIMEOUT = 5_000L;
+
+    @Inject
+    private BindingCommands bind;
 
     public Trip createTrip() {
         return new Trip();
@@ -88,6 +93,14 @@ public class TripCommands {
                     log.error("Failed to get trip '" + id + "'!", ex);
                     return Optional.empty();
                 }).join().orElse(new Trip());
+    }
+
+    public Trip getBoundTrip(final String id, final String bindingType) {
+        return getBind().getBoundThing(id, bindingType, BindingType.TRIP, this::getTrip);
+    }
+
+    public TripEvent getBoundTripEvent(final String id, final String bindingType) {
+        return getBind().getBoundThing(id, bindingType, BindingType.TRIP_EVENT, this::getTripEvent);
     }
 
     /**
@@ -191,6 +204,14 @@ public class TripCommands {
             return false;
         }
         return trip.getPeople().contains(userId) || ((priv != null) && priv);
+    }
+
+    public BindingCommands getBind() {
+        if (bind == null) {
+            log.warn("Did not getting BindingCommands injected!");
+            bind = new BindingCommands();
+        }
+        return bind;
     }
 
     private <T> T logAndReturn(final Throwable ex, final T result) {

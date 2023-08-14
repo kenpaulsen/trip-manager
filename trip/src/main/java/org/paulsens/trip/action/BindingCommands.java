@@ -14,11 +14,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.CompositeKey;
-import org.paulsens.trip.model.Person;
-import org.paulsens.trip.model.Transaction;
-import org.paulsens.trip.model.Trip;
-import org.paulsens.trip.model.TripEvent;
-import org.paulsens.trip.util.ScopeUtil;
 
 @Slf4j
 @Named("bind")
@@ -27,26 +22,10 @@ public class BindingCommands {
     private static final long TIMEOUT = 5_000;
     private final DAO dao = DAO.getInstance();
 
-    public boolean saveBinding(final String id, final BindingType type,
-            final String destId, final BindingType destType, final boolean bindInBothDirections) {
-        return dao.saveBinding(id, type, destId, destType, bindInBothDirections)
-                .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-                .exceptionally(ex -> logAndReturn(ex, false))
-                .join();
-    }
-
     public List<String> getBindings(final String id, final BindingType type, final BindingType destType) {
         return dao.getBindings(id, type, destType)
                 .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
                 .exceptionally(ex -> logAndReturn(ex, List.of()))
-                .join();
-    }
-
-    public boolean removeBinding(final String id, final BindingType type,
-            final String destId, final BindingType destType, boolean removeInBothDirections) {
-        return dao.removeBinding(id, type, destId, destType, removeInBothDirections)
-                .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-                .exceptionally(ex -> logAndReturn(ex, false))
                 .join();
     }
 
@@ -86,28 +65,28 @@ public class BindingCommands {
         return new ArrayList<>(oldIds);
     }
 
-    public Trip getBoundTrip(final String id, final String bindingType) {
-        return getBoundThing(id, bindingType, BindingType.TRIP,
-                tripId -> ScopeUtil.fromApplicationScope("trip", TripCommands::new).getTrip(tripId));
+    public boolean removeBinding(final String id, final BindingType type,
+                                 final String destId, final BindingType destType, boolean removeInBothDirections) {
+        return dao.removeBinding(id, type, destId, destType, removeInBothDirections)
+                .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+                .exceptionally(ex -> logAndReturn(ex, false))
+                .join();
     }
 
-    public TripEvent getBoundTripEvent(final String id, final String bindingType) {
-        return getBoundThing(id, bindingType, BindingType.TRIP_EVENT,
-                eventId -> ScopeUtil.fromApplicationScope("trip", TripCommands::new).getTripEvent(eventId));
+    // NOTE: While this is valid to do, setBindings is more comprehensive and what is desired in most use-cases
+    public boolean saveBinding(final String id, final BindingType type,
+                               final String destId, final BindingType destType, final boolean bindInBothDirections) {
+        return dao.saveBinding(id, type, destId, destType, bindInBothDirections)
+                .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+                .exceptionally(ex -> logAndReturn(ex, false))
+                .join();
     }
 
-    public Transaction getBoundTransaction(final String id, final String bindingType) {
-        // Note: Tx's are keyed by people as part of the primary key, so we need both (i.e. "userId:txId")
-        return getBoundThing(id, bindingType, BindingType.TRANSACTION, comboKey -> compositeKeyGetter(comboKey,
-                (k1, k2) -> ScopeUtil.fromApplicationScope("txCmds", TransactionsCommands::new)
-                        .getTransaction(Person.Id.from(k1), k2)));
-    }
-
-    public String getCompositeKey(final String k1, final String k2) {
+    public String key(final String k1, final String k2) {
         return CompositeKey.builder().partitionKey(k1).sortKey(k2).build().getValue();
     }
 
-    public List<String> splitCompositeKey(final String compositeKey) {
+    public List<String> splitKey(final String compositeKey) {
         final CompositeKey key = CompositeKey.from(compositeKey);
         return List.of(key.getPartitionKey(), key.getSortKey());
     }
@@ -117,7 +96,7 @@ public class BindingCommands {
         return result;
     }
 
-    private <T> T getBoundThing(
+    protected <T> T getBoundThing(
             final String id, final String bindingType, final BindingType dest, final Function<String, T> thingGetter) {
         final List<String> bindings = getBindings(id, BindingType.valueOf(bindingType), dest);
         if (bindings.isEmpty()) {
@@ -126,9 +105,8 @@ public class BindingCommands {
         return thingGetter.apply(bindings.get(0));
     }
 
-    private <T> T compositeKeyGetter(final String combinedKey, final BiFunction<String, String, T> biGetter) {
+    protected <T> T compositeKeyGetter(final String combinedKey, final BiFunction<String, String, T> biGetter) {
         final CompositeKey compositeKey = CompositeKey.from(combinedKey);
         return biGetter.apply(compositeKey.getPartitionKey(), compositeKey.getSortKey());
     }
-
 }

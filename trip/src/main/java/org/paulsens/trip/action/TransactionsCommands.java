@@ -2,6 +2,7 @@ package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.application.FacesMessage;
+import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -16,6 +17,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Transaction.Type;
@@ -25,11 +27,16 @@ import org.paulsens.trip.model.Trip;
 @Named("txCmds")
 @ApplicationScoped
 public class TransactionsCommands {
+    @Inject
+    private BindingCommands bind;
+
     public Transaction createTransaction(final Person.Id userId) {
         return new Transaction(userId, null, null);
     }
 
     public boolean saveTransaction(final Transaction tx) {
+        // FIXME: Maybe move sending email to here? Be careful on batch Tx to not spam yourself!
+        // FIXME: Look where this is called from
         // FIXME: Add Validations
         boolean result;
         try {
@@ -81,8 +88,16 @@ public class TransactionsCommands {
                 }).join().orElse(null);
     }
 
+    public Transaction getBoundTransaction(final String id, final String bindingType) {
+        final BindingCommands bind = getBind();
+        // Note: Tx's are keyed by people as part of the primary key, so we need both (i.e. "userId:txId")
+        return bind.getBoundThing(id, bindingType, BindingType.TRANSACTION,
+                comboKey -> bind.compositeKeyGetter(comboKey, (k1, k2) -> getTransaction(Person.Id.from(k1), k2)));
+    }
+
     public boolean saveGroupTx(final String gid, final Type type, final LocalDateTime date, final Float amount,
-                               final String cat, final String note, final Object... objArr) {
+                               final String cat, final String note, final String tripId, final String eventId,
+                               final Object... objArr) {
         final List<Person.Id> txPeople = (objArr == null) ? Collections.emptyList() :
                 Arrays.stream(objArr).flatMap(this::castToPersonId).toList();
         final String groupId = isNullOrEmpty(gid) ? UUID.randomUUID().toString() : gid;
@@ -94,23 +109,36 @@ public class TransactionsCommands {
                 .map(uid -> getGroupTransactionForUser(uid, groupId))
                 .forEach(optTx -> optTx.ifPresent(tx -> {
                     tx.delete();
-                    if (!saveTransaction(createOrUpdateTx(tx, date, amount, cat, note)))  {
+                    if (!saveTransaction(updateTx(tx, date, amount, cat, note)))  {
                         log.error("Unable to delete group tx ({}) with note: {}", groupId, note);
                         result.set(false);
                     }
                 }));
 
-        // Find existing, update or create their tx (our "existing" variable doesn't contained deleted, search 1 by 1)
-        txPeople.forEach(uid -> {
-            final Transaction old = getGroupTransactionForUser(uid, groupId)
-                    .orElseGet(() -> new Transaction(uid, groupId, type));
-            old.setDeleted(null); // Ensure not deleted
-            if (!saveTransaction(createOrUpdateTx(old, date, amount, cat, note))) {
-                log.error("Unable to save group tx ({}) with note: {}", groupId, note);
-                result.set(false);
-            }
-        });
+        // Find existing, update or create their tx (our "existing" variable doesn't contain deleted, search 1 by 1)
+        txPeople.forEach(uid -> persistTx(updateTx(getGroupTransactionForUser(uid, groupId)
+                .orElseGet(() -> new Transaction(uid, groupId, type)),
+                date, amount, cat, note), tripId, eventId, result));
+
         return result.get();
+    }
+
+    private void persistTx(final Transaction tx, final String tripId, final String eventId, final AtomicBoolean r) {
+        final BindingCommands bind = getBind();
+        final String txBindKey = bind.key(tx.getUserId().getValue(), tx.getTxId());
+        tx.setDeleted(null); // Ensure not deleted
+        if (saveTransaction(tx)) {
+            // Now save any binding(s)
+            if ((tripId != null) && !tripId.isEmpty()) {
+                bind.setBindings(txBindKey, BindingType.TRANSACTION, BindingType.TRIP, List.of(tripId), true);
+                if ((eventId != null) && !eventId.isEmpty()) {
+                    bind.setBindings(txBindKey, BindingType.TRANSACTION, BindingType.TRIP_EVENT, List.of(eventId), true);
+                }
+            }
+        } else {
+            log.error("Unable to save group tx ({}) with note: {}", tx.getGroupId(), tx.getNote());
+            r.set(false);
+        }
     }
 
     private Stream<Person.Id> castToPersonId(final Object thing) {
@@ -167,7 +195,7 @@ public class TransactionsCommands {
         return tx.isShared() ? tx.getAmount() / getUserIdsForGroupId(tx.getGroupId()).size() : tx.getAmount();
     }
 
-    private Transaction createOrUpdateTx(
+    private Transaction updateTx(
             final Transaction tx, final LocalDateTime date, final Float amount, final String cat, final String note) {
         tx.setTxDate(date);
         tx.setAmount(amount);
@@ -179,6 +207,14 @@ public class TransactionsCommands {
     private CompletableFuture<Boolean> hasGroupTransaction(final Person.Id userId, final String groupId) {
         return DAO.getInstance().getTransactions(userId).thenApply(
                 txs -> txs.stream().anyMatch(tx -> groupId.equals(tx.getGroupId()) && (tx.getDeleted() == null)));
+    }
+
+    public BindingCommands getBind() {
+        if (bind == null) {
+            log.warn("Did not getting BindingCommands injected!");
+            bind = new BindingCommands();
+        }
+        return bind;
     }
 
     private boolean isNullOrEmpty(final String str) {

@@ -231,7 +231,8 @@ public class DAOTest {
         final String category = RandomData.genAlpha(9);
         final String note = RandomData.genAlpha(6);
         final LocalDateTime txDate = LocalDateTime.now();
-        final Transaction tx = new Transaction(id, userId, groupId, Type.Shared, txDate, 0.45f, category, note);
+        final Transaction tx = new Transaction(
+                id, userId, groupId, Type.Shared, Transaction.TransactionType.Bill, txDate, 0.45f, category, note);
         final Transaction tx2 = new Transaction(userId, groupId, Type.Shared);
         assertEquals(DB_UTILS.getTransactions(userId).join().size(), 0, "Should start w/ no txs.");
         assertTrue(DB_UTILS.saveTransaction(tx).join());
@@ -293,11 +294,12 @@ public class DAOTest {
         final Person.Id userId = personId == null ? Person.Id.from(RandomData.genAlpha(8)) : personId;
         final String groupId = RandomData.genAlpha(17);
         final Transaction.Type type = RandomData.randomEnum(Transaction.Type.class);
+        final Transaction.TransactionType txType = RandomData.randomEnum(Transaction.TransactionType.class);
         final LocalDateTime txDate = LocalDateTime.now()
                 .plus(RandomData.randomLong(MONTH_IN_MILLIS) - MONTH_IN_MILLIS, ChronoUnit.MILLIS);
         final float amount = RandomData.randomFloat(1_000_000f);
         final String category = RandomData.genAlpha(9);
         final String note = RandomData.genAlpha(6);
-        return new Transaction(id, userId, groupId, type, txDate, amount, category, note);
+        return new Transaction(id, userId, groupId, type, txType, txDate, amount, category, note);
     }
 }
