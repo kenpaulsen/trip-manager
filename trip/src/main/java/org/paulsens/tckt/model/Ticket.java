@@ -3,6 +3,7 @@ package org.paulsens.tckt.model;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonValue;
+import java.io.Serializable;
 import java.time.LocalDate;
 import java.util.UUID;
 import lombok.Value;
@@ -10,7 +11,7 @@ import lombok.With;
 import org.paulsens.tckt.dao.FilesystemPersistence;
 
 @Value
-public class Ticket {
+public class Ticket implements Serializable {
     Id id;
     User.Id owner;
     @With

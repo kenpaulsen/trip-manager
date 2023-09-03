@@ -3,6 +3,7 @@ package org.paulsens.tckt.dao;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import lombok.Getter;
@@ -54,13 +55,16 @@ public class FilesystemPersistence {
 
     // Answers
     public synchronized void cacheAnswer(final String relPath, final Answer answer) {
+        getAnswers(relPath); // Ensure loaded before caching
         cache(relPath == null ? deafultAnswerPath : relPath, answerCache, answer.getId(), answer);
     }
     public synchronized void saveAnswers(final String relPath) {
-        save(relPath == null ? deafultAnswerPath : relPath, answerCache, (fn, answers) -> FilesystemTcktDAO.getInstance().saveAnswers(fn, answers));
+        save(relPath == null ? deafultAnswerPath : relPath, answerCache,
+                (fn, answers) -> FilesystemTcktDAO.getInstance().saveAnswers(fn, answers));
     }
     public synchronized Map<Answer.Id, Answer> getAnswers(final String relPath) {
-        return getOrLoad(relPath == null ? deafultAnswerPath : relPath, answerCache, fn -> FilesystemTcktDAO.getInstance().loadAnswers(fn));
+        return getOrLoad(relPath == null ? deafultAnswerPath : relPath, answerCache,
+                fn -> FilesystemTcktDAO.getInstance().loadAnswers(fn));
     }
     public synchronized Answer getAnswer(final String relPath, final Answer.Id id) {
         return getAnswers(relPath).get(id);
@@ -68,6 +72,7 @@ public class FilesystemPersistence {
 
     // Bindings
     public synchronized void cacheBinding(final String relPath, final Binding binding) {
+        getBindings(relPath); // Ensure loaded before caching
         final Bindings bindings = bindingCache.computeIfAbsent(getFilename(relPath),
                 fn -> new Bindings(new ConcurrentHashMap<>()));
         bindings.put(binding.getId(), binding);
@@ -89,19 +94,22 @@ public class FilesystemPersistence {
         cacheCourse(null, course);
     }
     public synchronized void cacheCourse(final String relPath, final Course course) {
+        getCourses(relPath); // Ensure loaded before caching
         cache(relPath == null ? defaultCoursePath : relPath, courseCache, course.getId(), course);
     }
     public void saveCourses() {
         saveCourses(null);
     }
     public synchronized void saveCourses(final String relPath) {
-        save(relPath == null ? defaultCoursePath : relPath, courseCache, (fn, courses) -> FilesystemTcktDAO.getInstance().saveCourses(fn, courses));
+        save(relPath == null ? defaultCoursePath : relPath, courseCache,
+                (fn, courses) -> FilesystemTcktDAO.getInstance().saveCourses(fn, courses));
     }
     public Map<Course.Id, Course> getCourses() {
         return getCourses(null);
     }
     public synchronized Map<Course.Id, Course> getCourses(final String relPath) {
-        return getOrLoad(relPath == null ? defaultCoursePath : relPath, courseCache, fn -> FilesystemTcktDAO.getInstance().loadCourses(fn));
+        return getOrLoad(relPath == null ? defaultCoursePath : relPath, courseCache,
+                fn -> FilesystemTcktDAO.getInstance().loadCourses(fn));
     }
     public Course getCourse(final Course.Id id) {
         return getCourse(null, id);
@@ -112,13 +120,16 @@ public class FilesystemPersistence {
 
     // Questions
     public synchronized void cacheQuestion(final String relPath, final Question question) {
+        getQuestions(relPath); // Ensure loaded before caching
         cache(relPath == null ? defaultQuestionPath : relPath, questionCache, question.getId(), question);
     }
     public synchronized void saveQuestions(final String relPath) {
-        save(relPath == null ? defaultQuestionPath : relPath, questionCache, (fn, questions) -> FilesystemTcktDAO.getInstance().saveQuestions(fn, questions));
+        save(relPath == null ? defaultQuestionPath : relPath, questionCache,
+                (fn, questions) -> FilesystemTcktDAO.getInstance().saveQuestions(fn, questions));
     }
     public synchronized Map<Question.Id, Question> getQuestions(final String relPath) {
-        return getOrLoad(relPath == null ? defaultQuestionPath : relPath, questionCache, fn -> FilesystemTcktDAO.getInstance().loadQuestions(fn));
+        return getOrLoad(relPath == null ? defaultQuestionPath : relPath, questionCache,
+                fn -> FilesystemTcktDAO.getInstance().loadQuestions(fn));
     }
     public synchronized Question getQuestion(final String relPath, final Question.Id id) {
         return getQuestions(relPath).get(id);
@@ -129,19 +140,22 @@ public class FilesystemPersistence {
         cacheTicket(null, ticket);
     }
     public synchronized void cacheTicket(final String relPath, final Ticket ticket) {
+        getTickets(relPath); // Ensure loaded before caching
         cache(relPath == null ? defaultTicketPath : relPath, ticketCache, ticket.getId(), ticket);
     }
     public void saveTickets() {
         saveTickets(null);
     }
     public synchronized void saveTickets(final String relPath) {
-        save(relPath == null ? defaultTicketPath : relPath, ticketCache, (fn, tickets) -> FilesystemTcktDAO.getInstance().saveTickets(fn, tickets));
+        save(relPath == null ? defaultTicketPath : relPath, ticketCache,
+                (fn, tickets) -> FilesystemTcktDAO.getInstance().saveTickets(fn, tickets));
     }
     public Map<Ticket.Id, Ticket> getTickets() {
         return getTickets(null);
     }
     public synchronized Map<Ticket.Id, Ticket> getTickets(final String relPath) {
-        return getOrLoad(relPath == null ? defaultTicketPath : relPath, ticketCache, fn -> FilesystemTcktDAO.getInstance().loadTickets(fn));
+        return getOrLoad(relPath == null ? defaultTicketPath : relPath, ticketCache,
+                fn -> FilesystemTcktDAO.getInstance().loadTickets(fn));
     }
     public Ticket getTicket(final Ticket.Id id) {
         return getTicket(null, id);
@@ -155,25 +169,37 @@ public class FilesystemPersistence {
         cacheUser(null, user);
     }
     public synchronized void cacheUser(final String relPath, final User user) {
+        getUsers(relPath); // Ensure loaded before caching
         cache(relPath == null ? defaultUserPath : relPath, userCache, user.getId(), user);
     }
     public void saveUsers() {
         saveUsers(null);
     }
     public synchronized void saveUsers(final String relPath) {
-        save(relPath == null ? defaultUserPath : relPath, userCache, (fn, users) -> FilesystemTcktDAO.getInstance().saveUsers(fn, users));
+        save(relPath == null ? defaultUserPath : relPath, userCache,
+                (fn, users) -> FilesystemTcktDAO.getInstance().saveUsers(fn, users));
     }
     public Map<User.Id, User> getUsers() {
         return getUsers(null);
     }
     public synchronized Map<User.Id, User> getUsers(final String relPath) {
-        return getOrLoad(relPath == null ? defaultUserPath : relPath, userCache, fn -> FilesystemTcktDAO.getInstance().loadUsers(fn));
+        return getOrLoad(relPath == null ? defaultUserPath : relPath, userCache,
+                fn -> FilesystemTcktDAO.getInstance().loadUsers(fn));
     }
     public User getUser(final User.Id id) {
         return getUser(null, id);
     }
     public synchronized User getUser(final String relPath, final User.Id id) {
         return getUsers(relPath).get(id);
+    }
+    public Optional<User> getUser(final String userName, final String pw) {
+        return getUser(null, userName, pw);
+    }
+    public Optional<User> getUser(final String relPath, final String userName, final String pw) {
+        // FIXME: Consider caching by username instead of searching -- not username is not necessarily unique
+        return getUsers(relPath).values().stream()
+                .filter(u -> u.getLast().equalsIgnoreCase(userName) && u.getPass().equals(pw))
+                .findAny();
     }
 
     private <ID extends Id, V> Map<ID, V> getOrLoad(

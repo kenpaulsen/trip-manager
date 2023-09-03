@@ -46,7 +46,7 @@ public class FilesystemTcktDAO {
 
     public Map<Binding.Id, Binding> loadBindings(final String filename) {
         final Map<Binding.Id, Binding> result = new ConcurrentHashMap<>();
-            loadThings(filename, line -> readToMap(result, line, Binding.class, Binding::getId));
+        loadThings(filename, line -> readToMap(result, line, Binding.class, Binding::getId));
         return result;
     }
 
@@ -108,7 +108,8 @@ public class FilesystemTcktDAO {
                 line = reader.readLine();
             }
         } catch (final IOException ex) {
-            log.warn("Error while loading '" + filename + "'!", ex);
+            // Only log the exception message, this is normal when a file does not yet exist
+            log.warn("Error while loading '" + filename + "': ", ex.getMessage());
         }
     }
 

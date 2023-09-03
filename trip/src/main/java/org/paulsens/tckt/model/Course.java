@@ -3,16 +3,24 @@ package org.paulsens.tckt.model;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonValue;
+import java.io.Serializable;
 import java.time.Year;
 import java.util.UUID;
+import lombok.EqualsAndHashCode;
+import lombok.Setter;
 import lombok.Value;
+import lombok.experimental.NonFinal;
 import org.paulsens.tckt.dao.FilesystemPersistence;
 
 @Value
-public class Course {
+@EqualsAndHashCode(onlyExplicitlyIncluded = true)
+public class Course implements Serializable {
+    @EqualsAndHashCode.Include
     Id id;
+    @NonFinal @Setter
     String name;
     User.Id teacherId;
+    @NonFinal @Setter
     Year year;
 
     @JsonCreator

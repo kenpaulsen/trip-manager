@@ -7,6 +7,8 @@ public class QuestionTest {
 
     @Test
     public void equalsWorks() {
-        EqualsVerifier.forClass(Question.class).verify();
+        EqualsVerifier.forClass(Question.class)
+                .withOnlyTheseFields("id")
+                .verify();
     }
 }

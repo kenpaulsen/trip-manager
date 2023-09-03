@@ -3,13 +3,14 @@ package org.paulsens.tckt.model;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonValue;
+import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import lombok.Value;
 import org.paulsens.tckt.dao.FilesystemPersistence;
 
 @Value
-public class Answer {
+public class Answer implements Serializable {
     Id id;
     String value;
     LocalDateTime submitted;

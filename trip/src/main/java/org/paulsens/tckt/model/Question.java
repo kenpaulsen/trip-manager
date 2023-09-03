@@ -3,17 +3,26 @@ package org.paulsens.tckt.model;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonValue;
+import java.io.Serializable;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.Value;
 import org.paulsens.tckt.dao.FilesystemPersistence;
 
-@Value
-public class Question {
-    Id id;
-    String question;
-    String answerKey;
-    List<Choice> choices;
+@Data
+public final class Question implements Serializable {
+    private final Id id;
+    @EqualsAndHashCode.Exclude
+    private String question;
+    @EqualsAndHashCode.Exclude
+    private String answerKey;
+    @EqualsAndHashCode.Exclude
+    private List<Choice> choices;
+    @EqualsAndHashCode.Exclude
+    private final LocalDateTime createdDate;
 
     @JsonCreator
     public Question(
@@ -25,6 +34,7 @@ public class Question {
         this.question = question;
         this.answerKey = answerKey;
         this.choices = choices;
+        this.createdDate = LocalDateTime.now();
     }
 
     @Value

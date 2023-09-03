@@ -4,11 +4,13 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonValue;
 import java.util.UUID;
+import lombok.EqualsAndHashCode;
 import lombok.Value;
 import org.paulsens.tckt.dao.FilesystemPersistence;
 
 @Value
 public class Binding {
+    @EqualsAndHashCode.Exclude
     Id id;
     org.paulsens.tckt.model.Id srcId;
     org.paulsens.tckt.model.Id destId;
@@ -22,7 +24,7 @@ public class Binding {
             @JsonProperty("destId") final String destId,
             @JsonProperty("srcType") final BindingType srcType,
             @JsonProperty("destType") final BindingType destType) {
-        this.id = id;
+        this.id = (id == null) ? Id.newId() : id;
         this.srcId = toId(srcId, srcType);
         this.destId = toId(destId, destType);
         this.srcType = srcType;

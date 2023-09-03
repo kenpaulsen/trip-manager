@@ -72,12 +72,11 @@ public class TestData {
     }
 
     public static User randUser() {
-        final String name = RandomData.genAlpha(23);
+        final String first = RandomData.genAlpha(7);
+        final String last = RandomData.genAlpha(9);
         final String pass = RandomData.genAlpha(13);
         final User.Type type = RandomData.randomEnum(User.Type.class);
-        return new User(
-                User.Id.newId(),
-                name, pass, type);
+        return new User(User.Id.newId(), first, last, pass, type);
     }
 
     public static Question.Choice randChoice() {

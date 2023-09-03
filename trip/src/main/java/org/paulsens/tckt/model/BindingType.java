@@ -3,10 +3,8 @@ package org.paulsens.tckt.model;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.BiFunction;
-import java.util.function.Function;
 import lombok.Getter;
 import org.paulsens.tckt.dao.FilesystemPersistence;
-import org.paulsens.trip.dynamo.Persistence;
 
 @Getter
 public enum BindingType {

@@ -11,6 +11,7 @@ import org.paulsens.tckt.model.Ticket;
 import org.paulsens.tckt.model.User;
 import org.paulsens.tckt.testutil.FileUtils;
 import org.paulsens.tckt.testutil.TestData;
+import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -37,6 +38,12 @@ public class FilesystemPersistenceTest {
         if (FileUtils.fileExists(TestData.BASE_PATH + TestData.USERS_PATH)) {
             FileUtils.deleteFile(TestData.BASE_PATH + TestData.USERS_PATH);
         }
+    }
+
+    @Test
+    public void readingAMissingFileIsNotFatal() {
+        final FilesystemPersistence persistence = new FilesystemPersistence(TestData.BASE_PATH);
+        persistence.getBindings("/" + RandomData.genAlpha(3));
     }
 
     @Test
