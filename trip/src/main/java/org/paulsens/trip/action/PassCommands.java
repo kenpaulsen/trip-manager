@@ -18,6 +18,10 @@ import org.paulsens.trip.util.RandomData;
 @FacesConfig
 @ApplicationScoped
 public class PassCommands {
+    public boolean userExistsWithEmail(final String email) {
+        return DAO.getInstance().getPersonByEmail(email).join() != null;
+    }
+
     public Creds login(final String email, final String pass) {
         final Creds creds = getCreds(email, pass);
         if (creds != null) {
