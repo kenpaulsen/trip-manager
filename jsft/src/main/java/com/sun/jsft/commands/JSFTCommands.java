@@ -124,6 +124,29 @@ public class JSFTCommands {
     }
 
     /**
+     * If a commands for an event are declared, this command can retrieve and execute them. For example:
+     * <pre>
+     *     <jsft:event id="foo">
+     *         println("hello world");
+     *     </jsft:event>
+     *     <h:outputText value="#{jsft.event('foo')}" />
+     * </pre>
+     * This is useful for invoking commands where no event is available to trigger it properly, but EL may be evaluated.
+     *
+     * @param commandId The id of the command to invoke.
+     */
+    @SuppressWarnings("unchecked")
+    public void event(final String commandId) {
+        final FacesContext facesCtx = FacesContext.getCurrentInstance();
+        final Object value = facesCtx.getAttributes().get(commandId);
+        if (value instanceof List) {
+            for (final Command cmd : (List<Command>) facesCtx.getAttributes().get(commandId)) {
+                cmd.invoke();
+            }
+        }
+    }
+
+    /**
      * <p> This command sets a requestScope attribute with the given
      *     <code>key</code> and <code>value</code>.</p>
      */
