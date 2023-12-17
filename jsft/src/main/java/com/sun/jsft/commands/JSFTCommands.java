@@ -56,6 +56,7 @@ import jakarta.inject.Named;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -90,6 +91,10 @@ public class JSFTCommands {
                 elseCommand.invoke();
             }
         }
+    }
+
+    public void foreach(final String var, final Object[] list) {
+        foreach(var, Arrays.asList(list));
     }
 
     /**
