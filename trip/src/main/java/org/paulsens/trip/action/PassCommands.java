@@ -6,6 +6,8 @@ import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
@@ -13,6 +15,8 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.RandomData;
+
+import static org.paulsens.trip.dynamo.CredentialsDAO.IS_ADMIN;
 
 @Slf4j
 @Named("pass")
@@ -47,6 +51,18 @@ public class PassCommands {
         return DAO.getInstance().adminGetCredsByEmail(email)
                 .orTimeout(3_000, TimeUnit.MILLISECONDS)
                 .join();
+    }
+
+    public Boolean adminSetPass(final String email, final String pass) {
+        final FacesContext facesContext = FacesContext.getCurrentInstance();
+        if (facesContext == null) {
+            return false;
+        }
+        final Map<String, Object> viewMap = facesContext.getViewRoot().getViewMap(false);
+        if (viewMap == null || !Boolean.parseBoolean(viewMap.getOrDefault(IS_ADMIN, false).toString())) {
+            return false;
+        }
+        return setPass(email, pass);
     }
 
     public Creds getCredsByAdmin(final String email, final Person.Id id) {

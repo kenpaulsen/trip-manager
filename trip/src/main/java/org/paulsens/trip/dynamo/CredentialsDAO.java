@@ -15,13 +15,13 @@ import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 
 @Slf4j
 public class CredentialsDAO {
+    public static final String IS_ADMIN = "showAll";
     static final String PASS_TABLE = "pass";
     static final String EMAIL = "email";
     static final String PRIV = "priv";
     static final String PW = "pass";
     static final String USER_ID = "userId";
     static final String LAST_LOGIN = "lastLogin";
-    private static final String IS_ADMIN = "showAll";
 
     private final Persistence persistence;
     private final PersonDAO personDao;
