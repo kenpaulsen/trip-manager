@@ -1,5 +1,6 @@
 package org.paulsens.trip.dynamo;
 
+import jakarta.faces.context.FacesContext;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Locale;
@@ -20,6 +21,7 @@ public class CredentialsDAO {
     static final String PW = "pass";
     static final String USER_ID = "userId";
     static final String LAST_LOGIN = "lastLogin";
+    private static final String IS_ADMIN = "showAll";
 
     private final Persistence persistence;
     private final PersonDAO personDao;
@@ -29,15 +31,34 @@ public class CredentialsDAO {
         this.personDao = personDAO;
     }
 
+    // Only available to admins
+    protected CompletableFuture<Creds> adminGetCredsByEmail(final String email) {
+        final FacesContext facesContext = FacesContext.getCurrentInstance();
+        if ((email == null) || email.isEmpty() || facesContext == null) {
+            return CompletableFuture.completedFuture(null);
+        }
+        final Map<String, Object> viewMap = facesContext.getViewRoot().getViewMap(false);
+        if (viewMap == null || !Boolean.parseBoolean(viewMap.getOrDefault(IS_ADMIN, false).toString())) {
+            return CompletableFuture.completedFuture(null);
+        }
+        return persistence.getItem(b -> b
+                        .key(getCredQueryKey(email))
+                        .tableName(PASS_TABLE)
+                        .build())
+                .thenApply(this::credsFromResponse);
+    }
+
     protected CompletableFuture<Creds> getCredsByEmailAndPass(final String email, final String pass) {
         if ((email == null) || email.isEmpty() || (pass == null) || pass.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         }
+        return persistence.getItem(b -> b.key(getCredQueryKey(email)).tableName(PASS_TABLE).build())
+                .thenApply(item -> validateCreds(item, email, pass));
+    }
+
+    private Map<String, AttributeValue> getCredQueryKey(final String email) {
         final String lowEmail = email.toLowerCase();
-        final Map<String, AttributeValue> key =
-                Map.of(EMAIL, AttributeValue.builder().s(lowEmail).build());
-        return persistence.getItem(b -> b.key(key).tableName(PASS_TABLE).build())
-                .thenApply(item -> toCreds(item, lowEmail, pass));
+        return Map.of(EMAIL, AttributeValue.builder().s(lowEmail).build());
     }
 
     /**
@@ -109,12 +130,13 @@ public class CredentialsDAO {
                 });
     }
 
-    private Creds toCreds(final GetItemResponse resp, final String email, final String pass) {
+    private Creds validateCreds(final GetItemResponse resp, final String email, final String pass) {
+        final String lowEmail = email.toLowerCase();
         if (!resp.hasItem()) {
-            log.warn("User with email (" + email + ") has not logged in before! Checking if user exists...");
-            return createCreds(email).map(creds -> validateCreds(email, pass, creds)).orElse(null);
+            log.warn("User with email (" + lowEmail + ") has not logged in before! Checking if user exists...");
+            return createCreds(lowEmail).map(creds -> validateCreds(lowEmail, pass, creds)).orElse(null);
         }
-        return validateCreds(email, pass, credsFromResponse(resp));
+        return validateCreds(lowEmail, pass, credsFromResponse(resp));
     }
 
     private Creds credsFromResponse(final GetItemResponse resp) {

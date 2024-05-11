@@ -120,6 +120,9 @@ public class DAO {
     }
 
     // Credentials
+    public CompletableFuture<Creds> adminGetCredsByEmail(final String email) {
+        return credDao.adminGetCredsByEmail(email);
+    }
     public CompletableFuture<Creds> getCredsByEmailAndPass(final String email, final String pass) {
         return credDao.getCredsByEmailAndPass(email, pass);
     }

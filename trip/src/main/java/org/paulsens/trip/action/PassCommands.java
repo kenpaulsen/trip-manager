@@ -6,6 +6,7 @@ import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.dynamo.DAO;
@@ -40,6 +41,12 @@ public class PassCommands {
                     log.error("Failed to get creds for: " + email, ex);
                     return null;
                 }).join();
+    }
+
+    public Creds adminGetCreds(final String email) {
+        return DAO.getInstance().adminGetCredsByEmail(email)
+                .orTimeout(3_000, TimeUnit.MILLISECONDS)
+                .join();
     }
 
     public Creds getCredsByAdmin(final String email, final Person.Id id) {
