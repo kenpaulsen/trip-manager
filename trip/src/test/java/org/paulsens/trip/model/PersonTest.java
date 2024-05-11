@@ -59,8 +59,9 @@ public class PersonTest {
         final String contactName = " Jaye J.";
         final String contactPhone = "abc123 ";
         final ObjectMapper mapper = DAO.getInstance().getMapper();
-        final Person before = new Person(Person.Id.from(RandomData.genAlpha(19)), null, " Kevin", "David ", " Paulsen ",
-                null, LocalDate.of(1987, 9, 27), null,"user3", null, null, null, null, null, contactName, contactPhone);
+        final Person before = new Person(Person.Id.from(RandomData.genAlpha(19)), null,
+                " Kevin", "David ", " Paulsen ", null, LocalDate.of(1987, 9, 27), null,"user3",
+                null, null, null, null, null, contactName, contactPhone, null);
         final String personStr = mapper.writeValueAsString(before);
         final Person after = mapper.readValue(personStr, Person.class);
         Assert.assertEquals(after.getEmergencyContactName(), contactName.trim());

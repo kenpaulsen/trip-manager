@@ -78,7 +78,7 @@ public class FakeData {
     static List<Person> initFakePeople() {
         final List<Person> people = new ArrayList<>();
         people.add(new Person(null, "Joe", "Joseph", "Bob", "Smith", Sex.Male,
-                LocalDate.of(1947, 2, 11), null, "user1", null, null, null, null, null, null, null));
+                LocalDate.of(1947, 2, 11), null, "user1", null, null, null, null, null, null, null, null));
         people.add(Person.builder()
                 .id(Person.Id.from("admin"))
                 .first("admin")
@@ -86,15 +86,15 @@ public class FakeData {
                 .email("admin")
                 .build());
         people.add(new Person(null, "Ken", "Kenneth", "", "Paulsen", Sex.Male,
-                LocalDate.of(1977, 12, 11), null, "user2", null, null, null, null, null, null, null));
+                LocalDate.of(1977, 12, 11), null, "user2", null, null, null, null, null, null, null, null));
         people.add(new Person(null, null, "Kevin", "David", "Paulsen", Sex.Male,
-                LocalDate.of(1987, 9, 27), null,"user3", null, null, null, null, null, null, null));
+                LocalDate.of(1987, 9, 27), null,"user3", null, null, null, null, null, null, null, null));
         people.add(new Person(null, "Trinity", "Trinity", "Anne", "Paulsen", Sex.Female,
-                LocalDate.of(1979, 12, 11), null, "user4", null, null, null, null, null, null, null));
+                LocalDate.of(1979, 12, 11), null, "user4", null, null, null, null, null, null, null, null));
         people.add(new Person(null, "Dave", "David", "A", "Robinson", Sex.Male,
-                LocalDate.of(1999, 1, 30), null, "user5", null, null, null, null, null, null, null));
+                LocalDate.of(1999, 1, 30), null, "user5", null, null, null, null, null, null, null, null));
         people.add(new Person(null, "Matt", "Matthew", null, "Smith", Sex.Male,
-                LocalDate.of(2010, 6, 1), null, "user6", null, null, null, null, null, null, null));
+                LocalDate.of(2010, 6, 1), null, "user6", null, null, null, null, null, null, null, null));
         return people;
     }
 

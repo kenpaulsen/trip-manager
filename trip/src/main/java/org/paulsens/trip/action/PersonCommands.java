@@ -7,6 +7,8 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
@@ -39,6 +41,7 @@ public class PersonCommands {
 
     public List<Person> getPeople() {
         return DAO.getInstance().getPeople()
+                .orTimeout(3_000, TimeUnit.MILLISECONDS)
                 .exceptionally(ex -> {
                     log.error("Failed to get list of people!", ex);
                     return Collections.emptyList();
@@ -51,11 +54,7 @@ public class PersonCommands {
     }
 
     public Person getPerson(final Person.Id id) {
-        return DAO.getInstance().getPerson(id)
-                .exceptionally(ex -> {
-                    log.error("Failed to get person '" + id + "'!", ex);
-                    return Optional.empty();
-                }).join().orElse(new Person());
+        return getPersonInternal(id, Person::new);
     }
 
     public Person getPersonByEmail(final String email) {
@@ -68,5 +67,15 @@ public class PersonCommands {
 
     public Person.Id id(final String id) {
         return Person.Id.from(id);
+    }
+
+    private Person getPersonInternal(final Person.Id id, final Supplier<Person> defaultPersonSupplier) {
+        return DAO.getInstance().getPerson(id)
+                .orTimeout(3_000, TimeUnit.MILLISECONDS)
+                .exceptionally(ex -> {
+                    log.error("Failed to get person '" + id + "'!", ex);
+                    return Optional.empty();
+                }).join()
+                .orElse(defaultPersonSupplier.get());
     }
 }

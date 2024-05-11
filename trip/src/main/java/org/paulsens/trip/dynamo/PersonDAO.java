@@ -33,22 +33,32 @@ public class PersonDAO {
         map.put(ID, AttributeValue.builder().s(person.getId().getValue()).build());
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(person)).build());
         return persistence.putItem(b -> b.tableName(PERSON_TABLE).item(map))
-                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
-                .thenApply(r -> r ?
-                        persistence.cacheOne(peopleCache, person, person.getId(), true) :
+                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful() ?
+                        updateCacheForPerson(person) :
                         persistence.clearCache(peopleCache, false));
+    }
+
+    private Boolean updateCacheForPerson(final Person person) {
+        if (person.getDeleted() == null) {
+            persistence.cacheOne(peopleCache, person, person.getId(), true);
+        } else {
+            peopleCache.remove(person.getId());
+        }
+        return true;
     }
 
     protected CompletableFuture<List<Person>> getPeople() {
         if (!peopleCache.isEmpty()) {
+            // FIXME: Can we also cache the list itself?
             return CompletableFuture.completedFuture(
                     peopleCache.values().stream()
                             .sorted()
                             .toList());
         }
-        return persistence.scan(b -> b.consistentRead(false).limit(1000).tableName(PERSON_TABLE).build())
+        return persistence.scan(b -> b.consistentRead(false).limit(2000).tableName(PERSON_TABLE).build())
                 .thenApply(resp -> resp.items().stream()
                         .map(it -> toPerson(it.get(CONTENT)))
+                        .filter(p -> p != null && p.getDeleted() == null)
                         .sorted()
                         .toList())
                 .thenApply(list -> persistence.cacheAll(peopleCache, list, Person::getId));

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonValue;
 import java.io.Serializable;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -13,8 +14,10 @@ import java.util.Locale;
 import java.util.UUID;
 
 import java.util.stream.Collectors;
+import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Data;
+import lombok.Setter;
 import lombok.Value;
 import org.paulsens.trip.dynamo.DAO;
 
@@ -39,25 +42,28 @@ public final class Person implements Serializable, Comparable<Person> {
     private List<Person.Id> managedUsers;
     private String emergencyContactName;
     private String emergencyContactPhone;
+    @Setter(AccessLevel.NONE)
+    private LocalDateTime deleted;
 
     @JsonCreator
     public Person(
-            @JsonProperty("id") Id id,
-            @JsonProperty("nickname") String nickname,
-            @JsonProperty("first") String first,
-            @JsonProperty("middle") String middle,
-            @JsonProperty("last") String last,
-            @JsonProperty("sex") Sex sex,
-            @JsonProperty("birthdate") LocalDate birthdate,
-            @JsonProperty("cell") String cell,
-            @JsonProperty("email") String email,
-            @JsonProperty("tsa") String tsa,
-            @JsonProperty("address") Address address,
-            @JsonProperty("passport") Passport passport,
-            @JsonProperty("notes") String notes,
-            @JsonProperty("managedUsers") List<Person.Id> managedUsers,
-            @JsonProperty("emergencyName") String emergencyName,
-            @JsonProperty("emergencyPhone") String emergencyPhone) {
+            @JsonProperty("id") final Id id,
+            @JsonProperty("nickname") final String nickname,
+            @JsonProperty("first") final String first,
+            @JsonProperty("middle") final String middle,
+            @JsonProperty("last") final String last,
+            @JsonProperty("sex") final Sex sex,
+            @JsonProperty("birthdate") final LocalDate birthdate,
+            @JsonProperty("cell") final String cell,
+            @JsonProperty("email") final String email,
+            @JsonProperty("tsa") final String tsa,
+            @JsonProperty("address") final Address address,
+            @JsonProperty("passport") final Passport passport,
+            @JsonProperty("notes") final String notes,
+            @JsonProperty("managedUsers") final List<Person.Id> managedUsers,
+            @JsonProperty("emergencyName") final String emergencyName,
+            @JsonProperty("emergencyPhone") final String emergencyPhone,
+            @JsonProperty("deleted") final LocalDateTime deleted) {
         this.id = (id == null) ? Id.newInstance() : id;
         this.nickname = trim(nickname);
         this.first = trim(first);
@@ -74,10 +80,16 @@ public final class Person implements Serializable, Comparable<Person> {
         this.managedUsers = (managedUsers == null) ? new ArrayList<>() : managedUsers;
         this.emergencyContactName = trim(emergencyName);
         this.emergencyContactPhone = trim(emergencyPhone);
+        this.deleted = deleted;
     }
 
     public Person() {
-        this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+    }
+
+    public LocalDateTime delete() {
+        this.deleted = LocalDateTime.now();
+        return deleted;
     }
 
     @JsonIgnore
