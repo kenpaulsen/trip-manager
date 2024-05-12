@@ -7,6 +7,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
@@ -122,6 +123,27 @@ public class CredentialsDAO {
                     log.error("Failed to save credentials!", ex);
                     return false;
                 });
+    }
+
+    protected CompletableFuture<Boolean> removeCreds(final String email) {
+        return adminGetCredsByEmail(email)
+                .thenApply(this::validateCanRemoveCreds)
+                .thenCompose(canRemove -> canRemove ? removeCredsInternal(email) :
+                        CompletableFuture.completedFuture(false))
+                .orTimeout(3_000, TimeUnit.MILLISECONDS);
+    }
+
+    private Boolean validateCanRemoveCreds(final Creds creds) {
+        // Only delete normal users, admins have to be downgraded first or edited via the db
+        return creds != null && Creds.USER_PRIV.equals(creds.getPriv());
+    }
+
+    private CompletableFuture<Boolean> removeCredsInternal(final String email) {
+        log.info("Removing Credentials for user ({}).", email);
+        final Map<String, AttributeValue> primaryKey = getCredQueryKey(email);
+        return persistence
+                .deleteItem(b -> b.tableName(PASS_TABLE).key(primaryKey))
+                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful());
     }
 
     private Creds validateCreds(final GetItemResponse resp, final String email, final String pass) {

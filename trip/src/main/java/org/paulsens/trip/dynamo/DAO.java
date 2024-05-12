@@ -138,6 +138,9 @@ public class DAO {
     public CompletableFuture<Boolean> saveCreds(final Creds creds) {
         return credDao.saveCreds(creds);
     }
+    public CompletableFuture<Boolean> removeCreds(final String email) {
+        return credDao.removeCreds(email);
+    }
 
     // Todos
     public CompletableFuture<Boolean> saveTodo(final TodoItem todo) throws IOException {

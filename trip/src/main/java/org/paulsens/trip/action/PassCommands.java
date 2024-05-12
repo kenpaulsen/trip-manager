@@ -123,6 +123,14 @@ public class PassCommands {
         return setPass(email, pass);
     }
 
+    public Boolean deleteCreds(final String email) {
+        final Boolean result = DAO.getInstance().removeCreds(email).join();
+        if (!result) {
+            log.warn("Unable to remove Creds for ({}). Perhaps no Creds exist or this user is an admin?", email);
+        }
+        return result;
+    }
+
     public Boolean setEmail(final Person person, final String oldEmail, final String newEmail) {
         if (newEmail == null || newEmail.equals(oldEmail)) {
             return false;
