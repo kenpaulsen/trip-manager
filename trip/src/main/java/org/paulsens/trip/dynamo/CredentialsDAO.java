@@ -31,7 +31,7 @@ public class CredentialsDAO {
         this.personDao = personDAO;
     }
 
-    // Only available to admins
+    // Only available to super admins
     protected CompletableFuture<Creds> adminGetCredsByEmail(final String email) {
         final FacesContext facesContext = FacesContext.getCurrentInstance();
         if ((email == null) || email.isEmpty() || facesContext == null) {
@@ -41,11 +41,8 @@ public class CredentialsDAO {
         if (viewMap == null || !Boolean.parseBoolean(viewMap.getOrDefault(IS_ADMIN, false).toString())) {
             return CompletableFuture.completedFuture(null);
         }
-        return persistence.getItem(b -> b
-                        .key(getCredQueryKey(email))
-                        .tableName(PASS_TABLE)
-                        .build())
-                .thenApply(this::credsFromResponse);
+        return persistence.getItem(b -> b.key(getCredQueryKey(email)).tableName(PASS_TABLE).build())
+                .thenApply(item -> (item.hasItem()) ? credsFromResponse(item) : null);
     }
 
     protected CompletableFuture<Creds> getCredsByEmailAndPass(final String email, final String pass) {
@@ -57,8 +54,7 @@ public class CredentialsDAO {
     }
 
     private Map<String, AttributeValue> getCredQueryKey(final String email) {
-        final String lowEmail = email.toLowerCase();
-        return Map.of(EMAIL, AttributeValue.builder().s(lowEmail).build());
+        return Map.of(EMAIL, AttributeValue.builder().s(email.toLowerCase()).build());
     }
 
     /**
@@ -71,9 +67,7 @@ public class CredentialsDAO {
         if ((email == null) || email.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         }
-        final Map<String, AttributeValue> key =
-                Map.of(EMAIL, AttributeValue.builder().s(email.toLowerCase()).build());
-        return persistence.getItem(b -> b.key(key).tableName(PASS_TABLE).build())
+        return persistence.getItem(b -> b.key(getCredQueryKey(email)).tableName(PASS_TABLE).build())
                 .thenApply(item -> (item.hasItem()) ? credsFromResponse(item) : null)
                 .thenApply(creds -> (creds == null || creds.getUserId().equals(id)) ? creds : null);
     }
