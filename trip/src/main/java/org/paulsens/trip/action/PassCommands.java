@@ -6,6 +6,7 @@ import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import jakarta.servlet.http.HttpServletRequest;
+import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +16,7 @@ import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.RandomData;
 
+import static org.paulsens.trip.action.TripUtilCommands.addMessage;
 import static org.paulsens.trip.dynamo.CredentialsDAO.IS_ADMIN;
 
 @Slf4j
@@ -119,6 +121,38 @@ public class PassCommands {
             return false;
         }
         return setPass(email, pass);
+    }
+
+    public Boolean setEmail(final Person person, final String oldEmail, final String newEmail) {
+        if (newEmail == null || newEmail.equals(oldEmail)) {
+            return false;
+        }
+        final Boolean result;
+        // Update their old Creds to use their new email
+        final Creds newCreds = adminGetCreds(newEmail);
+        if (newCreds != null && !newCreds.getUserId().equals(person.getId())) {
+            // Trying to use an email address that is not theirs and already in use!
+            final String msg = person.getEmail() + " is already in use! Reverting.";
+            addMessage(null, new FacesMessage(FacesMessage.SEVERITY_WARN, msg, ""));
+            person.setEmail(oldEmail);
+            try {
+                if (!DAO.getInstance().savePerson(person)
+                        .orTimeout(3_000, TimeUnit.MILLISECONDS)
+                        .join()) {
+                    throw new IOException("Failed to revert email!");
+                }
+            } catch (final IOException ex) {
+                addMessage(null, new FacesMessage(FacesMessage.SEVERITY_ERROR, "Unable to revert email!", ""));
+            }
+            result = false;
+        } else {
+            final Creds oldCreds = adminGetCreds(oldEmail);
+            if (oldCreds != null) {
+                oldCreds.setEmail(newEmail);
+            }
+            result = DAO.getInstance().saveCreds(oldCreds).join();
+        }
+        return result;
     }
 
     /**
