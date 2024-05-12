@@ -147,10 +147,12 @@ public class PassCommands {
             result = false;
         } else {
             final Creds oldCreds = adminGetCreds(oldEmail);
-            if (oldCreds != null) {
+            if (oldCreds == null) {
+                result = false;
+            } else {
                 oldCreds.setEmail(newEmail);
+                result = DAO.getInstance().saveCreds(oldCreds).join();
             }
-            result = DAO.getInstance().saveCreds(oldCreds).join();
         }
         return result;
     }
