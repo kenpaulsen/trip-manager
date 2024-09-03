@@ -14,6 +14,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -97,6 +98,10 @@ public class TripUtilCommands {
 
     public DateTimeFormatter getDateTimeFormatter(final String pattern) {
         return DateTimeFormatter.ofPattern(pattern);
+    }
+
+    public String formatDateTime(final String pattern, final TemporalAccessor dateTime) {
+        return getDateTimeFormatter(pattern).format(dateTime);
     }
 
     public LocalDateTime localDateTimeNow() {

@@ -186,16 +186,6 @@ public class PassCommands {
     }
 
     /**
-     * Tests to see if {@code userId} has access to {@code reqId}.
-     * @param person    The user whom is requesting access.
-     * @param reqId     The id to test for access.
-     * @return  {@code true} if {@code userId} can access {@code reqId}.
-     */
-    public boolean canAccessUserId(final Person person, final Person.Id reqId) {
-        return person.getId().equals(reqId) || person.getManagedUsers().contains(reqId);
-    }
-
-    /**
      * If the given {@code email} and {@code lastName} match a valid user, an email will be sent to the given email
      * with a new random password. The password database will be immediately changed to match the password in the
      * email.
