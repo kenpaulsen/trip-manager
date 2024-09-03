@@ -30,6 +30,10 @@ public class PrivilegeCommands {
                 .join();
     }
 
+    public Privilege getTripPriv(final String tripId, final String privName) {
+        return getPrivilege(privName + tripId);
+    }
+
     public Privilege getPrivilege(final String privName) {
         return getPrivilegeMaybe(privName).orElse(null);
     }
@@ -49,7 +53,14 @@ public class PrivilegeCommands {
                 .join();
     }
 
+    public boolean checkTripPriv(final String tripId, final String tripPrivName, final Person.Id personId) {
+        return check(tripPrivName + tripId, personId);
+    }
+
     public boolean check(final String privName, final Person.Id personId) {
+        if (personId == null) {
+            return false;
+        }
         return getPrivilegeMaybe(privName)
                 .map(priv -> priv.getPeople().contains(personId))
                 .orElse(false);

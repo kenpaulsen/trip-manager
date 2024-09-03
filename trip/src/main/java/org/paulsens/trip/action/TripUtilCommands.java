@@ -96,6 +96,19 @@ public class TripUtilCommands {
         return (collection instanceof List) ? ((List<T>) collection) : new ArrayList<>(collection);
     }
 
+    public boolean isEmpty(final Object listOrArray) {
+        if (listOrArray == null) {
+            return true;
+        }
+        if (listOrArray instanceof Collection<?>) {
+            return ((Collection<?>) listOrArray).isEmpty();
+        }
+        if (listOrArray.getClass().isArray()) {
+            return ((Object[]) listOrArray).length == 0;
+        }
+        return false;
+    }
+
     public DateTimeFormatter getDateTimeFormatter(final String pattern) {
         return DateTimeFormatter.ofPattern(pattern);
     }
