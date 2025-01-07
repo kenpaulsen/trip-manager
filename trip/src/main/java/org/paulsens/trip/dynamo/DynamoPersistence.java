@@ -21,8 +21,8 @@ class DynamoPersistence implements Persistence {
 
     DynamoPersistence() {
         this.client = DynamoDbAsyncClient.builder()
-                .region(Region.US_WEST_2)
-                .credentialsProvider(ProfileCredentialsProvider.builder().build())
+                .region(Region.US_EAST_1)
+                //.credentialsProvider(ProfileCredentialsProvider.builder().build())
                 .build();
     }
 

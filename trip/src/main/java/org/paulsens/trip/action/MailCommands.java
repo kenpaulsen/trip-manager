@@ -39,8 +39,8 @@ public class MailCommands {
     private static final String EMAIL_TPL_SUFFIX = ".tpl";
 
     final SesAsyncClient client = SesAsyncClient.builder()
-            .region(Region.US_WEST_2)
-            .credentialsProvider(ProfileCredentialsProvider.builder().build())
+            .region(Region.US_EAST_1)
+            //.credentialsProvider(ProfileCredentialsProvider.builder().build())
             .build();
 
     // NOTE: See "sendTemplate" that method is generally more useful
