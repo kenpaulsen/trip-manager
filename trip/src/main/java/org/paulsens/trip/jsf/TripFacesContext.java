@@ -38,7 +38,7 @@ public class TripFacesContext extends FacesContextWrapper {
 
         @Override
         public String getRequestServerName() {
-            return "visitqueenofpeace.com";
+            return "my.centermirmedjugorje.com";
         }
     }
 }
