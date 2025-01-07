@@ -55,9 +55,9 @@ public class PayCommands {
     static final BigDecimal FEE_FIXED  = BigDecimal.valueOf(0.49d);
 
     // FIXME: This is temporary, we should move this out to the .xhtml file so it's parameterized per site
-    private static final String FROM_ADDRESS = "Visit Queen of Peace <no-reply@visitqueenofpeace.com>";
+    private static final String FROM_ADDRESS = "Center Mir Medjugorje <info@centermirmedjugorje.com>";
     // FIXME: This is temporary, we should move this out to the .xhtml file so it's parameterized per site
-    private static final String NOTIFY_EMAIL = "ken@visitqueenofpeace.com";
+    private static final String NOTIFY_EMAIL = "info@centermirmedjugorje.com";
 
     private final DateTimeFormatter timestampPattern = DateTimeFormatter.ofPattern("yyyyMMddHHmm");
 
