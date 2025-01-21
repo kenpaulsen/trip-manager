@@ -1,5 +1,7 @@
 package org.paulsens.trip.action;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.paypal.sdk.ApiHelper;
 import com.paypal.sdk.http.response.ApiResponse;
 import com.paypal.sdk.models.Order;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -37,5 +39,9 @@ public class PayCommands {
         return PayPalClient.getInstance().captureOrder(orderId)
                 .orTimeout(5_000, TimeUnit.MILLISECONDS)
                 .join();
+    }
+
+    public String serialize(final Object obj) throws JsonProcessingException {
+        return ApiHelper.serialize(obj);
     }
 }
