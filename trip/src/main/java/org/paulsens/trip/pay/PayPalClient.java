@@ -60,10 +60,10 @@ public class PayPalClient {
                         .build())
                 .whenComplete((resp, ex) -> {
                     if (ex == null) {
-                        ex.printStackTrace();
-                    } else {
                         System.out.println("Response code: " + resp.getStatusCode());
                         System.out.println(resp.getResult());
+                    } else {
+                        ex.printStackTrace();
                     }
                 });
     }
