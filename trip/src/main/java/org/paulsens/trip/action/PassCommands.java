@@ -225,8 +225,7 @@ public class PassCommands {
         final String url = req.getScheme() + "://" + req.getServerName() + portStr
                 + req.getContextPath() + "/account/login.jsf";
         return title + "\n\n A request was made to reset your password. Your new password is: \n\n\t\t"
-                + pass + "\n\nYou may now login at: " + url + " with your email address and this new password.\n\n"
-                + "If you have any problems, reach out to Ken Paulsen (kenapaulsen@gmail.com).\n\n";
+                + pass + "\n\nYou may now login at: " + url + " with your email address and this new password.\n\n";
     }
 
     private String genNewPass() {
