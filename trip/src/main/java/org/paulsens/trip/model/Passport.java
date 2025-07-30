@@ -11,16 +11,19 @@ public final class Passport implements Serializable {
     private String country;
     private LocalDate expires;
     private LocalDate issued;
+    private String placeOfBirth;
 
     public Passport(
             @JsonProperty("number") String number,
             @JsonProperty("country") String country,
             @JsonProperty("expires") LocalDate expires,
-            @JsonProperty("issued") LocalDate issued) {
+            @JsonProperty("issued") LocalDate issued,
+            @JsonProperty("placeOfBirth") String placeOfBirth) {
         this.number = number;
         this.country = country;
         this.expires = expires;
         this.issued = issued;
+        this.placeOfBirth = placeOfBirth;
     }
 
     public Passport() {
@@ -28,5 +31,6 @@ public final class Passport implements Serializable {
         this.country = null;
         this.expires = null;
         this.issued = null;
+        this.placeOfBirth = null;
     }
 }
