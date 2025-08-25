@@ -9,13 +9,22 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 public class PersonTest {
-    private static final List<Person> people = FakeData.getFakePeople();
-    private static final String OLD_SERIALIZED_PERSON_0 = "{\"id\":\"" + people.get(0).getId().getValue() + "\","
-            + "\"nickname\":\"Joe\",\"first\":\"Joseph\",\"middle\":\"Bob\",\"last\":\"Smith\",\"sex\":\"Male\","
-            + "\"birthdate\":\"1947-02-11\",\"email\":\"user1\",\"address\":{},\"passport\":{},\"managedUsers\":[]}";
+    private static String oldSerializedPerson;
+    private static List<Person> people;
+
+    @BeforeClass
+    void initTests() {
+        FakeData.initFakeData();
+        FakeData.addFakeData();
+        people = FakeData.getFakePeople();
+        oldSerializedPerson = "{\"id\":\"" + people.get(0).getId().getValue() + "\","
+                + "\"nickname\":\"Joe\",\"first\":\"Joseph\",\"middle\":\"Bob\",\"last\":\"Smith\",\"sex\":\"Male\","
+                + "\"birthdate\":\"1947-02-11\",\"email\":\"u1\",\"address\":{},\"passport\":{},\"managedUsers\":[]}";
+    }
 
     @Test
     public void equalsTest() {
@@ -34,7 +43,7 @@ public class PersonTest {
     @Test
     public void canReadOldStuff() throws Exception {
         final ObjectMapper mapper = DAO.getInstance().getMapper();
-        final Person after = mapper.readValue(OLD_SERIALIZED_PERSON_0, Person.class);
+        final Person after = mapper.readValue(oldSerializedPerson, Person.class);
         Assert.assertEquals(after, people.get(0), "Reading old json failed!");
     }
 

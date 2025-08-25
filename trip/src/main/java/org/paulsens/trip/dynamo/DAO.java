@@ -39,7 +39,7 @@ public class DAO {
     private final BindingDAO bindingDao;
 
     // This flag is set in the web.xml
-    private static final DAO INSTANCE = new DAO();
+    private static DAO inst;
 
     private DAO() {
         final Persistence persistence = createTripPersistence();
@@ -54,11 +54,15 @@ public class DAO {
         this.pdvDao = new PersonDataValueDAO(mapper, persistence);
         this.privDao = new PrivilegesDAO(mapper, persistence);
         this.bindingDao = new BindingDAO(persistence);
-        FakeData.addFakeData(personDao, tripDao);
     }
 
     public static DAO getInstance() {
-        return INSTANCE;
+        if (inst == null) {
+            FakeData.initFakeData();
+            inst = new DAO();
+            FakeData.addFakeData();
+        }
+        return inst;
     }
 
     // People

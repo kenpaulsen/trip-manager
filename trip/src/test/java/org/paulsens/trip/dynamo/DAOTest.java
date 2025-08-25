@@ -25,6 +25,7 @@ import org.paulsens.trip.model.Transaction.Type;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.util.RandomData;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -33,12 +34,19 @@ import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
 public class DAOTest {
-    private static final DAO DB_UTILS = DAO.getInstance();
+    private static DAO DB_UTILS;
     private static final long MONTH_IN_MILLIS = 86_400L * 31L * 1_000L;
+
+    @BeforeClass
+    public void initTests() {
+        DB_UTILS = DAO.getInstance();
+        FakeData.initFakeData();
+        FakeData.addFakeData();
+    }
 
     @BeforeMethod
     public void setupTest() {
-        DB_UTILS.clearAllCaches();
+        DB_UTILS.clearAllCaches();;
     }
 
     @Test
@@ -81,9 +89,17 @@ public class DAOTest {
                 Person.Id.from("admin"), "Conf #abc123");
         final List<TripEvent> te = Collections.singletonList(new TripEvent(UUID.randomUUID().toString(),
                 "NY Flight", "description", start, null, peopleTripEventStatus));
-        final Trip trip = new Trip(
-                id, title, true, desc, start, end, Collections.singletonList(Person.Id.from("joe")), te,
-                FakeData.getDefaultOptions());
+        final Trip trip = Trip.builder()
+                .id(id)
+                .title(title)
+                .openToPublic(true)
+                .description(desc)
+                .startDate(start)
+                .endDate(end)
+                .people(Collections.singletonList(Person.Id.from("joe")))
+                .tripEvents(te)
+                .regOptions(FakeData.getDefaultOptions())
+                .build();
 
         assertEquals(DB_UTILS.getTrips().join().size(), 0, "Should start w/ no trips.");
         assertTrue(DB_UTILS.saveTrip(trip).join());
@@ -179,7 +195,7 @@ public class DAOTest {
                 .limit(pdvInsertSize)
                 .peek(this::savePersonDataValue)
                 .forEach(goodValues::add);
-        assertEquals(pdvInsertSize, goodValues.size());
+        assertEquals(goodValues.size(), pdvInsertSize);
         final Map<DataId, PersonDataValue> result = DB_UTILS.getPersonDataValues(pid).join();
         assertEquals(goodValues.size(), result.size());
         for (final PersonDataValue good : goodValues) {

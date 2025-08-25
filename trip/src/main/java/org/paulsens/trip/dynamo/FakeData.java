@@ -29,15 +29,20 @@ public class FakeData {
     private static final String FACES_SERVLET = "Faces Servlet";
 
     @Getter
-    private static final List<Person> fakePeople = initFakePeople();
+    private static List<Person> fakePeople;
     @Getter
-    private static final List<Trip> fakeTrips = initFakeTrips();
+    private static List<Trip> fakeTrips;
 
     public static boolean isLocal() {
         // fc will be null in a test environment that doesn't full start the server w/ JSF installed.
         final FacesContext fc = FacesContext.getCurrentInstance();
         return (fc == null) || "true".equals(((ServletContext) fc.getExternalContext().getContext())
                 .getServletRegistration(FACES_SERVLET).getInitParameter(LOCAL));
+    }
+
+    public static void initFakeData() {
+        fakePeople = initFakePeople();
+        fakeTrips = initFakeTrips();
     }
 
     public static Persistence createFakePersistence() {
@@ -55,19 +60,19 @@ public class FakeData {
         };
     }
 
-    public static void addFakeData(final PersonDAO personDao, final TripDAO tripDao) {
+    public static void addFakeData() {
         if (isLocal()) {
             // Setup some sample data
             FakeData.getFakePeople().forEach(p -> {
                 try {
-                    personDao.savePerson(p);
+                    DAO.getInstance().savePerson(p);
                 } catch (IOException ex) {
                     throw new IllegalStateException("Should have worked...");
                 }
             });
             FakeData.getFakeTrips().forEach(t -> {
                 try {
-                    tripDao.saveTrip(t);
+                    DAO.getInstance().saveTrip(t);
                 } catch (IOException ex) {
                     throw new IllegalStateException("Should have worked...");
                 }
@@ -78,7 +83,7 @@ public class FakeData {
     static List<Person> initFakePeople() {
         final List<Person> people = new ArrayList<>();
         people.add(new Person(null, "Joe", "Joseph", "Bob", "Smith", Sex.Male,
-                LocalDate.of(1947, 2, 11), null, "user1", null, null, null, null, null, null, null, null));
+                LocalDate.of(1947, 2, 11), null, "u1", null, null, null, null, null, null, null, null));
         people.add(Person.builder()
                 .id(Person.Id.from("admin"))
                 .first("admin")
@@ -103,17 +108,26 @@ public class FakeData {
         final List<Trip> trips = new ArrayList<>();
         final List<Person.Id> allPeople = getFakePeople().stream().map(Person::getId).collect(Collectors.toList());
         final List<TripEvent> events = new ArrayList<>();
-        events.add(new TripEvent("t1e2", "Hotel", "Super Duper Palace", LocalDateTime.now().plusDays(49), null, null));
-        events.add(new TripEvent("t1e1", "PDX -> EWR", "Alaska flight 54", LocalDateTime.now().plusDays(48), null, null));
-        final TripEvent charter = new TripEvent("t1e3", "SPU -> SEA", "Direct charter flight",
+        events.add(newTripEvent("t1e2", "Hotel", "Super Duper Palace", LocalDateTime.now().plusDays(49), null, null));
+        events.add(newTripEvent("t1e1", "PDX -> EWR", "Alaska flight 54", LocalDateTime.now().plusDays(48), null, null));
+        final TripEvent charter = newTripEvent("t1e3", "SPU -> SEA", "Direct charter flight",
                 LocalDateTime.now().plusDays(60), null, null);
         charter.getParticipants().add(allPeople.get(2));
         charter.getParticipants().add(allPeople.get(5));
         charter.getParticipants().add(allPeople.get(3));
         charter.getParticipants().add(allPeople.get(0));
         events.add(charter);
-        trips.add(new Trip("faketrip", "Spring Demo Trip", false, "desc", LocalDateTime.now().plusDays(48),
-                LocalDateTime.now().plusDays(60), allPeople, events, getDefaultOptions()));
+        trips.add(Trip.builder()
+                .id("faketrip")
+                .title("Spring Demo Trip")
+                .openToPublic(false)
+                .description("desc")
+                .startDate(LocalDateTime.now().plusDays(48))
+                .endDate(LocalDateTime.now().plusDays(60))
+                .people(allPeople)
+                .tripEvents(events)
+                .regOptions(getDefaultOptions())
+                .build());
 
         // Trip 2
         final List<Person.Id> somePeople = getFakePeople().stream()
@@ -121,17 +135,32 @@ public class FakeData {
                 .map(Person::getId)
                 .collect(Collectors.toList());
         final List<TripEvent> events2 = new ArrayList<>();
-        events2.add(new TripEvent("t2e2", "Hotel", "Hilton", LocalDateTime.now().minusDays(4), null, null));
-        events2.add(new TripEvent("t2e1", "SEA -> LGW", "Alaska flight 255",
+        events2.add(newTripEvent("t2e2", "Hotel", "Hilton", LocalDateTime.now().minusDays(4), null, null));
+        events2.add(newTripEvent("t2e1", "SEA -> LGW", "Alaska flight 255",
                 LocalDateTime.now().minusDays(5), null, null));
-        events2.add(new TripEvent("t2e3", "DBV -> KEF", "Trip for 1 to Iceland",
+        events2.add(newTripEvent("t2e3", "DBV -> KEF", "Trip for 1 to Iceland",
                 LocalDateTime.now(), null, null));
-        trips.add(new Trip("Fake2", "Summer Demo Trip", true, "Trip Description", LocalDateTime.now().minusDays(4),
-                LocalDateTime.now().plusDays(7), somePeople, events2, getDefaultOptions()));
+        trips.add(Trip.builder()
+                .id("Fake2")
+                .title("Summer Demo Trip")
+                .openToPublic(true)
+                .description("Trip Description")
+                .startDate(LocalDateTime.now().minusDays(4))
+                .endDate(LocalDateTime.now().plusDays(7))
+                .people(somePeople)
+                .tripEvents(events2)
+                .regOptions(getDefaultOptions())
+                .build());
         return trips;
     }
 
-    static List<RegistrationOption> getDefaultOptions() {
+    private static TripEvent newTripEvent(
+            final String id, final String title, final String notes, final LocalDateTime start,
+            final List<Person.Id> participants, final Map<Person.Id, String> privNotes) {
+        return new TripEvent(id, title, notes, start, participants, privNotes);
+    }
+
+    public static List<RegistrationOption> getDefaultOptions() {
         final List<RegistrationOption> result = new ArrayList<>();
         result.add(new RegistrationOption(1, "Room Preference:",
                 "Private room ($15 more per night) or shared?", true));

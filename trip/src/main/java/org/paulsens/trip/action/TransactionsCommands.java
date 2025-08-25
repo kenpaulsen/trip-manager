@@ -219,7 +219,7 @@ public class TransactionsCommands {
 
     public BindingCommands getBind() {
         if (bind == null) {
-            log.warn("Did not getting BindingCommands injected!");
+            log.warn("Did not get BindingCommands injected!");
             bind = new BindingCommands();
         }
         return bind;

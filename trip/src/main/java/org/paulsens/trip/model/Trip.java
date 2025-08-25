@@ -5,58 +5,76 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.util.StdConverter;
+import com.sun.jsft.util.Util;
+import jakarta.faces.context.FacesContext;
 import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import org.paulsens.trip.dynamo.DAO;
 
 @Data
+@Builder
+@AllArgsConstructor
 public final class Trip implements Serializable {
-    private String id;                              // Trip ID
-    private String title;                           // Title of trip
-    private Boolean openToPublic;                   // True if people can register themselves
-    private String description;                     // Describes the trip
-    private LocalDateTime startDate;                // Start of trip
-    private LocalDateTime endDate;                  // End of trip
-    private List<Person.Id> people;                 // UserIds
+    @Builder.Default()
+    @JsonProperty("id")
+    private String id = UUID.randomUUID().toString();   // Trip ID
+    @JsonProperty("title")
+    private String title;                               // Title of trip
+    @Builder.Default()
+    @JsonProperty("openToPublic")
+    private Boolean openToPublic = Boolean.TRUE;        // True if people can register themselves
+    @JsonProperty("description")
+    private String description;                         // Describes the trip
+    @Builder.Default()
+    @JsonProperty("startDate")
+    private LocalDateTime startDate =
+            LocalDateTime.now().plusDays(90);           // Start of trip
+    @Builder.Default()
+    @JsonProperty("endDate")
+    private LocalDateTime endDate =
+            LocalDateTime.now().plusDays(100);          // End of trip
+    @JsonProperty("people")
+    private List<Person.Id> people;                     // UserIds
+    @JsonProperty("regLimit")
+    private Integer regLimit;                           // Number of people allowed on the trip (soft limit)
+    @JsonProperty("provider")
+    private String provider;                            // Who is offering the pilgrimage (i.e. "CFPW")
+    @JsonProperty("lang")
+    private Language language;                          // Language of the pilgrimage
+    @JsonProperty("estPrice")
+    private String estimatedPrice;                      // Estimated price (non-binding)
+    @JsonProperty("director")
+    private String director;                            // The leader of the trip (i.e. Spiritual Director)
+    @JsonProperty("guide")
+    private String localGuide;                          // The local guide of the trip
+    @JsonProperty("facilitators")
+    private String facilitators;                        // The facilitators or "organizers" of the trip;
+    @JsonProperty("nonHostedTripUrl")
+    private String nonHostedTripUrl;                    // For non-hosted trips, a URL for more info
+    @JsonProperty("nonHostedRegNumber")
+    private Integer nonHostedRegNumber;                 // For non-hosted trips, the number of people enrolled
+    @JsonProperty("tripEvents")
     @JsonSerialize(converter = TripEventsSerializer.class)
     @JsonDeserialize(converter = TripEventsDeserializer.class)
-    private List<TripEvent> tripEvents;             // The stuff needed to book, airfare, hotel, etc.
-    private List<RegistrationOption> regOptions;    // Registration page questions
-
-    public Trip(
-            @JsonProperty("id") String id,
-            @JsonProperty("title") String title,
-            @JsonProperty("openToPublic") Boolean openToPublic,
-            @JsonProperty("description") String description,
-            @JsonProperty("startDate") LocalDateTime startDate,
-            @JsonProperty("endDate") LocalDateTime endDate,
-            @JsonProperty("people") List<Person.Id> people,
-            @JsonProperty("tripEvents") List<TripEvent> tripEvents,
-            @JsonProperty("regOptions") List<RegistrationOption> regOptions) {
-        this.id = id;
-        this.title = title;
-        this.openToPublic = openToPublic == null || openToPublic;
-        this.description = description;
-        this.startDate = startDate;
-        this.endDate = endDate;
-        this.people = (people == null) ? new ArrayList<>() : new ArrayList<>(people);
-        this.tripEvents = (tripEvents == null) ? new ArrayList<>() : new ArrayList<>(tripEvents);
-        this.regOptions = (regOptions == null) ? new ArrayList<>() : new ArrayList<>(regOptions);
-    }
+    private List<TripEvent> tripEvents;                 // The stuff needed to book, airfare, hotel, etc.
+    @JsonProperty("regOptions")
+    private List<RegistrationOption> regOptions;        // Registration page questions
 
     public Trip() {
-        this(UUID.randomUUID().toString(), null, null, null, LocalDateTime.now().plusDays(60),
-                LocalDateTime.now().plusDays(70), null, null, null);
     }
 
     /**
@@ -91,6 +109,16 @@ public final class Trip implements Serializable {
     }
 
     @JsonIgnore
+    public String getTripDateRange() {
+        final Locale locale = Util.getLocale(FacesContext.getCurrentInstance());
+        final String startMonth = startDate.getMonth().getDisplayName(TextStyle.SHORT, locale) + ' ';
+        final String endMonth = (startDate.getMonth() == endDate.getMonth()) ? "" :
+                endDate.getMonth().getDisplayName(TextStyle.SHORT, locale) + ' ';
+        return startMonth + startDate.getDayOfMonth() + " - "
+                + endMonth + endDate.getDayOfMonth() + ", " + endDate.getYear();
+    }
+
+    @JsonIgnore
     public void deleteTripEvent(final TripEvent te) {
         tripEvents.remove(te);
     }
@@ -110,6 +138,25 @@ public final class Trip implements Serializable {
 
     private boolean matchingTE(final TripEvent te, final String title, final LocalDateTime date) {
         return title.equals(te.getTitle()) && date.equals(te.getStart());
+    }
+
+    public static class TripBuilder {
+        // Set TripBuilder values here to provide a default values
+        private List<Person.Id> people = new ArrayList<>();
+        private List<TripEvent> tripEvents = new ArrayList<>();
+        private List<RegistrationOption> regOptions = new ArrayList<>();
+        public TripBuilder people(final List<Person.Id> people) {
+            this.people = (people == null) ? new ArrayList<>() : new ArrayList<>(people);
+            return this;
+        }
+        public TripBuilder tripEvents(final List<TripEvent> tripEvents) {
+            this.tripEvents = (tripEvents == null) ? new ArrayList<>() : new ArrayList<>(tripEvents);
+            return this;
+        }
+        public TripBuilder regOptions(final List<RegistrationOption> regOptions) {
+            this.regOptions = (regOptions == null) ? new ArrayList<>() : new ArrayList<>(regOptions);
+            return this;
+        }
     }
 
     static class TripEventsSerializer extends StdConverter<List<TripEvent>, List<String>> {
