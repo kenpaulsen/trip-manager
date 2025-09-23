@@ -29,24 +29,18 @@ import org.paulsens.trip.dynamo.DAO;
 @Builder
 @AllArgsConstructor
 public final class Trip implements Serializable {
-    @Builder.Default()
     @JsonProperty("id")
-    private String id = UUID.randomUUID().toString();   // Trip ID
+    private String id;   // Trip ID
     @JsonProperty("title")
     private String title;                               // Title of trip
-    @Builder.Default()
     @JsonProperty("openToPublic")
-    private Boolean openToPublic = Boolean.TRUE;        // True if people can register themselves
+    private Boolean openToPublic;                       // True if people can register themselves
     @JsonProperty("description")
     private String description;                         // Describes the trip
-    @Builder.Default()
     @JsonProperty("startDate")
-    private LocalDateTime startDate =
-            LocalDateTime.now().plusDays(90);           // Start of trip
-    @Builder.Default()
+    private LocalDateTime startDate;                    // Start of trip
     @JsonProperty("endDate")
-    private LocalDateTime endDate =
-            LocalDateTime.now().plusDays(100);          // End of trip
+    private LocalDateTime endDate;                      // End of trip
     @JsonProperty("people")
     private List<Person.Id> people;                     // UserIds
     @JsonProperty("regLimit")
@@ -74,7 +68,7 @@ public final class Trip implements Serializable {
     @JsonProperty("regOptions")
     private List<RegistrationOption> regOptions;        // Registration page questions
 
-    public Trip() {
+    private Trip() {
     }
 
     public List<Person.Id> getPeople() {
@@ -168,7 +162,8 @@ public final class Trip implements Serializable {
     }
 
     public void addTripOption() {
-        regOptions.add(new RegistrationOption(regOptions.size(), "New Option", "New Option Description", false));
+        getRegOptions().add(
+                new RegistrationOption(getRegOptions().size(), "New Option", "New Option Description", false));
     }
 
     private boolean matchingTE(final TripEvent te, final String title, final LocalDateTime date) {
@@ -177,9 +172,30 @@ public final class Trip implements Serializable {
 
     public static class TripBuilder {
         // Set TripBuilder values here to provide a default values
+        private String id = UUID.randomUUID().toString();   // Trip ID
+        private Boolean openToPublic = Boolean.TRUE;        // True if people can register themselves
+        private LocalDateTime startDate = LocalDateTime.now().plusDays(90);     // Start of trip
+        private LocalDateTime endDate = LocalDateTime.now().plusDays(100);      // Start of trip
         private List<Person.Id> people = new ArrayList<>();
         private List<TripEvent> tripEvents = new ArrayList<>();
         private List<RegistrationOption> regOptions = new ArrayList<>();
+
+        public TripBuilder id(final String id) {
+            this.id = (id == null) ? UUID.randomUUID().toString() : id;
+            return this;
+        }
+        public TripBuilder openToPublic(final Boolean isOpen) {
+            this.openToPublic = (isOpen == null) ? Boolean.FALSE : isOpen;
+            return this;
+        }
+        public TripBuilder startDate(final LocalDateTime date) {
+            this.startDate = (date == null) ? LocalDateTime.now().plusDays(90) : date;
+            return this;
+        }
+        public TripBuilder endDate(final LocalDateTime date) {
+            this.endDate = (date == null) ? LocalDateTime.now().plusDays(100) : date;
+            return this;
+        }
         public TripBuilder people(final List<Person.Id> people) {
             this.people = (people == null) ? new ArrayList<>() : new ArrayList<>(people);
             return this;

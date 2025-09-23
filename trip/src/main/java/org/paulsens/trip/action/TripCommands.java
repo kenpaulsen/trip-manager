@@ -32,7 +32,7 @@ public class TripCommands {
     private BindingCommands bind;
 
     public Trip createTrip() {
-        return new Trip();
+        return Trip.builder().build();
     }
 
     public boolean saveTrip(final Trip trip) {
@@ -91,7 +91,7 @@ public class TripCommands {
                 .exceptionally(ex -> {
                     log.error("Failed to get trip '" + id + "'!", ex);
                     return Optional.empty();
-                }).join().orElse(new Trip());
+                }).join().orElse(Trip.builder().build());
     }
 
     public Trip getBoundTrip(final String id, final String bindingType) {

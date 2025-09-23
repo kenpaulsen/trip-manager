@@ -3,6 +3,7 @@ package org.paulsens.trip.model;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.jsft.util.Util;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,6 +30,29 @@ public class TripTest {
         FakeData.addFakeData();
         now = LocalDateTime.now();
         monthStr = getMonthString(now);
+    }
+
+    @Test
+    void newTripHasId() {
+        final Trip trip = Trip.builder().build();
+        assertNotNull(trip.getId());
+        assertTrue(trip.getId().length() > 10);
+    }
+
+    @Test
+    void newIsNotOpenToPublic() {
+        final Trip trip = Trip.builder().build();
+        assertNotNull(trip.getOpenToPublic());
+        assertTrue(trip.getOpenToPublic());
+    }
+
+    @Test
+    void newTripHasStartAndEnd() {
+        final Trip trip = Trip.builder().build();
+        assertNotNull(trip.getStartDate());
+        assertNotNull(trip.getEndDate());
+        assertTrue(trip.getEndDate().toInstant(ZoneOffset.UTC).toEpochMilli() >
+                trip.getStartDate().toInstant(ZoneOffset.UTC).toEpochMilli());
     }
 
     @Test
