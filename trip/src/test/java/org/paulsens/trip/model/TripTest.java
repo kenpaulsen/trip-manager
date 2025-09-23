@@ -87,6 +87,22 @@ public class TripTest {
     }
 
     @Test
+    void peopleListValuesAreNotSharedSetLater() {
+        final List<Person.Id> people = new ArrayList<>(FakeData.getFakePeople().stream().map(Person::getId).toList());
+        final Trip trip1 = Trip.builder()
+                .build();
+        trip1.setPeople(people);
+        // Mutate List
+        final Trip trip2 = Trip.builder()
+                .build();
+        trip1.setPeople(people);
+
+        trip2.getPeople().add(Person.Id.newInstance());
+
+        assertNotEquals(trip1.getPeople(), trip2.getPeople(), "Sharing people lists!! Bad!");
+    }
+
+    @Test
     void regOptionsAreNotShared() {
         final List<RegistrationOption> regOptions = new ArrayList<>(FakeData.getDefaultOptions());
         final Trip trip1 = Trip.builder()
@@ -100,6 +116,19 @@ public class TripTest {
     }
 
     @Test
+    void regOptionsAreNotSharedDelLater() {
+        final List<RegistrationOption> regOptions = new ArrayList<>(FakeData.getDefaultOptions());
+        final Trip trip1 = Trip.builder()
+                .build();
+        final Trip trip2 = Trip.builder()
+                .build();
+        trip1.setRegOptions(regOptions);
+        trip2.setRegOptions(regOptions);
+        trip1.getRegOptions().remove(0);
+        assertNotEquals(trip1.getRegOptions(), trip2.getRegOptions(), "Sharing regOptions lists!! Bad!");
+    }
+
+    @Test
     void eventsAreNotShared() {
         final List<TripEvent> tripEvents = new ArrayList<>(FakeData.getFakeTrips().get(1).getTripEvents());
         final Trip trip1 = Trip.builder()
@@ -109,6 +138,19 @@ public class TripTest {
         final Trip trip2 = Trip.builder()
                 .tripEvents(tripEvents)
                 .build();
+        assertNotEquals(trip1.getTripEvents(), trip2.getTripEvents(), "Sharing trip option lists!! Bad!");
+    }
+
+    @Test
+    void eventsAreNotSharedDelLater() {
+        final List<TripEvent> tripEvents = new ArrayList<>(FakeData.getFakeTrips().get(1).getTripEvents());
+        final Trip trip1 = Trip.builder()
+                .build();
+        final Trip trip2 = Trip.builder()
+                .build();
+        trip1.setTripEvents(tripEvents);
+        trip2.setTripEvents(tripEvents);
+        trip1.getTripEvents().remove(0);
         assertNotEquals(trip1.getTripEvents(), trip2.getTripEvents(), "Sharing trip option lists!! Bad!");
     }
 
