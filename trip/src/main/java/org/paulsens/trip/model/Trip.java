@@ -77,35 +77,57 @@ public final class Trip implements Serializable {
     public Trip() {
     }
 
+    public List<Person.Id> getPeople() {
+        if (people == null) {
+            people = new ArrayList<>();
+        }
+        return people;
+    }
+
+    public List<TripEvent> getTripEvents() {
+        if (tripEvents == null) {
+            tripEvents = new ArrayList<>();
+        }
+        return tripEvents;
+    }
+
+    public List<RegistrationOption> getRegOptions() {
+        if (regOptions == null) {
+            regOptions = new ArrayList<>();
+        }
+        return regOptions;
+    }
+
     /**
      * Returns {@code true} if the the given person can join this Trip. This requires the Person to not already be on
      * the trip, and for the trip to not yet be started.
      */
     public boolean canJoin(final Person.Id userId) {
-        return !people.contains(userId) && startDate.isAfter(LocalDateTime.now());
+        return !getPeople().contains(userId) && startDate.isAfter(LocalDateTime.now());
     }
 
     public String addTripEvent(final String title, final String notes, final LocalDateTime date) {
+        final List<TripEvent> events = getTripEvents();
         // Very simple validation check...
-        tripEvents.stream().filter(te -> matchingTE(te, title, date)).findAny().ifPresent(te -> {
+        events.stream().filter(te -> matchingTE(te, title, date)).findAny().ifPresent(te -> {
             throw new IllegalStateException(
                     "Trip Event with title (" + title + ") and date (" + date + ") already exists!");
         });
         // Add it
         final String id = UUID.randomUUID().toString();
-        tripEvents.add(new TripEvent(id, title, notes, date, null, null));
-        tripEvents.sort(Comparator.comparing(TripEvent::getStart));
+        events.add(new TripEvent(id, title, notes, date, null, null));
+        events.sort(Comparator.comparing(TripEvent::getStart));
         return id;
     }
 
     @JsonIgnore
     public TripEvent getTripEvent(final String teId) {
-        return tripEvents.stream().filter(e -> e.getId().equals(teId)).findAny().orElse(null);
+        return getTripEvents().stream().filter(e -> e.getId().equals(teId)).findAny().orElse(null);
     }
 
     @JsonIgnore
     public List<TripEvent> getTripEventsForUser(final Person.Id userId) {
-        return tripEvents.stream().filter(te -> te.getParticipants().contains(userId)).toList();
+        return getTripEvents().stream().filter(te -> te.getParticipants().contains(userId)).toList();
     }
 
     @JsonIgnore
@@ -120,16 +142,17 @@ public final class Trip implements Serializable {
 
     @JsonIgnore
     public void deleteTripEvent(final TripEvent te) {
-        tripEvents.remove(te);
+        getTripEvents().remove(te);
     }
 
     public void editTripEvent(final TripEvent newTE) {
+        final List<TripEvent> events = getTripEvents();
         // Ensure we have the TripEvent to edit
-        final TripEvent oldTE = tripEvents.stream().filter(e -> e.getId().equals(newTE.getId())).findAny()
+        final TripEvent oldTE = events.stream().filter(e -> e.getId().equals(newTE.getId())).findAny()
                 .orElseThrow(() -> new IllegalArgumentException("TripEvent id (" + newTE.getId() + ") not found!"));
-        tripEvents.remove(oldTE);
-        tripEvents.add(newTE);
-        tripEvents.sort(Comparator.comparing(TripEvent::getStart));
+        events.remove(oldTE);
+        events.add(newTE);
+        events.sort(Comparator.comparing(TripEvent::getStart));
     }
 
     public void addTripOption() {
@@ -138,25 +161,6 @@ public final class Trip implements Serializable {
 
     private boolean matchingTE(final TripEvent te, final String title, final LocalDateTime date) {
         return title.equals(te.getTitle()) && date.equals(te.getStart());
-    }
-
-    public static class TripBuilder {
-        // Set TripBuilder values here to provide a default values
-        private List<Person.Id> people = new ArrayList<>();
-        private List<TripEvent> tripEvents = new ArrayList<>();
-        private List<RegistrationOption> regOptions = new ArrayList<>();
-        public TripBuilder people(final List<Person.Id> people) {
-            this.people = (people == null) ? new ArrayList<>() : new ArrayList<>(people);
-            return this;
-        }
-        public TripBuilder tripEvents(final List<TripEvent> tripEvents) {
-            this.tripEvents = (tripEvents == null) ? new ArrayList<>() : new ArrayList<>(tripEvents);
-            return this;
-        }
-        public TripBuilder regOptions(final List<RegistrationOption> regOptions) {
-            this.regOptions = (regOptions == null) ? new ArrayList<>() : new ArrayList<>(regOptions);
-            return this;
-        }
     }
 
     static class TripEventsSerializer extends StdConverter<List<TripEvent>, List<String>> {

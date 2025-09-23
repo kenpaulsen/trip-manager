@@ -54,8 +54,7 @@ public class TripCommands {
     }
 
     public Trip sortTripPeople(final Trip trip) {
-        final List<Person.Id> unsorted = trip.getPeople() == null ? List.of() : trip.getPeople();
-        final List<Person.Id> sortedIdList = unsorted.stream()
+        final List<Person.Id> sortedIdList = trip.getPeople().stream()
                         .map(id -> DAO.getInstance().getPerson(id).join())
                         .map(opt -> opt.orElse(null))
                         .filter(Objects::nonNull)
