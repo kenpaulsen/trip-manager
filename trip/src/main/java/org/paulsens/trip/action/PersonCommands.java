@@ -1,10 +1,12 @@
 package org.paulsens.trip.action;
 
+import com.sun.jsft.util.ELUtil;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -67,6 +69,29 @@ public class PersonCommands {
                     return Collections.emptyList();
                 })
                 .join();
+    }
+
+    /**
+     * Creates a new list that is sorted according to the given EL expression. {@code loopItem} in the EL represents an
+     * object in the Person list that is being sorted. The EL expression should <em>NOT</em> contain the wrapping
+     * {@code #{}} around it. The comparison of the expression will be a String comparison, perhaps something to
+     * enhance in the future.
+     * @return A new sorted list.
+     */
+    public <T> List<T> toSortedList(final List<T> before, final String expression) {
+        final Map<String, Object> reqMap = FacesContext.getCurrentInstance().getExternalContext().getRequestMap();
+        final List<T> after = new ArrayList<>(before);
+        before.sort((a, b) -> stringCompareWithExpression(reqMap, a, b, expression));
+        return after;
+    }
+
+    private <T> int stringCompareWithExpression(
+            final Map<String, Object> reqMap, final T a, final T b, final String exp) {
+        reqMap.put("loopItem", a);
+        final String aStrVal = "" + ELUtil.getInstance().eval("#{" + exp + "}");
+        reqMap.put("loopItem", b);
+        final String bStrVal = "" + ELUtil.getInstance().eval("#{" + exp + "}");
+        return aStrVal.compareTo(bStrVal);
     }
 
     public List<Person> getPeopleByIds(final List<Person.Id> ids) {
