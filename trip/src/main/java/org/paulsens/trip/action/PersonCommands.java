@@ -81,7 +81,7 @@ public class PersonCommands {
     public <T> List<T> toSortedList(final List<T> before, final String expression) {
         final Map<String, Object> reqMap = FacesContext.getCurrentInstance().getExternalContext().getRequestMap();
         final List<T> after = new ArrayList<>(before);
-        before.sort((a, b) -> stringCompareWithExpression(reqMap, a, b, expression));
+        after.sort((a, b) -> stringCompareWithExpression(reqMap, a, b, expression));
         return after;
     }
 
