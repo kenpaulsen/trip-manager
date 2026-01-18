@@ -84,6 +84,11 @@
             <classifier>jakarta</classifier>
         </dependency>
         <dependency>
+            <groupId>com.googlecode.libphonenumber</groupId>
+            <artifactId>libphonenumber</artifactId>
+            <version>[8.13.55,10.0)</version>
+        </dependency>
+        <dependency>
            <groupId>org.apache.poi</groupId>
            <artifactId>poi</artifactId>
             <version>[5.5.0,6.0)</version>
