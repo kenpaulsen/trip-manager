@@ -112,7 +112,8 @@ public final class Trip implements Serializable {
         return !people.contains(userId) && startDate.isAfter(LocalDateTime.now());
     }
 
-    public String addTripEvent(final String title, final String notes, final LocalDateTime date) {
+    public String addTripEvent(
+            final TripEvent.Type type, final String title, final String notes, final LocalDateTime date) {
         final List<TripEvent> events = getTripEvents();
         // Very simple validation check...
         events.stream().filter(te -> matchingTE(te, title, date)).findAny().ifPresent(te -> {
@@ -121,7 +122,7 @@ public final class Trip implements Serializable {
         });
         // Add it
         final String id = UUID.randomUUID().toString();
-        events.add(new TripEvent(id, title, notes, date, null, null));
+        events.add(new TripEvent(id, type, title, notes, date, null, null));
         events.sort(Comparator.comparing(TripEvent::getStart));
         return id;
     }

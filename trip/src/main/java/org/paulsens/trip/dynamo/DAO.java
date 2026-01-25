@@ -208,7 +208,7 @@ public class DAO {
 
     private ObjectMapper createObjectMapper() {
         final ObjectMapper mapper = new ObjectMapper();
-        mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+        mapper.setDefaultPropertyInclusion(JsonInclude.Include.NON_NULL);
         mapper.registerModule(new JavaTimeModule());
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         return mapper;

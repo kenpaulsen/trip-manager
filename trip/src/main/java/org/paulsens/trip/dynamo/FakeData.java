@@ -108,9 +108,11 @@ public class FakeData {
         final List<Trip> trips = new ArrayList<>();
         final List<Person.Id> allPeople = getFakePeople().stream().map(Person::getId).collect(Collectors.toList());
         final List<TripEvent> events = new ArrayList<>();
-        events.add(newTripEvent("t1e2", "Hotel", "Super Duper Palace", LocalDateTime.now().plusDays(49), null, null));
-        events.add(newTripEvent("t1e1", "PDX -> EWR", "Alaska flight 54", LocalDateTime.now().plusDays(48), null, null));
-        final TripEvent charter = newTripEvent("t1e3", "SPU -> SEA", "Direct charter flight",
+        events.add(newTripEvent("t1e2", TripEvent.Type.LODGING, "Hotel", "Super Duper Palace",
+                LocalDateTime.now().plusDays(49), null, null));
+        events.add(newTripEvent("t1e1", TripEvent.Type.FLIGHT, "PDX -> EWR", "Alaska flight 54",
+                LocalDateTime.now().plusDays(48), null, null));
+        final TripEvent charter = newTripEvent("t1e3", TripEvent.Type.FLIGHT, "SPU -> SEA", "Direct charter flight",
                 LocalDateTime.now().plusDays(60), null, null);
         charter.getParticipants().add(allPeople.get(2));
         charter.getParticipants().add(allPeople.get(5));
@@ -135,10 +137,11 @@ public class FakeData {
                 .map(Person::getId)
                 .collect(Collectors.toList());
         final List<TripEvent> events2 = new ArrayList<>();
-        events2.add(newTripEvent("t2e2", "Hotel", "Hilton", LocalDateTime.now().minusDays(4), null, null));
-        events2.add(newTripEvent("t2e1", "SEA -> LGW", "Alaska flight 255",
+        events2.add(newTripEvent("t2e2", TripEvent.Type.LODGING, "Hotel", "Hilton",
+                LocalDateTime.now().minusDays(4), null, null));
+        events2.add(newTripEvent("t2e1", TripEvent.Type.FLIGHT, "SEA -> LGW", "Alaska flight 255",
                 LocalDateTime.now().minusDays(5), null, null));
-        events2.add(newTripEvent("t2e3", "DBV -> KEF", "Trip for 1 to Iceland",
+        events2.add(newTripEvent("t2e3", TripEvent.Type.FLIGHT, "DBV -> KEF", "Trip for 1 to Iceland",
                 LocalDateTime.now(), null, null));
         trips.add(Trip.builder()
                 .id("Fake2")
@@ -155,9 +158,14 @@ public class FakeData {
     }
 
     private static TripEvent newTripEvent(
-            final String id, final String title, final String notes, final LocalDateTime start,
-            final List<Person.Id> participants, final Map<Person.Id, String> privNotes) {
-        return new TripEvent(id, title, notes, start, participants, privNotes);
+            final String id,
+            final TripEvent.Type type,
+            final String title,
+            final String notes,
+            final LocalDateTime start,
+            final List<Person.Id> participants,
+            final Map<Person.Id, String> privNotes) {
+        return new TripEvent(id, type, title, notes, start, participants, privNotes);
     }
 
     public static List<RegistrationOption> getDefaultOptions() {

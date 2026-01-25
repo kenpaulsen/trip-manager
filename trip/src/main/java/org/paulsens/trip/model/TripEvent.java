@@ -9,10 +9,12 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.Data;
+import lombok.Getter;
 
 @Data
 public final class TripEvent implements Serializable {
     private final String id;                    // TripEvent ID
+    private Type type;                          // TripEvent.Type
     private String title;                       // Event title
     private String notes;                       // Event notes
     private LocalDateTime start;                // Start of the event
@@ -21,6 +23,7 @@ public final class TripEvent implements Serializable {
 
     public TripEvent(
             @JsonProperty("id") String id,
+            @JsonProperty("type") Type type,
             @JsonProperty("title") String title,
             @JsonProperty("notes") String notes,
             @JsonProperty("start") LocalDateTime start,
@@ -30,6 +33,7 @@ public final class TripEvent implements Serializable {
             throw new IllegalArgumentException("ID is required!");
         }
         this.id = id;
+        this.type = type;
         this.title = (title == null) ? "Title" : title;
         this.notes = (notes == null) ? "" : notes;
         this.start = (start == null) ? LocalDateTime.now().plusDays(30) : start;
@@ -38,7 +42,7 @@ public final class TripEvent implements Serializable {
     }
 
     public TripEvent() {
-        this(UUID.randomUUID().toString(), "", null, null, null, null);
+        this(UUID.randomUUID().toString(), null, "", null, null, null, null);
     }
 
     /*
@@ -72,5 +76,19 @@ public final class TripEvent implements Serializable {
 
     public synchronized boolean leaveTripEvent(final Person.Id personId) {
         return participants.remove(personId);
+    }
+
+    public enum Type {
+        EVENT("Event"),
+        FLIGHT("Flight"),
+        GROUND("Bus, Van, Car"),
+        LODGING("Lodging");
+
+        @Getter
+        final String displayValue;
+
+        Type(final String text) {
+            this.displayValue = text;
+        }
     }
 }
