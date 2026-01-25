@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -76,6 +78,10 @@ public final class TripEvent implements Serializable {
 
     public synchronized boolean leaveTripEvent(final Person.Id personId) {
         return participants.remove(personId);
+    }
+
+    public List<Type> tripEventTypes() {
+        return Arrays.stream(Type.values()).sorted(Comparator.comparing(Enum::name)).toList();
     }
 
     public enum Type {

@@ -96,6 +96,23 @@ public class TripUtilCommands {
         return (collection instanceof List) ? ((List<T>) collection) : new ArrayList<>(collection);
     }
 
+    /**
+     * This returns a {@code List&lt;/U&gt;} by iterating over each item in the given {@code List&lt;T&gt;} and
+     * applying the given mapping function {@code relativeEL}, which is an {@code EL} expressing relative to the item
+     * in the list.
+     *
+     * @param collection    The source list.
+     * @param relativeEL    The relative EL to apply to each item.
+     * @return              A new unmodifiable list with the mapped values.
+     * @param <T>   The original list type.
+     * @param <U>   The new list type.
+     */
+    @SuppressWarnings("unchecked")
+    public <T, U> List<U> mapList(final Collection<T> collection, final String relativeEL) {
+        ELUtil util = ELUtil.getInstance();
+        return collection.stream().map(item -> (U) util.eval(item, relativeEL)).toList();
+    }
+
     public boolean isEmpty(final Object listOrArray) {
         if (listOrArray == null) {
             return true;
