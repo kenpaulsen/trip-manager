@@ -7,8 +7,8 @@ import jakarta.inject.Named;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -150,7 +150,7 @@ public class TripCommands {
     }
 
     // This only works for flights
-    public LocalDateTime getLodgingArrivalDate(final List<TripEvent> events, final TripEvent lodgingEvent) {
+    public LocalDateTime getLodgingArrivalDate(final Collection<TripEvent> events, final TripEvent lodgingEvent) {
         if (events == null || events.isEmpty() || lodgingEvent == null) {
             return null;
         }
@@ -172,7 +172,7 @@ public class TripCommands {
     }
 
     // This only works for flights
-    public LocalDateTime getLodgingDepartureDate(final List<TripEvent> events, final TripEvent lodgingEvent) {
+    public LocalDateTime getLodgingDepartureDate(final Collection<TripEvent> events, final TripEvent lodgingEvent) {
         if (events == null || events.isEmpty() || lodgingEvent == null) {
             return null;
         }
