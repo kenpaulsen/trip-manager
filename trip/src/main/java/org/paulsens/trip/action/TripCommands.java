@@ -198,6 +198,9 @@ public class TripCommands {
     }
 
     public long getLodgingDays(final LocalDateTime start, final LocalDateTime end) {
+        if (start == null || end == null) {
+            return -1L;
+        }
         final LocalDateTime adjustedStart = ((start.getHour() < 4) ? start.minusHours(4) : start).truncatedTo(DAYS);
         final LocalDateTime adjustedEnd = end.truncatedTo(DAYS);
         return Duration.between(adjustedStart, adjustedEnd).toDays();
