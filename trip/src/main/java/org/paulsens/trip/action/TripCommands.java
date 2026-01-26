@@ -158,7 +158,7 @@ public class TripCommands {
         sorted.sort(Comparator.comparing(TripEvent::getEnd));
         LocalDateTime result = sorted.get(0).getEnd();
         for (final TripEvent te : sorted) {
-            if (te.getType() == TripEvent.Type.FLIGHT) {
+            if (te.getType() != TripEvent.Type.FLIGHT) {
                 continue;
             }
             final LocalDateTime teEnd = te.getEnd();
