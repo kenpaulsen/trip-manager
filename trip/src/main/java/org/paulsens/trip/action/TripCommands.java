@@ -151,6 +151,9 @@ public class TripCommands {
 
     // This only works for flights
     public LocalDateTime getLodgingArrivalDate(final List<TripEvent> events, final TripEvent lodgingEvent) {
+        if (events == null || events.isEmpty() || lodgingEvent == null) {
+            return null;
+        }
         final List<TripEvent> sorted = new ArrayList<>(events);
         sorted.sort(Comparator.comparing(TripEvent::getEnd));
         LocalDateTime result = sorted.get(0).getEnd();
@@ -170,6 +173,9 @@ public class TripCommands {
 
     // This only works for flights
     public LocalDateTime getLodgingDepartureDate(final List<TripEvent> events, final TripEvent lodgingEvent) {
+        if (events == null || events.isEmpty() || lodgingEvent == null) {
+            return null;
+        }
         // Backup 4 hours in case we're slightly past midnight
         final LocalDateTime lodgingStart = getLodgingArrivalDate(events, lodgingEvent);
         // Default to staying the whole time
