@@ -151,11 +151,15 @@ public class TripCommands {
 
     // This only works for flights
     public LocalDateTime getLodgingArrivalDate(final Collection<TripEvent> events, final TripEvent lodgingEvent) {
-        if (events == null || events.isEmpty() || lodgingEvent == null) {
+        if (events == null || lodgingEvent == null) {
             return null;
         }
-        final List<TripEvent> sorted = new ArrayList<>(events);
+        final List<TripEvent> sorted = new ArrayList<>(
+                events.stream().filter(e -> e.getType() == TripEvent.Type.FLIGHT).toList());
         sorted.sort(Comparator.comparing(TripEvent::getEnd));
+        if (sorted.isEmpty()) {
+            return null;
+        }
         LocalDateTime result = sorted.get(0).getEnd();
         for (final TripEvent te : sorted) {
             if (te.getType() != TripEvent.Type.FLIGHT) {
