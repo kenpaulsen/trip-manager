@@ -5,9 +5,12 @@ import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import java.io.IOException;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -144,6 +147,50 @@ public class TripCommands {
                 .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
                 .exceptionally(ex -> logAndReturn(ex, null))
                 .join();
+    }
+
+    // This only works for flights
+    public LocalDateTime getLodgingArrivalDate(final List<TripEvent> events, final TripEvent lodgingEvent) {
+        final List<TripEvent> sorted = new ArrayList<>(events);
+        sorted.sort(Comparator.comparing(TripEvent::getEnd));
+        LocalDateTime result = sorted.get(0).getEnd();
+        for (final TripEvent te : sorted) {
+            if (te.getType() == TripEvent.Type.FLIGHT) {
+                continue;
+            }
+            final LocalDateTime teEnd = te.getEnd();
+            if (teEnd.isBefore(lodgingEvent.getEnd()) && teEnd.isAfter(result)
+                    // This tries to guess arrival based on layovers < 36 hours (not perfect)
+                    && Duration.between(result, te.getStart()).toHours() < 36) {
+                result = teEnd;
+            }
+        }
+        return result;
+    }
+
+    // This only works for flights
+    public LocalDateTime getLodgingDepartureDate(final List<TripEvent> events, final TripEvent lodgingEvent) {
+        // Backup 4 hours in case we're slightly past midnight
+        final LocalDateTime lodgingStart = getLodgingArrivalDate(events, lodgingEvent);
+        // Default to staying the whole time
+        LocalDateTime result = lodgingEvent.getEnd();
+        for (final TripEvent te : events) {
+            if (te.getType() != TripEvent.Type.FLIGHT) {
+                continue;
+            }
+            final LocalDateTime flight = te.getStart();
+            if (flight.isBefore(result) && flight.isAfter(lodgingStart)) {
+                // Soonest flight we've seen after we've arrived
+                result = flight;
+            }
+        }
+        return result;
+    }
+
+    public long getLodgingDays(final LocalDateTime start, final LocalDateTime end) {
+        final LocalDateTime adjustedStart = ((start.getHour() < 4) ? start.minusHours(4) : start).truncatedTo(DAYS);
+        final LocalDateTime adjustedEnd = end.truncatedTo(DAYS);
+        return Duration.between(adjustedStart, adjustedEnd).toDays();
     }
 
     /**

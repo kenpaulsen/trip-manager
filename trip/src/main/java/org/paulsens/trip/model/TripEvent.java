@@ -20,6 +20,7 @@ public final class TripEvent implements Serializable {
     private String title;                       // Event title
     private String notes;                       // Event notes
     private LocalDateTime start;                // Start of the event
+    private LocalDateTime end;                  // End of the event
     private List<Person.Id> participants;          // Who's doing this thing?
     private final Map<Person.Id, String> privNotes; // Mapping of userId to Status
 
@@ -29,6 +30,7 @@ public final class TripEvent implements Serializable {
             @JsonProperty("title") String title,
             @JsonProperty("notes") String notes,
             @JsonProperty("start") LocalDateTime start,
+            @JsonProperty("end") LocalDateTime end,
             @JsonProperty("participants") List<Person.Id> participants,
             @JsonProperty("privNotes") Map<Person.Id, String> privNotes) {
         if (id == null) {
@@ -39,12 +41,13 @@ public final class TripEvent implements Serializable {
         this.title = (title == null) ? "Title" : title;
         this.notes = (notes == null) ? "" : notes;
         this.start = (start == null) ? LocalDateTime.now().plusDays(30) : start;
+        this.end = (end == null) ? this.start.plusHours(3) : end;
         this.participants = (participants == null) ? new ArrayList<>() : new ArrayList<>(participants);
         this.privNotes = (privNotes == null) ? new ConcurrentHashMap<>() : new ConcurrentHashMap<>(privNotes);
     }
 
     public TripEvent() {
-        this(UUID.randomUUID().toString(), null, "", null, null, null, null);
+        this(UUID.randomUUID().toString(), null, "", null, null, null, null, null);
     }
 
     /*

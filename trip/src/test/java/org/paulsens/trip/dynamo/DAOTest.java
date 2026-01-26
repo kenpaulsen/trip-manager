@@ -88,7 +88,7 @@ public class DAOTest {
         final Map<Person.Id, String> peopleTripEventStatus = Collections.singletonMap(
                 Person.Id.from("admin"), "Conf #abc123");
         final List<TripEvent> te = Collections.singletonList(new TripEvent(UUID.randomUUID().toString(),
-                TripEvent.Type.FLIGHT, "NY Flight", "description", start, null, peopleTripEventStatus));
+                TripEvent.Type.FLIGHT, "NY Flight", "description", start, end, null, peopleTripEventStatus));
         final Trip trip = Trip.builder()
                 .id(id)
                 .title(title)
