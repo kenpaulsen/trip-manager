@@ -53,6 +53,16 @@ public class RegistrationCommands {
                 }).join();
     }
 
+    public int getNumPending(final String tripId) {
+        int result = 0;
+        for (final Registration reg : getRegistrations(tripId)) {
+            if (reg.getStatus() == Registration.Status.PENDING) {
+                result++;
+            }
+        }
+        return result;
+    }
+
     public Registration getRegistration(final String tripId, final Person.Id userId) {
         if (tripId == null) {
             log.error("getRegistration() called with null tripId");
