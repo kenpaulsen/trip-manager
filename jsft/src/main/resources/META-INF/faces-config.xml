@@ -1,11 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<faces-config
-    xmlns="http://xmlns.jcp.org/xml/ns/javaee"
-    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee http://xmlns.jcp.org/xml/ns/javaee/web-facesconfig_3_0.xsd"
-    version="3.0">
-
+<faces-config xmlns="https://jakarta.ee/xml/ns/jakartaee"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee https://jakarta.ee/xml/ns/jakartaee/web-facesconfig_4_1.xsd"
+        version="4.1">
     <component>
         <component-type>com.sun.jsft.component.uicomp.InsertComponent</component-type>
         <component-class>com.sun.jsft.component.uicomp.InsertComponent</component-class>
@@ -34,20 +32,4 @@
         <component-type>com.sun.jsft.component.fragment.FragmentRenderer</component-type>
         <component-class>com.sun.jsft.component.fragment.FragmentRenderer</component-class>
     </component>
-
-    <managed-bean>
-        <managed-bean-name>jsft</managed-bean-name>
-        <managed-bean-class>com.sun.jsft.commands.JSFTCommands</managed-bean-class>
-        <managed-bean-scope>application</managed-bean-scope>
-    </managed-bean>
-    <managed-bean>
-        <managed-bean-name>jsftComp</managed-bean-name>
-        <managed-bean-class>com.sun.jsft.commands.ComponentCommands</managed-bean-class>
-        <managed-bean-scope>application</managed-bean-scope>
-    </managed-bean>
-    <managed-bean>
-        <managed-bean-name>util</managed-bean-name>
-        <managed-bean-class>com.sun.jsft.commands.UtilCommands</managed-bean-class>
-        <managed-bean-scope>application</managed-bean-scope>
-    </managed-bean>
 </faces-config>

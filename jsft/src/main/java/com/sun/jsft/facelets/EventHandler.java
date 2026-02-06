@@ -385,7 +385,6 @@ public class EventHandler extends TagHandler {
             // Use the UIViewRoot as the parent
             event = new InitPageEvent(facesCtx.getViewRoot());
         }
-
         return event;
     }
 

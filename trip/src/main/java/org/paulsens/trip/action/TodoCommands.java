@@ -23,9 +23,10 @@ import org.paulsens.trip.model.Status;
 import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.TodoStatus;
 import org.paulsens.trip.model.Trip;
-import org.primefaces.model.DashboardModel;
-import org.primefaces.model.DefaultDashboardColumn;
-import org.primefaces.model.DefaultDashboardModel;
+import org.primefaces.model.dashboard.DashboardModel;
+import org.primefaces.model.dashboard.DashboardWidget;
+import org.primefaces.model.dashboard.DefaultDashboardModel;
+import org.primefaces.model.dashboard.DefaultDashboardWidget;
 
 @Slf4j
 @Named("todo")
@@ -233,10 +234,10 @@ public class TodoCommands {
 
     public DashboardModel getTodoDashboard(final List<TodoStatus> todos, final boolean showDone) {
         final DashboardModel model = new DefaultDashboardModel();
-        model.addColumn(new DefaultDashboardColumn()); // To do
-        model.addColumn(new DefaultDashboardColumn()); // In progress
+        model.addWidget(new DefaultDashboardWidget()); // To do
+        model.addWidget(new DefaultDashboardWidget()); // In progress
         if (showDone) {
-            model.addColumn(new DefaultDashboardColumn()); // Done
+            model.addWidget(new DefaultDashboardWidget()); // Done
         }
         todos.forEach(todoStatus -> addTodoToDash(model, todoStatus, showDone));
         return model;
@@ -306,7 +307,7 @@ public class TodoCommands {
             column = -1;
         }
         if (column != -1) {
-            dashModel.getColumn(column).addWidget(getWidgetId(status.getDataId(), status.getUserId()));
+            dashModel.getWidget(column).addWidget(getWidgetId(status.getDataId(), status.getUserId()));
         }
     }
 

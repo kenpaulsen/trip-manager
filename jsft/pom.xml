@@ -50,7 +50,7 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
     <groupId>com.sun.jsftemplating</groupId>
-    <version>3.0.0-SNAPSHOT</version>
+    <version>4.1.2-SNAPSHOT</version>
     <artifactId>jsft</artifactId>
 
     <build>
@@ -66,23 +66,6 @@
                       <goals>
                           <goal>manifest</goal>
                       </goals>
-                      <configuration>
-                        <Export-Package>*;version="${project.osgi.version}"</Export-Package>
-                        <Import-Package>
-                          com.sun.jsft.commands;version="${project.osgi.version}",
-                          com.sun.jsft.event;version="${project.osgi.version}",
-                          com.sun.jsft.facelets;version="${project.osgi.version}",
-                          com.sun.jsft.util;version="${project.osgi.version}",
-                          jakarta.el;version="[4.0.0,5.0)",
-                          jakarta.faces;version="[3.0.0,4.0)",
-                          jakarta.faces.application;version="[3.0.0,4.0)",
-                          jakarta.faces.bean;version="[3.0.0,4.0)",
-                          jakarta.faces.component;version="[3.0.0,4.0)",
-                          jakarta.faces.context;version="[3.0.0,4.0)",
-                          jakarta.faces.event;version="[3.0.0,4.0)",
-                          jakarta.faces.view.facelets;version="[3.0.0,4.0)",*
-                        </Import-Package>
-                      </configuration>
                   </execution>
               </executions>
             </plugin>
@@ -93,14 +76,16 @@
         <dependency>
             <groupId>jakarta.faces</groupId>
             <artifactId>jakarta.faces-api</artifactId>
-            <version>3.0.0</version>
+            <version>4.1.2</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>jakarta.enterprise</groupId>
             <artifactId>jakarta.enterprise.cdi-api</artifactId>
-            <version>3.0.0</version>
-            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.weld.servlet</groupId>
+            <artifactId>weld-servlet-shaded</artifactId>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
@@ -122,13 +107,13 @@
         <dependency>
             <groupId>org.glassfish</groupId>
             <artifactId>jakarta.faces</artifactId>
-            <version>3.0.1</version>
+            <version>4.1.6</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>jakarta.servlet</groupId>
             <artifactId>jakarta.servlet-api</artifactId>
-            <version>5.0.0</version>
+            <version>6.1.0</version>
             <scope>test</scope>
         </dependency>
         <dependency>

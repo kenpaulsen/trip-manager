@@ -8,8 +8,8 @@ import org.paulsens.trip.model.Status;
 import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.TodoStatus;
 import org.paulsens.trip.util.RandomData;
-import org.primefaces.model.DashboardColumn;
-import org.primefaces.model.DashboardModel;
+import org.primefaces.model.dashboard.DashboardModel;
+import org.primefaces.model.dashboard.DashboardWidget;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
@@ -97,9 +97,9 @@ public class TodoCommandsTest {
 
         final DashboardModel model = todoCommands.getTodoDashboard(
                 todoCommands.getTodosForUser(tripId, pid, true), false);
-        assertEquals(model.getColumnCount(), 2);
-        assertEquals(model.getColumn(0).getWidgetCount(), 0);
-        assertEquals(model.getColumn(1).getWidgetCount(), 0);
+        assertEquals(model.getWidgetCount(), 2);
+        assertEquals(model.getWidget(0).getWidgetCount(), 0);
+        assertEquals(model.getWidget(1).getWidgetCount(), 0);
     }
 
     @Test
@@ -118,18 +118,18 @@ public class TodoCommandsTest {
 
         final List<TodoStatus> todosToShow = todoCommands.getTodosForUser(tripId, pid, false);
         final DashboardModel model = todoCommands.getTodoDashboard(todosToShow, true);
-        assertEquals(model.getColumnCount(), 3);
-        assertEquals(model.getColumn(0).getWidgetCount(), 3);
-        assertEquals(model.getColumn(1).getWidgetCount(), 1);
-        assertEquals(model.getColumn(2).getWidgetCount(), 2);
-        assertEquals(model.getColumn(1).getWidget(0), TodoCommands.WIDGET_PREFIX + dataId + '-' + pid.getValue());
+        assertEquals(model.getWidgetCount(), 3);
+        assertEquals(model.getWidget(0).getWidgetCount(), 3);
+        assertEquals(model.getWidget(1).getWidgetCount(), 1);
+        assertEquals(model.getWidget(2).getWidgetCount(), 2);
+        assertEquals(model.getWidget(1).getWidget(0), TodoCommands.WIDGET_PREFIX + dataId + '-' + pid.getValue());
 
         // Modify status, rebuild DashboardModel... should see changes (even if we don't persist, due to caching)
         todoCommands.getOrCreateTodoStatus(todo, pid).getStatus().setValue("DONE");
         final DashboardModel updatedModel = todoCommands.getTodoDashboard(todosToShow, true);
-        assertEquals(updatedModel.getColumn(0).getWidgetCount(), 3);
-        assertEquals(updatedModel.getColumn(1).getWidgetCount(), 0);
-        final DashboardColumn col2 = updatedModel.getColumn(2);
+        assertEquals(updatedModel.getWidget(0).getWidgetCount(), 3);
+        assertEquals(updatedModel.getWidget(1).getWidgetCount(), 0);
+        final DashboardWidget col2 = updatedModel.getWidget(2);
         assertEquals(col2.getWidgetCount(), 3);
         assertEquals(col2.getWidgets().get(col2.getWidgets().indexOf(todoCommands.getWidgetId(todo.getDataId(), pid))),
                 TodoCommands.WIDGET_PREFIX + todo.getDataId().getValue() + '-' + pid.getValue());

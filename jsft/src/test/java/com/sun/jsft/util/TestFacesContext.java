@@ -9,6 +9,7 @@ import jakarta.faces.context.ExternalContext;
 import jakarta.faces.context.FacesContext;
 import jakarta.faces.context.ResponseStream;
 import jakarta.faces.context.ResponseWriter;
+import jakarta.faces.lifecycle.Lifecycle;
 import jakarta.faces.render.RenderKit;
 import java.io.File;
 import java.io.InputStream;
@@ -137,6 +138,11 @@ public class TestFacesContext extends FacesContext {
         return elCtx;
     }
 
+    @Override
+    public Lifecycle getLifecycle() {
+        return null;
+    }
+
     public static class TestExternalContext extends ExternalContext {
         @Getter @Setter
         private Map<String, Object> requestMap = new HashMap<>();
@@ -258,6 +264,10 @@ public class TestFacesContext extends FacesContext {
 
         @Override
         public void redirect(String url) {
+        }
+
+        @Override
+        public void release() {
         }
     }
 }

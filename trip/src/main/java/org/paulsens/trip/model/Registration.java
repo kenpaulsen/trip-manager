@@ -50,6 +50,10 @@ public class Registration implements Serializable {
         @Getter @JsonValue
         final String description;
 
+        Status(final String description) {
+            this.description = description;
+        }
+
         @JsonCreator
         public static Status fromDescription(final String description) {
             return switch (description) {
@@ -58,10 +62,6 @@ public class Registration implements Serializable {
                 case "Pending" -> PENDING;
                 default -> null;
             };
-        }
-
-        Status(final String description) {
-            this.description = description;
         }
 
         @Override

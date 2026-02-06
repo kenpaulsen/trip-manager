@@ -48,6 +48,7 @@
 package com.sun.jsft.commands;
 
 import com.sun.jsft.event.Command;
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.component.UIViewRoot;
 import jakarta.faces.context.FacesContext;
@@ -73,6 +74,11 @@ public class JSFTCommands {
      * <p> This is application scoped, so it is not safe to change.  Use caution.</p>
      */
     private final long nanoStartTime = System.nanoTime();
+
+    @PostConstruct
+    public void init() {
+        // Executes once and only once for an ApplicationScoped bean.
+    }
 
     /**
      * <p> This command conditionally executes its child commands.</p>
