@@ -44,7 +44,7 @@ public class TripDAO {
                         persistence.cacheOne(tripCache, trip, trip.getId(), true) :
                         persistence.clearCache(tripCache, false));
         return CompletableFuture.allOf(saveTrip, saveTripEvents)
-                .thenApply(v -> saveTrip.join() && saveTripEvents.join())
+                .thenApply(ignore -> saveTrip.join() && saveTripEvents.join())
                 .exceptionally(ex -> {
                     log.error("Failed to save trip!", ex);
                     return false;
@@ -52,11 +52,14 @@ public class TripDAO {
     }
 
     protected CompletableFuture<Optional<Trip>> getTrip(final String id) {
+        if (id == null) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
         final Trip trip = tripCache.get(id);
         if (trip != null) {
             return CompletableFuture.completedFuture(Optional.of(trip));
         }
-        return getTrips().thenApply(trips -> Optional.ofNullable(tripCache.get(id))); // Load all the trips
+        return getTrips().thenApply(ignore -> Optional.ofNullable(tripCache.get(id))); // Load all the trips
     }
 
     protected CompletableFuture<List<Trip>> getTrips() {
