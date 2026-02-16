@@ -31,11 +31,14 @@ public class PrivilegeCommands {
     }
 
     public Privilege getTripPriv(final String tripId, final String privName) {
+        if (tripId == null || privName == null) {
+            return Privilege.NONE;
+        }
         return getPrivilege(privName + tripId);
     }
 
     public Privilege getPrivilege(final String privName) {
-        return getPrivilegeMaybe(privName).orElse(null);
+        return getPrivilegeMaybe(privName).orElse(Privilege.NONE);
     }
 
     public Privilege getOrCreate(final String privName, final String description) {
@@ -54,6 +57,9 @@ public class PrivilegeCommands {
     }
 
     public boolean checkTripPriv(final String tripId, final String tripPrivName, final Person.Id personId) {
+        if (tripId == null || tripPrivName == null || personId == null) {
+            return false;
+        }
         return check(tripPrivName + tripId, personId);
     }
 

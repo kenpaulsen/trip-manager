@@ -188,6 +188,9 @@ public class TripUtilCommands {
     }
 
     public Object evalEL(final String str) {
+        if (str == null) {
+            return null;
+        }
         return ELUtil.getInstance().eval(str);
     }
 

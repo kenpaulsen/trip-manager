@@ -9,6 +9,8 @@ import lombok.Value;
 
 @Value
 public class Privilege implements Serializable {
+    public static final Privilege NONE = new Privilege("", "", null);
+
     String name;
     String description;
     List<Person.Id> people;
