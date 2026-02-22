@@ -2,10 +2,9 @@ package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
-import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
+import org.paulsens.trip.util.Util;
 
-@Slf4j
 @Named("audit")
 @ApplicationScoped
 public class AuditCommands {
@@ -16,7 +15,10 @@ public class AuditCommands {
      * @param auditType The TYPE of message (i.e. LOGIN, CREATE_CREDS, etc). This can be any String to classify msg.
      * @param msg       The "message" to write to the audit log.
      */
-    public void log(final String userEmail, final String auditType, String msg) {
-        Audit.log(userEmail, auditType, msg);
+    public void log(final String userEmail, final String auditType, final String msg) {
+        Audit.log(
+                Util.orDefault(userEmail, ""),
+                Util.orDefault(auditType, ""),
+                Util.orDefault(msg, "[no message]"));
     }
 }

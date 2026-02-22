@@ -41,8 +41,12 @@ public class BindingCommands {
      * @param inBothDirections  A flag indicating the destination object should also have a binding back to the source.
      * @return  List of ids removed.
      */
-    public List<String> setBindings(final String id, final BindingType type,
-            final BindingType destType, final Collection<String> destIds, boolean inBothDirections) {
+    public List<String> setBindings(
+            final String id,
+            final BindingType type,
+            final BindingType destType,
+            final Collection<String> destIds,
+            final boolean inBothDirections) {
         final Set<String> oldIds = new HashSet<>(getBindings(id, type, destType));
         final Set<String> newIds = new HashSet<>(destIds); // Ensure uniqueness
         // FYI: dao.saveBinding will avoid making updates if there are no changes
@@ -74,8 +78,12 @@ public class BindingCommands {
     }
 
     // NOTE: While this is valid to do, setBindings is more comprehensive and what is desired in most use-cases
-    public boolean saveBinding(final String id, final BindingType type,
-                               final String destId, final BindingType destType, final boolean bindInBothDirections) {
+    public boolean saveBinding(
+            final String id,
+            final BindingType type,
+            final String destId,
+            final BindingType destType,
+            final boolean bindInBothDirections) {
         return dao.saveBinding(id, type, destId, destType, bindInBothDirections)
                 .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
                 .exceptionally(ex -> logAndReturn(ex, false))
@@ -97,15 +105,19 @@ public class BindingCommands {
     }
 
     protected <T> T getBoundThing(
-            final String id, final String bindingType, final BindingType dest, final Function<String, T> thingGetter) {
+            final String id,
+            final String bindingType,
+            final BindingType dest,
+            final Function<String, T> thingGetter) {
         final List<String> bindings = getBindings(id, BindingType.valueOf(bindingType), dest);
         if (bindings.isEmpty()) {
             return null;
         }
-        return thingGetter.apply(bindings.get(0));
+        return thingGetter.apply(bindings.getFirst());
     }
 
-    protected <T> T compositeKeyGetter(final String combinedKey, final BiFunction<String, String, T> biGetter) {
+    protected <T> T compositeKeyGetter(
+            final String combinedKey, final BiFunction<String, String, T> biGetter) {
         final CompositeKey compositeKey = CompositeKey.from(combinedKey);
         return biGetter.apply(compositeKey.getPartitionKey(), compositeKey.getSortKey());
     }

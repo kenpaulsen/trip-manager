@@ -15,6 +15,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.util.Util;
 
 import static org.paulsens.trip.action.TripUtilCommands.addMessage;
 import static org.paulsens.trip.dynamo.CredentialsDAO.IS_ADMIN;
@@ -29,6 +30,9 @@ public class PassCommands {
     }
 
     public Creds login(final String email, final String pass) {
+        if (Util.isBlank(email) || Util.isBlank(pass)) {
+            throw new IllegalArgumentException("Email or password is blank.");
+        }
         final Creds creds = getCreds(email, pass);
         if (creds != null) {
             // login successful
@@ -41,6 +45,9 @@ public class PassCommands {
     }
 
     public Creds getCreds(final String email, final String pass) {
+        if (Util.isBlank(email) || Util.isBlank(pass)) {
+            throw new IllegalArgumentException("Email or password is blank.");
+        }
         return DAO.getInstance().getCredsByEmailAndPass(email, pass)
                 .exceptionally(ex -> {
                     log.error("Failed to get creds for: " + email, ex);
@@ -49,12 +56,18 @@ public class PassCommands {
     }
 
     public Creds adminGetCreds(final String email) {
+        if (Util.isBlank(email)) {
+            throw new IllegalArgumentException("Email is blank.");
+        }
         return DAO.getInstance().adminGetCredsByEmail(email)
                 .orTimeout(3_000, TimeUnit.MILLISECONDS)
                 .join();
     }
 
     public Boolean adminSetPass(final String email, final String pass) {
+        if (Util.isBlank(email) || Util.isBlank(pass)) {
+            throw new IllegalArgumentException("Email or password is blank.");
+        }
         final FacesContext facesContext = FacesContext.getCurrentInstance();
         if (facesContext == null) {
             return false;
@@ -67,6 +80,9 @@ public class PassCommands {
     }
 
     public Creds getCredsByAdmin(final String email, final Person.Id id) {
+        if (Util.isBlank(email) || id == null) {
+            throw new IllegalArgumentException("Email or password is blank.");
+        }
         return DAO.getInstance().getCredsByEmailAdminOnly(email, id)
                 .exceptionally(ex -> {
                     log.error("Failed to get creds for: " + email, ex);
@@ -195,6 +211,9 @@ public class PassCommands {
      * @return  A text-formatted email message.
      */
     public String resetPass(final String email, final String lastName, final String emailTitle) {
+        if (email == null || lastName == null) {
+            throw new IllegalArgumentException("Email or last name missing!");
+        }
         // Get the person by email
         final Person person = DAO.getInstance().getPersonByEmail(email).join();
         final String result;
@@ -218,6 +237,9 @@ public class PassCommands {
     }
 
     private String newPassEmail(final String title, final String pass) {
+        if (title == null) {
+            throw new IllegalArgumentException("Title missing!");
+        }
         final HttpServletRequest req = (HttpServletRequest) FacesContext.getCurrentInstance()
                 .getExternalContext().getRequest();
         final int port = req.getServerPort();

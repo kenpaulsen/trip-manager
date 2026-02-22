@@ -44,8 +44,13 @@ public class MailCommands {
             .build();
 
     // NOTE: See "sendTemplate" that method is generally more useful
-    public CompletableFuture<SendEmailResponse> send(final String from, final String to, final String bcc,
-            final String replyTo, final String subjectStr, final String bodyStr) {
+    public CompletableFuture<SendEmailResponse> send(
+            final String from,
+            final String to,
+            final String bcc,
+            final String replyTo,
+            final String subjectStr,
+            final String bodyStr) {
         final Content subject = Content.builder()
                 .data(subjectStr)
                 .build();
@@ -74,8 +79,13 @@ public class MailCommands {
 
     // Note: Not sure if I'm going to support pre-defined templates... even if I do, I think it may be better to
     // Note: "load" the template into the online editor, and then call the #sendTemplate method instead.
-    private CompletableFuture<List<SendEmailResponse>> sendTemplateFile(final String from, final Collection<Person> to,
-            final String bcc, final String replyTo, final String subjectStr, final String templateName) {
+    private CompletableFuture<List<SendEmailResponse>> sendTemplateFile(
+            final String from,
+            final Collection<Person> to,
+            final String bcc,
+            final String replyTo,
+            final String subjectStr,
+            final String templateName) {
         final String template = elUtil.readFile(EMAIL_TPL_PREFIX + templateName + EMAIL_TPL_SUFFIX);
         if (template == null) {
             return CompletableFuture.failedFuture(new FileNotFoundException(templateName));
@@ -97,8 +107,13 @@ public class MailCommands {
      *
      * @return A CompletableFuture that completes w/ the status of all the email send attempts.
      */
-    public CompletableFuture<List<SendEmailResponse>> sendTemplate(final String from, final Collection<Person> to,
-            final String bcc, final String replyTo, final String subjectStr, final String template) {
+    public CompletableFuture<List<SendEmailResponse>> sendTemplate(
+            final String from,
+            final Collection<Person> to,
+            final String bcc,
+            final String replyTo,
+            final String subjectStr,
+            final String template) {
         CompletableFuture<List<SendEmailResponse>> result = CompletableFuture.completedFuture(new ArrayList<>());
         for (final Person person : to) {
             final String toEmail = formatEmail(person);
