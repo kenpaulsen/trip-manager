@@ -11,9 +11,11 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -60,9 +62,12 @@ public class TransactionsCommands {
     }
 
     public List<Transaction> getTransactions(final Person.Id userId) {
+        if (userId == null) {
+            return List.of();
+        }
         return DAO.getInstance().getTransactions(userId)
                 .exceptionally(ex -> {
-                    log.error("Error querying transactions for user " + userId + ": ", ex);
+                    log.error("Error querying transactions for user {}: ", userId.getValue(), ex);
                     return Collections.emptyList();
                 }).join();
     }
@@ -85,9 +90,20 @@ public class TransactionsCommands {
         }
         return DAO.getInstance().getTransaction(userId, txId)
                 .exceptionally(ex -> {
-                    log.error("Error while getting Tx (" + txId + ") for userId: '" + userId + "'!", ex);
+                    log.error("Error while getting Tx ({}) for userId: '{}'!", txId, userId, ex);
                     return Optional.empty();
                 }).join().orElse(null);
+    }
+
+    public boolean hasTransaction(final Person.Id userId, final String txId) {
+        if (userId == null || txId == null) {
+            throw new IllegalArgumentException("You must provide the userId and a txId!");
+        }
+        return DAO.getInstance()
+            .getTransaction(userId, txId)
+            .exceptionally(_ -> Optional.empty())
+            .orTimeout(5_000, TimeUnit.MILLISECONDS).join()
+            .isPresent();
     }
 
     public Transaction getBoundTransaction(final String id, final String bindingType) {

@@ -48,6 +48,7 @@
 package com.sun.jsft.commands;
 
 import com.sun.jsft.event.Command;
+import com.sun.jsft.util.ELUtil;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.component.UIViewRoot;
@@ -154,6 +155,23 @@ public class JSFTCommands {
             for (final Command cmd : (List<Command>) facesCtx.getAttributes().get(commandId)) {
                 cmd.invoke();
             }
+        }
+    }
+
+    /**
+     * This method attempts to evaluate the given {@ocde el} String. If evaluation throws an exception, it
+     * returns {@code defaultValue} instead.
+     * @param el            The EL expression to evaluate, passed in as a String.
+     * @param defaultValue  The default value to return if the EL fails.
+     * @return              The evaluated value, or the default.
+     * @param <T>           The type of the value to return.
+     */
+    @SuppressWarnings("unchecked")
+    public <T> T el(final String el, final T defaultValue) {
+        try {
+            return (T) ELUtil.getInstance().eval(el);
+        } catch (final Exception ex) {
+            return defaultValue;
         }
     }
 

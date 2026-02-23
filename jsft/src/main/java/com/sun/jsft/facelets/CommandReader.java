@@ -68,6 +68,8 @@ public class CommandReader {
     private static final String CLOSE_CDATA = "]]>";
     private static final Map<String, String> _reservedMappings = new HashMap<>(16);
     static {
+        // NOTE: Using el(...) inline, the "Parenthesis Bug" is much more likely, use 'jsft.el' instead
+        _reservedMappings.put("el", "jsft.el");
         _reservedMappings.put("foreach", "jsft.foreach");
         _reservedMappings.put("for", "jsft._for");
         _reservedMappings.put("println", "jsft.println");
