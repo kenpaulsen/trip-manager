@@ -1,7 +1,11 @@
 package org.paulsens.trip.action;
 
 import com.paypal.sdk.http.response.ApiResponse;
+import com.paypal.sdk.models.Address;
 import com.paypal.sdk.models.Order;
+import com.paypal.sdk.models.Payer;
+import com.paypal.sdk.models.PurchaseUnit;
+import com.paypal.sdk.models.ShippingWithTrackingDetails;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
@@ -51,9 +55,9 @@ public class PayCommands {
     static final BigDecimal FEE_FIXED  = BigDecimal.valueOf(0.49d);
 
     // FIXME: This is temporary, we should move this out to the .xhtml file so it's parameterized per site
-    private static final String FROM_ADDRESS = "Visit Queen of Peace <no-reply@visitqueenofpeace.com>";
+    private static final String FROM_ADDRESS = "Center Mir Medjugorje <info@centermirmedjugorje.com>";
     // FIXME: This is temporary, we should move this out to the .xhtml file so it's parameterized per site
-    private static final String NOTIFY_EMAIL = "ken@visitqueenofpeace.com";
+    private static final String NOTIFY_EMAIL = "info@centermirmedjugorje.com";
 
     private final DateTimeFormatter timestampPattern = DateTimeFormatter.ofPattern("yyyyMMddHHmm");
 
@@ -67,6 +71,8 @@ public class PayCommands {
     private AuditCommands audit;
     @Inject
     private PersonCommands people;
+    @Inject
+    private TripCommands trips;
 
     // -------------------------------------------------------------------------
     // Public API – called from XHTML pages
@@ -167,6 +173,7 @@ public class PayCommands {
             }
 
             final Order order = response.getResult();
+            log.info("Capture order: {}", order.toString());
             final float gross = PayPalClient.getInstance().getCapturedAmount(order);
             final Optional<Float> feeOpt = PayPalClient.getInstance().getPayPalFee(order);
 
@@ -286,9 +293,12 @@ public class PayCommands {
     }
 
     private String buildTransactionNote(final Order order, final float gross, final Optional<Float> feeOpt) {
-        final StringBuilder note = new StringBuilder("PayPal (id: ").append(order.getId()).append(")" );
-        feeOpt.ifPresent(fee -> note.append(String.format("for $%.2f, with $%.2f PayPal fee.\n", gross, fee)));
-        note.append(getDescription(order, ""));
+        final StringBuilder note = new StringBuilder("PayPal for ")
+                .append(String.format("$%.2f", gross));
+        feeOpt.ifPresent(fee -> note.append(String.format(" with $%.2f PayPal fee", fee)));
+        note.append(".\n")
+            .append(getDescription(order, ""))
+            .append(" \n(").append(getPaymentId(order)).append(")");
         return note.toString();
     }
 
@@ -307,25 +317,71 @@ public class PayCommands {
             final String subject = String.format("PayPal payment received – $%.2f", gross);
             final String feeInfo = feeOpt.map(f -> String.format(" (PayPal fee: $%.2f, net: $%.2f)", f, gross - f))
                     .orElse("");
-            final String body = String.format(
-                    "PayPal credit card payment received.<br/>\n"
-                    + "User: %s<br/>\nAmount: $%.2f%s<br/>\nTrip: %s<br/>\nPayPal order: %s<br/>\nNote: %s<br/>\n",
-                    (user == null) ? "null" : user.getEmail(), gross, feeInfo,
-                    (tripId != null ? tripId : "N/A"), order.getId(), getDescription(order, "[empty]"));
-            mail.send(FROM_ADDRESS, NOTIFY_EMAIL, null, NOTIFY_EMAIL, subject, body);
+            final String body = String.format("PayPal credit card payment received.<br/>\n"
+                        + "Person Registered: <b>%s</b><br/>\n"
+                        + "Paid by: <div style=\"display:inline-block;vertical-align:top;\">%s</div><br/>\n"
+                        + "Amount: $%.2f%s<br/>\n"
+                        + "Trip: %s<br/>\n"
+                        + "PayPal Payment ID: %s<br/>\n",
+                        //+ "Note: %s<br/>\n",
+                    (user == null) ? "null" : user.getEmail(),
+                    getPayer(order),
+                    gross,
+                    feeInfo,
+                    (tripId != null) ? trips.getTrip(tripId).getTitle() : "N/A",
+                    getPaymentId(order)
+                    /*getDescription(order, "[empty]")*/);
+            mail.send(FROM_ADDRESS, NOTIFY_EMAIL, "ken@centerforpeacewest.com", NOTIFY_EMAIL, subject, body);
         } catch (final Exception ex) {
-            log.warn("Failed to send payment notification email for order {}", order.getId(), ex);
+            log.warn("Failed to send payment notification email for order {}", getPaymentId(order), ex);
         }
     }
 
+    private String getPayer(final Order order) {
+        final Optional<ShippingWithTrackingDetails> shipping = getPurchaseUnit(order).map(PurchaseUnit::getShipping);
+        final StringBuilder builder = new StringBuilder();
+        // Name
+        builder.append(shipping.map(sh -> sh.getName().getFullName()).orElse(""));
+        // Email
+        builder.append('(').append(getEmail(order)).append(')');
+        builder.append("<br/>\n");
+        // Address
+        builder.append(shipping
+                .map(ShippingWithTrackingDetails::getAddress)
+                .map(this::formatAddress)
+                .orElse(""));
+        return builder.toString();
+    }
+
+    private String formatAddress(final Address address) {
+        return (address.getAddressLine1() == null ? "" : address.getAddressLine1() + "<br/>\n") +
+            (address.getAddressLine2() == null ? "" : address.getAddressLine2() + "<br/>\n") +
+            (address.getAdminArea2() == null ? "" : address.getAdminArea2() + ", ") +
+            (address.getAdminArea1() == null ? "" : address.getAdminArea1() + " ") +
+            (address.getPostalCode() == null ? "" : address.getPostalCode() + " ") +
+            (address.getCountryCode() == null ? "" :
+                address.getCountryCode().equalsIgnoreCase("US") ? "" : address.getCountryCode());
+    }
+
+    private String getEmail(final Order order) {
+        return Optional.ofNullable(order).map(Order::getPayer).map(Payer::getEmailAddress).orElse("");
+    }
+
+    private String getPaymentId(final Order order) {
+        return getPurchaseUnit(order).map(PurchaseUnit::getDescription).orElse(order.getId());
+    }
+
     private String getDescription(final Order order, final String defaultDesc) {
+        return getPurchaseUnit(order)
+            .filter(pu -> pu.getDescription() != null)
+            .map(PurchaseUnit::getDescription)
+            .orElse(defaultDesc);
+    }
+
+    private Optional<PurchaseUnit> getPurchaseUnit(final Order order) {
         if (order.getPurchaseUnits() == null || order.getPurchaseUnits().isEmpty()) {
-            return defaultDesc;
+            return Optional.empty();
         }
-        val pu = order.getPurchaseUnits().getFirst();
-        if (pu.getDescription() == null || pu.getDescription().isEmpty()) {
-            return defaultDesc;
-        }
-        return pu.getDescription();
+        return Optional.ofNullable(order.getPurchaseUnits().getFirst());
     }
 }

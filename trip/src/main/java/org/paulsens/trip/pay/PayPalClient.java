@@ -35,6 +35,7 @@ import org.paulsens.trip.model.Person;
 public class PayPalClient {
     private static final PayPalClient INSTANCE = new PayPalClient();
     private static final String USD = "USD";
+    private static final String DEFAULT_EMAIL = "ken@centerforpeacewest.com";
 
     private final PaypalServerSdkClient sdkClient;
 
@@ -148,13 +149,40 @@ public class PayPalClient {
         }
     }
 
+    /**
+     * Returns {@code true} if the given string looks like a plausible email address.
+     * This is intentionally a lightweight check (not a full RFC 5322 parser) — it
+     * just guards against obviously invalid values being sent to the PayPal API.
+     *
+     * <p>Rules: non-null, no whitespace, exactly one {@code @}, at least one character
+     * before the {@code @}, and the domain part contains at least one {@code .} with
+     * characters on both sides of it.</p>
+     */
+    static boolean isValidEmail(final String email) {
+        if (email == null || email.isBlank()) {
+            return false;
+        }
+        final int at = email.indexOf('@');
+        // Must have exactly one '@', with at least one char before it
+        if (at < 1 || email.indexOf('@', at + 1) != -1) {
+            return false;
+        }
+        final String domain = email.substring(at + 1);
+        final int dot = domain.indexOf('.');
+        // Domain must have a dot that isn't first or last, and no whitespace anywhere
+        return dot > 0 && dot < domain.length() - 1 && email.chars().noneMatch(Character::isWhitespace);
+    }
+
     private Payer toPayer(final Person person) {
         if (person == null || (person.getEmail() == null && person.getFirst() == null && person.getCell() == null)) {
             return null;
         }
         final Payer.Builder result = new Payer.Builder();
-        if (person.getEmail() != null) {
+        if (isValidEmail(person.getEmail())) {
             result.emailAddress(person.getEmail());
+        } else {
+            log.warn("Invalid or missing email for person '{}', using default: {}", person.getId(), DEFAULT_EMAIL);
+            result.emailAddress(DEFAULT_EMAIL);
         }
         if (person.getFirst() != null) {
             result.name(new Name.Builder().givenName(person.getFirst()).surname(person.getLast()).build());
@@ -182,9 +210,12 @@ public class PayPalClient {
             final String description) {
         final List<PurchaseUnitRequest> result = new ArrayList<>();
         for (final Float amount : amounts) {
+            log.info("PayPal PU Request: {}|{}|{}|{}", invoiceId, amount, orgAbbr, description);
             result.add(new PurchaseUnitRequest.Builder()
                     .referenceId(id.getValue())
                     .amount(toAmount(amount))
+                    // FIXME: Pass this in
+                    .softDescriptor("2026 Medj Conf Orlando")
                     .description(description)
                     .customId(id.getValue())
                     .invoiceId(invoiceId)
