@@ -210,9 +210,12 @@ public class PayPalClient {
             final String description) {
         final List<PurchaseUnitRequest> result = new ArrayList<>();
         for (final Float amount : amounts) {
+            log.info("PayPal PU Request: {}|{}|{}|{}", invoiceId, amount, orgAbbr, description);
             result.add(new PurchaseUnitRequest.Builder()
                     .referenceId(id.getValue())
                     .amount(toAmount(amount))
+                    // FIXME: Pass this in
+                    .softDescriptor("2026 Medj Conf Orlando")
                     .description(description)
                     .customId(id.getValue())
                     .invoiceId(invoiceId)
