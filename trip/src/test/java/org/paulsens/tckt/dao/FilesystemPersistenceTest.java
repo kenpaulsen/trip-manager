@@ -17,7 +17,7 @@ import org.testng.annotations.Test;
 
 public class FilesystemPersistenceTest {
     @BeforeClass
-    public static void setup() {
+    public void setup() {
         // Cleanup from prev runs
         if (FileUtils.fileExists(TestData.BASE_PATH + TestData.ANSWER_PATH)) {
             FileUtils.deleteFile(TestData.BASE_PATH + TestData.ANSWER_PATH);

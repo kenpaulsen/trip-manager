@@ -51,9 +51,9 @@ public class PayCommands {
     static final BigDecimal FEE_FIXED  = BigDecimal.valueOf(0.49d);
 
     // FIXME: This is temporary, we should move this out to the .xhtml file so it's parameterized per site
-    private static final String FROM_ADDRESS = "Center Mir Medjugorje <no-reply@centermirmedjugorje.com>";
+    private static final String FROM_ADDRESS = "Center Mir Medjugorje <info@centermirmedjugorje.com>";
     // FIXME: This is temporary, we should move this out to the .xhtml file so it's parameterized per site
-    private static final String NOTIFY_EMAIL = "ken@centerforpeacewest.com";
+    private static final String NOTIFY_EMAIL = "info@centermirmedjugorje.com";
 
     private final DateTimeFormatter timestampPattern = DateTimeFormatter.ofPattern("yyyyMMddHHmm");
 
@@ -286,9 +286,12 @@ public class PayCommands {
     }
 
     private String buildTransactionNote(final Order order, final float gross, final Optional<Float> feeOpt) {
-        final StringBuilder note = new StringBuilder("PayPal (id: ").append(order.getId()).append(")" );
-        feeOpt.ifPresent(fee -> note.append(String.format("for $%.2f, with $%.2f PayPal fee.\n", gross, fee)));
-        note.append(getDescription(order, ""));
+        final StringBuilder note = new StringBuilder("PayPal for ")
+                .append(String.format("$%.2f", gross));
+        feeOpt.ifPresent(fee -> note.append(String.format(" with $%.2f PayPal fee", fee)));
+        note.append(".\n")
+            .append(getDescription(order, ""))
+            .append(" \n(").append(order.getId()).append(")");
         return note.toString();
     }
 
@@ -307,18 +310,22 @@ public class PayCommands {
             final String subject = String.format("PayPal payment received – $%.2f", gross);
             final String feeInfo = feeOpt.map(f -> String.format(" (PayPal fee: $%.2f, net: $%.2f)", f, gross - f))
                     .orElse("");
-            final String body = String.format(
-                    "PayPal credit card payment received.<br/>\n"
+            final String body = String.format("PayPal credit card payment received.<br/>\n"
                     + "User: %s<br/>\nAmount: $%.2f%s<br/>\nTrip: %s<br/>\nPayPal order: %s<br/>\nNote: %s<br/>\n",
-                    (user == null) ? "null" : user.getEmail(), gross, feeInfo,
-                    (tripId != null ? tripId : "N/A"), order.getId(), getDescription(order, "[empty]"));
-            mail.send(FROM_ADDRESS, NOTIFY_EMAIL, null, NOTIFY_EMAIL, subject, body);
+                    (user == null) ? "null" : user.getEmail(),
+                    gross,
+                    feeInfo,
+                    (tripId != null) ? tripId : "N/A",
+                    order.getId(),
+                    getDescription(order, "[empty]"));
+            mail.send(FROM_ADDRESS, NOTIFY_EMAIL, "ken@centerforpeacewest.com", NOTIFY_EMAIL, subject, body);
         } catch (final Exception ex) {
             log.warn("Failed to send payment notification email for order {}", order.getId(), ex);
         }
     }
 
     private String getDescription(final Order order, final String defaultDesc) {
+        log.info("Getting description for order: {}", order.toString());
         if (order.getPurchaseUnits() == null || order.getPurchaseUnits().isEmpty()) {
             return defaultDesc;
         }
