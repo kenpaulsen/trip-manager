@@ -194,6 +194,85 @@ public class PayPalClientTest {
     }
 
     // -------------------------------------------------------------------------
+    // isValidEmail
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void isValidEmail_normalAddress_returnsTrue() {
+        Assert.assertTrue(PayPalClient.isValidEmail("user@example.com"));
+    }
+
+    @Test
+    public void isValidEmail_subdomainAddress_returnsTrue() {
+        Assert.assertTrue(PayPalClient.isValidEmail("admin@mail.example.co.uk"));
+    }
+
+    @Test
+    public void isValidEmail_plusTag_returnsTrue() {
+        Assert.assertTrue(PayPalClient.isValidEmail("user+tag@example.com"));
+    }
+
+    @Test
+    public void isValidEmail_dotsInLocal_returnsTrue() {
+        Assert.assertTrue(PayPalClient.isValidEmail("first.last@example.com"));
+    }
+
+    @Test
+    public void isValidEmail_null_returnsFalse() {
+        Assert.assertFalse(PayPalClient.isValidEmail(null));
+    }
+
+    @Test
+    public void isValidEmail_empty_returnsFalse() {
+        Assert.assertFalse(PayPalClient.isValidEmail(""));
+    }
+
+    @Test
+    public void isValidEmail_blank_returnsFalse() {
+        Assert.assertFalse(PayPalClient.isValidEmail("   "));
+    }
+
+    @Test
+    public void isValidEmail_noAtSign_returnsFalse() {
+        Assert.assertFalse(PayPalClient.isValidEmail("userexample.com"));
+    }
+
+    @Test
+    public void isValidEmail_twoAtSigns_returnsFalse() {
+        Assert.assertFalse(PayPalClient.isValidEmail("user@@example.com"));
+    }
+
+    @Test
+    public void isValidEmail_atSignAtStart_returnsFalse() {
+        Assert.assertFalse(PayPalClient.isValidEmail("@example.com"));
+    }
+
+    @Test
+    public void isValidEmail_noDotInDomain_returnsFalse() {
+        Assert.assertFalse(PayPalClient.isValidEmail("user@localhost"));
+    }
+
+    @Test
+    public void isValidEmail_dotAtStartOfDomain_returnsFalse() {
+        Assert.assertFalse(PayPalClient.isValidEmail("user@.example.com"));
+    }
+
+    @Test
+    public void isValidEmail_dotAtEndOfDomain_returnsFalse() {
+        Assert.assertFalse(PayPalClient.isValidEmail("user@example."));
+    }
+
+    @Test
+    public void isValidEmail_containsWhitespace_returnsFalse() {
+        Assert.assertFalse(PayPalClient.isValidEmail("user @example.com"));
+    }
+
+    @Test
+    public void isValidEmail_twoAtsInDifferentPositions_returnsFalse() {
+        Assert.assertFalse(PayPalClient.isValidEmail("user@foo@bar.com"));
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
