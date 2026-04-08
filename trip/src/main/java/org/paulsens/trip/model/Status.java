@@ -42,7 +42,7 @@ public class Status implements Serializable {
         }
     }
 
-    public void setNotes(@NonNull final String newNotes) {
+    public void setNotes(final String newNotes) {
         if (notes == null || !notes.equals(newNotes)) {
             notes = newNotes;
             lastUpdate = LocalDateTime.now();
