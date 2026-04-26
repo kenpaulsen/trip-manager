@@ -77,9 +77,18 @@ public class MailCommands {
                 .exceptionally(ex -> logException(to, ex));
     }
 
-    // Note: Not sure if I'm going to support pre-defined templates... even if I do, I think it may be better to
-    // Note: "load" the template into the online editor, and then call the #sendTemplate method instead.
-    private CompletableFuture<List<SendEmailResponse>> sendTemplateFile(
+    /**
+     * Send an email using a template file.
+     * See {@link #sendTemplate(String, Collection<Person>, String, String, String, String)}
+     *
+     * @param from          From address to show, example: {@code Business Name &lt;no-reply@nowhere.com&gt;}
+     * @param to            The collection of people to send email to.
+     * @param bcc           String of comma-separated people to bcc *on every email*.
+     * @param replyTo       The email address to accept replies, example: {@code real-email@real-place.com}
+     * @param subjectStr    The email subject.
+     * @param template      Template to use. Note: {@link #EMAIL_TPL_PREFIX} and {@link #EMAIL_TPL_SUFFIX} are added.
+     */
+    public CompletableFuture<List<SendEmailResponse>> sendTemplateFile(
             final String from,
             final Collection<Person> to,
             final String bcc,
@@ -103,7 +112,7 @@ public class MailCommands {
      * @param bcc           String of comma-separated people to bcc *on every email*.
      * @param replyTo       The email address to accept replies, example: {@code real-email@real-place.com}
      * @param subjectStr    The email subject.
-     * @param template      Template to use. Note: {@link #EMAIL_TPL_PREFIX} and {@link #EMAIL_TPL_SUFFIX} are added.
+     * @param template      Template to use.
      *
      * @return A CompletableFuture that completes w/ the status of all the email send attempts.
      */

@@ -5,8 +5,8 @@ import jakarta.el.ValueExpression;
 import jakarta.faces.context.FacesContext;
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.util.Objects;
 
 /**
  * <p> This class provides methods to help work with EL expressions.</p>
@@ -81,9 +81,12 @@ public class ELUtil {
     }
 
     public String readFile(final String filename) {
+        final InputStream in = this.getClass().getClassLoader().getResourceAsStream(filename);
+        if (in == null) {
+            return null;
+        }
         final StringBuilder templateBuilder = new StringBuilder();
-        try (final BufferedReader templateReader = new BufferedReader(new InputStreamReader(
-                Objects.requireNonNull(this.getClass().getClassLoader().getResourceAsStream(filename))))) {
+        try (final BufferedReader templateReader = new BufferedReader(new InputStreamReader(in))) {
             String line;
             while ((line = templateReader.readLine()) != null) {
                 templateBuilder.append(line).append("\n");
