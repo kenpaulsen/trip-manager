@@ -3,7 +3,9 @@ package org.paulsens.trip.action;
 import com.paypal.sdk.http.response.ApiResponse;
 import com.paypal.sdk.models.Address;
 import com.paypal.sdk.models.Order;
+import com.paypal.sdk.models.OrdersCapture;
 import com.paypal.sdk.models.Payer;
+import com.paypal.sdk.models.PaymentCollection;
 import com.paypal.sdk.models.PurchaseUnit;
 import com.paypal.sdk.models.ShippingWithTrackingDetails;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -368,7 +370,12 @@ public class PayCommands {
     }
 
     private String getPaymentId(final Order order) {
-        return getPurchaseUnit(order).map(PurchaseUnit::getDescription).orElse(order.getId());
+        return getPurchaseUnit(order)
+            .map(PurchaseUnit::getPayments)
+            .map(PaymentCollection::getCaptures)
+            .map(List::getFirst)
+            .map(OrdersCapture::getId)
+            .orElse(order.getId());
     }
 
     private String getDescription(final Order order, final String defaultDesc) {

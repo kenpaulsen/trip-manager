@@ -86,7 +86,7 @@ public class MailCommands {
      * @param bcc           String of comma-separated people to bcc *on every email*.
      * @param replyTo       The email address to accept replies, example: {@code real-email@real-place.com}
      * @param subjectStr    The email subject.
-     * @param template      Template to use. Note: {@link #EMAIL_TPL_PREFIX} and {@link #EMAIL_TPL_SUFFIX} are added.
+     * @param templateName  Template to use. Note: {@link #EMAIL_TPL_PREFIX} and {@link #EMAIL_TPL_SUFFIX} are added.
      */
     public CompletableFuture<List<SendEmailResponse>> sendTemplateFile(
             final String from,
