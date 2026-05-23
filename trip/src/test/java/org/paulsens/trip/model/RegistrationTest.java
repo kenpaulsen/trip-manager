@@ -49,4 +49,62 @@ public class RegistrationTest {
         Assert.assertEquals(createTime, reg.getCreated());
         Assert.assertEquals(status, reg.getStatus());
     }
+
+    @Test
+    void metadataGettersReadFromOptionsMap() {
+        final Registration reg = new Registration(RandomData.genAlpha(3), Person.Id.newInstance());
+        // Empty registration: every metadata getter returns null.
+        Assert.assertNull(reg.getRegistrantType());
+        Assert.assertNull(reg.getDiscount());
+        Assert.assertNull(reg.getRegistrationType());
+
+        reg.getOptions().put(Registration.OPT_REGISTRANT_TYPE, Registration.RegistrantType.ADULT);
+        reg.getOptions().put(Registration.OPT_DISCOUNT, Registration.Discount.EARLY_BIRD);
+        reg.getOptions().put(Registration.OPT_REGISTRATION_TYPE, Registration.RegistrationType.FULL);
+
+        Assert.assertEquals(reg.getRegistrantType(), Registration.RegistrantType.ADULT);
+        Assert.assertEquals(reg.getDiscount(), Registration.Discount.EARLY_BIRD);
+        Assert.assertEquals(reg.getRegistrationType(), Registration.RegistrationType.FULL);
+    }
+
+    @Test
+    void canRoundTripMetadataJson() throws Exception {
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
+        final Registration reg = new Registration(RandomData.genAlpha(5), Person.Id.newInstance());
+        reg.getOptions().put(Registration.OPT_REGISTRANT_TYPE, Registration.RegistrantType.CHILD);
+        reg.getOptions().put(Registration.OPT_DISCOUNT, Registration.Discount.EARLY_BIRD);
+        reg.getOptions().put(Registration.OPT_REGISTRATION_TYPE, Registration.RegistrationType.FULL);
+        reg.getOptions().put("1", "USA");   // per-trip option lives alongside metadata
+
+        final String json = mapper.writeValueAsString(reg);
+        final Registration restored = mapper.readValue(json, Registration.class);
+
+        Assert.assertEquals(restored.getRegistrantType(), Registration.RegistrantType.CHILD);
+        Assert.assertEquals(restored.getDiscount(), Registration.Discount.EARLY_BIRD);
+        Assert.assertEquals(restored.getRegistrationType(), Registration.RegistrationType.FULL);
+        Assert.assertEquals(restored.getOptions().get("1"), "USA");
+        Assert.assertEquals(restored, reg);
+    }
+
+    @Test
+    void oldJsonWithoutMetadataDeserializesCleanly() throws Exception {
+        // Simulates a Registration row written before the metadata keys existed.
+        // Backward compat: missing keys are simply absent from the map.
+        final String legacyJson = "{"
+                + "\"tripId\":\"trip-1\","
+                + "\"userId\":\"user-1\","
+                + "\"created\":\"2025-01-01T12:00:00\","
+                + "\"status\":\"Pending\","
+                + "\"options\":{\"1\":\"USA\",\"opt9\":\"true\"}"
+                + "}";
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
+        final Registration restored = mapper.readValue(legacyJson, Registration.class);
+
+        Assert.assertNull(restored.getRegistrantType());
+        Assert.assertNull(restored.getDiscount());
+        Assert.assertNull(restored.getRegistrationType());
+        Assert.assertEquals(restored.getOptions().get("1"), "USA");
+        Assert.assertEquals(restored.getOptions().get("opt9"), "true");
+        Assert.assertEquals(restored.getStatus(), Status.PENDING);
+    }
 }

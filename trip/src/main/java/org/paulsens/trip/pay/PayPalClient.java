@@ -21,12 +21,18 @@ import com.paypal.sdk.models.PhoneType;
 import com.paypal.sdk.models.PhoneWithType;
 import com.paypal.sdk.models.PurchaseUnitRequest;
 import com.paypal.sdk.models.SellerReceivableBreakdown;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
 import org.paulsens.trip.model.Person;
@@ -37,39 +43,153 @@ public class PayPalClient {
     private static final String USD = "USD";
     private static final String DEFAULT_EMAIL = "ken@centerforpeacewest.com";
 
-    private final PaypalServerSdkClient sdkClient;
+    // Environment variable names used to wire up credentials and routing.
+    static final String ENV_PROD_CLIENT_ID    = "PAYPAL_CLIENT_ID";
+    static final String ENV_PROD_SECRET       = "PAYPAL_SECRET";
+    static final String ENV_SANDBOX_CLIENT_ID = "PAYPAL_SANDBOX_CLIENT_ID";
+    static final String ENV_SANDBOX_SECRET    = "PAYPAL_SANDBOX_SECRET";
+    static final String ENV_TEST_EMAILS       = "PAYPAL_TEST_EMAILS";
+    /** Legacy global override: when set to {@code "SANDBOX"}, every payer routes to sandbox. */
+    static final String ENV_ENVIRONMENT       = "PAYPAL_ENVIRONMENT";
+
+    /** Production SDK client. {@code null} when {@link #ENV_PROD_CLIENT_ID}/{@link #ENV_PROD_SECRET}
+     *  are not configured (typical on dev laptops). */
+    private final PaypalServerSdkClient productionClient;
+
+    /** Sandbox SDK client. {@code null} when the {@code PAYPAL_SANDBOX_*} env vars are not
+     *  configured (typical on hosts that only ever speak to production). */
+    private final PaypalServerSdkClient sandboxClient;
+
+    /** Lowercase email allow-list — payers whose email matches one of these route to sandbox. */
+    private final Set<String> testEmails;
+
+    /** Legacy global override: {@code true} when {@code PAYPAL_ENVIRONMENT=SANDBOX} routes
+     *  every payer to sandbox regardless of allow-list (dev-machine compatibility). */
+    private final boolean defaultUseSandbox;
 
     private PayPalClient() {
-        final Map<String, String> env = System.getenv();
-        final String clientId = env.getOrDefault("PAYPAL_CLIENT_ID", "");
-        final String secret = env.getOrDefault("PAYPAL_SECRET", "");
-        if (clientId.isEmpty() || secret.isEmpty()) {
-            log.warn("PayPal credentials not set! Configure PAYPAL_CLIENT_ID and PAYPAL_SECRET environment variables.");
+        this(System.getenv());
+    }
+
+    /**
+     * Package-private constructor used by both the singleton (with {@code System.getenv()}) and
+     * by tests (with a controlled fake env map). Reads {@link #ENV_PROD_CLIENT_ID} et al. from
+     * the supplied map and configures the two SDK clients + routing accordingly.
+     */
+    PayPalClient(final Map<String, String> env) {
+        this.productionClient = buildClient(
+                env.getOrDefault(ENV_PROD_CLIENT_ID, ""),
+                env.getOrDefault(ENV_PROD_SECRET, ""),
+                Environment.PRODUCTION);
+        this.sandboxClient = buildClient(
+                env.getOrDefault(ENV_SANDBOX_CLIENT_ID, ""),
+                env.getOrDefault(ENV_SANDBOX_SECRET, ""),
+                Environment.SANDBOX);
+        this.testEmails = parseTestEmails(env.getOrDefault(ENV_TEST_EMAILS, ""));
+        this.defaultUseSandbox = "SANDBOX".equalsIgnoreCase(
+                env.getOrDefault(ENV_ENVIRONMENT, "PRODUCTION"));
+        if ((productionClient == null) && (sandboxClient == null)) {
+            log.warn("PayPal credentials not set! Configure {}/{} (production) and/or {}/{} (sandbox).",
+                    ENV_PROD_CLIENT_ID, ENV_PROD_SECRET, ENV_SANDBOX_CLIENT_ID, ENV_SANDBOX_SECRET);
         }
-        final boolean production = "PRODUCTION".equalsIgnoreCase(env.getOrDefault("PAYPAL_ENVIRONMENT", "SANDBOX"));
-        this.sdkClient = new PaypalServerSdkClient.Builder()
-                .clientCredentialsAuth(new ClientCredentialsAuthModel.Builder(clientId, secret).build())
-                .environment(production ? Environment.PRODUCTION : Environment.SANDBOX)
-                .build();
-        log.info("PayPalClient initialized in {} mode.", production ? "PRODUCTION" : "SANDBOX");
+        log.info("PayPalClient initialized — production={}, sandbox={}, testEmails={}, defaultUseSandbox={}",
+                (productionClient != null), (sandboxClient != null), testEmails.size(), defaultUseSandbox);
     }
 
     public static PayPalClient getInstance() {
         return INSTANCE;
     }
 
+    /**
+     * @return {@code true} if PayPal calls for the given person should be routed to the sandbox
+     *         SDK client. Routing rules (in order):
+     *         <ol>
+     *           <li>If {@link #ENV_ENVIRONMENT}{@code =SANDBOX}, every payer is sandbox.</li>
+     *           <li>If {@code person} or their email is {@code null}, production.</li>
+     *           <li>If the email (case-insensitive) is on {@link #ENV_TEST_EMAILS}, sandbox.</li>
+     *           <li>Otherwise production.</li>
+     *         </ol>
+     */
+    public boolean useSandboxFor(final Person person) {
+        final boolean result;
+        if (defaultUseSandbox) {
+            result = true;
+        } else if ((person == null) || (person.getEmail() == null)) {
+            result = false;
+        } else {
+            result = testEmails.contains(person.getEmail().trim().toLowerCase());
+        }
+        return result;
+    }
+
+    /** @return the SDK client matching the requested environment, falling back to whichever
+     *  is configured if the requested one isn't. */
+    private PaypalServerSdkClient pickClient(final boolean useSandbox) {
+        final PaypalServerSdkClient result;
+        if (useSandbox) {
+            if (sandboxClient != null) {
+                result = sandboxClient;
+            } else {
+                log.warn("Sandbox SDK requested but not configured — falling back to production client.");
+                result = productionClient;
+            }
+        } else {
+            if (productionClient != null) {
+                result = productionClient;
+            } else {
+                log.warn("Production SDK requested but not configured — falling back to sandbox client.");
+                result = sandboxClient;
+            }
+        }
+        return result;
+    }
+
+    private static PaypalServerSdkClient buildClient(
+            final String clientId, final String secret, final Environment env) {
+        final PaypalServerSdkClient result;
+        if (clientId.isEmpty() || secret.isEmpty()) {
+            result = null;
+        } else {
+            result = new PaypalServerSdkClient.Builder()
+                    .clientCredentialsAuth(new ClientCredentialsAuthModel.Builder(clientId, secret).build())
+                    .environment(env)
+                    .build();
+        }
+        return result;
+    }
+
+    /** Parses the comma-separated {@link #ENV_TEST_EMAILS} value into a normalized lowercase set. */
+    static Set<String> parseTestEmails(final String csv) {
+        final Set<String> result;
+        if ((csv == null) || csv.isBlank()) {
+            result = Collections.emptySet();
+        } else {
+            result = Arrays.stream(csv.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(String::toLowerCase)
+                    .collect(Collectors.toUnmodifiableSet());
+        }
+        return result;
+    }
+
     public CompletableFuture<ApiResponse<Order>> createOrder(
             final Person person,
             final Person.Id id,
-            final Float amountDue,
+            final BigDecimal amountDue,
             final String invoiceId,
             final String orgAbbr,
             final String description,
             final String returnUrl,
             final String cancelUrl) {
+        final boolean useSandbox = useSandboxFor(person);
+        final PaypalServerSdkClient client = pickClient(useSandbox);
         final List<PurchaseUnitRequest> purchases = toPurchaseUnitRequests(
                 List.of(amountDue), id, invoiceId, orgAbbr, description);
-        return sdkClient.getOrdersController().createOrderAsync(
+        log.info("PayPal createOrder env={} payer={} id={} amount={}",
+                useSandbox ? "SANDBOX" : "PRODUCTION",
+                (person == null) ? "<none>" : person.getEmail(), id, amountDue);
+        return client.getOrdersController().createOrderAsync(
                 new CreateOrderInput.Builder()
                         .body(createOrderRequest(person, purchases, returnUrl, cancelUrl))
                         .build())
@@ -82,8 +202,16 @@ public class PayPalClient {
                 });
     }
 
-    public CompletableFuture<ApiResponse<Order>> captureOrder(final String orderId) {
-        return sdkClient.getOrdersController().captureOrderAsync(
+    /**
+     * Captures a previously-created order. The caller must specify which environment the order
+     * was created in (PayPal order IDs are environment-scoped — a sandbox order ID rejected by
+     * production and vice versa). Use {@link #useSandboxFor(Person)} at the call site to decide.
+     */
+    public CompletableFuture<ApiResponse<Order>> captureOrder(
+            final String orderId, final boolean useSandbox) {
+        final PaypalServerSdkClient client = pickClient(useSandbox);
+        log.info("PayPal captureOrder env={} id={}", useSandbox ? "SANDBOX" : "PRODUCTION", orderId);
+        return client.getOrdersController().captureOrderAsync(
                     new CaptureOrderInput.Builder().id(orderId).build())
                 .whenComplete((resp, ex) -> {
                     if (ex == null) {
@@ -203,13 +331,13 @@ public class PayPalClient {
     }
 
     private List<PurchaseUnitRequest> toPurchaseUnitRequests(
-            final List<Float> amounts,
+            final List<BigDecimal> amounts,
             final Person.Id id,
             final String invoiceId,
             final String orgAbbr,
             final String description) {
         final List<PurchaseUnitRequest> result = new ArrayList<>();
-        for (final Float amount : amounts) {
+        for (final BigDecimal amount : amounts) {
             log.info("PayPal PU Request: {}|{}|{}|{}", invoiceId, amount, orgAbbr, description);
             result.add(new PurchaseUnitRequest.Builder()
                     .referenceId(id.getValue())
@@ -225,10 +353,10 @@ public class PayPalClient {
         return result;
     }
 
-    private AmountWithBreakdown toAmount(final Float amount) {
+    private AmountWithBreakdown toAmount(final BigDecimal amount) {
         return new AmountWithBreakdown.Builder()
                 .currencyCode(USD)
-                .value(String.format("%.2f", amount))
+                .value(amount.setScale(2, RoundingMode.HALF_UP).toPlainString())
                 .build();
     }
 

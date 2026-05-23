@@ -11,9 +11,12 @@ import com.paypal.sdk.models.OrdersCapture;
 import com.paypal.sdk.models.PaymentCollection;
 import com.paypal.sdk.models.PurchaseUnit;
 import com.paypal.sdk.models.SellerReceivableBreakdown;
+import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.RandomData;
@@ -28,7 +31,8 @@ public class PayPalClientTest {
     void canCreateOrder() {
         final String id = RandomData.genAlpha(5);
         ApiResponse<Order> order = payPalClient
-                .createOrder(null, Person.Id.from(id), 123.45f, "some trip", "CFPW", "blah blah blah",
+                .createOrder(null, Person.Id.from(id), new BigDecimal("123.45"),
+                        "some trip", "CFPW", "blah blah blah",
                         "https://example.com/return", "https://example.com/cancel")
                 .orTimeout(1000, TimeUnit.MILLISECONDS)
                 .join();
@@ -270,6 +274,117 @@ public class PayPalClientTest {
     @Test
     public void isValidEmail_twoAtsInDifferentPositions_returnsFalse() {
         Assert.assertFalse(PayPalClient.isValidEmail("user@foo@bar.com"));
+    }
+
+    // -------------------------------------------------------------------------
+    // parseTestEmails (static helper for PAYPAL_TEST_EMAILS env var parsing)
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void parseTestEmails_nullOrBlank_returnsEmptySet() {
+        Assert.assertTrue(PayPalClient.parseTestEmails(null).isEmpty());
+        Assert.assertTrue(PayPalClient.parseTestEmails("").isEmpty());
+        Assert.assertTrue(PayPalClient.parseTestEmails("   ").isEmpty());
+    }
+
+    @Test
+    public void parseTestEmails_singleEntry() {
+        final Set<String> result = PayPalClient.parseTestEmails("ken+test@example.com");
+        Assert.assertEquals(result, Set.of("ken+test@example.com"));
+    }
+
+    @Test
+    public void parseTestEmails_normalizesToLowercase() {
+        final Set<String> result = PayPalClient.parseTestEmails("Ken+Test@Example.COM");
+        Assert.assertEquals(result, Set.of("ken+test@example.com"));
+    }
+
+    @Test
+    public void parseTestEmails_trimsWhitespaceAndDropsEmpties() {
+        final Set<String> result = PayPalClient.parseTestEmails(
+                "  alice@x.com , , bob@y.com ,  ");
+        Assert.assertEquals(result, Set.of("alice@x.com", "bob@y.com"));
+    }
+
+    @Test
+    public void parseTestEmails_multipleEntries() {
+        final Set<String> result = PayPalClient.parseTestEmails("a@x.com,b@y.com,c@z.com");
+        Assert.assertEquals(result, Set.of("a@x.com", "b@y.com", "c@z.com"));
+    }
+
+    // -------------------------------------------------------------------------
+    // useSandboxFor (per-user routing)
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void useSandboxFor_defaultEnv_neverSandbox() {
+        // No env vars set → no allow-list, no default-sandbox.
+        final PayPalClient client = new PayPalClient(Map.of());
+        Assert.assertFalse(client.useSandboxFor(null));
+        Assert.assertFalse(client.useSandboxFor(personWithEmail("nobody@example.com")));
+    }
+
+    @Test
+    public void useSandboxFor_globalLegacyOverride_alwaysSandbox() {
+        // Legacy PAYPAL_ENVIRONMENT=SANDBOX routes everyone to sandbox, regardless of allow-list.
+        final PayPalClient client = new PayPalClient(Map.of(
+                PayPalClient.ENV_ENVIRONMENT, "SANDBOX"));
+        Assert.assertTrue(client.useSandboxFor(null));
+        Assert.assertTrue(client.useSandboxFor(personWithEmail("real-customer@example.com")));
+    }
+
+    @Test
+    public void useSandboxFor_personOnAllowList_routesToSandbox() {
+        final PayPalClient client = new PayPalClient(Map.of(
+                PayPalClient.ENV_TEST_EMAILS, "tester@example.com,qa@example.com"));
+        Assert.assertTrue(client.useSandboxFor(personWithEmail("tester@example.com")));
+        Assert.assertTrue(client.useSandboxFor(personWithEmail("qa@example.com")));
+    }
+
+    @Test
+    public void useSandboxFor_emailMatchIsCaseInsensitive() {
+        final PayPalClient client = new PayPalClient(Map.of(
+                PayPalClient.ENV_TEST_EMAILS, "tester@example.com"));
+        Assert.assertTrue(client.useSandboxFor(personWithEmail("Tester@Example.COM")));
+        Assert.assertTrue(client.useSandboxFor(personWithEmail(" tester@example.com ")));
+    }
+
+    @Test
+    public void useSandboxFor_personNotOnAllowList_routesToProduction() {
+        final PayPalClient client = new PayPalClient(Map.of(
+                PayPalClient.ENV_TEST_EMAILS, "tester@example.com"));
+        Assert.assertFalse(client.useSandboxFor(personWithEmail("real-customer@example.com")));
+    }
+
+    @Test
+    public void useSandboxFor_nullPersonRoutesToProduction() {
+        final PayPalClient client = new PayPalClient(Map.of(
+                PayPalClient.ENV_TEST_EMAILS, "tester@example.com"));
+        Assert.assertFalse(client.useSandboxFor(null));
+    }
+
+    @Test
+    public void useSandboxFor_personWithoutEmailRoutesToProduction() {
+        final PayPalClient client = new PayPalClient(Map.of(
+                PayPalClient.ENV_TEST_EMAILS, "tester@example.com"));
+        Assert.assertFalse(client.useSandboxFor(personWithEmail(null)));
+    }
+
+    @Test
+    public void useSandboxFor_globalOverrideTrumpsAllowListAbsence() {
+        // Even with no allow-list, PAYPAL_ENVIRONMENT=SANDBOX still routes everyone.
+        final PayPalClient client = new PayPalClient(Map.of(
+                PayPalClient.ENV_ENVIRONMENT, "SANDBOX"));
+        Assert.assertTrue(client.useSandboxFor(personWithEmail("real-customer@example.com")));
+    }
+
+    private static Person personWithEmail(final String email) {
+        return Person.builder()
+                .id(Person.Id.from(RandomData.genAlpha(5)))
+                .first("Test")
+                .last("Person")
+                .email(email)
+                .build();
     }
 
     // -------------------------------------------------------------------------

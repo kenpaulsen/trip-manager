@@ -93,10 +93,10 @@ public class PayCommands {
     public void initPayment(
             final Person payer,
             final Person.Id userId,
-            final Float amount,
+            final BigDecimal amount,
             final String tripId,
             final String description) {
-        if (amount == null || amount <= 0) {
+        if (amount == null || amount.signum() <= 0) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
                     "Invalid Amount", "Please enter a payment amount greater than $0.");
             return;
@@ -163,9 +163,13 @@ public class PayCommands {
         }
         val person = (userId == null) ? null : people.getPerson(userId);
         val email = (person == null) ? orderId : person.getEmail();
+        // Per-user sandbox routing: orders created under the sandbox SDK must also capture
+        // under the sandbox SDK (PayPal order IDs are environment-scoped). The decision is
+        // made from the signed-in user's identity at both ends — see useSandboxFor.
+        val useSandbox = PayPalClient.getInstance().useSandboxFor(person);
         try {
             final ApiResponse<Order> response = PayPalClient.getInstance()
-                    .captureOrder(orderId)
+                    .captureOrder(orderId, useSandbox)
                     .orTimeout(10_000, TimeUnit.MILLISECONDS)
                     .join();
 
@@ -232,6 +236,18 @@ public class PayCommands {
         return amount.subtract(estimateFee(amount));
     }
 
+    /**
+     * EL-friendly wrapper around {@link PayPalClient#useSandboxFor(Person)}. Used by
+     * {@code register.xhtml} to show a "TEST MODE" banner when the signed-in user is being
+     * routed to the PayPal sandbox SDK (either because their email is on
+     * {@code PAYPAL_TEST_EMAILS} or because {@code PAYPAL_ENVIRONMENT=SANDBOX} globally).
+     *
+     * @return {@code true} if {@code person}'s payments would route to sandbox.
+     */
+    public boolean isTestMode(final Person person) {
+        return PayPalClient.getInstance().useSandboxFor(person);
+    }
+
     // -------------------------------------------------------------------------
     // Legacy methods (kept for backwards compatibility)
     // -------------------------------------------------------------------------
@@ -239,7 +255,7 @@ public class PayCommands {
     public ApiResponse<Order> startOrder(
             final Person payer,
             final Person.Id id,
-            final Float amount,
+            final BigDecimal amount,
             final String invoiceId,
             final String orgAbbr,
             final String description) {
@@ -250,10 +266,11 @@ public class PayCommands {
                 .join();
     }
 
-    // Not used
+    // Not used. Legacy helper — pinned to production routing since there's no payer context
+    // here to decide otherwise. captureAndSave is the supported entry point.
     public ApiResponse<Order> completeOrder(final String orderId) {
         return PayPalClient.getInstance()
-                .captureOrder(orderId)
+                .captureOrder(orderId, false)
                 .orTimeout(5_000, TimeUnit.MILLISECONDS)
                 .join();
     }
