@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.util.StdConverter;
 import com.sun.jsft.util.Util;
 import jakarta.faces.context.FacesContext;
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.TextStyle;
 import java.util.ArrayList;
@@ -67,6 +68,10 @@ public final class Trip implements Serializable {
     private List<TripEvent> tripEvents;                 // The stuff needed to book, airfare, hotel, etc.
     @JsonProperty("regOptions")
     private List<RegistrationOption> regOptions;        // Registration page questions
+    @JsonProperty("admissionOptions")
+    private List<AdmissionOption> admissionOptions;     // Priced conference admission choices (optional)
+    @JsonProperty("childPriceCap")
+    private BigDecimal childPriceCap;                   // Max charged for a child; null = no child cap
 
     private Trip() {
     }
@@ -102,6 +107,26 @@ public final class Trip implements Serializable {
 
     public void setRegOptions(final List<RegistrationOption> options) {
         this.regOptions = new ArrayList<>(options);
+    }
+
+    public List<AdmissionOption> getAdmissionOptions() {
+        if (admissionOptions == null) {
+            admissionOptions = new ArrayList<>();
+        }
+        return admissionOptions;
+    }
+
+    public void setAdmissionOptions(final List<AdmissionOption> options) {
+        this.admissionOptions = (options == null) ? new ArrayList<>() : new ArrayList<>(options);
+    }
+
+    /** @return the admission option with the given id, or {@code null} if none / id is null. */
+    @JsonIgnore
+    public AdmissionOption getAdmissionOption(final String optId) {
+        if (optId == null) {
+            return null;
+        }
+        return getAdmissionOptions().stream().filter(o -> optId.equals(o.getId())).findAny().orElse(null);
     }
 
     /**
@@ -171,6 +196,12 @@ public final class Trip implements Serializable {
                 new RegistrationOption(getRegOptions().size(), "New Option", "New Option Description", false));
     }
 
+    public void addAdmissionOption() {
+        getAdmissionOptions().add(new AdmissionOption(
+                "opt" + getAdmissionOptions().size(), "New Admission Option", BigDecimal.ZERO,
+                new ArrayList<>(), false, false));
+    }
+
     private boolean matchingTE(final TripEvent te, final String title, final LocalDateTime date) {
         return title.equals(te.getTitle()) && date.equals(te.getStart());
     }
@@ -184,6 +215,7 @@ public final class Trip implements Serializable {
         private List<Person.Id> people = new ArrayList<>();
         private List<TripEvent> tripEvents = new ArrayList<>();
         private List<RegistrationOption> regOptions = new ArrayList<>();
+        private List<AdmissionOption> admissionOptions = new ArrayList<>();
 
         public TripBuilder id(final String id) {
             this.id = (id == null) ? UUID.randomUUID().toString() : id;
@@ -211,6 +243,11 @@ public final class Trip implements Serializable {
         }
         public TripBuilder regOptions(final List<RegistrationOption> regOptions) {
             this.regOptions = (regOptions == null) ? new ArrayList<>() : new ArrayList<>(regOptions);
+            return this;
+        }
+        public TripBuilder admissionOptions(final List<AdmissionOption> admissionOptions) {
+            this.admissionOptions =
+                    (admissionOptions == null) ? new ArrayList<>() : new ArrayList<>(admissionOptions);
             return this;
         }
     }

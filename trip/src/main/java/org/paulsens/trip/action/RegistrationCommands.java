@@ -13,10 +13,12 @@ import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.AdmissionOption;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.Registration;
+import org.paulsens.trip.model.Trip;
 
 @Slf4j
 @Named("reg")
@@ -24,30 +26,32 @@ import org.paulsens.trip.model.Registration;
 public class RegistrationCommands {
     private static final String ROOM = "room";
 
-    /**
-     * Per-trip registration option id used by the SummerFest 2026 trip to capture whether the
-     * registrant will be staying at the Rosen Centre Hotel. Adults answering {@code "true"} get
-     * the Rosen Centre price; {@code "false"} gets the standard price.
-     *
-     * <p>FIXME: This couples pricing to the SummerFest 2026 trip option layout. When a second
-     * trip needs automated pricing, parameterize this per-trip (e.g. via a pricing-rule field
-     * on {@link org.paulsens.trip.model.Trip}).
-     */
-    static final String ROSEN_CENTRE_OPT_KEY = "opt9";
-
-    // ---- Pricing constants ---------------------------------------------------------------
-    // Base (undiscounted) prices for the SummerFest 2026 trip.
-    private static final BigDecimal PRICE_FREE             = BigDecimal.ZERO;
-    private static final BigDecimal PRICE_CHILD            = new BigDecimal("179.00");
-    private static final BigDecimal PRICE_ADULT_ROSEN      = new BigDecimal("320.00");
-    private static final BigDecimal PRICE_ADULT_STANDARD   = new BigDecimal("340.00");
-    // Named-discount amounts (subtracted from base).
-    private static final BigDecimal DISCOUNT_EARLY_BIRD    = new BigDecimal("25.00");
+    // ---- Pricing policy ------------------------------------------------------------------
+    // NEW model: prices and the set of admission options are *data* on the Trip
+    // ({@link Trip#getAdmissionOptions()} / {@link Trip#getChildPriceCap()}); only the age
+    // ladder (which the requirements say "stays as-is") lives here as policy. Used by
+    // register-new.xhtml.
+    //
     // Age thresholds for the registrant-type ladder.
     private static final int AGE_FREE_MAX  = 3;
     private static final int AGE_CHILD_MAX = 10;
     // Sentinel age returned when birthdate is unknown — treats them as adult-by-default.
     private static final int AGE_UNKNOWN   = 999;
+
+    // ---- LEGACY pricing (register.xhtml) -------------------------------------------------
+    // DELETE this whole block (and the legacy methods at the bottom of the file, plus
+    // RegistrationCommandsLegacyTest) once register-new.xhtml replaces register.xhtml.
+    /**
+     * Per-trip registration option id used by the SummerFest 2026 trip to capture whether the
+     * registrant will be staying at the Rosen Centre Hotel. Adults answering {@code "true"} get
+     * the Rosen Centre price; {@code "false"} gets the standard price.
+     */
+    static final String ROSEN_CENTRE_OPT_KEY = "opt9";
+    private static final BigDecimal PRICE_FREE           = BigDecimal.ZERO;
+    private static final BigDecimal PRICE_CHILD          = new BigDecimal("179.00");
+    private static final BigDecimal PRICE_ADULT_ROSEN    = new BigDecimal("320.00");
+    private static final BigDecimal PRICE_ADULT_STANDARD = new BigDecimal("340.00");
+    private static final BigDecimal DISCOUNT_EARLY_BIRD  = new BigDecimal("25.00");
 
     public Registration createRegistration(final String tripId, final Person.Id userId) {
         return new Registration(tripId, userId);
@@ -176,13 +180,108 @@ public class RegistrationCommands {
     }
 
     /**
+     * Returns the admission options that should be offered to {@code person} on {@code trip}'s
+     * registration page, in trip-declared order.
+     *
+     * <ul>
+     *   <li>Only options flagged {@link AdmissionOption#getShow()} are returned.</li>
+     *   <li>Children (age &le; {@value #AGE_CHILD_MAX}, including 3-and-under) never see the
+     *       Rosen-Centre-discounted variants — those exist only to give adult hotel guests a
+     *       discount, and the child cap already prices below them. Children still choose among
+     *       the remaining options so we capture which day(s) they will attend for headcount.</li>
+     * </ul>
+     *
+     * @return a (possibly empty) list; never {@code null}.
+     */
+    public List<AdmissionOption> getAvailableOptions(final Trip trip, final Person person) {
+        if (trip == null) {
+            return Collections.emptyList();
+        }
+        final boolean child = getAge(person) <= AGE_CHILD_MAX;
+        return trip.getAdmissionOptions().stream()
+                .filter(opt -> Boolean.TRUE.equals(opt.getShow()))
+                .filter(opt -> !child || !Boolean.TRUE.equals(opt.getRosenDiscounted()))
+                .toList();
+    }
+
+    /**
+     * Price charged for {@code person} choosing {@code opt} on {@code trip}, in USD.
+     *
+     * <ul>
+     *   <li>Age &le; {@value #AGE_FREE_MAX} → free ($0).</li>
+     *   <li>Age {@value #AGE_FREE_MAX}&lt;age&le;{@value #AGE_CHILD_MAX} (child) → the lower of
+     *       the option price and the trip's {@link Trip#getChildPriceCap() child price cap}
+     *       (when a cap is configured); e.g. with a $179 cap a $340 option costs $179 but a
+     *       $120 single-day option still costs $120.</li>
+     *   <li>Otherwise (adult) → the option's full price.</li>
+     * </ul>
+     *
+     * @return the price, or {@code BigDecimal.ZERO} if {@code opt} or its price is {@code null}.
+     */
+    public BigDecimal computeOptionPrice(final Trip trip, final Person person, final AdmissionOption opt) {
+        if ((opt == null) || (opt.getPrice() == null)) {
+            return BigDecimal.ZERO;
+        }
+        final int age = getAge(person);
+        if (age <= AGE_FREE_MAX) {
+            return BigDecimal.ZERO;
+        }
+        if (age <= AGE_CHILD_MAX) {
+            final BigDecimal cap = (trip == null) ? null : trip.getChildPriceCap();
+            return (cap == null) ? opt.getPrice() : opt.getPrice().min(cap);
+        }
+        return opt.getPrice();
+    }
+
+    /**
      * Computes the total payment due for this registration, in USD.
      *
      * <p>If {@link Registration#getDiscount()} parses as a number (e.g. {@code "175"},
-     * {@code "175.00"}, {@code "$175"}), that value is the final total — overriding the base
-     * ladder entirely. Otherwise the value is treated as a named discount and subtracted from
-     * the age/Rosen-Centre base price (negative results clamped to zero). Unknown / unset
-     * discount tags contribute $0 off.
+     * {@code "175.00"}, {@code "$175"}), that value is the final total — an admin override that
+     * trumps everything (used for scholarships, comped registrations, etc.). Otherwise the price
+     * is that of the chosen {@link AdmissionOption} (resolved by {@link Registration#getAdmissionId()}
+     * against the trip), adjusted for age via {@link #computeOptionPrice}. If no option has been
+     * chosen yet, the result is $0 so the UI prompts the user to pick one.
+     */
+    public BigDecimal computePaymentAmount(final Person person, final Registration reg, final Trip trip) {
+        final BigDecimal override = parseDiscountOverride(reg.getDiscount());
+        if (override != null) {
+            return override;
+        }
+        final AdmissionOption opt = (trip == null) ? null : trip.getAdmissionOption(reg.getAdmissionId());
+        return computeOptionPrice(trip, person, opt);
+    }
+
+    /** @return the label of the chosen admission option, or {@code null} if none is selected. */
+    public String getAdmissionLabel(final Trip trip, final Registration reg) {
+        final AdmissionOption opt = (trip == null) ? null : trip.getAdmissionOption(reg.getAdmissionId());
+        return (opt == null) ? null : opt.getLabel();
+    }
+
+    /**
+     * Populates auto-derived registration metadata on {@code reg}'s options map. Intended to be
+     * called from {@code register.xhtml} on every {@code initPage} (idempotent).
+     *
+     * <p>{@link Registration#OPT_REGISTRANT_TYPE} is always re-derived from {@code person}'s age
+     * (so birthdate corrections take effect on the next load). The chosen admission option
+     * ({@link Registration#OPT_ADMISSION}) and any admin discount override are left untouched.
+     *
+     * @return the same {@code reg} instance, for fluent use.
+     */
+    public Registration applyAutoMetadata(final Registration reg, final Person person) {
+        reg.getOptions().put(Registration.OPT_REGISTRANT_TYPE, deriveRegistrantType(person));
+        return reg;
+    }
+
+    // ===== LEGACY pricing/metadata (register.xhtml) ===================================
+    // Kept so the existing register.xhtml keeps working alongside register-new.xhtml during
+    // side-by-side review. DELETE this section (and the legacy constants + the
+    // RegistrationCommandsLegacyTest) once register-new.xhtml replaces register.xhtml.
+
+    /**
+     * LEGACY. Computes the total payment due using the old Rosen-yes/no + age ladder (with the
+     * $25 early-bird discount). Superseded by {@link #computePaymentAmount(Person, Registration,
+     * Trip)}, which prices from the chosen {@link AdmissionOption}.
      */
     public BigDecimal computePaymentAmount(final Person person, final Registration reg) {
         final BigDecimal override = parseDiscountOverride(reg.getDiscount());
@@ -193,45 +292,21 @@ public class RegistrationCommands {
             final BigDecimal basePrice = computeBasePrice(person, reg);
             final BigDecimal discountAmt = computeNamedDiscount(reg.getDiscount(), person);
             final BigDecimal afterDiscount = basePrice.subtract(discountAmt);
-            if (afterDiscount.signum() < 0) {
-                result = BigDecimal.ZERO;
-            } else {
-                result = afterDiscount;
-            }
+            result = (afterDiscount.signum() < 0) ? BigDecimal.ZERO : afterDiscount;
         }
         return result;
     }
 
     /**
-     * Populates auto-derived registration metadata on {@code reg}'s options map. Intended to be
-     * called from {@code register.xhtml} on every {@code initPage} (idempotent).
-     *
-     * <p>Behavior:
-     * <ul>
-     *   <li>{@link Registration#OPT_REGISTRANT_TYPE} is always re-derived from {@code person}'s
-     *       age (birthdate corrections take effect on next load).</li>
-     *   <li>{@link Registration#OPT_DISCOUNT} is seeded via {@code putIfAbsent} — if {@code
-     *       discount} is non-null it is used as the seed; otherwise the seed is
-     *       {@link Registration.Discount#STANDARD}. Once a value is present (page seed or admin
-     *       override) it is preserved across subsequent calls.</li>
-     *   <li>{@link Registration#OPT_REGISTRATION_TYPE} defaults to
-     *       {@link Registration.RegistrationType#FULL} if absent.</li>
-     *   <li>Preserves existing behavior: children (age 4–10) get {@link #ROSEN_CENTRE_OPT_KEY}
-     *       forced to {@code "false"}.</li>
-     * </ul>
-     *
-     * @return the same {@code reg} instance, for fluent use.
+     * LEGACY. Seeds {@code _registrantType}/{@code _discount}/{@code _regType} and forces
+     * {@code opt9=false} for children. Superseded by {@link #applyAutoMetadata(Registration,
+     * Person)}.
      */
     public Registration applyAutoMetadata(
             final Registration reg, final Person person, final String discount) {
         final Map<String, String> opts = reg.getOptions();
         opts.put(Registration.OPT_REGISTRANT_TYPE, deriveRegistrantType(person));
-        final String discountSeed;
-        if (discount == null) {
-            discountSeed = Registration.Discount.STANDARD;
-        } else {
-            discountSeed = discount;
-        }
+        final String discountSeed = (discount == null) ? Registration.Discount.STANDARD : discount;
         opts.putIfAbsent(Registration.OPT_DISCOUNT, discountSeed);
         opts.putIfAbsent(Registration.OPT_REGISTRATION_TYPE, Registration.RegistrationType.FULL);
         final int age = getAge(person);
@@ -241,7 +316,7 @@ public class RegistrationCommands {
         return reg;
     }
 
-    /** Base (undiscounted) price by age + Rosen Centre selection. */
+    /** LEGACY. Base (undiscounted) price by age + Rosen Centre selection. */
     private BigDecimal computeBasePrice(final Person person, final Registration reg) {
         final int age = getAge(person);
         final BigDecimal result;
@@ -256,25 +331,17 @@ public class RegistrationCommands {
             } else if ("false".equals(rosen)) {
                 result = PRICE_ADULT_STANDARD;
             } else {
-                // Adult who hasn't picked yet — surface $0 so the UI prompts them to choose.
                 result = PRICE_FREE;
             }
         }
         return result;
     }
 
-    /**
-     * Named-discount lookup. Only applies to adults (age &gt; 10); children already pay a
-     * discounted child price and 3-and-under is free. Future discounts (SCHOLARSHIP, SPEAKER,
-     * PRIEST_OR_RELIGIOUS) plug in here. STANDARD and unknown tags return $0 off.
-     */
+    /** LEGACY. Named-discount lookup (adults only); only early-bird is wired. */
     private BigDecimal computeNamedDiscount(final String discount, final Person person) {
         BigDecimal result = BigDecimal.ZERO;
-        final int age = getAge(person);
-        if (age > AGE_CHILD_MAX) {
-            if (Registration.Discount.EARLY_BIRD.equals(discount)) {
-                result = DISCOUNT_EARLY_BIRD;
-            }
+        if ((getAge(person) > AGE_CHILD_MAX) && Registration.Discount.EARLY_BIRD.equals(discount)) {
+            result = DISCOUNT_EARLY_BIRD;
         }
         return result;
     }

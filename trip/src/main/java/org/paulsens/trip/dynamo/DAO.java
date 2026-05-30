@@ -1,6 +1,7 @@
 package org.paulsens.trip.dynamo;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -211,6 +212,10 @@ public class DAO {
         mapper.setDefaultPropertyInclusion(JsonInclude.Include.NON_NULL);
         mapper.registerModule(new JavaTimeModule());
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        // Forward/backward compatibility: tolerate JSON written by a newer (or older) schema —
+        // e.g. trips persisted before admissionOptions/childPriceCap existed, or fields a future
+        // version adds. Unknown JSON properties are ignored rather than failing the read.
+        mapper.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         return mapper;
     }
 

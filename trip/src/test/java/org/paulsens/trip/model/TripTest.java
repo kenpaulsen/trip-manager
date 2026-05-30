@@ -200,10 +200,29 @@ public class TripTest {
                 .nonHostedRegNumber(12)
                 .tripEvents(FakeData.getFakeTrips().get(0).getTripEvents())
                 .regOptions(FakeData.getDefaultOptions())
+                .admissionOptions(List.of(
+                        new AdmissionOption("full-std", "Full Weekend (Standard)",
+                                new java.math.BigDecimal("340.00"), List.of("FRI", "SAT", "SUN"), false, true),
+                        new AdmissionOption("fri", "Friday Only",
+                                new java.math.BigDecimal("120.00"), List.of("FRI"), false, true)))
+                .childPriceCap(new java.math.BigDecimal("179.00"))
                 .build();
         final String serialized = mapper.writeValueAsString(before);
         final Trip after = mapper.readValue(serialized, Trip.class);
         assertEquals(after, before);
+    }
+
+    @Test
+    void oldTripJsonWithoutAdmissionOptionsStillReads() throws Exception {
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
+        // Simulates a trip persisted before admissionOptions/childPriceCap existed, and also
+        // carrying a property a future schema might add ("someFutureField"). Neither should fail.
+        final String legacyJson = "{\"id\":\"legacy\",\"title\":\"Legacy Trip\","
+                + "\"openToPublic\":true,\"someFutureField\":\"ignored\"}";
+        final Trip after = mapper.readValue(legacyJson, Trip.class);
+        assertEquals(after.getId(), "legacy");
+        assertTrue(after.getAdmissionOptions().isEmpty(), "missing admissionOptions reads as empty");
+        assertNull(after.getChildPriceCap(), "missing childPriceCap reads as null");
     }
 
     private String getMonthString(final LocalDateTime date) {
