@@ -1,11 +1,14 @@
 package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 import lombok.Data;
 
 /**
@@ -49,5 +52,29 @@ public final class AdmissionOption implements Serializable {
         this.days = (days == null) ? new ArrayList<>() : new ArrayList<>(days);
         this.rosenDiscounted = (rosenDiscounted != null) && rosenDiscounted;
         this.show = (show == null) || show;
+    }
+
+    /**
+     * Comma-separated view of {@link #days}, for editing in the admin UI (JSF cannot bind a
+     * plain text field directly to a {@code List}). Not serialized to JSON ({@code days} is).
+     *
+     * @return e.g. {@code "FRI,SAT,SUN"}, or {@code ""} when no days are set.
+     */
+    @JsonIgnore
+    public String getDaysString() {
+        return (days == null) ? "" : String.join(",", days);
+    }
+
+    /** Sets {@link #days} from a comma-separated string; blank entries are dropped. */
+    @JsonIgnore
+    public void setDaysString(final String csv) {
+        if ((csv == null) || csv.isBlank()) {
+            this.days = new ArrayList<>();
+        } else {
+            this.days = Arrays.stream(csv.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .collect(Collectors.toCollection(ArrayList::new));
+        }
     }
 }
