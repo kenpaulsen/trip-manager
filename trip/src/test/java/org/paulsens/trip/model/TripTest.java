@@ -206,6 +206,13 @@ public class TripTest {
                         new AdmissionOption("fri", "Friday Only",
                                 new java.math.BigDecimal("120.00"), List.of("FRI"), false, true)))
                 .childPriceCap(new java.math.BigDecimal("179.00"))
+                .discountCodes(List.of(
+                        new DiscountCode("code0", "EARLYBIRD2026", "Early bird",
+                                java.time.LocalDate.of(2026, 6, 30), DiscountCode.DiscountType.DISCOUNT_BY,
+                                new java.math.BigDecimal("20.00"), List.of(), true),
+                        new DiscountCode("code1", "STAFF", "Staff exact price",
+                                null, DiscountCode.DiscountType.EXACT,
+                                new java.math.BigDecimal("250.00"), List.of("full", "full-rosen"), true)))
                 .build();
         final String serialized = mapper.writeValueAsString(before);
         final Trip after = mapper.readValue(serialized, Trip.class);

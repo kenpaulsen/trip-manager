@@ -72,6 +72,8 @@ public final class Trip implements Serializable {
     private List<AdmissionOption> admissionOptions;     // Priced conference admission choices (optional)
     @JsonProperty("childPriceCap")
     private BigDecimal childPriceCap;                   // Max charged for a child; null = no child cap
+    @JsonProperty("discountCodes")
+    private List<DiscountCode> discountCodes;           // Discount codes a registrant may apply (optional)
 
     private Trip() {
     }
@@ -127,6 +129,26 @@ public final class Trip implements Serializable {
             return null;
         }
         return getAdmissionOptions().stream().filter(o -> optId.equals(o.getId())).findAny().orElse(null);
+    }
+
+    public List<DiscountCode> getDiscountCodes() {
+        if (discountCodes == null) {
+            discountCodes = new ArrayList<>();
+        }
+        return discountCodes;
+    }
+
+    public void setDiscountCodes(final List<DiscountCode> codes) {
+        this.discountCodes = (codes == null) ? new ArrayList<>() : new ArrayList<>(codes);
+    }
+
+    /** @return the discount code with the given id, or {@code null} if none / id is null. */
+    @JsonIgnore
+    public DiscountCode getDiscountCode(final String codeId) {
+        if (codeId == null) {
+            return null;
+        }
+        return getDiscountCodes().stream().filter(c -> codeId.equals(c.getId())).findAny().orElse(null);
     }
 
     /**
@@ -202,6 +224,12 @@ public final class Trip implements Serializable {
                 new ArrayList<>(), false, false));
     }
 
+    public void addDiscountCode() {
+        getDiscountCodes().add(new DiscountCode(
+                "code" + getDiscountCodes().size(), "NEWCODE", "New Discount Code", null,
+                DiscountCode.DiscountType.DISCOUNT_BY, BigDecimal.ZERO, new ArrayList<>(), false));
+    }
+
     private boolean matchingTE(final TripEvent te, final String title, final LocalDateTime date) {
         return title.equals(te.getTitle()) && date.equals(te.getStart());
     }
@@ -216,6 +244,7 @@ public final class Trip implements Serializable {
         private List<TripEvent> tripEvents = new ArrayList<>();
         private List<RegistrationOption> regOptions = new ArrayList<>();
         private List<AdmissionOption> admissionOptions = new ArrayList<>();
+        private List<DiscountCode> discountCodes = new ArrayList<>();
 
         public TripBuilder id(final String id) {
             this.id = (id == null) ? UUID.randomUUID().toString() : id;
@@ -248,6 +277,11 @@ public final class Trip implements Serializable {
         public TripBuilder admissionOptions(final List<AdmissionOption> admissionOptions) {
             this.admissionOptions =
                     (admissionOptions == null) ? new ArrayList<>() : new ArrayList<>(admissionOptions);
+            return this;
+        }
+        public TripBuilder discountCodes(final List<DiscountCode> discountCodes) {
+            this.discountCodes =
+                    (discountCodes == null) ? new ArrayList<>() : new ArrayList<>(discountCodes);
             return this;
         }
     }

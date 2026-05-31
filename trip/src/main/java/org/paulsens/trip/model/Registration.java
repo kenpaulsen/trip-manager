@@ -28,6 +28,8 @@ public class Registration implements Serializable {
     public static final String OPT_REGISTRATION_TYPE = "_regType";
     /** Id of the chosen {@link AdmissionOption} (see {@link Trip#getAdmissionOptions()}). */
     public static final String OPT_ADMISSION         = "_admission";
+    /** Id of the applied {@link DiscountCode} (see {@link Trip#getDiscountCodes()}); at most one. */
+    public static final String OPT_DISCOUNT_CODE     = "_discountCode";
 
     String tripId;                  // The trip id (partition key)
     Person.Id userId;               // The user id (sort key)
@@ -80,6 +82,12 @@ public class Registration implements Serializable {
     @JsonIgnore
     public String getAdmissionId() {
         return options.get(OPT_ADMISSION);
+    }
+
+    /** @return the applied {@link DiscountCode} id ({@link #OPT_DISCOUNT_CODE}), or {@code null}. */
+    @JsonIgnore
+    public String getDiscountCodeId() {
+        return options.get(OPT_DISCOUNT_CODE);
     }
 
     /** Standard values for {@link #OPT_REGISTRANT_TYPE}. */
