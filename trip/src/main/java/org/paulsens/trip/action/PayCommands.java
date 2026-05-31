@@ -60,6 +60,10 @@ public class PayCommands {
     private static final String FROM_ADDRESS = "Center Mir Medjugorje <info@centermirmedjugorje.com>";
     // FIXME: This is temporary, we should move this out to the .xhtml file so it's parameterized per site
     private static final String NOTIFY_EMAIL = "info@centermirmedjugorje.com";
+    // FIXME: This is temporary, we should move this out to the .xhtml file so it's parameterized per site.
+    // Confirmation template whose content is appended to the internal payment-notification email so
+    // staff see exactly what the registrant received.
+    private static final String CONFIRMATION_TEMPLATE = "SummerFest2026-Confirmation-new";
 
     private final DateTimeFormatter timestampPattern = DateTimeFormatter.ofPattern("yyyyMMddHHmm");
 
@@ -350,7 +354,16 @@ public class PayCommands {
                     (tripId != null) ? trips.getTrip(tripId).getTitle() : "N/A",
                     getPaymentId(order)
                     /*getDescription(order, "[empty]")*/);
-            mail.send(FROM_ADDRESS, NOTIFY_EMAIL, "ken@centerforpeacewest.com", NOTIFY_EMAIL, subject, body);
+            // Append the same content the registrant sees in their confirmation email, rendered
+            // from the shared template. This runs during the registration page's PayPal-return
+            // callback, so the template's #{person}/#{registration}/#{theTrip}/#{reg} EL refs
+            // resolve against the page scope (the registrant's confirmation email relies on the
+            // same context). Missing template -> "" (logged), so the core notification still sends.
+            final String confirmation = mail.renderTemplateFile(CONFIRMATION_TEMPLATE);
+            final String fullBody = confirmation.isEmpty()
+                    ? body
+                    : body + "<br/>\n<hr/>\n" + confirmation;
+            mail.send(FROM_ADDRESS, NOTIFY_EMAIL, "ken@centerforpeacewest.com", NOTIFY_EMAIL, subject, fullBody);
         } catch (final Exception ex) {
             log.warn("Failed to send payment notification email for order {}", getPaymentId(order), ex);
         }

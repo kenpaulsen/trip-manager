@@ -144,8 +144,26 @@ public class MailCommands {
     }
 
     public String previewTemplate(final Person to, final String template) {
-        final ELUtil elUtil = ELUtil.getInstance();
         elUtil.setELValue("#{requestScope.to}", to);
+        return String.valueOf(elUtil.eval(template));
+    }
+
+    /**
+     * Loads a template file and evaluates it against the <em>current</em> EL context (i.e. the
+     * view/request scope of the page that triggered this call), returning the rendered body.
+     * Unlike {@link #sendTemplateFile}, this neither sends an email nor sets {@code #{requestScope.to}};
+     * it is for composing a body out of one or more templates before handing it to {@link #send}
+     * (e.g. appending the registrant's confirmation content to the internal payment notification).
+     *
+     * @param templateName Template name; {@link #EMAIL_TPL_PREFIX}/{@link #EMAIL_TPL_SUFFIX} are added.
+     * @return the rendered template, or {@code ""} if the template file could not be found.
+     */
+    public String renderTemplateFile(final String templateName) {
+        final String template = elUtil.readFile(EMAIL_TPL_PREFIX + templateName + EMAIL_TPL_SUFFIX);
+        if (template == null) {
+            log.warn("Email template not found: {}", templateName);
+            return "";
+        }
         return String.valueOf(elUtil.eval(template));
     }
 

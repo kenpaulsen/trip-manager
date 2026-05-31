@@ -254,7 +254,8 @@ public class RegistrationCommands {
 
     /** @return the label of the chosen admission option, or {@code null} if none is selected. */
     public String getAdmissionLabel(final Trip trip, final Registration reg) {
-        final AdmissionOption opt = (trip == null) ? null : trip.getAdmissionOption(reg.getAdmissionId());
+        final AdmissionOption opt = ((trip == null) || (reg == null))
+                ? null : trip.getAdmissionOption(reg.getAdmissionId());
         return (opt == null) ? null : opt.getLabel();
     }
 
