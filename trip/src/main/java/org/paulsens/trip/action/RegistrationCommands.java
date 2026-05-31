@@ -38,15 +38,21 @@ public class RegistrationCommands {
     // Sentinel age returned when birthdate is unknown — treats them as adult-by-default.
     private static final int AGE_UNKNOWN   = 999;
 
+    /**
+     * Per-trip registration option id capturing whether the registrant is staying at the Rosen
+     * Centre Hotel. The legacy register.xhtml flow stored {@code "true"}/{@code "false"} here;
+     * the new flow encodes Rosen-ness in the chosen {@link AdmissionOption} instead. This key is
+     * still read when displaying older registrations that predate the admission-option field.
+     */
+    static final String ROSEN_CENTRE_OPT_KEY = "opt9";
+    // Full-weekend admission option ids assumed for older registrations that have no admission
+    // selection (see getEffectiveAdmissionLabel): "full-rosen" for Rosen guests, else "full".
+    private static final String DEFAULT_ADMISSION_ID       = "full";
+    private static final String DEFAULT_ADMISSION_ID_ROSEN = "full-rosen";
+
     // ---- LEGACY pricing (register.xhtml) -------------------------------------------------
     // DELETE this whole block (and the legacy methods at the bottom of the file, plus
     // RegistrationCommandsLegacyTest) once register-new.xhtml replaces register.xhtml.
-    /**
-     * Per-trip registration option id used by the SummerFest 2026 trip to capture whether the
-     * registrant will be staying at the Rosen Centre Hotel. Adults answering {@code "true"} get
-     * the Rosen Centre price; {@code "false"} gets the standard price.
-     */
-    static final String ROSEN_CENTRE_OPT_KEY = "opt9";
     private static final BigDecimal PRICE_FREE           = BigDecimal.ZERO;
     private static final BigDecimal PRICE_CHILD          = new BigDecimal("179.00");
     private static final BigDecimal PRICE_ADULT_ROSEN    = new BigDecimal("320.00");
@@ -257,6 +263,42 @@ public class RegistrationCommands {
         final AdmissionOption opt = ((trip == null) || (reg == null))
                 ? null : trip.getAdmissionOption(reg.getAdmissionId());
         return (opt == null) ? null : opt.getLabel();
+    }
+
+    /**
+     * @return whether this registration is a Rosen Centre Hotel guest. Newer registrations encode
+     *   this via the chosen admission option ({@link AdmissionOption#getRosenDiscounted()}); older
+     *   ones via the {@code opt9} field. When neither is present (older data), assumed {@code false}.
+     */
+    public boolean isRosenCentre(final Trip trip, final Registration reg) {
+        if (reg == null) {
+            return false;
+        }
+        final AdmissionOption opt = (trip == null) ? null : trip.getAdmissionOption(reg.getAdmissionId());
+        if (opt != null) {
+            return Boolean.TRUE.equals(opt.getRosenDiscounted());
+        }
+        return "true".equals(reg.getOptions().get(ROSEN_CENTRE_OPT_KEY));
+    }
+
+    /**
+     * Admission option label for display, applying defaults for older registrations that predate
+     * the admission-option field: a missing selection is treated as the full-weekend option
+     * ({@link #DEFAULT_ADMISSION_ID_ROSEN} when {@link #isRosenCentre} is true, else
+     * {@link #DEFAULT_ADMISSION_ID}).
+     *
+     * @return the matched option's label, or the fallback id itself if the trip has no such option.
+     */
+    public String getEffectiveAdmissionLabel(final Trip trip, final Registration reg) {
+        if (reg == null) {
+            return null;
+        }
+        String id = reg.getAdmissionId();
+        if ((id == null) || id.isBlank()) {
+            id = isRosenCentre(trip, reg) ? DEFAULT_ADMISSION_ID_ROSEN : DEFAULT_ADMISSION_ID;
+        }
+        final AdmissionOption opt = (trip == null) ? null : trip.getAdmissionOption(id);
+        return (opt == null) ? id : opt.getLabel();
     }
 
     /**

@@ -301,6 +301,75 @@ public class RegistrationCommandsTest {
         Assert.assertSame(cmds.applyAutoMetadata(reg, personAged(25)), reg);
     }
 
+    // ===== isRosenCentre / getEffectiveAdmissionLabel (confirm.xhtml display) ==========
+
+    @Test
+    public void isRosenCentre_trueWhenChosenOptionIsRosenDiscounted() {
+        Assert.assertTrue(cmds.isRosenCentre(trip(), regChoosing("full-rosen")));
+    }
+
+    @Test
+    public void isRosenCentre_falseWhenChosenOptionIsNotRosenDiscounted() {
+        Assert.assertFalse(cmds.isRosenCentre(trip(), regChoosing("full-std")));
+    }
+
+    @Test
+    public void isRosenCentre_fallsBackToOpt9WhenNoAdmissionChosen() {
+        final Registration yes = newReg();
+        yes.getOptions().put(RegistrationCommands.ROSEN_CENTRE_OPT_KEY, "true");
+        Assert.assertTrue(cmds.isRosenCentre(trip(), yes));
+
+        final Registration no = newReg();
+        no.getOptions().put(RegistrationCommands.ROSEN_CENTRE_OPT_KEY, "false");
+        Assert.assertFalse(cmds.isRosenCentre(trip(), no));
+    }
+
+    @Test
+    public void isRosenCentre_falseWhenNeitherFieldPresent() {
+        Assert.assertFalse(cmds.isRosenCentre(trip(), newReg()),
+                "older registration with no admission and no opt9 is assumed non-Rosen");
+    }
+
+    @Test
+    public void isRosenCentre_falseForNullReg() {
+        Assert.assertFalse(cmds.isRosenCentre(trip(), null));
+    }
+
+    @Test
+    public void effectiveAdmissionLabel_usesChosenOption() {
+        Assert.assertEquals(cmds.getEffectiveAdmissionLabel(trip(), regChoosing("sat")), "Saturday Only");
+    }
+
+    @Test
+    public void effectiveAdmissionLabel_defaultsToFullRosenWhenOpt9True() {
+        final Registration reg = newReg();
+        reg.getOptions().put(RegistrationCommands.ROSEN_CENTRE_OPT_KEY, "true");
+        // No _admission -> defaults to id "full-rosen", which resolves to that option's label.
+        Assert.assertEquals(cmds.getEffectiveAdmissionLabel(trip(), reg), "Full Weekend (Rosen Guest)");
+    }
+
+    @Test
+    public void effectiveAdmissionLabel_defaultsToFullWhenNotRosen() {
+        // No _admission and no opt9 -> defaults to id "full". The sample trip has no "full"
+        // option, so the raw fallback id is returned (documented behavior).
+        Assert.assertEquals(cmds.getEffectiveAdmissionLabel(trip(), newReg()), "full");
+    }
+
+    @Test
+    public void effectiveAdmissionLabel_defaultFullResolvesToLabelWhenTripHasIt() {
+        final Trip t = Trip.builder()
+                .admissionOptions(List.of(
+                        new AdmissionOption("full", "Full Weekend (Standard)", new BigDecimal("340.00"),
+                                List.of("FRI", "SAT", "SUN"), false, true)))
+                .build();
+        Assert.assertEquals(cmds.getEffectiveAdmissionLabel(t, newReg()), "Full Weekend (Standard)");
+    }
+
+    @Test
+    public void effectiveAdmissionLabel_nullForNullReg() {
+        Assert.assertNull(cmds.getEffectiveAdmissionLabel(trip(), null));
+    }
+
     // ===== Helpers =====================================================================
 
     private static Trip trip() {
