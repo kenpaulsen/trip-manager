@@ -9,7 +9,6 @@ import java.time.LocalDate;
 import java.time.Period;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
@@ -28,10 +27,9 @@ public class RegistrationCommands {
     private static final String ROOM = "room";
 
     // ---- Pricing policy ------------------------------------------------------------------
-    // NEW model: prices and the set of admission options are *data* on the Trip
+    // Prices and the set of admission options are *data* on the Trip
     // ({@link Trip#getAdmissionOptions()} / {@link Trip#getChildPriceCap()}); only the age
-    // ladder (which the requirements say "stays as-is") lives here as policy. Used by
-    // register-new.xhtml.
+    // ladder (which the requirements say "stays as-is") lives here as policy.
     //
     // Age thresholds for the registrant-type ladder.
     private static final int AGE_FREE_MAX  = 3;
@@ -41,8 +39,8 @@ public class RegistrationCommands {
 
     /**
      * Per-trip registration option id capturing whether the registrant is staying at the Rosen
-     * Centre Hotel. The legacy register.xhtml flow stored {@code "true"}/{@code "false"} here;
-     * the new flow encodes Rosen-ness in the chosen {@link AdmissionOption} instead. This key is
+     * Centre Hotel. Older registrations stored {@code "true"}/{@code "false"} here; current
+     * registrations encode Rosen-ness in the chosen {@link AdmissionOption} instead. This key is
      * still read when displaying older registrations that predate the admission-option field.
      */
     static final String ROSEN_CENTRE_OPT_KEY = "opt9";
@@ -50,15 +48,6 @@ public class RegistrationCommands {
     // selection (see getEffectiveAdmissionLabel): "full-rosen" for Rosen guests, else "full".
     private static final String DEFAULT_ADMISSION_ID       = "full";
     private static final String DEFAULT_ADMISSION_ID_ROSEN = "full-rosen";
-
-    // ---- LEGACY pricing (register.xhtml) -------------------------------------------------
-    // DELETE this whole block (and the legacy methods at the bottom of the file, plus
-    // RegistrationCommandsLegacyTest) once register-new.xhtml replaces register.xhtml.
-    private static final BigDecimal PRICE_FREE           = BigDecimal.ZERO;
-    private static final BigDecimal PRICE_CHILD          = new BigDecimal("179.00");
-    private static final BigDecimal PRICE_ADULT_ROSEN    = new BigDecimal("320.00");
-    private static final BigDecimal PRICE_ADULT_STANDARD = new BigDecimal("340.00");
-    private static final BigDecimal DISCOUNT_EARLY_BIRD  = new BigDecimal("25.00");
 
     public Registration createRegistration(final String tripId, final Person.Id userId) {
         return new Registration(tripId, userId);
@@ -424,79 +413,6 @@ public class RegistrationCommands {
     public Registration applyAutoMetadata(final Registration reg, final Person person) {
         reg.getOptions().put(Registration.OPT_REGISTRANT_TYPE, deriveRegistrantType(person));
         return reg;
-    }
-
-    // ===== LEGACY pricing/metadata (register.xhtml) ===================================
-    // Kept so the existing register.xhtml keeps working alongside register-new.xhtml during
-    // side-by-side review. DELETE this section (and the legacy constants + the
-    // RegistrationCommandsLegacyTest) once register-new.xhtml replaces register.xhtml.
-
-    /**
-     * LEGACY. Computes the total payment due using the old Rosen-yes/no + age ladder (with the
-     * $25 early-bird discount). Superseded by {@link #computePaymentAmount(Person, Registration,
-     * Trip)}, which prices from the chosen {@link AdmissionOption}.
-     */
-    public BigDecimal computePaymentAmount(final Person person, final Registration reg) {
-        final BigDecimal override = parseDiscountOverride(reg.getDiscount());
-        final BigDecimal result;
-        if (override != null) {
-            result = override;
-        } else {
-            final BigDecimal basePrice = computeBasePrice(person, reg);
-            final BigDecimal discountAmt = computeNamedDiscount(reg.getDiscount(), person);
-            final BigDecimal afterDiscount = basePrice.subtract(discountAmt);
-            result = (afterDiscount.signum() < 0) ? BigDecimal.ZERO : afterDiscount;
-        }
-        return result;
-    }
-
-    /**
-     * LEGACY. Seeds {@code _registrantType}/{@code _discount}/{@code _regType} and forces
-     * {@code opt9=false} for children. Superseded by {@link #applyAutoMetadata(Registration,
-     * Person)}.
-     */
-    public Registration applyAutoMetadata(
-            final Registration reg, final Person person, final String discount) {
-        final Map<String, String> opts = reg.getOptions();
-        opts.put(Registration.OPT_REGISTRANT_TYPE, deriveRegistrantType(person));
-        final String discountSeed = (discount == null) ? Registration.Discount.STANDARD : discount;
-        opts.putIfAbsent(Registration.OPT_DISCOUNT, discountSeed);
-        opts.putIfAbsent(Registration.OPT_REGISTRATION_TYPE, Registration.RegistrationType.FULL);
-        final int age = getAge(person);
-        if ((age > AGE_FREE_MAX) && (age <= AGE_CHILD_MAX)) {
-            opts.put(ROSEN_CENTRE_OPT_KEY, "false");
-        }
-        return reg;
-    }
-
-    /** LEGACY. Base (undiscounted) price by age + Rosen Centre selection. */
-    private BigDecimal computeBasePrice(final Person person, final Registration reg) {
-        final int age = getAge(person);
-        final BigDecimal result;
-        if (age <= AGE_FREE_MAX) {
-            result = PRICE_FREE;
-        } else if (age <= AGE_CHILD_MAX) {
-            result = PRICE_CHILD;
-        } else {
-            final String rosen = reg.getOptions().get(ROSEN_CENTRE_OPT_KEY);
-            if ("true".equals(rosen)) {
-                result = PRICE_ADULT_ROSEN;
-            } else if ("false".equals(rosen)) {
-                result = PRICE_ADULT_STANDARD;
-            } else {
-                result = PRICE_FREE;
-            }
-        }
-        return result;
-    }
-
-    /** LEGACY. Named-discount lookup (adults only); only early-bird is wired. */
-    private BigDecimal computeNamedDiscount(final String discount, final Person person) {
-        BigDecimal result = BigDecimal.ZERO;
-        if ((getAge(person) > AGE_CHILD_MAX) && Registration.Discount.EARLY_BIRD.equals(discount)) {
-            result = DISCOUNT_EARLY_BIRD;
-        }
-        return result;
     }
 
     /**

@@ -65,7 +65,7 @@ public class PayCommands {
     // FIXME: This is temporary, we should move this out to the .xhtml file so it's parameterized per site.
     // Confirmation template whose content is appended to the internal payment-notification email so
     // staff see exactly what the registrant received.
-    private static final String CONFIRMATION_TEMPLATE = "SummerFest2026-Confirmation-new";
+    private static final String CONFIRMATION_TEMPLATE = "SummerFest2026-Confirmation";
 
     private final DateTimeFormatter timestampPattern = DateTimeFormatter.ofPattern("yyyyMMddHHmm");
 
