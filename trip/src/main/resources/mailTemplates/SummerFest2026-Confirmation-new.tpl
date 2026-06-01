@@ -11,6 +11,7 @@
     <tr><td style="font-weight:bold">Cell:</td><td>#{person.cell}</td></tr>
     <tr><td style="font-weight:bold">Email:</td><td>#{person.email}</td></tr>
     <tr><td style="font-weight:bold">Admission:</td><td>#{reg.getAdmissionLabel(theTrip, registration)}</td></tr>
+    <tr><td style="font-weight:bold">Discount Code:</td><td>#{empty reg.getDiscountCodeDescription(theTrip, registration) ? 'None' : reg.getDiscountCodeDescription(theTrip, registration)}</td></tr>
     <tr><td style="font-weight:bold">Country:</td><td>#{registration.options['1']}</td></tr>
     <tr><td style="font-weight:bold">Parish:</td><td>#{registration.options['2']}</td></tr>
     <tr><td style="font-weight:bold">T-Shirt Size:</td><td>#{registration.options['3']}</td></tr>

@@ -26,7 +26,9 @@ import lombok.extern.slf4j.Slf4j;
 import lombok.val;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.Transaction;
+import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.pay.PayPalClient;
 
 /**
@@ -79,6 +81,8 @@ public class PayCommands {
     private PersonCommands people;
     @Inject
     private TripCommands trips;
+    @Inject
+    private RegistrationCommands reg;
 
     // -------------------------------------------------------------------------
     // Public API – called from XHTML pages
@@ -187,7 +191,7 @@ public class PayCommands {
             final float gross = PayPalClient.getInstance().getCapturedAmount(order);
             final Optional<Float> feeOpt = PayPalClient.getInstance().getPayPalFee(order);
 
-            final String note = buildTransactionNote(order, gross, feeOpt);
+            final String note = buildTransactionNote(order, gross, feeOpt, userId, tripId);
             if (userId != null) {
                 final Transaction tx = new Transaction(orderId, userId, null, Transaction.Type.Tx,
                     Transaction.TransactionType.Payment, LocalDateTime.now(), gross, "Payment", note);
@@ -315,14 +319,51 @@ public class PayCommands {
         return url.toString();
     }
 
-    private String buildTransactionNote(final Order order, final float gross, final Optional<Float> feeOpt) {
+    private String buildTransactionNote(final Order order, final float gross, final Optional<Float> feeOpt,
+            final Person.Id userId, final String tripId) {
         final StringBuilder note = new StringBuilder("PayPal for ")
                 .append(String.format("$%.2f", gross));
         feeOpt.ifPresent(fee -> note.append(String.format(" with $%.2f PayPal fee", fee)));
         note.append(".\n")
             .append(getDescription(order, ""))
             .append(" \n(").append(getPaymentId(order)).append(")");
+        final String detail = buildRegistrationDetail(userId, tripId);
+        if (!detail.isEmpty()) {
+            note.append('\n').append(detail);
+        }
         return note.toString();
+    }
+
+    /**
+     * Builds the registration-specific lines for the transaction note: the chosen admission
+     * option (regardless of any discount), and the applied discount code (if any). Returns an
+     * empty string when the registration can't be resolved (e.g. missing trip/user).
+     */
+    private String buildRegistrationDetail(final Person.Id userId, final String tripId) {
+        if (userId == null || tripId == null || tripId.isEmpty()) {
+            return "";
+        }
+        final Trip trip = trips.getTrip(tripId);
+        if (trip == null) {
+            return "";
+        }
+        final Registration registration = reg.getRegistration(tripId, userId);
+        if (registration == null) {
+            return "";
+        }
+        final StringBuilder sb = new StringBuilder();
+        final String admission = reg.getEffectiveAdmissionLabel(trip, registration);
+        if (admission != null) {
+            sb.append("Admission: ").append(admission);
+        }
+        final String discount = reg.getDiscountCodeDescription(trip, registration);
+        if (discount != null) {
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append("Discount Code: ").append(discount);
+        }
+        return sb.toString();
     }
 
     private void bindToTrip(final Transaction tx, final Person.Id userId, final String tripId) {

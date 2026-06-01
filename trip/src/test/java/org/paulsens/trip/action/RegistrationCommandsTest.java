@@ -4,11 +4,13 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import org.paulsens.trip.model.AdmissionOption;
+import org.paulsens.trip.model.DiscountCode;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 /**
@@ -44,6 +46,30 @@ public class RegistrationCommandsTest {
                     List.of("SAT"), false, false);
 
     private static final BigDecimal CHILD_CAP = new BigDecimal("179.00");
+
+    // ---- Sample discount codes (id distinct from the typed code) -------------------------
+    private static final DiscountCode SAVE20 =        // $20 off any option
+            new DiscountCode("dc-save20", "SAVE20", "$20 off", null,
+                    DiscountCode.DiscountType.DISCOUNT_BY, new BigDecimal("20.00"), List.of(), true);
+    private static final DiscountCode SAVE200 =       // $200 off any option
+            new DiscountCode("dc-save200", "SAVE200", "$200 off", null,
+                    DiscountCode.DiscountType.DISCOUNT_BY, new BigDecimal("200.00"), List.of(), true);
+    private static final DiscountCode BIG500 =        // $500 off → floors at $0
+            new DiscountCode("dc-big500", "BIG500", "$500 off", null,
+                    DiscountCode.DiscountType.DISCOUNT_BY, new BigDecimal("500.00"), List.of(), true);
+    private static final DiscountCode STAFF =         // exact $250, only for full-* options
+            new DiscountCode("dc-staff", "STAFF", "Staff price", null,
+                    DiscountCode.DiscountType.EXACT, new BigDecimal("250.00"),
+                    List.of("full-std", "full-rosen"), true);
+    private static final DiscountCode CHEAP150 =      // exact $150, only for full-std
+            new DiscountCode("dc-cheap150", "CHEAP150", "Cheap", null,
+                    DiscountCode.DiscountType.EXACT, new BigDecimal("150.00"), List.of("full-std"), true);
+    private static final DiscountCode EXPIRED =       // DISCOUNT_BY but expired yesterday
+            new DiscountCode("dc-expired", "EXPIRED", "Expired", LocalDate.now().minusDays(1),
+                    DiscountCode.DiscountType.DISCOUNT_BY, new BigDecimal("50.00"), List.of(), true);
+    private static final DiscountCode DISABLED =      // DISCOUNT_BY but disabled
+            new DiscountCode("dc-disabled", "DISABLED", "Disabled", null,
+                    DiscountCode.DiscountType.DISCOUNT_BY, new BigDecimal("50.00"), List.of(), false);
 
     // ===== getAge =====================================================================
 
@@ -370,12 +396,247 @@ public class RegistrationCommandsTest {
         Assert.assertNull(cmds.getEffectiveAdmissionLabel(trip(), null));
     }
 
+    // ===== Discount codes =============================================================
+
+    @Test
+    public void findDiscountCodeByCode_caseInsensitiveTrimmed() {
+        Assert.assertSame(cmds.findDiscountCodeByCode(tripWithCodes(), "save20"), SAVE20);
+        Assert.assertSame(cmds.findDiscountCodeByCode(tripWithCodes(), "  STAFF  "), STAFF);
+    }
+
+    @Test
+    public void findDiscountCodeByCode_nullForUnknownOrBlank() {
+        Assert.assertNull(cmds.findDiscountCodeByCode(tripWithCodes(), "NOPE"));
+        Assert.assertNull(cmds.findDiscountCodeByCode(tripWithCodes(), ""));
+        Assert.assertNull(cmds.findDiscountCodeByCode(tripWithCodes(), null));
+        Assert.assertNull(cmds.findDiscountCodeByCode(null, "SAVE20"));
+    }
+
+    // --- validateDiscountCode ---
+
+    @Test
+    public void validate_nullWhenNoCodeApplied() {
+        Assert.assertNull(cmds.validateDiscountCode(tripWithCodes(), regChoosing("full-std"), personAged(30)));
+    }
+
+    @Test
+    public void validate_nullForValidDiscountBy() {
+        Assert.assertNull(cmds.validateDiscountCode(
+                tripWithCodes(), regWith("full-std", "dc-save20"), personAged(30)));
+    }
+
+    @Test
+    public void validate_nullForValidExactMatch() {
+        Assert.assertNull(cmds.validateDiscountCode(
+                tripWithCodes(), regWith("full-std", "dc-staff"), personAged(30)));
+    }
+
+    @Test
+    public void validate_errorForExactMismatch() {
+        Assert.assertNotNull(cmds.validateDiscountCode(
+                tripWithCodes(), regWith("fri", "dc-staff"), personAged(30)),
+                "STAFF is exact-price for full-* only; choosing fri must be blocked");
+    }
+
+    @Test
+    public void validate_errorForExpired() {
+        Assert.assertNotNull(cmds.validateDiscountCode(
+                tripWithCodes(), regWith("full-std", "dc-expired"), personAged(30)));
+    }
+
+    @Test
+    public void validate_errorForDisabled() {
+        Assert.assertNotNull(cmds.validateDiscountCode(
+                tripWithCodes(), regWith("full-std", "dc-disabled"), personAged(30)));
+    }
+
+    @Test
+    public void validate_errorForUnknownCodeId() {
+        Assert.assertNotNull(cmds.validateDiscountCode(
+                tripWithCodes(), regWith("full-std", "dc-ghost"), personAged(30)));
+    }
+
+    // --- computePaymentAmount with codes ---
+
+    @Test
+    public void price_discountBySubtractsFromOption() {
+        // adult full-std $340 − $20 = $320
+        Assert.assertEquals(cmds.computePaymentAmount(personAged(30), regWith("full-std", "dc-save20"),
+                tripWithCodes()).compareTo(new BigDecimal("320.00")), 0);
+    }
+
+    @Test
+    public void price_exactSetsTotal() {
+        // adult full-std, STAFF exact $250
+        Assert.assertEquals(cmds.computePaymentAmount(personAged(30), regWith("full-std", "dc-staff"),
+                tripWithCodes()).compareTo(new BigDecimal("250.00")), 0);
+    }
+
+    @Test
+    public void price_discountByFloorsAtZero() {
+        // adult fri $120 − $500 → $0
+        Assert.assertEquals(cmds.computePaymentAmount(personAged(30), regWith("fri", "dc-big500"),
+                tripWithCodes()), BigDecimal.ZERO);
+    }
+
+    @Test
+    public void price_invalidCodeNotApplied() {
+        // expired code on full-std: price stays full $340 (continuation blocked separately)
+        Assert.assertEquals(cmds.computePaymentAmount(personAged(30), regWith("full-std", "dc-expired"),
+                tripWithCodes()).compareTo(new BigDecimal("340.00")), 0);
+    }
+
+    @Test
+    public void price_exactMismatchNotApplied() {
+        // STAFF on fri is a mismatch → not applied; price stays $120
+        Assert.assertEquals(cmds.computePaymentAmount(personAged(30), regWith("fri", "dc-staff"),
+                tripWithCodes()).compareTo(new BigDecimal("120.00")), 0);
+    }
+
+    @Test
+    public void price_childKeepsChildPriceWhenCodeNotLower() {
+        // child full-std: age-adjusted = min(340,179)=179; SAVE20 coded = 320; min = 179
+        Assert.assertEquals(cmds.computePaymentAmount(personAged(8), regWith("full-std", "dc-save20"),
+                tripWithCodes()).compareTo(CHILD_CAP), 0);
+    }
+
+    @Test
+    public void price_childGetsCodeWhenLowerThanChildPrice_exact() {
+        // child full-std: age-adjusted 179; CHEAP150 exact = 150; min = 150
+        Assert.assertEquals(cmds.computePaymentAmount(personAged(8), regWith("full-std", "dc-cheap150"),
+                tripWithCodes()).compareTo(new BigDecimal("150.00")), 0);
+    }
+
+    @Test
+    public void price_childGetsCodeWhenLowerThanChildPrice_discountBy() {
+        // child full-std: age-adjusted 179; SAVE200 coded = 340−200 = 140; min = 140
+        Assert.assertEquals(cmds.computePaymentAmount(personAged(8), regWith("full-std", "dc-save200"),
+                tripWithCodes()).compareTo(new BigDecimal("140.00")), 0);
+    }
+
+    @Test
+    public void price_threeAndUnderStaysFreeWithCode() {
+        Assert.assertEquals(cmds.computePaymentAmount(personAged(2), regWith("full-std", "dc-staff"),
+                tripWithCodes()), BigDecimal.ZERO);
+    }
+
+    @Test
+    public void price_numericOverrideBeatsCode() {
+        final Registration reg = regWith("full-std", "dc-staff");
+        reg.getOptions().put(Registration.OPT_DISCOUNT, "99.00");
+        Assert.assertEquals(cmds.computePaymentAmount(personAged(30), reg, tripWithCodes())
+                .compareTo(new BigDecimal("99.00")), 0);
+    }
+
+    // --- description / validity helpers ---
+
+    @Test
+    public void description_combinesCodeAndDescription() {
+        Assert.assertEquals(cmds.getDiscountCodeDescription(tripWithCodes(), regWith("full-std", "dc-save20")),
+                "SAVE20 — $20 off");
+    }
+
+    @Test
+    public void description_nullWhenNoCode() {
+        Assert.assertNull(cmds.getDiscountCodeDescription(tripWithCodes(), regChoosing("full-std")));
+    }
+
+    @Test
+    public void isDiscountCodeValid_mirrorsValidate() {
+        Assert.assertTrue(cmds.isDiscountCodeValid(tripWithCodes(), regWith("full-std", "dc-save20"), personAged(30)));
+        Assert.assertFalse(cmds.isDiscountCodeValid(tripWithCodes(), regWith("fri", "dc-staff"), personAged(30)));
+    }
+
+    // ===== Full permutation matrix: discount-code type × admission-option type × age =====
+    //
+    // Proves every discount-code "type" (NONE / DISCOUNT_BY / EXACT) is exercised against every
+    // representative admission-option "type": a high-priced option above the child cap that the
+    // EXACT codes are valid for (full-std $340), a high-priced option the EXACT codes do NOT cover
+    // (sat $205 → EXACT mismatch), and a low-priced option below the child cap (fri $120 → EXACT
+    // mismatch). Crossed with each age tier (free ≤3, child 4–10, adult >10). Expected values are
+    // hand-computed from the documented rule: final = min(ageAdjusted, codedFromBasePrice), where
+    // an invalid/mismatched code is not applied. childCap = $179.
+    @DataProvider(name = "discountMatrix")
+    public static Object[][] discountMatrix() {
+        return new Object[][] {
+            // --- full-std $340 (EXACT codes valid) ---
+            {"full-std", null,          2,  "0",   true},
+            {"full-std", "dc-save20",   2,  "0",   true},
+            {"full-std", "dc-save200",  2,  "0",   true},
+            {"full-std", "dc-staff",    2,  "0",   true},
+            {"full-std", "dc-cheap150", 2,  "0",   true},
+            {"full-std", null,          8,  "179", true},
+            {"full-std", "dc-save20",   8,  "179", true},
+            {"full-std", "dc-save200",  8,  "140", true},
+            {"full-std", "dc-staff",    8,  "179", true},
+            {"full-std", "dc-cheap150", 8,  "150", true},
+            {"full-std", null,          30, "340", true},
+            {"full-std", "dc-save20",   30, "320", true},
+            {"full-std", "dc-save200",  30, "140", true},
+            {"full-std", "dc-staff",    30, "250", true},
+            {"full-std", "dc-cheap150", 30, "150", true},
+            // --- sat $205 (> cap; EXACT codes mismatch) ---
+            {"sat", null,          2,  "0",   true},
+            {"sat", "dc-save20",   2,  "0",   true},
+            {"sat", "dc-save200",  2,  "0",   true},
+            {"sat", "dc-staff",    2,  "0",   false},
+            {"sat", "dc-cheap150", 2,  "0",   false},
+            {"sat", null,          8,  "179", true},
+            {"sat", "dc-save20",   8,  "179", true},
+            {"sat", "dc-save200",  8,  "5",   true},
+            {"sat", "dc-staff",    8,  "179", false},
+            {"sat", "dc-cheap150", 8,  "179", false},
+            {"sat", null,          30, "205", true},
+            {"sat", "dc-save20",   30, "185", true},
+            {"sat", "dc-save200",  30, "5",   true},
+            {"sat", "dc-staff",    30, "205", false},
+            {"sat", "dc-cheap150", 30, "205", false},
+            // --- fri $120 (< cap; EXACT codes mismatch) ---
+            {"fri", null,          2,  "0",   true},
+            {"fri", "dc-save20",   2,  "0",   true},
+            {"fri", "dc-save200",  2,  "0",   true},
+            {"fri", "dc-staff",    2,  "0",   false},
+            {"fri", "dc-cheap150", 2,  "0",   false},
+            {"fri", null,          8,  "120", true},
+            {"fri", "dc-save20",   8,  "100", true},
+            {"fri", "dc-save200",  8,  "0",   true},
+            {"fri", "dc-staff",    8,  "120", false},
+            {"fri", "dc-cheap150", 8,  "120", false},
+            {"fri", null,          30, "120", true},
+            {"fri", "dc-save20",   30, "100", true},
+            {"fri", "dc-save200",  30, "0",   true},
+            {"fri", "dc-staff",    30, "120", false},
+            {"fri", "dc-cheap150", 30, "120", false},
+        };
+    }
+
+    @Test(dataProvider = "discountMatrix")
+    public void discountMatrix_priceAndValidity(
+            final String admissionId, final String codeId, final int age,
+            final String expectedPrice, final boolean expectedValid) {
+        final Trip t = tripWithCodes();
+        final Registration reg = (codeId == null) ? regChoosing(admissionId) : regWith(admissionId, codeId);
+        final Person person = personAged(age);
+        final String label = "adm=" + admissionId + " code=" + codeId + " age=" + age;
+        Assert.assertEquals(cmds.computePaymentAmount(person, reg, t).compareTo(new BigDecimal(expectedPrice)), 0,
+                "price for " + label);
+        Assert.assertEquals(cmds.isDiscountCodeValid(t, reg, person), expectedValid, "validity for " + label);
+    }
+
     // ===== Helpers =====================================================================
 
     private static Trip trip() {
         return Trip.builder()
                 .admissionOptions(List.of(FULL_STD, FULL_ROSEN, FRI, SAT, HIDDEN))
                 .childPriceCap(CHILD_CAP)
+                .build();
+    }
+
+    private static Trip tripWithCodes() {
+        return Trip.builder()
+                .admissionOptions(List.of(FULL_STD, FULL_ROSEN, FRI, SAT, HIDDEN))
+                .childPriceCap(CHILD_CAP)
+                .discountCodes(List.of(SAVE20, SAVE200, BIG500, STAFF, CHEAP150, EXPIRED, DISABLED))
                 .build();
     }
 
@@ -386,6 +647,12 @@ public class RegistrationCommandsTest {
     private static Registration regChoosing(final String admissionId) {
         final Registration reg = newReg();
         reg.getOptions().put(Registration.OPT_ADMISSION, admissionId);
+        return reg;
+    }
+
+    private static Registration regWith(final String admissionId, final String discountCodeId) {
+        final Registration reg = regChoosing(admissionId);
+        reg.getOptions().put(Registration.OPT_DISCOUNT_CODE, discountCodeId);
         return reg;
     }
 

@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AdmissionOption;
 import org.paulsens.trip.model.DataId;
+import org.paulsens.trip.model.DiscountCode;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.Registration;
@@ -255,7 +256,116 @@ public class RegistrationCommands {
             return override;
         }
         final AdmissionOption opt = (trip == null) ? null : trip.getAdmissionOption(reg.getAdmissionId());
-        return computeOptionPrice(trip, person, opt);
+        final BigDecimal ageAdjusted = computeOptionPrice(trip, person, opt);
+        return applyDiscountCode(trip, reg, person, ageAdjusted, opt);
+    }
+
+    // ===== Discount codes =============================================================
+
+    /**
+     * Finds the trip's discount code whose {@link DiscountCode#getCode() code} matches the typed
+     * string (case-insensitive, trimmed). Matches regardless of enabled/expiration so the caller
+     * can give a specific message via {@link #validateDiscountCode}.
+     *
+     * @return the matching code, or {@code null} if none / blank input / no trip.
+     */
+    public DiscountCode findDiscountCodeByCode(final Trip trip, final String typed) {
+        if ((trip == null) || (typed == null) || typed.isBlank()) {
+            return null;
+        }
+        final String norm = typed.trim();
+        return trip.getDiscountCodes().stream()
+                .filter(c -> (c.getCode() != null) && c.getCode().equalsIgnoreCase(norm))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * Validates the discount code currently applied to {@code reg} (stored by id) for the chosen
+     * admission option.
+     *
+     * @return {@code null} if the registration is valid — either no code is applied (codes are
+     *   optional) or the applied code is usable; otherwise a human-readable reason it cannot be
+     *   used (unknown/disabled, expired, or an {@link DiscountCode.DiscountType#EXACT} code whose
+     *   {@link DiscountCode#getValidOptionIds() valid options} do not include the chosen admission).
+     */
+    public String validateDiscountCode(final Trip trip, final Registration reg, final Person person) {
+        if (reg == null) {
+            return null;
+        }
+        final String codeId = reg.getDiscountCodeId();
+        if ((codeId == null) || codeId.isBlank()) {
+            return null; // no code applied — optional, so valid
+        }
+        final DiscountCode dc = (trip == null) ? null : trip.getDiscountCode(codeId);
+        if ((dc == null) || !Boolean.TRUE.equals(dc.getEnabled())) {
+            return "The discount code is no longer available.";
+        }
+        if ((dc.getExpiration() != null) && LocalDate.now().isAfter(dc.getExpiration())) {
+            return "The discount code has expired.";
+        }
+        if (dc.getDiscountType() == DiscountCode.DiscountType.EXACT) {
+            final String admissionId = reg.getAdmissionId();
+            if ((admissionId == null) || !dc.getValidOptionIds().contains(admissionId)) {
+                return "The discount code does not apply to the selected admission option.";
+            }
+        }
+        return null;
+    }
+
+    /** EL convenience: {@code true} when {@link #validateDiscountCode} finds no problem. */
+    public boolean isDiscountCodeValid(final Trip trip, final Registration reg, final Person person) {
+        return validateDiscountCode(trip, reg, person) == null;
+    }
+
+    /** @return the applied {@link DiscountCode}, or {@code null} if none is applied / unknown. */
+    public DiscountCode getAppliedDiscountCode(final Trip trip, final Registration reg) {
+        if ((trip == null) || (reg == null)) {
+            return null;
+        }
+        return trip.getDiscountCode(reg.getDiscountCodeId());
+    }
+
+    /** @return "{code} — {description}" for the applied code, or {@code null} if none is applied. */
+    public String getDiscountCodeDescription(final Trip trip, final Registration reg) {
+        final DiscountCode dc = getAppliedDiscountCode(trip, reg);
+        if (dc == null) {
+            return null;
+        }
+        final String desc = dc.getDescription();
+        return ((desc == null) || desc.isBlank()) ? dc.getCode() : (dc.getCode() + " — " + desc);
+    }
+
+    /**
+     * Applies a valid discount code to the age-adjusted price, returning
+     * {@code min(ageAdjusted, codedPrice)} where the coded price is derived from the option's base
+     * (undiscounted) price: {@code EXACT} → the code's amount; {@code DISCOUNT_BY} → base − amount
+     * (floored at $0). Taking the minimum means a discount code only ever helps: a child keeps the
+     * lower of their child price and the coded price, and age ≤ 3 stays free. Invalid or absent
+     * codes leave {@code ageAdjusted} unchanged (the UI blocks separately on invalid codes).
+     */
+    private BigDecimal applyDiscountCode(final Trip trip, final Registration reg, final Person person,
+            final BigDecimal ageAdjusted, final AdmissionOption opt) {
+        if (validateDiscountCode(trip, reg, person) != null) {
+            return ageAdjusted; // invalid code: don't apply (continuation is blocked elsewhere)
+        }
+        final DiscountCode dc = getAppliedDiscountCode(trip, reg);
+        if (dc == null) {
+            return ageAdjusted; // no code applied
+        }
+        if ((opt == null) || (opt.getPrice() == null)) {
+            return ageAdjusted; // no option/base price to discount from
+        }
+        final BigDecimal base = opt.getPrice();
+        final BigDecimal coded;
+        if (dc.getDiscountType() == DiscountCode.DiscountType.EXACT) {
+            coded = (dc.getAmount() == null) ? base : dc.getAmount();
+        } else {
+            final BigDecimal amt = (dc.getAmount() == null) ? BigDecimal.ZERO : dc.getAmount();
+            final BigDecimal afterDiscount = base.subtract(amt);
+            coded = (afterDiscount.signum() < 0) ? BigDecimal.ZERO : afterDiscount;
+        }
+        return ageAdjusted.min(coded);
     }
 
     /** @return the label of the chosen admission option, or {@code null} if none is selected. */
