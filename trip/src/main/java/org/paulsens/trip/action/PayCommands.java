@@ -158,6 +158,19 @@ public class PayCommands {
      * @return {@code true} if the payment was captured and saved successfully.
      */
     public boolean captureAndSave(final String orderId, final Person.Id userId, final String tripId) {
+        return captureAndSave(orderId, userId, tripId, null);
+    }
+
+    /**
+     * Overload that accepts the caller's in-memory {@link Registration} so the transaction note can
+     * reflect the chosen admission option and discount code. This matters because the registration
+     * is persisted <em>after</em> payment is captured (payment must happen first): at the moment
+     * this method runs, re-reading the registration from the database would find nothing and the
+     * note would be wrong. Pass the page's {@code viewScope.registration}; pass {@code null} for
+     * non-registration card payments.
+     */
+    public boolean captureAndSave(
+            final String orderId, final Person.Id userId, final String tripId, final Registration registration) {
         if (orderId == null || orderId.isEmpty()) {
             log.error("captureAndSave called with null orderId");
             return false;
@@ -191,7 +204,7 @@ public class PayCommands {
             final float gross = PayPalClient.getInstance().getCapturedAmount(order);
             final Optional<Float> feeOpt = PayPalClient.getInstance().getPayPalFee(order);
 
-            final String note = buildTransactionNote(order, gross, feeOpt, userId, tripId);
+            final String note = buildTransactionNote(order, gross, feeOpt, tripId, registration);
             if (userId != null) {
                 final Transaction tx = new Transaction(orderId, userId, null, Transaction.Type.Tx,
                     Transaction.TransactionType.Payment, LocalDateTime.now(), gross, "Payment", note);
@@ -320,14 +333,14 @@ public class PayCommands {
     }
 
     private String buildTransactionNote(final Order order, final float gross, final Optional<Float> feeOpt,
-            final Person.Id userId, final String tripId) {
+            final String tripId, final Registration registration) {
         final StringBuilder note = new StringBuilder("PayPal for ")
                 .append(String.format("$%.2f", gross));
         feeOpt.ifPresent(fee -> note.append(String.format(" with $%.2f PayPal fee", fee)));
         note.append(".\n")
             .append(getDescription(order, ""))
             .append(" \n(").append(getPaymentId(order)).append(")");
-        final String detail = buildRegistrationDetail(userId, tripId);
+        final String detail = buildRegistrationDetail(tripId, registration);
         if (!detail.isEmpty()) {
             note.append('\n').append(detail);
         }
@@ -336,23 +349,27 @@ public class PayCommands {
 
     /**
      * Builds the registration-specific lines for the transaction note: the chosen admission
-     * option (regardless of any discount), and the applied discount code (if any). Returns an
-     * empty string when the registration can't be resolved (e.g. missing trip/user).
+     * option and the applied discount code (if any). Uses the caller-supplied {@code registration}
+     * (the page's in-memory copy), since the registration is not persisted until after payment.
+     * Uses {@link RegistrationCommands#getAdmissionLabel} (not the "effective" variant) so the note
+     * records the <em>actual</em> choice and never fabricates a default label for a payment that
+     * carried no admission selection. Returns an empty string when nothing is resolvable.
      */
-    private String buildRegistrationDetail(final Person.Id userId, final String tripId) {
-        if (userId == null || tripId == null || tripId.isEmpty()) {
+    private String buildRegistrationDetail(final String tripId, final Registration registration) {
+        if (registration == null || tripId == null || tripId.isEmpty()) {
             return "";
         }
         final Trip trip = trips.getTrip(tripId);
-        if (trip == null) {
-            return "";
-        }
-        final Registration registration = reg.getRegistration(tripId, userId);
-        if (registration == null) {
+        return registrationDetail(trip, registration);
+    }
+
+    /** Label-building core of {@link #buildRegistrationDetail}, split out for unit testing. */
+    String registrationDetail(final Trip trip, final Registration registration) {
+        if (trip == null || registration == null) {
             return "";
         }
         final StringBuilder sb = new StringBuilder();
-        final String admission = reg.getEffectiveAdmissionLabel(trip, registration);
+        final String admission = reg.getAdmissionLabel(trip, registration);
         if (admission != null) {
             sb.append("Admission: ").append(admission);
         }
