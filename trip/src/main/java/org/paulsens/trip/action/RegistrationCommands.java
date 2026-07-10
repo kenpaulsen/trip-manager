@@ -206,23 +206,31 @@ public class RegistrationCommands {
     }
 
     /**
-     * Finds the people registered for the given trip whose last name contains {@code partialLast}
-     * (case-insensitive). Used by the check-in lookup page.
+     * Finds the people registered for the given trip whose first or last name contains
+     * {@code partialName} (case-insensitive). Used by the check-in lookup page.
      * @return matching people sorted by last name, then first name; empty if the search is blank.
      */
-    public List<Person> findRegistrants(final String tripId, final String partialLast) {
-        if ((tripId == null) || (partialLast == null) || partialLast.isBlank()) {
+    public List<Person> findRegistrants(final String tripId, final String partialName) {
+        if ((tripId == null) || (partialName == null) || partialName.isBlank()) {
             return List.of();
         }
-        final String search = partialLast.trim().toLowerCase(Locale.ROOT);
+        final String search = partialName.trim().toLowerCase(Locale.ROOT);
         final PersonCommands people = PersonCommands.getPersonCommands();
         return getRegistrations(tripId).stream()
                 .map(r -> people.getPerson(r.getUserId()))
-                .filter(p -> (p.getLast() != null) && p.getLast().toLowerCase(Locale.ROOT).contains(search))
+                .filter(p -> nameContains(p.getLast(), search) || nameContains(p.getFirst(), search))
                 .sorted(Comparator
-                        .comparing((Person p) -> p.getLast().toLowerCase(Locale.ROOT))
-                        .thenComparing(p -> (p.getFirst() == null) ? "" : p.getFirst().toLowerCase(Locale.ROOT)))
+                        .comparing((Person p) -> lowerOrEmpty(p.getLast()))
+                        .thenComparing(p -> lowerOrEmpty(p.getFirst())))
                 .toList();
+    }
+
+    private static boolean nameContains(final String name, final String lowerCaseSearch) {
+        return (name != null) && name.toLowerCase(Locale.ROOT).contains(lowerCaseSearch);
+    }
+
+    private static String lowerOrEmpty(final String name) {
+        return (name == null) ? "" : name.toLowerCase(Locale.ROOT);
     }
 
     // ===== Age / pricing / metadata helpers ===========================================

@@ -710,6 +710,17 @@ public class RegistrationCommandsTest {
     }
 
     @Test
+    public void findRegistrants_matchesFirstNameToo() {
+        final String tripId = RandomData.genAlpha(10);
+        final Person robert = registeredPerson(tripId, "Robert", "Jones");
+        registeredPerson(tripId, "Ann", "Smith");
+
+        final List<Person> result = cmds.findRegistrants(tripId, "robe");
+        Assert.assertEquals(result.size(), 1);
+        Assert.assertEquals(result.get(0).getId(), robert.getId());
+    }
+
+    @Test
     public void findRegistrants_sortsByLastThenFirst() {
         final String tripId = RandomData.genAlpha(10);
         final Person zed = registeredPerson(tripId, "Zed", "Adams");
