@@ -2,6 +2,7 @@ package org.paulsens.trip.action;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.paulsens.trip.model.AdmissionOption;
 import org.paulsens.trip.model.DiscountCode;
@@ -623,7 +624,133 @@ public class RegistrationCommandsTest {
         Assert.assertEquals(cmds.isDiscountCodeValid(t, reg, person), expectedValid, "validity for " + label);
     }
 
+    // ===== Event check-in =============================================================
+
+    @Test
+    public void checkIn_setsTimestampAndSaves() {
+        final Registration reg = newReg();
+        Assert.assertFalse(cmds.isCheckedIn(reg));
+        Assert.assertTrue(cmds.checkIn(reg));
+        Assert.assertTrue(cmds.isCheckedIn(reg));
+        Assert.assertNotNull(reg.getCheckedIn());
+    }
+
+    @Test
+    public void clearCheckIn_removesFlagAndSaves() {
+        final Registration reg = newReg();
+        Assert.assertTrue(cmds.checkIn(reg));
+        Assert.assertTrue(cmds.clearCheckIn(reg));
+        Assert.assertFalse(cmds.isCheckedIn(reg));
+        Assert.assertNull(reg.getCheckedIn());
+    }
+
+    @Test
+    public void checkIn_handlesNullRegistration() {
+        Assert.assertFalse(cmds.checkIn(null));
+        Assert.assertFalse(cmds.clearCheckIn(null));
+        Assert.assertFalse(cmds.isCheckedIn(null));
+    }
+
+    @Test
+    public void checkIn_isVisibleOnReloadedRegistration() {
+        final Registration reg = newReg();
+        Assert.assertTrue(cmds.checkIn(reg));
+        final Registration reloaded = cmds.getRegistration(reg.getTripId(), reg.getUserId());
+        Assert.assertTrue(cmds.isCheckedIn(reloaded));
+        Assert.assertEquals(reloaded.getCheckedIn(), reg.getCheckedIn());
+    }
+
+    // ===== isAfterDeadline ============================================================
+
+    private static final String DEADLINE = "2026-07-12T23:59:59";
+    private static final String ZONE = "America/New_York";
+
+    @Test
+    public void isAfterDeadline_falseWellBeforeDeadline() {
+        Assert.assertFalse(cmds.isAfterDeadline(regCreatedAt(LocalDateTime.of(2026, 1, 1, 12, 0)), DEADLINE, ZONE));
+    }
+
+    @Test
+    public void isAfterDeadline_trueWellAfterDeadline() {
+        Assert.assertTrue(cmds.isAfterDeadline(regCreatedAt(LocalDateTime.of(2026, 12, 1, 12, 0)), DEADLINE, ZONE));
+    }
+
+    @Test
+    public void isAfterDeadline_falseForNullInputs() {
+        final Registration reg = regCreatedAt(LocalDateTime.of(2026, 12, 1, 12, 0));
+        Assert.assertFalse(cmds.isAfterDeadline(null, DEADLINE, ZONE));
+        Assert.assertFalse(cmds.isAfterDeadline(reg, null, ZONE));
+        Assert.assertFalse(cmds.isAfterDeadline(reg, DEADLINE, null));
+    }
+
+    @Test
+    public void isAfterDeadline_falseForUnparseableInputs() {
+        final Registration reg = regCreatedAt(LocalDateTime.of(2026, 12, 1, 12, 0));
+        Assert.assertFalse(cmds.isAfterDeadline(reg, "July 12th, 2026", ZONE));
+        Assert.assertFalse(cmds.isAfterDeadline(reg, DEADLINE, "Not/AZone"));
+    }
+
+    // ===== findRegistrants ============================================================
+
+    @Test
+    public void findRegistrants_matchesPartialLastNameCaseInsensitive() {
+        final String tripId = RandomData.genAlpha(10);
+        final Person smith = registeredPerson(tripId, "Bob", "Smith");
+        final Person smythe = registeredPerson(tripId, "Ann", "Smythe");
+        registeredPerson(tripId, "Cat", "Jones");
+
+        final List<Person> smi = cmds.findRegistrants(tripId, "smi");
+        Assert.assertEquals(smi.size(), 1);
+        Assert.assertEquals(smi.get(0).getId(), smith.getId());
+
+        final List<Person> sm = cmds.findRegistrants(tripId, "SM");
+        Assert.assertEquals(sm.size(), 2);
+        Assert.assertEquals(sm.get(0).getId(), smith.getId());   // sorted: Smith before Smythe
+        Assert.assertEquals(sm.get(1).getId(), smythe.getId());
+    }
+
+    @Test
+    public void findRegistrants_sortsByLastThenFirst() {
+        final String tripId = RandomData.genAlpha(10);
+        final Person zed = registeredPerson(tripId, "Zed", "Adams");
+        final Person amy = registeredPerson(tripId, "Amy", "Adams");
+        final Person bob = registeredPerson(tripId, "Bob", "Baker");
+
+        final List<Person> result = cmds.findRegistrants(tripId, "a");
+        Assert.assertEquals(result.size(), 3);                    // "Baker" also contains 'a'
+        Assert.assertEquals(result.get(0).getId(), amy.getId());
+        Assert.assertEquals(result.get(1).getId(), zed.getId());
+        Assert.assertEquals(result.get(2).getId(), bob.getId());
+    }
+
+    @Test
+    public void findRegistrants_blankOrNullInputsReturnEmpty() {
+        final String tripId = RandomData.genAlpha(10);
+        registeredPerson(tripId, "Bob", "Smith");
+        Assert.assertTrue(cmds.findRegistrants(tripId, null).isEmpty());
+        Assert.assertTrue(cmds.findRegistrants(tripId, "   ").isEmpty());
+        Assert.assertTrue(cmds.findRegistrants(null, "smith").isEmpty());
+    }
+
+    @Test
+    public void findRegistrants_noMatchesReturnsEmpty() {
+        final String tripId = RandomData.genAlpha(10);
+        registeredPerson(tripId, "Bob", "Smith");
+        Assert.assertTrue(cmds.findRegistrants(tripId, "nobody-by-this-name").isEmpty());
+    }
+
     // ===== Helpers =====================================================================
+
+    private Person registeredPerson(final String tripId, final String first, final String last) {
+        final Person person = Person.builder()
+                .id(Person.Id.newInstance())
+                .first(first)
+                .last(last)
+                .build();
+        Assert.assertTrue(PersonCommands.getPersonCommands().savePerson(person));
+        Assert.assertTrue(cmds.saveRegistration(new Registration(tripId, person.getId())));
+        return person;
+    }
 
     private static Trip trip() {
         return Trip.builder()
@@ -642,6 +769,10 @@ public class RegistrationCommandsTest {
 
     private static Registration newReg() {
         return new Registration(RandomData.genAlpha(5), Person.Id.newInstance());
+    }
+
+    private static Registration regCreatedAt(final LocalDateTime created) {
+        return new Registration(RandomData.genAlpha(5), Person.Id.newInstance(), created, null, null);
     }
 
     private static Registration regChoosing(final String admissionId) {

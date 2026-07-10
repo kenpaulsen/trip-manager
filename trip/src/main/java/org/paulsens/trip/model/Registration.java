@@ -30,6 +30,8 @@ public class Registration implements Serializable {
     public static final String OPT_ADMISSION         = "_admission";
     /** Id of the applied {@link DiscountCode} (see {@link Trip#getDiscountCodes()}); at most one. */
     public static final String OPT_DISCOUNT_CODE     = "_discountCode";
+    /** Event check-in timestamp (ISO-8601 local date-time); absent means not checked in. */
+    public static final String OPT_CHECKED_IN        = "_checkedIn";
 
     String tripId;                  // The trip id (partition key)
     Person.Id userId;               // The user id (sort key)
@@ -88,6 +90,12 @@ public class Registration implements Serializable {
     @JsonIgnore
     public String getDiscountCodeId() {
         return options.get(OPT_DISCOUNT_CODE);
+    }
+
+    /** @return the check-in timestamp ({@link #OPT_CHECKED_IN}), or {@code null} if not checked in. */
+    @JsonIgnore
+    public String getCheckedIn() {
+        return options.get(OPT_CHECKED_IN);
     }
 
     /** Standard values for {@link #OPT_REGISTRANT_TYPE}. */

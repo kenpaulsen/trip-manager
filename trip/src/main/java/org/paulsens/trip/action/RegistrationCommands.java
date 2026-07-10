@@ -5,10 +5,15 @@ import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.Period;
+import java.time.ZoneId;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
@@ -143,6 +148,81 @@ public class RegistrationCommands {
 
     private DataId getTripRoomDataId(final String tripId) {
         return DataId.from(ROOM + tripId);
+    }
+
+    // ===== Event check-in =============================================================
+
+    /**
+     * Tests whether {@code reg} was created after the given deadline. The deadline is supplied by
+     * the page (so it can be changed by editing the .xhtml without a server restart) as an ISO
+     * local date-time plus a zone id, e.g. {@code ("2026-07-12T23:59:59", "America/New_York")}.
+     * The created time (a server-local {@link LocalDateTime}) is interpreted in the system
+     * default zone for the comparison.
+     * @return {@code true} if {@code reg} was created after the deadline; {@code false} if any
+     *         input is missing or unparseable (which is logged).
+     */
+    public boolean isAfterDeadline(final Registration reg, final String deadline, final String zoneId) {
+        if ((reg == null) || (reg.getCreated() == null) || (deadline == null) || (zoneId == null)) {
+            return false;
+        }
+        final Instant deadlineInstant;
+        try {
+            deadlineInstant = LocalDateTime.parse(deadline).atZone(ZoneId.of(zoneId)).toInstant();
+        } catch (final RuntimeException ex) {
+            log.error("Bad deadline ('" + deadline + "') or zone ('" + zoneId + "')!", ex);
+            return false;
+        }
+        return reg.getCreated().atZone(ZoneId.systemDefault()).toInstant().isAfter(deadlineInstant);
+    }
+
+    /**
+     * Marks {@code reg} as checked in (badge and materials received) by recording the current
+     * time under {@link Registration#OPT_CHECKED_IN}, and persists the registration.
+     * @return {@code true} if the registration was saved.
+     */
+    public boolean checkIn(final Registration reg) {
+        if (reg == null) {
+            return false;
+        }
+        reg.getOptions().put(Registration.OPT_CHECKED_IN, LocalDateTime.now().withNano(0).toString());
+        return saveRegistration(reg);
+    }
+
+    /**
+     * Clears the check-in flag on {@code reg} and persists the registration.
+     * @return {@code true} if the registration was saved.
+     */
+    public boolean clearCheckIn(final Registration reg) {
+        if (reg == null) {
+            return false;
+        }
+        reg.getOptions().remove(Registration.OPT_CHECKED_IN);
+        return saveRegistration(reg);
+    }
+
+    /** @return {@code true} if {@code reg} has been checked in (see {@link #checkIn(Registration)}). */
+    public boolean isCheckedIn(final Registration reg) {
+        return (reg != null) && (reg.getCheckedIn() != null) && !reg.getCheckedIn().isBlank();
+    }
+
+    /**
+     * Finds the people registered for the given trip whose last name contains {@code partialLast}
+     * (case-insensitive). Used by the check-in lookup page.
+     * @return matching people sorted by last name, then first name; empty if the search is blank.
+     */
+    public List<Person> findRegistrants(final String tripId, final String partialLast) {
+        if ((tripId == null) || (partialLast == null) || partialLast.isBlank()) {
+            return List.of();
+        }
+        final String search = partialLast.trim().toLowerCase(Locale.ROOT);
+        final PersonCommands people = PersonCommands.getPersonCommands();
+        return getRegistrations(tripId).stream()
+                .map(r -> people.getPerson(r.getUserId()))
+                .filter(p -> (p.getLast() != null) && p.getLast().toLowerCase(Locale.ROOT).contains(search))
+                .sorted(Comparator
+                        .comparing((Person p) -> p.getLast().toLowerCase(Locale.ROOT))
+                        .thenComparing(p -> (p.getFirst() == null) ? "" : p.getFirst().toLowerCase(Locale.ROOT)))
+                .toList();
     }
 
     // ===== Age / pricing / metadata helpers ===========================================
