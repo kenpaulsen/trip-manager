@@ -21,9 +21,22 @@ class DynamoPersistence implements Persistence {
 
     DynamoPersistence() {
         this.client = DynamoDbAsyncClient.builder()
-                .region(Region.US_EAST_1)
+                .region(resolveRegion())
                 //.credentialsProvider(ProfileCredentialsProvider.builder().build())
                 .build();
+    }
+
+    /**
+     * Region override for standalone tools (see trip/scripts/register-person.sh), via the
+     * {@code trip.dynamo.region} system property or {@code TRIP_DYNAMO_REGION} environment
+     * variable. Without an override, the webapp's compiled-in default is used.
+     */
+    private static Region resolveRegion() {
+        String region = System.getProperty("trip.dynamo.region");
+        if (region == null || region.isBlank()) {
+            region = System.getenv("TRIP_DYNAMO_REGION");
+        }
+        return (region == null || region.isBlank()) ? Region.US_EAST_1 : Region.of(region);
     }
 
     public CompletableFuture<ScanResponse> scan(Consumer<ScanRequest.Builder> scanRequest) {

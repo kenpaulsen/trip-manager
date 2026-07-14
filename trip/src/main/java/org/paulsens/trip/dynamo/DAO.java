@@ -43,7 +43,10 @@ public class DAO {
     private static DAO inst;
 
     private DAO() {
-        final Persistence persistence = createTripPersistence();
+        this(createTripPersistence());
+    }
+
+    private DAO(final Persistence persistence) {
         this.mapper = createObjectMapper();
         this.personDao = new PersonDAO(mapper, persistence);
         this.tripEventDao = new TripEventDAO(mapper, persistence);
@@ -64,6 +67,16 @@ public class DAO {
             FakeData.addFakeData();
         }
         return inst;
+    }
+
+    /**
+     * Creates a DAO wired directly to DynamoDB, bypassing the local/fake-mode detection that
+     * {@link #getInstance()} performs via the ServletContext (which selects {@link FakeData} when
+     * no JSF environment exists). For standalone command-line tools only (see
+     * {@code org.paulsens.trip.scripts}); the webapp must always use {@link #getInstance()}.
+     */
+    public static DAO createStandaloneDynamoDao() {
+        return new DAO(new DynamoPersistence());
     }
 
     // People
@@ -219,7 +232,7 @@ public class DAO {
         return mapper;
     }
 
-    private Persistence createTripPersistence() {
+    private static Persistence createTripPersistence() {
         final Persistence result;
         if (FakeData.isLocal()) {
             // Local development only -- don't talk to dynamo

@@ -22,6 +22,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.dynamo.DAO;
 import org.primefaces.model.SortMeta;
 import org.primefaces.model.SortOrder;
 
@@ -30,6 +31,16 @@ import org.primefaces.model.SortOrder;
 @Named("tripUtil")
 @SuppressWarnings("unused")
 public class TripUtilCommands {
+    /**
+     * Clears every DAO's in-memory cache so subsequent reads reload from DynamoDB. Used by the
+     * admin "Clear Cache" topbar action, e.g. after the register-person.sh migration CLI writes
+     * rows this JVM has never seen. Safe to call anytime; the next page loads repopulate caches.
+     */
+    public void clearAllCaches() {
+        log.info("Clearing all DAO caches (admin request).");
+        DAO.getInstance().clearAllCaches();
+    }
+
     /**
      *  This method creates a {@code FacesMessage}.  It takes 3 String arguments: severity, summary, and detail.
      *
