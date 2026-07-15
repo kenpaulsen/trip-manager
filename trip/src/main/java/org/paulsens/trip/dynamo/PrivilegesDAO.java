@@ -8,9 +8,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.cache.CacheClient;
+import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.FullTableCache;
+import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.model.Privilege;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
@@ -22,14 +24,28 @@ public class PrivilegesDAO {
     protected static final Comparator<Privilege> privSorter = (a, b) ->
             a.getName().compareToIgnoreCase(b.getName());
 
-    private final Map<String, Privilege> privCache = new ConcurrentHashMap<>();
     private final ObjectMapper mapper;
     private final Persistence persistence;
-    private final AtomicBoolean hasScanned = new AtomicBoolean(false);
+    private final CacheClient cacheClient;
+    private final FullTableCache<String, Privilege> cache;
 
     protected PrivilegesDAO(final ObjectMapper mapper, final Persistence persistence) {
+        this(mapper, persistence, new InMemoryCacheClient());
+    }
+
+    protected PrivilegesDAO(final ObjectMapper mapper, final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = mapper;
         this.persistence = persistence;
+        this.cacheClient = cacheClient;
+        this.cache = FullTableCache.<String, Privilege>builder()
+                .cache(cacheClient)
+                .key(CacheKeys.PRIVS)
+                .idGetter(Privilege::getName)
+                .idFormatter(name -> name)
+                .serializer(this::toJson)
+                .deserializer(this::parsePrivilege)
+                .order(privSorter)
+                .build();
     }
 
     protected CompletableFuture<Boolean> savePrivilege(final Privilege priv) {
@@ -43,38 +59,59 @@ public class PrivilegesDAO {
             throw new IllegalStateException(error);
         }
         return persistence.putItem(b -> b.tableName(PRIVILEGE_TABLE).item(map))
-                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
-                .thenApply(r -> r ?
-                        persistence.cacheOne(privCache, priv, priv.getName(), true) :
-                        persistence.clearCache(privCache, false));
+                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
+                        ? cache.put(priv)
+                        : CompletableFuture.completedFuture(false));
     }
 
     protected CompletableFuture<List<Privilege>> getPrivileges() {
-        if (hasScanned.getAndSet(true)) {
-            return CompletableFuture.completedFuture(privCache.values().stream().sorted(privSorter).toList());
-        }
-        return persistence.scan(b -> b.consistentRead(false).limit(1000).tableName(PRIVILEGE_TABLE).build())
-                .thenApply(resp -> resp.items().stream()
-                        .map(it -> toPrivilege(it.get(CONTENT)).get())
-                        .sorted(privSorter)
-                        .toList())
-                .thenApply(list -> persistence.cacheAll(privCache, list, Privilege::getName));
+        return cache.getAll(this::loadPrivileges);
     }
 
+    /**
+     * A privilege check must stay cheap: on a cache miss this does a point read of the single privilege rather
+     * than scanning the whole table (a loaded cache still answers hits and "not found" without any database call).
+     */
     protected CompletableFuture<Optional<Privilege>> getPrivilege(final String name) {
-        final Privilege priv = privCache.get(name);
-        if (priv != null) {
-            return CompletableFuture.completedFuture(Optional.of(priv));
-        }
-        final Map<String, AttributeValue> key = Map.of(NAME, AttributeValue.builder().s(name).build());
-        return persistence.getItem(b -> b.key(key).tableName(PRIVILEGE_TABLE).build())
-                .thenApply(resp -> resp.item().get(CONTENT))
-                .thenApply(this::toPrivilege)
-                .exceptionally(ex -> logAndReturnEmpty(ex, name));
+        return cacheClient.getHashFields(CacheKeys.PRIVS, List.of(CacheKeys.LOADED_SENTINEL, name))
+                .thenCompose(found -> {
+                    final String json = found.get(name);
+                    if (json != null) {
+                        final Privilege priv = parsePrivilege(json);
+                        if (priv != null) {
+                            return CompletableFuture.completedFuture(Optional.of(priv));
+                        }
+                    }
+                    if (found.containsKey(CacheKeys.LOADED_SENTINEL)) {
+                        return CompletableFuture.completedFuture(Optional.empty());
+                    }
+                    return pointReadPrivilege(name);
+                });
     }
 
     public void clearCache() {
-        privCache.clear();
+        cache.invalidate().join();
+    }
+
+    private CompletableFuture<Optional<Privilege>> pointReadPrivilege(final String name) {
+        final Map<String, AttributeValue> key = Map.of(NAME, AttributeValue.builder().s(name).build());
+        return persistence.getItem(b -> b.key(key).tableName(PRIVILEGE_TABLE).build())
+                .thenApply(resp -> resp.item().get(CONTENT))
+                .thenCompose(content -> {
+                    final Privilege priv = (content == null) ? null : parsePrivilege(content.s());
+                    if (priv == null) {
+                        return CompletableFuture.completedFuture(Optional.<Privilege>empty());
+                    }
+                    return cache.put(priv).thenApply(ignored -> Optional.of(priv));
+                })
+                .exceptionally(ex -> logAndReturnEmpty(ex, name));
+    }
+
+    private CompletableFuture<List<Privilege>> loadPrivileges() {
+        return persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(PRIVILEGE_TABLE).build())
+                .thenApply(items -> items.stream()
+                        .map(it -> toPrivilege(it.get(CONTENT)).get())
+                        .toList());
     }
 
     private Optional<Privilege> toPrivilege(final AttributeValue content) {
@@ -86,6 +123,24 @@ public class PrivilegesDAO {
             return Optional.ofNullable(mapper.readValue(content.s(), Privilege.class));
         } catch (final IOException ex) {
             throw new IllegalStateException("Unable to parse Privilege content!");
+        }
+    }
+
+    private Privilege parsePrivilege(final String json) {
+        try {
+            return mapper.readValue(json, Privilege.class);
+        } catch (final IOException ex) {
+            log.error("Unable to parse privilege record: " + json, ex);
+            return null;
+        }
+    }
+
+    private String toJson(final Privilege priv) {
+        try {
+            return mapper.writeValueAsString(priv);
+        } catch (final IOException ex) {
+            log.error("Unable to serialize privilege: " + priv.getName(), ex);
+            return null;
         }
     }
 

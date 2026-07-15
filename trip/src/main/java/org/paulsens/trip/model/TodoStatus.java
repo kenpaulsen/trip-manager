@@ -178,7 +178,8 @@ public final class TodoStatus implements Serializable {
                         (Status.Priority) priority : Status.Priority.valueOf(String.valueOf(priority)))
                 .visibility((visibility instanceof Status.Visibility) ?
                         (Status.Visibility) visibility : Status.Visibility.valueOf(String.valueOf(visibility)))
-                .owner((owner instanceof Person.Id) ? (Person.Id) owner : Person.Id.from(String.valueOf(owner)))
+                .owner((owner instanceof Person.Id) ? (Person.Id) owner
+                        : (owner == null) ? null : Person.Id.from(String.valueOf(owner)))
                 .lastUpdate((lastUpdate instanceof LocalDateTime) ?
                         (LocalDateTime) lastUpdate : LocalDateTime.parse(String.valueOf(lastUpdate)))
                 .notes(notes)

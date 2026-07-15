@@ -30,6 +30,7 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
@@ -109,8 +110,13 @@ public class DAOTest {
         trip.setId(RandomData.genAlpha(10));
         assertTrue(DB_UTILS.saveTrip(trip).join()); // Verify idempotency, should still be 1
         assertEquals(DB_UTILS.getTrips().join().size(), 2, "Expected 2 now.");
-        final Trip sameTrip = DB_UTILS.getTrip(id).join().orElse(null);
-        assertEquals(sameTrip, trip, "Getting trip should be equal.");
+        final Trip newTrip = DB_UTILS.getTrip(trip.getId()).join().orElse(null);
+        assertEquals(newTrip, trip, "Getting trip should be equal.");
+        // Reads return the saved snapshot, not a shared mutable instance: the original id still resolves to the
+        // trip as it was saved under that id (before setId() above).
+        final Trip origTrip = DB_UTILS.getTrip(id).join().orElse(null);
+        assertNotNull(origTrip, "The original id should still resolve to its own trip.");
+        assertEquals(origTrip.getId(), id, "The original trip snapshot keeps its own id.");
     }
 
     @Test

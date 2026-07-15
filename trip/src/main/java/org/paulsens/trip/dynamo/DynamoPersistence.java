@@ -1,10 +1,15 @@
 package org.paulsens.trip.dynamo;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
@@ -44,5 +49,23 @@ class DynamoPersistence implements Persistence {
 
     public CompletableFuture<DeleteItemResponse> deleteItem(Consumer<DeleteItemRequest.Builder> delItemRequest) {
         return client.deleteItem(delItemRequest);
+    }
+
+    @Override
+    public CompletableFuture<List<Map<String, AttributeValue>>> scanAll(
+            final Consumer<ScanRequest.Builder> scanRequest) {
+        final List<Map<String, AttributeValue>> items = Collections.synchronizedList(new ArrayList<>());
+        return client.scanPaginator(scanRequest)
+                .subscribe(page -> items.addAll(page.items()))
+                .thenApply(ignored -> items);
+    }
+
+    @Override
+    public CompletableFuture<List<Map<String, AttributeValue>>> queryAll(
+            final Consumer<QueryRequest.Builder> queryRequest) {
+        final List<Map<String, AttributeValue>> items = Collections.synchronizedList(new ArrayList<>());
+        return client.queryPaginator(queryRequest)
+                .subscribe(page -> items.addAll(page.items()))
+                .thenApply(ignored -> items);
     }
 }

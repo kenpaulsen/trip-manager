@@ -2,7 +2,6 @@ package org.paulsens.trip.dynamo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -10,9 +9,11 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentSkipListMap;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.cache.CacheClient;
+import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.InMemoryCacheClient;
+import org.paulsens.trip.cache.PartitionCache;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.TodoItem;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -25,13 +26,29 @@ public class TodoDAO {
     private static final String DATA_ID = "dataId";
     private static final String TRIP_ID = "tripId";
 
-    private final Map<String, Map<DataId, TodoItem>> todoCache = new ConcurrentHashMap<>();
     private final ObjectMapper mapper;
     private final Persistence persistence;
+    private final CacheClient cacheClient;
+    private final PartitionCache<DataId, TodoItem> cache;
 
     protected TodoDAO(final ObjectMapper mapper, final Persistence persistence) {
+        this(mapper, persistence, new InMemoryCacheClient());
+    }
+
+    protected TodoDAO(final ObjectMapper mapper, final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = mapper;
         this.persistence = persistence;
+        this.cacheClient = cacheClient;
+        this.cache = PartitionCache.<DataId, TodoItem>builder()
+                .cache(cacheClient)
+                .keyPrefix(CacheKeys.TODO_PREFIX)
+                .idGetter(TodoItem::getDataId)
+                .idFormatter(DataId::getValue)
+                .serializer(this::toJson)
+                .deserializer(this::parseTodoItem)
+                // The old per-JVM cache was a skip-list map keyed by data id, so that was the caller-visible order.
+                .order(Comparator.comparing(TodoItem::getDataId))
+                .build();
     }
 
     protected CompletableFuture<Boolean> saveTodo(final TodoItem todo) throws IOException {
@@ -39,11 +56,10 @@ public class TodoDAO {
         map.put(TRIP_ID, persistence.toStrAttr(todo.getTripId()));
         map.put(DATA_ID, persistence.toStrAttr(todo.getDataId().getValue()));
         map.put(CONTENT, persistence.toStrAttr(mapper.writeValueAsString(todo)));
-        final CompletableFuture<Map<DataId, TodoItem>> futTripTodos = getTodoItemCache(todo.getTripId());
         return persistence.putItem(b -> b.tableName(TODO_ITEM_TABLE).item(map))
-                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
-                .thenCombine(futTripTodos, (success, tripRegs) -> success ? tripRegs : null)
-                .thenApply(tripTodos -> persistence.cacheOne(tripTodos, todo, todo.getDataId(), tripTodos != null))
+                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
+                        ? cache.put(todo.getTripId(), todo)
+                        : CompletableFuture.completedFuture(false))
                 .exceptionally(ex -> {
                     log.error("Failed to save todo (" + todo.getDescription() + ")!", ex);
                     return false;
@@ -51,49 +67,24 @@ public class TodoDAO {
     }
 
     protected CompletableFuture<List<TodoItem>> getTodoItems(final String tripId) {
-        return getTodoItemCache(tripId)
-                .thenApply(map -> new ArrayList<>(map.values()));
+        return cache.getAll(tripId, () -> loadTodoItems(tripId));
     }
 
-    protected CompletableFuture<Optional<TodoItem>> getTodoItem(final String tripId, final DataId pdvId){
-        return getTodoItemCache(tripId)             // Ensure todos for this trip are loaded into memory
-                .thenApply(map -> map.get(pdvId))   // Read from cache
-                .thenApply(Optional::ofNullable);
+    protected CompletableFuture<Optional<TodoItem>> getTodoItem(final String tripId, final DataId pdvId) {
+        return cache.getOne(tripId, pdvId, () -> loadTodoItems(tripId));
     }
 
     public void clearCache() {
-        todoCache.clear();
+        cacheClient.clearNamespace(CacheKeys.TODO_PREFIX).join();
     }
 
-    private CompletableFuture<Map<DataId, TodoItem>> getTodoItemCache(final String tripId) {
-        final Map<DataId, TodoItem> result = todoCache.get(tripId);
-        return (result == null) ? cacheTodoItems(tripId) : CompletableFuture.completedFuture(result);
-    }
-
-    private CompletableFuture<Map<DataId, TodoItem>> cacheTodoItems(final String tripId) {
-        return loadTodoItems(tripId)
-                .thenApply(cache -> {
-                    todoCache.put(tripId, cache);
-                    return cache;
-                })
-                .exceptionally(ex -> {
-                    log.error("Unable to load and cache todo items for '" + tripId + "'!", ex);
-                    throw new IllegalStateException(ex);
-                });
-    }
-
-    private CompletableFuture<Map<DataId, TodoItem>> loadTodoItems(final String tripId) {
+    private CompletableFuture<List<TodoItem>> loadTodoItems(final String tripId) {
         log.info("Cache miss for todo items for tripId: {}", tripId);
-        // Use a map that preserves order for sorting
-        final Map<DataId, TodoItem> result = new ConcurrentSkipListMap<>();
-        return persistence.query(qb -> queryTodoItemsByTrip(qb, tripId))
-                .thenApply(resp -> resp.items().stream()
+        return persistence.queryAll(qb -> queryTodoItemsByTrip(qb, tripId))
+                .thenApply(items -> items.stream()
                         .map(m -> toTodoItem(m.get(CONTENT)))
                         .filter(Objects::nonNull)
-                        .sorted(Comparator.comparing(TodoItem::getCreated))
-                        .toList())
-                .thenAccept(list -> persistence.cacheAll(result, list, TodoItem::getDataId))
-                .thenApply(v -> result);
+                        .toList());
     }
 
     private void queryTodoItemsByTrip(final QueryRequest.Builder qb, final String tripId) {
@@ -104,10 +95,23 @@ public class TodoDAO {
     }
 
     private TodoItem toTodoItem(final AttributeValue content) {
+        return (content == null) ? null : parseTodoItem(content.s());
+    }
+
+    private TodoItem parseTodoItem(final String json) {
         try {
-            return mapper.readValue(content.s(), TodoItem.class);
+            return mapper.readValue(json, TodoItem.class);
         } catch (final IOException ex) {
-            log.error("Unable to parse Todo Item record: " + content, ex);
+            log.error("Unable to parse Todo Item record: " + json, ex);
+            return null;
+        }
+    }
+
+    private String toJson(final TodoItem todo) {
+        try {
+            return mapper.writeValueAsString(todo);
+        } catch (final IOException ex) {
+            log.error("Unable to serialize todo item: " + todo.getDataId(), ex);
             return null;
         }
     }

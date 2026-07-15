@@ -26,6 +26,10 @@
             <artifactId>ses</artifactId>
         </dependency>
         <dependency>
+            <groupId>io.lettuce</groupId>
+            <artifactId>lettuce-core</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.paypal.sdk</groupId>
             <artifactId>paypal-server-sdk</artifactId>
             <version>2.2.0</version>

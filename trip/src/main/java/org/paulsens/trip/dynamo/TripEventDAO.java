@@ -6,8 +6,11 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.cache.CacheClient;
+import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.InMemoryCacheClient;
+import org.paulsens.trip.cache.PointCache;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -19,13 +22,25 @@ public class TripEventDAO {
     private static final String CONTENT = "content";
     private static final String TRIP_EVENT_TABLE = "trip_events";
 
-    private final Map<String, TripEvent> tripEventCache = new ConcurrentHashMap<>();
     private final ObjectMapper mapper;
     private final Persistence persistence;
+    private final CacheClient cacheClient;
+    private final PointCache<TripEvent> cache;
 
     protected TripEventDAO(final ObjectMapper mapper, final Persistence persistence) {
+        this(mapper, persistence, new InMemoryCacheClient());
+    }
+
+    protected TripEventDAO(final ObjectMapper mapper, final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = mapper;
         this.persistence = persistence;
+        this.cacheClient = cacheClient;
+        this.cache = PointCache.<TripEvent>builder()
+                .cache(cacheClient)
+                .keyPrefix(CacheKeys.TRIP_EVENT_PREFIX)
+                .serializer(this::toJson)
+                .deserializer(this::parseTripEvent)
+                .build();
     }
 
     protected CompletableFuture<Boolean> saveAllTripEvents(final Trip trip) {
@@ -37,7 +52,6 @@ public class TripEventDAO {
     }
 
     protected CompletableFuture<Boolean> saveTripEvent(final TripEvent te) {
-        // FIXME: should we check if we need to save?
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(ID, persistence.toStrAttr(te.getId()));
         try {
@@ -46,22 +60,23 @@ public class TripEventDAO {
             throw new RuntimeException(ex);
         }
         return persistence.putItem(b -> b.tableName(TRIP_EVENT_TABLE).item(map))
-                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
-                .thenApply(r -> r ? persistence.cacheOne(tripEventCache, te, te.getId(), true) : persistence.clearCache(tripEventCache, false));
+                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
+                        ? cache.put(te.getId(), te)
+                        : CompletableFuture.completedFuture(false));
     }
 
     protected CompletableFuture<TripEvent> getTripEvent(final String id) {
-        final TripEvent te = tripEventCache.get(id);
-        if (te != null) {
-            return CompletableFuture.completedFuture(te);
-        }
-        final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id).build());
-        return persistence.getItem(b -> b.key(key).tableName(TRIP_EVENT_TABLE).build())
-                .thenApply(item -> toTripEvent(item, id));
+        return cache.get(id, this::loadTripEvent).thenApply(opt -> opt.orElse(null));
     }
 
     public void clearCache() {
-        tripEventCache.clear();
+        cacheClient.clearNamespace(CacheKeys.TRIP_EVENT_PREFIX).join();
+    }
+
+    private CompletableFuture<TripEvent> loadTripEvent(final String id) {
+        final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id).build());
+        return persistence.getItem(b -> b.key(key).tableName(TRIP_EVENT_TABLE).build())
+                .thenApply(item -> toTripEvent(item, id));
     }
 
     private TripEvent toTripEvent(final GetItemResponse resp, final String teId) {
@@ -74,10 +89,23 @@ public class TripEventDAO {
             log.error("TripEvent (" + teId + ") is missing content!!");
             return null;
         }
+        return parseTripEvent(content.s());
+    }
+
+    private TripEvent parseTripEvent(final String json) {
         try {
-            return mapper.readValue(content.s(), TripEvent.class);
+            return mapper.readValue(json, TripEvent.class);
         } catch (final IOException ex) {
-            log.error("Unable to parse TripEvent record: " + content, ex);
+            log.error("Unable to parse TripEvent record: " + json, ex);
+            return null;
+        }
+    }
+
+    private String toJson(final TripEvent te) {
+        try {
+            return mapper.writeValueAsString(te);
+        } catch (final IOException ex) {
+            log.error("Unable to serialize trip event: " + te.getId(), ex);
             return null;
         }
     }

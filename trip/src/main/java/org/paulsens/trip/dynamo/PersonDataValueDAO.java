@@ -2,13 +2,19 @@ package org.paulsens.trip.dynamo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.cache.CacheClient;
+import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.InMemoryCacheClient;
+import org.paulsens.trip.cache.PartitionCache;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
@@ -23,13 +29,29 @@ public class PersonDataValueDAO {
     private static final String TYPE = "type";
     private static final String USER_ID = "userId";
 
-    private final Map<Person.Id, Map<DataId, PersonDataValue>> pdvCache = new ConcurrentHashMap<>();
     private final ObjectMapper mapper;
     private final Persistence persistence;
+    private final CacheClient cacheClient;
+    private final PartitionCache<DataId, PersonDataValue> cache;
 
     protected PersonDataValueDAO(final ObjectMapper mapper, final Persistence persistence) {
+        this(mapper, persistence, new InMemoryCacheClient());
+    }
+
+    protected PersonDataValueDAO(final ObjectMapper mapper, final Persistence persistence,
+            final CacheClient cacheClient) {
         this.mapper = mapper;
         this.persistence = persistence;
+        this.cacheClient = cacheClient;
+        this.cache = PartitionCache.<DataId, PersonDataValue>builder()
+                .cache(cacheClient)
+                .keyPrefix(CacheKeys.PDV_PREFIX)
+                .idGetter(PersonDataValue::getDataId)
+                .idFormatter(DataId::getValue)
+                .serializer(this::toJson)
+                .deserializer(this::parsePersonDataValue)
+                .order(Comparator.comparing(PersonDataValue::getDataId))
+                .build();
     }
 
     protected CompletableFuture<Boolean> savePersonDataValue(final PersonDataValue pdv) throws IOException {
@@ -38,11 +60,10 @@ public class PersonDataValueDAO {
         map.put(DATA_ID, persistence.toStrAttr(pdv.getDataId().getValue()));
         map.put(TYPE, persistence.toStrAttr(pdv.getType()));
         map.put(CONTENT, persistence.toStrAttr(mapper.writeValueAsString(pdv)));
-        final CompletableFuture<Map<DataId, PersonDataValue>> futUserData = getPersonDataValueCache(pdv.getUserId());
         return persistence.putItem(b -> b.tableName(PERSON_DATA_VALUE_TABLE).item(map))
-                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
-                .thenCombine(futUserData, (success, userData) -> success ? userData : null)
-                .thenApply(userData -> persistence.cacheOne(userData, pdv, pdv.getDataId(), userData != null))
+                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
+                        ? cache.put(pdv.getUserId().getValue(), pdv)
+                        : CompletableFuture.completedFuture(false))
                 .exceptionally(ex -> {
                     log.error("Failed to save PDV '" + pdv.getDataId() + "': (" + pdv.getContent() + ")!", ex);
                     return false;
@@ -50,46 +71,29 @@ public class PersonDataValueDAO {
     }
 
     protected CompletableFuture<Map<DataId, PersonDataValue>> getPersonDataValues(final Person.Id pid) {
-        return getPersonDataValueCache(pid);
-    }
-
-    protected CompletableFuture<Optional<PersonDataValue>> getPersonDataValue(final Person.Id pid, final DataId pdvId) {
-        return getPersonDataValueCache(pid)         // Ensure data for this person is loaded into memory
-                .thenApply(map -> map.get(pdvId))   // Read from cache
-                .thenApply(Optional::ofNullable);
-    }
-
-    public void clearCache() {
-        pdvCache.clear();
-    }
-
-    private CompletableFuture<Map<DataId, PersonDataValue>> getPersonDataValueCache(final Person.Id pid) {
-        final Map<DataId, PersonDataValue> result = pdvCache.get(pid);
-        return (result == null) ? cachePersonDataValues(pid) : CompletableFuture.completedFuture(result);
-    }
-
-    private CompletableFuture<Map<DataId, PersonDataValue>> cachePersonDataValues(final Person.Id pid) {
-        return loadPersonDataValues(pid)
-                .thenApply(cache -> {
-                    pdvCache.put(pid, cache);
-                    return cache;
-                })
-                .exceptionally(ex -> {
-                    log.error("Unable to load and cache person data values for '" + pid + "'!", ex);
-                    throw new IllegalStateException(ex);
+        return cache.getAll(pid.getValue(), () -> loadPersonDataValues(pid))
+                .thenApply(list -> {
+                    final Map<DataId, PersonDataValue> result = new LinkedHashMap<>();
+                    list.forEach(pdv -> result.put(pdv.getDataId(), pdv));
+                    return result;
                 });
     }
 
-    private CompletableFuture<Map<DataId, PersonDataValue>> loadPersonDataValues(final Person.Id pid) {
+    protected CompletableFuture<Optional<PersonDataValue>> getPersonDataValue(final Person.Id pid, final DataId pdvId) {
+        return cache.getOne(pid.getValue(), pdvId, () -> loadPersonDataValues(pid));
+    }
+
+    public void clearCache() {
+        cacheClient.clearNamespace(CacheKeys.PDV_PREFIX).join();
+    }
+
+    private CompletableFuture<List<PersonDataValue>> loadPersonDataValues(final Person.Id pid) {
         log.info("Cache miss for person data values for person id: {}", pid);
-        final Map<DataId, PersonDataValue> result = new ConcurrentHashMap<>();
-        return persistence.query(qb -> queryPersonDataValuesByPerson(qb, pid))
-                .thenApply(resp -> resp.items().stream()
+        return persistence.queryAll(qb -> queryPersonDataValuesByPerson(qb, pid))
+                .thenApply(items -> items.stream()
                         .map(m -> toPersonDataValue(m.get(CONTENT)))
                         .filter(Objects::nonNull)
-                        .toList())
-                .thenAccept(list -> persistence.cacheAll(result, list, PersonDataValue::getDataId))
-                .thenApply(v -> result);
+                        .toList());
     }
 
     private void queryPersonDataValuesByPerson(final QueryRequest.Builder qb, final Person.Id pid) {
@@ -100,10 +104,23 @@ public class PersonDataValueDAO {
     }
 
     private PersonDataValue toPersonDataValue(final AttributeValue content) {
+        return (content == null) ? null : parsePersonDataValue(content.s());
+    }
+
+    private PersonDataValue parsePersonDataValue(final String json) {
         try {
-            return mapper.readValue(content.s(), PersonDataValue.class);
+            return mapper.readValue(json, PersonDataValue.class);
         } catch (final IOException ex) {
-            log.error("Unable to parse Person Data Value record: " + content, ex);
+            log.error("Unable to parse Person Data Value record: " + json, ex);
+            return null;
+        }
+    }
+
+    private String toJson(final PersonDataValue pdv) {
+        try {
+            return mapper.writeValueAsString(pdv);
+        } catch (final IOException ex) {
+            log.error("Unable to serialize PDV: " + pdv.getDataId(), ex);
             return null;
         }
     }

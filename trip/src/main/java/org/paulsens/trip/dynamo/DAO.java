@@ -1,6 +1,7 @@
 package org.paulsens.trip.dynamo;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -11,6 +12,12 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.cache.CacheClient;
+import org.paulsens.trip.cache.CacheConfig;
+import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.InMemoryCacheClient;
+import org.paulsens.trip.cache.NoopCacheClient;
+import org.paulsens.trip.cache.ValkeyCacheClient;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.DataId;
@@ -27,6 +34,7 @@ import org.paulsens.trip.model.TripEvent;
 public class DAO {
     @Getter
     private final ObjectMapper mapper;
+    private final CacheClient cacheClient;
     private final PersonDAO personDao;
     private final TripEventDAO tripEventDao;
     private final TripDAO tripDao;
@@ -42,18 +50,22 @@ public class DAO {
     private static DAO inst;
 
     private DAO() {
-        final Persistence persistence = createTripPersistence();
+        this(createTripPersistence(), createCacheClient());
+    }
+
+    private DAO(final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = createObjectMapper();
-        this.personDao = new PersonDAO(mapper, persistence);
-        this.tripEventDao = new TripEventDAO(mapper, persistence);
-        this.tripDao = new TripDAO(mapper, persistence, tripEventDao);
-        this.regDao = new RegistrationDAO(mapper, persistence);
-        this.txDao = new TransactionDAO(mapper, persistence);
+        this.cacheClient = cacheClient;
+        this.personDao = new PersonDAO(mapper, persistence, cacheClient);
+        this.tripEventDao = new TripEventDAO(mapper, persistence, cacheClient);
+        this.tripDao = new TripDAO(mapper, persistence, tripEventDao, cacheClient);
+        this.regDao = new RegistrationDAO(mapper, persistence, cacheClient);
+        this.txDao = new TransactionDAO(mapper, persistence, cacheClient);
         this.credDao = new CredentialsDAO(persistence, personDao);
-        this.todoDao = new TodoDAO(mapper, persistence);
-        this.pdvDao = new PersonDataValueDAO(mapper, persistence);
-        this.privDao = new PrivilegesDAO(mapper, persistence);
-        this.bindingDao = new BindingDAO(persistence);
+        this.todoDao = new TodoDAO(mapper, persistence, cacheClient);
+        this.pdvDao = new PersonDataValueDAO(mapper, persistence, cacheClient);
+        this.privDao = new PrivilegesDAO(mapper, persistence, cacheClient);
+        this.bindingDao = new BindingDAO(persistence, cacheClient);
     }
 
     public static DAO getInstance() {
@@ -63,6 +75,25 @@ public class DAO {
             FakeData.addFakeData();
         }
         return inst;
+    }
+
+    /**
+     * Selects the shared-cache client: local/test mode always gets the zero-dependency in-memory client; otherwise
+     * the {@link CacheConfig} mode decides (valkey / memory / off). Any external client using this library resolves
+     * identically, so a write with {@code TRIP_VALKEY_URI} set is immediately visible to every running instance.
+     */
+    private static CacheClient createCacheClient() {
+        return FakeData.isLocal() ? new InMemoryCacheClient() : createConfiguredCacheClient();
+    }
+
+    private static CacheClient createConfiguredCacheClient() {
+        final CacheConfig config = CacheConfig.resolve();
+        log.info("Shared cache mode: {}", config.getMode());
+        return switch (config.getMode()) {
+            case VALKEY -> new ValkeyCacheClient(config);
+            case MEMORY -> new InMemoryCacheClient();
+            case OFF -> new NoopCacheClient();
+        };
     }
 
     // People
@@ -193,17 +224,13 @@ public class DAO {
         return bindingDao.removeBinding(id, type, destId, destType, bidirectionalBindings);
     }
 
-    /* Package-private for testing */
+    /**
+     * Drops every entry in the shared cache's data namespace (never a full FLUSH -- on ElastiCache Serverless that
+     * would also wipe the distributed sessions). Used by tests and the admin "clear all caches" action; with the
+     * shared cache this now flushes for every running instance at once.
+     */
     public void clearAllCaches() {
-        personDao.clearCache();
-        tripDao.clearCache();
-        tripEventDao.clearCache();
-        regDao.clearCache();
-        txDao.clearCache();
-        todoDao.clearCache();
-        pdvDao.clearCache();
-        privDao.clearCache();
-        bindingDao.clearCache();
+        cacheClient.clearNamespace(CacheKeys.FORMAT_VERSION).join();
     }
 
     private ObjectMapper createObjectMapper() {
@@ -211,10 +238,14 @@ public class DAO {
         mapper.setDefaultPropertyInclusion(JsonInclude.Include.NON_NULL);
         mapper.registerModule(new JavaTimeModule());
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        // Forward/backward compatibility: instances of different versions share the same Valkey cache blobs
+        // (and DynamoDB rows), so reads must tolerate JSON written by a newer (or older) schema. Unknown JSON
+        // properties are ignored rather than failing the read -- required for safe rolling deploys.
+        mapper.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         return mapper;
     }
 
-    private Persistence createTripPersistence() {
+    private static Persistence createTripPersistence() {
         final Persistence result;
         if (FakeData.isLocal()) {
             // Local development only -- don't talk to dynamo

@@ -2,14 +2,18 @@ package org.paulsens.trip.dynamo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.cache.CacheClient;
+import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.FullTableCache;
+import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.model.Person;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
@@ -19,13 +23,26 @@ public class PersonDAO {
     private static final String CONTENT = "content";
     private static final String PERSON_TABLE = "people";
 
-    private final Map<Person.Id, Person> peopleCache = new ConcurrentHashMap<>();
     private final ObjectMapper mapper;
     private final Persistence persistence;
+    private final FullTableCache<Person.Id, Person> cache;
 
     protected PersonDAO(final ObjectMapper mapper, final Persistence persistence) {
+        this(mapper, persistence, new InMemoryCacheClient());
+    }
+
+    protected PersonDAO(final ObjectMapper mapper, final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = mapper;
         this.persistence = persistence;
+        this.cache = FullTableCache.<Person.Id, Person>builder()
+                .cache(cacheClient)
+                .key(CacheKeys.PEOPLE)
+                .idGetter(Person::getId)
+                .idFormatter(Person.Id::getValue)
+                .serializer(this::toJson)
+                .deserializer(this::parsePerson)
+                .order(Comparator.naturalOrder())
+                .build();
     }
 
     protected CompletableFuture<Boolean> savePerson(final Person person) throws IOException {
@@ -33,46 +50,24 @@ public class PersonDAO {
         map.put(ID, AttributeValue.builder().s(person.getId().getValue()).build());
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(person)).build());
         return persistence.putItem(b -> b.tableName(PERSON_TABLE).item(map))
-                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful() ?
-                        updateCacheForPerson(person) :
-                        persistence.clearCache(peopleCache, false));
+                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
+                        ? updateCacheForPerson(person)
+                        : CompletableFuture.completedFuture(false));
     }
 
-    private Boolean updateCacheForPerson(final Person person) {
-        if (person.getDeleted() == null) {
-            persistence.cacheOne(peopleCache, person, person.getId(), true);
-        } else {
-            peopleCache.remove(person.getId());
-        }
-        return true;
+    private CompletableFuture<Boolean> updateCacheForPerson(final Person person) {
+        return (person.getDeleted() == null) ? cache.put(person) : cache.remove(person.getId());
     }
 
     protected CompletableFuture<List<Person>> getPeople() {
-        if (!peopleCache.isEmpty()) {
-            // FIXME: Can we also cache the list itself?
-            return CompletableFuture.completedFuture(
-                    peopleCache.values().stream()
-                            .sorted()
-                            .toList());
-        }
-        return persistence.scan(b -> b.consistentRead(false).limit(2000).tableName(PERSON_TABLE).build())
-                .thenApply(resp -> resp.items().stream()
-                        .map(it -> toPerson(it.get(CONTENT)))
-                        .filter(p -> p != null && p.getDeleted() == null)
-                        .sorted()
-                        .toList())
-                .thenApply(list -> persistence.cacheAll(peopleCache, list, Person::getId));
+        return cache.getAll(this::loadPeople);
     }
 
     protected CompletableFuture<Optional<Person>> getPerson(final Person.Id id) {
         if (id == null) {
             return CompletableFuture.completedFuture(Optional.empty());
         }
-        final Person person = peopleCache.get(id);
-        if (person != null) {
-            return CompletableFuture.completedFuture(Optional.of(person));
-        }
-        return getPeople().thenApply(people -> Optional.ofNullable(peopleCache.get(id))); // Load all the people
+        return cache.getOne(id, this::loadPeople);
     }
 
     protected CompletableFuture<Person> getPersonByEmail(final String email) {
@@ -85,17 +80,35 @@ public class PersonDAO {
     }
 
     public void clearCache() {
-        peopleCache.clear();
+        cache.invalidate().join();
+    }
+
+    private CompletableFuture<List<Person>> loadPeople() {
+        return persistence.scanAll(b -> b.consistentRead(false).limit(2000).tableName(PERSON_TABLE).build())
+                .thenApply(items -> items.stream()
+                        .map(it -> toPerson(it.get(CONTENT)))
+                        .filter(p -> p != null && p.getDeleted() == null)
+                        .toList());
     }
 
     private Person toPerson(final AttributeValue content) {
-        if (content == null) {
+        return (content == null) ? null : parsePerson(content.s());
+    }
+
+    private Person parsePerson(final String json) {
+        try {
+            return mapper.readValue(json, Person.class);
+        } catch (final IOException ex) {
+            log.error("Unable to parse person record: " + json, ex);
             return null;
         }
+    }
+
+    private String toJson(final Person person) {
         try {
-            return mapper.readValue(content.s(), Person.class);
+            return mapper.writeValueAsString(person);
         } catch (final IOException ex) {
-            log.error("Unable to parse person record: " + content, ex);
+            log.error("Unable to serialize person: " + person.getId(), ex);
             return null;
         }
     }
