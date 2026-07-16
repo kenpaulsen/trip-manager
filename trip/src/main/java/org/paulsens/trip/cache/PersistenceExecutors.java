@@ -15,15 +15,17 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class PersistenceExecutors {
     private static final AtomicInteger COUNTER = new AtomicInteger();
-    private static final ThreadFactory FACTORY = runnable -> {
-        final Thread thread = new Thread(runnable, "trip-persist-" + COUNTER.incrementAndGet());
-        thread.setDaemon(true);
-        return thread;
-    };
+    private static final ThreadFactory FACTORY = PersistenceExecutors::newWorkerThread;
     private static final ExecutorService POOL = Executors.newCachedThreadPool(FACTORY);
 
     public static ExecutorService pool() {
         return POOL;
+    }
+
+    private static Thread newWorkerThread(final Runnable runnable) {
+        final Thread thread = new Thread(runnable, "trip-persist-" + COUNTER.incrementAndGet());
+        thread.setDaemon(true);
+        return thread;
     }
 
     private PersistenceExecutors() {

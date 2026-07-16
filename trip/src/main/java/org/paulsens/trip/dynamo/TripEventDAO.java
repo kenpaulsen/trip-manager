@@ -9,6 +9,7 @@ import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.CacheSupport;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.cache.PointCache;
 import org.paulsens.trip.model.Trip;
@@ -38,6 +39,7 @@ public class TripEventDAO {
         this.cache = PointCache.<TripEvent>builder()
                 .cache(cacheClient)
                 .keyPrefix(CacheKeys.TRIP_EVENT_PREFIX)
+                .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
                 .serializer(this::toJson)
                 .deserializer(this::parseTripEvent)
                 .build();

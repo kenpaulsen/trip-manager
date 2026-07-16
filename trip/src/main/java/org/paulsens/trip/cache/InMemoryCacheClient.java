@@ -12,15 +12,17 @@ import java.util.concurrent.ConcurrentMap;
 
 /**
  * Map-backed {@link CacheClient} used for {@code local=true} mode and unit tests -- no external processes required.
- * TTLs are ignored (entries live for the JVM lifetime, matching the old per-DAO cache behavior). In local mode the
- * fake {@link org.paulsens.trip.dynamo.Persistence} returns empty scans, so this cache effectively IS the local
+ * Hard TTLs are ignored (entries live for the JVM lifetime). Locks are process-local. In local mode the fake
+ * {@link org.paulsens.trip.dynamo.Persistence} returns empty scans, so this cache effectively IS the local
  * datastore, seeded by write-through saves from FakeData.
  */
 public final class InMemoryCacheClient implements CacheClient {
     private static final CompletableFuture<Boolean> TRUE = CompletableFuture.completedFuture(true);
+    private static final CompletableFuture<Boolean> FALSE = CompletableFuture.completedFuture(false);
 
     // Values are String (point), ConcurrentMap<String, String> (hash), or Set<String> (set).
     private final ConcurrentMap<String, Object> store = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Long> locks = new ConcurrentHashMap<>();
 
     @Override
     public CompletableFuture<Optional<String>> getValue(final String key) {
@@ -48,15 +50,19 @@ public final class InMemoryCacheClient implements CacheClient {
 
     @Override
     public CompletableFuture<Map<String, String>> getHashFields(final String key, final Collection<String> fields) {
-        final Map<String, String> hash = hash(key);
+        return CompletableFuture.completedFuture(selectHashFields(hash(key), fields));
+    }
+
+    private static Map<String, String> selectHashFields(
+            final Map<String, String> hash, final Collection<String> fields) {
         final Map<String, String> result = new HashMap<>();
-        fields.forEach(field -> {
+        for (final String field : fields) {
             final String value = hash.get(field);
             if (value != null) {
                 result.put(field, value);
             }
-        });
-        return CompletableFuture.completedFuture(result);
+        }
+        return result;
     }
 
     @Override
@@ -100,8 +106,29 @@ public final class InMemoryCacheClient implements CacheClient {
     }
 
     @Override
+    public CompletableFuture<Boolean> tryAcquireLock(final String key, final Duration ttl) {
+        final long now = System.currentTimeMillis();
+        final long expireAt = now + Math.max(1L, ttl == null ? 5_000L : ttl.toMillis());
+        if (locks.putIfAbsent(key, expireAt) == null) {
+            return TRUE;
+        }
+        final Long existing = locks.get(key);
+        if (existing != null && existing <= now && locks.replace(key, existing, expireAt)) {
+            return TRUE;
+        }
+        return FALSE;
+    }
+
+    @Override
+    public CompletableFuture<Boolean> releaseLock(final String key) {
+        locks.remove(key);
+        return TRUE;
+    }
+
+    @Override
     public CompletableFuture<Boolean> clearNamespace(final String prefix) {
         store.keySet().removeIf(key -> key.startsWith(prefix));
+        locks.keySet().removeIf(key -> key.startsWith(prefix));
         return TRUE;
     }
 

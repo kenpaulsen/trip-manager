@@ -5,7 +5,13 @@ import java.time.Duration;
 /**
  * Single authority for shared-cache key names. Every key written by the data layer starts with {@link #FORMAT_VERSION}
  * so an incompatible change to the cached JSON format can be rolled out by bumping the prefix (old instances keep
- * reading their own keys; abandoned keys age out via TTL).
+ * reading their own keys; abandoned keys age out via {@link #GC_TTL} or explicit clear).
+ *
+ * <p>Entity data uses <strong>soft revalidate</strong>: {@link #LOADED_AT} (or binding marker epoch) records the last
+ * full load from Dynamo. After {@link #SOFT_TTL}, reads still return cache hits immediately and a background reload
+ * may run (read-triggered; idle partitions can stay soft-stale until next access — admin clear for impatient cases).
+ * Write-through does <em>not</em> refresh {@link #LOADED_AT}. Hard {@code EXPIRE} of {@link #GC_TTL} is only a
+ * hygiene backstop for abandoned keys / GB-hour billing, not the primary coherence mechanism.</p>
  */
 public final class CacheKeys {
     /** Bump (t1: -> t2:) on any incompatible change to the cached value format. */
@@ -22,8 +28,9 @@ public final class CacheKeys {
     public static final String TODO_PREFIX = FORMAT_VERSION + "todo:";
     public static final String PDV_PREFIX = FORMAT_VERSION + "pdv:";
 
-    // Point entries (append the entity id).
+    // Point entries (append the entity id). Sibling {@code :at} key holds epoch millis for soft revalidate.
     public static final String TRIP_EVENT_PREFIX = FORMAT_VERSION + "trip_event:";
+    public static final String POINT_AT_SUFFIX = ":at";
 
     // Binding adjacency sets: BIND_PREFIX + {typeAndId} + ":" + {destTypeId}; loaded marker uses BIND_LOADED_SUFFIX.
     public static final String BIND_PREFIX = FORMAT_VERSION + "bind:";
@@ -43,16 +50,40 @@ public final class CacheKeys {
     public static final String LOADED_SENTINEL = "__loaded__";
     public static final String LOADED_VALUE = "1";
 
-    /** Default TTL for loaded hashes -- bounds staleness from writers that bypass the cache. */
-    public static final Duration DEFAULT_TTL = Duration.ofHours(1);
-    /** Point entries are only ever written through this layer, so they can live longer. */
-    public static final Duration POINT_TTL = Duration.ofHours(24);
     /**
-     * Binding member sets must outlive their loaded marker: the marker expiring first forces a reload while the
-     * sets still hold valid write-through members. A set expiring before its marker would silently read as empty.
+     * Hash field: epoch millis of last <em>full load</em> from Dynamo (only meaningful with {@link #LOADED_SENTINEL}).
+     * Write-through does not update this. Missing or unparseable → treat as soft-stale (background revalidate).
      */
-    public static final Duration BIND_SET_TTL = Duration.ofHours(24);
-    public static final Duration BIND_MARKER_TTL = Duration.ofHours(1);
+    public static final String LOADED_AT = "__loaded_at__";
+
+    /**
+     * Soft revalidate age: after this, cache hits still serve immediately but may trigger a background Dynamo reload.
+     */
+    public static final Duration SOFT_TTL = Duration.ofHours(1);
+
+    /**
+     * Idle hygiene TTL applied after full loads (and refreshed on write-through activity). Bounds abandoned key
+     * growth and GB-hours; not used as the primary delete-heal mechanism (that is soft revalidate + reconcile).
+     */
+    public static final Duration GC_TTL = Duration.ofDays(7);
+
+    /**
+     * Crash-safety TTL for distributed refresh locks ({@code SET NX EX}). Long enough for a cold full-table scan;
+     * release is best-effort. Overlapping refreshes after expiry are safe by design (overlay merge + snapshot
+     * reconcile; {@link #LOADED_AT} is last-write-wins).
+     */
+    public static final Duration REFRESH_LOCK_TTL = Duration.ofSeconds(45);
+
+    /** Prefix for refresh locks: {@link #refreshLockKey(String)}. */
+    public static final String REFRESH_LOCK_PREFIX = FORMAT_VERSION + "refresh:";
+
+    public static String refreshLockKey(final String dataKey) {
+        return REFRESH_LOCK_PREFIX + dataKey;
+    }
+
+    public static String pointAtKey(final String pointKey) {
+        return pointKey + POINT_AT_SUFFIX;
+    }
 
     private CacheKeys() {
     }

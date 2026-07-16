@@ -11,6 +11,7 @@ import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.CacheSupport;
 import org.paulsens.trip.cache.FullTableCache;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.model.Privilege;
@@ -40,6 +41,7 @@ public class PrivilegesDAO {
         this.cache = FullTableCache.<String, Privilege>builder()
                 .cache(cacheClient)
                 .key(CacheKeys.PRIVS)
+                .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
                 .idGetter(Privilege::getName)
                 .idFormatter(name -> name)
                 .serializer(this::toJson)

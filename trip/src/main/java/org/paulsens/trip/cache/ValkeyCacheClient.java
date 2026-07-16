@@ -1,12 +1,12 @@
 package org.paulsens.trip.cache;
 
 import io.lettuce.core.ClientOptions;
-import io.lettuce.core.ExpireArgs;
 import io.lettuce.core.KeyScanCursor;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisFuture;
 import io.lettuce.core.RedisURI;
 import io.lettuce.core.ScanArgs;
+import io.lettuce.core.SetArgs;
 import io.lettuce.core.TimeoutOptions;
 import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.cluster.ClusterClientOptions;
@@ -14,9 +14,11 @@ import io.lettuce.core.cluster.ClusterTopologyRefreshOptions;
 import io.lettuce.core.cluster.RedisClusterClient;
 import io.lettuce.core.cluster.api.StatefulRedisClusterConnection;
 import io.lettuce.core.cluster.api.async.RedisClusterAsyncCommands;
+import io.lettuce.core.KeyValue;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -70,13 +72,20 @@ public final class ValkeyCacheClient implements CacheClient {
             this.commands = conn.async();
         }
         // Startup connectivity check -- log only, the app must come up even if the cache is down.
-        commands.ping().thenAccept(pong ->
-                        log.info("Valkey cache connected ({} mode): {}",
-                                config.isCluster() ? "cluster" : "standalone", config.getValkeyUri()))
-                .exceptionally(ex -> {
-                    log.error("Valkey cache NOT reachable at {}: {}", config.getValkeyUri(), ex.toString());
-                    return null;
-                });
+        final String mode = config.isCluster() ? "cluster" : "standalone";
+        final String uriLabel = config.getValkeyUri();
+        commands.ping()
+                .thenAccept(pong -> logConnected(mode, uriLabel))
+                .exceptionally(ex -> logNotReachable(uriLabel, ex));
+    }
+
+    private static void logConnected(final String mode, final String uriLabel) {
+        log.info("Valkey cache connected ({} mode): {}", mode, uriLabel);
+    }
+
+    private static Void logNotReachable(final String uriLabel, final Throwable ex) {
+        log.error("Valkey cache NOT reachable at {}: {}", uriLabel, ex.toString());
+        return null;
     }
 
     @Override
@@ -86,6 +95,9 @@ public final class ValkeyCacheClient implements CacheClient {
 
     @Override
     public CompletableFuture<Boolean> putValue(final String key, final String value, final Duration ttl) {
+        if (ttl == null || ttl.isZero() || ttl.isNegative()) {
+            return guard("SET " + key, commands.set(key, value), "OK"::equals, false);
+        }
         return guard("SETEX " + key, commands.setex(key, ttl.toSeconds(), value), "OK"::equals, false);
     }
 
@@ -102,15 +114,17 @@ public final class ValkeyCacheClient implements CacheClient {
     @Override
     public CompletableFuture<Map<String, String>> getHashFields(final String key, final Collection<String> fields) {
         return guard("HMGET " + key, commands.hmget(key, fields.toArray(String[]::new)),
-                keyValues -> {
-                    final Map<String, String> result = new HashMap<>();
-                    keyValues.forEach(kv -> {
-                        if (kv.hasValue()) {
-                            result.put(kv.getKey(), kv.getValue());
-                        }
-                    });
-                    return result;
-                }, Map.of());
+                ValkeyCacheClient::toHashFieldMap, Map.of());
+    }
+
+    private static Map<String, String> toHashFieldMap(final List<KeyValue<String, String>> keyValues) {
+        final Map<String, String> result = new HashMap<>();
+        for (final KeyValue<String, String> kv : keyValues) {
+            if (kv.hasValue()) {
+                result.put(kv.getKey(), kv.getValue());
+            }
+        }
+        return result;
     }
 
     @Override
@@ -149,35 +163,44 @@ public final class ValkeyCacheClient implements CacheClient {
     }
 
     @Override
-    public CompletableFuture<Boolean> expireIfNoTtl(final String key, final Duration ttl) {
-        // NX replies false when a TTL already exists -- that still means "the key has a TTL", i.e. success.
-        return guard("EXPIRE NX " + key, commands.expire(key, ttl.toSeconds(), ExpireArgs.Builder.nx()),
-                ignored -> true, false);
+    public CompletableFuture<Boolean> tryAcquireLock(final String key, final Duration ttl) {
+        final long seconds = Math.max(1L, ttl == null ? 5L : ttl.toSeconds());
+        return guard("SET NX EX " + key,
+                commands.set(key, "1", SetArgs.Builder.nx().ex(seconds)),
+                "OK"::equals,
+                false);
+    }
+
+    @Override
+    public CompletableFuture<Boolean> releaseLock(final String key) {
+        return removeKey(key);
     }
 
     @Override
     public CompletableFuture<Boolean> clearNamespace(final String prefix) {
         // Admin/test path only: SCAN (never KEYS -- restricted on ElastiCache Serverless) + UNLINK, blocking a
         // worker thread for simplicity.
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                final ScanArgs args = ScanArgs.Builder.matches(prefix + "*").limit(SCAN_BATCH);
-                KeyScanCursor<String> cursor = commands.scan(args).get(ADMIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-                while (true) {
-                    if (!cursor.getKeys().isEmpty()) {
-                        commands.unlink(cursor.getKeys().toArray(String[]::new))
-                                .get(ADMIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-                    }
-                    if (cursor.isFinished()) {
-                        return true;
-                    }
-                    cursor = commands.scan(cursor, args).get(ADMIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        return CompletableFuture.supplyAsync(() -> scanAndUnlink(prefix), PersistenceExecutors.pool());
+    }
+
+    private boolean scanAndUnlink(final String prefix) {
+        try {
+            final ScanArgs args = ScanArgs.Builder.matches(prefix + "*").limit(SCAN_BATCH);
+            KeyScanCursor<String> cursor = commands.scan(args).get(ADMIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            while (true) {
+                if (!cursor.getKeys().isEmpty()) {
+                    commands.unlink(cursor.getKeys().toArray(String[]::new))
+                            .get(ADMIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 }
-            } catch (final Exception ex) {
-                log.error("Valkey clearNamespace('{}') failed", prefix, ex);
-                return false;
+                if (cursor.isFinished()) {
+                    return true;
+                }
+                cursor = commands.scan(cursor, args).get(ADMIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             }
-        }, PersistenceExecutors.pool());
+        } catch (final Exception ex) {
+            log.error("Valkey clearNamespace('{}') failed", prefix, ex);
+            return false;
+        }
     }
 
     @Override
@@ -192,17 +215,26 @@ public final class ValkeyCacheClient implements CacheClient {
 
     private <T, R> CompletableFuture<R> guard(final String op, final RedisFuture<T> future,
             final Function<T, R> mapper, final R fallback) {
-        return future.handleAsync((value, ex) -> {
-            if (ex != null) {
-                log.error("Valkey {} failed: {}", op, ex.toString());
-                return fallback;
-            }
-            try {
-                return mapper.apply(value);
-            } catch (final RuntimeException rex) {
-                log.error("Valkey {} result mapping failed", op, rex);
-                return fallback;
-            }
-        }, PersistenceExecutors.pool()).toCompletableFuture();
+        return future.handleAsync(
+                (value, ex) -> mapGuardResult(op, value, ex, mapper, fallback),
+                PersistenceExecutors.pool()).toCompletableFuture();
+    }
+
+    private static <T, R> R mapGuardResult(
+            final String op,
+            final T value,
+            final Throwable ex,
+            final Function<T, R> mapper,
+            final R fallback) {
+        if (ex != null) {
+            log.error("Valkey {} failed: {}", op, ex.toString());
+            return fallback;
+        }
+        try {
+            return mapper.apply(value);
+        } catch (final RuntimeException rex) {
+            log.error("Valkey {} result mapping failed", op, rex);
+            return fallback;
+        }
     }
 }

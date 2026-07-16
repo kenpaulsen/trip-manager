@@ -13,6 +13,7 @@ import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.CacheSupport;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.cache.PartitionCache;
 import org.paulsens.trip.model.DataId;
@@ -46,6 +47,7 @@ public class PersonDataValueDAO {
         this.cache = PartitionCache.<DataId, PersonDataValue>builder()
                 .cache(cacheClient)
                 .keyPrefix(CacheKeys.PDV_PREFIX)
+                .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
                 .idGetter(PersonDataValue::getDataId)
                 .idFormatter(DataId::getValue)
                 .serializer(this::toJson)

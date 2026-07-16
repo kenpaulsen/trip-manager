@@ -11,6 +11,7 @@ import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.CacheSupport;
 import org.paulsens.trip.cache.FullTableCache;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.model.Trip;
@@ -45,6 +46,7 @@ public class TripDAO {
         this.cache = FullTableCache.<String, Trip>builder()
                 .cache(cacheClient)
                 .key(CacheKeys.TRIPS)
+                .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
                 .idGetter(Trip::getId)
                 .idFormatter(id -> id)
                 .serializer(this::toJson)

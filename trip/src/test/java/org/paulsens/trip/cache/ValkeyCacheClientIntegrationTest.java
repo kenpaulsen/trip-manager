@@ -78,12 +78,10 @@ public class ValkeyCacheClientIntegrationTest {
     }
 
     @Test
-    public void expireIfNoTtlDoesNotSlideExistingTtl() {
+    public void expireAppliesGcTtl() {
         final String key = NS + "e1";
         client.putHashField(key, "f", "v").join();
         assertTrue(client.expire(key, Duration.ofSeconds(100)).join());
-        // NX must report success even though a TTL already exists
-        assertTrue(client.expireIfNoTtl(key, Duration.ofSeconds(5000)).join());
     }
 
     @Test
@@ -115,7 +113,7 @@ public class ValkeyCacheClientIntegrationTest {
         final PartitionCache<String, String> cache = PartitionCache.<String, String>builder()
                 .cache(client)
                 .keyPrefix(NS + "pc:")
-                .ttl(Duration.ofMinutes(5))
+                .softTtl(Duration.ofMinutes(5))
                 .idGetter(v -> v.substring(0, 1))
                 .idFormatter(k -> k)
                 .serializer(v -> v)

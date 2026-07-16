@@ -12,6 +12,7 @@ import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.CacheSupport;
 import org.paulsens.trip.cache.FullTableCache;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.model.Person;
@@ -37,6 +38,7 @@ public class PersonDAO {
         this.cache = FullTableCache.<Person.Id, Person>builder()
                 .cache(cacheClient)
                 .key(CacheKeys.PEOPLE)
+                .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
                 .idGetter(Person::getId)
                 .idFormatter(Person.Id::getValue)
                 .serializer(this::toJson)

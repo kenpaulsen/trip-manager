@@ -19,7 +19,10 @@ public interface CacheClient {
     /** Gets a single string value (point entries), empty on miss or cache error. */
     CompletableFuture<Optional<String>> getValue(String key);
 
-    /** Sets a single string value with a time-to-live. */
+    /**
+     * Sets a single string value. When {@code ttl} is non-null and positive, the key expires after that duration;
+     * when {@code ttl} is null, the key has no hard expiry.
+     */
     CompletableFuture<Boolean> putValue(String key, String value, Duration ttl);
 
     /** Removes a key of any type (value, hash, or set). */
@@ -49,17 +52,26 @@ public interface CacheClient {
     /** Returns all members of a set, empty on miss or cache error. */
     CompletableFuture<Set<String>> getSetMembers(String key);
 
-    /** Applies a time-to-live to an existing key, resetting any previous TTL. */
+    /**
+     * Applies a time-to-live to an existing key (resets the idle clock). Used for {@link CacheKeys#GC_TTL} hygiene
+     * on entity data, not for soft-revalidate coherence.
+     */
     CompletableFuture<Boolean> expire(String key, Duration ttl);
 
     /**
-     * Ensures the key has a time-to-live without sliding an existing one (EXPIRE NX semantics). Used by
-     * write-through updates: a fresh key gets bounded, but frequent writes must not extend a loaded hash's
-     * expiry forever (that would keep changes written directly to the database invisible indefinitely).
+     * Tries to acquire a distributed lock ({@code SET key NX EX ttl}). Returns {@code true} if this caller holds
+     * the lock. On cache errors, returns {@code false} (skip background work). The TTL is crash safety only;
+     * callers should {@link #releaseLock} when done. Overlapping holders after expiry are expected under slow
+     * reloads — entity merge is designed to tolerate duplicate refreshes.
      */
-    default CompletableFuture<Boolean> expireIfNoTtl(final String key, final Duration ttl) {
-        return expire(key, ttl);
-    }
+    CompletableFuture<Boolean> tryAcquireLock(String key, Duration ttl);
+
+    /**
+     * Best-effort unlock ({@code DEL}). Unconditional: if the lock TTL expired and another instance re-acquired,
+     * this may delete their lock (duplicate refreshes remain safe). Prefer relying on short crash TTLs over
+     * token-compare release complexity.
+     */
+    CompletableFuture<Boolean> releaseLock(String key);
 
     /**
      * Removes every key starting with {@code prefix}. Used by the admin "clear all caches" action and by tests;

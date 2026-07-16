@@ -21,20 +21,26 @@ public class FullTableCache<K, V> {
     private final PartitionCache<K, V> delegate;
 
     @Builder
-    private FullTableCache(final CacheClient cache, final String key, final Duration ttl,
+    private FullTableCache(final CacheClient cache, final String key, final Duration softTtl,
+            final Duration gcTtl, final Boolean softRevalidate,
             final Function<V, K> idGetter, final Function<K, String> idFormatter,
             final Function<V, String> serializer, final Function<String, V> deserializer,
-            final Comparator<V> order) {
-        this.delegate = PartitionCache.<K, V>builder()
+            final Comparator<V> order, final Supplier<Long> clock) {
+        final PartitionCache.PartitionCacheBuilder<K, V> b = PartitionCache.<K, V>builder()
                 .cache(cache)
                 .keyPrefix(key)
-                .ttl(ttl == null ? CacheKeys.DEFAULT_TTL : ttl)
+                .softTtl(softTtl == null ? CacheKeys.SOFT_TTL : softTtl)
+                .gcTtl(gcTtl == null ? CacheKeys.GC_TTL : gcTtl)
+                .softRevalidate(softRevalidate == null || softRevalidate)
                 .idGetter(idGetter)
                 .idFormatter(idFormatter)
                 .serializer(serializer)
                 .deserializer(deserializer)
-                .order(order)
-                .build();
+                .order(order);
+        if (clock != null) {
+            b.clock(clock);
+        }
+        this.delegate = b.build();
     }
 
     /** Returns every entity in the table, loading (and caching) via the full scan on a cache miss. */
@@ -42,7 +48,7 @@ public class FullTableCache<K, V> {
         return delegate.getAll("", loader);
     }
 
-    /** Returns one entity by id (loaded hash answers "not found" without a database call). */
+    /** Returns one entity by id (loaded hash answers "not found" without a blocking database call). */
     public CompletableFuture<Optional<V>> getOne(final K id, final Supplier<CompletableFuture<List<V>>> loader) {
         return delegate.getOne("", id, loader);
     }

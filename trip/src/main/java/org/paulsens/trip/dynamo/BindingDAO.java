@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.AdjacencyCache;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.CacheSupport;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.CompositeKey;
@@ -50,10 +51,14 @@ public class BindingDAO {
     protected BindingDAO(final Persistence persistence, final CacheClient cacheClient) {
         this.persistence = persistence;
         this.cacheClient = cacheClient;
-        this.cache = AdjacencyCache.builder()
+        final AdjacencyCache.AdjacencyCacheBuilder cacheBuilder = AdjacencyCache.builder()
                 .cache(cacheClient)
                 .keyPrefix(CacheKeys.BIND_PREFIX)
-                .build();
+                .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient));
+        for (final BindingType type : BindingType.values()) {
+            cacheBuilder.destTypeId(String.valueOf(type.getTypeId()));
+        }
+        this.cache = cacheBuilder.build();
     }
 
     /**
@@ -152,7 +157,11 @@ public class BindingDAO {
         log.info("Cache Miss for {} ({}) bindings.", key.getType().name(), key.getId());
         return persistence.queryAll(qb -> createQueryByID1(qb, key))
                 .thenApply(items -> {
+                    // Pre-seed every dest type (including empty) so cache reconcile can clear deleted edges.
                     final Map<String, List<String>> result = new HashMap<>();
+                    for (final BindingType type : BindingType.values()) {
+                        result.put(destTypeId(type), new ArrayList<>());
+                    }
                     for (final Map<String, AttributeValue> row : items) {
                         final TypeAndId key2 = TypeAndId.from(row.get(ID2).s());
                         result.computeIfAbsent(destTypeId(key2.getType()), na -> new ArrayList<>())

@@ -76,6 +76,17 @@ public final class NoopCacheClient implements CacheClient {
     }
 
     @Override
+    public CompletableFuture<Boolean> tryAcquireLock(final String key, final Duration ttl) {
+        // Nothing is cached; acquiring is harmless and unused on the miss path.
+        return TRUE;
+    }
+
+    @Override
+    public CompletableFuture<Boolean> releaseLock(final String key) {
+        return TRUE;
+    }
+
+    @Override
     public CompletableFuture<Boolean> clearNamespace(final String prefix) {
         return TRUE;
     }
