@@ -31,12 +31,21 @@ already have `groupPeople` are skipped, so re-running is safe.
 ## Run it
 
 ```sh
-# Preview:
+# Preview (lists every row that would change; writes nothing):
 ./scripts/migrate-group-tx-membership.sh --dry-run
 
 # Apply (live environment example -- production account, us-east-1):
 ./scripts/migrate-group-tx-membership.sh --profile prod --region us-east-1
 ```
+
+Updates run **25 at a time** (`--concurrency <n>` to change). The table scan is a single pass; the
+`UpdateItem` calls are what benefit from the parallelism, since each one is a separate `aws` CLI
+invocation. On-demand DynamoDB absorbs this rate easily — if you ever see
+`ProvisionedThroughputExceededException`, lower the concurrency and re-run (see below).
+
+A row that fails is reported on stderr and counted, but does **not** abort the run; the script exits
+non-zero if anything failed. Because it only ever touches rows that still lack `groupPeople`, simply
+re-running it retries exactly the failed rows and nothing else.
 
 ## After running
 
