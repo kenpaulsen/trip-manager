@@ -2,6 +2,7 @@ package org.paulsens.trip.cache;
 
 import java.time.Duration;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -45,6 +46,21 @@ public interface CacheClient {
 
     /** Adds members to a set. */
     CompletableFuture<Boolean> addSetMembers(String key, Collection<String> members);
+
+    /**
+     * Adds entries to a lexicographic sorted set (ZADD with score 0). Used by search indexes; entries sort as
+     * plain strings.
+     */
+    CompletableFuture<Boolean> addSortedSetEntries(String key, Collection<String> entries);
+
+    /** Removes entries from a lexicographic sorted set (ZREM). Missing entries are ignored. */
+    CompletableFuture<Boolean> removeSortedSetEntries(String key, Collection<String> entries);
+
+    /**
+     * Returns up to {@code limit} entries of the sorted set at {@code key} that start with {@code prefix}
+     * (ZRANGEBYLEX), in lexicographic order. Empty list on miss or cache error.
+     */
+    CompletableFuture<List<String>> getSortedSetByPrefix(String key, String prefix, int limit);
 
     /** Removes one member from a set. */
     CompletableFuture<Boolean> removeSetMember(String key, String member);

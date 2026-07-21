@@ -100,8 +100,8 @@ public class DAO {
     public CompletableFuture<Boolean> savePerson(final Person person) throws IOException {
         return personDao.savePerson(person);
     }
-    public CompletableFuture<List<Person>> getPeople() {
-        return personDao.getPeople();
+    public CompletableFuture<List<Person>> searchPeople(final String query, final int limit) {
+        return personDao.searchPeople(query, limit);
     }
     public CompletableFuture<Optional<Person>> getPerson(final Person.Id id) {
         return personDao.getPerson(id);

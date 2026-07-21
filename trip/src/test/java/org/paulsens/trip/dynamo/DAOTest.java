@@ -73,7 +73,8 @@ public class DAOTest {
         assertTrue(DB_UTILS.savePerson(person2).join());
         assertTrue(DB_UTILS.savePerson(person1).join());
         assertTrue(DB_UTILS.savePerson(person3).join());
-        final List<Person> people = DB_UTILS.getPeople().join();
+        // No list-all anymore: find them via prefix search (last names all start with "l")
+        final List<Person> people = DB_UTILS.searchPeople("l", 10).join();
         assertEquals(people.size(), 3);
         final Person person = people.stream().filter(p -> Person.Id.from("1").equals(p.getId())).findAny().orElse(null);
         assertEquals(person, person1);

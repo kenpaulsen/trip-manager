@@ -2,7 +2,10 @@ package org.paulsens.trip.cache;
 
 import io.lettuce.core.ClientOptions;
 import io.lettuce.core.KeyScanCursor;
+import io.lettuce.core.Limit;
+import io.lettuce.core.Range;
 import io.lettuce.core.RedisClient;
+import io.lettuce.core.ScoredValue;
 import io.lettuce.core.RedisFuture;
 import io.lettuce.core.RedisURI;
 import io.lettuce.core.ScanArgs;
@@ -145,6 +148,33 @@ public final class ValkeyCacheClient implements CacheClient {
     @Override
     public CompletableFuture<Boolean> addSetMembers(final String key, final Collection<String> members) {
         return guard("SADD " + key, commands.sadd(key, members.toArray(String[]::new)), ignored -> true, false);
+    }
+
+    @Override
+    public CompletableFuture<Boolean> addSortedSetEntries(final String key, final Collection<String> entries) {
+        if (entries.isEmpty()) {
+            return CompletableFuture.completedFuture(true);
+        }
+        final ScoredValue<String>[] scored = entries.stream()
+                .map(entry -> ScoredValue.just(0.0d, entry))
+                .toArray(ScoredValue[]::new);
+        return guard("ZADD " + key, commands.zadd(key, scored), ignored -> true, false);
+    }
+
+    @Override
+    public CompletableFuture<Boolean> removeSortedSetEntries(final String key, final Collection<String> entries) {
+        if (entries.isEmpty()) {
+            return CompletableFuture.completedFuture(true);
+        }
+        return guard("ZREM " + key, commands.zrem(key, entries.toArray(String[]::new)), ignored -> true, false);
+    }
+
+    @Override
+    public CompletableFuture<List<String>> getSortedSetByPrefix(final String key, final String prefix, final int limit) {
+        final Range<String> range = Range.from(
+                Range.Boundary.including(prefix), Range.Boundary.including(prefix + Character.MAX_VALUE));
+        return guard("ZRANGEBYLEX " + key, commands.zrangebylex(key, range, Limit.create(0, limit)),
+                Function.identity(), List.of());
     }
 
     @Override

@@ -78,6 +78,25 @@ public class ValkeyCacheClientIntegrationTest {
     }
 
     @Test
+    public void sortedSetPrefixRoundTrip() {
+        final String key = NS + "z1";
+        assertTrue(client.addSortedSetEntries(key,
+                List.of("paulsen|id1", "paulsen|id2", "peterson|id3", "adams|id4")).join());
+        assertEquals(client.getSortedSetByPrefix(key, "paulsen", 10).join(),
+                List.of("paulsen|id1", "paulsen|id2"));
+        assertEquals(client.getSortedSetByPrefix(key, "p", 10).join(),
+                List.of("paulsen|id1", "paulsen|id2", "peterson|id3"));
+        // Limit respected, lexicographic order
+        assertEquals(client.getSortedSetByPrefix(key, "p", 1).join(), List.of("paulsen|id1"));
+        assertEquals(client.getSortedSetByPrefix(key, "zzz", 10).join(), List.of());
+        assertTrue(client.removeSortedSetEntries(key, List.of("paulsen|id1")).join());
+        assertEquals(client.getSortedSetByPrefix(key, "paulsen", 10).join(), List.of("paulsen|id2"));
+        // Empty collections are no-ops that still succeed
+        assertTrue(client.addSortedSetEntries(key, List.of()).join());
+        assertTrue(client.removeSortedSetEntries(key, List.of()).join());
+    }
+
+    @Test
     public void expireAppliesGcTtl() {
         final String key = NS + "e1";
         client.putHashField(key, "f", "v").join();

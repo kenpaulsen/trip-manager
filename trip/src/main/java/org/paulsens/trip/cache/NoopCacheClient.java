@@ -2,6 +2,7 @@ package org.paulsens.trip.cache;
 
 import java.time.Duration;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -63,6 +64,21 @@ public final class NoopCacheClient implements CacheClient {
     @Override
     public CompletableFuture<Boolean> removeSetMember(final String key, final String member) {
         return TRUE;
+    }
+
+    @Override
+    public CompletableFuture<Boolean> addSortedSetEntries(final String key, final Collection<String> entries) {
+        return TRUE;
+    }
+
+    @Override
+    public CompletableFuture<Boolean> removeSortedSetEntries(final String key, final Collection<String> entries) {
+        return TRUE;
+    }
+
+    @Override
+    public CompletableFuture<List<String>> getSortedSetByPrefix(final String key, final String prefix, final int limit) {
+        return CompletableFuture.completedFuture(List.of());
     }
 
     @Override

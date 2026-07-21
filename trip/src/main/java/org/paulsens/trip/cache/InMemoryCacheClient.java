@@ -1,14 +1,17 @@
 package org.paulsens.trip.cache;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ConcurrentSkipListSet;
 
 /**
  * Map-backed {@link CacheClient} used for {@code local=true} mode and unit tests -- no external processes required.
@@ -90,6 +93,30 @@ public final class InMemoryCacheClient implements CacheClient {
     }
 
     @Override
+    public CompletableFuture<Boolean> addSortedSetEntries(final String key, final Collection<String> entries) {
+        sortedSet(key).addAll(entries);
+        return TRUE;
+    }
+
+    @Override
+    public CompletableFuture<Boolean> removeSortedSetEntries(final String key, final Collection<String> entries) {
+        sortedSet(key).removeAll(entries);
+        return TRUE;
+    }
+
+    @Override
+    public CompletableFuture<List<String>> getSortedSetByPrefix(final String key, final String prefix, final int limit) {
+        final List<String> result = new ArrayList<>();
+        for (final String entry : sortedSet(key).tailSet(prefix)) {
+            if (!entry.startsWith(prefix) || result.size() >= limit) {
+                break;
+            }
+            result.add(entry);
+        }
+        return CompletableFuture.completedFuture(result);
+    }
+
+    @Override
     public CompletableFuture<Boolean> removeSetMember(final String key, final String member) {
         set(key).remove(member);
         return TRUE;
@@ -140,5 +167,10 @@ public final class InMemoryCacheClient implements CacheClient {
     @SuppressWarnings("unchecked")
     private Set<String> set(final String key) {
         return (Set<String>) store.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet());
+    }
+
+    @SuppressWarnings("unchecked")
+    private ConcurrentSkipListSet<String> sortedSet(final String key) {
+        return (ConcurrentSkipListSet<String>) store.computeIfAbsent(key, k -> new ConcurrentSkipListSet<String>());
     }
 }

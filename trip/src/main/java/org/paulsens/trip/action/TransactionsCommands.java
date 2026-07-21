@@ -14,10 +14,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
@@ -113,16 +111,22 @@ public class TransactionsCommands {
                 comboKey -> bind.compositeKeyGetter(comboKey, (k1, k2) -> getTransaction(Person.Id.from(k1), k2)));
     }
 
-    public boolean saveGroupTx(final String gid, final Type type, final Transaction.TransactionType txType,
-                final LocalDateTime date, final Float amount, final String cat, final String note, final String tripId,
-                final String eventId, final Object... objArr) {
+    /**
+     * Saves a Shared/Batch group of transactions. {@code origPeople} is the membership as it was when the page
+     * loaded (from {@link #getUserIdsForGroup}); members removed from the new selection get their row deleted.
+     * Every surviving row is stamped with the full member list so membership never requires probing other users.
+     */
+    public boolean saveGroupTx(final String gid, final List<Person.Id> origPeople, final Type type,
+                final Transaction.TransactionType txType, final LocalDateTime date, final Float amount,
+                final String cat, final String note, final String tripId, final String eventId,
+                final Object... objArr) {
         final List<Person.Id> txPeople = (objArr == null) ? Collections.emptyList() :
                 Arrays.stream(objArr).flatMap(this::castToPersonId).toList();
         final String groupId = isNullOrEmpty(gid) ? UUID.randomUUID().toString() : gid;
         final AtomicBoolean result = new AtomicBoolean(true);
 
         // Find existing that should no longer be part of this, delete their existing tx
-        final List<Person.Id> existing = getUserIdsForGroupId(groupId);
+        final List<Person.Id> existing = (origPeople == null) ? List.of() : origPeople;
         existing.stream().filter(uid -> !txPeople.contains(uid))
                 .map(uid -> getGroupTransactionForUser(uid, groupId))
                 .forEach(optTx -> optTx.ifPresent(tx -> {
@@ -134,9 +138,12 @@ public class TransactionsCommands {
                 }));
 
         // Find existing, update or create their tx (our "existing" variable doesn't contain deleted, search 1 by 1)
-        txPeople.forEach(uid -> persistTx(updateTx(getGroupTransactionForUser(uid, groupId)
-                .orElseGet(() -> new Transaction(uid, groupId, type)),
-                date, amount, txType, cat, note), tripId, eventId, result));
+        txPeople.forEach(uid -> {
+            final Transaction tx = updateTx(getGroupTransactionForUser(uid, groupId)
+                    .orElseGet(() -> new Transaction(uid, groupId, type)), date, amount, txType, cat, note);
+            tx.setGroupPeople(txPeople);
+            persistTx(tx, tripId, eventId, result);
+        });
 
         return result.get();
     }
@@ -192,18 +199,23 @@ public class TransactionsCommands {
     }
 
     /**
-     * Returns the people who are part of the given {@code groupId}. Deleted {@link Transaction}s are ignored.
-     * @param groupId   The {@link Type#Batch} or {@link Type#Shared} groupId.
-     * @return  The userId's which share in the batch or shared transaction.
+     * Returns the people who share in the given {@link Type#Batch} or {@link Type#Shared} transaction, read from
+     * the membership list stamped on the row itself. Legacy rows saved before membership stamping fall back to
+     * just the row's own user -- run the group-tx membership migration (see
+     * {@code docs/migrations/group-tx-membership.md}) to fix those.
      */
-    public List<Person.Id> getUserIdsForGroupId(final String groupId) {
-        // FIXME: It might be nice to have each transaction associated w/ a Trip, currently it isn't so we can't
-        // FIXME: limit the potential people in a Batch.
-        return DAO.getInstance().getPeople()
-                .thenApply(all -> all.stream().map(Person::getId)
-                        .filter(userId -> hasGroupTransaction(userId, groupId).join())
-                        .collect(Collectors.toList()))
-                .join();
+    public List<Person.Id> getUserIdsForGroup(final Transaction tx) {
+        if (tx == null) {
+            return List.of();
+        }
+        if (tx.getGroupPeople() != null && !tx.getGroupPeople().isEmpty()) {
+            return tx.getGroupPeople();
+        }
+        if (tx.getGroupId() != null) {
+            log.warn("Group tx '{}' (group '{}') has no groupPeople -- legacy row, run the group-tx migration.",
+                    tx.getTxId(), tx.getGroupId());
+        }
+        return List.of(tx.getUserId());
     }
 
     /**
@@ -215,7 +227,7 @@ public class TransactionsCommands {
         if (tx == null || tx.getAmount() == null) {
             return null;
         }
-        return tx.isShared() ? tx.getAmount() / getUserIdsForGroupId(tx.getGroupId()).size() : tx.getAmount();
+        return tx.isShared() ? tx.getAmount() / Math.max(1, getUserIdsForGroup(tx).size()) : tx.getAmount();
     }
 
     private Transaction updateTx(final Transaction tx, final LocalDateTime date, final Float amount,
@@ -226,11 +238,6 @@ public class TransactionsCommands {
         tx.setCategory(cat);
         tx.setNote(note);
         return tx;
-    }
-
-    private CompletableFuture<Boolean> hasGroupTransaction(final Person.Id userId, final String groupId) {
-        return DAO.getInstance().getTransactions(userId).thenApply(
-                txs -> txs.stream().anyMatch(tx -> groupId.equals(tx.getGroupId()) && (tx.getDeleted() == null)));
     }
 
     public BindingCommands getBind() {

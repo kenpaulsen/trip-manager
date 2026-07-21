@@ -7,12 +7,16 @@ import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
@@ -61,11 +65,16 @@ public class PersonCommands {
         return result;
     }
 
-    public List<Person> getPeople() {
-        return DAO.getInstance().getPeople()
-                .orTimeout(3_000, TimeUnit.MILLISECONDS)
+    /** Prefix search over name/nickname/email/cell; default result cap. */
+    public List<Person> searchPeople(final String query) {
+        return searchPeople(query, 25);
+    }
+
+    public List<Person> searchPeople(final String query, final int limit) {
+        return DAO.getInstance().searchPeople(query, limit)
+                .orTimeout(5_000, TimeUnit.MILLISECONDS)
                 .exceptionally(ex -> {
-                    log.error("Failed to get list of people!", ex);
+                    log.error("Failed to search people for '{}'!", query, ex);
                     return Collections.emptyList();
                 })
                 .join();
@@ -96,6 +105,33 @@ public class PersonCommands {
 
     public List<Person> getPeopleByIds(final List<Person.Id> ids) {
         return ids.stream().map(this::getPerson).toList();
+    }
+
+    /**
+     * Candidate list for people pickers: the already-selected people first (so current selections always remain
+     * valid options in the component), then search results for {@code query}. Either argument may be null;
+     * {@code selected} may be a {@code List} or an array (PrimeFaces multi-selects submit arrays) of
+     * {@link Person.Id} or their string values.
+     */
+    public List<Person> searchCandidates(final Object selected, final String query) {
+        final List<Person> result = new ArrayList<>();
+        selectedIds(selected).map(this::getPerson).filter(Objects::nonNull)
+                .filter(p -> !result.contains(p)).forEach(result::add);
+        searchPeople(query).stream().filter(p -> !result.contains(p)).forEach(result::add);
+        return result;
+    }
+
+    private Stream<Person.Id> selectedIds(final Object selected) {
+        final Collection<?> items;
+        if (selected instanceof Collection<?> col) {
+            items = col;
+        } else if (selected instanceof Object[] arr) {
+            items = Arrays.asList(arr);
+        } else {
+            items = List.of();
+        }
+        return items.stream().filter(Objects::nonNull)
+                .map(item -> (item instanceof Person.Id pid) ? pid : Person.Id.from(String.valueOf(item)));
     }
 
     public Person getPerson(final Person.Id id) {

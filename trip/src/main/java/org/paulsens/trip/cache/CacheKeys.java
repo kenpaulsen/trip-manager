@@ -18,9 +18,30 @@ public final class CacheKeys {
     public static final String FORMAT_VERSION = "t1:";
 
     // Whole-table hashes (field = entity id, value = entity JSON).
-    public static final String PEOPLE = FORMAT_VERSION + "people";
     public static final String TRIPS = FORMAT_VERSION + "trips";
     public static final String PRIVS = FORMAT_VERSION + "privs";
+
+    // People are point entries (no whole-table hash): PERSON_PREFIX + {personId}.
+    public static final String PERSON_PREFIX = FORMAT_VERSION + "person:";
+
+    // Email lookup hash: field = lowercased email, value = personId. Lazy cache in front of the email-index GSI
+    // (and the authoritative store in local mode, where every save goes through write-through).
+    public static final String EMAIL_IDX = FORMAT_VERSION + "email";
+
+    // People search index: lexicographic sorted set of "token|personId" entries plus a sibling loaded marker
+    // (value = epoch millis of last full build). See SearchIndex.
+    public static final String PEOPLE_SEARCH = FORMAT_VERSION + "idx:people";
+    public static final String SEARCH_LOADED_SUFFIX = ":loaded";
+
+    /** Separator between a search token and the entity id in a search index entry. Stripped from tokens. */
+    public static final char SEARCH_SEPARATOR = '|';
+
+    /**
+     * Soft revalidate age for search indexes: rebuilding means a full table scan, so it is much lazier than
+     * {@link #SOFT_TTL}. Out-of-band writes through the DAO keep the index current; this only heals direct
+     * database edits.
+     */
+    public static final Duration INDEX_SOFT_TTL = Duration.ofHours(24);
 
     // Per-partition hashes (append the partition id).
     public static final String REG_PREFIX = FORMAT_VERSION + "reg:";
