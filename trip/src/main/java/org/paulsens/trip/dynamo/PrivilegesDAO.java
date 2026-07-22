@@ -12,11 +12,18 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.CacheSupport;
-import org.paulsens.trip.cache.FullTableCache;
 import org.paulsens.trip.cache.InMemoryCacheClient;
+import org.paulsens.trip.cache.PartitionScanCache;
 import org.paulsens.trip.model.Privilege;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
+/**
+ * Privileges are partitioned by trip. A privilege is either global or trip-scoped (its {@code id} ends with the
+ * trip id -- see {@link Privilege}), so listing "all privileges" is replaced by listing one partition: the global
+ * partition or a single trip's. The {@link PartitionScanCache} holds one Valkey hash per partition (rebuilt by a
+ * rare whole-table scan), so a trip's privileges are one {@code HGETALL}; single-privilege reads are point reads by
+ * the DynamoDB {@code name} key.
+ */
 @Slf4j
 public class PrivilegesDAO {
     private static final String NAME = "name";
@@ -28,7 +35,7 @@ public class PrivilegesDAO {
     private final ObjectMapper mapper;
     private final Persistence persistence;
     private final CacheClient cacheClient;
-    private final FullTableCache<String, Privilege> cache;
+    private final PartitionScanCache<Privilege> cache;
 
     protected PrivilegesDAO(final ObjectMapper mapper, final Persistence persistence) {
         this(mapper, persistence, new InMemoryCacheClient());
@@ -38,25 +45,26 @@ public class PrivilegesDAO {
         this.mapper = mapper;
         this.persistence = persistence;
         this.cacheClient = cacheClient;
-        this.cache = FullTableCache.<String, Privilege>builder()
+        this.cache = PartitionScanCache.<Privilege>builder()
                 .cache(cacheClient)
-                .key(CacheKeys.PRIVS)
+                .keyPrefix(CacheKeys.PRIV_PREFIX)
+                .loadedKey(CacheKeys.PRIV_LOADED)
                 .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
-                .idGetter(Privilege::getName)
-                .idFormatter(name -> name)
+                .loader(this::loadAllPrivileges)
+                .partitioner(PrivilegesDAO::partitionOf)
+                .fielder(Privilege::getName)
                 .serializer(this::toJson)
                 .deserializer(this::parsePrivilege)
-                .order(privSorter)
                 .build();
     }
 
     protected CompletableFuture<Boolean> savePrivilege(final Privilege priv) {
         final Map<String, AttributeValue> map = new HashMap<>();
-        map.put(NAME, persistence.toStrAttr(priv.getName()));
+        map.put(NAME, persistence.toStrAttr(priv.getId()));
         try {
             map.put(CONTENT, persistence.toStrAttr(mapper.writeValueAsString(priv)));
         } catch (final IOException ex) {
-            final String error = "Unable to serialize privilege named: " + priv.getName();
+            final String error = "Unable to serialize privilege named: " + priv.getId();
             log.warn(error);
             throw new IllegalStateException(error);
         }
@@ -66,66 +74,63 @@ public class PrivilegesDAO {
                         : CompletableFuture.completedFuture(false));
     }
 
-    protected CompletableFuture<List<Privilege>> getPrivileges() {
-        return cache.getAll(this::loadPrivileges);
+    /** Global (non-trip) privileges. */
+    protected CompletableFuture<List<Privilege>> getGlobalPrivileges() {
+        return cache.getPartition(CacheKeys.PRIV_GLOBAL_PARTITION);
+    }
+
+    /** Privileges scoped to the given trip. */
+    protected CompletableFuture<List<Privilege>> getTripPrivileges(final String tripId) {
+        if (tripId == null) {
+            return getGlobalPrivileges();
+        }
+        return cache.getPartition(tripId);
     }
 
     /**
-     * A privilege check must stay cheap: on a cache miss this does a point read of the single privilege rather
-     * than scanning the whole table (a loaded cache still answers hits and "not found" without any database call).
+     * A single privilege by id (== DynamoDB name). Stays cheap: served from its partition hash, or a point read of
+     * the single row on a miss -- never a table scan.
      */
-    protected CompletableFuture<Optional<Privilege>> getPrivilege(final String name) {
-        return cacheClient.getHashFields(CacheKeys.PRIVS, List.of(CacheKeys.LOADED_SENTINEL, name))
-                .thenCompose(found -> {
-                    final String json = found.get(name);
-                    if (json != null) {
-                        final Privilege priv = parsePrivilege(json);
-                        if (priv != null) {
-                            return CompletableFuture.completedFuture(Optional.of(priv));
-                        }
-                    }
-                    if (found.containsKey(CacheKeys.LOADED_SENTINEL)) {
-                        return CompletableFuture.completedFuture(Optional.empty());
-                    }
-                    return pointReadPrivilege(name);
-                });
+    protected CompletableFuture<Optional<Privilege>> getPrivilege(final String id) {
+        if (id == null) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+        return cache.getOne(partitionOf(id), baseNameOf(id), () -> pointReadPrivilege(id));
     }
 
     public void clearCache() {
         cache.invalidate().join();
     }
 
-    private CompletableFuture<Optional<Privilege>> pointReadPrivilege(final String name) {
-        final Map<String, AttributeValue> key = Map.of(NAME, AttributeValue.builder().s(name).build());
+    private static String partitionOf(final Privilege priv) {
+        return priv.isGlobal() ? CacheKeys.PRIV_GLOBAL_PARTITION : priv.getTripId();
+    }
+
+    private static String partitionOf(final String id) {
+        final Privilege probe = new Privilege(id, null, null);
+        return partitionOf(probe);
+    }
+
+    private static String baseNameOf(final String id) {
+        return new Privilege(id, null, null).getName();
+    }
+
+    private CompletableFuture<Optional<Privilege>> pointReadPrivilege(final String id) {
+        final Map<String, AttributeValue> key = Map.of(NAME, AttributeValue.builder().s(id).build());
         return persistence.getItem(b -> b.key(key).tableName(PRIVILEGE_TABLE).build())
                 .thenApply(resp -> resp.item().get(CONTENT))
-                .thenCompose(content -> {
-                    final Privilege priv = (content == null) ? null : parsePrivilege(content.s());
-                    if (priv == null) {
-                        return CompletableFuture.completedFuture(Optional.<Privilege>empty());
-                    }
-                    return cache.put(priv).thenApply(ignored -> Optional.of(priv));
-                })
-                .exceptionally(ex -> logAndReturnEmpty(ex, name));
+                .thenApply(content -> Optional.ofNullable(content == null ? null : parsePrivilege(content.s())))
+                .exceptionally(ex -> logAndReturnEmpty(ex, id));
     }
 
-    private CompletableFuture<List<Privilege>> loadPrivileges() {
+    private CompletableFuture<List<Privilege>> loadAllPrivileges() {
         return persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(PRIVILEGE_TABLE).build())
                 .thenApply(items -> items.stream()
-                        .map(it -> toPrivilege(it.get(CONTENT)).get())
+                        .map(it -> it.get(CONTENT))
+                        .filter(content -> content != null)
+                        .map(content -> parsePrivilege(content.s()))
+                        .filter(priv -> priv != null)
                         .toList());
-    }
-
-    private Optional<Privilege> toPrivilege(final AttributeValue content) {
-        if (content == null) {
-            log.debug("No content returned for privilege from db, perhaps it doesn't exist?");
-            return Optional.empty();
-        }
-        try {
-            return Optional.ofNullable(mapper.readValue(content.s(), Privilege.class));
-        } catch (final IOException ex) {
-            throw new IllegalStateException("Unable to parse Privilege content!");
-        }
     }
 
     private Privilege parsePrivilege(final String json) {
@@ -141,13 +146,13 @@ public class PrivilegesDAO {
         try {
             return mapper.writeValueAsString(priv);
         } catch (final IOException ex) {
-            log.error("Unable to serialize privilege: " + priv.getName(), ex);
+            log.error("Unable to serialize privilege: " + priv.getId(), ex);
             return null;
         }
     }
 
-    private Optional<Privilege> logAndReturnEmpty(final Throwable ex, final String name) {
-        log.debug("PrivilegesDAO: Unable to retrieve Privilege (" + name + ")!");
+    private Optional<Privilege> logAndReturnEmpty(final Throwable ex, final String id) {
+        log.debug("PrivilegesDAO: Unable to retrieve Privilege (" + id + ")!", ex);
         return Optional.empty();
     }
 }

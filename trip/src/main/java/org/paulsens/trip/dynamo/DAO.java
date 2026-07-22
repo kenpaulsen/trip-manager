@@ -216,8 +216,11 @@ public class DAO {
     public CompletableFuture<Optional<Privilege>> getPrivilege(final String name) {
         return privDao.getPrivilege(name);
     }
-    public CompletableFuture<List<Privilege>> getPrivileges() {
-        return privDao.getPrivileges();
+    public CompletableFuture<List<Privilege>> getGlobalPrivileges() {
+        return privDao.getGlobalPrivileges();
+    }
+    public CompletableFuture<List<Privilege>> getTripPrivileges(final String tripId) {
+        return privDao.getTripPrivileges(tripId);
     }
 
     // Bindings

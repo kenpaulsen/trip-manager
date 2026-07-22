@@ -17,8 +17,16 @@ public final class CacheKeys {
     /** Bump (t1: -> t2:) on any incompatible change to the cached value format. */
     public static final String FORMAT_VERSION = "t1:";
 
-    // Whole-table hashes (field = entity id, value = entity JSON).
-    public static final String PRIVS = FORMAT_VERSION + "privs";
+    // Privileges are partitioned by trip: one hash per partition (PRIV_PREFIX + partition), field = base priv name,
+    // value = Privilege JSON. The partition is the tripId for trip-scoped privileges, or PRIV_GLOBAL_PARTITION.
+    // A single loaded marker (PRIV_LOADED) covers all partitions -- one scan rebuilds them together. See PrivilegeIndex.
+    public static final String PRIV_PREFIX = FORMAT_VERSION + "priv:";
+    public static final String PRIV_GLOBAL_PARTITION = "__global__";
+    public static final String PRIV_LOADED = FORMAT_VERSION + "priv_loaded";
+
+    public static String privPartitionKey(final String partition) {
+        return PRIV_PREFIX + partition;
+    }
 
     // Trips are point entries (no whole-table hash): TRIP_PREFIX + {tripId}.
     public static final String TRIP_PREFIX = FORMAT_VERSION + "trip:";

@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.paulsens.trip.model.Privilege;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -28,6 +29,8 @@ import static org.testng.Assert.assertTrue;
  */
 public class ValkeyCacheClientIntegrationTest {
     private static final String NS = "ittest:";
+    private final com.fasterxml.jackson.databind.ObjectMapper privMapper =
+            new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
     private ValkeyCacheClient client;
 
     @BeforeClass
@@ -169,6 +172,76 @@ public class ValkeyCacheClientIntegrationTest {
         assertEquals(index.tripIdsForUser("u2", 0).join(), List.of());
         assertEquals(index.tripIdsForUser("u1", 0).join().size(), 2);
         index.invalidate().join();
+    }
+
+    @Test
+    public void partitionScanCacheBuildsServesAndFallsBackToPointRead() {
+        final String tripId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        final List<Privilege> live = new java.util.ArrayList<>(List.of(
+                new Privilege("tripMgr" + tripId, "m", List.of()),
+                new Privilege("tripView" + tripId, "v", List.of()),
+                new Privilege("peopleAdmin", "pa", List.of())));
+        final AtomicInteger scans = new AtomicInteger();
+        final AtomicInteger pointLoads = new AtomicInteger();
+        final PartitionScanCache<Privilege> cache = PartitionScanCache.<Privilege>builder()
+                .cache(client)
+                .keyPrefix(NS + "priv:")
+                .loadedKey(NS + "priv_loaded")
+                .softTtl(Duration.ofHours(24))
+                .loader(() -> {
+                    scans.incrementAndGet();
+                    return CompletableFuture.completedFuture(List.copyOf(live));
+                })
+                .partitioner(p -> p.isGlobal() ? "__global__" : p.getTripId())
+                .fielder(Privilege::getName)
+                .serializer(this::privToJson)
+                .deserializer(this::privFromJson)
+                .build();
+        final java.util.function.Supplier<CompletableFuture<Optional<Privilege>>> failLoader = () -> {
+            pointLoads.incrementAndGet();
+            return CompletableFuture.completedFuture(Optional.empty());
+        };
+
+        // Cold: one scan builds every partition; the trip partition is one HGETALL.
+        assertEquals(names(cache.getPartition(tripId).join()), Set.of("tripMgr", "tripView"));
+        assertEquals(scans.get(), 1);
+        assertEquals(names(cache.getPartition("__global__").join()), Set.of("peopleAdmin"));
+        assertEquals(scans.get(), 1, "subsequent partition reads served from cache, no re-scan");
+
+        // getOne: a hit needs no point load; a miss with the loaded marker set is authoritative (no point load).
+        assertTrue(cache.getOne("__global__", "peopleAdmin", failLoader).join().isPresent());
+        assertTrue(cache.getOne("__global__", "ghost", failLoader).join().isEmpty());
+        assertEquals(pointLoads.get(), 0, "loaded marker answers 'not found' without a point read");
+
+        // After invalidate (marker + partitions gone), getOne falls back to the point loader.
+        cache.invalidate().join();
+        assertTrue(cache.getOne(tripId, "ghost", failLoader).join().isEmpty());
+        assertEquals(pointLoads.get(), 1, "with no marker, a miss falls back to the point read");
+
+        // Write-through into an unloaded partition is readable via getOne.
+        cache.put(new Privilege("tripFinView" + tripId, "fv", List.of())).join();
+        assertTrue(cache.getOne(tripId, "tripFinView", failLoader).join().isPresent());
+        cache.invalidate().join();
+    }
+
+    private static Set<String> names(final List<Privilege> privs) {
+        return privs.stream().map(Privilege::getName).collect(java.util.stream.Collectors.toSet());
+    }
+
+    private String privToJson(final Privilege priv) {
+        try {
+            return privMapper.writeValueAsString(priv);
+        } catch (final Exception ex) {
+            throw new RuntimeException(ex);
+        }
+    }
+
+    private Privilege privFromJson(final String json) {
+        try {
+            return privMapper.readValue(json, Privilege.class);
+        } catch (final Exception ex) {
+            throw new RuntimeException(ex);
+        }
     }
 
     @Test

@@ -20,6 +20,32 @@ public class PrivilegeTest {
     }
 
     @Test
+    public void globalPrivilegeHasNoTripId() {
+        final Privilege priv = new Privilege("peopleAdmin", "desc", List.of());
+        assertNull(priv.getTripId());
+        assertEquals(priv.getName(), "peopleAdmin");
+        assertTrue(priv.isGlobal());
+    }
+
+    @Test
+    public void tripScopedPrivilegeSplitsNameAndTripId() {
+        final String tripId = java.util.UUID.randomUUID().toString();
+        final Privilege priv = new Privilege("tripMgr" + tripId, "desc", List.of());
+        assertEquals(priv.getTripId(), tripId);
+        assertEquals(priv.getName(), "tripMgr");
+        assertFalse(priv.isGlobal());
+        assertEquals(priv.getId(), "tripMgr" + tripId);
+    }
+
+    @Test
+    public void idForBuildsIdentity() {
+        final String tripId = java.util.UUID.randomUUID().toString();
+        assertEquals(Privilege.idFor("tripView", tripId), "tripView" + tripId);
+        assertEquals(Privilege.idFor("peopleAdmin", null), "peopleAdmin");
+        assertEquals(Privilege.idFor("peopleAdmin", ""), "peopleAdmin");
+    }
+
+    @Test
     public void testGetDescription() {
         final String desc = RandomData.genAlpha(14);
         final Privilege priv = new Privilege(
