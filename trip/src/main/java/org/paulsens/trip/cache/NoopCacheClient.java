@@ -82,6 +82,17 @@ public final class NoopCacheClient implements CacheClient {
     }
 
     @Override
+    public CompletableFuture<Boolean> addScoredEntries(final String key, final Map<String, Double> memberScores) {
+        return TRUE;
+    }
+
+    @Override
+    public CompletableFuture<List<String>> getRangeByScore(
+            final String key, final double minScore, final double maxScore, final boolean reverse, final int limit) {
+        return CompletableFuture.completedFuture(List.of());
+    }
+
+    @Override
     public CompletableFuture<Set<String>> getSetMembers(final String key) {
         return CompletableFuture.completedFuture(Set.of());
     }

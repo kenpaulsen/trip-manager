@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -117,8 +118,17 @@ public class DAO {
     public CompletableFuture<Optional<Trip>> getTrip(final String id) {
         return tripDao.getTrip(id);
     }
-    public CompletableFuture<List<Trip>> getTrips() {
-        return tripDao.getTrips();
+    public CompletableFuture<List<Trip>> getActiveTrips(final LocalDateTime cutoff) {
+        return tripDao.getActiveTrips(cutoff);
+    }
+    public CompletableFuture<List<Trip>> getInactiveTrips(final LocalDateTime cutoff, final int limit) {
+        return tripDao.getInactiveTrips(cutoff, limit);
+    }
+    public CompletableFuture<List<Trip>> getRecentTrips(final int limit) {
+        return tripDao.getRecentTrips(limit);
+    }
+    public CompletableFuture<List<Trip>> getTripsForUser(final Person.Id userId) {
+        return tripDao.getTripsForUser(userId);
     }
 
     // Trip Events

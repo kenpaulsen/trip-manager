@@ -18,8 +18,16 @@ public final class CacheKeys {
     public static final String FORMAT_VERSION = "t1:";
 
     // Whole-table hashes (field = entity id, value = entity JSON).
-    public static final String TRIPS = FORMAT_VERSION + "trips";
     public static final String PRIVS = FORMAT_VERSION + "privs";
+
+    // Trips are point entries (no whole-table hash): TRIP_PREFIX + {tripId}.
+    public static final String TRIP_PREFIX = FORMAT_VERSION + "trip:";
+
+    // Trip date index: sorted set, member = tripId, score = endDate epoch millis. Plus a sibling loaded marker.
+    public static final String TRIPS_BY_DATE = FORMAT_VERSION + "idx:trips";
+    // Person -> trips reverse index: sorted set (lex), member = "userId|tripId". Shares TRIPS_BY_DATE's marker
+    // (both are rebuilt by the same trip scan). See TripIndex.
+    public static final String TRIPS_BY_PERSON = FORMAT_VERSION + "idx:person_trips";
 
     // People are point entries (no whole-table hash): PERSON_PREFIX + {personId}.
     public static final String PERSON_PREFIX = FORMAT_VERSION + "person:";

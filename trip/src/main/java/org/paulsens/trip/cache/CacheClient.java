@@ -62,6 +62,20 @@ public interface CacheClient {
      */
     CompletableFuture<List<String>> getSortedSetByPrefix(String key, String prefix, int limit);
 
+    /**
+     * Adds/updates members of a sorted set with explicit numeric scores (ZADD). Existing members are re-scored.
+     */
+    CompletableFuture<Boolean> addScoredEntries(String key, Map<String, Double> memberScores);
+
+    /**
+     * Returns members of the sorted set at {@code key} whose score is within [{@code minScore}, {@code maxScore}]
+     * (inclusive), ordered by score. When {@code reverse} is true, highest score first (ZREVRANGEBYSCORE);
+     * otherwise lowest first (ZRANGEBYSCORE). At most {@code limit} members (non-positive means no limit).
+     * Empty list on miss or cache error.
+     */
+    CompletableFuture<List<String>> getRangeByScore(
+            String key, double minScore, double maxScore, boolean reverse, int limit);
+
     /** Removes one member from a set. */
     CompletableFuture<Boolean> removeSetMember(String key, String member);
 

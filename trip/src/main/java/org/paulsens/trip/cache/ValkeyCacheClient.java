@@ -173,8 +173,37 @@ public final class ValkeyCacheClient implements CacheClient {
     public CompletableFuture<List<String>> getSortedSetByPrefix(final String key, final String prefix, final int limit) {
         final Range<String> range = Range.from(
                 Range.Boundary.including(prefix), Range.Boundary.including(prefix + Character.MAX_VALUE));
-        return guard("ZRANGEBYLEX " + key, commands.zrangebylex(key, range, Limit.create(0, limit)),
-                Function.identity(), List.of());
+        final Limit lim = (limit > 0) ? Limit.create(0, limit) : Limit.unlimited();
+        return guard("ZRANGEBYLEX " + key, commands.zrangebylex(key, range, lim), Function.identity(), List.of());
+    }
+
+    @Override
+    public CompletableFuture<Boolean> addScoredEntries(final String key, final Map<String, Double> memberScores) {
+        if (memberScores.isEmpty()) {
+            return CompletableFuture.completedFuture(true);
+        }
+        final ScoredValue<String>[] scored = memberScores.entrySet().stream()
+                .map(e -> ScoredValue.just(e.getValue(), e.getKey()))
+                .toArray(ScoredValue[]::new);
+        return guard("ZADD(scored) " + key, commands.zadd(key, scored), ignored -> true, false);
+    }
+
+    @Override
+    public CompletableFuture<List<String>> getRangeByScore(
+            final String key, final double minScore, final double maxScore, final boolean reverse, final int limit) {
+        final Range<Double> range = Range.from(scoreBoundary(minScore, true), scoreBoundary(maxScore, false));
+        final Limit lim = (limit > 0) ? Limit.create(0, limit) : Limit.unlimited();
+        final RedisFuture<List<String>> future = reverse
+                ? commands.zrevrangebyscore(key, range, lim)
+                : commands.zrangebyscore(key, range, lim);
+        return guard((reverse ? "ZREVRANGEBYSCORE " : "ZRANGEBYSCORE ") + key, future, Function.identity(), List.of());
+    }
+
+    private static Range.Boundary<Double> scoreBoundary(final double score, final boolean lower) {
+        if ((lower && score == Double.NEGATIVE_INFINITY) || (!lower && score == Double.POSITIVE_INFINITY)) {
+            return Range.Boundary.unbounded();
+        }
+        return Range.Boundary.including(score);
     }
 
     @Override

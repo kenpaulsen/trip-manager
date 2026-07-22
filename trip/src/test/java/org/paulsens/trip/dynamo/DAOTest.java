@@ -103,14 +103,14 @@ public class DAOTest {
                 .regOptions(FakeData.getDefaultOptions())
                 .build();
 
-        assertEquals(DB_UTILS.getTrips().join().size(), 0, "Should start w/ no trips.");
+        assertEquals(DB_UTILS.getRecentTrips(100).join().size(), 0, "Should start w/ no trips.");
         assertTrue(DB_UTILS.saveTrip(trip).join());
-        assertEquals(DB_UTILS.getTrips().join().size(), 1, "Expected 1 to be added.");
+        assertEquals(DB_UTILS.getRecentTrips(100).join().size(), 1, "Expected 1 to be added.");
         assertTrue(DB_UTILS.saveTrip(trip).join()); // Verify idempotency, should still be 1
-        assertEquals(DB_UTILS.getTrips().join().size(), 1, "Expected only 1 still.");
+        assertEquals(DB_UTILS.getRecentTrips(100).join().size(), 1, "Expected only 1 still.");
         trip.setId(RandomData.genAlpha(10));
         assertTrue(DB_UTILS.saveTrip(trip).join()); // Verify idempotency, should still be 1
-        assertEquals(DB_UTILS.getTrips().join().size(), 2, "Expected 2 now.");
+        assertEquals(DB_UTILS.getRecentTrips(100).join().size(), 2, "Expected 2 now.");
         final Trip newTrip = DB_UTILS.getTrip(trip.getId()).join().orElse(null);
         assertEquals(newTrip, trip, "Getting trip should be equal.");
         // Reads return the saved snapshot, not a shared mutable instance: the original id still resolves to the

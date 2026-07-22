@@ -116,6 +116,62 @@ public class ValkeyCacheClientIntegrationTest {
     }
 
     @Test
+    public void scoredSortedSetRoundTrip() {
+        final String key = NS + "z2";
+        assertTrue(client.addScoredEntries(key, Map.of("t1", 100.0d, "t2", 200.0d, "t3", 300.0d)).join());
+        // Ascending by score, inclusive range
+        assertEquals(client.getRangeByScore(key, 150.0d, 300.0d, false, 0).join(), List.of("t2", "t3"));
+        // Descending
+        assertEquals(client.getRangeByScore(key, 150.0d, 300.0d, true, 0).join(), List.of("t3", "t2"));
+        // Limit
+        assertEquals(client.getRangeByScore(key, 0.0d, 1000.0d, false, 1).join(), List.of("t1"));
+        // Unbounded (infinity) bounds
+        assertEquals(client.getRangeByScore(key, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, 0).join(),
+                List.of("t1", "t2", "t3"));
+        // Re-score moves a member; ZREM drops it
+        assertTrue(client.addScoredEntries(key, Map.of("t1", 999.0d)).join());
+        assertEquals(client.getRangeByScore(key, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, 0).join(),
+                List.of("t2", "t3", "t1"));
+        assertTrue(client.removeSortedSetEntries(key, List.of("t2")).join());
+        assertEquals(client.getRangeByScore(key, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, 0).join(),
+                List.of("t3", "t1"));
+    }
+
+    @Test
+    public void tripIndexBuildsFromScanThenServesAndReconciles() {
+        final long now = System.currentTimeMillis();
+        final long day = 86_400_000L;
+        // u1 on both trips; u2 only on the past trip.
+        final List<TripIndex.Entry> live = new java.util.ArrayList<>(List.of(
+                new TripIndex.Entry("future", now + 10 * day, Set.of("u1")),
+                new TripIndex.Entry("past", now - 10 * day, Set.of("u1", "u2"))));
+        final AtomicInteger scans = new AtomicInteger();
+        final TripIndex index = TripIndex.builder()
+                .cache(client)
+                .softTtl(Duration.ofHours(24))
+                .loader(() -> {
+                    scans.incrementAndGet();
+                    return CompletableFuture.completedFuture(List.copyOf(live));
+                })
+                .build();
+        // Cold: first query builds from the "scan" and answers.
+        assertEquals(index.activeTripIds(now, 0).join(), List.of("future"));
+        assertEquals(scans.get(), 1, "cold query builds once");
+        assertEquals(index.inactiveTripIds(now, 0).join(), List.of("past"));
+        assertEquals(index.allTripIds(0).join(), List.of("future", "past"));
+        assertEquals(scans.get(), 1, "subsequent queries served from the built index, no re-scan");
+        // Reverse index
+        assertEquals(Set.copyOf(index.tripIdsForUser("u1", 0).join()), Set.of("future", "past"));
+        assertEquals(index.tripIdsForUser("u2", 0).join(), List.of("past"));
+        // Write-through: drop u2 from "past"; reverse index reflects it without a rebuild.
+        index.update(new TripIndex.Entry("past", now - 10 * day, Set.of("u1", "u2")),
+                new TripIndex.Entry("past", now - 10 * day, Set.of("u1")), false).join();
+        assertEquals(index.tripIdsForUser("u2", 0).join(), List.of());
+        assertEquals(index.tripIdsForUser("u1", 0).join().size(), 2);
+        index.invalidate().join();
+    }
+
+    @Test
     public void futuresCompleteOnWorkerPoolNeverOnEventLoop() {
         final AtomicReference<String> thread = new AtomicReference<>();
         client.getValue(NS + "whatever").thenApply(v -> {

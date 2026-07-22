@@ -1,8 +1,8 @@
 package org.paulsens.trip.cache;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -11,7 +11,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ConcurrentSkipListSet;
 
 /**
  * Map-backed {@link CacheClient} used for {@code local=true} mode and unit tests -- no external processes required.
@@ -94,25 +93,43 @@ public final class InMemoryCacheClient implements CacheClient {
 
     @Override
     public CompletableFuture<Boolean> addSortedSetEntries(final String key, final Collection<String> entries) {
-        sortedSet(key).addAll(entries);
+        final ConcurrentMap<String, Double> zset = sortedSet(key);
+        entries.forEach(e -> zset.put(e, 0.0d));
         return TRUE;
     }
 
     @Override
     public CompletableFuture<Boolean> removeSortedSetEntries(final String key, final Collection<String> entries) {
-        sortedSet(key).removeAll(entries);
+        sortedSet(key).keySet().removeAll(entries);
         return TRUE;
     }
 
     @Override
     public CompletableFuture<List<String>> getSortedSetByPrefix(final String key, final String prefix, final int limit) {
-        final List<String> result = new ArrayList<>();
-        for (final String entry : sortedSet(key).tailSet(prefix)) {
-            if (!entry.startsWith(prefix) || result.size() >= limit) {
-                break;
-            }
-            result.add(entry);
-        }
+        final List<String> result = sortedSet(key).keySet().stream()
+                .filter(member -> member.startsWith(prefix))
+                .sorted()
+                .limit(limit > 0 ? limit : Long.MAX_VALUE)
+                .toList();
+        return CompletableFuture.completedFuture(result);
+    }
+
+    @Override
+    public CompletableFuture<Boolean> addScoredEntries(final String key, final Map<String, Double> memberScores) {
+        sortedSet(key).putAll(memberScores);
+        return TRUE;
+    }
+
+    @Override
+    public CompletableFuture<List<String>> getRangeByScore(
+            final String key, final double minScore, final double maxScore, final boolean reverse, final int limit) {
+        final Comparator<Map.Entry<String, Double>> byScore = Map.Entry.comparingByValue();
+        final List<String> result = sortedSet(key).entrySet().stream()
+                .filter(e -> e.getValue() >= minScore && e.getValue() <= maxScore)
+                .sorted(reverse ? byScore.reversed() : byScore)
+                .map(Map.Entry::getKey)
+                .limit(limit > 0 ? limit : Long.MAX_VALUE)
+                .toList();
         return CompletableFuture.completedFuture(result);
     }
 
@@ -169,8 +186,10 @@ public final class InMemoryCacheClient implements CacheClient {
         return (Set<String>) store.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet());
     }
 
+    // Sorted sets mirror Redis: one member->score map per key. Lex ops (addSortedSetEntries / getSortedSetByPrefix)
+    // use score 0 and sort by member; scored ops (addScoredEntries / getRangeByScore) use the scores.
     @SuppressWarnings("unchecked")
-    private ConcurrentSkipListSet<String> sortedSet(final String key) {
-        return (ConcurrentSkipListSet<String>) store.computeIfAbsent(key, k -> new ConcurrentSkipListSet<String>());
+    private ConcurrentMap<String, Double> sortedSet(final String key) {
+        return (ConcurrentMap<String, Double>) store.computeIfAbsent(key, k -> new ConcurrentHashMap<String, Double>());
     }
 }
