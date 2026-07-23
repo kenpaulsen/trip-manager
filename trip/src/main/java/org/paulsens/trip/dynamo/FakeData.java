@@ -215,8 +215,10 @@ public class FakeData {
         attrs.put(CredentialsDAO.USER_ID, userId);
         attrs.put(CredentialsDAO.PRIV, priv);
         attrs.put(CredentialsDAO.PW, priv);
+        // Epoch SECONDS, matching CredentialsDAO.updateLastLogin() and Audit.formatEpochSeconds(). Storing millis
+        // here made the local audit log report the previous login as the year 58524.
         attrs.put(CredentialsDAO.LAST_LOGIN,
-                AttributeValue.builder().n("" + (System.currentTimeMillis() - 86_400_000L)).build());
+                AttributeValue.builder().n("" + ((System.currentTimeMillis() - 86_400_000L) / 1000L)).build());
         return attrs;
     }
 }
