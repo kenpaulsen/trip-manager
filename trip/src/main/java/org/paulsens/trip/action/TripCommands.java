@@ -40,6 +40,19 @@ public class TripCommands {
         return Trip.builder().build();
     }
 
+    /**
+     * The trip-event types, for the event editor's Type menu.
+     *
+     * <p>Exposed here rather than read off a {@code TripEvent} instance because the list is a property of the
+     * enum, not of any event. Reaching it through an event forces the menu to be populated from whatever event is
+     * being edited, and anything that resolves the event at view-build time gets a null on the first open -- the
+     * component tree is built during RESTORE_VIEW, before the action that selects the event has run. Binding the
+     * menu straight to this accessor keeps it correct whenever it renders.</p>
+     */
+    public List<TripEvent.Type> getTripEventTypes() {
+        return List.of(TripEvent.Type.values());
+    }
+
     public boolean saveTrip(final Trip trip) {
         boolean result;
         try {
