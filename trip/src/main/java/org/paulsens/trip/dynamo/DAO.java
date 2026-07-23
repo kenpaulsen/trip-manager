@@ -30,6 +30,8 @@ import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
+import org.paulsens.trip.security.PasswordHasher;
+import org.paulsens.trip.security.Pepper;
 
 @Slf4j
 public class DAO {
@@ -62,7 +64,7 @@ public class DAO {
         this.tripDao = new TripDAO(mapper, persistence, tripEventDao, cacheClient);
         this.regDao = new RegistrationDAO(mapper, persistence, cacheClient);
         this.txDao = new TransactionDAO(mapper, persistence, cacheClient);
-        this.credDao = new CredentialsDAO(persistence, personDao);
+        this.credDao = new CredentialsDAO(persistence, personDao, createPasswordHasher());
         this.todoDao = new TodoDAO(mapper, persistence, cacheClient);
         this.pdvDao = new PersonDataValueDAO(mapper, persistence, cacheClient);
         this.privDao = new PrivilegesDAO(mapper, persistence, cacheClient);
@@ -292,5 +294,12 @@ public class DAO {
             result = new DynamoPersistence();
         }
         return result;
+    }
+
+    // In local mode the fake credentials are plaintext and nothing is persisted, so hashing needs no pepper -- and
+    // resolving one would reach AWS Secrets Manager, which local dev and `mvn test` must never do (the same
+    // isolation principle behind the cache's local opt-in). Only the real deployment resolves the configured pepper.
+    private static PasswordHasher createPasswordHasher() {
+        return FakeData.isLocal() ? new PasswordHasher(Pepper.none()) : PasswordHasher.getInstance();
     }
 }

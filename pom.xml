@@ -57,6 +57,13 @@
                 <artifactId>lettuce-core</artifactId>
                 <version>6.8.2.RELEASE</version>
             </dependency>
+            <!-- Password hashing (BCrypt). Self-contained, pure Java, no meaningful transitive dependencies;
+                 bundles at.favre.lib:bytes. See org.paulsens.trip.security.PasswordHasher. -->
+            <dependency>
+                <groupId>at.favre.lib</groupId>
+                <artifactId>bcrypt</artifactId>
+                <version>0.10.2</version>
+            </dependency>
             <dependency>
                 <groupId>ch.qos.logback</groupId>
                 <artifactId>logback-classic</artifactId>
