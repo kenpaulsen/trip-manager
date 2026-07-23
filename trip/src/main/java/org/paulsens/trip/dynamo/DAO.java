@@ -79,13 +79,37 @@ public class DAO {
     }
 
     /**
-     * Selects the shared-cache client: local/test mode always gets the zero-dependency in-memory client; otherwise
-     * the {@link CacheConfig} mode decides (valkey / memory / off). Any external client using this library resolves
-     * identically, so a write with {@code TRIP_VALKEY_URI} set is immediately visible to every running instance.
+     * Selects the shared-cache client. Outside local mode the {@link CacheConfig} mode decides (valkey / memory /
+     * off), so any external client using this library resolves identically and a write with
+     * {@code TRIP_VALKEY_URI} set is immediately visible to every running instance.
+     *
+     * <p>Local mode uses the zero-dependency in-memory client, so unit tests and laptop runs need no daemon.
+     * Faking the datastore and faking the cache are separate choices, though, and setting
+     * {@value #LOCAL_USE_CONFIGURED_CACHE} opts local mode into whatever {@link CacheConfig} resolves. That
+     * combination -- fake persistence behind a real Valkey -- is what lets the functional tests exercise
+     * {@link ValkeyCacheClient} itself: its serialization, key layout, loaded-sentinels and TTLs, none of which
+     * the in-memory client models.</p>
      */
     private static CacheClient createCacheClient() {
-        return FakeData.isLocal() ? new InMemoryCacheClient() : createConfiguredCacheClient();
+        return (FakeData.isLocal() && !localModeUsesConfiguredCache())
+                ? new InMemoryCacheClient()
+                : createConfiguredCacheClient();
     }
+
+    /**
+     * Opts local mode into the configured cache client.
+     *
+     * <p>Deliberately a system property with <em>no</em> environment-variable fallback, unlike every other cache
+     * setting. {@link FakeData#isLocal()} is true whenever there is no {@code FacesContext}, which includes
+     * {@code mvn test} -- so if this were inferred from {@code TRIP_VALKEY_URI}, running the unit tests in a shell
+     * that had sourced the production CLI environment would silently point them at the live cache. A property only
+     * a test harness passes cannot be switched on by an ambient variable.</p>
+     */
+    private static boolean localModeUsesConfiguredCache() {
+        return Boolean.parseBoolean(System.getProperty(LOCAL_USE_CONFIGURED_CACHE));
+    }
+
+    static final String LOCAL_USE_CONFIGURED_CACHE = "trip.cache.local.useConfigured";
 
     private static CacheClient createConfiguredCacheClient() {
         final CacheConfig config = CacheConfig.resolve();
