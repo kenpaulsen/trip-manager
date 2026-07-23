@@ -36,9 +36,8 @@ public final class PasswordHasher {
     // p<digits>:<bcrypt> -- BCrypt hashes start with $2a$, $2b$, or $2y$.
     private static final Pattern ENVELOPE = Pattern.compile("^p(\\d+):(\\$2[aby]\\$.+)$", Pattern.DOTALL);
 
-    private static final class Holder {
-        private static final PasswordHasher INSTANCE = new PasswordHasher(Pepper.resolve());
-    }
+    private static volatile PasswordHasher instance;
+    private static volatile RuntimeException resolutionFailure;
 
     private final Pepper pepper;
 
@@ -51,8 +50,44 @@ public final class PasswordHasher {
         this.pepper = pepper;
     }
 
+    /**
+     * The application-wide hasher, resolving its pepper from configuration on first use.
+     *
+     * <p>Resolution is attempted <b>exactly once</b>. If it fails (e.g. a misconfigured pepper secret), the full
+     * cause is logged a single time and remembered; every later call rethrows a short, message-only exception
+     * without re-contacting Secrets Manager or re-dumping the stack. Password hashing stays hard-required -- a bad
+     * configuration keeps failing rather than silently falling back -- but it fails cheaply and quietly instead of
+     * hammering the secret store and flooding the log on every request.</p>
+     */
     public static PasswordHasher getInstance() {
-        return Holder.INSTANCE;
+        final PasswordHasher resolved = instance;
+        return resolved != null ? resolved : resolveOnce();
+    }
+
+    private static synchronized PasswordHasher resolveOnce() {
+        if (instance != null) {
+            return instance;
+        }
+        if (resolutionFailure != null) {
+            throw unavailable(resolutionFailure);
+        }
+        try {
+            instance = new PasswordHasher(Pepper.resolve());
+            return instance;
+        } catch (final RuntimeException ex) {
+            resolutionFailure = ex;
+            // Log the full cause once, here, so the per-call failures afterward can stay terse.
+            log.error("Password hashing is misconfigured; the application cannot verify or set passwords until it "
+                    + "is fixed and restarted.", ex);
+            throw unavailable(ex);
+        }
+    }
+
+    // A short exception carrying the reason but not the (already-logged) cause chain, so a caller that keeps retrying
+    // does not re-dump the whole stack every time.
+    private static IllegalStateException unavailable(final RuntimeException cause) {
+        return new IllegalStateException("Password hashing is unavailable: " + cause.getMessage()
+                + " (full details were logged once; fix the pepper configuration and restart).");
     }
 
     /** Hashes a password into the stored envelope, stamped with the pepper's current version. */

@@ -26,9 +26,19 @@ class DynamoPersistence implements Persistence {
 
     DynamoPersistence() {
         this.client = DynamoDbAsyncClient.builder()
-                .region(Region.US_WEST_2)
+                .region(resolveRegion())
                 .credentialsProvider(ProfileCredentialsProvider.builder().build())
                 .build();
+    }
+
+    // Region defaults to us-west-2 (the active deployment) but can be overridden so a one-off tool -- e.g. the
+    // password-pepper rotation/migration script -- can target another deployment's account/region without a rebuild.
+    static Region resolveRegion() {
+        String region = System.getProperty("trip.dynamo.region");
+        if (region == null || region.isBlank()) {
+            region = System.getenv("TRIP_DYNAMO_REGION");
+        }
+        return (region == null || region.isBlank()) ? Region.US_WEST_2 : Region.of(region.trim());
     }
 
     public CompletableFuture<ScanResponse> scan(Consumer<ScanRequest.Builder> scanRequest) {

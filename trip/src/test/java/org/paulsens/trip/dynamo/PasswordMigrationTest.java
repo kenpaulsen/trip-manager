@@ -30,10 +30,10 @@ public class PasswordMigrationTest {
 
         final PasswordMigration.Result result = migration.run(false).join();
 
-        assertEquals(result.scanned, 3);
-        assertEquals(result.alreadyHashed, 1);
-        assertEquals(result.plaintext, 2);
-        assertEquals(result.upgraded, 0, "a dry run must not upgrade");
+        assertEquals(result.scanned.get(), 3);
+        assertEquals(result.alreadyHashed.get(), 1);
+        assertEquals(result.plaintext.get(), 2);
+        assertEquals(result.upgraded.get(), 0, "a dry run must not upgrade");
         assertTrue(puts.isEmpty(), "a dry run must write nothing");
     }
 
@@ -46,14 +46,36 @@ public class PasswordMigrationTest {
 
         final PasswordMigration.Result result = migration.run(true).join();
 
-        assertEquals(result.plaintext, 1);
-        assertEquals(result.upgraded, 1);
-        assertEquals(result.failed, 0);
+        assertEquals(result.plaintext.get(), 1);
+        assertEquals(result.upgraded.get(), 1);
+        assertEquals(result.failed.get(), 0);
         assertEquals(puts.size(), 1, "only the plaintext row should be rewritten");
         final Map<String, AttributeValue> written = puts.get(0);
         assertEquals(written.get(CredentialsDAO.EMAIL).s(), "a@x.com", "the row's other attributes must be preserved");
         assertTrue(HASHER.isHashed(written.get(CredentialsDAO.PW).s()));
         assertTrue(HASHER.verify("plain1", written.get(CredentialsDAO.PW).s()), "no password should actually change");
+    }
+
+    @Test
+    public void parallelApplyHashesEveryPlaintextRowExactlyOnce() {
+        final List<Map<String, AttributeValue>> puts = java.util.Collections.synchronizedList(new ArrayList<>());
+        final List<Map<String, AttributeValue>> rows = new ArrayList<>();
+        for (int i = 0; i < 50; i++) {
+            rows.add(i % 5 == 0 ? row("h" + i + "@x.com", HASHER.hash("was" + i)) : row("p" + i + "@x.com", "pw" + i));
+        }
+        final PasswordMigration migration = new PasswordMigration(persistenceOver(rows, puts), HASHER);
+
+        final PasswordMigration.Result result = migration.run(true, 8).join();
+
+        assertEquals(result.scanned.get(), 50);
+        assertEquals(result.alreadyHashed.get(), 10, "every 5th row was already hashed");
+        assertEquals(result.plaintext.get(), 40);
+        assertEquals(result.upgraded.get(), 40);
+        assertEquals(result.failed.get(), 0);
+        assertEquals(puts.size(), 40, "each plaintext row must be written exactly once, no duplicates or drops");
+        for (final Map<String, AttributeValue> written : puts) {
+            assertTrue(HASHER.isHashed(written.get(CredentialsDAO.PW).s()), "each written row must be hashed");
+        }
     }
 
     private static Map<String, AttributeValue> row(final String email, final String pass) {

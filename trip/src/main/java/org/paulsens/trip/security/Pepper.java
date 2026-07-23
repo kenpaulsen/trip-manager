@@ -131,7 +131,7 @@ public final class Pepper {
         final String directKey = prop(KEY_PROP, KEY_ENV);
         if (directKey != null) {
             final int version = parseVersion(prop(VERSION_PROP, VERSION_ENV), 1);
-            return Pepper.of(version, Base64.getDecoder().decode(directKey));
+            return Pepper.of(version, decodeKey(directKey, KEY_PROP + " / " + KEY_ENV));
         }
         final String secretId = prop(SECRET_PROP, SECRET_ENV);
         if (secretId == null) {
@@ -144,7 +144,7 @@ public final class Pepper {
 
     private static Pepper fromSecretsManager(final String secretId) {
         try (SecretsManagerAsyncClient client = SecretsManagerAsyncClient.builder()
-                .region(Region.US_WEST_2)
+                .region(resolveRegion())
                 .credentialsProvider(ProfileCredentialsProvider.builder().build())
                 .build()) {
             final String secret = client
@@ -156,9 +156,47 @@ public final class Pepper {
                     pepper.currentVersion, secretId);
             return pepper;
         } catch (final RuntimeException ex) {
-            throw new IllegalStateException("Failed to load password pepper from Secrets Manager secret '"
-                    + secretId + "'. Refusing to start with password hashing misconfigured.", ex);
+            // Surface the specific reason (bad base64, access denied, not found, ...) in the top-level message so it
+            // reads clearly in the log without hunting through the cause chain.
+            throw new IllegalStateException("Failed to load the password pepper from Secrets Manager secret '"
+                    + secretId + "': " + describe(ex) + " Refusing to start with password hashing misconfigured.",
+                    ex);
         }
+    }
+
+    // The secret lives in the same account/region as that deployment's DynamoDB, so a dedicated pepper-region
+    // override falls back to the shared trip.dynamo.region / TRIP_DYNAMO_REGION, then to us-west-2. One --region on
+    // the rotation script therefore points both the pepper read and the table writes at the same place.
+    private static Region resolveRegion() {
+        final String pepperRegion = prop("trip.password.pepper.region", "TRIP_PASSWORD_PEPPER_REGION");
+        if (pepperRegion != null) {
+            return Region.of(pepperRegion);
+        }
+        final String dynamoRegion = prop("trip.dynamo.region", "TRIP_DYNAMO_REGION");
+        return dynamoRegion == null ? Region.US_WEST_2 : Region.of(dynamoRegion);
+    }
+
+    // Decodes a base64 pepper key, turning the JDK's opaque "Illegal base64 character" into an actionable message.
+    private static byte[] decodeKey(final String value, final String source) {
+        try {
+            return Base64.getDecoder().decode(value.trim());
+        } catch (final IllegalArgumentException ex) {
+            throw new IllegalStateException("the pepper key from " + source + " is not valid base64. This usually "
+                    + "means the key was stored literally (e.g. an unexpanded \"$KEY\") instead of the output of "
+                    + "`openssl rand -base64 32`.", ex);
+        }
+    }
+
+    // The most useful one-line reason. Unwraps only the JDK future wrappers (which merely restate their cause), so
+    // our own explanatory message -- or the SDK's -- is what surfaces, not the raw JDK exception underneath it.
+    private static String describe(final Throwable t) {
+        Throwable cur = t;
+        while ((cur instanceof java.util.concurrent.CompletionException
+                || cur instanceof java.util.concurrent.ExecutionException)
+                && cur.getCause() != null && cur.getCause() != cur) {
+            cur = cur.getCause();
+        }
+        return cur.getMessage() == null ? cur.getClass().getSimpleName() : cur.getMessage();
     }
 
     /**
@@ -170,21 +208,22 @@ public final class Pepper {
     static Pepper parseSecret(final String secret) {
         final String trimmed = secret.trim();
         if (!trimmed.startsWith("{")) {
-            return Pepper.of(1, Base64.getDecoder().decode(trimmed));
+            return Pepper.of(1, decodeKey(trimmed, "the secret value"));
         }
         try {
             final JsonNode root = new ObjectMapper().readTree(trimmed);
             final int version = root.path("version").asInt(1);
             final Map<Integer, byte[]> keys = new HashMap<>();
             if (root.hasNonNull("key")) {
-                keys.put(version, Base64.getDecoder().decode(root.get("key").asText()));
+                keys.put(version, decodeKey(root.get("key").asText(), "the secret's \"key\" field"));
             }
             final JsonNode extra = root.get("keys");
             if (extra != null && extra.isObject()) {
                 final Iterator<Map.Entry<String, JsonNode>> fields = extra.fields();
                 while (fields.hasNext()) {
                     final Map.Entry<String, JsonNode> field = fields.next();
-                    keys.put(Integer.parseInt(field.getKey()), Base64.getDecoder().decode(field.getValue().asText()));
+                    keys.put(Integer.parseInt(field.getKey()),
+                            decodeKey(field.getValue().asText(), "the secret's \"keys\"[" + field.getKey() + "]"));
                 }
             }
             if (keys.get(version) == null) {
