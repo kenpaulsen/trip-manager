@@ -3,10 +3,13 @@ package org.paulsens.trip.dynamo;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.util.RandomData;
@@ -53,30 +56,33 @@ public class PrivilegesDAOTest {
     }
 
     @Test
-    public void getPrivilegesReturnsEmptyInitially() {
-        final List<Privilege> privs = get(dao.getPrivileges());
-        assertTrue(privs.isEmpty());
+    public void getGlobalPrivilegesEmptyInitially() {
+        assertTrue(get(dao.getGlobalPrivileges()).isEmpty());
     }
 
     @Test
-    public void getPrivilegesReturnsSortedByName() {
-        // First call getPrivileges to trigger the initial scan (returns empty from fake persistence)
-        // This sets hasScanned=true, so subsequent getPrivileges calls use the cache
-        get(dao.getPrivileges());
-        // Now saves will add to the non-empty cache (cacheOne only adds when cache is non-empty,
-        // but after the scan, the cache map object exists even if empty, so we need to seed it)
-        // savePrivilege uses cacheOne which requires a non-null cache, but won't add to completely empty map
-        // because the cache pattern checks if the cache map is non-empty first.
-        // Instead, we test via getPrivilege (which does a direct getItem lookup)
+    public void globalPrivilegesListedInGlobalPartition() {
         get(dao.savePrivilege(new Privilege("Zebra", "z", List.of())));
         get(dao.savePrivilege(new Privilege("Alpha", "a", List.of())));
         get(dao.savePrivilege(new Privilege("Middle", "m", List.of())));
-        // getPrivileges now uses cache (hasScanned=true) and returns sorted
-        final List<Privilege> privs = get(dao.getPrivileges());
+        final List<Privilege> privs = get(dao.getGlobalPrivileges());
         assertEquals(privs.size(), 3);
-        assertEquals(privs.get(0).getName(), "Alpha");
-        assertEquals(privs.get(1).getName(), "Middle");
-        assertEquals(privs.get(2).getName(), "Zebra");
+        assertEquals(privs.stream().map(Privilege::getName).collect(Collectors.toSet()),
+                Set.of("Alpha", "Middle", "Zebra"));
+    }
+
+    @Test
+    public void tripScopedPrivilegeGoesToItsTripPartition() {
+        final String tripId = UUID.randomUUID().toString();
+        final Privilege tripPriv = new Privilege("tripMgr" + tripId, "mgr", List.of());
+        final Privilege globalPriv = new Privilege("peopleAdmin", "pa", List.of());
+        get(dao.savePrivilege(tripPriv));
+        get(dao.savePrivilege(globalPriv));
+        assertEquals(get(dao.getTripPrivileges(tripId)), List.of(tripPriv));
+        assertEquals(get(dao.getGlobalPrivileges()), List.of(globalPriv));
+        // A different trip's partition is empty, and the point read still resolves the trip privilege by id.
+        assertTrue(get(dao.getTripPrivileges(UUID.randomUUID().toString())).isEmpty());
+        assertEquals(get(dao.getPrivilege("tripMgr" + tripId)), Optional.of(tripPriv));
     }
 
     @Test

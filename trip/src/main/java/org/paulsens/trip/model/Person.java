@@ -103,9 +103,7 @@ public final class Person implements Serializable, Comparable<Person> {
      */
     @JsonIgnore
     public List<Trip> getTrips() {
-        return DAO.getInstance().getTrips()
-                .thenApply(trips -> trips.stream().filter(
-                        trip -> trip.getPeople().contains(getId())).collect(Collectors.toList()))
+        return DAO.getInstance().getTripsForUser(getId())
                 .exceptionally(ex -> new ArrayList<>())
                 .join();
     }

@@ -30,12 +30,27 @@ import static java.time.temporal.ChronoUnit.DAYS;
 @ApplicationScoped
 public class TripCommands {
     private static final long TIMEOUT = 5_000L;
+    /** Cap for the admin/joinable trip-resolution fallbacks (a user's own trips come from the reverse index). */
+    private static final int RECENT_TRIP_LIMIT = 100;
 
     @Inject
     private BindingCommands bind;
 
     public Trip createTrip() {
         return Trip.builder().build();
+    }
+
+    /**
+     * The trip-event types, for the event editor's Type menu.
+     *
+     * <p>Exposed here rather than read off a {@code TripEvent} instance because the list is a property of the
+     * enum, not of any event. Reaching it through an event forces the menu to be populated from whatever event is
+     * being edited, and anything that resolves the event at view-build time gets a null on the first open -- the
+     * component tree is built during RESTORE_VIEW, before the action that selects the event has run. Binding the
+     * menu straight to this accessor keeps it correct whenever it renders.</p>
+     */
+    public List<TripEvent.Type> getTripEventTypes() {
+        return List.of(TripEvent.Type.values());
     }
 
     public boolean saveTrip(final Trip trip) {
@@ -69,22 +84,43 @@ public class TripCommands {
     }
 
     public List<Trip> getActiveTrips(final int pastDaysToCountAsActive) {
-        return filterActiveTrips(getTrips(), pastDaysToCountAsActive);
-    }
-
-    public List<Trip> getInactiveTrips(final Person.Id userId, final boolean isAdmin, final int pastDaysStillActive) {
-        final List<Trip> result = new ArrayList<>(getTrips().stream()
-                .filter(trip -> trip.getEndDate().isBefore(LocalDateTime.now().minus(pastDaysStillActive, DAYS)))
-                .filter((trip -> isAdmin || trip.getPeople().contains(userId)))
-                .toList());
-        Collections.reverse(result);
-        return result;
-    }
-
-    public List<Trip> getTrips() {
-        return DAO.getInstance().getTrips()
+        return DAO.getInstance().getActiveTrips(LocalDateTime.now().minus(pastDaysToCountAsActive, DAYS))
                 .exceptionally(ex -> {
-                    log.error("Failed to get list of trips!", ex);
+                    log.error("Failed to get active trips!", ex);
+                    return Collections.emptyList();
+                }).join();
+    }
+
+    /**
+     * Inactive (past) trips. Admins get every past trip capped at {@code limit} (most recent first); non-admins get
+     * only their own past trips. {@code limit} is supplied by the caller (e.g. the menu page) so it is configurable
+     * without a code change; non-positive means no cap.
+     */
+    public List<Trip> getInactiveTrips(
+            final Person.Id userId, final boolean isAdmin, final int pastDaysStillActive, final int limit) {
+        final LocalDateTime cutoff = LocalDateTime.now().minus(pastDaysStillActive, DAYS);
+        if (isAdmin) {
+            return DAO.getInstance().getInactiveTrips(cutoff, limit)
+                    .exceptionally(ex -> {
+                        log.error("Failed to get inactive trips!", ex);
+                        return Collections.emptyList();
+                    }).join();
+        }
+        return getTripsForUser(userId).stream()
+                .filter(trip -> trip.getEndDate() != null && trip.getEndDate().isBefore(cutoff))
+                .sorted(Comparator.comparing(Trip::getStartDate).reversed())
+                .limit(limit > 0 ? limit : Long.MAX_VALUE)
+                .toList();
+    }
+
+    /**
+     * The {@code limit} most-recently-ending trips (admin pickers), served from the trip index -- not a full-table
+     * scan. Callers (e.g. XHTML dropdowns) pass the cap so it is configurable without a code change.
+     */
+    public List<Trip> getRecentTrips(final int limit) {
+        return DAO.getInstance().getRecentTrips(limit)
+                .exceptionally(ex -> {
+                    log.error("Failed to get recent trips!", ex);
                     return Collections.emptyList();
                 }).join();
     }
@@ -123,23 +159,28 @@ public class TripCommands {
         } else if ((tripId != null) && canSeeTrip(findTrip(tripId), userId, showAll)) {
             result = findTrip(tripId);                  // Use requested trip
         } else {
-            // Anything the user can see... or null
-            final List<Trip> trips = getTrips();
-            result = findTrip(trips, userId, false); // Try w/o considering admin privs
+            // Anything the user can see... or null. The user's own trips come from the reverse index (unbounded
+            // per user); the admin "see any trip" and joinable fallbacks only need recent trips (joinable trips
+            // start in the future, so they are always among the most recent).
+            result = findTrip(getTripsForUser(userId), userId, false); // Try w/o considering admin privs
             if (result == null && showAll) {
-                result = findTrip(trips, userId, showAll);
+                result = findTrip(getRecentTrips(RECENT_TRIP_LIMIT), userId, showAll);
             }
             if (result == null) {
                 // See if there's anything they can join
-                result = trips.stream().filter(trip -> trip.canJoin(userId)).findAny().orElse(null);
+                result = getRecentTrips(RECENT_TRIP_LIMIT).stream()
+                        .filter(trip -> trip.canJoin(userId)).findAny().orElse(null);
             }
         }
         return result;
     }
 
     public List<Trip> getTripsForUser(final Person.Id userId) {
-        final List<Trip> result = getTrips();
-        return result.stream().filter(trip -> trip.getPeople().contains(userId)).toList();
+        return DAO.getInstance().getTripsForUser(userId)
+                .exceptionally(ex -> {
+                    log.error("Failed to get trips for user!", ex);
+                    return Collections.emptyList();
+                }).join();
     }
 
     public TripEvent getTripEvent(final String eventId) {

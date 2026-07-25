@@ -10,6 +10,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -208,15 +209,16 @@ public class FakeData {
         }
         final Map<String, AttributeValue> attrs = new HashMap<>();
         attrs.put(CredentialsDAO.EMAIL, lowEmail);
-        final AttributeValue userId = DAO.getInstance().getPeople().join().stream()
-                .filter(person -> lowEmail.s().equalsIgnoreCase(person.getEmail())).findAny()
+        final AttributeValue userId = Optional.ofNullable(DAO.getInstance().getPersonByEmail(lowEmail.s()).join())
                 .map(Person::getId).map(id -> AttributeValue.builder().s(id.getValue()).build())
                 .orElse(lowEmail);
         attrs.put(CredentialsDAO.USER_ID, userId);
         attrs.put(CredentialsDAO.PRIV, priv);
         attrs.put(CredentialsDAO.PW, priv);
+        // Epoch SECONDS, matching CredentialsDAO.updateLastLogin() and Audit.formatEpochSeconds(). Storing millis
+        // here made the local audit log report the previous login as the year 58524.
         attrs.put(CredentialsDAO.LAST_LOGIN,
-                AttributeValue.builder().n("" + (System.currentTimeMillis() - 86_400_000L)).build());
+                AttributeValue.builder().n("" + ((System.currentTimeMillis() - 86_400_000L) / 1000L)).build());
         return attrs;
     }
 }

@@ -11,6 +11,7 @@ import org.testng.annotations.Test;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
 public class PrivilegeCommandsTest {
@@ -22,14 +23,14 @@ public class PrivilegeCommandsTest {
     @Test
     public void badGetPrivNameReturnsNull() {
         final String name = RandomData.genAlpha(15);
-        privCmds.getPrivilege(name);
+        privCmds.getPrivilege(name, null);
     }
 
     @Test
     public void canGetExistingPriv() {
         final Privilege before = getTestPriv();
         assertTrue(privCmds.savePrivilege(before));
-        final Privilege after = privCmds.getPrivilege(before.getName());
+        final Privilege after = privCmds.getPrivilege(before.getName(), null);
         assertEquals(after, before);
     }
 
@@ -37,18 +38,18 @@ public class PrivilegeCommandsTest {
     public void testCheck() {
         final Privilege priv = getTestPriv();
         assertTrue(privCmds.savePrivilege(priv));
-        assertTrue(privCmds.check(priv.getName(), hasAccess1));
-        assertTrue(privCmds.check(priv.getName(), hasAccess1));
-        assertFalse(privCmds.check(priv.getName(), noAccess));
+        assertTrue(privCmds.check(priv.getName(), null, hasAccess1));
+        assertTrue(privCmds.check(priv.getName(), null, hasAccess1));
+        assertFalse(privCmds.check(priv.getName(), null, noAccess));
     }
 
     @Test
     public void testAdd() {
         final Privilege priv = getTestPriv();
         assertTrue(privCmds.savePrivilege(priv));
-        assertFalse(privCmds.check(priv.getName(), noAccess));
-        privCmds.add(priv.getName(), noAccess);
-        assertTrue(privCmds.check(priv.getName(), noAccess));
+        assertFalse(privCmds.check(priv.getName(), null, noAccess));
+        privCmds.add(priv.getName(), null, noAccess);
+        assertTrue(privCmds.check(priv.getName(), null, noAccess));
     }
 
     @Test
@@ -56,39 +57,85 @@ public class PrivilegeCommandsTest {
         final Privilege priv = getTestPriv();
         assertEquals(priv.getPeople().size(), 2);
         assertTrue(privCmds.savePrivilege(priv));
-        assertTrue(privCmds.check(priv.getName(), hasAccess2));
-        privCmds.remove(priv.getName(), hasAccess2);
-        assertFalse(privCmds.check(priv.getName(), hasAccess2));
-        final Privilege after = privCmds.getPrivilege(priv.getName());
+        assertTrue(privCmds.check(priv.getName(), null, hasAccess2));
+        privCmds.remove(priv.getName(), null, hasAccess2);
+        assertFalse(privCmds.check(priv.getName(), null, hasAccess2));
+        final Privilege after = privCmds.getPrivilege(priv.getName(), null);
         assertEquals(after.getPeople().size(), 1);
-        assertFalse(privCmds.check(priv.getName(), hasAccess2));
-        assertFalse(privCmds.check(priv.getName(), noAccess));
-        assertTrue(privCmds.check(priv.getName(), hasAccess1));
+        assertFalse(privCmds.check(priv.getName(), null, hasAccess2));
+        assertFalse(privCmds.check(priv.getName(), null, noAccess));
+        assertTrue(privCmds.check(priv.getName(), null, hasAccess1));
     }
 
     @Test
-    public void canGetAllPrivs() {
+    public void canGetGlobalPrivs() {
         DAO.getInstance().clearAllCaches();
-        privCmds.getPrivileges(); // mocked scan doesn't work need to scan here first
+        // Test privileges have plain (non-UUID) names, so they land in the global partition.
         final Privilege priv1 = getTestPriv();
         assertTrue(privCmds.savePrivilege(priv1));
         final Privilege priv2 = getTestPriv();
         assertTrue(privCmds.savePrivilege(priv2));
-        final List<Privilege> privs = privCmds.getPrivileges();
+        final List<Privilege> privs = privCmds.getGlobalPrivileges();
         assertEquals(privs.size(), 2);
         assertTrue(privs.contains(priv1));
         assertTrue(privs.contains(priv2));
     }
 
     @Test
-    public void canCreateAPrivilege() {
+    public void tripScopedPrivsListByTrip() {
+        DAO.getInstance().clearAllCaches();
+        final String tripId = java.util.UUID.randomUUID().toString();
+        final Privilege tripPriv = privCmds.createPrivilege("tripMgr", "Manage", tripId, List.of(hasAccess1));
+        assertTrue(privCmds.savePrivilege(tripPriv));
+        final Privilege globalPriv = getTestPriv();
+        assertTrue(privCmds.savePrivilege(globalPriv));
+        // The trip partition holds only the trip privilege; the global partition holds only the global one.
+        final List<Privilege> tripPrivs = privCmds.getTripPrivileges(tripId);
+        assertEquals(tripPrivs.size(), 1);
+        assertEquals(tripPrivs.get(0).getName(), "tripMgr");
+        assertEquals(tripPrivs.get(0).getTripId(), tripId);
+        assertTrue(privCmds.getGlobalPrivileges().contains(globalPriv));
+        assertFalse(privCmds.getGlobalPrivileges().contains(tripPriv));
+    }
+
+    @Test
+    public void canCreateAGlobalPrivilege() {
         final String name = RandomData.genAlpha(5);
         final String description = RandomData.genAlpha(7);
-        final Privilege priv = privCmds.createPrivilege(name, description, List.of(hasAccess1, hasAccess2, noAccess));
+        final Privilege priv = privCmds.createPrivilege(
+                name, description, null, List.of(hasAccess1, hasAccess2, noAccess));
         assertNotNull(priv);
         assertEquals(priv.getPeople().size(), 3);
         assertEquals(priv.getName(), name);
+        assertNull(priv.getTripId());
         assertEquals(priv.getDescription(), description);
+    }
+
+    @Test
+    public void createTripPrivilegeAppendsTripId() {
+        final String tripId = java.util.UUID.randomUUID().toString();
+        final Privilege priv = privCmds.createPrivilege("tripView", "desc", tripId, List.of(hasAccess1));
+        assertEquals(priv.getName(), "tripView");
+        assertEquals(priv.getTripId(), tripId);
+        assertEquals(priv.getId(), "tripView" + tripId);
+    }
+
+    @Test
+    public void tripScopedCheckAddRemoveUseNameAndTripId() {
+        DAO.getInstance().clearAllCaches();
+        final String tripId = java.util.UUID.randomUUID().toString();
+        assertTrue(privCmds.savePrivilege(privCmds.createPrivilege("tripMgr", "desc", tripId, List.of(hasAccess1))));
+        // Same base name resolves per-trip; the caller never builds the combined key.
+        assertTrue(privCmds.check("tripMgr", tripId, hasAccess1));
+        assertFalse(privCmds.check("tripMgr", tripId, noAccess));
+        // A different trip's privilege of the same base name is independent.
+        assertFalse(privCmds.check("tripMgr", java.util.UUID.randomUUID().toString(), hasAccess1));
+        assertTrue(privCmds.add("tripMgr", tripId, noAccess));
+        assertTrue(privCmds.check("tripMgr", tripId, noAccess));
+        assertTrue(privCmds.remove("tripMgr", tripId, noAccess));
+        assertFalse(privCmds.check("tripMgr", tripId, noAccess));
+        assertEquals(privCmds.getPrivilege("tripMgr", tripId).getTripId(), tripId);
+        assertEquals(privCmds.getOrCreate("tripMgr", tripId, "x").getPeople(), List.of(hasAccess1));
     }
 
     private Privilege getTestPriv() {

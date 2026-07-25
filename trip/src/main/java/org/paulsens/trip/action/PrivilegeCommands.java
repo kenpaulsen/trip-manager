@@ -6,12 +6,19 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Privilege;
 
+/**
+ * Developer-facing privilege API. Every accessor takes the privilege's base {@code name} plus a {@code tripId}
+ * ({@code null}/blank == a global, non-trip privilege). The combined DynamoDB key (base name + trip id) is an
+ * implementation detail built internally via {@link Privilege#idFor(String, String)} -- callers never construct or
+ * pass it.
+ */
 @Slf4j
 @Named("priv")
 @ApplicationScoped
@@ -19,35 +26,45 @@ public class PrivilegeCommands {
     private static final long TIMEOUT = 5_000;
     private final DAO dao = DAO.getInstance();
 
-    public Privilege createPrivilege(final String name, final String description, final List<Person.Id> people) {
-        return new Privilege(name, description, people);
+    /**
+     * Creates a privilege from an explicit scope. {@code tripId} null/blank makes it global; otherwise the trip id
+     * is appended to {@code name} to form the identity. The editPrivs page passes the scope chosen in its selector.
+     */
+    public Privilege createPrivilege(
+            final String name, final String description, final String tripId, final List<Person.Id> people) {
+        return new Privilege(Privilege.idFor(name, tripId), description, people);
     }
 
-    public List<Privilege> getPrivileges() {
-        return dao.getPrivileges()
-                .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-                .exceptionally(ex -> logAndReturn(ex, List.of()))
-                .join();
+    /** Global (non-trip) privileges, name-sorted. */
+    public List<Privilege> getGlobalPrivileges() {
+        return sorted(dao.getGlobalPrivileges());
     }
 
-    public Privilege getTripPriv(final String tripId, final String privName) {
-        if (tripId == null || privName == null) {
+    /** Privileges scoped to the given trip (blank/null == the global partition), name-sorted. */
+    public List<Privilege> getTripPrivileges(final String tripId) {
+        final String scope = blankToNull(tripId);
+        return sorted(scope == null ? dao.getGlobalPrivileges() : dao.getTripPrivileges(scope));
+    }
+
+    /**
+     * The named privilege, or {@link Privilege#NONE} if it does not exist. {@code tripId} null/blank looks up the
+     * global privilege; otherwise the trip-scoped one.
+     */
+    public Privilege getPrivilege(final String name, final String tripId) {
+        if (name == null) {
             return Privilege.NONE;
         }
-        return getPrivilege(privName + tripId);
+        return getPrivilegeById(Privilege.idFor(name, blankToNull(tripId))).orElse(Privilege.NONE);
     }
 
-    public Privilege getPrivilege(final String privName) {
-        return getPrivilegeMaybe(privName).orElse(Privilege.NONE);
-    }
-
-    public Privilege getOrCreate(final String privName, final String description) {
-        return getPrivilegeMaybe(privName)
-                .orElseGet(() -> new Privilege(privName, description, List.of()));
+    /** The named privilege if it exists, otherwise a new (unsaved) one with the given description. */
+    public Privilege getOrCreate(final String name, final String tripId, final String description) {
+        final String id = Privilege.idFor(name, blankToNull(tripId));
+        return getPrivilegeById(id).orElseGet(() -> new Privilege(id, description, List.of()));
     }
 
     public boolean savePrivilege(final Privilege privilege) {
-        if ((privilege == null) || (privilege.getName() == null) || privilege.getName().isBlank()) {
+        if ((privilege == null) || (privilege.getId() == null) || privilege.getId().isBlank()) {
             throw new IllegalStateException("Cannot save a privilege without a name!");
         }
         return dao.savePrivilege(privilege)
@@ -56,35 +73,31 @@ public class PrivilegeCommands {
                 .join();
     }
 
-    public boolean checkTripPriv(final String tripId, final String tripPrivName, final Person.Id personId) {
-        if (tripId == null || tripPrivName == null || personId == null) {
+    /** True if {@code personId} holds the named privilege ({@code tripId} null/blank == global). */
+    public boolean check(final String name, final String tripId, final Person.Id personId) {
+        if (name == null || personId == null) {
             return false;
         }
-        return check(tripPrivName + tripId, personId);
-    }
-
-    public boolean check(final String privName, final Person.Id personId) {
-        if (personId == null) {
-            return false;
-        }
-        return getPrivilegeMaybe(privName)
+        return getPrivilegeById(Privilege.idFor(name, blankToNull(tripId)))
                 .map(priv -> priv.getPeople().contains(personId))
                 .orElse(false);
     }
 
-    public boolean add(final String privName, final Person.Id personId) {
-        if (check(privName, personId)) {
+    /** Grants the named privilege to {@code personId}. No-op if already held or the privilege is unknown. */
+    public boolean add(final String name, final String tripId, final Person.Id personId) {
+        if (check(name, tripId, personId)) {
             return false;
         }
-        return getPrivilegeMaybe(privName)
-                .map(p -> new Privilege(privName, p.getDescription(), addToList(p.getPeople(), personId)))
+        return getPrivilegeById(Privilege.idFor(name, blankToNull(tripId)))
+                .map(priv -> priv.withNewPerson(personId))
                 .map(this::savePrivilege)
                 .orElse(false);
     }
 
-    public boolean remove(final String privName, final Person.Id personId) {
-        return getPrivilegeMaybe(privName)
-                .map(p -> new Privilege(privName, p.getDescription(), removeFromList(p.getPeople(), personId)))
+    /** Revokes the named privilege from {@code personId}. */
+    public boolean remove(final String name, final String tripId, final Person.Id personId) {
+        return getPrivilegeById(Privilege.idFor(name, blankToNull(tripId)))
+                .map(priv -> priv.withoutPerson(personId))
                 .map(this::savePrivilege)
                 .orElse(false);
     }
@@ -99,51 +112,39 @@ public class PrivilegeCommands {
      * </ol>
      * @param role          The role... this can be a blank string b/c of how EL evaluates, we will treat this as null.
      * @param requiredUser  The user ID.
-     * @param priv          The priv... this can be a blank string b/c of how EL evaluates, we will treat this as null.
+     * @param privName      The privilege base name... blank (from EL) is treated as null.
+     * @param privTripId    The trip the privilege is scoped to, or null/blank for a global privilege.
      * @return  True if the user is authorized.
      */
-    public boolean isAuthorized(final String role, final Person.Id requiredUser, final String priv) {
+    public boolean isAuthorized(
+            final String role, final Person.Id requiredUser, final String privName, final String privTripId) {
         final PersonCommands personCommands = PersonCommands.getPersonCommands();
         final Person currUser = personCommands.getCurrentPerson();
         final boolean result;
-        final String requiredRole = role == null || role.isBlank() ? null : role;
-        final String requiredPriv = priv == null || priv.isBlank() ? null : priv;
+        final String requiredRole = blankToNull(role);
+        final String requiredPriv = blankToNull(privName);
         if (personCommands.hasRole(requiredRole)) {
             result = true;
         } else if (personCommands.canAccessUserId(currUser, requiredUser)) {
             result = true;
-        } else if (requiredPriv != null && !requiredPriv.isBlank()) {
-            result = check(requiredPriv, currUser.getId());
+        } else if (requiredPriv != null) {
+            result = check(requiredPriv, privTripId, currUser.getId());
         } else {
             result = requiredRole == null && requiredUser == null;
         }
         return result;
     }
-/*
-OLD CODE from xhtml:
 
-currUser = people.getPerson(sessionScope.userId);
-if ((viewScope.reqRole != null) &amp;&amp; !sessionScope.userRole.equalsIgnoreCase(viewScope.reqRole)) {
-    // Missing req userRole
-    if ((reqId == null) || !pass.canAccessUserId(currUser, reqId)) {
-        // No user-override... redirect
-        sessionScope.afterLoginURL = request.requestURL.toString().concat("?").concat(request.queryString);
-        jsft.redirect("/account/login.jsf");
-    }
-} else if (viewScope.reqRole == null) {
-    // No userRole requirement... is there a user requirement?
-    if ((reqId != null) &amp;&amp; !pass.canAccessUserId(currUser, reqId)) {
-        // No user-override... redirect
-        sessionScope.afterLoginURL = request.requestURL.toString().concat("?").concat(request.queryString);
-        jsft.redirect("/account/login.jsf");
-    }
-}
-*/
-
-    public List<Person.Id> getPeopleWithPriv(final List<String> privNames) {
+    /**
+     * All people who hold any of the named privileges within {@code tripId} (null/blank == global), de-duplicated
+     * and sorted by "last, preferred name".
+     */
+    public List<Person.Id> getPeopleWithPriv(final List<String> names, final String tripId) {
         final PersonCommands people = PersonCommands.getPersonCommands();
-        return privNames.stream()
-                .map(this::getPrivilegeMaybe)
+        final String scope = blankToNull(tripId);
+        return names.stream()
+                .map(name -> Privilege.idFor(name, scope))
+                .map(this::getPrivilegeById)
                 .map(op -> op.map(Privilege::getPeople).orElse(List.of()))
                 .flatMap(Collection::stream)
                 .distinct()
@@ -165,27 +166,29 @@ if ((viewScope.reqRole != null) &amp;&amp; !sessionScope.userRole.equalsIgnoreCa
                 bPerson.getLast() + ',' + bPerson.getPreferredName());
     }
 
-    private Optional<Privilege> getPrivilegeMaybe(final String privName) {
-        final Optional<Privilege> priv = dao.getPrivilege(privName)
+    private List<Privilege> sorted(final CompletableFuture<List<Privilege>> future) {
+        final List<Privilege> result = new ArrayList<>(future
+                .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
+                .exceptionally(ex -> logAndReturn(ex, List.of()))
+                .join());
+        result.sort((a, b) -> a.getName().compareToIgnoreCase(b.getName()));
+        return result;
+    }
+
+    // Internal: lookup by the combined DynamoDB identity. The public API never exposes this id.
+    private Optional<Privilege> getPrivilegeById(final String id) {
+        final Optional<Privilege> priv = dao.getPrivilege(id)
                 .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
                 .exceptionally(ex -> logAndReturn(ex, Optional.empty()))
                 .join();
         if (priv.isEmpty()) {
-            log.debug("Unknown privilege '" + privName + "'!");
+            log.debug("Unknown privilege '" + id + "'!");
         }
         return priv;
     }
 
-    private <T> List<T> addToList(final Collection<T> list, T newElt) {
-        final List<T> result = new ArrayList<>(list);
-        result.add(newElt);
-        return result;
-    }
-
-    private <T> List<T> removeFromList(final Collection<T> list, T toRemove) {
-        final List<T> result = new ArrayList<>(list);
-        result.remove(toRemove);
-        return result;
+    private static String blankToNull(final String value) {
+        return (value == null || value.isBlank()) ? null : value;
     }
 
     private <T> T logAndReturn(final Throwable ex, final T result) {

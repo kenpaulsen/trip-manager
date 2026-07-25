@@ -28,25 +28,17 @@ public class TransactionDAOTest {
     }
 
     @Test
-    public void testCacheAll() {
+    public void transactionsAreServedFromCacheAfterFirstLoad() {
         final Person.Id userId = Person.Id.from(RandomData.genAlpha(5));
-        final String groupId = RandomData.genAlpha(4);
-        final Transaction tx = new Transaction(userId, groupId, Transaction.Type.Shared);
-        final Transaction tx2 = new Transaction(userId, groupId, Transaction.Type.Shared);
-        final List<Transaction> txs = new ArrayList<>();
-        txs.add(tx);
-        txs.add(tx2);
-        final Persistence persistence = new Persistence() {};
-        final TransactionDAO localDao = new TransactionDAO(new ObjectMapper(), persistence);
-        final Map<String, Transaction> userTxs = localDao.getTxCacheForUser(userId).join();
-        assertEquals(userTxs.size(), 0, "Expected cache to start at 0.");
-        persistence.cacheAll(userTxs, txs, Transaction::getTxId);
-        assertEquals(userTxs.size(), 2, "Expected cache to add 2 items!");
-
-        final Map<String, Transaction> verifySave = localDao.getTxCacheForUser(userId).join();
-        assertEquals(verifySave.size(), 2, "Expected cache to start at 2 this time!");
-        persistence.cacheAll(verifySave, txs, Transaction::getTxId);
-        assertEquals(verifySave.size(), 2, "Expected cache to add 2 items!");
+        final List<Integer> queryCount = new ArrayList<>();
+        final Persistence persistence =
+                FakeData.createFakePersistenceWithQueryMonitor(qb -> queryCount.add(1));
+        final TransactionDAO localDao =
+                new TransactionDAO(new ObjectMapper().findAndRegisterModules(), persistence);
+        assertTrue(get(localDao.getTransactions(userId)).isEmpty());
+        assertEquals(queryCount.size(), 1, "First read should query the database");
+        assertTrue(get(localDao.getTransactions(userId)).isEmpty());
+        assertEquals(queryCount.size(), 1, "Second read should be served by the cache");
     }
 
     @Test

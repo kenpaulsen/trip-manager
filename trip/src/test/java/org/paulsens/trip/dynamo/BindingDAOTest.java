@@ -2,6 +2,7 @@ package org.paulsens.trip.dynamo;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Stream;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -41,8 +42,10 @@ public class BindingDAOTest {
         Assert.assertEquals(get(dao.getBindings(id2, BindingType.TRANSACTION, BindingType.PERSON)), List.of(id1));
 
         // Add a second binding of the same type, make sure it gets added w/o removing the old one
+        // (bindings come back in deterministic sorted order, not insertion order)
         Assert.assertTrue(get(dao.saveBinding(id1, BindingType.PERSON, id4, BindingType.TRANSACTION, true)));
-        Assert.assertEquals(get(dao.getBindings(id1, BindingType.PERSON, BindingType.TRANSACTION)), List.of(id2, id4));
+        Assert.assertEquals(get(dao.getBindings(id1, BindingType.PERSON, BindingType.TRANSACTION)),
+                Stream.of(id2, id4).sorted().toList());
         Assert.assertEquals(get(dao.getBindings(id2, BindingType.TRANSACTION, BindingType.PERSON)), List.of(id1));
         Assert.assertEquals(get(dao.getBindings(id4, BindingType.TRANSACTION, BindingType.PERSON)), List.of(id1));
     }

@@ -2,16 +2,18 @@ package org.paulsens.trip.dynamo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentSkipListMap;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.cache.CacheClient;
+import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.CacheSupport;
+import org.paulsens.trip.cache.InMemoryCacheClient;
+import org.paulsens.trip.cache.PartitionCache;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Registration;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -25,13 +27,31 @@ public class RegistrationDAO {
     private static final String DELETED = "deleted";
     private static final String REGISTRATION_TABLE = "registrations";
 
-    private final Map<String, Map<Person.Id, Registration>> regCache = new ConcurrentHashMap<>();
     private final ObjectMapper mapper;
     private final Persistence persistence;
+    private final CacheClient cacheClient;
+    private final PartitionCache<Person.Id, Registration> cache;
 
     protected RegistrationDAO(final ObjectMapper mapper, final Persistence persistence) {
+        this(mapper, persistence, new InMemoryCacheClient());
+    }
+
+    protected RegistrationDAO(final ObjectMapper mapper, final Persistence persistence,
+            final CacheClient cacheClient) {
         this.mapper = mapper;
         this.persistence = persistence;
+        this.cacheClient = cacheClient;
+        this.cache = PartitionCache.<Person.Id, Registration>builder()
+                .cache(cacheClient)
+                .keyPrefix(CacheKeys.REG_PREFIX)
+                .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
+                .idGetter(Registration::getUserId)
+                .idFormatter(Person.Id::getValue)
+                .serializer(this::toJson)
+                .deserializer(this::parseRegistration)
+                // The old per-JVM cache was a skip-list map keyed by user id, so that was the caller-visible order.
+                .order(Comparator.comparing(Registration::getUserId))
+                .build();
     }
 
     protected CompletableFuture<Boolean> saveRegistration(final Registration reg) throws IOException {
@@ -39,11 +59,10 @@ public class RegistrationDAO {
         map.put(TRIP_ID, persistence.toStrAttr(reg.getTripId()));
         map.put(USER_ID, persistence.toStrAttr(reg.getUserId().getValue()));
         map.put(CONTENT, persistence.toStrAttr(mapper.writeValueAsString(reg)));
-        final CompletableFuture<Map<Person.Id, Registration>> futTripRegs = getTripRegistrationCache(reg.getTripId());
         return persistence.putItem(b -> b.tableName(REGISTRATION_TABLE).item(map))
-                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
-                .thenCombine(futTripRegs, (success, tripRegs) -> success ? tripRegs : null)
-                .thenApply(tripRegs -> persistence.cacheOne(tripRegs, reg, reg.getUserId(), tripRegs != null))
+                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
+                        ? cache.put(reg.getTripId(), reg)
+                        : CompletableFuture.completedFuture(false))
                 .exceptionally(ex -> {
                     log.error("Failed to save registration!", ex);
                     return false;
@@ -51,49 +70,24 @@ public class RegistrationDAO {
     }
 
     protected CompletableFuture<List<Registration>> getRegistrations(final String tripId) {
-        return getTripRegistrationCache(tripId)
-                .thenApply(map -> new ArrayList<>(map.values()));
+        return cache.getAll(tripId, () -> loadTripRegData(tripId));
     }
 
     protected CompletableFuture<Optional<Registration>> getRegistration(final String tripId, final Person.Id userId) {
-        return getTripRegistrationCache(tripId)     // Ensure registrations for this trip are loaded into memory
-                .thenApply(map -> map.get(userId))  // Read from cache
-                .thenApply(Optional::ofNullable);
+        return cache.getOne(tripId, userId, () -> loadTripRegData(tripId));
     }
 
     public void clearCache() {
-        regCache.clear();
+        cacheClient.clearNamespace(CacheKeys.REG_PREFIX).join();
     }
 
-    private CompletableFuture<Map<Person.Id, Registration>> getTripRegistrationCache(final String tripId) {
-        final Map<Person.Id, Registration> result = regCache.get(tripId);
-        return (result == null) ? cacheTripRegData(tripId) : CompletableFuture.completedFuture(result);
-    }
-
-    private CompletableFuture<Map<Person.Id, Registration>> cacheTripRegData(final String tripId) {
-        return loadTripRegData(tripId)
-                .thenApply(cache -> {
-                    regCache.put(tripId, cache);
-                    return cache;
-                })
-                .exceptionally(ex -> {
-                    log.error("Unable to load and cache Trip Registration data!", ex);
-                    throw new IllegalStateException(ex);
-                });
-    }
-
-    private CompletableFuture<Map<Person.Id, Registration>> loadTripRegData(final String tripId) {
+    private CompletableFuture<List<Registration>> loadTripRegData(final String tripId) {
         log.info("Cache miss for registration data for tripId: {}", tripId);
-        // Use a map that preserves order for sorting
-        final Map<Person.Id, Registration> result = new ConcurrentSkipListMap<>();
-        return persistence.query(qb -> registrationsByTripId(qb, tripId))
-                .thenApply(resp -> resp.items().stream()
+        return persistence.queryAll(qb -> registrationsByTripId(qb, tripId))
+                .thenApply(items -> items.stream()
                         .map(m -> toRegistration(m.get(CONTENT)))
                         .filter(reg -> (reg != null) && !DELETED.equals(reg.getStatus()))
-                        .sorted(Comparator.comparing(Registration::getCreated))
-                        .toList())
-                .thenAccept(list -> persistence.cacheAll(result, list, Registration::getUserId))
-                .thenApply(v -> result);
+                        .toList());
     }
 
     private void registrationsByTripId(final QueryRequest.Builder qb, final String tripId) {
@@ -104,10 +98,23 @@ public class RegistrationDAO {
     }
 
     private Registration toRegistration(final AttributeValue content) {
+        return (content == null) ? null : parseRegistration(content.s());
+    }
+
+    private Registration parseRegistration(final String json) {
         try {
-            return mapper.readValue(content.s(), Registration.class);
-        } catch (IOException ex) {
-            log.error("Unable to parse registration record: " + content, ex);
+            return mapper.readValue(json, Registration.class);
+        } catch (final IOException ex) {
+            log.error("Unable to parse registration record: " + json, ex);
+            return null;
+        }
+    }
+
+    private String toJson(final Registration reg) {
+        try {
+            return mapper.writeValueAsString(reg);
+        } catch (final IOException ex) {
+            log.error("Unable to serialize registration: " + reg.getTripId() + "/" + reg.getUserId(), ex);
             return null;
         }
     }

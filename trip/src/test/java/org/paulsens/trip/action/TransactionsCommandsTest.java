@@ -28,10 +28,13 @@ public class TransactionsCommandsTest {
         final String cat = RandomData.genAlpha(9);
         final String note = RandomData.genAlpha(15);
         final float amount = -103.5f;
-        txCmds.saveGroupTx(sharedGroup, Transaction.Type.Shared, Transaction.TransactionType.Bill, LocalDateTime.now(),
-                amount, cat, note, null /* tripId */, null /* eventId */,
-                createPerson(), createPerson(), createPerson(), createPerson());
-        final List<Person.Id> groupUsers = txCmds.getUserIdsForGroupId(sharedGroup);
+        final Person.Id p1 = createPerson();
+        txCmds.saveGroupTx(sharedGroup, List.of(), Transaction.Type.Shared, Transaction.TransactionType.Bill,
+                LocalDateTime.now(), amount, cat, note, null /* tripId */, null /* eventId */,
+                p1, createPerson(), createPerson(), createPerson());
+        // Membership is stamped on each row -- read it off any member's tx
+        final Transaction memberTx = txCmds.getGroupTransactionForUser(p1, sharedGroup).orElse(null);
+        final List<Person.Id> groupUsers = txCmds.getUserIdsForGroup(memberTx);
         assertEquals(groupUsers.size(), 4);
         final Transaction tx0 = txCmds.getGroupTransactionForUser(groupUsers.get(0), sharedGroup).orElse(null);
         assertEquals((float) txCmds.getUserAmount(tx0), amount / 4);

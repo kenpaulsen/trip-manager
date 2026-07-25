@@ -87,7 +87,13 @@ public class TodoCommandsTest {
         final TodoStatus todoStatusFromGet = todoCommands.getOrCreateTodoStatus(todo, pid);
         assertEquals(todoStatusFromGet.getStatus().getNotes(), notes);
         assertEquals(todoStatusFromGet.getStatus().getValue(), Status.StatusValue.IN_PROGRESS);
-        assertEquals(todoStatusFromGet, todoStatus);
+        // The shared cache returns value snapshots (not the same instance), so compare by content
+        assertEquals(todoStatusFromGet.getTodoItem(), todoStatus.getTodoItem());
+        assertEquals(todoStatusFromGet.getPersonDataValue().getDataId(),
+                todoStatus.getPersonDataValue().getDataId());
+        assertEquals(todoStatusFromGet.getPersonDataValue().getUserId(),
+                todoStatus.getPersonDataValue().getUserId());
+        assertEquals(todoStatusFromGet.getStatus(), todoStatus.getStatus());
     }
 
     @Test
@@ -124,9 +130,14 @@ public class TodoCommandsTest {
         assertEquals(model.getWidget(2).getWidgetCount(), 2);
         assertEquals(model.getWidget(1).getWidget(0), TodoCommands.WIDGET_PREFIX + dataId + '-' + pid.getValue());
 
-        // Modify status, rebuild DashboardModel... should see changes (even if we don't persist, due to caching)
-        todoCommands.getOrCreateTodoStatus(todo, pid).getStatus().setValue("DONE");
-        final DashboardModel updatedModel = todoCommands.getTodoDashboard(todosToShow, true);
+        // Modify and SAVE the status, then rebuild the DashboardModel from a fresh read. The shared cache returns
+        // value snapshots, so unsaved mutations are no longer visible to other readers (the old per-JVM cache
+        // aliased the same instance everywhere).
+        final TodoStatus doneStatus = todoCommands.getOrCreateTodoStatus(todo, pid);
+        doneStatus.getStatus().setValue("DONE");
+        assertTrue(todoCommands.saveTodoStatus(doneStatus));
+        final DashboardModel updatedModel = todoCommands.getTodoDashboard(
+                todoCommands.getTodosForUser(tripId, pid, false), true);
         assertEquals(updatedModel.getWidget(0).getWidgetCount(), 3);
         assertEquals(updatedModel.getWidget(1).getWidgetCount(), 0);
         final DashboardWidget col2 = updatedModel.getWidget(2);

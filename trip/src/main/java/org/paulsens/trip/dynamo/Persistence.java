@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import software.amazon.awssdk.http.SdkHttpResponse;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
@@ -52,45 +51,20 @@ public interface Persistence {
     }
 
     /**
-     * This method caches a single value, typically used when a single value is updated. In fact, it does not support
-     * the use case of saving a single value to the cache if the cache isn't fully populated. In other words, it will
-     * do nothing if the cache is completely empty. This allows checking if the cache is empty to know if it is
-     * completely populated.
-     *
-     * @param cacheMap      The Map used to cache values.
-     * @param item          The value to cache.
-     * @param key           The key to cache it under.
-     * @param returnValue   The return value (only to help functional style, pass through).
-     * @param <T>           The type of the thing being cached.
-     * @param <R>           The return value type.
-     * @return  It always returns the {@code returnValue} passed in.
+     * Scans the <em>entire</em> table, following pagination. The single-page {@link #scan} silently truncates at
+     * the 1 MB response limit; loaders that feed the shared cache must use this instead. This default delegates to
+     * {@link #scan} (one page) so fakes and tests keep their existing behavior.
      */
-    default <K, T, R> R cacheOne(final Map<K, T> cacheMap, final T item, K key, final R returnValue) {
-        if (cacheMap != null) {
-            cacheMap.put(key, item);
-        }
-        return returnValue;
+    default CompletableFuture<List<Map<String, AttributeValue>>> scanAll(Consumer<ScanRequest.Builder> scanRequest) {
+        return scan(scanRequest).thenApply(ScanResponse::items);
     }
 
-    default <K, T> List<T> cacheAll(final Map<K, T> cacheMap, final List<T> items, final Function<T, K> getKey) {
-        cacheMap.clear();
-        items.forEach(item -> cacheMap.put(getKey.apply(item), item));
-        return items;
-    }
-
-    default <K, T, R> R clearCache(Map<K, T> cacheMap, R returnValue) {
-        // To avoid the chance of a slow scan returning and caching the result AFTER we clear, but before we may
-        // have added/deleted content, introduce a cache clear delay.
-        CompletableFuture.runAsync(() -> {
-            try {
-                // FIXME: do not do this! ScheduledExecutor if we really do need a delay
-                Thread.sleep(50);
-            } catch (InterruptedException ex) {
-                throw new RuntimeException(ex);
-            }
-            cacheMap.clear();
-        });
-        return returnValue;
+    /**
+     * Runs a query, following pagination (see {@link #scanAll}). This default delegates to {@link #query} (one
+     * page) so fakes and tests keep their existing behavior.
+     */
+    default CompletableFuture<List<Map<String, AttributeValue>>> queryAll(Consumer<QueryRequest.Builder> queryRequest) {
+        return query(queryRequest).thenApply(QueryResponse::items);
     }
 
     default AttributeValue toStrAttr(final String val) {

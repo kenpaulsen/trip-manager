@@ -11,6 +11,8 @@ import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.security.PasswordHasher;
+import org.paulsens.trip.util.RandomData;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 
@@ -26,10 +28,17 @@ public class CredentialsDAO {
 
     private final Persistence persistence;
     private final PersonDAO personDao;
+    private final PasswordHasher hasher;
 
     protected CredentialsDAO(final Persistence persistence, final PersonDAO personDAO) {
+        this(persistence, personDAO, PasswordHasher.getInstance());
+    }
+
+    // Package-private: tests inject a PasswordHasher built over a fixed Pepper so they never touch AWS.
+    CredentialsDAO(final Persistence persistence, final PersonDAO personDAO, final PasswordHasher hasher) {
         this.persistence = persistence;
         this.personDao = personDAO;
+        this.hasher = hasher;
     }
 
     // Only available to super admins
@@ -99,11 +108,15 @@ public class CredentialsDAO {
             log.warn("Email '{}' not found.", email);
             return Optional.empty();
         }
+        // Fail closed: seed with a random, unguessable password rather than a derivable value (the last name used
+        // to double as the initial password). The only caller, PassCommands.createCreds, immediately overwrites
+        // this with the user's chosen password; if that second save were ever to fail, the account is left with a
+        // password nobody knows -- recoverable only via reset -- instead of one anyone could guess.
         final Creds creds = new Creds(
                 email.toLowerCase(Locale.getDefault()),
                 user.getId(),
                 Creds.USER_PRIV,
-                user.getLast(),
+                RandomData.genPassChars(24),
                 Instant.now().getEpochSecond());
         return Optional.ofNullable(saveCreds(creds).join() ? creds : null);
     }
@@ -112,7 +125,7 @@ public class CredentialsDAO {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(EMAIL, AttributeValue.builder().s(creds.getEmail().toLowerCase(Locale.getDefault())).build());
         map.put(USER_ID, AttributeValue.builder().s(creds.getUserId().getValue()).build());
-        map.put(PW, AttributeValue.builder().s(creds.getPass()).build());
+        map.put(PW, AttributeValue.builder().s(hashIfNeeded(creds.getPass())).build());
         map.put(PRIV, AttributeValue.builder().s(creds.getPriv()).build());
         if (creds.getLastLogin() != null) {
             map.put(LAST_LOGIN, AttributeValue.builder().n("" + creds.getLastLogin()).build());
@@ -146,11 +159,25 @@ public class CredentialsDAO {
                 .thenApply(resp -> resp.sdkHttpResponse().isSuccessful());
     }
 
+    // Turns a password into what should be written: an existing hash envelope passes through untouched (so
+    // re-saving a loaded Creds -- e.g. on a lastLogin or email change -- never double-hashes), while a plaintext
+    // value (a newly set password, or a legacy row being migrated) is hashed. Blank passwords are left as-is; the
+    // callers that build Creds guarantee a value, and a blank one is a broken credential either way.
+    private String hashIfNeeded(final String pass) {
+        if (pass == null || pass.isBlank() || hasher.isHashed(pass)) {
+            return pass;
+        }
+        return hasher.hash(pass);
+    }
+
     private Creds validateCreds(final GetItemResponse resp, final String email, final String pass) {
         final String lowEmail = email.toLowerCase();
         if (!resp.hasItem()) {
-            log.warn("User with email (" + lowEmail + ") has not logged in before! Checking if user exists...");
-            return createCreds(lowEmail).map(creds -> validateCreds(lowEmail, pass, creds)).orElse(null);
+            // No credentials on file. We used to auto-create them here with the last name as the initial password;
+            // that made every registered person's account guessable, so it is gone. A person without credentials
+            // must establish them explicitly via create-account or reset-password.
+            log.warn("No credentials on file for ({}). Login denied; user must create an account or reset.", lowEmail);
+            return null;
         }
         return validateCreds(lowEmail, pass, credsFromResponse(resp));
     }
@@ -167,9 +194,20 @@ public class CredentialsDAO {
     }
 
     private Creds validateCreds(final String email, final String pass, final Creds creds) {
-        if (!pass.equals(creds.getPass())) {
+        final String stored = creds.getPass();
+        if (!hasher.verify(pass, stored)) {
             log.warn("Invalid password for user: {}", email);
             return null;
+        }
+        // Lazy upgrade: if the stored value is legacy plaintext or was made under an older pepper, re-hash it now
+        // that we hold the plaintext and know it is correct. Stamp the returned Creds with the new hash so the
+        // login's subsequent lastLogin save (and any later save) stores it as-is rather than hashing again.
+        if (hasher.needsRehash(stored)) {
+            creds.setPass(hasher.hash(pass));
+            saveCreds(creds).exceptionally(ex -> {
+                log.error("Failed to upgrade stored password hash for {}", email, ex);
+                return false;
+            });
         }
         return creds;
     }

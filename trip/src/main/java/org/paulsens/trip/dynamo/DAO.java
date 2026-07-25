@@ -1,16 +1,24 @@
 package org.paulsens.trip.dynamo;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.cache.CacheClient;
+import org.paulsens.trip.cache.CacheConfig;
+import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.InMemoryCacheClient;
+import org.paulsens.trip.cache.NoopCacheClient;
+import org.paulsens.trip.cache.ValkeyCacheClient;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.DataId;
@@ -22,11 +30,14 @@ import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
+import org.paulsens.trip.security.PasswordHasher;
+import org.paulsens.trip.security.Pepper;
 
 @Slf4j
 public class DAO {
     @Getter
     private final ObjectMapper mapper;
+    private final CacheClient cacheClient;
     private final PersonDAO personDao;
     private final TripEventDAO tripEventDao;
     private final TripDAO tripDao;
@@ -42,18 +53,22 @@ public class DAO {
     private static DAO inst;
 
     private DAO() {
-        final Persistence persistence = createTripPersistence();
+        this(createTripPersistence(), createCacheClient());
+    }
+
+    private DAO(final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = createObjectMapper();
-        this.personDao = new PersonDAO(mapper, persistence);
-        this.tripEventDao = new TripEventDAO(mapper, persistence);
-        this.tripDao = new TripDAO(mapper, persistence, tripEventDao);
-        this.regDao = new RegistrationDAO(mapper, persistence);
-        this.txDao = new TransactionDAO(mapper, persistence);
-        this.credDao = new CredentialsDAO(persistence, personDao);
-        this.todoDao = new TodoDAO(mapper, persistence);
-        this.pdvDao = new PersonDataValueDAO(mapper, persistence);
-        this.privDao = new PrivilegesDAO(mapper, persistence);
-        this.bindingDao = new BindingDAO(persistence);
+        this.cacheClient = cacheClient;
+        this.personDao = new PersonDAO(mapper, persistence, cacheClient);
+        this.tripEventDao = new TripEventDAO(mapper, persistence, cacheClient);
+        this.tripDao = new TripDAO(mapper, persistence, tripEventDao, cacheClient);
+        this.regDao = new RegistrationDAO(mapper, persistence, cacheClient);
+        this.txDao = new TransactionDAO(mapper, persistence, cacheClient);
+        this.credDao = new CredentialsDAO(persistence, personDao, createPasswordHasher());
+        this.todoDao = new TodoDAO(mapper, persistence, cacheClient);
+        this.pdvDao = new PersonDataValueDAO(mapper, persistence, cacheClient);
+        this.privDao = new PrivilegesDAO(mapper, persistence, cacheClient);
+        this.bindingDao = new BindingDAO(persistence, cacheClient);
     }
 
     public static DAO getInstance() {
@@ -65,12 +80,55 @@ public class DAO {
         return inst;
     }
 
+    /**
+     * Selects the shared-cache client. Outside local mode the {@link CacheConfig} mode decides (valkey / memory /
+     * off), so any external client using this library resolves identically and a write with
+     * {@code TRIP_VALKEY_URI} set is immediately visible to every running instance.
+     *
+     * <p>Local mode uses the zero-dependency in-memory client, so unit tests and laptop runs need no daemon.
+     * Faking the datastore and faking the cache are separate choices, though, and setting
+     * {@value #LOCAL_USE_CONFIGURED_CACHE} opts local mode into whatever {@link CacheConfig} resolves. That
+     * combination -- fake persistence behind a real Valkey -- is what lets the functional tests exercise
+     * {@link ValkeyCacheClient} itself: its serialization, key layout, loaded-sentinels and TTLs, none of which
+     * the in-memory client models.</p>
+     */
+    private static CacheClient createCacheClient() {
+        return (FakeData.isLocal() && !localModeUsesConfiguredCache())
+                ? new InMemoryCacheClient()
+                : createConfiguredCacheClient();
+    }
+
+    /**
+     * Opts local mode into the configured cache client.
+     *
+     * <p>Deliberately a system property with <em>no</em> environment-variable fallback, unlike every other cache
+     * setting. {@link FakeData#isLocal()} is true whenever there is no {@code FacesContext}, which includes
+     * {@code mvn test} -- so if this were inferred from {@code TRIP_VALKEY_URI}, running the unit tests in a shell
+     * that had sourced the production CLI environment would silently point them at the live cache. A property only
+     * a test harness passes cannot be switched on by an ambient variable.</p>
+     */
+    private static boolean localModeUsesConfiguredCache() {
+        return Boolean.parseBoolean(System.getProperty(LOCAL_USE_CONFIGURED_CACHE));
+    }
+
+    static final String LOCAL_USE_CONFIGURED_CACHE = "trip.cache.local.useConfigured";
+
+    private static CacheClient createConfiguredCacheClient() {
+        final CacheConfig config = CacheConfig.resolve();
+        log.info("Shared cache mode: {}", config.getMode());
+        return switch (config.getMode()) {
+            case VALKEY -> new ValkeyCacheClient(config);
+            case MEMORY -> new InMemoryCacheClient();
+            case OFF -> new NoopCacheClient();
+        };
+    }
+
     // People
     public CompletableFuture<Boolean> savePerson(final Person person) throws IOException {
         return personDao.savePerson(person);
     }
-    public CompletableFuture<List<Person>> getPeople() {
-        return personDao.getPeople();
+    public CompletableFuture<List<Person>> searchPeople(final String query, final int limit) {
+        return personDao.searchPeople(query, limit);
     }
     public CompletableFuture<Optional<Person>> getPerson(final Person.Id id) {
         return personDao.getPerson(id);
@@ -86,8 +144,17 @@ public class DAO {
     public CompletableFuture<Optional<Trip>> getTrip(final String id) {
         return tripDao.getTrip(id);
     }
-    public CompletableFuture<List<Trip>> getTrips() {
-        return tripDao.getTrips();
+    public CompletableFuture<List<Trip>> getActiveTrips(final LocalDateTime cutoff) {
+        return tripDao.getActiveTrips(cutoff);
+    }
+    public CompletableFuture<List<Trip>> getInactiveTrips(final LocalDateTime cutoff, final int limit) {
+        return tripDao.getInactiveTrips(cutoff, limit);
+    }
+    public CompletableFuture<List<Trip>> getRecentTrips(final int limit) {
+        return tripDao.getRecentTrips(limit);
+    }
+    public CompletableFuture<List<Trip>> getTripsForUser(final Person.Id userId) {
+        return tripDao.getTripsForUser(userId);
     }
 
     // Trip Events
@@ -175,8 +242,11 @@ public class DAO {
     public CompletableFuture<Optional<Privilege>> getPrivilege(final String name) {
         return privDao.getPrivilege(name);
     }
-    public CompletableFuture<List<Privilege>> getPrivileges() {
-        return privDao.getPrivileges();
+    public CompletableFuture<List<Privilege>> getGlobalPrivileges() {
+        return privDao.getGlobalPrivileges();
+    }
+    public CompletableFuture<List<Privilege>> getTripPrivileges(final String tripId) {
+        return privDao.getTripPrivileges(tripId);
     }
 
     // Bindings
@@ -193,17 +263,13 @@ public class DAO {
         return bindingDao.removeBinding(id, type, destId, destType, bidirectionalBindings);
     }
 
-    /* Package-private for testing */
+    /**
+     * Drops every entry in the shared cache's data namespace (never a full FLUSH -- on ElastiCache Serverless that
+     * would also wipe the distributed sessions). Used by tests and the admin "clear all caches" action; with the
+     * shared cache this now flushes for every running instance at once.
+     */
     public void clearAllCaches() {
-        personDao.clearCache();
-        tripDao.clearCache();
-        tripEventDao.clearCache();
-        regDao.clearCache();
-        txDao.clearCache();
-        todoDao.clearCache();
-        pdvDao.clearCache();
-        privDao.clearCache();
-        bindingDao.clearCache();
+        cacheClient.clearNamespace(CacheKeys.FORMAT_VERSION).join();
     }
 
     private ObjectMapper createObjectMapper() {
@@ -211,10 +277,14 @@ public class DAO {
         mapper.setDefaultPropertyInclusion(JsonInclude.Include.NON_NULL);
         mapper.registerModule(new JavaTimeModule());
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        // Forward/backward compatibility: instances of different versions share the same Valkey cache blobs
+        // (and DynamoDB rows), so reads must tolerate JSON written by a newer (or older) schema. Unknown JSON
+        // properties are ignored rather than failing the read -- required for safe rolling deploys.
+        mapper.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         return mapper;
     }
 
-    private Persistence createTripPersistence() {
+    private static Persistence createTripPersistence() {
         final Persistence result;
         if (FakeData.isLocal()) {
             // Local development only -- don't talk to dynamo
@@ -224,5 +294,12 @@ public class DAO {
             result = new DynamoPersistence();
         }
         return result;
+    }
+
+    // In local mode the fake credentials are plaintext and nothing is persisted, so hashing needs no pepper -- and
+    // resolving one would reach AWS Secrets Manager, which local dev and `mvn test` must never do (the same
+    // isolation principle behind the cache's local opt-in). Only the real deployment resolves the configured pepper.
+    private static PasswordHasher createPasswordHasher() {
+        return FakeData.isLocal() ? new PasswordHasher(Pepper.none()) : PasswordHasher.getInstance();
     }
 }

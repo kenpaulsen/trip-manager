@@ -8,9 +8,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentSkipListMap;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.cache.CacheClient;
+import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.CacheSupport;
+import org.paulsens.trip.cache.InMemoryCacheClient;
+import org.paulsens.trip.cache.PartitionCache;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -23,24 +26,39 @@ public class TransactionDAO {
     private static final String TX_ID = "txId";
     private static final String USER_ID = "userId";
 
-    private final Map<Person.Id, Map<String, Transaction>> txCache = new ConcurrentHashMap<>();
     private final ObjectMapper mapper;
     private final Persistence persistence;
+    private final CacheClient cacheClient;
+    private final PartitionCache<String, Transaction> cache;
 
     protected TransactionDAO(final ObjectMapper mapper, final Persistence persistence) {
+        this(mapper, persistence, new InMemoryCacheClient());
+    }
+
+    protected TransactionDAO(final ObjectMapper mapper, final Persistence persistence,
+            final CacheClient cacheClient) {
         this.mapper = mapper;
         this.persistence = persistence;
+        this.cacheClient = cacheClient;
+        this.cache = PartitionCache.<String, Transaction>builder()
+                .cache(cacheClient)
+                .keyPrefix(CacheKeys.TX_PREFIX)
+                .softRevalidate(CacheSupport.softRevalidateEnabled(cacheClient))
+                .idGetter(Transaction::getTxId)
+                .idFormatter(txId -> txId)
+                .serializer(this::toJson)
+                .deserializer(this::parseTransaction)
+                .order(Comparator.comparing(Transaction::getTxId))
+                .build();
     }
 
     protected CompletableFuture<List<Transaction>> getTransactions(final Person.Id userId) {
-        return getTxCacheForUser(userId)
-                .thenApply(map -> persistence.sortList(map.values(), Comparator.comparing(Transaction::getTxDate)));
+        return cache.getAll(userId.getValue(), () -> loadUserTxData(userId))
+                .thenApply(list -> persistence.sortList(list, Comparator.comparing(Transaction::getTxDate)));
     }
 
     protected CompletableFuture<Optional<Transaction>> getTransaction(final Person.Id userId, final String txId) {
-        return getTxCacheForUser(userId) // Ensure user transactions are already loaded into memory
-                .thenApply(map -> map.get(txId))  // Read from cache
-                .thenApply(Optional::ofNullable);
+        return cache.getOne(userId.getValue(), txId, () -> loadUserTxData(userId));
     }
 
     protected CompletableFuture<Boolean> saveTransaction(final Transaction tx) throws IOException {
@@ -49,65 +67,49 @@ public class TransactionDAO {
         map.put(TX_ID, AttributeValue.builder().s(tx.getTxId()).build());
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(tx)).build());
         return persistence.putItem(b -> b.tableName(TRANSACTION_TABLE).item(map))
-                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
-                .thenCompose(r -> cacheOneTxAsync(r, tx));
-    }
-
-    /* Package-private for testing */
-    CompletableFuture<Map<String, Transaction>> getTxCacheForUser(final Person.Id userId) {
-        final Map<String, Transaction> result = txCache.get(userId);
-        return (result == null) ? cacheTxData(userId) : CompletableFuture.completedFuture(result);
+                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
+                        ? updateCacheForTx(tx)
+                        : CompletableFuture.completedFuture(false));
     }
 
     public void clearCache() {
-        txCache.clear();
+        cacheClient.clearNamespace(CacheKeys.TX_PREFIX).join();
     }
 
-    private CompletableFuture<Boolean> cacheOneTxAsync(final boolean success, final Transaction tx) {
-        return getTxCacheForUser(tx.getUserId())
-                .thenApply(userTxs -> cacheOneTx(userTxs, success, tx));
+    private CompletableFuture<Boolean> updateCacheForTx(final Transaction tx) {
+        final String partition = tx.getUserId().getValue();
+        return (tx.getDeleted() == null)
+                ? cache.put(partition, tx)
+                : cache.remove(partition, tx.getTxId());
     }
 
-    private boolean cacheOneTx(final Map<String, Transaction> userTxs, final boolean success, final Transaction tx) {
-        if (success) {
-            if (tx.getDeleted() == null) {
-                persistence.cacheOne(userTxs, tx, tx.getTxId(), true); // Normal, just cache it
-            } else {
-                userTxs.remove(tx.getTxId()); // It is now deleted, remove it from cache
-            }
-        } else {
-            persistence.clearCache(userTxs, false); // Error... clear all cache values
-        }
-        return success;
-    }
-
-    private CompletableFuture<Map<String, Transaction>> cacheTxData(final Person.Id userId) {
-        return loadUserTxData(userId)
-                .thenApply(cache -> {
-                    txCache.put(userId, cache);
-                    return cache;
-                });
-    }
-
-    private CompletableFuture<Map<String, Transaction>> loadUserTxData(final Person.Id userId) {
+    private CompletableFuture<List<Transaction>> loadUserTxData(final Person.Id userId) {
         log.info("Cache Miss for tx data for userId: {}", userId.getValue());
-        // Use a map that preserves order for sorting
-        final Map<String, Transaction> result = new ConcurrentSkipListMap<>();
-        return persistence.query(qb -> txByUserId(qb, userId))
-                .thenApply(resp -> resp.items().stream()
+        return persistence.queryAll(qb -> txByUserId(qb, userId))
+                .thenApply(items -> items.stream()
                         .map(m -> toTransaction(m.get(CONTENT)))
                         .filter(tx -> (tx != null) && (tx.getDeleted() == null))
-                        .sorted(Comparator.comparing(Transaction::getTxDate))
-                        .toList())
-                .thenApply(list -> persistence.cacheAll(result, list, Transaction::getTxId))
-                .thenApply(na -> result);
+                        .toList());
     }
 
     private Transaction toTransaction(final AttributeValue content) {
+        return (content == null) ? null : parseTransaction(content.s());
+    }
+
+    private Transaction parseTransaction(final String json) {
         try {
-            return mapper.readValue(content.s(), Transaction.class);
-        } catch (IOException ex) {
-            log.error("Unable to parse record: " + content, ex);
+            return mapper.readValue(json, Transaction.class);
+        } catch (final IOException ex) {
+            log.error("Unable to parse record: " + json, ex);
+            return null;
+        }
+    }
+
+    private String toJson(final Transaction tx) {
+        try {
+            return mapper.writeValueAsString(tx);
+        } catch (final IOException ex) {
+            log.error("Unable to serialize transaction: " + tx.getTxId(), ex);
             return null;
         }
     }

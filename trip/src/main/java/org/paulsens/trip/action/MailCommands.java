@@ -10,12 +10,11 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Predicate;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
-import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ses.SesAsyncClient;
 import software.amazon.awssdk.services.ses.model.Body;
@@ -40,7 +39,8 @@ public class MailCommands {
 
     final SesAsyncClient client = SesAsyncClient.builder()
             .region(Region.US_WEST_2)
-            .credentialsProvider(ProfileCredentialsProvider.builder().build())
+            // Default chain: finds the ECS task role / instance role in AWS, and ~/.aws [default] on a laptop.
+            .credentialsProvider(DefaultCredentialsProvider.builder().build())
             .build();
 
     // NOTE: See "sendTemplate" that method is generally more useful
@@ -184,11 +184,16 @@ public class MailCommands {
         if (email == null) {
             return null;
         }
-        return findPerson(person -> email.equals(formatEmail(person)))
-                .thenApply(maybePerson -> maybePerson.or(
-                        () -> Optional.ofNullable(dao.getPersonByEmail(email).join())))
-                .thenApply(maybePerson -> maybePerson.orElse(Person.builder().email(email).build()))
-                .join();
+        // Accepts either a bare address or the "Pref Last <email>" form produced by formatEmail().
+        return Optional.ofNullable(dao.getPersonByEmail(bareEmail(email)).join())
+                .orElseGet(() -> Person.builder().email(email).build());
+    }
+
+    /** Extracts the address from a "Name &lt;email&gt;" recipient string (returns bare addresses unchanged). */
+    static String bareEmail(final String recipient) {
+        final int lt = recipient.indexOf('<');
+        final int gt = recipient.lastIndexOf('>');
+        return (lt >= 0 && gt > lt) ? recipient.substring(lt + 1, gt).trim() : recipient.trim();
     }
 
     public String validateEmail(final String emailToTest) {
@@ -208,11 +213,6 @@ public class MailCommands {
             result = email;
         }
         return result;
-    }
-
-    private CompletableFuture<Optional<Person>> findPerson(final Predicate<Person> checkFunc) {
-        return dao.getPeople()
-                .thenApply(people -> people.stream().filter(checkFunc).findAny());
     }
 
     Collection<String> splitEmail(final String emails) {
