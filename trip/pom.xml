@@ -31,6 +31,13 @@
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>secretsmanager</artifactId>
         </dependency>
+        <!-- CloudWatch Logs: the audit trail ships to its own log group. A container-local file is not durable
+             (the task's disk dies with it), and the app log group's short retention is wrong for an audit
+             trail. Async (Netty) client, same http stack as the above. -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>cloudwatchlogs</artifactId>
+        </dependency>
         <dependency>
             <groupId>at.favre.lib</groupId>
             <artifactId>bcrypt</artifactId>
