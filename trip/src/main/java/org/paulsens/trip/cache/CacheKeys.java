@@ -69,6 +69,13 @@ public final class CacheKeys {
     public static final String TRIP_EVENT_PREFIX = FORMAT_VERSION + "trip_event:";
     public static final String POINT_AT_SUFFIX = ":at";
 
+    // Runtime settings. The config table is tiny and read on ordinary page renders, so the WHOLE table lives in
+    // one hash under a single fixed partition (field = setting name, value = Config JSON): a read is one
+    // HGETALL, and a save invalidates it for every instance at once.
+    public static final String CONFIG_PREFIX = FORMAT_VERSION + "config:";
+    public static final String CONFIG_PARTITION = "__all__";
+    public static final String CONFIG_LOADED = FORMAT_VERSION + "config_loaded";
+
     // Binding adjacency sets: BIND_PREFIX + {typeAndId} + ":" + {destTypeId}; loaded marker uses BIND_LOADED_SUFFIX.
     public static final String BIND_PREFIX = FORMAT_VERSION + "bind:";
     public static final String BIND_LOADED_SUFFIX = ":loaded";

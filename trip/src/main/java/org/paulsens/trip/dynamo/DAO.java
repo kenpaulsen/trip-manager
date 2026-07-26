@@ -20,6 +20,7 @@ import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.cache.NoopCacheClient;
 import org.paulsens.trip.cache.ValkeyCacheClient;
 import org.paulsens.trip.model.BindingType;
+import org.paulsens.trip.model.Config;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
@@ -47,6 +48,7 @@ public class DAO {
     private final TodoDAO todoDao;
     private final PersonDataValueDAO pdvDao;
     private final PrivilegesDAO privDao;
+    private final ConfigDAO configDao;
     private final BindingDAO bindingDao;
 
     // This flag is set in the web.xml
@@ -68,6 +70,7 @@ public class DAO {
         this.todoDao = new TodoDAO(mapper, persistence, cacheClient);
         this.pdvDao = new PersonDataValueDAO(mapper, persistence, cacheClient);
         this.privDao = new PrivilegesDAO(mapper, persistence, cacheClient);
+        this.configDao = new ConfigDAO(mapper, persistence, cacheClient);
         this.bindingDao = new BindingDAO(persistence, cacheClient);
     }
 
@@ -239,6 +242,17 @@ public class DAO {
     public CompletableFuture<Boolean> savePrivilege(final Privilege priv) {
         return privDao.savePrivilege(priv);
     }
+    // Runtime settings (see ConfigDAO). Reads never throw; callers always supply a default.
+    public CompletableFuture<Optional<Config>> getConfig(final String name) {
+        return configDao.getConfig(name);
+    }
+    public CompletableFuture<List<Config>> getAllConfig() {
+        return configDao.getAllConfig();
+    }
+    public CompletableFuture<Boolean> saveConfig(final Config config) {
+        return configDao.saveConfig(config);
+    }
+
     public CompletableFuture<Optional<Privilege>> getPrivilege(final String name) {
         return privDao.getPrivilege(name);
     }
