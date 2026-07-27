@@ -31,7 +31,7 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 public class PersonDAO {
     private static final String ID = "id";
     private static final String CONTENT = "content";
-    private static final String PERSON_TABLE = "people";
+    static final String PERSON_TABLE = "people";
     /** Top-level (lowercased) copy of the person's email; partition key of the {@link #EMAIL_INDEX} GSI. */
     static final String EMAIL_ATTR = "email";
     static final String EMAIL_INDEX = "email-index";

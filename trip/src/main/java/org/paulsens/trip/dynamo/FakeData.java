@@ -59,7 +59,7 @@ public class FakeData {
      * reserved-word bug reach production.
      */
     public static Persistence createFakePersistence() {
-        return new InMemoryAuditPersistence();
+        return new InMemoryPersistence();
     }
 
     public static Persistence createFakePersistenceWithQueryMonitor(

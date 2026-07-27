@@ -20,11 +20,11 @@ import static org.testng.Assert.assertTrue;
 public class AuditDAOTest {
 
     private AuditDAO dao;
-    private InMemoryAuditPersistence persistence;
+    private InMemoryPersistence persistence;
 
     @BeforeMethod
     public void setup() {
-        persistence = new InMemoryAuditPersistence();
+        persistence = new InMemoryPersistence();
         dao = new AuditDAO(new ObjectMapper().findAndRegisterModules(), persistence);
     }
 

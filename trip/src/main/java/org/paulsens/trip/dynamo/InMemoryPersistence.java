@@ -1,5 +1,6 @@
 package org.paulsens.trip.dynamo;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -16,13 +17,20 @@ import software.amazon.awssdk.services.dynamodb.model.PutItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 
 /**
- * A working in-memory {@code audit} table, used by local mode and by tests.
+ * The in-memory datastore behind local mode and the tests.
  *
- * <p>It lives in main sources rather than test sources because LOCAL MODE needs it too. {@link FakeData}'s
- * plain fake answers every query with an empty list, which is fine for the cached DAOs (their cache holds the
- * data) but useless for {@link AuditDAO}, which is deliberately uncached: a save-then-read round trip would
- * always read nothing. That left the audit page untestable end to end and unusable on a laptop -- the two
- * situations where you most want to see whether the feature actually works.
+ * <p>It exists because "every read returns empty" is not a harmless fake once anything reads through to the
+ * datastore. Two places do:
+ *
+ * <ul>
+ *   <li>{@link AuditDAO} is deliberately uncached, so a save-then-read round trip would always read nothing --
+ *       leaving the audit page untestable end to end and empty on a laptop.</li>
+ *   <li>{@code SearchIndex} rebuilds from a table scan and RECONCILES against that snapshot, deleting entries
+ *       the snapshot does not contain. An empty scan therefore erases the index that the writers just
+ *       populated, and person search silently returns nothing. In production the scan is authoritative and the
+ *       reconcile is correct; it is only a fake that reports an empty database while holding data that makes
+ *       the two disagree.</li>
+ * </ul>
  *
  * <p>This models only the three behaviours the audit DAO depends on, and models them honestly, because the
  * whole point is to catch the cases where the real table would behave differently from the naive expectation:
@@ -34,7 +42,10 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
  *   <li>{@code scanIndexForward(false)} returns a partition newest-first.</li>
  * </ul>
  */
-public class InMemoryAuditPersistence implements Persistence {
+public class InMemoryPersistence implements Persistence {
+
+    /** Serializes fake people the same way PersonDAO does, so the scan looks like the real table. */
+    private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules();
 
     /** day -> (sort key -> item). */
     private final Map<String, Map<String, Map<String, AttributeValue>>> rows = new ConcurrentHashMap<>();
@@ -87,6 +98,36 @@ public class InMemoryAuditPersistence implements Persistence {
      */
     private static final List<String> RESERVED = List.of("day", "timestamp", "year", "month", "hour", "second",
             "status", "name", "value", "size", "action", "message", "target", "source", "user");
+
+    /**
+     * Table scans. The {@code people} table reports the seeded fake people; everything else stays empty.
+     *
+     * <p>Person search depends on this. {@code SearchIndex} rebuilds from a scan and deletes index entries the
+     * scan does not confirm, so an empty scan wipes the entries {@code savePerson} just wrote and search
+     * silently returns nothing -- which is what broke EditPrivsSelectionIT under a real cache.
+     */
+    @Override
+    public CompletableFuture<List<Map<String, AttributeValue>>> scanAll(
+            final Consumer<software.amazon.awssdk.services.dynamodb.model.ScanRequest.Builder> request) {
+        final software.amazon.awssdk.services.dynamodb.model.ScanRequest.Builder builder =
+                software.amazon.awssdk.services.dynamodb.model.ScanRequest.builder();
+        request.accept(builder);
+        if (!PersonDAO.PERSON_TABLE.equals(builder.build().tableName()) || FakeData.getFakePeople() == null) {
+            return Persistence.super.scanAll(request);
+        }
+        final List<Map<String, AttributeValue>> items = new ArrayList<>();
+        for (final org.paulsens.trip.model.Person person : FakeData.getFakePeople()) {
+            try {
+                items.add(Map.of(
+                        "id", AttributeValue.builder().s(person.getId().getValue()).build(),
+                        "content", AttributeValue.builder().s(MAPPER.writeValueAsString(person)).build()));
+            } catch (final com.fasterxml.jackson.core.JsonProcessingException ex) {
+                // A fake that cannot serialize its own seed data is a bug in the seed, not something to hide.
+                throw new IllegalStateException("Unable to serialize fake person " + person.getId(), ex);
+            }
+        }
+        return CompletableFuture.completedFuture(items);
+    }
 
     @Override
     public CompletableFuture<List<Map<String, AttributeValue>>> queryAll(
