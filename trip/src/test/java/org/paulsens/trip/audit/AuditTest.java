@@ -91,8 +91,12 @@ public class AuditTest {
             });
         });
 
+        // Count only THIS test's records. Other threads share stdout -- the audit sink's writer and anything
+        // logging through logback -- so counting every captured line made this flaky the moment the DynamoDB
+        // sink became always-on. The property under test is that none of these 400 records is lost or
+        // corrupted by interleaving, which is unaffected by unrelated output.
         final List<String> lines = new ArrayList<>(List.of(out.split("\\R")));
-        lines.removeIf(String::isBlank);
+        lines.removeIf(line -> !line.contains("| line-"));
         Assert.assertEquals(lines.size(), threads * perThread, "Every record should produce exactly one line");
         Collections.sort(lines);
         Assert.assertEquals(lines.stream().distinct().count(), (long) threads * perThread, "No record lost");
