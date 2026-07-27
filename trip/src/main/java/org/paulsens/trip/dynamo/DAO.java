@@ -268,6 +268,18 @@ public class DAO {
     public CompletableFuture<Boolean> deleteMedia(final String id) {
         return mediaDao.deleteMedia(id);
     }
+    /**
+     * Drops the cached media inventory so the next read re-loads it from the table.
+     *
+     * <p>Needed whenever rows are written WITHOUT going through this DAO -- a maintenance script, a console
+     * edit, a bulk import. The cache holds the whole table under one 'loaded' marker and lives in Valkey, so
+     * it survives deploys and task restarts: rows written behind its back stay invisible until the soft TTL
+     * expires a day later. That is exactly what happened after the media reconcile (2026-07-27): 362 rows in
+     * the table, 30 on the page.
+     */
+    public void clearMediaCache() {
+        mediaDao.clearCache();
+    }
 
     // Runtime settings (see ConfigDAO). Reads never throw; callers always supply a default.
     public CompletableFuture<Optional<Config>> getConfig(final String name) {

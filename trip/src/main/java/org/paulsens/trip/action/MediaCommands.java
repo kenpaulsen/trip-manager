@@ -14,6 +14,7 @@ import java.util.Optional;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
+import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
@@ -217,6 +218,27 @@ public class MediaCommands {
                 .message("Deleted " + item.getS3Key())
                 .log();
         return true;
+    }
+
+    /**
+     * Drops the cached inventory so the next read comes from the table.
+     *
+     * <p>For rows written WITHOUT going through this bean: a maintenance script, a bulk import, an edit in the
+     * console. The cache holds the whole table under one 'loaded' marker and lives in Valkey, so it survives
+     * deploys and restarts -- rows written behind its back stay invisible for a day until the soft TTL expires.
+     * After the media reconcile the table held 362 rows and the page showed 30, and no amount of redeploying
+     * changed that.
+     *
+     * @return how many items are visible after the refresh, so the page can say what it found.
+     */
+    public int refreshFromDatabase() {
+        DAO.getInstance().clearMediaCache();
+        final int count = getAll().size();
+        Audit.builder(AuditAction.MEDIA, AuditOutcome.SUCCESS)
+                .actor(AuditActor.current())
+                .message("Refreshed the media inventory from the table; " + count + " items")
+                .log();
+        return count;
     }
 
     /** Strips leading slashes and lowercases nothing: keys are case-sensitive and become part of the URL. */
