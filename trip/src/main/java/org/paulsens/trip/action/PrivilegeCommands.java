@@ -9,7 +9,12 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.audit.Audit;
+import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.AuditAction;
+import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Privilege;
 
@@ -67,10 +72,43 @@ public class PrivilegeCommands {
         if ((privilege == null) || (privilege.getId() == null) || privilege.getId().isBlank()) {
             throw new IllegalStateException("Cannot save a privilege without a name!");
         }
-        return dao.savePrivilege(privilege)
+        // Compared against the saved state so the record says what actually CHANGED. "Saved a privilege with 12
+        // people" does not answer the question anyone asks of an audit trail, which is who just gained access.
+        final List<Person.Id> before = getPrivilegeById(privilege.getId())
+                .map(Privilege::getPeople)
+                .orElse(List.of());
+        final boolean saved = dao.savePrivilege(privilege)
                 .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
                 .exceptionally(ex -> logAndReturn(ex, false))
                 .join();
+        // Audited here rather than at the pages, because there are three call sites and one of them (the trip
+        // editor's manager checkboxes) grants privileges without ever mentioning the word.
+        Audit.builder(AuditAction.PRIVILEGE, AuditOutcome.of(saved))
+                .actor(AuditActor.current())
+                .target(AuditEventBuilder.TARGET_PRIVILEGE, privilege.getId())
+                .message(describeChange(privilege, before))
+                .log();
+        return saved;
+    }
+
+    /** "granted to X, revoked from Y" -- or a plain save when the membership did not move. */
+    private static String describeChange(final Privilege privilege, final List<Person.Id> before) {
+        final List<Person.Id> after = (privilege.getPeople() == null) ? List.of() : privilege.getPeople();
+        final List<String> granted = after.stream().filter(id -> !before.contains(id))
+                .map(Person.Id::getValue).toList();
+        final List<String> revoked = before.stream().filter(id -> !after.contains(id))
+                .map(Person.Id::getValue).toList();
+        final StringBuilder msg = new StringBuilder("Saved privilege '").append(privilege.getId()).append('\'');
+        if (!granted.isEmpty()) {
+            msg.append("; granted to ").append(String.join(", ", granted));
+        }
+        if (!revoked.isEmpty()) {
+            msg.append("; revoked from ").append(String.join(", ", revoked));
+        }
+        if (granted.isEmpty() && revoked.isEmpty()) {
+            msg.append("; membership unchanged (").append(after.size()).append(" held)");
+        }
+        return msg.toString();
     }
 
     /** True if {@code personId} holds the named privilege ({@code tripId} null/blank == global). */

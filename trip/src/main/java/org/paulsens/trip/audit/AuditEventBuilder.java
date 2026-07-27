@@ -57,6 +57,16 @@ public final class AuditEventBuilder {
         return (person == null) ? this : actor(person.getEmail(), idOf(person));
     }
 
+    /** The signed-in user. The right default: the actor is who DID it, not who it was about. */
+    public AuditEventBuilder actor(final AuditActor auditActor) {
+        return actor(auditActor.email(), auditActor.id());
+    }
+
+    /** The signed-in user, or the given email when nobody is signed in (self-service flows). */
+    public AuditEventBuilder currentActor(final String fallbackEmail) {
+        return actor(AuditActor.currentOr(fallbackEmail));
+    }
+
     /** What was acted upon, when the target is a person. */
     public AuditEventBuilder targetPerson(final String email, final String id) {
         this.targetType = TARGET_PERSON;

@@ -12,7 +12,10 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
+import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.AuditAction;
+import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Person;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
@@ -220,8 +223,17 @@ public class MailCommands {
                 Arrays.stream(emails.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
     }
 
-    private <T> T logAndReturn(final T response, final String user, final String msg) {
-        Audit.log(user, "EMAIL", msg);
+    /**
+     * @param to the RECIPIENT, which is the target of this action -- not the actor. The old record stored the
+     *           recipient in the user field, so a mail merge appeared to have been sent by each of the hundreds
+     *           of people who received it.
+     */
+    private <T> T logAndReturn(final T response, final String to, final String msg) {
+        Audit.builder(AuditAction.EMAIL, AuditOutcome.SUCCESS)
+                .actor(AuditActor.current())
+                .targetPerson(to, null)
+                .message(msg)
+                .log();
         return response;
     }
 
@@ -230,9 +242,13 @@ public class MailCommands {
         return respList;
     }
 
-    private <T> T logException(final String user, final Throwable ex) {
-        Audit.log(user, "EMAIL", "Unable to send email: " + ex.getMessage());
-        log.warn("Unable to send email to " + user, ex);
+    private <T> T logException(final String to, final Throwable ex) {
+        Audit.builder(AuditAction.EMAIL, AuditOutcome.FAILURE)
+                .actor(AuditActor.current())
+                .targetPerson(to, null)
+                .message("Unable to send email: " + ex.getMessage())
+                .log();
+        log.warn("Unable to send email to " + to, ex);
         return null;
     }
 }

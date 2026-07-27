@@ -9,7 +9,10 @@ import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
+import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.AuditAction;
+import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Config;
 
 /**
@@ -133,8 +136,11 @@ public class ConfigCommands {
         try {
             final boolean saved = DAO.getInstance().saveConfig(stamped).join();
             if (saved) {
-                Audit.log(modifiedBy, "CONFIG",
-                        "Set " + stamped.getName() + " = " + stamped.getValue());
+                Audit.builder(AuditAction.CONFIG, AuditOutcome.SUCCESS)
+                        .currentActor(modifiedBy)
+                        .target(AuditEventBuilder.TARGET_CONFIG, stamped.getName())
+                        .message("Set " + stamped.getName() + " = " + stamped.getValue())
+                        .log();
             }
             return saved;
         } catch (final RuntimeException ex) {

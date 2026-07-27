@@ -14,7 +14,10 @@ import java.util.Optional;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
+import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.AuditAction;
+import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.MediaItem;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -146,7 +149,11 @@ public class MediaCommands {
         }
         // Announce the change; whoever cares about this prefix reacts. See MediaEvents.
         MediaEvents.fire(MediaEvents.Change.ADDED, cleanKey);
-        Audit.log(uploadedBy, "MEDIA", "Uploaded " + cleanKey + " (" + size + " bytes)");
+        Audit.builder(AuditAction.MEDIA, AuditOutcome.SUCCESS)
+                .currentActor(uploadedBy)
+                .target(AuditEventBuilder.TARGET_MEDIA, cleanKey)
+                .message("Uploaded " + cleanKey + " (" + size + " bytes)")
+                .log();
         return true;
     }
 
@@ -204,7 +211,11 @@ public class MediaCommands {
             }
         }
         MediaEvents.fire(MediaEvents.Change.REMOVED, item.getS3Key());
-        Audit.log(deletedBy, "MEDIA", "Deleted " + item.getS3Key());
+        Audit.builder(AuditAction.MEDIA, AuditOutcome.SUCCESS)
+                .currentActor(deletedBy)
+                .target(AuditEventBuilder.TARGET_MEDIA, item.getS3Key())
+                .message("Deleted " + item.getS3Key())
+                .log();
         return true;
     }
 

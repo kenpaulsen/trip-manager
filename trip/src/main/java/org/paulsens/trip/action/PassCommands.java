@@ -12,6 +12,8 @@ import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.AuditAction;
+import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.RandomData;
@@ -37,9 +39,17 @@ public class PassCommands {
         if (creds != null) {
             // login successful
             final String prevUpdateTime = Audit.formatEpochSeconds(DAO.getInstance().updateLastLogin(creds));
-            Audit.log(email, "LOGIN", "User " + email + " logged in, previous login was: " + prevUpdateTime);
+            Audit.builder(AuditAction.LOGIN, AuditOutcome.SUCCESS)
+                    .actor(email, idOf(creds))
+                    .message("Logged in, previous login was: " + prevUpdateTime)
+                    .log();
         } else {
-            Audit.log(email, "LOGIN", "Login Failed!");
+            // No id to record: a failed login is exactly the case where we do not know who they are, and
+            // guessing from the email typed at the form would attribute the attempt to whoever owns it.
+            Audit.builder(AuditAction.LOGIN, AuditOutcome.FAILURE)
+                    .actor(email, null)
+                    .message("Login failed")
+                    .log();
         }
         return creds;
     }
@@ -104,9 +114,15 @@ public class PassCommands {
         if (creds != null) {
             creds.setPass(newPass);
             dao.saveCreds(creds);
-            Audit.log(email, "CREATE_CREDS", "Created credentials.");
+            Audit.builder(AuditAction.CREATE_CREDS, AuditOutcome.SUCCESS)
+                    .actor(email, idOf(creds))
+                    .message("Created credentials")
+                    .log();
         } else {
-            Audit.log(email, "CREATE_CREDS", "Failed to create credentials!");
+            Audit.builder(AuditAction.CREATE_CREDS, AuditOutcome.FAILURE)
+                    .actor(email, null)
+                    .message("Failed to create credentials")
+                    .log();
         }
         return creds;
     }
@@ -144,6 +160,13 @@ public class PassCommands {
         if (!result) {
             log.warn("Unable to remove Creds for ({}). Perhaps no Creds exist or this user is an admin?", email);
         }
+        // Locking someone out of their account is worth a record whether or not it succeeded: a failed attempt
+        // says as much about what someone tried to do as a successful one.
+        Audit.builder(AuditAction.DELETE_CREDS, AuditOutcome.of(Boolean.TRUE.equals(result)))
+                .currentActor(email)
+                .targetPerson(email, null)
+                .message("Removed credentials for " + email)
+                .log();
         return result;
     }
 
@@ -198,7 +221,16 @@ public class PassCommands {
             return false;
         }
         final Creds creds = new Creds(email, person.getId(), pass);
-        return dao.saveCreds(creds).join();
+        final Boolean saved = dao.saveCreds(creds).join();
+        // Every password change funnels through here -- the owner changing their own, the forgot-password
+        // reset, and an admin setting someone else's -- so this one record covers all of them. The actor is
+        // whoever is signed in, which is what distinguishes "she changed her password" from "an admin did".
+        Audit.builder(AuditAction.PASSWORD_CHANGE, AuditOutcome.of(Boolean.TRUE.equals(saved)))
+                .currentActor(email)
+                .targetPerson(person)
+                .message("Password set for " + email)
+                .log();
+        return saved;
     }
 
     /**
@@ -252,5 +284,9 @@ public class PassCommands {
 
     private String genNewPass() {
         return RandomData.genPassChars(8);
+    }
+    /** The person id behind a set of credentials, when there is one. */
+    private static String idOf(final Creds creds) {
+        return (creds == null || creds.getUserId() == null) ? null : creds.getUserId().getValue();
     }
 }

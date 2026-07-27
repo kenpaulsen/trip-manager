@@ -25,8 +25,12 @@ public enum AuditAction {
     LOGIN,
     /** Credentials created for an account. */
     CREATE_CREDS,
-    /** A password reset attempt. */
+    /** A password reset attempt (the forgot-my-password flow). */
     PASSWORD_RESET("PWReset"),
+    /** A password was set: by the owner, or by an admin on someone else's account. */
+    PASSWORD_CHANGE,
+    /** Credentials were removed, so the account can no longer sign in. */
+    DELETE_CREDS,
     /** Outbound email. */
     EMAIL,
     /** A person registered, or a registration was changed. */
