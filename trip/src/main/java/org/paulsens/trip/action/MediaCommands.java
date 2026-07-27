@@ -6,6 +6,7 @@ import jakarta.inject.Named;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -20,6 +21,7 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 /**
@@ -142,8 +144,30 @@ public class MediaCommands {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Partly uploaded", ex.getMessage());
             return false;
         }
+        // Announce the change; whoever cares about this prefix reacts. See MediaEvents.
+        MediaEvents.fire(MediaEvents.Change.ADDED, cleanKey);
         Audit.log(uploadedBy, "MEDIA", "Uploaded " + cleanKey + " (" + size + " bytes)");
         return true;
+    }
+
+    /** @return the public URL for an arbitrary media key. */
+    public String publicUrl(final String key) {
+        return baseUrl() + "/" + key;
+    }
+
+    /**
+     * @return every object key under {@code prefix}. One listing rather than a probe per key -- callers use
+     *         this to build an index in a single round trip. Empty when no bucket is configured.
+     */
+    public List<String> listKeys(final String prefix) {
+        final String bucket = bucket();
+        if (bucket == null) {
+            return List.of();
+        }
+        final List<String> keys = new ArrayList<>();
+        s3().listObjectsV2Paginator(ListObjectsV2Request.builder().bucket(bucket).prefix(prefix).build())
+                .contents().forEach(obj -> keys.add(obj.key()));
+        return keys;
     }
 
     /** Removes the row and the object. S3 versioning keeps the bytes recoverable. */
@@ -179,6 +203,7 @@ public class MediaCommands {
                         "Removed from the site, but the stored file could not be deleted.");
             }
         }
+        MediaEvents.fire(MediaEvents.Change.REMOVED, item.getS3Key());
         Audit.log(deletedBy, "MEDIA", "Deleted " + item.getS3Key());
         return true;
     }
