@@ -19,6 +19,9 @@ import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.cache.NoopCacheClient;
 import org.paulsens.trip.cache.ValkeyCacheClient;
+import org.paulsens.trip.model.AuditEvent;
+import org.paulsens.trip.model.AuditPage;
+import org.paulsens.trip.model.AuditQuery;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Config;
 import org.paulsens.trip.model.Creds;
@@ -51,6 +54,7 @@ public class DAO {
     private final PrivilegesDAO privDao;
     private final ConfigDAO configDao;
     private final MediaDAO mediaDao;
+    private final AuditDAO auditDao;
     private final BindingDAO bindingDao;
 
     // This flag is set in the web.xml
@@ -74,6 +78,9 @@ public class DAO {
         this.privDao = new PrivilegesDAO(mapper, persistence, cacheClient);
         this.configDao = new ConfigDAO(mapper, persistence, cacheClient);
         this.mediaDao = new MediaDAO(mapper, persistence, cacheClient);
+        // No cacheClient: the audit table is write-heavy and read rarely, so caching it would cost
+        // invalidation traffic to speed up something nobody does -- and a stale audit view is worse than a slow one.
+        this.auditDao = new AuditDAO(mapper, persistence);
         this.bindingDao = new BindingDAO(persistence, cacheClient);
     }
 
@@ -271,6 +278,17 @@ public class DAO {
     }
     public CompletableFuture<Boolean> saveConfig(final Config config) {
         return configDao.saveConfig(config);
+    }
+
+    // Audit trail (see AuditDAO). Deliberately uncached: written constantly, read only by the admin page.
+    public CompletableFuture<Boolean> saveAuditEvent(final AuditEvent event) {
+        return auditDao.saveAuditEvent(event);
+    }
+    public CompletableFuture<AuditPage> getAuditEvents(final AuditQuery query) {
+        return auditDao.getAuditEvents(query);
+    }
+    public CompletableFuture<List<AuditEvent>> exportAuditEvents(final AuditQuery query) {
+        return auditDao.exportAuditEvents(query);
     }
 
     public CompletableFuture<Optional<Privilege>> getPrivilege(final String name) {

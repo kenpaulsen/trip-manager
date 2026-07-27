@@ -4,6 +4,9 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditEvent;
 import org.paulsens.trip.model.AuditOutcome;
@@ -33,25 +36,68 @@ public class Audit {
         Runtime.getRuntime().addShutdownHook(new Thread(sink::close, "trip-audit-shutdown"));
     }
 
+    /**
+     * Builds the sink set.
+     *
+     * <p>Deployed, records go to BOTH CloudWatch and DynamoDB, and the two are not redundant copies of each
+     * other -- they have different properties on purpose. CloudWatch is the ledger: its grant is append-only
+     * because the API has no verb that rewrites a delivered event, so it is the copy that survives a bug (or a
+     * person) that would rewrite the table. DynamoDB is the index: it is what the admin page can actually query.
+     *
+     * <p>Locally, and whenever the table is switched off, stdout alone -- which the awslogs driver still
+     * captures in a container, so nothing is ever merely discarded.
+     */
     private static AuditSink buildSink() {
+        final List<AuditSink> sinks = new ArrayList<>();
+
         final String logGroup = logGroupName();
         if (logGroup == null) {
-            System.out.println("Audit: writing to stdout (" + LOG_GROUP_VAR + " is not set)");
+            System.out.println("Audit: not writing to CloudWatch (" + LOG_GROUP_VAR + " is not set)");
+        } else {
+            try {
+                sinks.add(new CloudWatchAuditSink(logGroup));
+                System.out.println("Audit: writing to CloudWatch log group '" + logGroup + "'");
+            } catch (final RuntimeException ex) {
+                // Loud, not silent: auditing still works via stdout, but somebody needs to know the dedicated
+                // trail is not being written.
+                System.out.println("Audit: FAILED to open CloudWatch log group '" + logGroup
+                        + "', falling back to stdout. Cause: " + ex);
+                ex.printStackTrace();
+            }
+        }
+
+        if (dynamoIndexEnabled()) {
+            sinks.add(new DynamoAuditSink());
+            System.out.println("Audit: indexing to the DynamoDB audit table");
+        }
+
+        if (sinks.isEmpty()) {
+            System.out.println("Audit: writing to stdout only");
             return new ConsoleAuditSink();
         }
-        try {
-            final AuditSink sink = new CloudWatchAuditSink(logGroup);
-            System.out.println("Audit: writing to CloudWatch log group '" + logGroup + "'");
-            return sink;
-        } catch (RuntimeException ex) {
-            // Loud, not silent: auditing still works via stdout, but somebody needs to know the dedicated
-            // trail is not being written.
-            System.out.println("Audit: FAILED to open CloudWatch log group '" + logGroup
-                    + "', falling back to stdout. Cause: " + ex);
-            ex.printStackTrace();
-            return new ConsoleAuditSink();
-        }
+        // Always keep stdout alongside the real sinks. It costs nothing, and it is what makes a delivery
+        // failure visible instead of a record quietly vanishing.
+        sinks.add(new ConsoleAuditSink());
+        return new CompositeAuditSink(sinks);
     }
+
+    /**
+     * Whether to index into DynamoDB.
+     *
+     * <p>Off in local mode and under test by default: the fake persistence would swallow the writes anyway, and
+     * a unit test must not depend on a table existing. {@value #DYNAMO_INDEX_VAR} forces it either way, which
+     * is how the integration tests exercise the real path.
+     */
+    private static boolean dynamoIndexEnabled() {
+        final String explicit = System.getProperty(DYNAMO_INDEX_PROP, System.getenv(DYNAMO_INDEX_VAR));
+        if (explicit != null && !explicit.isBlank()) {
+            return Boolean.parseBoolean(explicit.trim());
+        }
+        return !FakeData.isLocal();
+    }
+
+    static final String DYNAMO_INDEX_VAR = "TRIP_AUDIT_DYNAMO";
+    static final String DYNAMO_INDEX_PROP = "trip.audit.dynamo";
 
     private static String logGroupName() {
         String group = System.getProperty("trip.audit.log.group");
