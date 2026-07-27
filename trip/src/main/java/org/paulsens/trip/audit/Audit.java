@@ -4,6 +4,9 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import org.paulsens.trip.model.AuditAction;
+import org.paulsens.trip.model.AuditEvent;
+import org.paulsens.trip.model.AuditOutcome;
 
 /**
  * Records key events so a traceable history exists in case there is ever a question about what happened.
@@ -59,19 +62,80 @@ public class Audit {
     }
 
     /**
-     * Logs a message in the audit log. This is intended to record key events so a traceable history of what
-     * happened exists in case there is any question about what happened.
+     * Records a fully-formed event. The typed entry point -- prefer this everywhere.
      *
-     * <p>Never throws and never blocks on the audit backend -- callers are request threads.
+     * <p>Never throws and never blocks on the audit backend: callers are request threads in the middle of a
+     * login or a save, and failing a user's request because a logging backend hiccupped is worse than the
+     * record being late.
      *
-     * @param user  The UserId who initiated this action.
-     * @param type  The type of action, for example: "LOGIN"
-     * @param msg   The message to display.
+     * @param event the event to record; ignored if null rather than throwing.
      */
+    public static void log(final AuditEvent event) {
+        if (event == null) {
+            return;
+        }
+        INSTANCE.sink.write(event);
+    }
+
+    /**
+     * Records an event from its parts, for Java callers that have an action constant in hand.
+     *
+     * @param action  what happened.
+     * @param outcome whether it worked; use {@link AuditOutcome#of(boolean)} at branch points.
+     * @param actor   who did it (email).
+     * @param actorId who did it (person id); may be null when the caller genuinely does not know.
+     * @param msg     human-readable detail.
+     */
+    public static void log(final AuditAction action, final AuditOutcome outcome, final String actor,
+            final String actorId, final String msg) {
+        log(builder(action, outcome).actor(actor, actorId).message(msg).build());
+    }
+
+    /** Starts a builder; the readable way to attach a target. */
+    public static AuditEventBuilder builder(final AuditAction action, final AuditOutcome outcome) {
+        return new AuditEventBuilder(action, outcome);
+    }
+
+    /**
+     * The historical string-typed entry point.
+     *
+     * <p><b>Deprecated:</b> the untyped {@code type} argument is what let five years of history accumulate
+     * {@code LOGIN}, {@code saveTx}, {@code PWReset} and a stray {@code Register} -- inconsistent enough that
+     * filtering on it needs special cases. It survives because roughly half the call sites are JSFT
+     * expressions in XHTML, which cannot name a Java enum constant; {@code AuditCommands} is the bridge, and
+     * this overload keeps unconverted callers working meanwhile. It never drops a record: an unrecognised type
+     * resolves to {@link AuditAction#UNKNOWN} with the original text preserved.
+     *
+     * @param user The user (email) who initiated this action.
+     * @param type The type of action, for example: "LOGIN"
+     * @param msg  The message to record.
+     */
+    @Deprecated
     public static void log(final String user, final String type, final String msg) {
-        final Instant now = Instant.now();
-        final String logDate = OffsetDateTime.ofInstant(now, ZONE_ID).format(DateTimeFormatter.ISO_INSTANT);
-        INSTANCE.sink.write(now.toEpochMilli(), String.format("%s | %s | %s | %s", logDate, user, type, msg));
+        final AuditAction action = AuditAction.from(type);
+        // Keep the original spelling when it could not be mapped, so nothing is silently discarded.
+        final String message = (action == AuditAction.UNKNOWN && type != null && !type.isBlank())
+                ? "[" + type.trim() + "] " + msg
+                : msg;
+        log(builder(action, inferOutcome(message)).actor(user, null).message(message).build());
+    }
+
+    /**
+     * Best-effort outcome for callers that do not state one -- almost entirely the legacy string API, where
+     * failure was recorded as prose ("Login Failed!", "Failed to create credentials!").
+     *
+     * <p>Returns {@link AuditOutcome#UNKNOWN} rather than assuming success, because recording that something
+     * succeeded when the log never said so would be inventing history.
+     */
+    static AuditOutcome inferOutcome(final String msg) {
+        if (msg == null) {
+            return AuditOutcome.UNKNOWN;
+        }
+        final String lower = msg.toLowerCase(java.util.Locale.ROOT);
+        if (lower.contains("failed") || lower.contains("failure") || lower.contains("unable to")) {
+            return AuditOutcome.FAILURE;
+        }
+        return AuditOutcome.UNKNOWN;
     }
 
     public static String formatEpochSeconds(final Long epochSeconds) {

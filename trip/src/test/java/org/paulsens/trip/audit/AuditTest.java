@@ -6,8 +6,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import org.paulsens.trip.model.AuditAction;
+import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 /**
@@ -15,6 +18,15 @@ import org.testng.annotations.Test;
  * sink -- which is exactly the fallback path that must keep working when the real sink is unavailable.
  */
 public class AuditTest {
+
+    /**
+     * Touch Audit once before anything captures stdout. Its class initializer announces which sink it chose,
+     * and that one-off banner would otherwise be counted as a record by the line-counting tests below.
+     */
+    @BeforeClass
+    public void warmUpAudit() {
+        Audit.builder(AuditAction.UNKNOWN, AuditOutcome.UNKNOWN).message("warm-up").build();
+    }
 
     @Test
     public void logWritesFormattedRecordToStdout() {
@@ -61,7 +73,10 @@ public class AuditTest {
                 final int id = t;
                 final Thread worker = new Thread(() -> {
                     for (int i = 0; i < perThread; i++) {
-                        sink.write(System.currentTimeMillis(), "line-" + id + "-" + i);
+                        sink.write(Audit.builder(AuditAction.LOGIN, AuditOutcome.SUCCESS)
+                                .actor("line-" + id + "-" + i + "@example.com", null)
+                                .message("concurrent")
+                                .build());
                     }
                 });
                 workers.add(worker);
@@ -81,7 +96,56 @@ public class AuditTest {
         Assert.assertEquals(lines.size(), threads * perThread, "Every record should produce exactly one line");
         Collections.sort(lines);
         Assert.assertEquals(lines.stream().distinct().count(), (long) threads * perThread, "No record lost");
-        lines.forEach(l -> Assert.assertTrue(l.startsWith("line-"), "Line was corrupted by interleaving: " + l));
+        lines.forEach(l -> Assert.assertTrue(l.contains("| line-") && l.contains("| LOGIN |"),
+                "Line was corrupted by interleaving: " + l));
+    }
+
+    @Test
+    public void typedRecordCarriesActorTargetAndOutcome() {
+        final String actor = RandomData.genAlpha(8) + "@example.com";
+        final String target = RandomData.genAlpha(8) + "@example.com";
+
+        final String out = captureStdout(() -> Audit.builder(AuditAction.PERSON, AuditOutcome.SUCCESS)
+                .actor(actor, "actor-id")
+                .targetPerson(target, "target-id")
+                .message("Edited the record")
+                .log());
+
+        Assert.assertTrue(out.contains(actor), "Should name the actor: " + out);
+        Assert.assertTrue(out.contains("PERSON"), "Should name the action: " + out);
+        Assert.assertTrue(out.contains("outcome=SUCCESS"), "Should record the outcome: " + out);
+        Assert.assertTrue(out.contains("target=person:" + target), "Should record the target: " + out);
+    }
+
+    @Test
+    public void legacyTypeStringsResolveToActions() {
+        // Five years of history uses these spellings; they must not all collapse into UNKNOWN.
+        Assert.assertEquals(AuditAction.from("LOGIN"), AuditAction.LOGIN);
+        Assert.assertEquals(AuditAction.from("saveTx"), AuditAction.TRANSACTION);
+        Assert.assertEquals(AuditAction.from("PWReset"), AuditAction.PASSWORD_RESET);
+        Assert.assertEquals(AuditAction.from("REG"), AuditAction.REGISTRATION);
+        Assert.assertEquals(AuditAction.from("Register"), AuditAction.REGISTRATION, "the one-off legacy spelling");
+        Assert.assertEquals(AuditAction.from("login"), AuditAction.LOGIN, "resolution is case-insensitive");
+    }
+
+    @Test
+    public void unrecognisedTypeIsRecordedRatherThanDropped() {
+        // Losing an audit record is worse than storing one with a vague label, so the original text survives.
+        final String out = captureStdout(() -> Audit.log("someone@example.com", "NoSuchType", "did a thing"));
+
+        Assert.assertTrue(out.contains("UNKNOWN"), "Unmapped type should record as UNKNOWN: " + out);
+        Assert.assertTrue(out.contains("NoSuchType"), "Original type text must be preserved: " + out);
+        Assert.assertTrue(out.contains("did a thing"), "Message must survive: " + out);
+    }
+
+    @Test
+    public void failureIsInferredFromLegacyProseButSuccessIsNeverAssumed() {
+        // Legacy records encode failure in words. Inferring FAILURE is safe; inferring SUCCESS would be
+        // inventing history, so anything ambiguous stays UNKNOWN.
+        Assert.assertEquals(Audit.inferOutcome("Login Failed!"), AuditOutcome.FAILURE);
+        Assert.assertEquals(Audit.inferOutcome("Unable to send email: boom"), AuditOutcome.FAILURE);
+        Assert.assertEquals(Audit.inferOutcome("User bob@example.com logged in"), AuditOutcome.UNKNOWN);
+        Assert.assertEquals(Audit.inferOutcome(null), AuditOutcome.UNKNOWN);
     }
 
     private static String captureStdout(final Runnable action) {

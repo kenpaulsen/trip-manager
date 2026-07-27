@@ -10,6 +10,7 @@ import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
+import org.paulsens.trip.model.AuditEvent;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cloudwatchlogs.CloudWatchLogsAsyncClient;
@@ -45,7 +46,7 @@ public final class CloudWatchAuditSink implements AuditSink {
     private final String logGroup;
     private final String logStream;
     private final BlockingQueue<InputLogEvent> queue = new ArrayBlockingQueue<>(QUEUE_CAPACITY);
-    private final AuditSink fallback = new ConsoleAuditSink();
+    private final ConsoleAuditSink fallback = new ConsoleAuditSink();
     private final Thread flusher;
     private volatile boolean running = true;
 
@@ -75,12 +76,14 @@ public final class CloudWatchAuditSink implements AuditSink {
     }
 
     @Override
-    public void write(final long epochMillis, final String line) {
-        final InputLogEvent event = InputLogEvent.builder().timestamp(epochMillis).message(line).build();
+    public void write(final AuditEvent event) {
+        final long epochMillis = event.getTimestamp().toEpochMilli();
+        final String line = AuditSink.format(event);
+        final InputLogEvent logEvent = InputLogEvent.builder().timestamp(epochMillis).message(line).build();
         // offer(), never put(): a full queue means CloudWatch is unreachable or far behind, and blocking here
         // would stall a user's login on a logging backend.
-        if (!queue.offer(event)) {
-            fallback.write(epochMillis, "AUDIT-QUEUE-FULL " + line);
+        if (!queue.offer(logEvent)) {
+            fallback.writeLine("AUDIT-QUEUE-FULL " + line);
         }
     }
 
@@ -139,7 +142,7 @@ public final class CloudWatchAuditSink implements AuditSink {
         } catch (RuntimeException ex) {
             // Delivery failed: print the records so they still land in the application log group via stdout.
             System.out.println("AUDIT-DELIVERY-FAILED (" + ex + ") -- records follow:");
-            batch.forEach(e -> fallback.write(e.timestamp(), e.message()));
+            batch.forEach(e -> fallback.writeLine(e.message()));
         }
     }
 
