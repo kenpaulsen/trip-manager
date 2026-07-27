@@ -76,6 +76,12 @@ public final class CacheKeys {
     public static final String CONFIG_PARTITION = "__all__";
     public static final String CONFIG_LOADED = FORMAT_VERSION + "config_loaded";
 
+    // Managed media metadata. Same shape as config: small table, wanted whole on ordinary renders, so it is a
+    // single hash under one partition (field = item id, value = MediaItem JSON).
+    public static final String MEDIA_PREFIX = FORMAT_VERSION + "media:";
+    public static final String MEDIA_PARTITION = "__all__";
+    public static final String MEDIA_LOADED = FORMAT_VERSION + "media_loaded";
+
     // Binding adjacency sets: BIND_PREFIX + {typeAndId} + ":" + {destTypeId}; loaded marker uses BIND_LOADED_SUFFIX.
     public static final String BIND_PREFIX = FORMAT_VERSION + "bind:";
     public static final String BIND_LOADED_SUFFIX = ":loaded";

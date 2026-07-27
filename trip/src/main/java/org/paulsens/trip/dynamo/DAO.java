@@ -23,6 +23,7 @@ import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Config;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.DataId;
+import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.Privilege;
@@ -49,6 +50,7 @@ public class DAO {
     private final PersonDataValueDAO pdvDao;
     private final PrivilegesDAO privDao;
     private final ConfigDAO configDao;
+    private final MediaDAO mediaDao;
     private final BindingDAO bindingDao;
 
     // This flag is set in the web.xml
@@ -71,6 +73,7 @@ public class DAO {
         this.pdvDao = new PersonDataValueDAO(mapper, persistence, cacheClient);
         this.privDao = new PrivilegesDAO(mapper, persistence, cacheClient);
         this.configDao = new ConfigDAO(mapper, persistence, cacheClient);
+        this.mediaDao = new MediaDAO(mapper, persistence, cacheClient);
         this.bindingDao = new BindingDAO(persistence, cacheClient);
     }
 
@@ -242,6 +245,23 @@ public class DAO {
     public CompletableFuture<Boolean> savePrivilege(final Privilege priv) {
         return privDao.savePrivilege(priv);
     }
+    // Managed media metadata (see MediaDAO); the bytes live in S3.
+    public CompletableFuture<Optional<MediaItem>> getMedia(final String id) {
+        return mediaDao.getMedia(id);
+    }
+    public CompletableFuture<List<MediaItem>> getAllMedia() {
+        return mediaDao.getAllMedia();
+    }
+    public CompletableFuture<List<MediaItem>> getMediaInSlot(final String slot) {
+        return mediaDao.getMediaInSlot(slot);
+    }
+    public CompletableFuture<Boolean> saveMedia(final MediaItem item) {
+        return mediaDao.saveMedia(item);
+    }
+    public CompletableFuture<Boolean> deleteMedia(final String id) {
+        return mediaDao.deleteMedia(id);
+    }
+
     // Runtime settings (see ConfigDAO). Reads never throw; callers always supply a default.
     public CompletableFuture<Optional<Config>> getConfig(final String name) {
         return configDao.getConfig(name);
