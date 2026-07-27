@@ -38,6 +38,12 @@
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>cloudwatchlogs</artifactId>
         </dependency>
+        <!-- S3: managed media uploads from the admin UI. The app only ever WRITES here; visitors are served
+             by CloudFront, so this is never in the read path for serving a page. -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+        </dependency>
         <dependency>
             <groupId>at.favre.lib</groupId>
             <artifactId>bcrypt</artifactId>
