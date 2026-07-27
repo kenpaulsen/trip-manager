@@ -27,6 +27,36 @@ public class AuditPage {
      */
     boolean complete;
 
+    /**
+     * How many day partitions could not be read.
+     *
+     * <p>This exists because of how the audit page first shipped: every query was failing on a reserved-word
+     * error, each failure was caught and turned into an empty day, and the page cheerfully reported "no
+     * records" over a table holding 36,000. "Nothing matched" and "nothing could be read" have to look
+     * different, or a total outage presents as an ordinary empty result.
+     */
+    int failedPartitions;
+
+    /** Convenience for the common case: nothing failed to read. */
+    public AuditPage(final List<AuditEvent> events, final LocalDate searchedBackTo, final boolean complete) {
+        this(events, searchedBackTo, complete, 0);
+    }
+
+    // Written out rather than left to Lombok: declaring the convenience constructor above suppresses the
+    // generated all-args one.
+    public AuditPage(final List<AuditEvent> events, final LocalDate searchedBackTo, final boolean complete,
+            final int failedPartitions) {
+        this.events = events;
+        this.searchedBackTo = searchedBackTo;
+        this.complete = complete;
+        this.failedPartitions = failedPartitions;
+    }
+
+    /** True when any part of the window could not be read, so the result is not to be trusted as complete. */
+    public boolean isDegraded() {
+        return failedPartitions > 0;
+    }
+
     /** The cursor for the next page: ask for events strictly older than the oldest one here. */
     public java.time.Instant nextCursor() {
         return events.isEmpty() ? null : events.get(events.size() - 1).getTimestamp();

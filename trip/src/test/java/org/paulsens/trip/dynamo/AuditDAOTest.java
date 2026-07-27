@@ -192,6 +192,38 @@ public class AuditDAOTest {
     }
 
     @Test
+    public void aReservedWordInTheKeyExpressionIsRejected() {
+        // `day` is a DynamoDB reserved keyword, so it must be aliased through ExpressionAttributeNames. This
+        // is asserted because the first version shipped without the alias: every query failed, every failure
+        // was swallowed into an empty day, and the admin page reported "no records" over 36,000 rows.
+        dao.saveAuditEvent(event(Instant.now(), AuditAction.LOGIN, AuditOutcome.SUCCESS, "a@x.com")).join();
+        final AuditPage page = page(AuditQuery.builder().build());
+
+        assertFalse(page.isDegraded(), "No partition should have failed to read: the key expression must alias "
+                + "reserved words");
+        assertEquals(page.getEvents().size(), 1);
+    }
+
+    @Test
+    public void aTotalReadFailureIsReportedRatherThanLookingEmpty() {
+        // "Nothing matched" and "nothing could be read" must not render identically.
+        final AuditDAO brittle = new AuditDAO(new ObjectMapper().findAndRegisterModules(), new Persistence() {
+            @Override
+            public CompletableFuture<List<java.util.Map<String, software.amazon.awssdk.services.dynamodb.model
+                    .AttributeValue>>> queryAll(final java.util.function.Consumer<
+                            software.amazon.awssdk.services.dynamodb.model.QueryRequest.Builder> request) {
+                return CompletableFuture.failedFuture(new IllegalStateException("boom"));
+            }
+        });
+
+        final AuditPage page = brittle.getAuditEvents(AuditQuery.builder().build()).join();
+
+        assertTrue(page.isEmpty());
+        assertTrue(page.isDegraded(), "A page whose every query failed must say so, not present as empty");
+        assertTrue(page.getFailedPartitions() > 0);
+    }
+
+    @Test
     public void unreadableDayDoesNotBlankThePage() {
         // A single unparseable or unreachable partition must degrade, not empty the whole view.
         final AuditDAO brittle = new AuditDAO(new ObjectMapper().findAndRegisterModules(), new Persistence() {

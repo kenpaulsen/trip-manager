@@ -68,6 +68,21 @@ public class InMemoryAuditPersistence implements Persistence {
         return CompletableFuture.completedFuture(response.build());
     }
 
+    /**
+     * DynamoDB reserved words this table's schema collides with.
+     *
+     * <p>{@code day} is genuinely reserved, and naming it directly in an expression makes the real service
+     * reject the query with {@code ValidationException}. The first version of this double ignored expression
+     * syntax altogether, so twelve tests passed against a query that could not work anywhere but here -- the
+     * admin page shipped showing "no records" over a table holding 36,000. A double that accepts what the real
+     * service rejects is worse than no double at all, so this one rejects it too.
+     *
+     * @see <a href="https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ReservedWords.html">
+     *      DynamoDB reserved words</a>
+     */
+    private static final List<String> RESERVED = List.of("day", "timestamp", "year", "month", "hour", "second",
+            "status", "name", "value", "size", "action", "message", "target", "source", "user");
+
     @Override
     public CompletableFuture<List<Map<String, AttributeValue>>> queryAll(
             final Consumer<QueryRequest.Builder> request) {
@@ -75,7 +90,16 @@ public class InMemoryAuditPersistence implements Persistence {
         request.accept(builder);
         final QueryRequest query = builder.build();
 
+        rejectUnaliasedReservedWords(query.keyConditionExpression());
+
         final Map<String, AttributeValue> values = query.expressionAttributeValues();
+        // Every alias used in the expression must actually be declared, or the real service rejects the query.
+        for (final String alias : aliasesIn(query.keyConditionExpression())) {
+            if (!query.expressionAttributeNames().containsKey(alias)) {
+                throw new IllegalArgumentException("ValidationException: ExpressionAttributeNames contains no "
+                        + "entry for " + alias);
+            }
+        }
         final String day = values.get(":day").s();
         final AttributeValue before = values.get(":before");
 
@@ -89,6 +113,39 @@ public class InMemoryAuditPersistence implements Persistence {
                 Comparator.comparing(item -> item.get(AuditDAO.SORT).s());
         result.sort(Boolean.FALSE.equals(query.scanIndexForward()) ? byKey.reversed() : byKey);
         return CompletableFuture.completedFuture(result);
+    }
+
+    /**
+     * Throws the way DynamoDB would when an expression names a reserved word without an
+     * {@code ExpressionAttributeNames} alias.
+     */
+    private static void rejectUnaliasedReservedWords(final String expression) {
+        if (expression == null) {
+            return;
+        }
+        for (final String word : RESERVED) {
+            // Word-boundary match, and not preceded by '#': "#day" is the aliased (correct) form, and ":day"
+            // is a value placeholder, which is always fine.
+            if (expression.matches("(?is).*(^|[^#:\\w])" + word + "\\b.*")) {
+                throw new IllegalArgumentException("ValidationException: Invalid KeyConditionExpression: "
+                        + "Attribute name is a reserved keyword; reserved keyword: " + word
+                        + " -- use ExpressionAttributeNames (#" + word + ")");
+            }
+        }
+    }
+
+    /** The {@code #name} aliases referenced by an expression. */
+    private static List<String> aliasesIn(final String expression) {
+        if (expression == null) {
+            return List.of();
+        }
+        final List<String> found = new ArrayList<>();
+        final java.util.regex.Matcher matcher =
+                java.util.regex.Pattern.compile("#\\w+").matcher(expression);
+        while (matcher.find()) {
+            found.add(matcher.group());
+        }
+        return found;
     }
 
     /** How many writes were rejected for hitting a taken key. */

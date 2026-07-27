@@ -132,11 +132,12 @@ public class AuditDAO {
         final LocalDate startDay = (query.getBefore() == null)
                 ? LocalDate.now(ZoneOffset.UTC)
                 : LocalDate.ofInstant(query.getBefore(), ZoneOffset.UTC);
-        return walkBackwards(query, startDay, new ArrayList<>(), 0);
+        return walkBackwards(query, startDay, new ArrayList<>(), 0, new java.util.concurrent.atomic.AtomicInteger());
     }
 
     private CompletableFuture<AuditPage> walkBackwards(final AuditQuery query, final LocalDate day,
-            final List<AuditEvent> collected, final int daysExamined) {
+            final List<AuditEvent> collected, final int daysExamined,
+            final java.util.concurrent.atomic.AtomicInteger failures) {
         final boolean exhausted = daysExamined >= MAX_DAYS_PER_PAGE
                 || day.isBefore(EARLIEST)
                 || (query.getSince() != null && day.isBefore(LocalDate.ofInstant(query.getSince(), ZoneOffset.UTC)));
@@ -146,30 +147,44 @@ public class AuditDAO {
                     : collected;
             // "Searched back to" is the honest part: with a bounded walk, an empty page means "nothing in this
             // window", and the caller must be able to tell that apart from "nothing at all".
-            return CompletableFuture.completedFuture(new AuditPage(page, day.plusDays(1), !exhausted));
+            return CompletableFuture.completedFuture(
+                    new AuditPage(page, day.plusDays(1), !exhausted, failures.get()));
         }
-        return queryDay(query, day)
+        return queryDay(query, day, failures)
                 .thenCompose(dayEvents -> {
                     collected.addAll(dayEvents);
-                    return walkBackwards(query, day.minusDays(1), collected, daysExamined + 1);
+                    return walkBackwards(query, day.minusDays(1), collected, daysExamined + 1, failures);
                 });
     }
 
-    /** One day partition, newest first, with the caller's filters applied server-side. */
-    private CompletableFuture<List<AuditEvent>> queryDay(final AuditQuery query, final LocalDate day) {
+    /**
+     * One day partition, newest first, with the caller's filters applied server-side.
+     *
+     * <p>Both key attributes go through {@code ExpressionAttributeNames}, and that is NOT stylistic:
+     * {@code day} is a DynamoDB RESERVED KEYWORD, so naming it directly makes every query fail with
+     * {@code ValidationException: Attribute name is a reserved keyword}. That is precisely how this shipped --
+     * the page rendered "no records" for a table holding 36,000 of them, because the per-day catch below turned
+     * each failure into an empty list. {@code ts} is aliased too, for the next person who renames a key.
+     */
+    private CompletableFuture<List<AuditEvent>> queryDay(final AuditQuery query, final LocalDate day,
+            final java.util.concurrent.atomic.AtomicInteger failures) {
         final Map<String, AttributeValue> values = new HashMap<>();
         values.put(":day", persistence.toStrAttr(day.toString()));
+        final Map<String, String> names = new HashMap<>();
+        names.put("#day", PARTITION);
 
-        final StringBuilder keyCond = new StringBuilder(PARTITION + " = :day");
+        final StringBuilder keyCond = new StringBuilder("#day = :day");
         if (query.getBefore() != null && day.equals(LocalDate.ofInstant(query.getBefore(), ZoneOffset.UTC))) {
             // Only the first day needs an upper bound; every earlier day is wholly before the cursor.
-            keyCond.append(" AND ").append(SORT).append(" < :before");
+            keyCond.append(" AND #ts < :before");
+            names.put("#ts", SORT);
             values.put(":before", persistence.toStrAttr(AuditEvent.sortKeyFor(query.getBefore())));
         }
 
         return persistence.queryAll(b -> {
             b.tableName(AUDIT_TABLE)
                     .keyConditionExpression(keyCond.toString())
+                    .expressionAttributeNames(names)
                     .expressionAttributeValues(values)
                     // Newest first WITHIN the partition; the walk supplies the across-partition ordering.
                     .scanIndexForward(false);
@@ -182,8 +197,11 @@ public class AuditDAO {
                 .filter(query::matches)
                 .toList())
                 .exceptionally(ex -> {
-                    // One unreadable day must not blank the whole page.
+                    // One unreadable day must not blank the whole page -- but it MUST be counted. Swallowing
+                    // this silently is how a reserved-word error in every single query presented as "no
+                    // records" over a table holding 36,000 of them.
                     log.warn("Unable to read audit partition {}", day, ex);
+                    failures.incrementAndGet();
                     return List.of();
                 });
     }
