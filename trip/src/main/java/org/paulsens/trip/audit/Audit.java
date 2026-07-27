@@ -6,7 +6,6 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditEvent;
 import org.paulsens.trip.model.AuditOutcome;
@@ -84,16 +83,22 @@ public class Audit {
     /**
      * Whether to index into DynamoDB.
      *
-     * <p>Off in local mode and under test by default: the fake persistence would swallow the writes anyway, and
-     * a unit test must not depend on a table existing. {@value #DYNAMO_INDEX_VAR} forces it either way, which
-     * is how the integration tests exercise the real path.
+     * <p>Keyed off the presence of {@value #LOG_GROUP_VAR} -- the same signal that selects the CloudWatch sink,
+     * and therefore a direct statement of "this JVM is deployed". {@value #DYNAMO_INDEX_VAR} overrides either
+     * way, which is how an integration test exercises the real path.
+     *
+     * <p>It deliberately does NOT ask {@code FakeData.isLocal()}, which is the obvious-looking choice and is
+     * wrong here: that method reports local whenever there is no {@code FacesContext}, and this runs inside a
+     * class initializer triggered by whichever thread audits first. If that thread is not serving a request --
+     * a startup task, a scheduled job, a test harness -- indexing would switch itself off for the entire life
+     * of the JVM, with no error and no way to notice except an audit page that is silently always empty.
      */
     private static boolean dynamoIndexEnabled() {
         final String explicit = System.getProperty(DYNAMO_INDEX_PROP, System.getenv(DYNAMO_INDEX_VAR));
         if (explicit != null && !explicit.isBlank()) {
             return Boolean.parseBoolean(explicit.trim());
         }
-        return !FakeData.isLocal();
+        return logGroupName() != null;
     }
 
     static final String DYNAMO_INDEX_VAR = "TRIP_AUDIT_DYNAMO";
