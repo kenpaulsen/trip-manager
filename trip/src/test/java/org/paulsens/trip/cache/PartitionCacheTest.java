@@ -72,6 +72,13 @@ public class PartitionCacheTest {
         assertEquals(cache.getAll("p1", loader).join(), List.of("v1"));
         assertTrue(secondLoad.await(3, TimeUnit.SECONDS), "background revalidate should run");
 
+        // Rewind the clock before polling. The loop below reads with the SAME call that triggers a background
+        // revalidate when an entry is stale, so with the clock left 2 minutes ahead the test races itself: if
+        // the reload has not landed by the first poll, that poll sees a stale entry and fires ANOTHER load,
+        // and the "exactly 2 loads" assertion fails. It only showed up under a loaded machine, which is the
+        // worst way to find out. Reads are fresh now, so polling observes the reload instead of provoking one.
+        clock.addAndGet(-Duration.ofMinutes(2).toMillis());
+
         List<String> latest = List.of("v1");
         for (int i = 0; i < 100; i++) {
             latest = cache.getAll("p1", loader).join();

@@ -24,6 +24,7 @@ import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -155,6 +156,106 @@ public class MediaCommands {
                 .target(AuditEventBuilder.TARGET_MEDIA, cleanKey)
                 .message("Uploaded " + cleanKey + " (" + size + " bytes)")
                 .log();
+        return true;
+    }
+
+    /** One item by row id, for the edit page. */
+    public MediaItem get(final String id) {
+        if (id == null || id.isBlank()) {
+            return null;
+        }
+        try {
+            return DAO.getInstance().getMedia(id).join().orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to look up media: " + id, ex);
+            return null;
+        }
+    }
+
+    /**
+     * Saves edited metadata, moving the stored object when the key changed.
+     *
+     * <p>{@code uploaded} is deliberately NOT touched: it records when the BYTES were last written, so editing
+     * a title does not make a five-year-old file look new. Who changed the metadata and when is answered by the
+     * audit trail, which records every one of these with an actor.
+     *
+     * <p>Renaming is not a metadata change -- the key IS the public URL. The object is copied to the new key
+     * and the old one deleted, and anything already pointing at the old URL (a sent email, a bookmark, another
+     * site) breaks. The page says so before you do it.
+     *
+     * @return true if the row was saved.
+     */
+    public boolean update(final String id, final String newKey, final String title, final String description,
+            final String slot, final Integer position, final String editedBy) {
+        final MediaItem existing = get(id);
+        if (existing == null) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", "No such media item.");
+            return false;
+        }
+        final String cleanKey = (newKey == null || newKey.isBlank())
+                ? existing.getS3Key() : normalizeKey(newKey);
+        final boolean renamed = !cleanKey.equals(existing.getS3Key());
+        if (renamed && !moveObject(existing.getS3Key(), cleanKey)) {
+            return false;
+        }
+
+        final MediaItem updated = new MediaItem(existing.getId(), cleanKey, title, description,
+                existing.getContentType(), existing.getSize(), slot,
+                (position == null) ? existing.getPosition() : position,
+                existing.getUploaded(), existing.getUploadedBy());
+        try {
+            if (!DAO.getInstance().saveMedia(updated).join()) {
+                TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", "The save failed.");
+                return false;
+            }
+        } catch (final RuntimeException ex) {
+            log.error("Unable to save media row: " + id, ex);
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", ex.getMessage());
+            return false;
+        }
+        // A rename is a remove-then-add as far as anything watching a path prefix is concerned (see
+        // MediaEvents): profile-photo presence is keyed by path, so a moved file must update both ends.
+        if (renamed) {
+            MediaEvents.fire(MediaEvents.Change.REMOVED, existing.getS3Key());
+            MediaEvents.fire(MediaEvents.Change.ADDED, cleanKey);
+        }
+        Audit.builder(AuditAction.MEDIA, AuditOutcome.SUCCESS)
+                .currentActor(editedBy)
+                .target(AuditEventBuilder.TARGET_MEDIA, cleanKey)
+                .message(renamed
+                        ? "Renamed " + existing.getS3Key() + " to " + cleanKey + " and edited its details"
+                        : "Edited details for " + cleanKey)
+                .log();
+        return true;
+    }
+
+    /** Copies the object to its new key and removes the old one. S3 has no rename. */
+    private boolean moveObject(final String from, final String to) {
+        final String bucket = bucket();
+        if (bucket == null) {
+            // No bucket configured (local mode): the row can still be renamed, there is just no object to move.
+            return true;
+        }
+        try {
+            s3().copyObject(CopyObjectRequest.builder()
+                    .sourceBucket(bucket).sourceKey(from)
+                    .destinationBucket(bucket).destinationKey(to)
+                    .build());
+        } catch (final RuntimeException ex) {
+            log.error("Unable to copy " + from + " to " + to, ex);
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not renamed",
+                    "The stored file could not be copied to the new name; nothing was changed.");
+            return false;
+        }
+        try {
+            s3().deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(from).build());
+        } catch (final RuntimeException ex) {
+            // The copy succeeded, so the new URL works. A leftover object at the old key is untidy, and it also
+            // means the OLD url keeps working -- worth reporting, not worth failing the rename for.
+            log.error("Copied to " + to + " but could not remove " + from, ex);
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN, "Renamed, old copy remains",
+                    "The file is available at its new name, but the old one could not be removed.");
+        }
         return true;
     }
 

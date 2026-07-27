@@ -36,12 +36,19 @@ public class AuditTest {
 
         final String out = captureStdout(() -> Audit.log(user, type, msg));
 
-        Assert.assertTrue(out.contains(user), "Audit record should name the user: " + out);
-        Assert.assertTrue(out.contains(type), "Audit record should name the action type: " + out);
-        Assert.assertTrue(out.contains(msg), "Audit record should carry the message: " + out);
+        // Assert on THIS record's line, not on everything captured: stdout is shared, and the audit sink's
+        // writer thread can emit while a test holds the capture. Asserting on the whole buffer made this
+        // fail whenever another test happened to audit at the wrong moment.
+        final String line = java.util.Arrays.stream(out.split("\\R"))
+                .filter(l -> l.contains(user))
+                .findFirst()
+                .orElse("");
+        Assert.assertFalse(line.isEmpty(), "Audit record should name the user: " + out);
+        Assert.assertTrue(line.contains(type), "Audit record should name the action type: " + line);
+        Assert.assertTrue(line.contains(msg), "Audit record should carry the message: " + line);
         // "<iso-8601> | user | type | msg"
-        Assert.assertEquals(out.trim().split(" \\| ").length, 4, "Expected 4 pipe-delimited fields: " + out);
-        Assert.assertTrue(out.startsWith("20"), "Record should start with an ISO timestamp: " + out);
+        Assert.assertEquals(line.split(" \\| ").length, 4, "Expected 4 pipe-delimited fields: " + line);
+        Assert.assertTrue(line.startsWith("20"), "Record should start with an ISO timestamp: " + line);
     }
 
     @Test
