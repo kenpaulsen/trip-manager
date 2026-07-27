@@ -1,5 +1,6 @@
 package org.paulsens.trip.model;
 
+import java.io.Serializable;
 import java.time.LocalDate;
 import java.util.List;
 import lombok.Value;
@@ -7,13 +8,19 @@ import lombok.Value;
 /**
  * One page of audit history, plus enough context to page again honestly.
  *
+ * <p><b>Serializable is load-bearing, not decoration.</b> The admin page holds this in {@code viewScope},
+ * viewScope lives in the HTTP session, and the session is serialized into Valkey by Redisson on every request.
+ * A non-serializable object here does not fail the page that created it -- it fails the SESSION SAVE, so every
+ * subsequent request on that session gets a 500 no matter which page it asks for. Shipping this class without
+ * it took the whole site down for anyone who opened the audit page.
+ *
  * <p>{@link #searchedBackTo} exists because the backwards walk is bounded. Without it, an empty page is
  * ambiguous in the worst way: "this person never did this" and "I gave up looking after two months" render
  * identically, and the first is a conclusion someone might act on. The page carries how far it actually looked
  * so the UI can say so.
  */
 @Value
-public class AuditPage {
+public class AuditPage implements Serializable {
 
     /** The matching events, newest first. */
     List<AuditEvent> events;

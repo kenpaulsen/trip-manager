@@ -1,12 +1,13 @@
 package org.paulsens.trip.model;
 
+import java.io.Serializable;
 import lombok.Builder;
 import lombok.NonNull;
 import lombok.Value;
 
 @Value
 @Builder
-public class CompositeKey {
+public class CompositeKey implements Serializable {
     private static final char SEPARATOR = ',';
 
     @NonNull

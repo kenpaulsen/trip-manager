@@ -1,5 +1,6 @@
 package org.paulsens.trip.model;
 
+import java.io.Serializable;
 import java.time.Instant;
 import java.util.Locale;
 import lombok.Builder;
@@ -13,13 +14,16 @@ import lombok.Value;
  * narrows what comes BACK, not how much is read. At this volume that is the right trade; it is also why the
  * walk is bounded rather than open-ended.
  *
+ * <p>Serializable because anything a page may park in {@code viewScope} ends up in the Valkey-backed session;
+ * see {@link AuditPage} for what happens when it is not.
+ *
  * <p>{@link #before} is the cursor: paging asks for events strictly older than the oldest one already shown.
  * A timestamp cursor rather than a page number, because rows are still being written while an admin reads --
  * offset paging would show the same record twice or skip one entirely as new events shift the offsets.
  */
 @Value
 @Builder(toBuilder = true)
-public class AuditQuery {
+public class AuditQuery implements Serializable {
 
     /** Default page size; also what the admin table requests. */
     public static final int DEFAULT_LIMIT = 50;
