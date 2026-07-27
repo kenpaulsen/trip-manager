@@ -1,6 +1,7 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.time.LocalDateTime;
 import java.util.Comparator;
@@ -92,6 +93,24 @@ public class ConfigCommands {
     }
 
     /**
+     * Saves a setting from its parts, for the admin page. {@code type} is the {@link Config.Type} name; an
+     * unrecognised one falls back to STRING rather than failing the save.
+     *
+     * @return true when stored.
+     */
+    public boolean saveNew(final String name, final String value, final String type, final String description,
+            final String modifiedBy) {
+        Config.Type parsed;
+        try {
+            parsed = (type == null || type.isBlank()) ? Config.Type.STRING
+                    : Config.Type.valueOf(type.trim().toUpperCase());
+        } catch (final IllegalArgumentException ex) {
+            parsed = Config.Type.STRING;
+        }
+        return save(new Config(name, value, parsed, description, null, null), modifiedBy);
+    }
+
+    /**
      * Saves a setting and records who changed it. Validates against the declared type so a bad edit is refused
      * at save time, rather than being accepted and then silently ignored on every subsequent read.
      *
@@ -99,11 +118,14 @@ public class ConfigCommands {
      */
     public boolean save(final Config config, final String modifiedBy) {
         if (config == null || config.getName() == null || config.getName().isBlank()) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", "A setting needs a name.");
             return false;
         }
         if (!isValid(config)) {
             log.warn("Refusing config '{}': '{}' is not a valid {}",
                     config.getName(), config.getValue(), config.getType());
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved",
+                    "'" + config.getValue() + "' is not a valid " + config.getType() + ".");
             return false;
         }
         final Config stamped = new Config(config.getName().trim(), config.getValue(), config.getType(),
@@ -117,6 +139,7 @@ public class ConfigCommands {
             return saved;
         } catch (final RuntimeException ex) {
             log.error("Unable to save config: " + stamped.getName(), ex);
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", ex.getMessage());
             return false;
         }
     }
