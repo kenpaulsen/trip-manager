@@ -81,24 +81,25 @@ public class Audit {
     }
 
     /**
-     * Whether to index into DynamoDB.
+     * Whether to index into the audit table. On unless explicitly switched off.
      *
-     * <p>Keyed off the presence of {@value #LOG_GROUP_VAR} -- the same signal that selects the CloudWatch sink,
-     * and therefore a direct statement of "this JVM is deployed". {@value #DYNAMO_INDEX_VAR} overrides either
-     * way, which is how an integration test exercises the real path.
+     * <p>There is deliberately no environment sniffing here any more. WHERE the records land is already
+     * decided, once, by which {@link org.paulsens.trip.dynamo.Persistence} the {@code DAO} chose: DynamoDB when
+     * deployed, an in-memory table under local mode and tests. Asking a second time, in a different way, only
+     * created opportunities to disagree with that answer.
      *
-     * <p>It deliberately does NOT ask {@code FakeData.isLocal()}, which is the obvious-looking choice and is
-     * wrong here: that method reports local whenever there is no {@code FacesContext}, and this runs inside a
-     * class initializer triggered by whichever thread audits first. If that thread is not serving a request --
-     * a startup task, a scheduled job, a test harness -- indexing would switch itself off for the entire life
-     * of the JVM, with no error and no way to notice except an audit page that is silently always empty.
+     * <p>Both earlier attempts got it wrong. {@code FakeData.isLocal()} reports local whenever there is no
+     * {@code FacesContext}, and this runs in a class initializer on whichever thread audits first -- so a
+     * background thread getting there first would disable indexing for the life of the JVM. Keying off the
+     * CloudWatch log group fixed that but left local mode unable to read back what it had written, which is
+     * why the admin page could not be tested end to end.
+     *
+     * <p>Always-on means a laptop and a webtest exercise the same code path production does, differing only in
+     * where the bytes go. {@value #DYNAMO_INDEX_VAR} still forces it off for anything that needs that.
      */
     private static boolean dynamoIndexEnabled() {
         final String explicit = System.getProperty(DYNAMO_INDEX_PROP, System.getenv(DYNAMO_INDEX_VAR));
-        if (explicit != null && !explicit.isBlank()) {
-            return Boolean.parseBoolean(explicit.trim());
-        }
-        return logGroupName() != null;
+        return (explicit == null || explicit.isBlank()) || Boolean.parseBoolean(explicit.trim());
     }
 
     static final String DYNAMO_INDEX_VAR = "TRIP_AUDIT_DYNAMO";

@@ -16,12 +16,13 @@ import software.amazon.awssdk.services.dynamodb.model.PutItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 
 /**
- * A minimal in-memory stand-in for the {@code audit} table.
+ * A working in-memory {@code audit} table, used by local mode and by tests.
  *
- * <p>{@link FakeData#createFakePersistence()} answers every query with an empty list, which is fine for the
- * cached DAOs (their cache holds the data) but useless for {@link AuditDAO}, which is deliberately uncached --
- * a save-then-read round trip there would always read nothing, and every test would pass without proving
- * anything.
+ * <p>It lives in main sources rather than test sources because LOCAL MODE needs it too. {@link FakeData}'s
+ * plain fake answers every query with an empty list, which is fine for the cached DAOs (their cache holds the
+ * data) but useless for {@link AuditDAO}, which is deliberately uncached: a save-then-read round trip would
+ * always read nothing. That left the audit page untestable end to end and unusable on a laptop -- the two
+ * situations where you most want to see whether the feature actually works.
  *
  * <p>This models only the three behaviours the audit DAO depends on, and models them honestly, because the
  * whole point is to catch the cases where the real table would behave differently from the naive expectation:
@@ -46,6 +47,10 @@ public class InMemoryAuditPersistence implements Persistence {
         final PutItemRequest.Builder builder = PutItemRequest.builder();
         request.accept(builder);
         final PutItemRequest put = builder.build();
+        if (!AuditDAO.AUDIT_TABLE.equals(put.tableName())) {
+            // Only the audit table is modelled here; everything else keeps the plain fake's behaviour.
+            return Persistence.super.putItem(request);
+        }
 
         final Map<String, AttributeValue> item = put.item();
         final String day = item.get(AuditDAO.PARTITION).s();
@@ -89,6 +94,9 @@ public class InMemoryAuditPersistence implements Persistence {
         final QueryRequest.Builder builder = QueryRequest.builder();
         request.accept(builder);
         final QueryRequest query = builder.build();
+        if (!AuditDAO.AUDIT_TABLE.equals(query.tableName())) {
+            return Persistence.super.queryAll(request);
+        }
 
         rejectUnaliasedReservedWords(query.keyConditionExpression());
 

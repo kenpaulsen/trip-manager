@@ -46,8 +46,20 @@ public class FakeData {
         fakeTrips = initFakeTrips();
     }
 
+    /**
+     * The fake datastore for local mode and tests.
+     *
+     * <p>Every table answers the way {@link Persistence}'s defaults do -- empty reads, successful writes --
+     * EXCEPT {@code audit}, which is backed by a real in-memory table.
+     *
+     * <p>The exception is needed because {@link AuditDAO} is deliberately uncached, so it is the one DAO whose
+     * reads go all the way to the datastore. With the plain fake, an audit record written locally could never
+     * be read back: the admin page would be permanently empty on a laptop, and any test of it could only ever
+     * assert that the page renders -- not that the feature works. Which is exactly the gap that let a
+     * reserved-word bug reach production.
+     */
     public static Persistence createFakePersistence() {
-        return new Persistence() { };
+        return new InMemoryAuditPersistence();
     }
 
     public static Persistence createFakePersistenceWithQueryMonitor(

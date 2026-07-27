@@ -31,27 +31,24 @@ public class SinkSelectionTest {
     }
 
     @Test
-    public void indexingFollowsTheDeploymentSignalNotTheRequestContext() throws Exception {
-        // There is no FacesContext in this test -- exactly the situation that used to disable indexing.
+    public void indexingIsOnByDefaultRegardlessOfContext() throws Exception {
+        // There is no FacesContext here -- the situation that used to disable indexing for the life of the
+        // JVM. Where records land is decided by which Persistence the DAO chose, not by sniffing here.
+        Assert.assertTrue(dynamoEnabled(), "Indexing must not depend on which thread audits first");
+
         System.setProperty("trip.audit.log.group", "/trip/audit");
-        Assert.assertTrue(dynamoEnabled(),
-                "A deployed JVM must index even when the deciding thread is not serving a request");
+        Assert.assertTrue(dynamoEnabled(), "Nor on whether CloudWatch happens to be configured");
     }
 
     @Test
-    public void indexingIsOffWithoutTheDeploymentSignal() throws Exception {
-        // Local runs and unit tests: no log group, so no table writes and no AWS dependency.
-        Assert.assertFalse(dynamoEnabled());
+    public void explicitOffWins() throws Exception {
+        System.setProperty(Audit.DYNAMO_INDEX_PROP, "false");
+        Assert.assertFalse(dynamoEnabled(), "An explicit off must be honoured");
     }
 
     @Test
-    public void explicitOverrideWins() throws Exception {
-        // How an integration test opts into the real table.
+    public void explicitOnWins() throws Exception {
         System.setProperty(Audit.DYNAMO_INDEX_PROP, "true");
         Assert.assertTrue(dynamoEnabled());
-
-        System.setProperty("trip.audit.log.group", "/trip/audit");
-        System.setProperty(Audit.DYNAMO_INDEX_PROP, "false");
-        Assert.assertFalse(dynamoEnabled(), "An explicit off must beat the deployment signal");
     }
 }
