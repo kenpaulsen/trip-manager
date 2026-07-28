@@ -72,12 +72,19 @@ public class MailCommands {
                 .replyToAddresses(replyTo)
                 .returnPath(replyTo)
                 .build();
+        // Resolve the actor HERE, on the request thread, and carry it across the async boundary.
+        // FacesContext is a ThreadLocal and the callbacks below run on the SDK's completion thread, where
+        // AuditActor.current() finds nothing -- so every EMAIL record was written with no actor at all. It
+        // looked fine in review: the call was AuditActor.current(), same as everywhere else. It just was not
+        // on the thread that has a request.
+        final AuditActor actor = AuditActor.current();
+
 // Can use this to disable email for testing
         //return CompletableFuture.completedFuture(SendEmailResponse.builder().build())
         return client.sendEmail(req)
-                .thenApply(r -> logAndReturn(r, to, "Email '" + subjectStr + "' sent. Response: "
+                .thenApply(r -> logAndReturn(actor, r, to, "Email '" + subjectStr + "' sent. Response: "
                                                 + r.sdkHttpResponse().statusCode()))
-                .exceptionally(ex -> logException(to, ex));
+                .exceptionally(ex -> logException(actor, to, ex));
     }
 
     /**
@@ -224,13 +231,15 @@ public class MailCommands {
     }
 
     /**
+     * @param actor who asked for the mail to be sent, captured on the request thread by the caller. It CANNOT
+     *              be resolved here: this runs on the SDK's completion thread, where there is no FacesContext.
      * @param to the RECIPIENT, which is the target of this action -- not the actor. The old record stored the
      *           recipient in the user field, so a mail merge appeared to have been sent by each of the hundreds
      *           of people who received it.
      */
-    private <T> T logAndReturn(final T response, final String to, final String msg) {
+    <T> T logAndReturn(final AuditActor actor, final T response, final String to, final String msg) {
         Audit.builder(AuditAction.EMAIL, AuditOutcome.SUCCESS)
-                .actor(AuditActor.current())
+                .actor(actor)
                 .targetPerson(to, null)
                 .message(msg)
                 .log();
@@ -242,9 +251,10 @@ public class MailCommands {
         return respList;
     }
 
-    private <T> T logException(final String to, final Throwable ex) {
+    /** @param actor as for {@link #logAndReturn} -- captured by the caller, not resolvable on this thread. */
+    <T> T logException(final AuditActor actor, final String to, final Throwable ex) {
         Audit.builder(AuditAction.EMAIL, AuditOutcome.FAILURE)
-                .actor(AuditActor.current())
+                .actor(actor)
                 .targetPerson(to, null)
                 .message("Unable to send email: " + ex.getMessage())
                 .log();

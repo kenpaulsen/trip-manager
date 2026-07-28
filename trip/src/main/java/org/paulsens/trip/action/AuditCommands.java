@@ -2,6 +2,7 @@ package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
+import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.AuditEventBuilder;
@@ -33,6 +34,7 @@ import org.paulsens.trip.util.Util;
  * <p>Every method RETURNS the message it recorded, because several pages send the same text as a notification
  * email -- that is why they built the string themselves in the first place.
  */
+@Slf4j
 @Named("audit")
 @ApplicationScoped
 public class AuditCommands {
@@ -102,9 +104,18 @@ public class AuditCommands {
         return record(AuditAction.TODO, AuditOutcome.SUCCESS, target, msg);
     }
 
-    /** A transaction was recorded or edited against someone's account. */
+    /**
+     * A transaction was recorded or edited against someone's account.
+     *
+     * <p>The message names BOTH people on purpose. It is not only an audit record: {@code transaction.xhtml}
+     * sends it verbatim as the body of the notification email, so whatever is left out of it is unavailable
+     * to the person reading that mail. Phase 10 moved this text out of the XHTML and, in doing so, dropped the
+     * actor -- leaving a notification that said what was recorded and for whom, but not who did it. The record
+     * itself still carried actorEmail; the human-readable half is what regressed.
+     */
     public String transaction(final Person target, final Transaction tx) {
-        final String msg = "Recorded $" + amountOf(tx) + " (" + noteOf(tx) + ") for " + describe(target);
+        final String msg = describeActor() + " recorded $" + amountOf(tx) + " (" + noteOf(tx) + ") for "
+                + describe(target);
         final AuditEventBuilder builder = Audit.builder(AuditAction.TRANSACTION, AuditOutcome.SUCCESS)
                 .actor(AuditActor.current())
                 .targetPerson(target)
@@ -175,6 +186,31 @@ public class AuditCommands {
     private static String actorEmail() {
         final AuditActor actor = AuditActor.current();
         return (actor.email() == null) ? "Someone" : actor.email();
+    }
+
+    /**
+     * The signed-in user as "First Last [email]", for messages a human reads.
+     *
+     * <p>Resolved by EMAIL rather than by the session's userId, which matters during impersonation: acting as
+     * someone else replaces userId with THEIR id but leaves loginEmail as the admin's, so the email is the one
+     * that still identifies who is really doing this.
+     *
+     * <p>Falls back to the bare email, then to "Someone". A missing name must never cost us the record.
+     */
+    private static String describeActor() {
+        final AuditActor actor = AuditActor.current();
+        if (actor.email() == null) {
+            return "Someone";
+        }
+        try {
+            final Person person = PersonCommands.getPersonCommands().getPersonByEmail(actor.email());
+            if (person != null) {
+                return describe(person);
+            }
+        } catch (final RuntimeException ex) {
+            log.debug("Could not resolve a name for actor {}; using the email", actor.email(), ex);
+        }
+        return actor.email();
     }
 
     private static String emailOf(final Person person) {
