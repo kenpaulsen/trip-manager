@@ -1,0 +1,105 @@
+package org.paulsens.trip.model.chat;
+
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import lombok.Value;
+import org.paulsens.trip.model.Person;
+
+/**
+ * Derived view of who reacted with which emoji on one message. Counts and "mine" fall out of the id lists.
+ *
+ * <p>The cap is a <b>safety valve for a pathological message, not an expected path</b>: at the sizing this was
+ * designed for (median 2 reactions, 99th percentile 10, worst case under 100) every id fits, and 100 ids is only
+ * ~3.6 KB. It matters that the cap stays clear of the real worst case, because {@link #mine} is answered from the
+ * id list — a reactor who falls outside it sees their own reaction un-highlighted and, since the write is
+ * idempotent, clicking again cannot remove it. {@link #overflowCount} keeps the count exact regardless.
+ */
+@Value
+public class ChatReactionSummary implements Serializable {
+
+    /** Well clear of the ~100 worst case, so overflow only trips on genuinely anomalous traffic. */
+    public static final int MAX_IDS_PER_EMOJI = 250;
+
+    ChatMessage.Id messageId;
+    /** emoji → who reacted, in reaction order. */
+    Map<String, List<Person.Id>> byEmoji;
+    /** emoji → how many reactions exist beyond the capped id list. */
+    Map<String, Integer> overflowCount;
+
+    @JsonCreator
+    public ChatReactionSummary(
+            @JsonProperty("messageId") final ChatMessage.Id messageId,
+            @JsonProperty("byEmoji") final Map<String, List<Person.Id>> byEmoji,
+            @JsonProperty("overflowCount") final Map<String, Integer> overflowCount) {
+        this.messageId = messageId;
+        this.byEmoji = byEmoji == null ? Map.of() : copy(byEmoji);
+        this.overflowCount = overflowCount == null ? Map.of() : Map.copyOf(overflowCount);
+    }
+
+    public static ChatReactionSummary empty(final ChatMessage.Id messageId) {
+        return new ChatReactionSummary(messageId, Map.of(), Map.of());
+    }
+
+    /** Builds a summary from reaction rows (already filtered to one message or a page). */
+    public static ChatReactionSummary fromReactions(
+            final ChatMessage.Id messageId, final List<ChatReaction> reactions) {
+        final Map<String, List<Person.Id>> by = new LinkedHashMap<>();
+        final Map<String, Integer> overflow = new LinkedHashMap<>();
+        if (reactions != null) {
+            for (final ChatReaction r : reactions) {
+                if (r == null || r.getEmoji() == null || r.getPersonId() == null) {
+                    continue;
+                }
+                final List<Person.Id> list = by.computeIfAbsent(r.getEmoji(), k -> new ArrayList<>());
+                if (list.size() < MAX_IDS_PER_EMOJI) {
+                    list.add(r.getPersonId());
+                } else {
+                    overflow.merge(r.getEmoji(), 1, Integer::sum);
+                }
+            }
+        }
+        return new ChatReactionSummary(messageId, by, overflow);
+    }
+
+    @JsonIgnore
+    public int count(final String emoji) {
+        final int listed = byEmoji.getOrDefault(emoji, List.of()).size();
+        return listed + overflowCount.getOrDefault(emoji, 0);
+    }
+
+    @JsonIgnore
+    public boolean mine(final String emoji, final Person.Id me) {
+        if (me == null) {
+            return false;
+        }
+        return byEmoji.getOrDefault(emoji, List.of()).contains(me);
+    }
+
+    @JsonIgnore
+    public int totalCount() {
+        int total = 0;
+        for (final String emoji : byEmoji.keySet()) {
+            total += count(emoji);
+        }
+        for (final Map.Entry<String, Integer> e : overflowCount.entrySet()) {
+            if (!byEmoji.containsKey(e.getKey())) {
+                total += e.getValue();
+            }
+        }
+        return total;
+    }
+
+    private static Map<String, List<Person.Id>> copy(final Map<String, List<Person.Id>> src) {
+        final Map<String, List<Person.Id>> out = new LinkedHashMap<>();
+        for (final Map.Entry<String, List<Person.Id>> e : src.entrySet()) {
+            out.put(e.getKey(), e.getValue() == null ? List.of() : List.copyOf(e.getValue()));
+        }
+        return Map.copyOf(out);
+    }
+}

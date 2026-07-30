@@ -53,6 +53,17 @@ public enum AuditAction {
     IMPERSONATION,
     /** Any admin action not covered above; the legacy catch-all type. */
     ADMIN,
+    /** A person joined a trip chat channel. */
+    CHAT_JOIN,
+    /** A person left a trip chat channel. */
+    CHAT_LEAVE,
+    /** Chat moderation or settings change (mute, remove message, roster, etc.). */
+    CHAT_ADMIN,
+    /**
+     * Cross-cutting: something an operator should look at (rate-limit abuse, auto-mute, future subsystems).
+     * Not chat-specific; filter with a {@code subsystem.event:} message prefix.
+     */
+    ALARM,
     /** Unrecognised: the record is kept, the original type text is preserved in the message. */
     UNKNOWN;
 

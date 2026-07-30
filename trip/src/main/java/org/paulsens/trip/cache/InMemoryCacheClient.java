@@ -11,6 +11,8 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.BiConsumer;
 
 /**
  * Map-backed {@link CacheClient} used for {@code local=true} mode and unit tests -- no external processes required.
@@ -25,6 +27,8 @@ public final class InMemoryCacheClient implements CacheClient {
     // Values are String (point), ConcurrentMap<String, String> (hash), or Set<String> (set).
     private final ConcurrentMap<String, Object> store = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Long> locks = new ConcurrentHashMap<>();
+    /** Channel to listeners. Process-local by design -- see {@link #publish}. */
+    private final ConcurrentMap<String, List<BiConsumer<String, String>>> subscribers = new ConcurrentHashMap<>();
 
     @Override
     public CompletableFuture<Optional<String>> getValue(final String key) {
@@ -147,6 +151,83 @@ public final class InMemoryCacheClient implements CacheClient {
     @Override
     public CompletableFuture<Boolean> expire(final String key, final Duration ttl) {
         return TRUE;
+    }
+
+    @Override
+    public CompletableFuture<Optional<Long>> increment(final String key, final long delta, final Duration ttl) {
+        // TTLs are ignored here (same as every other write); counters live for the JVM lifetime. Rate-limit
+        // keys put the window index in the key so this is still correct under tests.
+        final Object prev = store.get(key);
+        long current = 0L;
+        if (prev instanceof String str) {
+            try {
+                current = Long.parseLong(str);
+            } catch (final NumberFormatException ex) {
+                current = 0L;
+            }
+        }
+        final long next = current + delta;
+        store.put(key, String.valueOf(next));
+        return CompletableFuture.completedFuture(Optional.of(next));
+    }
+
+    @Override
+    public CompletableFuture<Boolean> trimSortedSet(final String key, final int maxSize) {
+        if (maxSize <= 0) {
+            return TRUE;
+        }
+        final ConcurrentMap<String, Double> zset = sortedSet(key);
+        if (zset.size() <= maxSize) {
+            return TRUE;
+        }
+        final List<String> ordered = zset.entrySet().stream()
+                .sorted(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .toList();
+        final int toRemove = ordered.size() - maxSize;
+        for (int i = 0; i < toRemove; i++) {
+            zset.remove(ordered.get(i));
+        }
+        return TRUE;
+    }
+
+    /**
+     * Process-local pub/sub: a subscriber in THIS JVM sees a publish from THIS JVM, and nothing else.
+     *
+     * <p>Explicitly process-local, the same honest limitation as {@code MediaEvents}. That is correct for local
+     * mode and unit tests, and it is exactly why the real-time path must be exercised against a real Valkey before
+     * anyone concludes fan-out works: sticky sessions plus a single task make an in-JVM registry look perfect and
+     * break silently the moment there are two.
+     */
+    @Override
+    public CompletableFuture<Boolean> publish(final String channel, final String payload) {
+        final List<BiConsumer<String, String>> listeners = subscribers.get(channel);
+        if (listeners != null) {
+            for (final BiConsumer<String, String> listener : List.copyOf(listeners)) {
+                listener.accept(channel, payload);
+            }
+        }
+        return TRUE;
+    }
+
+    @Override
+    public AutoCloseable subscribe(final Collection<String> channels, final BiConsumer<String, String> onMessage) {
+        if (channels == null || channels.isEmpty() || onMessage == null) {
+            return () -> { };
+        }
+        for (final String channel : channels) {
+            subscribers.computeIfAbsent(channel, k -> new CopyOnWriteArrayList<>()).add(onMessage);
+        }
+        return () -> unsubscribe(channels, onMessage);
+    }
+
+    private void unsubscribe(final Collection<String> channels, final BiConsumer<String, String> onMessage) {
+        for (final String channel : channels) {
+            final List<BiConsumer<String, String>> listeners = subscribers.get(channel);
+            if (listeners != null) {
+                listeners.remove(onMessage);
+            }
+        }
     }
 
     @Override

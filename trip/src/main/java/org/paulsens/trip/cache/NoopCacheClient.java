@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BiConsumer;
 
 /**
  * Pass-through {@link CacheClient} for {@code trip.cache.mode=off}: every read is a miss and writes are discarded,
@@ -100,6 +101,28 @@ public final class NoopCacheClient implements CacheClient {
     @Override
     public CompletableFuture<Boolean> expire(final String key, final Duration ttl) {
         return TRUE;
+    }
+
+    @Override
+    public CompletableFuture<Optional<Long>> increment(final String key, final long delta, final Duration ttl) {
+        // Cache off: rate limiters treat empty as "cache down" and fall back to an in-JVM bucket.
+        return CompletableFuture.completedFuture(Optional.empty());
+    }
+
+    @Override
+    public CompletableFuture<Boolean> trimSortedSet(final String key, final int maxSize) {
+        return TRUE;
+    }
+
+    @Override
+    public CompletableFuture<Boolean> publish(final String channel, final String payload) {
+        // Nothing is cached and nothing is listening; a lost nudge costs latency, never a message.
+        return CompletableFuture.completedFuture(false);
+    }
+
+    @Override
+    public AutoCloseable subscribe(final Collection<String> channels, final BiConsumer<String, String> onMessage) {
+        return () -> { };
     }
 
     @Override

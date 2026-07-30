@@ -13,6 +13,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Map; // used by chatPageSurvivesARoundTrip via Map.of
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -83,12 +84,38 @@ public class ModelSerializationTest {
                 continue;
             }
             if (!Serializable.class.isAssignableFrom(type)) {
-                offenders.add(type.getSimpleName());
+                offenders.add(type.getName());
             }
         }
         Assert.assertEquals(offenders, List.of(),
                 "These models are not Serializable. Any one of them placed in a JSF scope breaks the session "
                         + "save for that user, and every later request they make returns 500: " + offenders);
+    }
+
+    @Test
+    public void modelSweepDiscoversChatSubPackage() throws Exception {
+        // Guard against silent escape: a non-recursive dir.listFiles would drop model.chat entirely.
+        final boolean found = modelClasses().stream()
+                .anyMatch(c -> c.getName().equals(org.paulsens.trip.model.chat.ChatPage.class.getName()));
+        Assert.assertTrue(found,
+                "ModelSerializationTest must discover model.chat classes recursively; "
+                        + "otherwise chat models can leave viewScope without a Serializable check.");
+    }
+
+    @Test
+    public void chatPageSurvivesARoundTrip() throws Exception {
+        final org.paulsens.trip.model.chat.ChatMessage.Id msgId =
+                org.paulsens.trip.model.chat.ChatMessage.Id.of(1_700_000_000_000L);
+        final org.paulsens.trip.model.chat.ChatPage page = new org.paulsens.trip.model.chat.ChatPage(
+                List.of(), Map.of(), msgId, 3L, 7L, false, false, Map.of(),
+                Instant.parse("2026-07-29T12:00:00Z"));
+        final org.paulsens.trip.model.chat.ChatPage revived = roundTrip(page);
+        Assert.assertEquals(revived.getCursor(), msgId);
+        Assert.assertEquals(revived.getServerTime(), Instant.parse("2026-07-29T12:00:00Z"));
+        // Both counters must survive: they are the only mechanism by which a reaction, an edit or a delete reaches
+        // a client that already holds the message, so losing them silently disables all three.
+        Assert.assertEquals(revived.getReactionsVersion(), 3L);
+        Assert.assertEquals(revived.getMutationsVersion(), 7L);
     }
 
     private static <T> T roundTrip(final T value) throws Exception {
@@ -103,7 +130,11 @@ public class ModelSerializationTest {
         }
     }
 
-    /** Every class in the model package, read off the classpath rather than listed by hand. */
+    /**
+     * Every class under the model package <em>and its sub-packages</em>, read off the classpath rather than
+     * listed by hand. Must stay recursive: chat models live in {@code model.chat}, and a single-directory
+     * sweep would drop them silently.
+     */
     private static List<Class<?>> modelClasses() throws IOException, ClassNotFoundException {
         final String pkg = AuditPage.class.getPackageName();
         final List<Class<?>> found = new ArrayList<>();
@@ -115,15 +146,26 @@ public class ModelSerializationTest {
             if (dir.getPath().contains("test-classes")) {
                 continue;
             }
-            final File[] files = dir.listFiles((d, name) -> name.endsWith(".class"));
-            if (files == null) {
-                continue;
-            }
-            for (final File file : files) {
+            collectClasses(dir, pkg, found);
+        }
+        return found;
+    }
+
+    private static void collectClasses(final File dir, final String pkg, final List<Class<?>> found)
+            throws ClassNotFoundException {
+        final File[] files = dir.listFiles();
+        if (files == null) {
+            return;
+        }
+        for (final File file : files) {
+            if (file.isDirectory()) {
+                collectClasses(file, pkg + "." + file.getName(), found);
+            } else if (file.getName().endsWith(".class")) {
                 final String name = file.getName().replace(".class", "");
+                // Skip nested class files that use '$' — Class.forName still loads them via the outer name
+                // when needed; the simple form is enough for top-level and we also load nested via $ names.
                 found.add(Class.forName(pkg + "." + name));
             }
         }
-        return found;
     }
 }

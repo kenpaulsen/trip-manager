@@ -3,6 +3,7 @@ package org.paulsens.trip.dynamo;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -12,34 +13,26 @@ import java.util.function.Consumer;
 import software.amazon.awssdk.http.SdkHttpResponse;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
+import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.DeleteItemResponse;
+import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.PutItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
+import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
 
 /**
  * The in-memory datastore behind local mode and the tests.
  *
- * <p>It exists because "every read returns empty" is not a harmless fake once anything reads through to the
- * datastore. Two places do:
+ * <p>Originally audit-only; generalized to a small PK/SK registry so {@link ChatDAO} (and any future table)
+ * can round-trip under unit tests with the same honesty rules:
  *
  * <ul>
- *   <li>{@link AuditDAO} is deliberately uncached, so a save-then-read round trip would always read nothing --
- *       leaving the audit page untestable end to end and empty on a laptop.</li>
- *   <li>{@code SearchIndex} rebuilds from a table scan and RECONCILES against that snapshot, deleting entries
- *       the snapshot does not contain. An empty scan therefore erases the index that the writers just
- *       populated, and person search silently returns nothing. In production the scan is authoritative and the
- *       reconcile is correct; it is only a fake that reports an empty database while holding data that makes
- *       the two disagree.</li>
- * </ul>
- *
- * <p>This models only the three behaviours the audit DAO depends on, and models them honestly, because the
- * whole point is to catch the cases where the real table would behave differently from the naive expectation:
- *
- * <ul>
- *   <li>A conditional put on an existing key FAILS rather than overwriting. This is the behaviour the sort-key
- *       design rests on; a double that silently accepted it would hide exactly the bug worth catching.</li>
- *   <li>Keys sort as STRINGS, not numbers -- which is what makes zero-padding load-bearing.</li>
+ *   <li>A conditional put on an existing key FAILS rather than overwriting.</li>
+ *   <li>Keys sort as STRINGS, not numbers — zero-padding is load-bearing.</li>
  *   <li>{@code scanIndexForward(false)} returns a partition newest-first.</li>
+ *   <li>Unaliased reserved words in expressions are rejected the way DynamoDB would.</li>
  * </ul>
  */
 public class InMemoryPersistence implements Persistence {
@@ -47,8 +40,29 @@ public class InMemoryPersistence implements Persistence {
     /** Serializes fake people the same way PersonDAO does, so the scan looks like the real table. */
     private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules();
 
-    /** day -> (sort key -> item). */
-    private final Map<String, Map<String, Map<String, AttributeValue>>> rows = new ConcurrentHashMap<>();
+    /**
+     * DynamoDB reserved words this table's schema collides with.
+     *
+     * @see <a href="https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ReservedWords.html">
+     *      DynamoDB reserved words</a>
+     */
+    private static final List<String> RESERVED = List.of("day", "timestamp", "year", "month", "hour", "second",
+            "status", "name", "value", "size", "action", "message", "target", "source", "user");
+
+    /**
+     * Per-table key attribute names. Tables not listed fall through to the default no-op Persistence (empty
+     * reads) so unrelated code paths keep working.
+     */
+    private static final Map<String, TableKeys> TABLES = Map.of(
+            AuditDAO.AUDIT_TABLE, new TableKeys(AuditDAO.PARTITION, AuditDAO.SORT),
+            ChatDAO.CHANNELS_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, null),
+            ChatDAO.MEMBERS_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, ChatDAO.ATTR_PERSON_ID),
+            ChatDAO.MESSAGES_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, ChatDAO.ATTR_MSG_ID),
+            ChatDAO.REACTIONS_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, ChatDAO.ATTR_SK));
+
+    /** table -> (pk -> (sk -> item)). sk is "" for PK-only tables. */
+    private final Map<String, Map<String, Map<String, Map<String, AttributeValue>>>> store =
+            new ConcurrentHashMap<>();
 
     /** Counts conditional rejections, so a test can assert a collision actually happened. */
     private final AtomicInteger rejections = new AtomicInteger();
@@ -58,53 +72,77 @@ public class InMemoryPersistence implements Persistence {
         final PutItemRequest.Builder builder = PutItemRequest.builder();
         request.accept(builder);
         final PutItemRequest put = builder.build();
-        if (!AuditDAO.AUDIT_TABLE.equals(put.tableName())) {
-            // Only the audit table is modelled here; everything else keeps the plain fake's behaviour.
+        final TableKeys keys = TABLES.get(put.tableName());
+        if (keys == null) {
             return Persistence.super.putItem(request);
         }
 
         final Map<String, AttributeValue> item = put.item();
-        final String day = item.get(AuditDAO.PARTITION).s();
-        final String sort = item.get(AuditDAO.SORT).s();
+        final String pk = item.get(keys.pk).s();
+        final String sk = keys.sk == null ? "" : item.get(keys.sk).s();
         final Map<String, Map<String, AttributeValue>> partition =
-                rows.computeIfAbsent(day, key -> new ConcurrentHashMap<>());
+                store.computeIfAbsent(put.tableName(), t -> new ConcurrentHashMap<>())
+                        .computeIfAbsent(pk, k -> new ConcurrentHashMap<>());
 
         final boolean conditional = put.conditionExpression() != null
                 && put.conditionExpression().contains("attribute_not_exists");
-        if (conditional && partition.containsKey(sort)) {
-            // What the real table does: reject, rather than quietly replacing an audit record.
+        if (conditional && partition.containsKey(sk)) {
             rejections.incrementAndGet();
             return CompletableFuture.<PutItemResponse>failedFuture(
-                    ConditionalCheckFailedException.builder().message("key exists: " + sort).build());
+                    ConditionalCheckFailedException.builder().message("key exists: " + sk).build());
         }
-        partition.put(sort, item);
-        // Assigned rather than chained: sdkHttpResponse() returns the widened AwsResponse.Builder.
+        partition.put(sk, new HashMap<>(item));
         final PutItemResponse.Builder response = PutItemResponse.builder();
         response.sdkHttpResponse(SdkHttpResponse.builder().statusCode(200).build());
         return CompletableFuture.completedFuture(response.build());
     }
 
-    /**
-     * DynamoDB reserved words this table's schema collides with.
-     *
-     * <p>{@code day} is genuinely reserved, and naming it directly in an expression makes the real service
-     * reject the query with {@code ValidationException}. The first version of this double ignored expression
-     * syntax altogether, so twelve tests passed against a query that could not work anywhere but here -- the
-     * admin page shipped showing "no records" over a table holding 36,000. A double that accepts what the real
-     * service rejects is worse than no double at all, so this one rejects it too.
-     *
-     * @see <a href="https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ReservedWords.html">
-     *      DynamoDB reserved words</a>
-     */
-    private static final List<String> RESERVED = List.of("day", "timestamp", "year", "month", "hour", "second",
-            "status", "name", "value", "size", "action", "message", "target", "source", "user");
+    @Override
+    public CompletableFuture<GetItemResponse> getItem(final Consumer<GetItemRequest.Builder> getItemRequest) {
+        final GetItemRequest.Builder builder = GetItemRequest.builder();
+        getItemRequest.accept(builder);
+        final GetItemRequest giReq = builder.build();
+        final TableKeys keys = TABLES.get(giReq.tableName());
+        if (keys == null) {
+            return Persistence.super.getItem(getItemRequest);
+        }
+        final Map<String, AttributeValue> key = giReq.key();
+        final String pk = key.get(keys.pk).s();
+        final String sk = keys.sk == null ? "" : key.get(keys.sk).s();
+        final Map<String, AttributeValue> item = store
+                .getOrDefault(giReq.tableName(), Map.of())
+                .getOrDefault(pk, Map.of())
+                .get(sk);
+        return CompletableFuture.completedFuture(
+                GetItemResponse.builder().item(item == null ? Map.of() : item).build());
+    }
+
+    @Override
+    public CompletableFuture<DeleteItemResponse> deleteItem(
+            final Consumer<DeleteItemRequest.Builder> deleteItemRequest) {
+        final DeleteItemRequest.Builder builder = DeleteItemRequest.builder();
+        deleteItemRequest.accept(builder);
+        final DeleteItemRequest del = builder.build();
+        final TableKeys keys = TABLES.get(del.tableName());
+        if (keys == null) {
+            return Persistence.super.deleteItem(deleteItemRequest);
+        }
+        final Map<String, AttributeValue> key = del.key();
+        final String pk = key.get(keys.pk).s();
+        final String sk = keys.sk == null ? "" : key.get(keys.sk).s();
+        final Map<String, Map<String, AttributeValue>> partition =
+                store.getOrDefault(del.tableName(), Map.of()).get(pk);
+        if (partition != null) {
+            partition.remove(sk);
+        }
+        final DeleteItemResponse.Builder response = DeleteItemResponse.builder();
+        response.sdkHttpResponse(SdkHttpResponse.builder().statusCode(200).build());
+        return CompletableFuture.completedFuture(response.build());
+    }
 
     /**
-     * Table scans. The {@code people} table reports the seeded fake people; everything else stays empty.
-     *
-     * <p>Person search depends on this. {@code SearchIndex} rebuilds from a scan and deletes index entries the
-     * scan does not confirm, so an empty scan wipes the entries {@code savePerson} just wrote and search
-     * silently returns nothing -- which is what broke EditPrivsSelectionIT under a real cache.
+     * Table scans. The {@code people} table reports the seeded fake people; everything else stays empty
+     * (chat loaders do not scan).
      */
     @Override
     public CompletableFuture<List<Map<String, AttributeValue>>> scanAll(
@@ -122,59 +160,155 @@ public class InMemoryPersistence implements Persistence {
                         "id", AttributeValue.builder().s(person.getId().getValue()).build(),
                         "content", AttributeValue.builder().s(MAPPER.writeValueAsString(person)).build()));
             } catch (final com.fasterxml.jackson.core.JsonProcessingException ex) {
-                // A fake that cannot serialize its own seed data is a bug in the seed, not something to hide.
                 throw new IllegalStateException("Unable to serialize fake person " + person.getId(), ex);
             }
         }
         return CompletableFuture.completedFuture(items);
     }
 
+    /**
+     * The whole-partition read. Delegates to {@link #query} because this fake holds everything in memory and so
+     * has no 1 MB page limit to paginate around -- one "page" is always the complete answer.
+     */
     @Override
     public CompletableFuture<List<Map<String, AttributeValue>>> queryAll(
             final Consumer<QueryRequest.Builder> request) {
+        return query(request).thenApply(QueryResponse::items);
+    }
+
+    /**
+     * The bounded single-page read. This is the one that honors {@code limit}, so callers that must not walk a
+     * whole partition (the chat message log) get the same truncation here as they do against real DynamoDB.
+     */
+    @Override
+    public CompletableFuture<QueryResponse> query(final Consumer<QueryRequest.Builder> request) {
         final QueryRequest.Builder builder = QueryRequest.builder();
         request.accept(builder);
         final QueryRequest query = builder.build();
-        if (!AuditDAO.AUDIT_TABLE.equals(query.tableName())) {
-            return Persistence.super.queryAll(request);
+        final TableKeys keys = TABLES.get(query.tableName());
+        if (keys == null) {
+            return Persistence.super.query(request);
         }
 
         rejectUnaliasedReservedWords(query.keyConditionExpression());
 
-        final Map<String, AttributeValue> values = query.expressionAttributeValues();
-        // Every alias used in the expression must actually be declared, or the real service rejects the query.
         for (final String alias : aliasesIn(query.keyConditionExpression())) {
-            if (!query.expressionAttributeNames().containsKey(alias)) {
+            if (query.expressionAttributeNames() == null
+                    || !query.expressionAttributeNames().containsKey(alias)) {
                 throw new IllegalArgumentException("ValidationException: ExpressionAttributeNames contains no "
                         + "entry for " + alias);
             }
         }
-        final String day = values.get(":day").s();
-        final AttributeValue before = values.get(":before");
 
-        final List<Map<String, AttributeValue>> result =
-                new ArrayList<>(rows.getOrDefault(day, Map.of()).values());
-        if (before != null) {
-            result.removeIf(item -> item.get(AuditDAO.SORT).s().compareTo(before.s()) >= 0);
+        final Map<String, AttributeValue> values = query.expressionAttributeValues();
+        final Map<String, String> names = query.expressionAttributeNames() == null
+                ? Map.of() : query.expressionAttributeNames();
+        final String expr = query.keyConditionExpression();
+
+        // Resolve the partition key value. Audit uses :day; chat uses :c.
+        final String pkValue = resolvePk(values, names, expr, keys);
+        if (pkValue == null) {
+            return CompletableFuture.completedFuture(QueryResponse.builder().items(List.of()).build());
         }
-        // String comparison on purpose -- the same comparison DynamoDB makes.
-        final Comparator<Map<String, AttributeValue>> byKey =
-                Comparator.comparing(item -> item.get(AuditDAO.SORT).s());
-        result.sort(Boolean.FALSE.equals(query.scanIndexForward()) ? byKey.reversed() : byKey);
-        return CompletableFuture.completedFuture(result);
+
+        final List<Map<String, AttributeValue>> result = new ArrayList<>(
+                store.getOrDefault(query.tableName(), Map.of())
+                        .getOrDefault(pkValue, Map.of())
+                        .values());
+
+        applySkBounds(result, keys, values, expr);
+
+        final Comparator<Map<String, AttributeValue>> bySk = Comparator.comparing(item -> sortKeyOf(item, keys));
+        result.sort(Boolean.FALSE.equals(query.scanIndexForward()) ? bySk.reversed() : bySk);
+
+        Integer limit = query.limit();
+        if (limit != null && limit > 0 && result.size() > limit) {
+            return CompletableFuture.completedFuture(QueryResponse.builder()
+                    .items(new ArrayList<>(result.subList(0, limit)))
+                    .build());
+        }
+        return CompletableFuture.completedFuture(QueryResponse.builder().items(result).build());
     }
 
-    /**
-     * Throws the way DynamoDB would when an expression names a reserved word without an
-     * {@code ExpressionAttributeNames} alias.
-     */
+    /** The sort key as a comparable string; a table without one, or a missing value, sorts as empty. */
+    private static String sortKeyOf(final Map<String, AttributeValue> item, final TableKeys keys) {
+        if (keys.sk == null) {
+            return "";
+        }
+        final AttributeValue sk = item.get(keys.sk);
+        return sk == null || sk.s() == null ? "" : sk.s();
+    }
+
+    private static String resolvePk(
+            final Map<String, AttributeValue> values,
+            final Map<String, String> names,
+            final String expr,
+            final TableKeys keys) {
+        if (values == null) {
+            return null;
+        }
+        // Prefer common placeholders used by DAOs.
+        if (values.containsKey(":day")) {
+            return values.get(":day").s();
+        }
+        if (values.containsKey(":c")) {
+            return values.get(":c").s();
+        }
+        // Fallback: first value whose attribute name maps to the PK.
+        for (final Map.Entry<String, AttributeValue> e : values.entrySet()) {
+            if (e.getKey().startsWith(":") && e.getValue().s() != null) {
+                return e.getValue().s();
+            }
+        }
+        return null;
+    }
+
+    private static void applySkBounds(
+            final List<Map<String, AttributeValue>> result,
+            final TableKeys keys,
+            final Map<String, AttributeValue> values,
+            final String expr) {
+        if (keys.sk == null || values == null || expr == null) {
+            return;
+        }
+        final AttributeValue before = values.get(":before");
+        if (before != null) {
+            result.removeIf(item -> atOrAfter(item.get(keys.sk), before.s()));
+        }
+        final AttributeValue after = values.get(":after");
+        if (after != null) {
+            result.removeIf(item -> atOrBefore(item.get(keys.sk), after.s()));
+        }
+        final AttributeValue lo = values.get(":lo");
+        final AttributeValue hi = values.get(":hi");
+        if (lo != null && hi != null) {
+            result.removeIf(item -> outsideRange(item.get(keys.sk), lo.s(), hi.s()));
+        }
+    }
+
+    // The bound predicates below take the raw attribute so an *absent* sort key stays distinguishable from an
+    // empty one: a row with no sort key at all cannot satisfy a range condition and is always dropped.
+
+    /** True when the row falls at or after an exclusive {@code :before} bound, so it must be dropped. */
+    private static boolean atOrAfter(final AttributeValue sk, final String before) {
+        return sk == null || sk.s() == null || sk.s().compareTo(before) >= 0;
+    }
+
+    /** True when the row falls at or before an exclusive {@code :after} bound, so it must be dropped. */
+    private static boolean atOrBefore(final AttributeValue sk, final String after) {
+        return sk == null || sk.s() == null || sk.s().compareTo(after) <= 0;
+    }
+
+    /** True when the row falls outside an inclusive {@code BETWEEN :lo AND :hi} bound. */
+    private static boolean outsideRange(final AttributeValue sk, final String lo, final String hi) {
+        return sk == null || sk.s() == null || sk.s().compareTo(lo) < 0 || sk.s().compareTo(hi) > 0;
+    }
+
     private static void rejectUnaliasedReservedWords(final String expression) {
         if (expression == null) {
             return;
         }
         for (final String word : RESERVED) {
-            // Word-boundary match, and not preceded by '#': "#day" is the aliased (correct) form, and ":day"
-            // is a value placeholder, which is always fine.
             if (expression.matches("(?is).*(^|[^#:\\w])" + word + "\\b.*")) {
                 throw new IllegalArgumentException("ValidationException: Invalid KeyConditionExpression: "
                         + "Attribute name is a reserved keyword; reserved keyword: " + word
@@ -183,7 +317,6 @@ public class InMemoryPersistence implements Persistence {
         }
     }
 
-    /** The {@code #name} aliases referenced by an expression. */
     private static List<String> aliasesIn(final String expression) {
         if (expression == null) {
             return List.of();
@@ -202,8 +335,14 @@ public class InMemoryPersistence implements Persistence {
         return rejections.get();
     }
 
-    /** Total rows stored, across every day. */
+    /** Total rows stored, across every table and partition. */
     public int size() {
-        return rows.values().stream().mapToInt(Map::size).sum();
+        return store.values().stream()
+                .flatMap(t -> t.values().stream())
+                .mapToInt(Map::size)
+                .sum();
+    }
+
+    private record TableKeys(String pk, String sk) {
     }
 }

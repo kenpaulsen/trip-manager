@@ -88,6 +88,35 @@
             <version>6.1.0</version>
             <scope>provided</scope>
         </dependency>
+        <!-- JAX-RS (Jersey) for /api/* — first piece of the REST direction; pin Jackson via parent BOM. -->
+        <dependency>
+            <groupId>org.glassfish.jersey.containers</groupId>
+            <artifactId>jersey-container-servlet</artifactId>
+            <version>3.1.10</version>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jersey.core</groupId>
+            <artifactId>jersey-server</artifactId>
+            <version>3.1.10</version>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jersey.media</groupId>
+            <artifactId>jersey-media-json-jackson</artifactId>
+            <version>3.1.10</version>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jersey.inject</groupId>
+            <artifactId>jersey-hk2</artifactId>
+            <version>3.1.10</version>
+        </dependency>
+        <!--
+            NOTE: jersey-test-framework is deliberately NOT a dependency. JerseyTest is JUnit 5 based, and
+            pulling junit-jupiter onto this module's test classpath is what silently disabled the entire TestNG
+            suite (see the surefire pin below). Resource behaviour is covered instead by TestNG tests against
+            ChatCommands, which holds the logic, plus ChatFeedIT for the wiring, which is the split the design
+            called for. Reintroducing JerseyTest means adding a second, JUnit-specific surefire execution on
+            purpose.
+        -->
         <dependency>
             <groupId>jakarta.faces</groupId>
             <artifactId>jakarta.faces-api</artifactId>
@@ -168,6 +197,30 @@
                     <source>25</source>
                     <target>25</target>
                     <release>25</release>
+                </configuration>
+            </plugin>
+            <plugin>
+                <!--
+                    The TestNG provider is pinned EXPLICITLY. Surefire otherwise auto-detects a provider from
+                    the test classpath, and the moment any dependency drags in JUnit (jersey-test-framework
+                    brings junit-jupiter) it silently switches to the JUnit platform provider: every TestNG test
+                    stops running, "Tests run: 0" scrolls past, and the build still reports SUCCESS. That
+                    actually happened here; the whole suite went dark and nothing failed. Do not remove this
+                    pin, and do not rely on auto-detection.
+                -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.apache.maven.surefire</groupId>
+                        <artifactId>surefire-testng</artifactId>
+                        <version>3.2.5</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <!-- A run that finds no tests is a broken run, not a passing one. -->
+                    <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                 </configuration>
             </plugin>
             <plugin>

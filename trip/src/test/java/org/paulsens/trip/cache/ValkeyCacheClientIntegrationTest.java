@@ -51,6 +51,57 @@ public class ValkeyCacheClientIntegrationTest {
         }
     }
 
+    /**
+     * A real publish reaches a real subscriber, and the callback does NOT run on a Netty event loop.
+     *
+     * <p>The thread assertion is the point. Lettuce delivers listener callbacks on its event loop; the
+     * {@code CacheClient} contract forbids running caller code there because the callback goes on to do a cursor
+     * read, and every DAO read joins a future — joining from the loop that has to complete it deadlocks that loop.
+     * A wrong hand-off would pass a naive "did it arrive" test and then hang the first time a nudge triggered real
+     * work, so the test names the thread instead of trusting arrival.
+     */
+    @Test
+    public void pubSubRoundTripDeliversOffTheEventLoop() throws Exception {
+        final String channel = NS + "pubsub";
+        final java.util.concurrent.CountDownLatch arrived = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.atomic.AtomicReference<String> payload =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        final java.util.concurrent.atomic.AtomicReference<String> thread =
+                new java.util.concurrent.atomic.AtomicReference<>();
+
+        try (java.io.Closeable ignored = asCloseable(client.subscribe(java.util.List.of(channel),
+                (ch, msg) -> {
+                    payload.set(msg);
+                    thread.set(Thread.currentThread().getName());
+                    arrived.countDown();
+                }))) {
+            // SUBSCRIBE is issued asynchronously; a publish that races it is legitimately dropped, so retry until
+            // the subscription is live rather than sleeping a magic number and hoping.
+            for (int i = 0; i < 50 && arrived.getCount() > 0; i++) {
+                client.publish(channel, "{\"upTo\":" + i + "}").join();
+                if (arrived.await(100, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                    break;
+                }
+            }
+            assertTrue(arrived.getCount() == 0, "no nudge arrived within 5s");
+            assertTrue(payload.get() != null && payload.get().contains("upTo"), "payload was " + payload.get());
+            final String on = thread.get();
+            assertTrue(on != null && !on.contains("lettuce") && !on.contains("nioEventLoop"),
+                    "callback must not run on a Lettuce/Netty event loop, but ran on: " + on);
+        }
+    }
+
+    /** Bridges the SPI's {@code AutoCloseable} handle into try-with-resources without a checked-exception clash. */
+    private static java.io.Closeable asCloseable(final AutoCloseable handle) {
+        return () -> {
+            try {
+                handle.close();
+            } catch (final Exception ex) {
+                throw new java.io.IOException(ex);
+            }
+        };
+    }
+
     @Test
     public void valueRoundTrip() {
         assertTrue(client.putValue(NS + "v1", "hello", Duration.ofMinutes(5)).join());

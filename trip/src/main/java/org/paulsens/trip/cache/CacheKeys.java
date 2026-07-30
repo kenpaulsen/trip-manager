@@ -87,11 +87,143 @@ public final class CacheKeys {
     public static final String BIND_LOADED_SUFFIX = ":loaded";
 
     /**
-     * Reserved pub/sub namespace for the future real-time chat feature: {@code chat:trip:{tripId}},
-     * {@code chat:dm:{lowUserId}:{highUserId}}. Note ElastiCache Serverless does not support PSUBSCRIBE, so channel
-     * names must always be enumerable by subscribers -- never design for pattern subscription.
+     * Chat namespace — deliberately <em>not</em> under {@link #FORMAT_VERSION}, so {@code DAO.clearAllCaches()}
+     * (which clears {@code t1:}) cannot wipe a trip's conversation. At short retention Valkey is part of the
+     * delivery path and must survive an admin "clear all caches".
+     *
+     * <p>Pub/sub channel names keep the reserved shape {@code chat:trip:{tripId}} /
+     * {@code chat:dm:{lowUserId}:{highUserId}} and sit outside the versioned segment. ElastiCache Serverless
+     * does not support PSUBSCRIBE, so channel names must always be enumerable by subscribers.
      */
     public static final String CHAT_CHANNEL_PREFIX = "chat:";
+
+    /** Chat key format lever (independent of entity {@link #FORMAT_VERSION}). */
+    public static final String CHAT_FORMAT_VERSION = CHAT_CHANNEL_PREFIX + "v1:";
+
+    public static String chatLogKey(final String channelId) {
+        return CHAT_FORMAT_VERSION + "log:" + channelId;
+    }
+
+    public static String chatBodyKey(final String channelId) {
+        return CHAT_FORMAT_VERSION + "body:" + channelId;
+    }
+
+    /** Point-cache prefix for channel metadata (append channelId). */
+    public static final String CHAT_CHANNEL_META_PREFIX = CHAT_FORMAT_VERSION + "chan:";
+
+    public static String chatChannelKey(final String channelId) {
+        return CHAT_CHANNEL_META_PREFIX + channelId;
+    }
+
+    public static String chatMembersKey(final String channelId) {
+        return CHAT_FORMAT_VERSION + "mem:" + channelId;
+    }
+
+    public static String chatCursorKey(final String channelId, final String personId) {
+        return CHAT_FORMAT_VERSION + "cur:" + channelId + ":" + personId;
+    }
+
+    /**
+     * Rate-limit counter. Window length is part of the key so an admin changing the window cannot collide with
+     * a live counter written under the previous length.
+     */
+    public static String chatRateLimitKey(
+            final String channelId, final String personId, final String tier, final int windowSeconds,
+            final long epochSec) {
+        final long winIndex = windowSeconds <= 0 ? 0L : epochSec / windowSeconds;
+        if (channelId == null) {
+            return CHAT_FORMAT_VERSION + "rl:" + personId + ":" + tier + ":" + windowSeconds + ":" + winIndex;
+        }
+        return CHAT_FORMAT_VERSION + "rl:" + channelId + ":" + personId + ":" + tier + ":" + windowSeconds + ":"
+                + winIndex;
+    }
+
+    public static String chatSlowModeKey(final String channelId, final String personId) {
+        return CHAT_FORMAT_VERSION + "slow:" + channelId + ":" + personId;
+    }
+
+    public static String chatReactionSummaryKey(final String channelId) {
+        return CHAT_FORMAT_VERSION + "rsum:" + channelId;
+    }
+
+    public static String chatClientMessageKey(
+            final String channelId, final String personId, final String clientMessageId) {
+        return CHAT_FORMAT_VERSION + "cmid:" + channelId + ":" + personId + ":" + clientMessageId;
+    }
+
+    /** Global last-activity hash: field = channelId, value = epoch millis. */
+    public static final String CHAT_LAST_ACTIVITY = CHAT_FORMAT_VERSION + "lastact";
+
+    public static String chatReactionsVersionKey(final String channelId) {
+        return CHAT_FORMAT_VERSION + "rver:" + channelId;
+    }
+
+    /**
+     * Counts edits and tombstones in a channel.
+     *
+     * <p>Separate from the reaction counter on purpose: these drive <em>different</em> client refetches (message
+     * bodies versus reaction summaries), and sharing one counter would make every reaction refetch a page of
+     * messages and every edit refetch every summary.
+     *
+     * <p>It exists at all because an edit or a tombstone changes a message the client <b>already has</b>, so
+     * nothing advances its cursor and the change can never be delivered by the feed. Without this, an admin delete
+     * only reached a client that happened to reload.
+     */
+    public static String chatMutationsVersionKey(final String channelId) {
+        return CHAT_FORMAT_VERSION + "mver:" + channelId;
+    }
+
+    public static String chatPubSubChannel(final String tripId) {
+        return CHAT_CHANNEL_PREFIX + "trip:" + tripId;
+    }
+
+    /**
+     * The pub/sub channel for an existing {@code ChatChannel.Id}, whose value already carries its kind prefix.
+     *
+     * <p>Equivalent to {@link #chatPubSubChannel(String)} for a trip channel -- {@code "trip:" + tripId} prefixed
+     * with {@code chat:} is exactly {@code chat:trip:{tripId}} -- and it extends to the reserved DM shape
+     * ({@code chat:dm:{low}:{high}}) without the caller having to take a channel id apart to find a trip id it does
+     * not have. Names stay fully enumerable, which is required: ElastiCache Serverless has no PSUBSCRIBE.
+     */
+    public static String chatPubSubChannelFor(final String channelId) {
+        return CHAT_CHANNEL_PREFIX + channelId;
+    }
+
+    /**
+     * Counts rate-limit hits inside the auto-mute trigger window. Lives in the cache, not in a JVM map, so the
+     * count is shared across tasks and cannot be reset by a new bean instance.
+     */
+    public static String chatAutoMuteHitsKey(
+            final String channelId, final String personId, final int windowSeconds, final long epochSec) {
+        final long winIndex = windowSeconds <= 0 ? 0L : epochSec / windowSeconds;
+        return CHAT_FORMAT_VERSION + "amhits:" + channelId + ":" + personId + ":" + windowSeconds + ":" + winIndex;
+    }
+
+    /**
+     * The escalation tier for auto-mute (1 = 5 min, 2 = 30 min, 3 = 24 h). Deliberately a cache key rather than a
+     * column on the membership row: the tier is defined to decay after 24 h of good behaviour, so a TTL expresses
+     * it exactly and needs no sweeper. The <em>mute itself</em> stays durable on the membership row, because that
+     * is an enforcement decision; only the counter that chose its length is ephemeral.
+     */
+    public static String chatAutoMuteTierKey(final String channelId, final String personId) {
+        return CHAT_FORMAT_VERSION + "amtier:" + channelId + ":" + personId;
+    }
+
+    /** How long an escalation tier survives without a further offence. */
+    // TODO(config-store): promote to config.getInt("chat.autoMute.tierDecayHours", 24)
+    public static final int CHAT_AUTO_MUTE_TIER_DECAY_HOURS = 24;
+
+    /**
+     * Dedupe gate for the {@code ALARM} audit record: at most one per person per channel per window, so a script
+     * hammering send cannot flood an append-only, never-expiring trail.
+     */
+    // TODO(config-store): promote to config.getInt("chat.alarm.dedupeWindowSeconds", 300)
+    public static final int CHAT_ALARM_DEDUPE_WINDOW_SECONDS = 300;
+
+    public static String chatAlarmLockKey(final String channelId, final String personId, final long epochSec) {
+        return CHAT_FORMAT_VERSION + "alarm:" + channelId + ":" + personId + ":"
+                + (epochSec / CHAT_ALARM_DEDUPE_WINDOW_SECONDS);
+    }
 
     /**
      * Hash field marking a hash as fully loaded from the database. A hash without this field may still contain

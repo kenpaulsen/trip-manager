@@ -17,6 +17,8 @@ import io.lettuce.core.cluster.ClusterTopologyRefreshOptions;
 import io.lettuce.core.cluster.RedisClusterClient;
 import io.lettuce.core.cluster.api.StatefulRedisClusterConnection;
 import io.lettuce.core.cluster.api.async.RedisClusterAsyncCommands;
+import io.lettuce.core.pubsub.RedisPubSubAdapter;
+import io.lettuce.core.pubsub.StatefulRedisPubSubConnection;
 import io.lettuce.core.KeyValue;
 import java.time.Duration;
 import java.util.Collection;
@@ -27,7 +29,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -48,6 +52,12 @@ public final class ValkeyCacheClient implements CacheClient {
     private final AutoCloseable client;
     private final AutoCloseable connection;
     private final RedisClusterAsyncCommands<String, String> commands;
+    /**
+     * Opens a pub/sub connection on demand. Separate from {@link #connection} because a subscribed connection
+     * cannot serve ordinary commands -- issuing a GET on it is a protocol error -- so the two cannot be shared.
+     * Lazy so a deployment that never subscribes never opens one.
+     */
+    private final Supplier<StatefulRedisPubSubConnection<String, String>> pubSubFactory;
 
     public ValkeyCacheClient(final CacheConfig config) {
         final RedisURI uri = RedisURI.create(config.getValkeyUri());
@@ -64,6 +74,7 @@ public final class ValkeyCacheClient implements CacheClient {
             this.client = clusterClient;
             this.connection = conn;
             this.commands = conn.async();
+            this.pubSubFactory = clusterClient::connectPubSub;
         } else {
             final RedisClient redisClient = RedisClient.create(uri);
             redisClient.setOptions(ClientOptions.builder()
@@ -73,6 +84,7 @@ public final class ValkeyCacheClient implements CacheClient {
             this.client = redisClient;
             this.connection = conn;
             this.commands = conn.async();
+            this.pubSubFactory = redisClient::connectPubSub;
         }
         // Startup connectivity check -- log only, the app must come up even if the cache is down.
         final String mode = config.isCluster() ? "cluster" : "standalone";
@@ -222,6 +234,45 @@ public final class ValkeyCacheClient implements CacheClient {
     }
 
     @Override
+    public CompletableFuture<Optional<Long>> increment(final String key, final long delta, final Duration ttl) {
+        return guard("INCRBY " + key, commands.incrby(key, delta),
+                value -> countedWithTtl(key, delta, ttl, value),
+                Optional.empty());
+    }
+
+    /**
+     * Applies the TTL only when the key was <em>just</em> created ({@code value == delta}), so a rolling window
+     * does not keep pushing its own expiry out on every hit.
+     */
+    private Optional<Long> countedWithTtl(
+            final String key, final long delta, final Duration ttl, final Long value) {
+        if (ttl != null && !ttl.isZero() && !ttl.isNegative() && value != null && value == delta) {
+            // Fire and forget, but observed: an unhandled failure here must not surface as an exception on the
+            // caller's future -- the counter itself already succeeded, and a missing TTL costs memory hygiene,
+            // not correctness.
+            commands.expire(key, ttl.toSeconds()).exceptionally(ex -> logTtlFailure(key, ex));
+        }
+        return Optional.ofNullable(value);
+    }
+
+    private Boolean logTtlFailure(final String key, final Throwable ex) {
+        log.debug("Unable to set TTL on counter {}", key, ex);
+        return null;
+    }
+
+    @Override
+    public CompletableFuture<Boolean> trimSortedSet(final String key, final int maxSize) {
+        if (maxSize <= 0) {
+            return CompletableFuture.completedFuture(true);
+        }
+        // Keep the highest-ranked (newest by score) maxSize members; drop the oldest.
+        return guard("ZREMRANGEBYRANK " + key,
+                commands.zremrangebyrank(key, 0, -(maxSize + 1L)),
+                ignored -> true,
+                false);
+    }
+
+    @Override
     public CompletableFuture<Boolean> tryAcquireLock(final String key, final Duration ttl) {
         final long seconds = Math.max(1L, ttl == null ? 5L : ttl.toSeconds());
         return guard("SET NX EX " + key,
@@ -259,6 +310,65 @@ public final class ValkeyCacheClient implements CacheClient {
         } catch (final Exception ex) {
             log.error("Valkey clearNamespace('{}') failed", prefix, ex);
             return false;
+        }
+    }
+
+    @Override
+    public CompletableFuture<Boolean> publish(final String channel, final String payload) {
+        // Regular PUBLISH, deliberately NOT sharded SPUBLISH. Sharded hashes the channel to a slot and delivers
+        // only to the shard owning it, so a subscriber attached elsewhere silently misses events -- and
+        // ElastiCache Serverless rebalances shards on its own, invisibly, which turns that into an intermittent
+        // message-loss bug nobody can reproduce. Regular PUBLISH broadcasts to every node, so cross-shard
+        // delivery is correct by construction with no dependency on routing or topology refresh. The saving from
+        // sharded fan-out is unmeasurable at one small nudge per message.
+        return guard("PUBLISH " + channel, commands.publish(channel, payload), received -> true, false);
+    }
+
+    @Override
+    public AutoCloseable subscribe(
+            final Collection<String> channels, final BiConsumer<String, String> onMessage) {
+        if (channels == null || channels.isEmpty() || onMessage == null) {
+            return () -> { };
+        }
+        final String[] names = channels.toArray(String[]::new);
+        try {
+            final StatefulRedisPubSubConnection<String, String> pubSub = pubSubFactory.get();
+            pubSub.addListener(new HandOffListener(onMessage));
+            pubSub.async().subscribe(names);
+            log.info("Valkey pub/sub subscribed to {} channel(s)", names.length);
+            return pubSub::close;
+        } catch (final RuntimeException ex) {
+            // Same contract as every other operation: a cache problem degrades the feature, never fails a request.
+            // Without a nudge the long-poll simply rides its timeout and the client falls back to plain polling.
+            log.warn("Unable to subscribe to Valkey pub/sub; real-time delivery is degraded", ex);
+            return () -> { };
+        }
+    }
+
+    /**
+     * Lettuce invokes listeners <b>on a Netty event loop</b>. The {@link CacheClient} contract forbids running
+     * caller code there, and the reason is concrete rather than stylistic: the callback will do a cursor read,
+     * every DAO read joins a future, and joining from the event loop that must complete it deadlocks that loop.
+     * So this listener does nothing except hand off.
+     */
+    private static final class HandOffListener extends RedisPubSubAdapter<String, String> {
+        private final BiConsumer<String, String> onMessage;
+
+        private HandOffListener(final BiConsumer<String, String> onMessage) {
+            this.onMessage = onMessage;
+        }
+
+        @Override
+        public void message(final String channel, final String payload) {
+            PersistenceExecutors.pool().execute(() -> deliver(channel, payload));
+        }
+
+        private void deliver(final String channel, final String payload) {
+            try {
+                onMessage.accept(channel, payload);
+            } catch (final RuntimeException ex) {
+                log.warn("Chat nudge listener failed for channel {}", channel, ex);
+            }
         }
     }
 

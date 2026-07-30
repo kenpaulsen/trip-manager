@@ -170,6 +170,22 @@ public class PersonCommands {
         return role.equalsIgnoreCase(ScopeUtil.getInstance().getSessionMap(ACTIVE_USER_ROLE));
     }
 
+    /**
+     * The same role check for edges that have no {@code FacesContext} -- JAX-RS resources, and any future socket.
+     *
+     * <p>{@link #hasRole(String)} resolves the session through {@code FacesContext}, which is a ThreadLocal that
+     * only exists on a JSF request. Called from a servlet it does not merely fail, it returns {@code false}
+     * silently, so a site administrator looks like an ordinary member and every privileged action is refused. Same
+     * shape as the audit-actor bug, and the same remedy: read the one session key from the session itself.
+     */
+    public static boolean hasRole(final jakarta.servlet.http.HttpSession session, final String role) {
+        if (session == null || role == null || role.isBlank()) {
+            return false;
+        }
+        final Object actual = session.getAttribute(ACTIVE_USER_ROLE);
+        return actual != null && role.equalsIgnoreCase(actual.toString());
+    }
+
     public Person.Id id(final String id) {
         return Person.Id.from(id);
     }

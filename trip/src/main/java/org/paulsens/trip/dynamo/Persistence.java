@@ -62,6 +62,12 @@ public interface Persistence {
     /**
      * Runs a query, following pagination (see {@link #scanAll}). This default delegates to {@link #query} (one
      * page) so fakes and tests keep their existing behavior.
+     *
+     * <p><b>This ignores {@code limit}.</b> DynamoDB's {@code limit} caps a single <em>page</em>, not the total,
+     * so a paginating read keeps fetching until the partition is exhausted. Use this only when you genuinely want
+     * every matching item (a cache warm, an index rebuild). For a bounded read -- anything user-facing, or any
+     * partition that grows without bound, such as a chat channel's message log -- call {@link #query} and take
+     * the one page.
      */
     default CompletableFuture<List<Map<String, AttributeValue>>> queryAll(Consumer<QueryRequest.Builder> queryRequest) {
         return query(queryRequest).thenApply(QueryResponse::items);

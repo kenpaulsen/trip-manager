@@ -89,6 +89,20 @@ public interface CacheClient {
     CompletableFuture<Boolean> expire(String key, Duration ttl);
 
     /**
+     * Atomically increments a counter by {@code delta} (INCRBY). When {@code ttl} is non-null and positive and
+     * the key was newly created (result == delta), applies that TTL for memory hygiene. Returns empty on cache
+     * error so callers can distinguish "count is 1" from "cache is down" — rate limiters must fail open rather
+     * than silence a whole trip.
+     */
+    CompletableFuture<Optional<Long>> increment(String key, long delta, Duration ttl);
+
+    /**
+     * Trims a scored sorted set to at most {@code maxSize} members by removing the lowest-score (oldest) entries
+     * (ZREMRANGEBYRANK 0 -(maxSize+1)). No-op when maxSize &lt;= 0. Returns false on cache error.
+     */
+    CompletableFuture<Boolean> trimSortedSet(String key, int maxSize);
+
+    /**
      * Tries to acquire a distributed lock ({@code SET key NX EX ttl}). Returns {@code true} if this caller holds
      * the lock. On cache errors, returns {@code false} (skip background work). The TTL is crash safety only;
      * callers should {@link #releaseLock} when done. Overlapping holders after expiry are expected under slow
@@ -108,6 +122,30 @@ public interface CacheClient {
      * never called on the hot path.
      */
     CompletableFuture<Boolean> clearNamespace(String prefix);
+
+    /**
+     * Publishes a payload to a channel. Errors never propagate: returns {@code false}.
+     *
+     * <p>Payloads must be <b>nudges, not messages</b> -- a small "there is something new up to timestamp T", never
+     * the content itself. A subscriber that receives one (or that reconnects, or times out) runs its ordinary
+     * cursor read, so a dropped nudge costs latency and never a message. It also means a blue/green deploy with two
+     * builds subscribed to the same channel cannot mis-parse each other's traffic.
+     */
+    CompletableFuture<Boolean> publish(String channel, String payload);
+
+    /**
+     * Subscribes to the given channels until the returned handle is closed.
+     *
+     * <p>Channel names must always be <b>enumerable</b>: ElastiCache Serverless does not support PSUBSCRIBE, so
+     * never design for pattern subscription.
+     *
+     * <p>{@code onMessage} receives (channel, payload) and, like every other future here, runs on a general-purpose
+     * worker pool -- never an I/O event loop. That is not a style preference: a callback that runs on the event
+     * loop and then joins a future (as every DAO read does) deadlocks the loop it is running on.
+     *
+     * <p>Implementations that cannot subscribe return a no-op handle rather than throwing.
+     */
+    AutoCloseable subscribe(Collection<String> channels, java.util.function.BiConsumer<String, String> onMessage);
 
     /** Releases connections/resources. The client is unusable afterwards. */
     default void close() {

@@ -35,6 +35,12 @@ import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
+import org.paulsens.trip.model.chat.ChatChannel;
+import org.paulsens.trip.model.chat.ChatMembership;
+import org.paulsens.trip.model.chat.ChatMessage;
+import org.paulsens.trip.model.chat.ChatPage;
+import org.paulsens.trip.model.chat.ChatReaction;
+import org.paulsens.trip.model.chat.ChatReactionSummary;
 import org.paulsens.trip.security.PasswordHasher;
 import org.paulsens.trip.security.Pepper;
 
@@ -56,6 +62,7 @@ public class DAO {
     private final MediaDAO mediaDao;
     private final AuditDAO auditDao;
     private final BindingDAO bindingDao;
+    private final ChatDAO chatDao;
 
     // This flag is set in the web.xml
     private static DAO inst;
@@ -82,6 +89,7 @@ public class DAO {
         // invalidation traffic to speed up something nobody does -- and a stale audit view is worse than a slow one.
         this.auditDao = new AuditDAO(mapper, persistence);
         this.bindingDao = new BindingDAO(persistence, cacheClient);
+        this.chatDao = new ChatDAO(mapper, persistence, cacheClient);
     }
 
     public static DAO getInstance() {
@@ -91,6 +99,18 @@ public class DAO {
             FakeData.addFakeData();
         }
         return inst;
+    }
+
+    /**
+     * The shared cache client this DAO resolved, for collaborators that need the cache directly rather than
+     * through a DAO -- today {@code ChatRateLimiter}, whose counters must be visible to every task.
+     *
+     * <p>Exposed deliberately, and read-only. The alternative in use before this existed was reflection into the
+     * private field, which silently fell back to a private in-memory client whenever it failed, quietly turning
+     * shared rate limits into per-instance ones.
+     */
+    public CacheClient getCacheClient() {
+        return cacheClient;
     }
 
     /**
@@ -311,6 +331,88 @@ public class DAO {
     }
     public CompletableFuture<List<Privilege>> getTripPrivileges(final String tripId) {
         return privDao.getTripPrivileges(tripId);
+    }
+
+    // Chat (see ChatDAO). Ships dark in P0; user-visible in P1.
+    public CompletableFuture<Boolean> saveChatChannel(final ChatChannel channel) {
+        return chatDao.saveChannel(channel);
+    }
+    public CompletableFuture<Optional<ChatChannel>> getChatChannel(final ChatChannel.Id id) {
+        return chatDao.getChannel(id);
+    }
+    public CompletableFuture<Boolean> saveChatMembership(final ChatMembership member) {
+        return chatDao.saveMembership(member);
+    }
+    public CompletableFuture<Optional<ChatMembership>> getChatMembership(
+            final ChatChannel.Id channelId, final Person.Id personId) {
+        return chatDao.getMembership(channelId, personId);
+    }
+    public CompletableFuture<List<ChatMembership>> listChatMembers(final ChatChannel.Id channelId) {
+        return chatDao.listMembers(channelId);
+    }
+    public CompletableFuture<Optional<ChatMessage>> saveChatMessage(
+            final ChatMessage draft, final ChatChannel channel, final Trip trip) {
+        return chatDao.saveMessage(draft, channel, trip);
+    }
+    public CompletableFuture<Optional<ChatMessage>> getChatMessage(
+            final ChatChannel.Id channelId, final ChatMessage.Id msgId) {
+        return chatDao.getMessage(channelId, msgId);
+    }
+    public CompletableFuture<Optional<ChatMessage>> getVisibleChatMessage(
+            final ChatChannel.Id channelId, final ChatMessage.Id msgId,
+            final ChatMembership member, final ChatChannel channel, final Trip trip,
+            final java.time.Instant now) {
+        return chatDao.getVisibleMessage(channelId, msgId, member, channel, trip, now);
+    }
+    public CompletableFuture<Optional<ChatMessage>> tombstoneChatMessage(
+            final ChatChannel.Id channelId, final ChatMessage.Id msgId, final String deletedBy) {
+        return chatDao.tombstoneMessage(channelId, msgId, deletedBy);
+    }
+    public CompletableFuture<ChatPage> getChatMessagesSince(
+            final ChatChannel.Id channelId, final ChatMessage.Id since, final int limit,
+            final ChatMembership member, final ChatChannel channel, final Trip trip,
+            final java.time.Instant now) {
+        return chatDao.getMessagesSince(channelId, since, limit, member, channel, trip, now);
+    }
+    public CompletableFuture<ChatPage> getChatMessagesBefore(
+            final ChatChannel.Id channelId, final ChatMessage.Id before, final int limit,
+            final ChatMembership member, final ChatChannel channel, final Trip trip,
+            final java.time.Instant now) {
+        return chatDao.getMessagesBefore(channelId, before, limit, member, channel, trip, now);
+    }
+    public CompletableFuture<Boolean> putChatReaction(final ChatReaction reaction) {
+        return chatDao.putReaction(reaction);
+    }
+    public CompletableFuture<Boolean> deleteChatReaction(
+            final ChatChannel.Id channelId, final ChatMessage.Id targetMessageId,
+            final Person.Id personId, final String emoji) {
+        return chatDao.deleteReaction(channelId, targetMessageId, personId, emoji);
+    }
+    public CompletableFuture<Map<ChatMessage.Id, ChatReactionSummary>> getChatReactionSummaries(
+            final ChatChannel.Id channelId, final List<ChatMessage> messages) {
+        return chatDao.summariesForMessages(channelId, messages);
+    }
+    public CompletableFuture<Map<ChatMessage.Id, ChatReactionSummary>> getChatReactionWindow(
+            final ChatChannel.Id channelId, final ChatMessage.Id oldest, final ChatMessage.Id newest) {
+        return chatDao.summariesForWindow(channelId, oldest, newest);
+    }
+    public CompletableFuture<Long> getChatReactionsVersion(final ChatChannel.Id channelId) {
+        return chatDao.currentReactionsVersion(channelId);
+    }
+    public CompletableFuture<Optional<ChatMessage>> editChatMessage(
+            final ChatChannel.Id channelId, final ChatMessage.Id msgId, final String newBody) {
+        return chatDao.editMessage(channelId, msgId, newBody);
+    }
+    public CompletableFuture<Boolean> saveChatCursor(
+            final ChatChannel.Id channelId, final Person.Id personId, final ChatMessage.Id cursor) {
+        return chatDao.saveCursor(channelId, personId, cursor);
+    }
+    public CompletableFuture<Optional<ChatMessage.Id>> getChatCursor(
+            final ChatChannel.Id channelId, final Person.Id personId) {
+        return chatDao.getCursor(channelId, personId);
+    }
+    public CompletableFuture<Map<String, String>> getChatLastActivity() {
+        return chatDao.lastActivity();
     }
 
     // Bindings

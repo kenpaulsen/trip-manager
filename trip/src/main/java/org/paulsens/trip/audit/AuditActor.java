@@ -1,6 +1,7 @@
 package org.paulsens.trip.audit;
 
 import jakarta.faces.context.FacesContext;
+import jakarta.servlet.http.HttpSession;
 import java.util.Map;
 
 /**
@@ -36,6 +37,18 @@ public record AuditActor(String email, String id) {
             return UNKNOWN;
         }
         return new AuditActor(str(session.get(LOGIN_EMAIL)), str(session.get(USER_ID)));
+    }
+
+    /**
+     * The signed-in user resolved from a raw {@link HttpSession}, for edges with no FacesContext (JAX-RS
+     * resources, future sockets). Reads the same session keys as {@link #current()} so the two paths cannot
+     * drift.
+     */
+    public static AuditActor from(final HttpSession session) {
+        if (session == null) {
+            return UNKNOWN;
+        }
+        return new AuditActor(str(session.getAttribute(LOGIN_EMAIL)), str(session.getAttribute(USER_ID)));
     }
 
     /**

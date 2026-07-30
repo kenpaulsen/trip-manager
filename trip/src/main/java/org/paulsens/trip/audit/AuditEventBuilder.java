@@ -28,6 +28,8 @@ public final class AuditEventBuilder {
     public static final String TARGET_MEDIA = "media";
     public static final String TARGET_CONFIG = "config";
     public static final String TARGET_PRIVILEGE = "privilege";
+    public static final String TARGET_CHAT_CHANNEL = "chatChannel";
+    public static final String TARGET_CHAT_MESSAGE = "chatMessage";
 
     private final AuditAction action;
     private final AuditOutcome outcome;
