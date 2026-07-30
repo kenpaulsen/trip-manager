@@ -39,6 +39,29 @@ public class ChatDAOTest {
         Assert.assertTrue(dao.saveChannel(channel).join());
     }
 
+    /**
+     * Last-activity must be the message id, not a clock reading.
+     *
+     * <p>Unread is computed as {@code cursor < lastActivity}, and the cursor a client reports is a message id. When
+     * this held {@code System.currentTimeMillis()} taken at cache-write time it was always a slightly larger
+     * number than the id allocated moments earlier, so the comparison could never come out equal and <b>the
+     * unread dot stayed lit forever, for everyone, immediately after reading</b>. Nothing failed; the indicator
+     * was simply always on, which is indistinguishable from "there is mail" until you notice it never clears.
+     */
+    @Test
+    public void lastActivityIsTheMessageIdSoAReadCursorCanCatchUp() {
+        final ChatMessage saved = dao.saveMessage(draft("hello"), channel, null).join().orElseThrow();
+
+        final Map<String, String> activity = dao.lastActivity().join();
+        Assert.assertEquals(activity.get(channel.getId().getValue()), saved.getId().getValue(),
+                "Last activity must be the message id, in the same number space as the read cursor");
+
+        // The comparison the unread dot actually makes: caught up means NOT less than.
+        final long cursor = saved.getId().getEpochMilli();
+        final long latest = Long.parseLong(activity.get(channel.getId().getValue()));
+        Assert.assertFalse(cursor < latest, "A cursor at the newest message must not still count as unread");
+    }
+
     @Test
     public void saveAndPollRoundTrip() {
         final ChatMessage draft = draft("hello");

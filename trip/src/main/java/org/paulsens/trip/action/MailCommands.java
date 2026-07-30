@@ -17,6 +17,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.util.EmailAddresses;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ses.SesAsyncClient;
@@ -61,8 +62,15 @@ public class MailCommands {
                 .html(Content.builder().data(bodyStr).build())
                 //.text(Content.builder().data(bodyStr).build())
                 .build();
+        final Collection<String> toAddresses = splitEmail(to);
+        if (toAddresses.isEmpty()) {
+            // Every recipient was unusable. Calling SES with an empty destination is an error, and there is
+            // nothing to retry -- a missing address is a data problem, not a transient failure.
+            log.warn("Not sending '{}': no usable recipient address in '{}'", subjectStr, to);
+            return CompletableFuture.completedFuture(SendEmailResponse.builder().build());
+        }
         final Destination dest = Destination.builder()
-                .toAddresses(splitEmail(to))
+                .toAddresses(toAddresses)
                 .bccAddresses(splitEmail(bcc))
                 .build();
         final SendEmailRequest req = SendEmailRequest.builder()
@@ -206,28 +214,36 @@ public class MailCommands {
         return (lt >= 0 && gt > lt) ? recipient.substring(lt + 1, gt).trim() : recipient.trim();
     }
 
+    /** @return the trimmed address, or null if it is not a usable email address. */
     public String validateEmail(final String emailToTest) {
-        if (emailToTest == null) {
-            return null;
-        }
-        final String email = emailToTest.trim();
-        final String result;
-        final int atLoc = email.indexOf('@');
-        if (atLoc < 1) {
-            result = null;
-        } else if (email.indexOf('.', atLoc + 1) < (atLoc + 2)) {
-            result = null;
-        } else if (email.indexOf(' ') != -1) {
-            result = null;
-        } else {
-            result = email;
-        }
-        return result;
+        return EmailAddresses.normalize(emailToTest);
     }
 
+    /**
+     * Splits a comma-separated recipient list, **dropping anything that is not a usable address**.
+     *
+     * <p>Some people have no email address and the field holds a bare name ({@code joe.smith}). SES rejects the
+     * whole request when any destination is malformed, so one such person in a mail merge would silently cost
+     * every recipient after them their mail. Validation runs on the bare address so the
+     * {@code "Pref Last <addr>"} form {@link #formatEmail} produces still passes.
+     */
     Collection<String> splitEmail(final String emails) {
-        return (emails == null) ? List.of() :
-                Arrays.stream(emails.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+        if (emails == null) {
+            return List.of();
+        }
+        return Arrays.stream(emails.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .filter(this::isSendable)
+                .toList();
+    }
+
+    private boolean isSendable(final String recipient) {
+        if (EmailAddresses.isValid(bareEmail(recipient))) {
+            return true;
+        }
+        log.warn("Dropping unusable email recipient: '{}'", recipient);
+        return false;
     }
 
     /**

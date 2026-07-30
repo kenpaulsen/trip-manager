@@ -232,6 +232,44 @@ public class ChatCommands {
         return membershipRow(channelId, personId).orElse(null);
     }
 
+    /*
+     * The three accessors below exist so the chat pages can put ONLY strings and booleans in viewScope.
+     *
+     * A model object in viewScope is a model object in the HTTP session, and the session is replicated through the
+     * Redisson session manager, which runs in Tomcat's SHARED classloader -- it cannot see webapp classes at all.
+     * Storing a ChatChannel produced a steady drip of
+     * "SEVERE [redisson-3-14] Unable to handle topic message ... ClassNotFoundException:
+     * org.paulsens.trip.model.chat.ChatChannel"
+     * because the attribute broadcast is deserialised on a Redisson thread. Note the failure mode: not a changed
+     * class, not a serialVersionUID mismatch -- the class is simply absent from that classloader, so it can never
+     * work, for any webapp type, no matter how Serializable it is.
+     *
+     * This is the rule the design already stated ("only channel id, admin flag and trip go in viewScope") and it
+     * is easy to break, because putting the object there reads as the obvious thing to do.
+     */
+
+    /** The channel's history setting, for the page banner, without putting a channel in viewScope. */
+    public boolean fullHistoryForTrip(final String tripId) {
+        final ChatChannel channel = channelForPage(tripId);
+        return channel != null && channel.getSettings().isFullHistoryForNewMembers();
+    }
+
+    /**
+     * This person's membership state as a plain string, or {@code ""} when they have no row.
+     *
+     * <p>Empty is not "no access": an absent row means implicitly JOINED (§4). The page uses this only to decide
+     * between the composer, a Rejoin button and "an administrator must re-add you".
+     */
+    public String membershipStateForTrip(final String tripId, final Person.Id personId) {
+        final ChatMembership row = membershipFor(ChatChannel.Id.forTrip(tripId), personId);
+        return row == null ? "" : row.getState().name();
+    }
+
+    /** This person's email preference as a plain string, for the page's select menu. */
+    public String emailPrefForTrip(final String tripId, final Person.Id personId) {
+        return emailPref(ChatChannel.Id.forTrip(tripId), personId);
+    }
+
     public boolean canRead(final ChatChannel channel, final Person.Id me) {
         return readDenial(channel, me) == null;
     }
@@ -615,9 +653,12 @@ public class ChatCommands {
 
     /** The current email preference for the page's select, as a plain name for JSFT EL. */
     public String emailPref(final ChatChannel.Id channelId, final Person.Id personId) {
+        // An implicit member has no row and therefore holds the DEFAULTS -- not OFF. Showing OFF here would be a
+        // lie: the notifier reads the same defaults and would mail them anyway, so the screen would disagree with
+        // the behaviour for everyone who has never opened it, which is most of a trip.
         return membershipRow(channelId, personId)
                 .map(row -> row.getNotify().getEmail().name())
-                .orElse(ChatNotifyPref.DeliveryMode.OFF.name());
+                .orElse(ChatNotifyPref.defaults().getEmail().name());
     }
 
     /** Saves the preference chosen on the chat page for the signed-in user. */

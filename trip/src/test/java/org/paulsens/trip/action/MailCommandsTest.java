@@ -30,6 +30,34 @@ public class MailCommandsTest {
     }
 
     @Test
+    void unusableRecipientsAreDroppedFromTheList() {
+        // Real data: some people have no email address and the field holds a bare name. SES rejects the WHOLE
+        // request when any destination is malformed, so without this filter one such person in a mail merge
+        // costs every recipient after them their mail.
+        final Collection<String> to = new MailCommands()
+                .splitEmail("good@example.com, joe.smith, also.good@example.org, bad@nodot");
+        assertEquals(to, List.of("good@example.com", "also.good@example.org"));
+    }
+
+    @Test
+    void theDisplayNameFormSurvivesTheFilter() {
+        // formatEmail() produces "Pref Last <addr>", which contains spaces and angle brackets -- validating the
+        // raw string rather than the bare address would silently drop every normal recipient.
+        final Collection<String> to = new MailCommands().splitEmail("Joe Smith <joe@example.com>");
+        assertEquals(to, List.of("Joe Smith <joe@example.com>"));
+    }
+
+    @Test
+    void allRecipientsUnusableMeansNoSendRatherThanAnError() {
+        // A missing address is a data problem, not a transient one, so this is a logged no-op: returning a failed
+        // future would break the thenCombine chain in sendTemplate and lose the recipients that DID work.
+        final SendEmailResponse response = new MailCommands()
+                .send("from@example.com", "joe.smith", null, "reply@example.com", "subj", "body")
+                .join();
+        assertNotNull(response, "An unsendable request must complete, not fail");
+    }
+
+    @Test
     void sendTemplateFile_existingTemplate_isFoundAndLoaded() {
         // Passing an empty "to" list keeps the SES client from being invoked, so this exercises
         // only the template lookup path. Success here means the .tpl file was located on the classpath.

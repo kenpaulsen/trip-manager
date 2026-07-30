@@ -18,6 +18,9 @@ public class TripApiApplication extends Application {
                 ChatResource.class,
                 ChatAuthFilter.class,
                 JsonExceptionMapper.class,
+                // Must accompany JacksonFeature: without it Jackson uses a default mapper with no JavaTimeModule
+                // and every Instant goes out as a bare epoch decimal. See ObjectMapperProvider.
+                ObjectMapperProvider.class,
                 JacksonFeature.class);
     }
 }

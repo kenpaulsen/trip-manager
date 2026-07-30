@@ -14,6 +14,7 @@ import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMentions;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatNotifyPref;
+import org.paulsens.trip.util.EmailAddresses;
 
 /**
  * Decides who hears about a message, and whether they are told what it said.
@@ -116,10 +117,15 @@ public final class ChatNotifications {
     }
 
     /**
-     * Whether this person has asked to hear about mentions by email.
+     * Whether this person should hear about a mention by email.
      *
-     * <p>Positive opt-in only: the default is {@code OFF}, so someone who never touches their preferences is never
-     * emailed. An author is never notified about mentioning themselves.
+     * <p>The email default is {@code MENTIONS}, so this is on unless someone turned it off — including for an
+     * <b>implicit</b> member, who is JOINED with no row and therefore holds the defaults. Reading "no row" as "no"
+     * would have excluded exactly the people who never touch a settings page, which is most of a trip. An author is
+     * never notified about mentioning themselves.
+     *
+     * <p>An unusable email address counts as OFF. Some people have no address and the field holds a bare name, and
+     * a mention is not worth a failed send per message.
      */
     private static boolean wantsMentionEmail(
             final ChatChannel channel, final Person.Id author, final Person.Id person) {
@@ -128,17 +134,32 @@ public final class ChatNotifications {
         }
         final Optional<ChatMembership> row = DAO.getInstance()
                 .getChatMembership(channel.getId(), person).join();
-        if (row.isEmpty()) {
-            // An implicit member is JOINED but has never expressed a preference, and the default is OFF.
+        if (row.isPresent()) {
+            final ChatMembership member = row.get();
+            if (member.getState() == ChatMembership.MemberState.LEFT
+                    || member.getState() == ChatMembership.MemberState.REMOVED) {
+                return false;
+            }
+        }
+        // Absent row ⇒ JOINED with default preferences, which is what makes default opt-in free.
+        final ChatNotifyPref pref = row.map(ChatMembership::getNotify).orElseGet(ChatNotifyPref::defaults);
+        final ChatNotifyPref.DeliveryMode mode = pref.getEmail();
+        if (mode != ChatNotifyPref.DeliveryMode.MENTIONS && mode != ChatNotifyPref.DeliveryMode.ALL) {
             return false;
         }
-        final ChatMembership member = row.get();
-        if (member.getState() == ChatMembership.MemberState.LEFT
-                || member.getState() == ChatMembership.MemberState.REMOVED) {
-            return false;
+        return hasUsableEmail(person);
+    }
+
+    /** False when the person has no address, or the field holds something that is not one (e.g. {@code joe.smith}). */
+    private static boolean hasUsableEmail(final Person.Id person) {
+        final boolean usable = DAO.getInstance().getPerson(person).join()
+                .map(Person::getEmail)
+                .filter(EmailAddresses::isValid)
+                .isPresent();
+        if (!usable) {
+            log.debug("Not emailing {} about a chat mention: no usable email address", person);
         }
-        final ChatNotifyPref.DeliveryMode mode = member.getNotify().getEmail();
-        return mode == ChatNotifyPref.DeliveryMode.MENTIONS || mode == ChatNotifyPref.DeliveryMode.ALL;
+        return usable;
     }
 
     /** False when the channel's retention is short enough that mailing the body would outlive the policy. */

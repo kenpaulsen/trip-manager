@@ -22,13 +22,15 @@ import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatNotifyPref;
 import org.paulsens.trip.model.chat.ChatPage;
+import org.paulsens.trip.util.EmailAddresses;
 
 /**
  * Works out who is owed a digest and sends it.
  *
- * <p>Two conditions, both required, both checked per person per run: they <b>opted in</b> ({@code DIGEST_DAILY}, and
- * the field defaults to {@code OFF} so silence is never consent), and they <b>have something to receive</b>. An empty
- * digest is never sent — "here is your nothing" is the fastest way to make someone turn off a thing they asked for.
+ * <p>Two conditions, both required, both checked per person per run: they <b>opted in</b> ({@code DIGEST_DAILY} —
+ * the email default is {@code MENTIONS}, never a digest, so silence is never consent to a daily rollup), and they
+ * <b>have something to receive</b>. An empty digest is never sent — "here is your nothing" is the fastest way to
+ * make someone turn off a thing they asked for. A third, quieter condition: they must have a usable email address.
  */
 @Slf4j
 public class ChatDigestSender {
@@ -124,12 +126,27 @@ public class ChatDigestSender {
         return retention == null || retention > 0L;
     }
 
-    private static boolean wantsDigest(final ChatMembership member) {
+    /**
+     * A digest is a positive opt-in — unlike mentions, which default on. Nobody is mailed a daily rollup they did
+     * not ask for, so there is no implicit-member case here: no row means the default, and the default is not
+     * {@code DIGEST_DAILY}.
+     *
+     * <p>An unusable address counts as opted out. Without this the run would attempt a send per person per day
+     * for someone whose email field holds a bare name, and the retry protocol would keep re-attempting it.
+     */
+    private boolean wantsDigest(final ChatMembership member) {
         if (member.getState() == ChatMembership.MemberState.LEFT
                 || member.getState() == ChatMembership.MemberState.REMOVED) {
             return false;
         }
-        return member.getNotify().getEmail() == ChatNotifyPref.DeliveryMode.DIGEST_DAILY;
+        if (member.getNotify().getEmail() != ChatNotifyPref.DeliveryMode.DIGEST_DAILY) {
+            return false;
+        }
+        // this.dao, not DAO.getInstance(): the injected one is what the tests substitute.
+        return dao.getPerson(member.getPersonId()).join()
+                .map(Person::getEmail)
+                .filter(EmailAddresses::isValid)
+                .isPresent();
     }
 
     /**

@@ -347,8 +347,13 @@ public class ChatDAO {
                 .thenCompose(ignored -> cacheClient.trimSortedSet(CacheKeys.chatLogKey(channelId), bufferMax))
                 .thenCompose(ignored -> cacheClient.expire(CacheKeys.chatLogKey(channelId), bufferTtl))
                 .thenCompose(ignored -> cacheClient.expire(CacheKeys.chatBodyKey(channelId), bufferTtl))
+                // The MESSAGE ID, not System.currentTimeMillis(). Unread is "cursor < lastActivity", and the
+                // cursor a client reports is a message id -- so a fresh clock reading here is a different, always
+                // later number, and the comparison could never come out equal. The unread dot stayed lit forever,
+                // for everyone, even immediately after reading. Same total order as the sort key and the ZSET
+                // score, which is the property the whole cursor design rests on.
                 .thenCompose(ignored -> cacheClient.putHashField(
-                        CacheKeys.CHAT_LAST_ACTIVITY, channelId, Long.toString(System.currentTimeMillis())))
+                        CacheKeys.CHAT_LAST_ACTIVITY, channelId, msgId))
                 .thenCompose(ignored -> markClientMessageId(message))
                 .thenCompose(ignored -> nudge(message))
                 .thenApply(ignored -> null);
