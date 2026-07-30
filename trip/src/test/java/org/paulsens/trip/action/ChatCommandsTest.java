@@ -1,6 +1,9 @@
 package org.paulsens.trip.action;
 
+import java.io.IOException;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.paulsens.trip.audit.AuditActor;
@@ -8,6 +11,7 @@ import org.paulsens.trip.chat.ChatRateLimiter;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMessage;
@@ -18,19 +22,24 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 /**
- * Core membership / settings rules. Uses live DAO local mode (FakeData).
+ * Core membership / settings rules.
+ *
+ * <p>Owns its own trip fixture. Other tests call {@code clearAllCaches()} and can wipe FakeData's
+ * {@code faketrip} from the shared cache; seeding here keeps membership checks order-independent.
  */
 public class ChatCommandsTest {
 
-    private static final String TRIP = "faketrip";
+    /** Dedicated trip id — not FakeData's {@code faketrip}, so this suite never depends on global seed state. */
+    private static final String TRIP = "chat-cmd-trip";
 
     private ChatCommands chat;
     private AuditActor actor;
     private Person.Id adminId;
 
     @BeforeMethod
-    public void setUp() {
-        DAO.getInstance(); // init fake data
+    public void setUp() throws IOException {
+        DAO.getInstance();
+        seedTrip();
         chat = new ChatCommands(new ChatRateLimiter(new InMemoryCacheClient()));
         // The actor must actually HOLD chatMgr. There is no ambient admin here: no FacesContext means
         // hasRole("admin") is false, so moderation is authorized purely by the granted privilege -- which is the
@@ -40,6 +49,20 @@ public class ChatCommandsTest {
         final PrivilegeCommands privs = new PrivilegeCommands();
         Assert.assertTrue(privs.savePrivilege(
                 privs.createPrivilege("chatMgr", "Chat manager", TRIP, List.of(adminId))));
+    }
+
+    /** Ensures {@link #TRIP} exists for {@code isTripMember} even after another suite cleared caches. */
+    private void seedTrip() throws IOException {
+        final Trip trip = Trip.builder()
+                .id(TRIP)
+                .title("ChatCommands dedicated trip")
+                .openToPublic(false)
+                .description("Owned by ChatCommandsTest; not FakeData.")
+                .startDate(LocalDateTime.now())
+                .endDate(LocalDateTime.now().plusDays(14))
+                .people(new ArrayList<>())
+                .build();
+        Assert.assertTrue(DAO.getInstance().saveTrip(trip).join(), "test setup: save dedicated trip");
     }
 
     @Test
@@ -97,10 +120,10 @@ public class ChatCommandsTest {
 
     @Test
     public void ensureChannelIsIdempotent() {
-        final ChatChannel a = chat.ensureChannel("faketrip", actor);
-        final ChatChannel b = chat.ensureChannel("faketrip", actor);
+        final ChatChannel a = chat.ensureChannel(TRIP, actor);
+        final ChatChannel b = chat.ensureChannel(TRIP, actor);
         Assert.assertEquals(a.getId(), b.getId());
-        Assert.assertEquals(a.getId().getValue(), "trip:faketrip");
+        Assert.assertEquals(a.getId().getValue(), "trip:" + TRIP);
     }
 
     @Test
