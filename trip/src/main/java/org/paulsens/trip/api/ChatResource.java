@@ -102,6 +102,13 @@ public class ChatResource {
             return;
         }
         final ChatCommands chat = ChatCommands.getChatCommands();
+        // Checked before the channel lookup so it holds even for a trip whose channel was never created: without
+        // this, a disabled chat with no channel answers 200-empty and a long-polling client keeps asking forever
+        // instead of stopping on a 403.
+        if (!chat.chatEnabledForTrip(tripId)) {
+            reply.resume(error(403, ChatErrors.CHAT_DISABLED, "Chat is turned off for this trip."));
+            return;
+        }
         final ChatChannel channel = chat.getChannel(tripId);
         if (channel == null) {
             // A GET must not create anything. Creating the channel here made an ordinary poll a write, and
@@ -312,8 +319,11 @@ public class ChatResource {
             return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
         }
         final ChatCommands chat = ChatCommands.getChatCommands();
-        if (!chat.canAdminister(tripId, me, isSiteAdmin())) {
-            return error(403, ChatErrors.FORBIDDEN, "Chat manager required.");
+        // An author may remove their own; anyone else needs to administer the chat. The bean re-derives both from
+        // the stored message rather than trusting anything here, so this only shapes the error the client sees.
+        if (!chat.canDelete(tripId, ChatMessage.Id.from(msgId), me)
+                && !chat.canAdminister(tripId, me, isSiteAdmin())) {
+            return error(403, ChatErrors.FORBIDDEN, "You can only remove your own messages.");
         }
         final boolean ok = chat.deleteMessage(tripId, ChatMessage.Id.from(msgId), actor(), isSiteAdmin());
         if (!ok) {
@@ -588,6 +598,9 @@ public class ChatResource {
         }
         if (ChatErrors.NOT_A_TRIP_MEMBER.equals(code)) {
             return "You no longer have access to this chat.";
+        }
+        if (ChatErrors.CHAT_DISABLED.equals(code)) {
+            return "Chat is turned off for this trip.";
         }
         return "Not permitted.";
     }

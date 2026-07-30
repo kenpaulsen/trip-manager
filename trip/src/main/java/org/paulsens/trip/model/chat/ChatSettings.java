@@ -58,6 +58,18 @@ public class ChatSettings implements Serializable {
     int burstWindowSeconds;
     int sustainedLimit;
     int sustainedWindowSeconds;
+    /**
+     * Chat pane background, as a CSS colour. The channel's default; a member may override it for themselves.
+     * Null means the stylesheet's own colour.
+     */
+    String backgroundColor;
+    /**
+     * Chat pane background image, {@code http}/{@code https} only. Rendered at 50% transparency over the colour.
+     *
+     * <p>Scheme-checked on save for the same reason {@code TripLink} is: a stored {@code javascript:} URL is
+     * stored XSS with an administrator as its author.
+     */
+    String backgroundImageUrl;
 
     @JsonCreator
     public ChatSettings(
@@ -78,7 +90,9 @@ public class ChatSettings implements Serializable {
             @JsonProperty("burstLimit") final Integer burstLimit,
             @JsonProperty("burstWindowSeconds") final Integer burstWindowSeconds,
             @JsonProperty("sustainedLimit") final Integer sustainedLimit,
-            @JsonProperty("sustainedWindowSeconds") final Integer sustainedWindowSeconds) {
+            @JsonProperty("sustainedWindowSeconds") final Integer sustainedWindowSeconds,
+            @JsonProperty("backgroundColor") final String backgroundColor,
+            @JsonProperty("backgroundImageUrl") final String backgroundImageUrl) {
         this.retentionSeconds = retentionSeconds;
         this.retentionDaysAfterTripEnd = retentionDaysAfterTripEnd;
         this.postPolicy = postPolicy == null ? PostPolicy.ALL_MEMBERS : postPolicy;
@@ -99,11 +113,18 @@ public class ChatSettings implements Serializable {
         this.sustainedLimit = sustainedLimit == null ? DEFAULT_SUSTAINED_LIMIT : sustainedLimit;
         this.sustainedWindowSeconds = sustainedWindowSeconds == null
                 ? DEFAULT_SUSTAINED_WINDOW_SECONDS : sustainedWindowSeconds;
+        this.backgroundColor = blankToNull(backgroundColor);
+        this.backgroundImageUrl = blankToNull(backgroundImageUrl);
+    }
+
+    /** Blank and null mean the same thing here — "not set" — and a form posts blank, not null. */
+    private static String blankToNull(final String value) {
+        return (value == null || value.isBlank()) ? null : value.trim();
     }
 
     public static ChatSettings defaults() {
         return new ChatSettings(null, null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null);
     }
 
     /**

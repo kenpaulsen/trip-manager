@@ -27,6 +27,8 @@ public final class ChatErrors {
     public static final String LEFT_CHANNEL = "LEFT_CHANNEL";
     public static final String REMOVED_FROM_CHANNEL = "REMOVED_FROM_CHANNEL";
     public static final String CHANNEL_ARCHIVED = "CHANNEL_ARCHIVED";
+    /** The trip has chat turned off entirely. Terminal for a client: stop polling, there is nothing to come back to. */
+    public static final String CHAT_DISABLED = "CHAT_DISABLED";
     public static final String MUTED = "MUTED";
     public static final String RATE_LIMITED = "RATE_LIMITED";
     public static final String SLOW_MODE = "SLOW_MODE";

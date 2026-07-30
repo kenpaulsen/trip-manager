@@ -83,11 +83,11 @@ public class ChatCommandsTest {
         DAO.getInstance().saveChatMembership(new ChatMembership(
                 channel.getId(), leaver, ChatMembership.MemberState.LEFT,
                 ChatMembership.MemberRole.MEMBER, Instant.now(), Instant.now(), "self", null,
-                null, null, null, null, null, null, null, null)).join();
+                null, null, null, null, null, null, null, null, null)).join();
         DAO.getInstance().saveChatMembership(new ChatMembership(
                 channel.getId(), removed, ChatMembership.MemberState.REMOVED,
                 ChatMembership.MemberRole.MEMBER, Instant.now(), Instant.now(), "spam", "an-admin",
-                null, null, null, null, null, null, null, null)).join();
+                null, null, null, null, null, null, null, null, null)).join();
 
         Assert.assertEquals(chat.readDenial(channel, leaver), "LEFT_CHANNEL");
         Assert.assertEquals(chat.readDenial(channel, removed), "REMOVED_FROM_CHANNEL");

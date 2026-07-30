@@ -20,9 +20,12 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 import org.paulsens.trip.dynamo.DAO;
 
 @Data
@@ -35,6 +38,17 @@ public final class Trip implements Serializable {
     private String title;                               // Title of trip
     @JsonProperty("openToPublic")
     private Boolean openToPublic;                       // True if people can register themselves
+    /**
+     * Whether this trip has a chat at all. Stored as a nullable Boolean, read through the accessor below.
+     *
+     * <p>Null means enabled, because chat is <b>opt-out</b>: every trip that existed before this setting has no
+     * value stored, and those trips already have working chats with messages in them. A primitive here would
+     * have read as {@code false} for every one of them and silently taken the tab away.
+     */
+    @JsonProperty("chatEnabled")
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    private Boolean chatEnabled;
     @JsonProperty("description")
     private String description;                         // Describes the trip
     @JsonProperty("startDate")
@@ -69,6 +83,22 @@ public final class Trip implements Serializable {
     private List<RegistrationOption> regOptions;        // Registration page questions
 
     private Trip() {
+    }
+
+    /**
+     * Whether the chat tab appears for this trip.
+     *
+     * <p>Hand-written rather than generated, and paired with a {@code boolean} setter, so the bean property is a
+     * plain {@code boolean} both ways: a {@code Boolean} getter would hand EL a null for every pre-existing trip,
+     * which reads as false and hides the tab. Turning chat off hides it everywhere and refuses the API; it does
+     * not delete anything, so turning it back on restores the conversation intact.
+     */
+    public boolean getChatEnabled() {
+        return chatEnabled == null || chatEnabled;
+    }
+
+    public void setChatEnabled(final boolean enabled) {
+        this.chatEnabled = enabled;
     }
 
     public List<Person.Id> getPeople() {

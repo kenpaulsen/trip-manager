@@ -31,19 +31,30 @@ public class ChatReactionSummary implements Serializable {
     Map<String, List<Person.Id>> byEmoji;
     /** emoji → how many reactions exist beyond the capped id list. */
     Map<String, Integer> overflowCount;
+    /**
+     * emoji → when it was most recently added, epoch millis. The chip order's tie-breaker.
+     *
+     * <p>Carried explicitly because <b>map order cannot be relied on here</b>: {@link #byEmoji} is built in a
+     * {@code LinkedHashMap} but ends up in {@code Map.copyOf}, which is unordered, so chips appeared in an
+     * arbitrary order that could change between reads of the same data. Ordering is now a property of the values
+     * (count desc, then most recent first) rather than of the container.
+     */
+    Map<String, Long> lastReactedAt;
 
     @JsonCreator
     public ChatReactionSummary(
             @JsonProperty("messageId") final ChatMessage.Id messageId,
             @JsonProperty("byEmoji") final Map<String, List<Person.Id>> byEmoji,
-            @JsonProperty("overflowCount") final Map<String, Integer> overflowCount) {
+            @JsonProperty("overflowCount") final Map<String, Integer> overflowCount,
+            @JsonProperty("lastReactedAt") final Map<String, Long> lastReactedAt) {
         this.messageId = messageId;
         this.byEmoji = byEmoji == null ? Map.of() : copy(byEmoji);
         this.overflowCount = overflowCount == null ? Map.of() : Map.copyOf(overflowCount);
+        this.lastReactedAt = lastReactedAt == null ? Map.of() : Map.copyOf(lastReactedAt);
     }
 
     public static ChatReactionSummary empty(final ChatMessage.Id messageId) {
-        return new ChatReactionSummary(messageId, Map.of(), Map.of());
+        return new ChatReactionSummary(messageId, Map.of(), Map.of(), Map.of());
     }
 
     /** Builds a summary from reaction rows (already filtered to one message or a page). */
@@ -51,6 +62,7 @@ public class ChatReactionSummary implements Serializable {
             final ChatMessage.Id messageId, final List<ChatReaction> reactions) {
         final Map<String, List<Person.Id>> by = new LinkedHashMap<>();
         final Map<String, Integer> overflow = new LinkedHashMap<>();
+        final Map<String, Long> latest = new LinkedHashMap<>();
         if (reactions != null) {
             for (final ChatReaction r : reactions) {
                 if (r == null || r.getEmoji() == null || r.getPersonId() == null) {
@@ -62,9 +74,20 @@ public class ChatReactionSummary implements Serializable {
                 } else {
                     overflow.merge(r.getEmoji(), 1, Integer::sum);
                 }
+                // Tracked even for reactions past the id cap: the tie-breaker must reflect every reaction, not
+                // only the ones whose reactor is still listed.
+                if (r.getReactedAt() != null) {
+                    latest.merge(r.getEmoji(), r.getReactedAt().toEpochMilli(), Math::max);
+                }
             }
         }
-        return new ChatReactionSummary(messageId, by, overflow);
+        return new ChatReactionSummary(messageId, by, overflow, latest);
+    }
+
+    /** When this emoji was most recently added, epoch millis, or 0 when unknown (rows written before this field). */
+    @JsonIgnore
+    public long lastReactedAtMillis(final String emoji) {
+        return lastReactedAt.getOrDefault(emoji, 0L);
     }
 
     @JsonIgnore

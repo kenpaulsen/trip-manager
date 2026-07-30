@@ -4,6 +4,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
+import java.io.IOException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -28,6 +29,7 @@ import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.chat.ChatAppearance;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatEmoji;
 import org.paulsens.trip.model.chat.ChatMembership;
@@ -270,6 +272,150 @@ public class ChatCommands {
         return emailPref(ChatChannel.Id.forTrip(tripId), personId);
     }
 
+    /**
+     * Why this person cannot post right now, as a sentence, or {@code ""} when they can.
+     *
+     * <p>The page hides the composer on a non-empty answer and shows the sentence instead. It asks the same
+     * private denial the send path uses, so the control and the enforcement cannot drift into disagreeing —
+     * a composer that accepts text and then refuses it is worse than one that is not there.
+     */
+    public String postDenialForTrip(final String tripId, final Person.Id personId) {
+        final ChatChannel channel = channelForPage(tripId);
+        if (channel == null || personId == null) {
+            return "This chat is not available.";
+        }
+        final Instant now = Instant.now();
+        if (ChatVisibility.isArchived(channel, tripOf(channel), now)) {
+            return "This chat is closed. The trip is over, so it is read-only now.";
+        }
+        if (channel.getSettings().getPostPolicy() == ChatSettings.PostPolicy.ADMINS_ONLY
+                && !canAdminister(tripId, personId)) {
+            return "Only trip administrators can post in this chat.";
+        }
+        final ChatMembership row = membershipFor(channel.getId(), personId);
+        if (row != null && row.isMuted(now)) {
+            return "You are muted and cannot post right now.";
+        }
+        return "";
+    }
+
+    /** The look this person gets for this chat: their override per field, else the channel's default. */
+    public ChatAppearance appearanceForTrip(final String tripId, final Person.Id personId) {
+        final ChatChannel channel = channelForPage(tripId);
+        if (channel == null) {
+            return ChatAppearance.NONE;
+        }
+        final ChatSettings settings = channel.getSettings();
+        final ChatAppearance channelDefault =
+                new ChatAppearance(settings.getBackgroundColor(), settings.getBackgroundImageUrl());
+        final ChatMembership row = membershipFor(channel.getId(), personId);
+        return ChatAppearance.effective(row == null ? null : row.getAppearance(), channelDefault);
+    }
+
+    /**
+     * The chat pane's {@code style} attribute value, built server-side.
+     *
+     * <p>Built here rather than assembled in EL because every part of it is validated in one place
+     * ({@link ChatAppearance}) and because the image needs two stacked background layers to be shown at 50%:
+     * a flat overlay of the background colour on top of the image. CSS cannot make a background image
+     * translucent on its own, and an {@code opacity} would fade the messages with it.
+     *
+     * <p>The image is fixed to the viewport, sized to the full width with its height left to the aspect ratio,
+     * and repeated down so a tall pane is still covered.
+     */
+    public String backgroundStyleForTrip(final String tripId, final Person.Id personId) {
+        final ChatAppearance look = appearanceForTrip(tripId, personId);
+        if (look.isEmpty()) {
+            return "";
+        }
+        final String color = look.getBackgroundColor();
+        if (look.getBackgroundImageUrl() == null) {
+            return "background-color:" + color + ";";
+        }
+        final String overlay = translucentOverlay(color);
+        return "background-image:linear-gradient(" + overlay + "," + overlay + "),url('"
+                + look.getBackgroundImageUrl() + "');"
+                + "background-repeat:repeat;background-size:100% auto;background-attachment:fixed;"
+                + (color == null ? "" : "background-color:" + color + ";");
+    }
+
+    /**
+     * The 50%-opacity wash laid over the image. Uses the chosen colour when it is a hex value so the image tints
+     * toward it; otherwise white, which is the safe reading for an unknown keyword.
+     */
+    private static String translucentOverlay(final String color) {
+        if (color != null && color.matches("#[0-9a-f]{6}")) {
+            final int r = Integer.parseInt(color.substring(1, 3), 16);
+            final int g = Integer.parseInt(color.substring(3, 5), 16);
+            final int b = Integer.parseInt(color.substring(5, 7), 16);
+            return "rgba(" + r + "," + g + "," + b + ",0.5)";
+        }
+        return "rgba(255,255,255,0.5)";
+    }
+
+    /**
+     * Saves everything on the per-person settings dialog in one go: notification preference and look.
+     *
+     * <p>One method, and therefore one membership write, because they live on the same row — saving them
+     * separately means the second read-modify-write can be built on a row the first one has already replaced,
+     * and the loser's field silently reverts.
+     */
+    public boolean saveChatPrefsFromUi(final String mode, final String color, final String imageUrl) {
+        final String tripId = currentTripId();
+        final Person.Id me = currentUserId();
+        if (tripId == null || me == null) {
+            growlError("Unable to save your chat settings.");
+            return false;
+        }
+        final ChatChannel channel = getChannel(tripId);
+        if (channel == null || !canRead(channel, me)) {
+            growlError("Unable to save your chat settings.");
+            return false;
+        }
+        final ChatMembership row = membershipRow(channel.getId(), me)
+                .orElseGet(() -> ChatMembership.joining(channel.getId(), me, channel.getCreated()));
+        final ChatNotifyPref pref = row.getNotify();
+        final ChatNotifyPref.DeliveryMode wanted = parseMode(mode);
+        final ChatMembership updated = row
+                .withNotify(new ChatNotifyPref(
+                        pref.isInApp(), wanted == null ? pref.getEmail() : wanted, pref.getPush(),
+                        pref.getQuietHoursStart(), pref.getQuietHoursEnd(), pref.getTimeZone()))
+                .withAppearance(new ChatAppearance(color, imageUrl));
+        final boolean saved = dao().saveChatMembership(updated).join();
+        if (saved) {
+            growlWarn("Chat settings saved.");
+        } else {
+            growlError("Unable to save your chat settings.");
+        }
+        return saved;
+    }
+
+    /** Saves this person's per-channel look. Blank values clear the override and fall back to the channel's. */
+    public boolean saveAppearanceFromUi(final String color, final String imageUrl) {
+        final String tripId = currentTripId();
+        final Person.Id me = currentUserId();
+        if (tripId == null || me == null) {
+            return false;
+        }
+        final ChatChannel channel = getChannel(tripId);
+        if (channel == null || !canRead(channel, me)) {
+            growlError("Unable to save your chat settings.");
+            return false;
+        }
+        // Same materialisation as setEmailPref: an implicit member has no row yet, and storing a preference is
+        // exactly the first explicit action that should create one.
+        final ChatMembership row = membershipRow(channel.getId(), me)
+                .orElseGet(() -> ChatMembership.joining(channel.getId(), me, channel.getCreated()));
+        final boolean saved = dao().saveChatMembership(
+                row.withAppearance(new ChatAppearance(color, imageUrl))).join();
+        if (saved) {
+            growlWarn("Chat settings saved.");
+        } else {
+            growlError("Unable to save your chat settings.");
+        }
+        return saved;
+    }
+
     public boolean canRead(final ChatChannel channel, final Person.Id me) {
         return readDenial(channel, me) == null;
     }
@@ -285,6 +431,12 @@ public class ChatCommands {
         if (channel == null || me == null) {
             return "NOT_AUTHENTICATED";
         }
+        // Checked here, at the root of every read, rather than only where the tab is drawn: hiding a tab hides a
+        // link, it does not stop a saved URL or a mobile client that already knows the endpoint. Refusing here
+        // means "chat off" holds for the JSF page, the REST feed, the digest and the export alike.
+        if (!chatEnabledFor(channel)) {
+            return "CHAT_DISABLED";
+        }
         if (!isTripMember(channel.getTripId(), me)) {
             return "NOT_A_TRIP_MEMBER";
         }
@@ -297,6 +449,18 @@ public class ChatCommands {
             case REMOVED -> "REMOVED_FROM_CHANNEL";
             default -> null;
         };
+    }
+
+    /** Whether the trip behind this channel still has chat turned on. A missing trip is not a reason to refuse. */
+    private boolean chatEnabledFor(final ChatChannel channel) {
+        final Trip trip = tripOf(channel);
+        return trip == null || trip.getChatEnabled();
+    }
+
+    /** Whether this trip has chat at all, for a page deciding whether to render or redirect. */
+    public boolean chatEnabledForTrip(final String tripId) {
+        final Trip trip = dao().getTrip(tripId).join().orElse(null);
+        return trip == null || trip.getChatEnabled();
     }
 
     // --- send / feed ---
@@ -840,7 +1004,7 @@ public class ChatCommands {
                 .orElseGet(() -> new ChatMembership(
                         channel.getId(), personId, ChatMembership.MemberState.JOINED,
                         ChatMembership.MemberRole.MEMBER, channel.getCreated(), null, null, null,
-                        null, null, null, null, null, null, null, null));
+                        null, null, null, null, null, null, null, null, null));
         final ChatMembership left = existing.withLeft(now, "self");
         final boolean ok = dao().saveChatMembership(left).join();
         if (ok) {
@@ -861,7 +1025,7 @@ public class ChatCommands {
         final ChatMembership base = existing.orElseGet(() -> new ChatMembership(
                 channel.getId(), personId, ChatMembership.MemberState.JOINED,
                 ChatMembership.MemberRole.MEMBER, now, null, null, null,
-                null, null, null, null, null, null, null, null));
+                null, null, null, null, null, null, null, null, null));
         // joinedAt immutable: withRejoined keeps original joinedAt
         final ChatMembership rejoined = existing.isEmpty()
                 ? base
@@ -884,19 +1048,31 @@ public class ChatCommands {
         return deleteMessage(tripId, msgId, actor, false);
     }
 
+    /**
+     * Removes a message, leaving a tombstone.
+     *
+     * <p>Permitted to a chat administrator for any message, and to the <b>author of that message</b> for their own,
+     * with no time limit — unlike editing, which is capped at 15 minutes. The asymmetry is deliberate: an edit
+     * rewrites what someone said and becomes misleading once others have replied to it, whereas a delete only
+     * withdraws it and leaves a visible tombstone saying so.
+     *
+     * <p>Author identity is resolved from the stored message, never from the caller, so "my own" cannot be claimed.
+     */
     public boolean deleteMessage(
             final String tripId, final ChatMessage.Id msgId, final AuditActor actor,
             final boolean siteAdminHint) {
         final AuditActor who = actor != null ? actor : AuditActor.current();
-        if (denyUnlessAdmin(tripId, who, "delete message " + (msgId == null ? "?" : msgId.getValue()),
-                siteAdminHint)) {
-            return false;
-        }
         final ChatChannel channel = getChannel(tripId);
         if (channel == null) {
             return false;
         }
         final Optional<ChatMessage> before = dao().getChatMessage(channel.getId(), msgId).join();
+        if (!isOwnMessage(before, who)) {
+            if (denyUnlessAdmin(tripId, who, "delete message " + (msgId == null ? "?" : msgId.getValue()),
+                    siteAdminHint)) {
+                return false;
+            }
+        }
         final Optional<ChatMessage> tomb = dao().tombstoneChatMessage(
                 channel.getId(), msgId, who.id() == null ? who.email() : who.id()).join();
         if (tomb.isPresent()) {
@@ -908,6 +1084,35 @@ public class ChatCommands {
             return true;
         }
         return false;
+    }
+
+    /**
+     * Whether this actor wrote this message.
+     *
+     * <p>Compared on the id the message carries, so an author deleting their own never depends on the caller
+     * naming themselves. Empty when the message is gone or has no author (a SYSTEM message is nobody's).
+     */
+    private boolean isOwnMessage(final Optional<ChatMessage> message, final AuditActor who) {
+        if (who == null || who.id() == null) {
+            return false;
+        }
+        return message.map(ChatMessage::getAuthorId)
+                .filter(Objects::nonNull)
+                .map(authorId -> authorId.getValue().equals(who.id()))
+                .orElse(false);
+    }
+
+    /** Whether this person may delete this message: their own, or any if they administer the chat. */
+    public boolean canDelete(final String tripId, final ChatMessage.Id msgId, final Person.Id me) {
+        if (me == null || msgId == null) {
+            return false;
+        }
+        if (canAdminister(tripId, me)) {
+            return true;
+        }
+        final ChatChannel channel = getChannel(tripId);
+        return channel != null && dao().getChatMessage(channel.getId(), msgId).join()
+                .map(ChatMessage::getAuthorId).filter(Objects::nonNull).map(me::equals).orElse(false);
     }
 
     /** JSF helper: mute for N minutes from now. */
@@ -936,6 +1141,52 @@ public class ChatCommands {
         return removeMember(tripId, Person.Id.from(personId), reason, AuditActor.current());
     }
 
+    /**
+     * Saves the settings and returns to the chat itself.
+     *
+     * <p>The settings page is somewhere you visit to change one thing, not somewhere you stay — landing back on
+     * the form with no visible result reads as though nothing happened. On failure it stays put, so the growl
+     * explaining why is still on screen.
+     */
+    public void saveSettingsAndReturn(
+            final String tripId,
+            final Boolean fullHistory,
+            final String postPolicy,
+            final Long retentionSeconds,
+            final Integer slowModeSeconds,
+            final Integer burstLimit,
+            final Integer burstWindowSeconds,
+            final Integer sustainedLimit,
+            final Integer sustainedWindowSeconds,
+            final Integer maxMessageChars,
+            final Boolean allowReactions,
+            final String retentionPreset,
+            final Integer archiveAfterTripEndDays,
+            final String backgroundColor,
+            final String backgroundImageUrl) {
+        final boolean saved = saveSettingsFromUi(tripId, fullHistory, postPolicy, retentionSeconds,
+                slowModeSeconds, burstLimit, burstWindowSeconds, sustainedLimit, sustainedWindowSeconds,
+                maxMessageChars, allowReactions, retentionPreset, archiveAfterTripEndDays,
+                backgroundColor, backgroundImageUrl);
+        if (saved) {
+            redirectToChat(tripId);
+        }
+    }
+
+    private void redirectToChat(final String tripId) {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (ctx == null) {
+            return;
+        }
+        try {
+            ctx.getExternalContext().redirect(
+                    ctx.getExternalContext().getRequestContextPath() + "/trip/chat.jsf?trip=" + tripId);
+        } catch (final IOException | RuntimeException ex) {
+            // The save already succeeded, so failing to navigate is a nuisance, not a data problem.
+            log.warn("Saved chat settings but could not return to the chat page for trip {}", tripId, ex);
+        }
+    }
+
     public boolean saveSettingsFromUi(
             final String tripId,
             final Boolean fullHistory,
@@ -949,7 +1200,9 @@ public class ChatCommands {
             final Integer maxMessageChars,
             final Boolean allowReactions,
             final String retentionPreset,
-            final Integer archiveAfterTripEndDays) {
+            final Integer archiveAfterTripEndDays,
+            final String backgroundColor,
+            final String backgroundImageUrl) {
         final ChatChannel channel = ensureChannel(tripId, AuditActor.current());
         final ChatSettings updated = channel.getSettings().toBuilder()
                 .fullHistoryForNewMembers(fullHistory == null || fullHistory)
@@ -969,6 +1222,11 @@ public class ChatCommands {
                 .maxMessageChars(maxMessageChars == null
                         ? ChatSettings.DEFAULT_MAX_MESSAGE_CHARS : maxMessageChars)
                 .allowReactions(allowReactions == null || allowReactions)
+                // Round-tripped through ChatAppearance so the admin form is validated by exactly the same rules
+                // as a member's override -- an unchecked colour is CSS injection and an unchecked URL is stored
+                // XSS, and a value an administrator typed is no safer than one a member typed.
+                .backgroundColor(new ChatAppearance(backgroundColor, null).getBackgroundColor())
+                .backgroundImageUrl(new ChatAppearance(null, backgroundImageUrl).getBackgroundImageUrl())
                 .build();
         return updateSettings(tripId, updated, AuditActor.current());
     }
@@ -1062,7 +1320,7 @@ public class ChatCommands {
         final ChatMembership base = existing.orElseGet(() -> new ChatMembership(
                 channel.getId(), target, ChatMembership.MemberState.JOINED,
                 ChatMembership.MemberRole.MEMBER, now, null, null, null,
-                null, null, null, null, null, null, null, null));
+                null, null, null, null, null, null, null, null, null));
         final ChatMembership added = existing.isPresent()
                 ? base.withRejoined(now, who.id())
                 : base.withState(ChatMembership.MemberState.JOINED);

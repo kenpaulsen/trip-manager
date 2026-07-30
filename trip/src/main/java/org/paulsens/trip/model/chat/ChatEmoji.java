@@ -32,7 +32,7 @@ public final class ChatEmoji implements Serializable {
      */
     // TODO(config-store): promote to config.getString("chat.reactions.palette", ...) if a trip wants its own
     private static final List<String> PALETTE = List.of(
-            "👍", "❤️", "😂", "🙏", "🎉", "😮", "😢", "✅");
+            "👍", "❤️", "😂", "🙏", "\uD83D\uDCFF", "🎉", "😮", "😢", "😊", "✅");
 
     private static final Set<String> ALLOWED = Set.copyOf(PALETTE);
 

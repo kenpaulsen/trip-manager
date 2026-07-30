@@ -32,6 +32,30 @@ public class TripTest {
         monthStr = getMonthString(now);
     }
 
+    /**
+     * Chat is opt-out, and this is the assertion that keeps it that way.
+     *
+     * <p>Every trip that existed before the setting has no {@code chatEnabled} in its stored JSON, and several of
+     * them have live chats with real messages. If the accessor ever reads a missing value as false — which is what
+     * a primitive field, or a Lombok-generated {@code Boolean} getter handed to EL, would do — the Chat tab
+     * silently disappears from all of them on deploy and the only symptom is an absence.
+     */
+    @Test
+    void chatIsOnUnlessSomeoneTurnedItOff() throws Exception {
+        assertTrue(Trip.builder().build().getChatEnabled(), "A new trip has chat");
+
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
+        final Trip legacy = mapper.readValue("{\"id\":\"t1\",\"title\":\"Older trip\"}", Trip.class);
+        assertTrue(legacy.getChatEnabled(), "A trip stored before the setting existed must keep its chat");
+
+        final Trip off = mapper.readValue("{\"id\":\"t2\",\"chatEnabled\":false}", Trip.class);
+        assertFalse(off.getChatEnabled(), "An explicit off is honoured");
+
+        // And it survives a round trip, so saving a trip from the edit page does not quietly re-enable it.
+        final Trip reread = mapper.readValue(mapper.writeValueAsString(off), Trip.class);
+        assertFalse(reread.getChatEnabled(), "Off must survive being written and read back");
+    }
+
     @Test
     void newTripHasId() {
         final Trip trip = Trip.builder().build();
