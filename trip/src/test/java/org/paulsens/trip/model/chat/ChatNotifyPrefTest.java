@@ -1,52 +1,85 @@
 package org.paulsens.trip.model.chat;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.paulsens.trip.model.chat.ChatNotifyPref.DeliveryMode;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
 /**
- * The notification defaults, which are a product decision rather than an implementation detail.
+ * The notification defaults and the migration off the old single mode.
  *
- * <p>Email defaults to {@code MENTIONS} and digests do not, and both halves matter: being named in a trip's chat
- * is worth an interruption, a daily rollup nobody asked for is not. These assertions exist so a later refactor
- * cannot quietly flip either one — the symptom would be silence (nobody gets mentioned) or a mass mailing.
+ * <p>Two things are worth pinning. The <b>direction of each default</b> is a product decision — mentions on,
+ * digest off — and a refactor that flipped either would show up as silence or as a mass mailing, neither of which
+ * announces itself. And the <b>legacy read path</b> is the only thing standing between existing membership rows
+ * and a silent preference reset: those rows carry {@code email} as an enum and nothing else.
  */
 public class ChatNotifyPrefTest {
 
+    private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new JavaTimeModule());
+
     @Test
-    public void emailDefaultsToMentions() {
-        Assert.assertEquals(ChatNotifyPref.defaults().getEmail(), DeliveryMode.MENTIONS);
+    public void mentionsDefaultOnAndDigestDefaultsOff() {
+        final ChatNotifyPref defaults = ChatNotifyPref.defaults();
+        Assert.assertTrue(defaults.isMentionEmail(), "being named is worth an interruption");
+        Assert.assertFalse(defaults.isDailyDigest(), "a daily rollup is a positive opt-in");
+        Assert.assertTrue(defaults.isInApp());
+        Assert.assertEquals(defaults.getPush(), DeliveryMode.OFF, "push stays off until APNs exists");
     }
 
     @Test
-    public void aNullEmailModeBecomesMentions() {
-        // This is the path that matters for rows already in DynamoDB, which were written before the field
-        // existed or with an explicit null -- and for implicit members, who have no row at all.
-        final ChatNotifyPref pref = new ChatNotifyPref(null, null, null, null, null, null);
-        Assert.assertEquals(pref.getEmail(), DeliveryMode.MENTIONS);
+    public void anEmptyRowTakesTheDefaults() {
+        final ChatNotifyPref pref = new ChatNotifyPref(null, null, null, null, null, null, null, null);
+        Assert.assertTrue(pref.isMentionEmail());
+        Assert.assertFalse(pref.isDailyDigest());
     }
 
     @Test
-    public void anExplicitOffIsHonoured() {
-        // Someone who turned it off must stay off; the default only fills a null.
-        final ChatNotifyPref pref = new ChatNotifyPref(true, DeliveryMode.OFF, null, null, null, null);
-        Assert.assertEquals(pref.getEmail(), DeliveryMode.OFF);
+    public void aRowWrittenBeforeTheSplitKeepsWhatItMeant() throws Exception {
+        // These are the shapes actually sitting in chat_members today. Read them wrong and someone who opted into
+        // a digest stops getting one, or someone who opted out of mail starts getting it.
+        Assert.assertFalse(legacy("OFF").isMentionEmail(), "OFF meant no mail at all");
+        Assert.assertFalse(legacy("OFF").isDailyDigest());
+
+        Assert.assertTrue(legacy("MENTIONS").isMentionEmail());
+        Assert.assertFalse(legacy("MENTIONS").isDailyDigest());
+
+        Assert.assertTrue(legacy("DIGEST_DAILY").isDailyDigest(), "an opted-in digest must survive the change");
+        Assert.assertFalse(legacy("DIGEST_DAILY").isMentionEmail(), "the old mode was exclusive; it chose digest");
+
+        // Hourly is gone as an option, but a row holding it still wanted a summary.
+        Assert.assertTrue(legacy("DIGEST_HOURLY").isDailyDigest());
+
+        // ALL is gone too. Mentions is the nearest surviving intent -- never "every message", which no longer exists.
+        Assert.assertTrue(legacy("ALL").isMentionEmail());
+        Assert.assertFalse(legacy("ALL").isDailyDigest());
     }
 
     @Test
-    public void digestIsNeverTheDefault() {
-        Assert.assertNotEquals(ChatNotifyPref.defaults().getEmail(), DeliveryMode.DIGEST_DAILY);
-        Assert.assertNotEquals(ChatNotifyPref.defaults().getEmail(), DeliveryMode.DIGEST_HOURLY);
+    public void aStoredChoiceBeatsTheLegacyField() throws Exception {
+        // Once someone uses the new toggles their row carries both, and the stale enum must not override them.
+        final ChatNotifyPref pref = MAPPER.readValue(
+                "{\"email\":\"OFF\",\"mentionEmail\":true,\"dailyDigest\":true}", ChatNotifyPref.class);
+        Assert.assertTrue(pref.isMentionEmail());
+        Assert.assertTrue(pref.isDailyDigest());
     }
 
     @Test
-    public void pushStaysOffUntilItExists() {
-        Assert.assertEquals(ChatNotifyPref.defaults().getPush(), DeliveryMode.OFF);
+    public void theTogglesSurviveARoundTrip() throws Exception {
+        final ChatNotifyPref off = ChatNotifyPref.defaults().withEmail(false, true);
+        final ChatNotifyPref reread = MAPPER.readValue(MAPPER.writeValueAsString(off), ChatNotifyPref.class);
+        Assert.assertFalse(reread.isMentionEmail(), "an explicit off must not spring back to the default");
+        Assert.assertTrue(reread.isDailyDigest());
     }
 
     @Test
-    public void inAppDefaultsOn() {
-        Assert.assertTrue(ChatNotifyPref.defaults().isInApp());
-        Assert.assertTrue(new ChatNotifyPref(null, null, null, null, null, null).isInApp());
+    public void anyEmailIsTrueWhenEitherIs() {
+        Assert.assertFalse(ChatNotifyPref.defaults().withEmail(false, false).isAnyEmail());
+        Assert.assertTrue(ChatNotifyPref.defaults().withEmail(true, false).isAnyEmail());
+        Assert.assertTrue(ChatNotifyPref.defaults().withEmail(false, true).isAnyEmail());
+    }
+
+    private static ChatNotifyPref legacy(final String mode) throws Exception {
+        return MAPPER.readValue("{\"inApp\":true,\"email\":\"" + mode + "\"}", ChatNotifyPref.class);
     }
 }

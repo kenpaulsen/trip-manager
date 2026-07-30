@@ -71,7 +71,12 @@ public final class ChatNotifications {
         if (message == null || channel == null) {
             return;
         }
-        final List<Person.Id> mentioned = ChatMentions.extract(message.getBody());
+        final List<Person.Id> mentioned = new ArrayList<>(ChatMentions.extract(message.getBody()));
+        if (ChatMentions.mentionsEveryone(message.getBody())) {
+            // @all resolves to the roster at send time. Everyone still passes their own preference check below,
+            // so it is a wider audience, not an override of anyone's choice.
+            mentioned.addAll(everyoneIn(trip, message.getAuthorId()));
+        }
         if (mentioned.isEmpty()) {
             return;
         }
@@ -80,6 +85,14 @@ public final class ChatNotifications {
             return;
         }
         PersistenceExecutors.pool().execute(() -> dispatch(notification));
+    }
+
+    /** Everyone on the trip except the author, who is never notified about their own message. */
+    private static List<Person.Id> everyoneIn(final Trip trip, final Person.Id author) {
+        if (trip == null) {
+            return List.of();
+        }
+        return trip.getPeople().stream().filter(id -> id != null && !id.equals(author)).toList();
     }
 
     private static void dispatch(final ChatNotification notification) {
@@ -143,8 +156,7 @@ public final class ChatNotifications {
         }
         // Absent row ⇒ JOINED with default preferences, which is what makes default opt-in free.
         final ChatNotifyPref pref = row.map(ChatMembership::getNotify).orElseGet(ChatNotifyPref::defaults);
-        final ChatNotifyPref.DeliveryMode mode = pref.getEmail();
-        if (mode != ChatNotifyPref.DeliveryMode.MENTIONS && mode != ChatNotifyPref.DeliveryMode.ALL) {
+        if (!pref.isMentionEmail()) {
             return false;
         }
         return hasUsableEmail(person);

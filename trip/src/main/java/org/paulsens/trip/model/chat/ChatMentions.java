@@ -28,7 +28,21 @@ public final class ChatMentions implements Serializable {
     /** Matches {@code @{id}} where the id is a UUID-ish token; deliberately strict so prose cannot match. */
     private static final Pattern MENTION = Pattern.compile("@\\{([A-Za-z0-9._@+-]{1,128})}");
 
+    /**
+     * The everyone-mention, matched as typed rather than as a stored id.
+     *
+     * <p>Unlike a personal mention there is no id to resolve, so this is literal text and must be recognised on
+     * a word boundary — otherwise an email address or {@code @allen} would broadcast to the whole trip.
+     */
+    private static final Pattern ALL = Pattern.compile("(?<![A-Za-z0-9._@+-])@all(?![A-Za-z0-9._+-])",
+            Pattern.CASE_INSENSITIVE);
+
     private ChatMentions() {
+    }
+
+    /** Whether this body addresses everyone with {@code @all}. */
+    public static boolean mentionsEveryone(final String body) {
+        return body != null && ALL.matcher(body).find();
     }
 
     /** The person ids mentioned in this body, in order, without duplicates. */

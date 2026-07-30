@@ -207,6 +207,19 @@ public final class CacheKeys {
         return CHAT_FORMAT_VERSION + "digest:done:" + runId;
     }
 
+    /**
+     * The atomic claim on one person's digest within a run.
+     *
+     * <p>Separate from the progress hash because only this is <b>race-free</b>: it is a SET-if-absent, so exactly
+     * one caller can ever win it. The progress hash is read once as a snapshot at the start of a dispatch, and a
+     * snapshot cannot see a claim made after it was taken — so with two tasks dispatching at once (which the run
+     * lock permits the moment its TTL lapses mid-run) both would believe a person was unclaimed and both would
+     * mail them. The hash remains as the durable record of what happened; this is what makes it exclusive.
+     */
+    public static String chatDigestClaimKey(final String runId, final String progressField) {
+        return CHAT_FORMAT_VERSION + "digest:claim:" + runId + ':' + progressField;
+    }
+
     /** Set once a run is finished, so other instances stop retrying instead of re-sending. */
     public static String chatDigestCompleteKey(final String runId) {
         return CHAT_FORMAT_VERSION + "digest:complete:" + runId;

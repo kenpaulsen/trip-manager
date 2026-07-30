@@ -10,6 +10,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
@@ -111,8 +112,24 @@ public final class ChatDigestScheduler {
 
     private void scheduleNextRun() {
         final Duration delay = untilNextRun(ZonedDateTime.now(zone()));
-        scheduler.schedule(this::runToday, delay.toMillis(), TimeUnit.MILLISECONDS);
-        log.debug("Next chat digest attempt in {} minutes", delay.toMinutes());
+        if (submit(() -> runToday(), delay.toMillis())) {
+            log.debug("Next chat digest attempt in {} minutes", delay.toMinutes());
+        }
+    }
+
+    /**
+     * Queues work, tolerating a shut-down executor.
+     *
+     * @return false when the scheduler is stopping, which is ordinary at shutdown and not worth an error.
+     */
+    private boolean submit(final Runnable body, final long delayMs) {
+        try {
+            scheduler.schedule(body, delayMs, TimeUnit.MILLISECONDS);
+            return true;
+        } catch (final RejectedExecutionException ex) {
+            log.debug("Chat digest scheduler is shutting down; not queueing further work");
+            return false;
+        }
     }
 
     private void runToday() {
@@ -126,7 +143,14 @@ public final class ChatDigestScheduler {
      */
     void attempt(final String runId, final Instant firstAttempt) {
         try {
-            if (!attemptOnce(runId, firstAttempt)) {
+            if (attemptOnce(runId, firstAttempt)) {
+                // Finished with THIS run -- so arm the next one. Without this the executor is left with nothing
+                // queued and the scheduler is done for the life of the JVM: digests fired once and never again.
+                // It bit hardest in the shipped-dark state, where the disabled check returns "finished"
+                // immediately, so the very first run silently retired the scheduler and enabling the config
+                // later would have done nothing until a restart.
+                scheduleNextRun();
+            } else {
                 reschedule(runId, firstAttempt);
             }
         } catch (final RuntimeException ex) {
@@ -199,27 +223,38 @@ public final class ChatDigestScheduler {
             final ChatDigestSender.Candidate candidate,
             final Map<String, String> alreadyDone) {
         final String field = candidate.progressField();
+        // Cheap pre-filter only. The snapshot was read once at the top of the dispatch and cannot see a claim made
+        // after that, so it must never be the thing that decides.
         if (alreadyDone.containsKey(field)) {
             return 0;
         }
-        // Claim BEFORE sending. The window between claim and send is the one place a crash loses a digest, and that
-        // is the intended trade: an unrecorded send would be a duplicate on the next attempt.
+        // The real claim, and the only race-free one: SET-if-absent, so exactly one caller wins even when two
+        // tasks dispatch at once -- which the run lock allows the moment its TTL lapses part-way through a long
+        // run. Without this, both would consult their own stale snapshots and both would mail the same person.
+        final String claimKey = CacheKeys.chatDigestClaimKey(runId, field);
+        if (!cacheClient.tryAcquireLock(claimKey, CacheKeys.CHAT_DIGEST_RUN_TTL).join()) {
+            return 0;
+        }
+        // Recorded BEFORE sending. The window between claim and send is the one place a crash loses a digest, and
+        // that is the intended trade: an unrecorded send would be a duplicate on the next attempt.
         cacheClient.putHashField(CacheKeys.chatDigestProgressKey(runId), field,
                 Long.toString(System.currentTimeMillis())).join();
         cacheClient.expire(CacheKeys.chatDigestProgressKey(runId), CacheKeys.CHAT_DIGEST_RUN_TTL);
         if (sender.send(candidate)) {
             return 1;
         }
-        // Roll the claim back so a retry picks this person up again.
+        // Roll both back so a retry picks this person up again.
         cacheClient.removeHashField(CacheKeys.chatDigestProgressKey(runId), field).join();
+        cacheClient.releaseLock(claimKey);
         return -1;
     }
 
     private void reschedule(final String runId, final Instant firstAttempt) {
         final long jitterMs = ThreadLocalRandom.current().nextLong(RETRY_JITTER.toMillis() + 1);
         final long delayMs = RETRY_BASE.toMillis() + jitterMs;
-        scheduler.schedule(() -> attempt(runId, firstAttempt), delayMs, TimeUnit.MILLISECONDS);
-        log.debug("Chat digest run {} retrying in {}s", runId, delayMs / 1000);
+        if (submit(() -> attempt(runId, firstAttempt), delayMs)) {
+            log.debug("Chat digest run {} retrying in {}s", runId, delayMs / 1000);
+        }
     }
 
     /**

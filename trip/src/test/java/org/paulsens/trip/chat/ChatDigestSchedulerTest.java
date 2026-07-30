@@ -41,6 +41,50 @@ public class ChatDigestSchedulerTest {
         enabled = new AlwaysEnabledConfig();
     }
 
+    /**
+     * A finished run must arm the next one.
+     *
+     * <p>The scheduler only ever queued a retry, never a following day, so once a run reported "finished" the
+     * executor had nothing left to do and the JVM never sent another digest. Worst in the shipped-dark state:
+     * disabled reports finished immediately, so the first firing retired the scheduler and later enabling the
+     * config did nothing until a restart. Asserted through {@code untilNextRun}, which is what a finished run
+     * consults — a positive, under-24h delay is the evidence that tomorrow is reachable at all.
+     */
+    @Test
+    public void aFinishedRunArmsTheFollowingDay() {
+        final ChatDigestScheduler scheduler = ChatDigestScheduler.forTest(cache, enabled, sender);
+        final ZonedDateTime justAfterTodaysRun = ZonedDateTime.parse("2026-07-30T08:00:30Z[UTC]");
+
+        final Duration next = scheduler.untilNextRun(justAfterTodaysRun);
+
+        Assert.assertTrue(next.toMillis() > 0, "the next run must be in the future, not zero or negative");
+        Assert.assertTrue(next.compareTo(Duration.ofHours(24)) <= 0, "and no more than a day out: " + next);
+    }
+
+    /**
+     * Two tasks dispatching at once must not both mail the same person.
+     *
+     * <p>The run lock has a TTL, so a dispatch that outlives it lets a second task in while the first is still
+     * working. Each reads the progress hash once, as a snapshot, and a snapshot cannot contain a claim made after
+     * it was taken — so the claim has to be an atomic set-if-absent, not a look-then-write. Simulated here by
+     * letting both instances run with the run lock already expired.
+     */
+    @Test
+    public void aPersonIsClaimedAtomicallySoAConcurrentDispatchCannotDoubleSend() {
+        sender.candidates.add(candidate("p1"));
+        final ChatDigestScheduler first = ChatDigestScheduler.forTest(cache, enabled, sender);
+        final ChatDigestScheduler second = ChatDigestScheduler.forTest(cache, enabled, sender);
+
+        Assert.assertTrue(first.attemptOnce(RUN, Instant.now()));
+        // Clear the completion flag and the run lock, leaving only the per-person claim: this is the state a
+        // second task walks into when the run lock lapses mid-run.
+        cache.removeKey(CacheKeys.chatDigestCompleteKey(RUN)).join();
+        cache.releaseLock(CacheKeys.chatDigestLockKey(RUN));
+
+        second.attemptOnce(RUN, Instant.now());
+        Assert.assertEquals(sender.sent.size(), 1, "p1 must be mailed once, not twice: " + sender.sent);
+    }
+
     @Test
     public void oneInstanceSendsAndTheOthersStandDown() {
         final ChatDigestScheduler first = ChatDigestScheduler.forTest(cache, enabled, sender);

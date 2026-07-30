@@ -55,6 +55,10 @@ public class TripCommands {
 
     public boolean saveTrip(final Trip trip) {
         boolean result;
+        // Read the roster BEFORE the write, so anyone dropped in this edit can be taken off the chat too. Done
+        // here rather than at each Remove button because there are several ways off a trip and they must all
+        // agree: a chat still listing people who are no longer on the trip is the wrong answer everywhere.
+        final List<Person.Id> removed = peopleRemovedBy(trip);
         try {
              result = DAO.getInstance().saveTrip(sortTripPeople(trip)).exceptionally(ex -> {
                     TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Error saving '" + trip.getId()
@@ -68,7 +72,28 @@ public class TripCommands {
             log.warn("Error while saving trip: ", ex);
             result = false;
         }
+        if (result) {
+            ChatCommands.getChatCommands().leaveOnTripRemoval(trip.getId(), removed);
+        }
         return result;
+    }
+
+    /**
+     * Who is on the stored trip but not on the one about to be saved.
+     *
+     * <p>Best effort by design: if the previous version cannot be read, nobody is reported and the chat roster is
+     * left alone. Failing to tidy the chat must never fail the trip save that prompted it.
+     */
+    private List<Person.Id> peopleRemovedBy(final Trip updated) {
+        if (updated == null || updated.getId() == null) {
+            return List.of();
+        }
+        final Trip stored = DAO.getInstance().getTrip(updated.getId()).join().orElse(null);
+        if (stored == null) {
+            return List.of();
+        }
+        final List<Person.Id> keeping = updated.getPeople();
+        return stored.getPeople().stream().filter(id -> id != null && !keeping.contains(id)).toList();
     }
 
     public Trip sortTripPeople(final Trip trip) {

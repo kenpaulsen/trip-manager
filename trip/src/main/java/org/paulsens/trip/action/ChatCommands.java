@@ -56,6 +56,9 @@ public class ChatCommands {
     public static final String MEDIA_TYPE_V1 = "application/vnd.trip.chat.v1+json";
     public static final String CSRF_HEADER = "X-Trip-Chat";
 
+    /** How often a non-administrator may have an @all actually emailed to the trip. */
+    private static final java.time.Duration EVERYONE_WINDOW = java.time.Duration.ofHours(24);
+
     /**
      * The instance used off the JSF request path (the REST edge, and any future socket). Held statically because
      * {@code getChatCommands()} previously constructed a fresh instance per call whenever no {@code FacesContext}
@@ -267,11 +270,6 @@ public class ChatCommands {
         return row == null ? "" : row.getState().name();
     }
 
-    /** This person's email preference as a plain string, for the page's select menu. */
-    public String emailPrefForTrip(final String tripId, final Person.Id personId) {
-        return emailPref(ChatChannel.Id.forTrip(tripId), personId);
-    }
-
     /**
      * Why this person cannot post right now, as a sentence, or {@code ""} when they can.
      *
@@ -360,7 +358,9 @@ public class ChatCommands {
      * separately means the second read-modify-write can be built on a row the first one has already replaced,
      * and the loser's field silently reverts.
      */
-    public boolean saveChatPrefsFromUi(final String mode, final String color, final String imageUrl) {
+    public boolean saveChatPrefsFromUi(
+            final Boolean mentionEmail, final Boolean dailyDigest, final String color,
+            final String imageUrl) {
         final String tripId = currentTripId();
         final Person.Id me = currentUserId();
         if (tripId == null || me == null) {
@@ -374,12 +374,9 @@ public class ChatCommands {
         }
         final ChatMembership row = membershipRow(channel.getId(), me)
                 .orElseGet(() -> ChatMembership.joining(channel.getId(), me, channel.getCreated()));
-        final ChatNotifyPref pref = row.getNotify();
-        final ChatNotifyPref.DeliveryMode wanted = parseMode(mode);
         final ChatMembership updated = row
-                .withNotify(new ChatNotifyPref(
-                        pref.isInApp(), wanted == null ? pref.getEmail() : wanted, pref.getPush(),
-                        pref.getQuietHoursStart(), pref.getQuietHoursEnd(), pref.getTimeZone()))
+                .withNotify(row.getNotify().withEmail(
+                        mentionEmail != null && mentionEmail, dailyDigest != null && dailyDigest))
                 .withAppearance(new ChatAppearance(color, imageUrl));
         final boolean saved = dao().saveChatMembership(updated).join();
         if (saved) {
@@ -402,7 +399,7 @@ public class ChatCommands {
             growlError("Unable to save your chat settings.");
             return false;
         }
-        // Same materialisation as setEmailPref: an implicit member has no row yet, and storing a preference is
+        // Same materialisation as setEmailPrefs: an implicit member has no row yet, and storing a preference is
         // exactly the first explicit action that should create one.
         final ChatMembership row = membershipRow(channel.getId(), me)
                 .orElseGet(() -> ChatMembership.joining(channel.getId(), me, channel.getCreated()));
@@ -532,8 +529,50 @@ public class ChatCommands {
         }
         // AFTER the durable write, never before: a notification about a message that failed to save would point at
         // nothing. Everything past this point is fire-and-forget on a pool thread and cannot fail the send.
-        ChatNotifications.mentionsFor(saved.get(), channel, tripOf(channel), authorDisplayName(authorId));
-        return SendResult.ok(saved.get());
+        final ChatMessage stored = saved.get();
+        if (allowanceSpentOnEveryone(channel, authorId, stored, now)) {
+            // The message is posted and highlights for everyone in-app; only the mail fan-out is withheld. Told to
+            // the sender rather than done quietly, because someone who thinks their @all reached inboxes and finds
+            // out later that it did not is worse off than someone who is told now.
+            ChatNotifications.mentionsFor(
+                    withoutEveryone(stored), channel, tripOf(channel), authorDisplayName(authorId));
+            return SendResult.ok(stored, "Only one @all a day is emailed. This one is posted in the chat, but "
+                    + "nobody was emailed about it. Please use @all sparingly.");
+        }
+        ChatNotifications.mentionsFor(stored, channel, tripOf(channel), authorDisplayName(authorId));
+        return SendResult.ok(stored);
+    }
+
+    /**
+     * Whether this {@code @all} should be posted without emailing anyone.
+     *
+     * <p>One emailing {@code @all} per person per 24 hours, for anyone who is not a chat administrator. The cap is
+     * on the <b>mail fan-out only</b> — the message is still posted and still highlights for everyone in the app,
+     * because silently degrading what someone wrote is worse than not mailing about it.
+     *
+     * <p>Counted from the message history rather than a cache counter on purpose: the messages are the record, so
+     * the limit cannot be reset by a cache flush or dodged by a deploy, and it is auditable after the fact.
+     */
+    private boolean allowanceSpentOnEveryone(
+            final ChatChannel channel, final Person.Id authorId, final ChatMessage sent, final Instant now) {
+        if (!ChatMentions.mentionsEveryone(sent.getBody())) {
+            return false;
+        }
+        if (canAdminister(channel.getTripId(), authorId)) {
+            return false;
+        }
+        final ChatMessage.Id since = ChatMessage.Id.of(now.minus(EVERYONE_WINDOW).toEpochMilli());
+        return dao().getChatMessagesSince(
+                        channel.getId(), since, 200, null, channel, tripOf(channel), now).join()
+                .getMessages().stream()
+                .filter(m -> !m.getId().equals(sent.getId()))
+                .filter(m -> authorId.equals(m.getAuthorId()))
+                .anyMatch(m -> m.getDeletedAt() == null && ChatMentions.mentionsEveryone(m.getBody()));
+    }
+
+    /** The same message with {@code @all} neutralised, so only the people named by id are mailed. */
+    private static ChatMessage withoutEveryone(final ChatMessage message) {
+        return message.withBody(message.getBody().replaceAll("(?i)@all", "@ all"));
     }
 
     /**
@@ -786,62 +825,72 @@ public class ChatCommands {
      * <p>Materialising is required, not incidental: an absent row means JOINED with defaults, and the default is
      * {@code OFF} — so without writing a row the opt-in would appear to work and then silently not.
      */
-    public boolean setEmailPref(final String tripId, final Person.Id me, final String mode) {
+    public boolean setEmailPrefs(
+            final String tripId, final Person.Id me, final boolean mentionEmail, final boolean dailyDigest) {
         final ChatChannel channel = getChannel(tripId);
         if (channel == null || me == null || !canRead(channel, me)) {
             return false;
         }
-        final ChatNotifyPref.DeliveryMode wanted = parseMode(mode);
-        if (wanted == null) {
-            return false;
-        }
         final ChatMembership row = membershipRow(channel.getId(), me)
                 .orElseGet(() -> ChatMembership.joining(channel.getId(), me, channel.getCreated()));
-        final ChatNotifyPref pref = row.getNotify();
-        final ChatMembership updated = row.withNotify(new ChatNotifyPref(
-                pref.isInApp(), wanted, pref.getPush(),
-                pref.getQuietHoursStart(), pref.getQuietHoursEnd(), pref.getTimeZone()));
-        return dao().saveChatMembership(updated).join();
+        return dao().saveChatMembership(row.withNotify(row.getNotify().withEmail(mentionEmail, dailyDigest)))
+                .join();
     }
 
-    private static ChatNotifyPref.DeliveryMode parseMode(final String mode) {
-        if (mode == null || mode.isBlank()) {
-            return null;
-        }
-        try {
-            return ChatNotifyPref.DeliveryMode.valueOf(mode.trim().toUpperCase(java.util.Locale.ROOT));
-        } catch (final IllegalArgumentException ex) {
-            return null;
-        }
+    /** Whether this person gets a mail when named. Implicit members hold the defaults, so this is on by default. */
+    public boolean mentionEmailForTrip(final String tripId, final Person.Id personId) {
+        return notifyPrefFor(tripId, personId).isMentionEmail();
     }
 
-    /** The current email preference for the page's select, as a plain name for JSFT EL. */
-    public String emailPref(final ChatChannel.Id channelId, final Person.Id personId) {
-        // An implicit member has no row and therefore holds the DEFAULTS -- not OFF. Showing OFF here would be a
-        // lie: the notifier reads the same defaults and would mail them anyway, so the screen would disagree with
-        // the behaviour for everyone who has never opened it, which is most of a trip.
-        return membershipRow(channelId, personId)
-                .map(row -> row.getNotify().getEmail().name())
-                .orElse(ChatNotifyPref.defaults().getEmail().name());
+    /** Whether this person gets the daily summary. A positive opt-in, so off unless they asked. */
+    public boolean dailyDigestForTrip(final String tripId, final Person.Id personId) {
+        return notifyPrefFor(tripId, personId).isDailyDigest();
     }
-
-    /** Saves the preference chosen on the chat page for the signed-in user. */
-    public void saveEmailPrefFromUi(final String mode) {
-        final String tripId = currentTripId();
-        if (tripId == null || !setEmailPref(tripId, currentUserId(), mode)) {
-            growlError("Unable to save your notification preference.");
-            return;
-        }
-        growlWarn("Notification preference saved.");
-    }
-
-    // --- read cursor and unread ---
 
     /**
-     * Records how far this person has read. Valkey-authoritative and lazily written by the client, because the
-     * alternative — a DynamoDB write per user per poll — is the most expensive way to store the least important
-     * data. A lost cursor costs an unread dot, never a message.
+     * This person's preferences for this channel.
+     *
+     * <p>An implicit member has no row and therefore holds the DEFAULTS -- not "everything off". Reporting off
+     * would make the settings screen disagree with the notifier, which reads the same defaults and mails them.
      */
+    private ChatNotifyPref notifyPrefFor(final String tripId, final Person.Id personId) {
+        return membershipRow(ChatChannel.Id.forTrip(tripId), personId)
+                .map(ChatMembership::getNotify)
+                .orElseGet(ChatNotifyPref::defaults);
+    }
+
+    /**
+     * Takes people off the chat roster when they come off the trip.
+     *
+     * <p>Marked {@code LEFT} rather than {@code REMOVED}: coming off a trip is usually a registration change, not
+     * moderation, so if they are added back they can rejoin themselves without an administrator. This does
+     * overwrite whatever chat state they had — a mute set before removal is not preserved — which is the accepted
+     * cost of keeping the two rosters agreeing.
+     *
+     * <p>Never throws and never blocks the caller's save: the trip edit that triggered this has already
+     * succeeded, and a chat roster left slightly stale is not worth failing it for.
+     */
+    public void leaveOnTripRemoval(final String tripId, final List<Person.Id> removed) {
+        if (tripId == null || removed == null || removed.isEmpty()) {
+            return;
+        }
+        final ChatChannel channel = getChannel(tripId);
+        if (channel == null) {
+            return;
+        }
+        final Instant now = Instant.now();
+        for (final Person.Id person : removed) {
+            try {
+                final ChatMembership row = membershipRow(channel.getId(), person)
+                        .orElseGet(() -> ChatMembership.joining(channel.getId(), person, channel.getCreated()));
+                dao().saveChatMembership(row.withLeft(now, "removed from the trip")).join();
+            } catch (final RuntimeException ex) {
+                log.warn("Unable to take {} off the chat for trip {}", person, tripId, ex);
+            }
+        }
+    }
+
+    /** Records how far this person has read, which is what clears the unread dot. */
     public boolean markRead(final String tripId, final Person.Id me, final ChatMessage.Id cursor) {
         final ChatChannel channel = getChannel(tripId);
         if (channel == null || me == null || cursor == null || !canRead(channel, me)) {
@@ -850,12 +899,6 @@ public class ChatCommands {
         return dao().saveChatCursor(channel.getId(), me, cursor).join();
     }
 
-    /**
-     * Whether this person has anything new — a dot, not a count.
-     *
-     * <p>An exact count would need {@code ZCOUNT}, which the cache SPI does not have, plus a fallback for a cold
-     * cache, to render a number nobody acts on differently than a dot.
-     */
     public boolean hasUnread(final String tripId, final Person.Id me) {
         final ChatChannel channel = getChannel(tripId);
         if (channel == null || me == null || !canRead(channel, me)) {
@@ -1668,6 +1711,11 @@ public class ChatCommands {
 
         public static SendResult ok(final ChatMessage msg) {
             return new SendResult(true, null, null, msg, null);
+        }
+
+        /** Sent, but with something the sender should be told — today, that their @all was not emailed. */
+        public static SendResult ok(final ChatMessage msg, final String notice) {
+            return new SendResult(true, null, notice, msg, null);
         }
 
         public static SendResult fail(final String code, final String message) {
