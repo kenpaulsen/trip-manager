@@ -132,6 +132,12 @@ public class ChatMembership implements Serializable {
                 null, null, null, lastReadMessageId, notify, addedBackAt, addedBackBy, schemaVersion);
     }
 
+    public ChatMembership withNotify(final ChatNotifyPref newNotify) {
+        return new ChatMembership(channelId, personId, state, role, joinedAt, leftAt, leftReason, removedBy,
+                mutedUntil, mutedBy, muteReason, lastReadMessageId, newNotify, addedBackAt, addedBackBy,
+                schemaVersion);
+    }
+
     public ChatMembership withLastRead(final ChatMessage.Id msgId) {
         return new ChatMembership(channelId, personId, state, role, joinedAt, leftAt, leftReason, removedBy,
                 mutedUntil, mutedBy, muteReason, msgId, notify, addedBackAt, addedBackBy, schemaVersion);

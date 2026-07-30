@@ -173,6 +173,65 @@ public final class CacheKeys {
         return CHAT_FORMAT_VERSION + "mver:" + channelId;
     }
 
+    /**
+     * Marks a notification as already delivered, so a retry or a restart mid-run cannot re-send it.
+     *
+     * <p>A cache marker rather than a durable row: a duplicate email is an annoyance, not a correctness failure, so
+     * paying for a Dynamo write per recipient per notification would be the wrong trade. The TTL bounds it.
+     */
+    public static String chatNotifySentKey(final String dedupeKey) {
+        return CHAT_FORMAT_VERSION + "sent:" + dedupeKey;
+    }
+
+    /** How long a delivery marker survives. Long enough that a same-day retry cannot double-send. */
+    public static final Duration CHAT_NOTIFY_SENT_TTL = Duration.ofHours(24);
+
+    /**
+     * The lock one instance must hold to run a digest, keyed by the run it is for.
+     *
+     * <p>Every task schedules the digest independently, so without this every running task would send it. Keyed by
+     * run rather than globally so a stuck lock cannot block tomorrow's digest as well as today's.
+     */
+    public static String chatDigestLockKey(final String runId) {
+        return CHAT_FORMAT_VERSION + "digest:lock:" + runId;
+    }
+
+    /**
+     * Field-per-person record of who has been dealt with in a run.
+     *
+     * <p>A person's id is written <b>before</b> their mail is attempted and removed only if the attempt fails. The
+     * asymmetry is deliberate: a crash between the write and the send leaves them marked, so they are skipped rather
+     * than mailed twice. Missing a summary beats sending it twice.
+     */
+    public static String chatDigestProgressKey(final String runId) {
+        return CHAT_FORMAT_VERSION + "digest:done:" + runId;
+    }
+
+    /** Set once a run is finished, so other instances stop retrying instead of re-sending. */
+    public static String chatDigestCompleteKey(final String runId) {
+        return CHAT_FORMAT_VERSION + "digest:complete:" + runId;
+    }
+
+    /**
+     * The newest message already summarised to this person.
+     *
+     * <p>Distinct from their read cursor, and both are needed. The cursor says what they have <em>looked at</em> and
+     * must not be advanced by a mail they may never open; this says what they have already been <em>told about</em>.
+     * Without it every digest would repeat yesterday's messages to anyone who never opened the chat.
+     */
+    public static String chatDigestWatermarkKey(final String channelId, final String personId) {
+        return CHAT_FORMAT_VERSION + "digest:wm:" + channelId + ":" + personId;
+    }
+
+    /**
+     * Lifetime of a run's lock, progress hash and completion flag.
+     *
+     * <p>Comfortably longer than the give-up window, so a late retry still finds the completion flag and stands
+     * down. If these expired first, a straggler would see no flag, conclude nothing had run, and send the digest
+     * again to everyone.
+     */
+    public static final Duration CHAT_DIGEST_RUN_TTL = Duration.ofHours(30);
+
     public static String chatPubSubChannel(final String tripId) {
         return CHAT_CHANNEL_PREFIX + "trip:" + tripId;
     }

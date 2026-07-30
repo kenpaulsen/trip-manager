@@ -184,6 +184,20 @@
             <artifactId>mockito-core</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+            An EL IMPLEMENTATION, test scope only. jakarta.el-api on the compile classpath is just the API;
+            ExpressionFactory.newInstance() needs a provider, which at runtime comes from Tomcat. Without this,
+            anything exercising ELUtil.renderWithoutJsf (the email templates) fails in unit tests with
+            "Provider not found" while working perfectly in the container.
+            Test scope deliberately: adding an EL implementation to the WAR would put a second provider beside
+            Tomcat's.
+        -->
+        <dependency>
+            <groupId>org.glassfish</groupId>
+            <artifactId>jakarta.el</artifactId>
+            <version>4.0.2</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

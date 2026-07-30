@@ -21,6 +21,7 @@ import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.chat.ChatNotifications;
 import org.paulsens.trip.chat.ChatRateLimiter;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
@@ -32,6 +33,7 @@ import org.paulsens.trip.model.chat.ChatEmoji;
 import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMentions;
 import org.paulsens.trip.model.chat.ChatMessage;
+import org.paulsens.trip.model.chat.ChatNotifyPref;
 import org.paulsens.trip.model.chat.ChatPage;
 import org.paulsens.trip.model.chat.ChatQuote;
 import org.paulsens.trip.model.chat.ChatReaction;
@@ -326,6 +328,9 @@ public class ChatCommands {
             growlError("Message was not delivered. Try again.");
             return SendResult.fail("store", "Message was not delivered. Try again.");
         }
+        // AFTER the durable write, never before: a notification about a message that failed to save would point at
+        // nothing. Everything past this point is fire-and-forget on a pool thread and cannot fail the send.
+        ChatNotifications.mentionsFor(saved.get(), channel, tripOf(channel), authorDisplayName(authorId));
         return SendResult.ok(saved.get());
     }
 
@@ -443,6 +448,11 @@ public class ChatCommands {
         final Person person = people.getPerson(Person.Id.from(id));
         final String name = person == null ? null : person.getPreferredName();
         return name == null || name.isBlank() ? id : name;
+    }
+
+    /** The author's name for a notification subject line, resolved on the request thread while people are cheap. */
+    private String authorDisplayName(final Person.Id authorId) {
+        return authorId == null ? "Someone" : displayNameOrId(PersonCommands.getPersonCommands(), authorId.getValue());
     }
 
     private static void addReactorIds(final Set<String> ids, final ChatReactionSummary summary) {
@@ -563,6 +573,61 @@ public class ChatCommands {
     /** How long an author has to edit, for the client to decide whether to offer the button. */
     public long getEditWindowMinutes() {
         return EDIT_WINDOW_MINUTES;
+    }
+
+    // --- notification preferences ---
+
+    /**
+     * Sets this person's email preference for a channel, materialising their membership row if they were only ever
+     * an implicit member.
+     *
+     * <p>Materialising is required, not incidental: an absent row means JOINED with defaults, and the default is
+     * {@code OFF} — so without writing a row the opt-in would appear to work and then silently not.
+     */
+    public boolean setEmailPref(final String tripId, final Person.Id me, final String mode) {
+        final ChatChannel channel = getChannel(tripId);
+        if (channel == null || me == null || !canRead(channel, me)) {
+            return false;
+        }
+        final ChatNotifyPref.DeliveryMode wanted = parseMode(mode);
+        if (wanted == null) {
+            return false;
+        }
+        final ChatMembership row = membershipRow(channel.getId(), me)
+                .orElseGet(() -> ChatMembership.joining(channel.getId(), me, channel.getCreated()));
+        final ChatNotifyPref pref = row.getNotify();
+        final ChatMembership updated = row.withNotify(new ChatNotifyPref(
+                pref.isInApp(), wanted, pref.getPush(),
+                pref.getQuietHoursStart(), pref.getQuietHoursEnd(), pref.getTimeZone()));
+        return dao().saveChatMembership(updated).join();
+    }
+
+    private static ChatNotifyPref.DeliveryMode parseMode(final String mode) {
+        if (mode == null || mode.isBlank()) {
+            return null;
+        }
+        try {
+            return ChatNotifyPref.DeliveryMode.valueOf(mode.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (final IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    /** The current email preference for the page's select, as a plain name for JSFT EL. */
+    public String emailPref(final ChatChannel.Id channelId, final Person.Id personId) {
+        return membershipRow(channelId, personId)
+                .map(row -> row.getNotify().getEmail().name())
+                .orElse(ChatNotifyPref.DeliveryMode.OFF.name());
+    }
+
+    /** Saves the preference chosen on the chat page for the signed-in user. */
+    public void saveEmailPrefFromUi(final String mode) {
+        final String tripId = currentTripId();
+        if (tripId == null || !setEmailPref(tripId, currentUserId(), mode)) {
+            growlError("Unable to save your notification preference.");
+            return;
+        }
+        growlWarn("Notification preference saved.");
     }
 
     // --- read cursor and unread ---
