@@ -235,6 +235,18 @@
                 <configuration>
                     <!-- A run that finds no tests is a broken run, not a passing one. -->
                     <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
+                    <systemPropertyVariables>
+                        <!--
+                            Unit tests have no servlet container, so nothing can read the "local" init-param that
+                            decides this in a deployment. Local mode is opt-in and defaults to OFF (see LocalMode),
+                            so the test JVM has to ask for it explicitly - and asking here means it cannot be
+                            forgotten by an individual test and cannot leak into a deployed artifact.
+
+                            Without this, DAO.getInstance() would build a real DynamoPersistence and the suite
+                            would reach for AWS.
+                        -->
+                        <trip.local.mode>true</trip.local.mode>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
             <plugin>

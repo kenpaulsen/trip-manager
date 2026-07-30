@@ -135,10 +135,10 @@ public class DAO {
      * Opts local mode into the configured cache client.
      *
      * <p>Deliberately a system property with <em>no</em> environment-variable fallback, unlike every other cache
-     * setting. {@link FakeData#isLocal()} is true whenever there is no {@code FacesContext}, which includes
-     * {@code mvn test} -- so if this were inferred from {@code TRIP_VALKEY_URI}, running the unit tests in a shell
-     * that had sourced the production CLI environment would silently point them at the live cache. A property only
-     * a test harness passes cannot be switched on by an ambient variable.</p>
+     * setting. {@code mvn test} runs in local mode ({@link LocalMode}, switched on by the surefire configuration),
+     * so if this were inferred from {@code TRIP_VALKEY_URI}, running the unit tests in a shell that had sourced
+     * the production CLI environment would silently point them at the live cache. A property only a test harness
+     * passes cannot be switched on by an ambient variable.</p>
      */
     private static boolean localModeUsesConfiguredCache() {
         return Boolean.parseBoolean(System.getProperty(LOCAL_USE_CONFIGURED_CACHE));

@@ -1,7 +1,5 @@
 package org.paulsens.trip.dynamo;
 
-import jakarta.faces.context.FacesContext;
-import jakarta.servlet.ServletContext;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -26,19 +24,23 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
 
 public class FakeData {
-    private static final String LOCAL = "local";
-    private static final String FACES_SERVLET = "Faces Servlet";
 
     @Getter
     private static List<Person> fakePeople;
     @Getter
     private static List<Trip> fakeTrips;
 
+    /**
+     * Whether this JVM is in local mode.
+     *
+     * <p>Delegates to {@link LocalMode}, which resolves the answer once at context startup. This used to read
+     * {@code FacesContext} directly and report local whenever there was none -- so every non-request thread in a
+     * real deployment (a startup listener, a JAX-RS resource, a scheduled task) said "local", and whichever of
+     * them reached the {@code DAO} singleton first made the whole deployment serve fake data. See
+     * {@link LocalMode} for the incident and why the default is now production.
+     */
     public static boolean isLocal() {
-        // fc will be null in a test environment that doesn't full start the server w/ JSF installed.
-        final FacesContext fc = FacesContext.getCurrentInstance();
-        return (fc == null) || "true".equals(((ServletContext) fc.getExternalContext().getContext())
-                .getServletRegistration(FACES_SERVLET).getInitParameter(LOCAL));
+        return LocalMode.isLocal();
     }
 
     public static void initFakeData() {
