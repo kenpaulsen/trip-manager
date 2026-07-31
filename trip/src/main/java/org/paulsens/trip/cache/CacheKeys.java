@@ -272,29 +272,29 @@ public final class CacheKeys {
     }
 
     /**
-     * The escalation tier for auto-mute (1 = 5 min, 2 = 30 min, 3 = 24 h). Deliberately a cache key rather than a
-     * column on the membership row: the tier is defined to decay after 24 h of good behaviour, so a TTL expresses
-     * it exactly and needs no sweeper. The <em>mute itself</em> stays durable on the membership row, because that
-     * is an enforcement decision; only the counter that chose its length is ephemeral.
+     * The escalation tier for auto-mute. Deliberately a cache key rather than a column on the membership row: the
+     * tier is defined to decay after a period of good behaviour, so a TTL expresses it exactly and needs no
+     * sweeper. The <em>mute itself</em> stays durable on the membership row, because that is an enforcement
+     * decision; only the counter that chose its length is ephemeral.
      */
     public static String chatAutoMuteTierKey(final String channelId, final String personId) {
         return CHAT_FORMAT_VERSION + "amtier:" + channelId + ":" + personId;
     }
 
-    /** How long an escalation tier survives without a further offence. */
-    // TODO(config-store): promote to config.getInt("chat.autoMute.tierDecayHours", 24)
-    public static final int CHAT_AUTO_MUTE_TIER_DECAY_HOURS = 24;
-
     /**
      * Dedupe gate for the {@code ALARM} audit record: at most one per person per channel per window, so a script
      * hammering send cannot flood an append-only, never-expiring trail.
+     *
+     * <p>{@code windowSeconds} is <b>in the key</b>, not merely used to compute the index, for the same reason it
+     * is in the rate-limit keys: the window is administrator-adjustable, and without it in the key a change from
+     * 300 to 600 produces indices that collide with keys already written under the old window, so one person
+     * silently inherits another's dedupe state. With it in the key, a change simply starts a fresh set and the
+     * old ones age out unread.
      */
-    // TODO(config-store): promote to config.getInt("chat.alarm.dedupeWindowSeconds", 300)
-    public static final int CHAT_ALARM_DEDUPE_WINDOW_SECONDS = 300;
-
-    public static String chatAlarmLockKey(final String channelId, final String personId, final long epochSec) {
-        return CHAT_FORMAT_VERSION + "alarm:" + channelId + ":" + personId + ":"
-                + (epochSec / CHAT_ALARM_DEDUPE_WINDOW_SECONDS);
+    public static String chatAlarmLockKey(
+            final String channelId, final String personId, final long epochSec, final int windowSeconds) {
+        final long winIndex = windowSeconds <= 0 ? 0L : epochSec / windowSeconds;
+        return CHAT_FORMAT_VERSION + "alarm:" + channelId + ":" + personId + ":" + windowSeconds + ":" + winIndex;
     }
 
     /**

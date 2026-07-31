@@ -7,11 +7,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Person;
@@ -40,19 +42,6 @@ import org.paulsens.trip.model.chat.ChatSettings;
 @Slf4j
 public class ChatRateLimiter {
 
-    // TODO(config-store): config.getInt("chat.autoMute.triggerCount", 3)
-    static final int AUTO_MUTE_TRIGGER_COUNT = 3;
-    // TODO(config-store): config.getInt("chat.autoMute.triggerWindowSeconds", 600)
-    static final int AUTO_MUTE_TRIGGER_WINDOW_SECONDS = 600;
-    // TODO(config-store): config.getInt("chat.global.limit", 200)
-    public static final int DEFAULT_GLOBAL_LIMIT = 200;
-    // TODO(config-store): config.getInt("chat.global.windowSeconds", 300)
-    public static final int DEFAULT_GLOBAL_WINDOW_SECONDS = 300;
-
-    /** Escalation ladder, indexed by tier - 1: 5 min, then 30 min, then 24 h. */
-    // TODO(config-store): config.getString("chat.autoMute.ladderMinutes", "5,30,1440")
-    private static final int[] AUTO_MUTE_MINUTES = {5, 30, 24 * 60};
-
     /**
      * Degraded-mode ceiling, used only when the cache returns empty. Static so instance churn does not hand a
      * sender a fresh allowance on every request; still per-task, which is the honest limit of a local fallback.
@@ -60,11 +49,25 @@ public class ChatRateLimiter {
     private static final ConcurrentHashMap<String, AtomicInteger> FALLBACK_BUCKETS = new ConcurrentHashMap<>();
 
     private final CacheClient cacheClient;
-    private final int globalLimit;
-    private final int globalWindowSeconds;
+    private final ConfigCommands config;
+    /**
+     * Set only by the test constructor. Null means "read the configured value on each check", which is what
+     * production does: a limit read once at construction could never be changed without a restart, and this
+     * object is built per request on the REST edge and once per JVM elsewhere, so "once at construction" would
+     * mean two different things depending on the edge.
+     */
+    private final Integer fixedGlobalLimit;
+    private final Integer fixedGlobalWindowSeconds;
 
     public ChatRateLimiter(final CacheClient cacheClient) {
-        this(cacheClient, DEFAULT_GLOBAL_LIMIT, DEFAULT_GLOBAL_WINDOW_SECONDS);
+        this(cacheClient, new ConfigCommands());
+    }
+
+    public ChatRateLimiter(final CacheClient cacheClient, final ConfigCommands config) {
+        this.cacheClient = cacheClient;
+        this.config = config;
+        this.fixedGlobalLimit = null;
+        this.fixedGlobalWindowSeconds = null;
     }
 
     /**
@@ -75,10 +78,61 @@ public class ChatRateLimiter {
         FALLBACK_BUCKETS.clear();
     }
 
+    /** Test constructor: pins the site-wide tier so a case does not depend on the config table. */
     public ChatRateLimiter(final CacheClient cacheClient, final int globalLimit, final int globalWindowSeconds) {
         this.cacheClient = cacheClient;
-        this.globalLimit = Math.max(1, globalLimit);
-        this.globalWindowSeconds = Math.max(1, globalWindowSeconds);
+        this.config = new ConfigCommands();
+        this.fixedGlobalLimit = Math.max(1, globalLimit);
+        this.fixedGlobalWindowSeconds = Math.max(1, globalWindowSeconds);
+    }
+
+    private int globalLimit() {
+        return fixedGlobalLimit != null ? fixedGlobalLimit
+                : config.getInt(KnownSettings.CHAT_GLOBAL_LIMIT, 1, Integer.MAX_VALUE);
+    }
+
+    private int globalWindowSeconds() {
+        return fixedGlobalWindowSeconds != null ? fixedGlobalWindowSeconds
+                : config.getInt(KnownSettings.CHAT_GLOBAL_WINDOW_SECONDS, 1, Integer.MAX_VALUE);
+    }
+
+    private int autoMuteTriggerCount() {
+        return config.getInt(KnownSettings.CHAT_AUTO_MUTE_TRIGGER_COUNT, 1, Integer.MAX_VALUE);
+    }
+
+    private int autoMuteTriggerWindowSeconds() {
+        return config.getInt(KnownSettings.CHAT_AUTO_MUTE_TRIGGER_WINDOW_SECONDS, 1, Integer.MAX_VALUE);
+    }
+
+    private int alarmDedupeWindowSeconds() {
+        return config.getInt(KnownSettings.CHAT_ALARM_DEDUPE_WINDOW_SECONDS, 1, Integer.MAX_VALUE);
+    }
+
+    /**
+     * The escalation ladder, in minutes. A malformed or empty list falls back to the declared default rather
+     * than to no mute at all: an unparseable setting must not silently disable moderation.
+     */
+    private int[] autoMuteLadder() {
+        final int[] parsed = parseLadder(config.getString(KnownSettings.CHAT_AUTO_MUTE_LADDER_MINUTES));
+        return parsed.length > 0 ? parsed
+                : parseLadder(KnownSettings.CHAT_AUTO_MUTE_LADDER_MINUTES.getDefaultValue());
+    }
+
+    private static int[] parseLadder(final String csv) {
+        if (csv == null || csv.isBlank()) {
+            return new int[0];
+        }
+        final String[] parts = csv.split(",");
+        final int[] minutes = new int[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            try {
+                minutes[i] = Math.max(1, Integer.parseInt(parts[i].trim()));
+            } catch (final NumberFormatException ex) {
+                log.warn("chat.autoMute.ladderMinutes is not a list of numbers ('{}'); using the default", csv);
+                return new int[0];
+            }
+        }
+        return minutes;
     }
 
     /**
@@ -113,11 +167,12 @@ public class ChatRateLimiter {
             return onLimitHit(channel, personId, now, "sustained", sustained,
                     settings.getSustainedLimit(), settings.getSustainedWindowSeconds());
         }
+        final int gWindow = globalWindowSeconds();
+        final int gLimit = globalLimit();
         final long global = count(
-                CacheKeys.chatRateLimitKey(null, person, "g", globalWindowSeconds, epochSec),
-                globalWindowSeconds);
-        if (global > globalLimit) {
-            return onLimitHit(channel, personId, now, "global", global, globalLimit, globalWindowSeconds);
+                CacheKeys.chatRateLimitKey(null, person, "g", gWindow, epochSec), gWindow);
+        if (global > gLimit) {
+            return onLimitHit(channel, personId, now, "global", global, gLimit, gWindow);
         }
         return Decision.allow();
     }
@@ -172,9 +227,10 @@ public class ChatRateLimiter {
     private void maybeAlarm(
             final String channelId, final String person, final String tier,
             final long count, final int limit, final Instant now) {
+        final int dedupeWindow = alarmDedupeWindowSeconds();
         final boolean first = cacheClient.tryAcquireLock(
-                CacheKeys.chatAlarmLockKey(channelId, person, now.getEpochSecond()),
-                Duration.ofSeconds(CacheKeys.CHAT_ALARM_DEDUPE_WINDOW_SECONDS)).join();
+                CacheKeys.chatAlarmLockKey(channelId, person, now.getEpochSecond(), dedupeWindow),
+                Duration.ofSeconds(dedupeWindow)).join();
         if (!first) {
             return;
         }
@@ -187,7 +243,7 @@ public class ChatRateLimiter {
     }
 
     /**
-     * Escalating auto-mute: {@value #AUTO_MUTE_TRIGGER_COUNT} limit hits inside the trigger window earn a mute,
+     * Escalating auto-mute: a configured number of limit hits inside the trigger window earns a mute,
      * lengthening on repeat offences until the tier decays. Returns the instant the caller must store on the
      * membership row — this method deliberately does not write it, so the mute and its audit record stay with the
      * code that owns membership.
@@ -196,10 +252,11 @@ public class ChatRateLimiter {
             final ChatChannel channel, final Person.Id personId, final Instant now) {
         final String channelId = channel.getId().getValue();
         final String person = personId.getValue();
+        final int triggerWindow = autoMuteTriggerWindowSeconds();
         final String hitsKey = CacheKeys.chatAutoMuteHitsKey(
-                channelId, person, AUTO_MUTE_TRIGGER_WINDOW_SECONDS, now.getEpochSecond());
-        final long hits = count(hitsKey, AUTO_MUTE_TRIGGER_WINDOW_SECONDS);
-        if (hits < AUTO_MUTE_TRIGGER_COUNT) {
+                channelId, person, triggerWindow, now.getEpochSecond());
+        final long hits = count(hitsKey, triggerWindow);
+        if (hits < autoMuteTriggerCount()) {
             return Optional.empty();
         }
         // Reset the counter now that it has been spent. Without this, EVERY subsequent hit is still >= the
@@ -208,7 +265,8 @@ public class ChatRateLimiter {
         cacheClient.removeKey(hitsKey).join();
         FALLBACK_BUCKETS.remove(hitsKey);
         final int tier = nextTier(channelId, person);
-        final int minutes = AUTO_MUTE_MINUTES[Math.min(tier, AUTO_MUTE_MINUTES.length) - 1];
+        final int[] ladder = autoMuteLadder();
+        final int minutes = ladder[Math.min(tier, ladder.length) - 1];
         final Instant until = now.plus(Duration.ofMinutes(minutes));
 
         Audit.log(Audit.builder(AuditAction.ALARM, AuditOutcome.FAILURE)
@@ -234,7 +292,8 @@ public class ChatRateLimiter {
     private int nextTier(final String channelId, final String person) {
         return cacheClient.increment(
                         CacheKeys.chatAutoMuteTierKey(channelId, person), 1,
-                        Duration.ofHours(CacheKeys.CHAT_AUTO_MUTE_TIER_DECAY_HOURS))
+                        Duration.ofHours(config.getInt(
+                                KnownSettings.CHAT_AUTO_MUTE_TIER_DECAY_HOURS, 1, Integer.MAX_VALUE)))
                 .join()
                 .map(Long::intValue)
                 .orElse(1);

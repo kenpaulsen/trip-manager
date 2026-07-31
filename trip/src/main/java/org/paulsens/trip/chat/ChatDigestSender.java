@@ -12,6 +12,7 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.action.MailCommands;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.cache.CacheClient;
@@ -39,9 +40,6 @@ import software.amazon.awssdk.services.ses.model.SendEmailResponse;
 @Slf4j
 public class ChatDigestSender {
 
-    private static final String CFG_FROM = "chat.mail.from";
-    private static final String CFG_REPLY_TO = "chat.mail.replyTo";
-    private static final String CFG_BASE_URL = "chat.mail.baseUrl";
     private static final int MAX_MESSAGES_PER_DIGEST = 50;
     /** Bounded because every recipient shares one scheduler thread; a hung request must not hold it. */
     private static final Duration SEND_TIMEOUT = Duration.ofSeconds(30);
@@ -338,15 +336,15 @@ public class ChatDigestSender {
     }
 
     private String chatUrl(final String tripId) {
-        return config.getString(CFG_BASE_URL, "https://my.centermirmedjugorje.com")
+        return config.getString(KnownSettings.CHAT_MAIL_BASE_URL)
                 + "/trip/chat.jsf?trip=" + (tripId == null ? "" : tripId);
     }
 
     private String from() {
-        return config.getString(CFG_FROM, "Trip Chat <no-reply@visitqueenofpeace.com>");
+        return config.getString(KnownSettings.CHAT_MAIL_FROM);
     }
 
     private String replyTo() {
-        return config.getString(CFG_REPLY_TO, "no-reply@visitqueenofpeace.com");
+        return config.getString(KnownSettings.CHAT_MAIL_REPLY_TO);
     }
 }

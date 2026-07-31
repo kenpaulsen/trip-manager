@@ -4,6 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.action.MailCommands;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
@@ -20,10 +21,6 @@ import org.paulsens.trip.model.Person;
 @Slf4j
 public final class EmailChatNotifier implements ChatNotifier {
 
-    private static final String CFG_FROM = "chat.mail.from";
-    private static final String CFG_REPLY_TO = "chat.mail.replyTo";
-    private static final String CFG_BASE_URL = "chat.mail.baseUrl";
-    private static final String CFG_ENABLED = "chat.mail.enabled";
 
     private final MailCommands mail;
     private final CacheClient cacheClient;
@@ -53,7 +50,7 @@ public final class EmailChatNotifier implements ChatNotifier {
      */
     @Override
     public boolean isEnabled() {
-        return config.getBoolean(CFG_ENABLED, false);
+        return config.getBoolean(KnownSettings.CHAT_MAIL_ENABLED);
     }
 
     @Override
@@ -139,15 +136,15 @@ public final class EmailChatNotifier implements ChatNotifier {
     }
 
     String chatUrl(final String tripId) {
-        final String base = config.getString(CFG_BASE_URL, "https://my.centermirmedjugorje.com");
+        final String base = config.getString(KnownSettings.CHAT_MAIL_BASE_URL);
         return base + "/trip/chat.jsf?trip=" + (tripId == null ? "" : tripId);
     }
 
     private String from() {
-        return config.getString(CFG_FROM, "Trip Chat <no-reply@visitqueenofpeace.com>");
+        return config.getString(KnownSettings.CHAT_MAIL_FROM);
     }
 
     private String replyTo() {
-        return config.getString(CFG_REPLY_TO, "no-reply@visitqueenofpeace.com");
+        return config.getString(KnownSettings.CHAT_MAIL_REPLY_TO);
     }
 }

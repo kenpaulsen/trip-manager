@@ -14,6 +14,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -94,6 +95,60 @@ public class TripCommands {
         }
         final List<Person.Id> keeping = updated.getPeople();
         return stored.getPeople().stream().filter(id -> id != null && !keeping.contains(id)).toList();
+    }
+
+    /**
+     * Sets exactly which of a trip's events a person takes part in, and saves the trip once.
+     *
+     * <p>Exists because the page could not safely do this itself. The itinerary's event picker passes its values
+     * through {@code TripEventConverter}, which loads from the DAO -- and since the persistence redesign a DAO
+     * read deserializes a <b>new</b> object rather than handing back a shared one. The page mutated that detached
+     * copy and then saved the trip, which serializes the instances the trip holds, so the edit was written
+     * nowhere. It looked like it worked, because the table it updated was bound to the selection rather than to
+     * anything stored. Resolving each event by id inside the trip is what makes the change part of the save.
+     *
+     * <p>Equality is no defence here: {@code TripEvent} is a {@code @Data} class, so the detached copy is
+     * {@code equals} to the trip's own instance and every {@code contains} check still behaved. Only identity
+     * differs, and only identity matters at save time.
+     *
+     * @param trip      the trip to modify and save.
+     * @param selected  the events the person should be in; any not listed they are removed from.
+     * @param personId  whose participation this is.
+     * @return true when saved, or when there was nothing to change.
+     */
+    public boolean setEventParticipation(
+            final Trip trip, final Collection<TripEvent> selected, final Person.Id personId) {
+        if (trip == null || personId == null) {
+            return false;
+        }
+        final Set<String> wanted = (selected == null) ? Set.of() : selected.stream()
+                .filter(Objects::nonNull)
+                .map(TripEvent::getId)
+                .collect(Collectors.toSet());
+        boolean changed = false;
+        // Iterate the TRIP's events, never the submitted ones -- these are the objects saveTrip will serialize.
+        for (final TripEvent event : trip.getTripEvents()) {
+            changed |= setParticipation(event, personId, wanted.contains(event.getId()));
+        }
+        // Saving unconditionally would write every event on the trip on any stray ajax event, which is both
+        // wasteful and a needless way to lose a concurrent edit.
+        return !changed || saveTrip(trip);
+    }
+
+    /** @return whether this event's participant list actually changed. */
+    private boolean setParticipation(final TripEvent event, final Person.Id personId, final boolean participating) {
+        final List<Person.Id> current = event.getParticipants();
+        if (current.contains(personId) == participating) {
+            return false;
+        }
+        final List<Person.Id> updated = new ArrayList<>(current);
+        if (participating) {
+            updated.add(personId);
+        } else {
+            updated.remove(personId);
+        }
+        event.setParticipants(updated);
+        return true;
     }
 
     public Trip sortTripPeople(final Trip trip) {

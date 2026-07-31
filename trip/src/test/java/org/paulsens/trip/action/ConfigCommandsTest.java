@@ -1,8 +1,12 @@
 package org.paulsens.trip.action;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.model.Config;
+import org.paulsens.trip.model.SettingDef;
 import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
 import org.testng.annotations.Test;
@@ -106,5 +110,104 @@ public class ConfigCommandsTest {
         final List<String> names = all.stream().map(Config::getName).toList();
         final List<String> sorted = names.stream().sorted(String.CASE_INSENSITIVE_ORDER).toList();
         Assert.assertEquals(names, sorted, "getAll should be name-sorted");
+    }
+
+    // --- the registry-driven reads and the settings page's save path ---
+
+    @Test
+    public void declaredSettingsReadTheirDeclaredDefault() {
+        // The point of the SettingDef overloads: the key and the default come from one declaration, so a call
+        // site cannot quietly disagree with what the settings page shows as the default.
+        Assert.assertEquals(config.getString(KnownSettings.CHAT_MAIL_FROM),
+                KnownSettings.CHAT_MAIL_FROM.getDefaultValue());
+        Assert.assertEquals(config.getInt(KnownSettings.CHAT_DIGEST_HOUR),
+                KnownSettings.CHAT_DIGEST_HOUR.intDefault());
+        Assert.assertEquals(config.getBoolean(KnownSettings.CHAT_MAIL_ENABLED),
+                KnownSettings.CHAT_MAIL_ENABLED.booleanDefault());
+    }
+
+    @Test
+    public void aClampedReadNeverReturnsAnUnusableNumber() {
+        // Clamping rather than throwing, because these are read mid-render: an absurd number should produce the
+        // nearest workable behaviour, not a 500 on whatever page reads it first.
+        config.save(of(KnownSettings.CHAT_DIGEST_HOUR.getName(), "99", Config.Type.INT), "tester");
+        Assert.assertEquals(config.getInt(KnownSettings.CHAT_DIGEST_HOUR, 0, 23), 23);
+        config.save(of(KnownSettings.CHAT_DIGEST_HOUR.getName(), "-4", Config.Type.INT), "tester");
+        Assert.assertEquals(config.getInt(KnownSettings.CHAT_DIGEST_HOUR, 0, 23), 0);
+        config.save(of(KnownSettings.CHAT_DIGEST_HOUR.getName(), null, Config.Type.INT), "tester");
+    }
+
+    @Test
+    public void knownValuesReportsUnsetAsBlankRatherThanAsTheDefault() {
+        // Deliberate: pre-filling the page with defaults would make every visit a mass write of settings nobody
+        // chose, after which the shipped default could never change under this deployment.
+        config.save(of(KnownSettings.HOME_BANNER_TEXT.getName(), null, Config.Type.STRING), "tester");
+        final Map<String, String> values = config.getKnownValues();
+        Assert.assertEquals(values.get(KnownSettings.HOME_BANNER_TEXT.getName()), "");
+        Assert.assertTrue(values.keySet().containsAll(
+                KnownSettings.all().stream().map(SettingDef::getName).toList()),
+                "every declared setting must have an entry, or the page renders an unbound field");
+    }
+
+    @Test
+    public void savingTheKnownMapStoresOnlyWhatChanged() {
+        final String name = KnownSettings.HOME_BANNER_TEXT.getName();
+        config.save(of(name, "before", Config.Type.STRING), "tester");
+
+        final Map<String, String> values = new HashMap<>(config.getKnownValues());
+        Assert.assertTrue(config.saveKnown(values, "nobody"), "an unchanged map should save cleanly");
+        Assert.assertEquals(config.getAll().stream().filter(c -> name.equals(c.getName())).findFirst()
+                .orElseThrow().getModifiedBy(), "tester",
+                "pressing Save without editing must not restamp every setting with a new modified-by");
+
+        values.put(name, "after");
+        Assert.assertTrue(config.saveKnown(values, "editor"));
+        Assert.assertEquals(config.getString(KnownSettings.HOME_BANNER_TEXT), "after");
+    }
+
+    @Test
+    public void blankingAFieldRestoresTheDeclaredDefault() {
+        // This is what makes "blank means use the default" true rather than merely intended: the stored value
+        // has to become null, not "".
+        final String name = KnownSettings.CHAT_MAIL_FROM.getName();
+        config.save(of(name, "someone@example.com", Config.Type.STRING), "tester");
+        Assert.assertEquals(config.getString(KnownSettings.CHAT_MAIL_FROM), "someone@example.com");
+
+        final Map<String, String> values = new HashMap<>(config.getKnownValues());
+        values.put(name, "   ");
+        Assert.assertTrue(config.saveKnown(values, "editor"));
+        Assert.assertEquals(config.getString(KnownSettings.CHAT_MAIL_FROM),
+                KnownSettings.CHAT_MAIL_FROM.getDefaultValue());
+    }
+
+    @Test
+    public void aBadValueIsRefusedAndLeavesTheStoredOneAlone() {
+        final String name = KnownSettings.CHAT_DIGEST_HOUR.getName();
+        config.save(of(name, "9", Config.Type.INT), "tester");
+
+        final Map<String, String> values = new HashMap<>(config.getKnownValues());
+        values.put(name, "half past eight");
+        Assert.assertFalse(config.saveKnown(values, "editor"), "an invalid value must report failure");
+        Assert.assertEquals(config.getInt(KnownSettings.CHAT_DIGEST_HOUR), 9,
+                "a rejected edit must not disturb the value already stored");
+        config.save(of(name, null, Config.Type.INT), "tester");
+    }
+
+    @Test
+    public void unknownListsOnlyRowsNothingReads() {
+        final String stray = "legacy." + RandomData.genAlpha(8);
+        config.save(of(stray, "x", Config.Type.STRING), "tester");
+        config.save(of(KnownSettings.HOME_BANNER_TEXT.getName(), "shown", Config.Type.STRING), "tester");
+
+        final List<String> unknown = config.getUnknown().stream().map(Config::getName).toList();
+        Assert.assertTrue(unknown.contains(stray),
+                "a leftover row must stay visible, or it sits in the table doing nothing and nobody notices");
+        Assert.assertFalse(unknown.contains(KnownSettings.HOME_BANNER_TEXT.getName()),
+                "a declared setting belongs in its property sheet, not in the leftovers");
+    }
+
+    @Test
+    public void aNullEditMapIsSafe() {
+        Assert.assertTrue(config.saveKnown(null, "editor"));
     }
 }

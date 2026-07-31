@@ -161,12 +161,19 @@ public final class Trip implements Serializable {
         return id;
     }
 
+    /**
+     * This trip's own instance of an event, by id.
+     *
+     * <p>Identity matters here, not equality. {@code saveTrip} serializes the objects held in {@link #tripEvents},
+     * so a change made to any <em>other</em> instance of the same event -- one from a converter, a DAO read,
+     * anywhere -- is not part of what gets written. Anything meaning to modify an event as part of saving the
+     * trip must reach it through this, not through a lookup that returns a fresh copy.
+     */
     @JsonIgnore
     public TripEvent getTripEvent(final String teId) {
         return getTripEvents().stream().filter(e -> e.getId().equals(teId)).findAny().orElse(null);
     }
 
-    @JsonIgnore
     public List<TripEvent> getTripEventsForUser(final Person.Id userId) {
         return getTripEvents().stream().filter(te -> te.getParticipants().contains(userId)).toList();
     }

@@ -5,15 +5,21 @@ import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.time.LocalDateTime;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Config;
+import org.paulsens.trip.model.SettingDef;
+import org.paulsens.trip.model.SettingSection;
 
 /**
  * Runtime settings, exposed to pages as {@code #{config}}.
@@ -23,7 +29,12 @@ import org.paulsens.trip.model.Config;
  * source of truth for "what happens if nothing is configured", so an empty table, a DynamoDB outage or a typo'd
  * value degrades to shipped behavior rather than to a broken page. Callers therefore never need a null check.
  *
- * <p>Example: {@code #{config.getBoolean('home.banner.enabled', false)}}.
+ * <p>Settings the code actually reads are declared once in {@link KnownSettings}. Prefer the overloads that take
+ * a {@code SettingDef} (or, from a page, the single-argument by-name form) over passing a literal key and a
+ * default: those two forms take the default from the declaration, so a call site cannot disagree with what the
+ * admin Settings page shows. The {@code (name, default)} pair remains for ad-hoc keys and for tests.
+ *
+ * <p>Example, from a page: {@code #{config.getBoolean('home.banner.enabled')}}.
  */
 @Slf4j
 @Named("config")
@@ -81,6 +92,137 @@ public class ConfigCommands {
             log.warn("Config '{}' is not a long ('{}'); using default {}", name, raw, defaultValue);
             return defaultValue;
         }
+    }
+
+    // --- registry-driven reads: the form every call site should use ---
+
+    /**
+     * Reads a declared setting, falling back to the default declared alongside it.
+     *
+     * <p>Prefer these overloads to the {@code (name, default)} pair everywhere. They are what keeps the admin
+     * page and the code in agreement: the key and the default come from the same declaration, so the page
+     * cannot offer a setting nothing reads, and a call site cannot quietly disagree with the default shown.
+     */
+    public String getString(final SettingDef def) {
+        return getString(def.getName(), def.getDefaultValue());
+    }
+
+    public boolean getBoolean(final SettingDef def) {
+        return getBoolean(def.getName(), def.booleanDefault());
+    }
+
+    public int getInt(final SettingDef def) {
+        return getInt(def.getName(), def.intDefault());
+    }
+
+    public long getLong(final SettingDef def) {
+        return getLong(def.getName(), def.longDefault());
+    }
+
+    /**
+     * An int constrained to a range, for the settings whose out-of-range value has no sensible meaning.
+     *
+     * <p>Clamps rather than refusing, because these are read mid-request: a nonsensical number should produce
+     * the nearest workable behaviour, not an exception on a page render. The save path rejects what it can, so
+     * this is the second line, not the only one.
+     */
+    public int getInt(final SettingDef def, final int min, final int max) {
+        return Math.min(Math.max(getInt(def), min), max);
+    }
+
+    /**
+     * Reads a declared setting by name, for pages: {@code #{config.getString('home.banner.text')}}.
+     *
+     * <p>EL cannot hold a {@code SettingDef}, so a page would otherwise have to repeat the key AND the default,
+     * putting a second copy of the default outside the registry -- exactly the drift this registry exists to
+     * stop. These resolve the default from the declaration instead, so a page only ever names the key.
+     *
+     * <p>An undeclared name is a programming error, but it is discovered mid-render, so it logs and yields an
+     * empty/false/zero value rather than throwing. A broken banner beats a broken home page.
+     */
+    public String getString(final String name) {
+        return declared(name).map(this::getString).orElse("");
+    }
+
+    public boolean getBoolean(final String name) {
+        return declared(name).map(this::getBoolean).orElse(false);
+    }
+
+    public int getInt(final String name) {
+        return declared(name).map(this::getInt).orElse(0);
+    }
+
+    public long getLong(final String name) {
+        return declared(name).map(this::getLong).orElse(0L);
+    }
+
+    private Optional<SettingDef> declared(final String name) {
+        final Optional<SettingDef> def = KnownSettings.find(name);
+        if (def.isEmpty()) {
+            log.warn("'{}' is not a declared setting; add it to KnownSettings or nothing will ever read it", name);
+        }
+        return def;
+    }
+
+    // --- the admin page ---
+
+    /** The declared settings, grouped, for the property sheet. */
+    public List<SettingSection> getSections() {
+        return KnownSettings.sections();
+    }
+
+    /**
+     * The stored value of every declared setting, keyed by name, with an absent one as the empty string.
+     *
+     * <p>Empty means "unset, so the declared default applies" -- deliberately not pre-filled with the default,
+     * because a page that shows defaults as if they were stored values turns every visit into a mass write of
+     * settings nobody chose, and then the default can never change under them.
+     */
+    public Map<String, String> getKnownValues() {
+        final Map<String, Config> stored = getAll().stream()
+                .collect(Collectors.toMap(Config::getName, config -> config, (a, b) -> a));
+        final Map<String, String> values = new HashMap<>();
+        for (final SettingDef def : KnownSettings.all()) {
+            final Config config = stored.get(def.getName());
+            values.put(def.getName(), (config == null || config.getValue() == null) ? "" : config.getValue());
+        }
+        return values;
+    }
+
+    /** Stored rows that no longer correspond to anything the code reads -- shown so they cannot go unnoticed. */
+    public List<Config> getUnknown() {
+        return getAll().stream().filter(config -> !KnownSettings.isKnown(config.getName())).toList();
+    }
+
+    /**
+     * Saves the declared settings from the page's edit map.
+     *
+     * <p>Only what actually changed is written, so opening the page and pressing Save does not stamp every
+     * setting with a new modified-by, and blanking a field deletes the stored value rather than storing an
+     * empty one -- which is what makes "blank means use the default" true rather than merely intended.
+     *
+     * @return true when everything valid was stored; false if any value was rejected (each reports itself).
+     */
+    public boolean saveKnown(final Map<String, String> values, final String modifiedBy) {
+        if (values == null) {
+            return true;
+        }
+        final Map<String, String> current = getKnownValues();
+        boolean allSaved = true;
+        for (final SettingDef def : KnownSettings.all()) {
+            final String edited = normalize(values.get(def.getName()));
+            if (edited.equals(normalize(current.get(def.getName())))) {
+                continue;
+            }
+            final Config updated = new Config(def.getName(), edited.isEmpty() ? null : edited, def.getType(),
+                    def.getDescription(), null, null);
+            allSaved = save(updated, modifiedBy) && allSaved;
+        }
+        return allSaved;
+    }
+
+    private static String normalize(final String value) {
+        return (value == null) ? "" : value.trim();
     }
 
     /** All settings, name-sorted, for the admin page. */

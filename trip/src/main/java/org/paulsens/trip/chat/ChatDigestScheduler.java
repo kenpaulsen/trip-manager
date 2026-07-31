@@ -16,6 +16,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.dynamo.DAO;
@@ -47,9 +48,6 @@ import org.paulsens.trip.dynamo.DAO;
 @Slf4j
 public final class ChatDigestScheduler {
 
-    private static final String CFG_ENABLED = "chat.digest.enabled";
-    private static final String CFG_HOUR = "chat.digest.hour";
-    private static final String CFG_ZONE = "chat.digest.zone";
 
     /** Retry spacing for a task that did not win the lock. */
     private static final Duration RETRY_BASE = Duration.ofMinutes(5);
@@ -161,7 +159,7 @@ public final class ChatDigestScheduler {
 
     /** @return true when this task is finished with the run — sent it, saw it done, or gave up. */
     boolean attemptOnce(final String runId, final Instant firstAttempt) {
-        if (!config.getBoolean(CFG_ENABLED, false)) {
+        if (!config.getBoolean(KnownSettings.CHAT_DIGEST_ENABLED)) {
             // Ships dark. Enabling is a config-table change, not a deploy.
             return true;
         }
@@ -286,7 +284,7 @@ public final class ChatDigestScheduler {
 
     private ZoneId zone() {
         try {
-            return ZoneId.of(config.getString(CFG_ZONE, "America/Los_Angeles"));
+            return ZoneId.of(config.getString(KnownSettings.CHAT_DIGEST_ZONE));
         } catch (final RuntimeException ex) {
             log.warn("Bad chat.digest.zone; falling back to UTC", ex);
             return ZoneId.of("UTC");
@@ -298,7 +296,7 @@ public final class ChatDigestScheduler {
      * hour waits until tomorrow rather than firing immediately and again in a millisecond.
      */
     Duration untilNextRun(final ZonedDateTime now) {
-        final int hour = Math.min(Math.max(config.getInt(CFG_HOUR, 8), 0), 23);
+        final int hour = config.getInt(KnownSettings.CHAT_DIGEST_HOUR, 0, 23);
         ZonedDateTime next = now.with(LocalTime.of(hour, 0));
         if (!next.isAfter(now)) {
             next = next.plusDays(1);

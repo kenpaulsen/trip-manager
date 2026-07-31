@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.chat.ChatNotifications;
@@ -67,14 +68,20 @@ public class ChatCommands {
     private static volatile ChatCommands shared;
 
     private final ChatRateLimiter rateLimiter;
+    private final ConfigCommands config;
 
     public ChatCommands() {
-        this.rateLimiter = new ChatRateLimiter(DAO.getInstance().getCacheClient());
+        this(new ChatRateLimiter(DAO.getInstance().getCacheClient()));
     }
 
     /** Test constructor. */
     public ChatCommands(final ChatRateLimiter rateLimiter) {
+        this(rateLimiter, new ConfigCommands());
+    }
+
+    public ChatCommands(final ChatRateLimiter rateLimiter, final ConfigCommands config) {
         this.rateLimiter = rateLimiter;
+        this.config = config;
     }
 
     public static ChatCommands getChatCommands() {
@@ -720,12 +727,6 @@ public class ChatCommands {
 
     // --- author self-edit ---
 
-    /**
-     * How long an author may edit their own message. Short on purpose: an edit rewrites what other people have
-     * already read, so the window is for fixing a typo, not for revising history.
-     */
-    // TODO(config-store): promote to config.getInt("chat.edit.windowMinutes", 15)
-    private static final long EDIT_WINDOW_MINUTES = 15L;
 
     /**
      * Lets an author correct their own message inside {@link #EDIT_WINDOW_MINUTES}.
@@ -763,7 +764,7 @@ public class ChatCommands {
         }
         if (!withinEditWindow(original.getSentAt(), now)) {
             return ReactResult.fail("EDIT_WINDOW_CLOSED",
-                    "Messages can only be edited within " + EDIT_WINDOW_MINUTES + " minutes of sending.");
+                    "Messages can only be edited within " + editWindowMinutes() + " minutes of sending.");
         }
         final String text = newBody == null ? "" : newBody;
         final int cps = text.codePointCount(0, text.length());
@@ -807,13 +808,23 @@ public class ChatCommands {
      * Whether a message sent at {@code sentAt} may still be edited at {@code now}. A missing timestamp is outside
      * the window: without one there is no evidence the message is recent, and the safe reading is "too late".
      */
-    static boolean withinEditWindow(final Instant sentAt, final Instant now) {
-        return sentAt != null && !sentAt.plus(EDIT_WINDOW_MINUTES, ChronoUnit.MINUTES).isBefore(now);
+    boolean withinEditWindow(final Instant sentAt, final Instant now) {
+        return sentAt != null && !sentAt.plus(editWindowMinutes(), ChronoUnit.MINUTES).isBefore(now);
     }
 
-    /** How long an author has to edit, for the client to decide whether to offer the button. */
+    /**
+     * How long an author may edit their own message. Short on purpose: an edit rewrites what other people have
+     * already read, so the window is for fixing a typo, not for revising history.
+     *
+     * <p>Also read by the client, which uses it to decide whether to offer the button at all -- so a change here
+     * must reach both, which is why it is read rather than captured at construction.
+     */
     public long getEditWindowMinutes() {
-        return EDIT_WINDOW_MINUTES;
+        return editWindowMinutes();
+    }
+
+    private long editWindowMinutes() {
+        return config.getInt(KnownSettings.CHAT_EDIT_WINDOW_MINUTES, 1, Integer.MAX_VALUE);
     }
 
     // --- notification preferences ---
@@ -950,7 +961,7 @@ public class ChatCommands {
             final ChatMessage.Id msgId,
             final String emoji,
             final boolean add) {
-        if (!ChatEmoji.isAllowed(emoji)) {
+        if (!ChatEmoji.isAllowed(emoji, getEmojiPalette())) {
             return ReactResult.fail("bad_emoji", "That reaction is not available.");
         }
         if (msgId == null) {
@@ -1032,9 +1043,9 @@ public class ChatCommands {
         return channel == null ? 0L : dao().getChatReactionsVersion(channel.getId()).join();
     }
 
-    /** The reaction palette, for the picker. */
+    /** The reaction palette, for the picker and for validating what a client sends back. */
     public List<String> getEmojiPalette() {
-        return ChatEmoji.palette();
+        return ChatEmoji.parsePalette(config.getString(KnownSettings.CHAT_REACTIONS_PALETTE));
     }
 
     // --- join / leave ---

@@ -311,10 +311,13 @@ public class ChatCommandsTest {
         // monotonic allocator, so a message written by a test is always "now" and an expired one is not expressible
         // that way. The arithmetic is the part that can be wrong.
         final Instant now = Instant.parse("2026-07-29T12:00:00Z");
-        Assert.assertTrue(ChatCommands.withinEditWindow(now.minusSeconds(60), now));
-        Assert.assertTrue(ChatCommands.withinEditWindow(now.minusSeconds(14 * 60), now));
-        Assert.assertFalse(ChatCommands.withinEditWindow(now.minusSeconds(16 * 60), now));
-        Assert.assertFalse(ChatCommands.withinEditWindow(null, now), "no timestamp cannot be inside the window");
+        // The window itself is a setting now, so the boundaries are expressed in terms of it rather than in
+        // literal minutes -- otherwise changing the default would fail this test for no real reason.
+        final long window = chat.getEditWindowMinutes();
+        Assert.assertTrue(chat.withinEditWindow(now.minusSeconds(60), now));
+        Assert.assertTrue(chat.withinEditWindow(now.minusSeconds((window - 1) * 60), now));
+        Assert.assertFalse(chat.withinEditWindow(now.minusSeconds((window + 1) * 60), now));
+        Assert.assertFalse(chat.withinEditWindow(null, now), "no timestamp cannot be inside the window");
     }
 
     @Test
