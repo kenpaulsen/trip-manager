@@ -114,6 +114,22 @@ public final class KnownSettings {
 
     // --- chat appearance ---
 
+    public static final SettingDef CHAT_BACKGROUND_COLORS = new SettingDef(
+            "chat.background.colors", Config.Type.STRING,
+            "#eef2f7,#f5efe6,#eaf3ec,#f3eaf3,#fdf4e3,#e8eef5,#ffffff",
+            "Background colours offered",
+            "Comma-separated, in the order they are offered. People pick from this list rather than typing a "
+                    + "colour, so an entry that is not a plain #rrggbb or a CSS colour keyword is dropped -- the "
+                    + "value ends up inside a style attribute, where anything else is CSS injection.");
+
+    public static final SettingDef CHAT_BACKGROUND_IMAGE = new SettingDef(
+            "chat.background.image", Config.Type.STRING,
+            "https://files.visitqueenofpeace.com/images/mary-link.jpg",
+            "Default background image",
+            "Shown faded behind the messages when neither the trip nor the person has chosen one. Blank means "
+                    + "no image at all. Must be an http(s) URL.");
+
+
     public static final SettingDef CHAT_REACTIONS_PALETTE = new SettingDef(
             "chat.reactions.palette", Config.Type.STRING, "👍,❤️,😂,🙏,"
                     + "📿,🎉,😮,😢,😊,✅",
@@ -140,7 +156,7 @@ public final class KnownSettings {
                             CHAT_AUTO_MUTE_LADDER_MINUTES, CHAT_AUTO_MUTE_TIER_DECAY_HOURS,
                             CHAT_ALARM_DEDUPE_WINDOW_SECONDS)),
             new SettingSection("Chat appearance", null,
-                    List.of(CHAT_REACTIONS_PALETTE)));
+                    List.of(CHAT_REACTIONS_PALETTE, CHAT_BACKGROUND_COLORS, CHAT_BACKGROUND_IMAGE)));
 
     private static final Map<String, SettingDef> BY_NAME = index();
 

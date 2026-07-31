@@ -7,9 +7,11 @@ import jakarta.inject.Named;
 import java.io.IOException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +31,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatAppearance;
 import org.paulsens.trip.model.chat.ChatChannel;
@@ -305,6 +308,90 @@ public class ChatCommands {
     }
 
     /** The look this person gets for this chat: their override per field, else the channel's default. */
+    // --- appearance choices and the mention roster ---
+
+    /**
+     * The background colours people may choose from.
+     *
+     * <p>A list rather than a free text field because the value is interpolated into a {@code style} attribute:
+     * a chooser makes the safe set explicit instead of relying on {@link ChatAppearance}'s validator to catch
+     * whatever someone types. Entries that would not survive that validator are dropped here too, so a typo in
+     * the setting removes one swatch rather than offering a choice that silently does nothing.
+     */
+    public List<String> getBackgroundColorChoices() {
+        return Arrays.stream(config.getString(KnownSettings.CHAT_BACKGROUND_COLORS).split(","))
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .filter(value -> new ChatAppearance(value, null).getBackgroundColor() != null)
+                .distinct()
+                .toList();
+    }
+
+    /** The image shown when neither the trip nor the person has chosen one. Blank means no image. */
+    public String getDefaultBackgroundImage() {
+        return new ChatAppearance(null, config.getString(KnownSettings.CHAT_BACKGROUND_IMAGE))
+                .getBackgroundImageUrl();
+    }
+
+    /** The channel's description, shown above the conversation. Empty when there is none. */
+    public String descriptionForTrip(final String tripId) {
+        final ChatChannel channel = channelForPage(tripId);
+        final String description = channel == null ? null : channel.getDescription();
+        return description == null ? "" : description;
+    }
+
+    /**
+     * The trip's people as a JSON array for the composer's mention autocomplete:
+     * {@code [{"id":..,"name":preferred,"search":"first last preferred"}]}.
+     *
+     * <p>Sent with the page rather than fetched, because the roster is small and the alternative is a request on
+     * the first keystroke of every mention.
+     *
+     * <p><b>Escaped for a script element, not just for JSON.</b> These are user-supplied names going inside
+     * {@code &lt;script&gt;}, where a literal {@code &lt;/script&gt;} in a name would end the block and turn the
+     * rest into markup -- valid JSON and stored XSS at the same time. Jackson does not escape {@code <} by
+     * default, so it is replaced explicitly, along with the two line separators that are legal in JSON but not
+     * in a JavaScript string literal.
+     */
+    public String rosterJsonForTrip(final String tripId) {
+        final Trip trip = dao().getTrip(tripId).join().orElse(null);
+        if (trip == null) {
+            return "[]";
+        }
+        final PersonCommands people = PersonCommands.getPersonCommands();
+        final List<Map<String, String>> roster = new ArrayList<>();
+        for (final Person.Id id : trip.getPeople()) {
+            final Person person = people.getPerson(id);
+            if (person != null) {
+                roster.add(rosterEntry(id, person));
+            }
+        }
+        return scriptSafeJson(roster);
+    }
+
+    private static Map<String, String> rosterEntry(final Person.Id id, final Person person) {
+        final String preferred = person.getPreferredName() == null ? "" : person.getPreferredName();
+        final String first = person.getFirst() == null ? "" : person.getFirst();
+        final String last = person.getLast() == null ? "" : person.getLast();
+        return Map.of(
+                "id", id.getValue(),
+                "name", preferred.isBlank() ? id.getValue() : preferred,
+                // Matched against as one lowercase haystack, so typing any of the three finds the person.
+                "search", (first + " " + last + " " + preferred).toLowerCase(Locale.ROOT).trim());
+    }
+
+    private String scriptSafeJson(final Object value) {
+        try {
+            return DAO.getInstance().getMapper().writeValueAsString(value)
+                    .replace("<", "\\u003C")
+                    .replace("\u2028", "\\u2028")
+                    .replace("\u2029", "\\u2029");
+        } catch (final IOException ex) {
+            log.error("Unable to build the chat mention roster", ex);
+            return "[]";
+        }
+    }
+
     public ChatAppearance appearanceForTrip(final String tripId, final Person.Id personId) {
         final ChatChannel channel = channelForPage(tripId);
         if (channel == null) {
@@ -330,16 +417,18 @@ public class ChatCommands {
      */
     public String backgroundStyleForTrip(final String tripId, final Person.Id personId) {
         final ChatAppearance look = appearanceForTrip(tripId, personId);
-        if (look.isEmpty()) {
-            return "";
-        }
         final String color = look.getBackgroundColor();
-        if (look.getBackgroundImageUrl() == null) {
-            return "background-color:" + color + ";";
+        // The site-wide default applies only when nobody has chosen an image. Deliberately resolved HERE and not
+        // in appearanceForTrip: that method also fills the settings dialog, and showing the default in the field
+        // would present it as the person's own choice -- which the next Save would then make true, freezing them
+        // on today's default forever.
+        final String image = look.getBackgroundImageUrl() == null
+                ? getDefaultBackgroundImage() : look.getBackgroundImageUrl();
+        if (image == null) {
+            return color == null ? "" : "background-color:" + color + ";";
         }
         final String overlay = translucentOverlay(color);
-        return "background-image:linear-gradient(" + overlay + "," + overlay + "),url('"
-                + look.getBackgroundImageUrl() + "');"
+        return "background-image:linear-gradient(" + overlay + "," + overlay + "),url('" + image + "');"
                 + "background-repeat:repeat;background-size:100% auto;background-attachment:fixed;"
                 + (color == null ? "" : "background-color:" + color + ";");
     }
@@ -836,10 +925,65 @@ public class ChatCommands {
      * <p>Materialising is required, not incidental: an absent row means JOINED with defaults, and the default is
      * {@code OFF} — so without writing a row the opt-in would appear to work and then silently not.
      */
+    // --- the digest choice taken at registration ---
+
+    /**
+     * Where the registration form parks the daily-digest answer until the registration is approved.
+     *
+     * <p>Registration is not membership: registering creates a {@code Registration}, and a trip manager has to
+     * approve it before the person is on the trip at all. So the answer cannot be written to a chat membership
+     * row when it is given -- a row is what puts someone in the channel, and they are not in it yet. It rides on
+     * the registration instead, and {@link #applyRegistrationDigestChoice} turns it into a real preference at
+     * the moment of approval.
+     */
+    public static final String DIGEST_REG_OPTION = "chat.dailyDigest";
+
+    /** Records the answer on the registration itself, so it survives until someone approves it. */
+    public void setDigestChoice(final Registration registration, final boolean wantsDigest) {
+        if (registration != null) {
+            registration.getOptions().put(DIGEST_REG_OPTION, String.valueOf(wantsDigest));
+        }
+    }
+
+    /** The answer previously given, for redisplaying the form. Absent means "not asked yet", which reads as no. */
+    public boolean digestChoice(final Registration registration) {
+        return registration != null && Boolean.parseBoolean(registration.getOptions().get(DIGEST_REG_OPTION));
+    }
+
+    /**
+     * Applies the parked answer once the person is actually on the trip.
+     *
+     * <p>Call this <b>after</b> the trip roster has been saved: the preference write checks trip membership, so
+     * running it first silently does nothing. Absent answer means the question was never shown (a trip with chat
+     * off, or a registration predating the question), and nothing is written -- which leaves the person on the
+     * shipped default rather than opting them out of something they never declined.
+     */
+    public boolean applyRegistrationDigestChoice(final String tripId, final Registration registration) {
+        if (registration == null || !registration.getOptions().containsKey(DIGEST_REG_OPTION)) {
+            return false;
+        }
+        final Person.Id who = registration.getUserId();
+        return setEmailPrefs(tripId, who, mentionEmailForTrip(tripId, who), digestChoice(registration));
+    }
+
+    /**
+     * Stores this person's email preferences for a trip's chat.
+     *
+     * <p>Creates the channel if it does not exist yet. A preference can legitimately be applied before anyone has
+     * ever opened the chat -- notably when a trip manager approves a registration, which is where the digest
+     * opt-in taken at registration is applied -- and requiring a channel to already exist silently dropped it.
+     *
+     * <p>Still gated on {@link #canRead}: this writes a membership row, and a row is what puts someone in the
+     * channel. Registration deliberately does not, which is why the answer given there is parked on the
+     * registration and only applied at approval.
+     */
     public boolean setEmailPrefs(
             final String tripId, final Person.Id me, final boolean mentionEmail, final boolean dailyDigest) {
-        final ChatChannel channel = getChannel(tripId);
-        if (channel == null || me == null || !canRead(channel, me)) {
+        if (tripId == null || me == null) {
+            return false;
+        }
+        final ChatChannel channel = ensureChannel(tripId, AuditActor.current());
+        if (channel == null || !canRead(channel, me)) {
             return false;
         }
         final ChatMembership row = membershipRow(channel.getId(), me)
