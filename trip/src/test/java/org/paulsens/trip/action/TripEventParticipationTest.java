@@ -142,4 +142,59 @@ public class TripEventParticipationTest {
         Assert.assertFalse(trip.setEventParticipation(theTrip, List.of(), null));
         Assert.assertFalse(trip.setEventParticipation(null, List.of(), FakeData.getFakePeople().get(0).getId()));
     }
+
+    // --- private notes: the same trap, reached through the table's binding instead of the picker's ---
+
+    @Test
+    public void aNoteWrittenThroughADetachedRowStillPersists() {
+        // The itinerary table is bound to viewScope.userEvents, which the picker overwrites with converter
+        // output -- so after anyone uses the picker, every row is a detached copy. Noting one must still work.
+        final Trip theTrip = trip();
+        final Person.Id who = FakeData.getFakePeople().get(0).getId();
+        final TripEvent inTrip = theTrip.getTripEvents().get(0);
+        final TripEvent detachedRow = DAO.getInstance().getTripEvent(inTrip.getId()).join();
+        Assert.assertNotSame(detachedRow, inTrip, "precondition: the row is a copy, as it is after the picker");
+
+        Assert.assertTrue(trip.saveEventNote(theTrip, detachedRow, who, "bring the blue folder"));
+
+        final TripEvent stored = DAO.getInstance().getTripEvent(inTrip.getId()).join();
+        Assert.assertEquals(stored.getPrivNotes().get(who), "bring the blue folder",
+                "a note typed after using the picker must still reach the durable store");
+    }
+
+    @Test
+    public void aNoteOnlyAffectsItsOwnAuthor() {
+        final Trip theTrip = trip();
+        final Person.Id mine = FakeData.getFakePeople().get(0).getId();
+        final Person.Id theirs = FakeData.getFakePeople().get(1).getId();
+        final TripEvent event = theTrip.getTripEvents().get(1);
+
+        trip.saveEventNote(theTrip, event, mine, "mine");
+        trip.saveEventNote(theTrip, event, theirs, "theirs");
+
+        final TripEvent stored = DAO.getInstance().getTripEvent(event.getId()).join();
+        Assert.assertEquals(stored.getPrivNotes().get(mine), "mine");
+        Assert.assertEquals(stored.getPrivNotes().get(theirs), "theirs",
+                "private notes are per person; one must not overwrite another");
+    }
+
+    @Test
+    public void aClearedNoteIsStoredAsEmptyRatherThanThrowing() {
+        final Trip theTrip = trip();
+        final Person.Id who = FakeData.getFakePeople().get(0).getId();
+        final TripEvent event = theTrip.getTripEvents().get(2);
+        Assert.assertTrue(trip.saveEventNote(theTrip, event, who, null));
+        Assert.assertEquals(
+                DAO.getInstance().getTripEvent(event.getId()).join().getPrivNotes().get(who), "");
+    }
+
+    @Test
+    public void anEventFromAnotherTripIsRefused() {
+        // Resolving by id inside the trip means a foreign event finds no home; it must be refused, not silently
+        // noted onto nothing or appended to this trip.
+        final Trip theTrip = trip();
+        final TripEvent foreign = new TripEvent();
+        Assert.assertFalse(trip.saveEventNote(theTrip, foreign, FakeData.getFakePeople().get(0).getId(), "x"));
+        Assert.assertNull(theTrip.getTripEvent(foreign.getId()), "the foreign event must not join the trip");
+    }
 }

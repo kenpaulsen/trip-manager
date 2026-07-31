@@ -135,6 +135,35 @@ public class TripCommands {
         return !changed || saveTrip(trip);
     }
 
+    /**
+     * Sets one person's private note on a trip event and saves the trip.
+     *
+     * <p>Same trap as {@link #setEventParticipation}, reached a different way. The itinerary's event table is
+     * bound to {@code viewScope.userEvents}, which is <b>also</b> the event picker's value -- so the moment
+     * someone uses the picker, JSF replaces that list with converter output, and every row in the table is then a
+     * detached copy. A note typed after that was written onto an object the following {@code saveTrip} does not
+     * serialize. On a freshly loaded page the same edit works, because the list still holds the trip's own
+     * instances, which is what makes it look intermittent rather than broken.
+     *
+     * <p>Resolving by id inside the trip makes the note land on the object that gets written, whatever the row
+     * happened to be bound to.
+     *
+     * @return true when saved; false when the event is not part of this trip.
+     */
+    public boolean saveEventNote(
+            final Trip trip, final TripEvent event, final Person.Id personId, final String note) {
+        if (trip == null || event == null || personId == null) {
+            return false;
+        }
+        final TripEvent owned = trip.getTripEvent(event.getId());
+        if (owned == null) {
+            log.warn("Refusing to note event {}: not part of trip {}", event.getId(), trip.getId());
+            return false;
+        }
+        owned.getPrivNotes().put(personId, (note == null) ? "" : note);
+        return saveTrip(trip);
+    }
+
     /** @return whether this event's participant list actually changed. */
     private boolean setParticipation(final TripEvent event, final Person.Id personId, final boolean participating) {
         final List<Person.Id> current = event.getParticipants();

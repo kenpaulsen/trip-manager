@@ -99,17 +99,30 @@ public class RegistrationCommands {
         return pdv;
     }
 
-    public void saveRoom(final String tripId, final Person.Id userId) {
-        if (tripId == null) {
-            log.error("setRoom() called with null tripId");
+    /**
+     * Stores one person's room for a trip.
+     *
+     * <p>The room value is passed in rather than read back out of a previously-returned object, and that is the
+     * whole point of the signature. The page used to bind an input straight to
+     * {@code getRoomPDV(...).content} and then call a no-value {@code saveRoom}, which looked up the record
+     * <em>again</em> and saved that. Two lookups return two objects: since the persistence redesign a read
+     * deserializes a fresh one rather than handing back a shared instance, so the typed value was set on an
+     * object nobody stored. The save reported success and the room reverted on reload.
+     *
+     * <p>The page comment at the time -- "must bind this way for the save button to work, needs to bind to the
+     * real value" -- records exactly the assumption that stopped holding.
+     */
+    public boolean saveRoom(final String tripId, final Person.Id userId, final String room) {
+        if (tripId == null || userId == null) {
+            log.error("saveRoom() requires both a tripId and a userId");
+            return false;
         }
-        if (userId == null) {
-            log.error("setRoom() called with null userId");
+        final PersonDataValue pdv = getRoomPDV(tripId, userId);
+        if (pdv == null) {
+            return false;
         }
-        final PersonDataValue pdv = PersonDataValueCommands.getPersonDataValue(userId, getTripRoomDataId(tripId));
-        if (pdv != null) {
-            PersonDataValueCommands.savePersonDataValue(pdv);
-        }
+        pdv.setContent((room == null) ? "" : room);
+        return PersonDataValueCommands.savePersonDataValue(pdv);
     }
 
     private DataId getTripRoomDataId(final String tripId) {
