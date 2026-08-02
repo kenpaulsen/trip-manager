@@ -44,6 +44,13 @@
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3</artifactId>
         </dependency>
+        <!-- CodePipeline: the admin Deploy page starts a release and shows its progress, so releasing does not
+             need the AWS console. Read + start only; the task role grants nothing else. Synchronous client,
+             like S3 above: both calls are user-initiated on a request thread that must report the outcome. -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>codepipeline</artifactId>
+        </dependency>
         <dependency>
             <groupId>at.favre.lib</groupId>
             <artifactId>bcrypt</artifactId>

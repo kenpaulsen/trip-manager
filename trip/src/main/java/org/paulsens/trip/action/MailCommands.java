@@ -14,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Person;
@@ -62,6 +63,22 @@ public class MailCommands {
                 .html(Content.builder().data(bodyStr).build())
                 //.text(Content.builder().data(bodyStr).build())
                 .build();
+        // LOCAL MODE SENDS NOTHING. Every send funnels through here, so this one guard covers mail merges,
+        // chat mentions, the digest, registration notifications -- everything.
+        //
+        // It is here because it was missing: a webtest that registers a fake pilgrim delivered a real
+        // "just registered for the 'Spring Demo Trip' trip" email to a real inbox, from the laptop's own AWS
+        // credentials. Nothing about SES is faked by local mode on its own -- the DAO and the cache have
+        // stand-ins, SES did not, so it was the one dependency that stayed live while everything around it
+        // went fake. Test data is fake; the addresses in it need not be.
+        //
+        // Keyed on LocalMode, which defaults to PRODUCTION and is never inferred, so the failure direction is
+        // "a laptop sends mail it should not" rather than "the deployment silently stops sending". Logged at
+        // INFO with the recipients so local runs can still show what would have gone out.
+        if (FakeData.isLocal()) {
+            log.info("LOCAL MODE: not sending '{}' to '{}' (bcc '{}')", subjectStr, to, bcc);
+            return CompletableFuture.completedFuture(SendEmailResponse.builder().build());
+        }
         final Collection<String> toAddresses = splitEmail(to);
         if (toAddresses.isEmpty()) {
             // Every recipient was unusable. Calling SES with an empty destination is an error, and there is
@@ -87,8 +104,6 @@ public class MailCommands {
         // on the thread that has a request.
         final AuditActor actor = AuditActor.current();
 
-// Can use this to disable email for testing
-        //return CompletableFuture.completedFuture(SendEmailResponse.builder().build())
         return client.sendEmail(req)
                 .thenApply(r -> logAndReturn(actor, r, to, "Email '" + subjectStr + "' sent. Response: "
                                                 + r.sdkHttpResponse().statusCode()))

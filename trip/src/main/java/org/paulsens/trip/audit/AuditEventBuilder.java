@@ -30,6 +30,7 @@ public final class AuditEventBuilder {
     public static final String TARGET_PRIVILEGE = "privilege";
     public static final String TARGET_CHAT_CHANNEL = "chatChannel";
     public static final String TARGET_CHAT_MESSAGE = "chatMessage";
+    public static final String TARGET_PIPELINE = "pipeline";
 
     private final AuditAction action;
     private final AuditOutcome outcome;

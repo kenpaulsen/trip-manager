@@ -49,6 +49,13 @@ public enum AuditAction {
     MEDIA,
     /** A privilege was granted or revoked. */
     PRIVILEGE,
+    /**
+     * A deployment was started from the admin UI.
+     *
+     * <p>Its own constant rather than {@code ADMIN}: a deployment replaces the running site, so "who released
+     * this, and when" is a question worth being able to ask on its own -- usually while something is wrong.
+     */
+    DEPLOY,
     /** An admin acted as another user. */
     IMPERSONATION,
     /** Any admin action not covered above; the legacy catch-all type. */
