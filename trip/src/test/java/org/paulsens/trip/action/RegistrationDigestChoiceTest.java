@@ -69,7 +69,7 @@ public class RegistrationDigestChoiceTest {
         final Registration reg = registrationFor(outsider);
         chat.setDigestChoice(reg, true);
 
-        Assert.assertFalse(chat.applyRegistrationDigestChoice(trip().getId(), reg),
+        Assert.assertFalse(chat.applyRegistrationDigestChoice(trip(), reg),
                 "an unapproved registrant is not on the trip, so no preference may be written for them");
         Assert.assertFalse(chat.dailyDigestForTrip(trip().getId(), outsider),
                 "and they must not be signed up for the digest");
@@ -86,9 +86,37 @@ public class RegistrationDigestChoiceTest {
         trip.getPeople().add(joining);
         new TripCommands().saveTrip(trip);
 
-        Assert.assertTrue(chat.applyRegistrationDigestChoice(trip.getId(), reg));
+        Assert.assertTrue(chat.applyRegistrationDigestChoice(trip, reg));
         Assert.assertTrue(chat.dailyDigestForTrip(trip.getId(), joining),
                 "approval is when the answer given at registration becomes real");
+    }
+
+    @Test
+    public void theApprovingPagesOwnRosterIsWhatCounts() {
+        // The production-only failure this signature exists to prevent. Approve adds the person, saves, and
+        // applies the answer -- but a DAO write invalidates the shared cache asynchronously, so the read the
+        // gate used to do could still return the roster from BEFORE the approval, answer "not a trip member"
+        // and drop the opt-in silently. Nothing local has that delay, which is why it never reproduced here.
+        // Simulated by handing over a trip whose roster is ahead of what storage would return.
+        final Person.Id joining = anOutsider();
+        final Registration reg = registrationFor(joining);
+        chat.setDigestChoice(reg, true);
+
+        final Trip stale = trip();
+        final Trip approved = Trip.builder()
+                .id(stale.getId())
+                .title(stale.getTitle())
+                .startDate(stale.getStartDate())
+                .endDate(stale.getEndDate())
+                .people(stale.getPeople())     // TripBuilder copies the list, so `stale` stays behind
+                .build();
+        approved.getPeople().add(joining);
+        // Deliberately NOT saved: this is the in-flight moment, when storage still says they are not a member.
+        Assert.assertFalse(stale.getPeople().contains(joining), "the test must model a roster storage lacks");
+
+        Assert.assertTrue(chat.applyRegistrationDigestChoice(approved, reg),
+                "the answer must be applied from the roster the approving page holds, not a re-read of it");
+        Assert.assertTrue(chat.dailyDigestForTrip(approved.getId(), joining));
     }
 
     @Test
@@ -97,7 +125,7 @@ public class RegistrationDigestChoiceTest {
         // treated as "no" -- that would opt someone out of something they never declined.
         final Person.Id joining = anOutsider();
         final Registration reg = registrationFor(joining);
-        Assert.assertFalse(chat.applyRegistrationDigestChoice(trip().getId(), reg),
+        Assert.assertFalse(chat.applyRegistrationDigestChoice(trip(), reg),
                 "no answer means nothing is written");
         Assert.assertFalse(reg.getOptions().containsKey(ChatCommands.DIGEST_REG_OPTION));
     }
@@ -112,7 +140,7 @@ public class RegistrationDigestChoiceTest {
         trip.getPeople().add(joining);
         new TripCommands().saveTrip(trip);
 
-        Assert.assertTrue(chat.applyRegistrationDigestChoice(trip.getId(), reg));
+        Assert.assertTrue(chat.applyRegistrationDigestChoice(trip, reg));
         Assert.assertFalse(chat.dailyDigestForTrip(trip.getId(), joining));
     }
 
@@ -120,6 +148,6 @@ public class RegistrationDigestChoiceTest {
     public void nullsAreSafe() {
         chat.setDigestChoice(null, true);
         Assert.assertFalse(chat.digestChoice(null));
-        Assert.assertFalse(chat.applyRegistrationDigestChoice(trip().getId(), null));
+        Assert.assertFalse(chat.applyRegistrationDigestChoice(trip(), null));
     }
 }

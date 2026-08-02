@@ -10,9 +10,15 @@ import lombok.Value;
 /**
  * How one chat pane looks: a background colour and an optional background image.
  *
+ * <p><b>A colour and an image are mutually exclusive.</b> An image covers the pane, so a colour chosen
+ * underneath one is invisible — a person picking a colour and seeing no change has no way to tell that the
+ * image is what is overriding them. One value, one visible result. When both arrive anyway (a row written
+ * before this rule, or by hand) the colour wins, because the colour is picked from a closed list in the dialog
+ * while the image is the field that also carries a site-wide default.
+ *
  * <p>Held twice — as the channel default in {@link ChatSettings} and as a per-member override on
- * {@link ChatMembership} — and merged per field, so someone can override the colour while keeping the trip's
- * image, or the reverse. A member override is per channel, so a person can style each trip differently.
+ * {@link ChatMembership} — and, because of the exclusivity above, chosen whole rather than merged per field:
+ * see {@link #effective}. A member override is per channel, so a person can style each trip differently.
  *
  * <p><b>Both values are validated here rather than at the point of use.</b> They travel from a text field
  * straight into a {@code style} attribute, so an unchecked value is CSS injection at best and, for the URL,
@@ -32,7 +38,9 @@ public class ChatAppearance implements Serializable {
             @JsonProperty("backgroundColor") final String backgroundColor,
             @JsonProperty("backgroundImageUrl") final String backgroundImageUrl) {
         this.backgroundColor = safeColor(backgroundColor);
-        this.backgroundImageUrl = safeImageUrl(backgroundImageUrl);
+        // Exclusive, and resolved here so no caller can construct a combination the renderer would have to
+        // arbitrate: a colour hidden under an image is a setting that silently does nothing.
+        this.backgroundImageUrl = this.backgroundColor == null ? safeImageUrl(backgroundImageUrl) : null;
     }
 
     @JsonIgnore
@@ -40,13 +48,16 @@ public class ChatAppearance implements Serializable {
         return backgroundColor == null && backgroundImageUrl == null;
     }
 
-    /** The member's choice per field, falling back to the channel's. Never null. */
+    /**
+     * The member's choice, or the channel's when they have made none. Never null.
+     *
+     * <p>Whole, not merged per field. Under the exclusivity rule a per-field merge inverts the person's
+     * intent in exactly the case that matters: someone choosing an image over a channel whose default is a
+     * colour would merge to colour-plus-image, and the colour would win — so their pick would do nothing.
+     */
     public static ChatAppearance effective(final ChatAppearance override, final ChatAppearance channelDefault) {
         final ChatAppearance mine = override == null ? NONE : override;
-        final ChatAppearance theirs = channelDefault == null ? NONE : channelDefault;
-        return new ChatAppearance(
-                mine.backgroundColor == null ? theirs.backgroundColor : mine.backgroundColor,
-                mine.backgroundImageUrl == null ? theirs.backgroundImageUrl : mine.backgroundImageUrl);
+        return mine.isEmpty() ? (channelDefault == null ? NONE : channelDefault) : mine;
     }
 
     /**

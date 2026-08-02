@@ -4,10 +4,14 @@ import java.util.List;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.chat.ChatRateLimiter;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Config;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.chat.ChatAppearance;
+import org.paulsens.trip.model.chat.ChatChannel;
+import org.paulsens.trip.model.chat.ChatMembership;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
@@ -86,6 +90,30 @@ public class ChatAppearanceChoicesTest {
     }
 
     @Test
+    public void theDefaultImageDoesNotCoverAChosenColour() {
+        // The reported bug: picking a colour appeared to do nothing, because the site-wide default image was
+        // still laid over it. The default fills in for "nothing chosen", not for "no image chosen".
+        final Person.Id who = trip().getPeople().get(0);
+        try {
+            chooseAppearance(who, new ChatAppearance("#123456", null));
+            final String style = chat.backgroundStyleForTrip(trip().getId(), who);
+            Assert.assertTrue(style.contains("#123456"), "the chosen colour must be applied; got: " + style);
+            Assert.assertFalse(style.contains("background-image"),
+                    "no image may be drawn over a chosen colour; got: " + style);
+        } finally {
+            chooseAppearance(who, ChatAppearance.NONE);
+        }
+    }
+
+    /** Writes a person's own background choice, which is what the settings dialog's Save does. */
+    private void chooseAppearance(final Person.Id who, final ChatAppearance look) {
+        final ChatChannel channel = chat.ensureChannel(trip().getId(), null);
+        final ChatMembership row = chat.membershipRow(channel.getId(), who)
+                .orElseGet(() -> ChatMembership.joining(channel.getId(), who, channel.getCreated()));
+        DAO.getInstance().saveChatMembership(row.withAppearance(look)).join();
+    }
+
+    @Test
     public void aBlankDefaultImageMeansNoImage() {
         set(KnownSettings.CHAT_BACKGROUND_IMAGE.getName(), "");
         final Person.Id who = trip().getPeople().get(0);
@@ -107,6 +135,49 @@ public class ChatAppearanceChoicesTest {
         // into markup -- valid JSON and stored XSS at the same time.
         Assert.assertFalse(chat.rosterJsonForTrip(trip().getId()).contains("<"),
                 "'<' must be escaped as \\\\u003C before this reaches a script element");
+    }
+
+    @Test
+    public void aDropdownEntryReadsAsPreferredPlusLastName() {
+        final String json = chat.rosterJsonForTrip(trip().getId());
+        final Person someone = FakeData.getFakePeople().get(0);
+        Assert.assertTrue(json.contains(someone.getPreferredName() + " " + someone.getLast()),
+                "the menu shows preferred and last name together; got: " + json);
+    }
+
+    @Test
+    public void twoPeopleSharingANameGetTellableApartLabels() {
+        // Not cosmetic. The composer inserts the label as the visible token and swaps tokens back to @{id} by
+        // exact text replacement, so two people with one label do not read as ambiguous -- one of them is
+        // mentioned twice and the other never, and the wrong person is mailed.
+        final List<Person> twins = List.of(
+                person("Mary", "Smith", "mary.smith@example.com"),
+                person("Mary", "Smith", "m.smith@example.com"));
+        final List<String> labels = List.copyOf(ChatCommands.uniqueLabels(twins).values());
+        Assert.assertEquals(labels.size(), 2);
+        Assert.assertNotEquals(labels.get(0), labels.get(1), "identical labels mention the wrong person");
+        Assert.assertTrue(labels.get(0).contains("mary.smith@example.com"),
+                "email is what separates them, since it is unique system-wide; got: " + labels);
+    }
+
+    @Test
+    public void anEmailIsShownOnlyWhereItIsNeededToDisambiguate() {
+        // A label is a token typed into a message. Putting an address on every entry would broadcast the whole
+        // trip's emails into the chat log to solve a problem most trips do not have.
+        final List<Person> distinct = List.of(
+                person("Mary", "Smith", "mary@example.com"),
+                person("John", "Doe", "john@example.com"));
+        for (final String label : ChatCommands.uniqueLabels(distinct).values()) {
+            Assert.assertFalse(label.contains("@"), "unambiguous names must not carry an email: " + label);
+        }
+    }
+
+    private static Person person(final String preferred, final String last, final String email) {
+        final Person person = new Person();
+        person.setNickname(preferred);
+        person.setLast(last);
+        person.setEmail(email);
+        return person;
     }
 
     @Test

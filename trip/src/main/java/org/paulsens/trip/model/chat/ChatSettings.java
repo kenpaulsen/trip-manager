@@ -64,7 +64,11 @@ public class ChatSettings implements Serializable {
      */
     String backgroundColor;
     /**
-     * Chat pane background image, {@code http}/{@code https} only. Rendered at 50% transparency over the colour.
+     * Chat pane background image, {@code http}/{@code https} only. Rendered at 50% transparency.
+     *
+     * <p><b>Mutually exclusive with the colour above</b>, matching {@code ChatAppearance}: an image covers the
+     * pane, so a colour under one never appears and the administrator who set it has nothing on screen telling
+     * them why. Setting both keeps the colour and drops this.
      *
      * <p>Scheme-checked on save for the same reason {@code TripLink} is: a stored {@code javascript:} URL is
      * stored XSS with an administrator as its author.
@@ -114,7 +118,7 @@ public class ChatSettings implements Serializable {
         this.sustainedWindowSeconds = sustainedWindowSeconds == null
                 ? DEFAULT_SUSTAINED_WINDOW_SECONDS : sustainedWindowSeconds;
         this.backgroundColor = blankToNull(backgroundColor);
-        this.backgroundImageUrl = blankToNull(backgroundImageUrl);
+        this.backgroundImageUrl = this.backgroundColor == null ? blankToNull(backgroundImageUrl) : null;
     }
 
     /** Blank and null mean the same thing here — "not set" — and a form posts blank, not null. */

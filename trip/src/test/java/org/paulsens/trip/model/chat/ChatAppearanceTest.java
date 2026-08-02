@@ -8,8 +8,12 @@ import org.testng.annotations.Test;
  * Validation and merging of the chat background.
  *
  * <p>Both values are typed by a person and end up inside a {@code style} attribute, so this is the boundary that
- * keeps CSS injection and stored XSS out. The merge is tested per field because the useful case is overriding one
- * of the two — someone who wants the trip's photo behind their own choice of colour.
+ * keeps CSS injection and stored XSS out.
+ *
+ * <p>The other half is exclusivity: a colour and an image cannot both be set. An image covers the pane, so a
+ * colour under one is a setting that silently does nothing, and the person who chose it cannot see what is
+ * overriding them. That is what these tests pin, including the case that made it visible — the site-wide default
+ * image being laid over a colour someone had just picked.
  */
 public class ChatAppearanceTest {
 
@@ -60,18 +64,45 @@ public class ChatAppearanceTest {
     }
 
     @Test
-    public void theMemberOverridesPerFieldNotWholesale() {
-        // The point of merging field by field: keep the trip's image, use my own colour.
-        final ChatAppearance channel = new ChatAppearance("#ffffff", "https://example.com/trip.jpg");
-        final ChatAppearance mine = new ChatAppearance("#101020", null);
+    public void aColourAndAnImageCannotBothBeSet() {
+        final ChatAppearance both = new ChatAppearance("#101020", "https://example.com/trip.jpg");
+        Assert.assertEquals(both.getBackgroundColor(), "#101020");
+        Assert.assertNull(both.getBackgroundImageUrl(),
+                "an image over a chosen colour makes the colour invisible, with nothing on screen to explain it");
+    }
+
+    @Test
+    public void anImageAloneIsStillAnImage() {
+        // The exclusivity must not amount to "images are ignored".
+        final ChatAppearance image = new ChatAppearance(null, "https://example.com/trip.jpg");
+        Assert.assertEquals(image.getBackgroundImageUrl(), "https://example.com/trip.jpg");
+        Assert.assertNull(image.getBackgroundColor());
+    }
+
+    @Test
+    public void anUnsafeColourDoesNotSuppressTheImage() {
+        // Exclusivity keys off the colour that SURVIVED validation. Keying off the raw input would let a
+        // rejected colour silently cancel a perfectly good image, leaving no background at all.
+        final ChatAppearance look = new ChatAppearance("red;evil", "https://example.com/trip.jpg");
+        Assert.assertNull(look.getBackgroundColor());
+        Assert.assertEquals(look.getBackgroundImageUrl(), "https://example.com/trip.jpg");
+    }
+
+    @Test
+    public void aMemberChoiceReplacesTheChannelsWholesale() {
+        // Whole, not per field. Merging field by field inverts the person's intent in the case that matters:
+        // choosing an image over a channel whose default is a colour would merge to colour-plus-image, the
+        // colour would win, and their pick would do nothing at all.
+        final ChatAppearance channel = new ChatAppearance("#ffffff", null);
+        final ChatAppearance mine = new ChatAppearance(null, "https://example.com/mine.jpg");
         final ChatAppearance merged = ChatAppearance.effective(mine, channel);
-        Assert.assertEquals(merged.getBackgroundColor(), "#101020", "My colour wins");
-        Assert.assertEquals(merged.getBackgroundImageUrl(), "https://example.com/trip.jpg", "Trip image remains");
+        Assert.assertEquals(merged.getBackgroundImageUrl(), "https://example.com/mine.jpg");
+        Assert.assertNull(merged.getBackgroundColor(), "the trip's colour must not survive under my image");
     }
 
     @Test
     public void noOverrideLeavesTheChannelDefault() {
-        final ChatAppearance channel = new ChatAppearance("#ffffff", "https://example.com/trip.jpg");
+        final ChatAppearance channel = new ChatAppearance(null, "https://example.com/trip.jpg");
         Assert.assertEquals(ChatAppearance.effective(null, channel), channel);
         Assert.assertEquals(ChatAppearance.effective(ChatAppearance.NONE, channel), channel);
     }
@@ -83,6 +114,24 @@ public class ChatAppearanceTest {
         final ChatAppearance channel = new ChatAppearance("#ffffff", null);
         final ChatAppearance merged = ChatAppearance.effective(new ChatAppearance("red;evil", null), channel);
         Assert.assertEquals(merged.getBackgroundColor(), "#ffffff");
+    }
+
+    @Test
+    public void theChannelDefaultFollowsTheSameExclusivity() {
+        // Held as two loose strings on ChatSettings rather than as a ChatAppearance, so the rule has to be
+        // stated in both places -- otherwise an administrator's stored pair disagrees with what renders.
+        final ChatSettings both = ChatSettings.builder()
+                .backgroundColor("#eef2f7")
+                .backgroundImageUrl("https://example.com/trip.jpg")
+                .build();
+        Assert.assertEquals(both.getBackgroundColor(), "#eef2f7");
+        Assert.assertNull(both.getBackgroundImageUrl(), "the colour is kept and the image dropped");
+
+        final ChatSettings imageOnly = ChatSettings.builder()
+                .backgroundImageUrl("https://example.com/trip.jpg")
+                .build();
+        Assert.assertEquals(imageOnly.getBackgroundImageUrl(), "https://example.com/trip.jpg",
+                "an image with no colour must survive");
     }
 
     @Test

@@ -19,6 +19,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
@@ -342,10 +343,16 @@ public class ChatCommands {
 
     /**
      * The trip's people as a JSON array for the composer's mention autocomplete:
-     * {@code [{"id":..,"name":preferred,"search":"first last preferred"}]}.
+     * {@code [{"id":..,"name":label,"search":"first last preferred"}]}.
      *
      * <p>Sent with the page rather than fetched, because the roster is small and the alternative is a request on
      * the first keystroke of every mention.
+     *
+     * <p><b>{@code name} is unique across the roster, and that is load-bearing rather than cosmetic.</b> The
+     * composer inserts the label as the visible token and swaps the tokens back to {@code @{id}} by exact text
+     * replacement at send time, so two people sharing a label is not an ambiguity the reader has to resolve --
+     * it silently mentions <em>one</em> of them twice, mailing the wrong person. {@link #uniqueLabels} therefore
+     * disambiguates before the roster ever reaches the page; see it for the ladder.
      *
      * <p><b>Escaped for a script element, not just for JSON.</b> These are user-supplied names going inside
      * {@code &lt;script&gt;}, where a literal {@code &lt;/script&gt;} in a name would end the block and turn the
@@ -359,23 +366,73 @@ public class ChatCommands {
             return "[]";
         }
         final PersonCommands people = PersonCommands.getPersonCommands();
-        final List<Map<String, String>> roster = new ArrayList<>();
+        final List<Person> members = new ArrayList<>();
         for (final Person.Id id : trip.getPeople()) {
             final Person person = people.getPerson(id);
             if (person != null) {
-                roster.add(rosterEntry(id, person));
+                members.add(person);
             }
+        }
+        final Map<Person.Id, String> labels = uniqueLabels(members);
+        final List<Map<String, String>> roster = new ArrayList<>();
+        for (final Person person : members) {
+            roster.add(rosterEntry(person, labels.get(person.getId())));
         }
         return scriptSafeJson(roster);
     }
 
-    private static Map<String, String> rosterEntry(final Person.Id id, final Person person) {
+    /**
+     * A display label per person that no two people on the trip share.
+     *
+     * <p>Three rungs, taking the first that is unique across this roster:
+     * <ol>
+     *   <li>preferred name and last name -- what a person is actually called, and enough on almost every trip;</li>
+     *   <li>the same plus the email in parentheses -- email is unique system-wide, so this always separates two
+     *       people who genuinely share a name;</li>
+     *   <li>the person id, for a row with neither a name nor an email.</li>
+     * </ol>
+     *
+     * <p>The email only appears for the people it is needed to tell apart, because a label is a token someone
+     * types into a message: putting an address on every entry would broadcast the whole trip's emails into the
+     * chat log to solve a problem most trips do not have.
+     */
+    static Map<Person.Id, String> uniqueLabels(final List<Person> members) {
+        final Map<String, Long> preferredCounts = members.stream()
+                .collect(Collectors.groupingBy(ChatCommands::preferredLabel, Collectors.counting()));
+        final Map<Person.Id, String> labels = new LinkedHashMap<>();
+        for (final Person person : members) {
+            labels.put(person.getId(), labelFor(person, preferredCounts));
+        }
+        return labels;
+    }
+
+    private static String labelFor(final Person person, final Map<String, Long> preferredCounts) {
+        final String preferred = preferredLabel(person);
+        if (preferredCounts.getOrDefault(preferred, 0L) <= 1L && !preferred.isBlank()) {
+            return preferred;
+        }
+        final String email = person.getEmail() == null ? "" : person.getEmail().trim();
+        if (!email.isBlank()) {
+            return preferred.isBlank() ? email : preferred + " (" + email + ")";
+        }
+        return preferred.isBlank() ? person.getId().getValue() : preferred + " (" + person.getId().getValue() + ")";
+    }
+
+    /** Preferred name plus last name -- how the dropdown reads when nothing needs disambiguating. */
+    private static String preferredLabel(final Person person) {
+        final String preferred = person.getPreferredName() == null || person.getPreferredName().isBlank()
+                ? (person.getFirst() == null ? "" : person.getFirst()) : person.getPreferredName();
+        final String last = person.getLast() == null ? "" : person.getLast();
+        return (preferred + " " + last).trim();
+    }
+
+    private static Map<String, String> rosterEntry(final Person person, final String label) {
         final String preferred = person.getPreferredName() == null ? "" : person.getPreferredName();
         final String first = person.getFirst() == null ? "" : person.getFirst();
         final String last = person.getLast() == null ? "" : person.getLast();
         return Map.of(
-                "id", id.getValue(),
-                "name", preferred.isBlank() ? id.getValue() : preferred,
+                "id", person.getId().getValue(),
+                "name", label == null || label.isBlank() ? person.getId().getValue() : label,
                 // Matched against as one lowercase haystack, so typing any of the three finds the person.
                 "search", (first + " " + last + " " + preferred).toLowerCase(Locale.ROOT).trim());
     }
@@ -418,12 +475,14 @@ public class ChatCommands {
     public String backgroundStyleForTrip(final String tripId, final Person.Id personId) {
         final ChatAppearance look = appearanceForTrip(tripId, personId);
         final String color = look.getBackgroundColor();
-        // The site-wide default applies only when nobody has chosen an image. Deliberately resolved HERE and not
-        // in appearanceForTrip: that method also fills the settings dialog, and showing the default in the field
-        // would present it as the person's own choice -- which the next Save would then make true, freezing them
-        // on today's default forever.
-        final String image = look.getBackgroundImageUrl() == null
-                ? getDefaultBackgroundImage() : look.getBackgroundImageUrl();
+        // The site-wide default applies only when NOTHING has been chosen -- not merely when no image has.
+        // Falling back on a bare "no image chosen" put the default image over a chosen colour, so picking a
+        // colour appeared to do nothing at all and there was no way to tell what was covering it.
+        //
+        // Deliberately resolved HERE and not in appearanceForTrip: that method also fills the settings dialog,
+        // and showing the default in the field would present it as the person's own choice -- which the next
+        // Save would then make true, freezing them on today's default forever.
+        final String image = look.isEmpty() ? getDefaultBackgroundImage() : look.getBackgroundImageUrl();
         if (image == null) {
             return color == null ? "" : "background-color:" + color + ";";
         }
@@ -953,17 +1012,41 @@ public class ChatCommands {
     /**
      * Applies the parked answer once the person is actually on the trip.
      *
-     * <p>Call this <b>after</b> the trip roster has been saved: the preference write checks trip membership, so
-     * running it first silently does nothing. Absent answer means the question was never shown (a trip with chat
-     * off, or a registration predating the question), and nothing is written -- which leaves the person on the
-     * shipped default rather than opting them out of something they never declined.
+     * <p><b>Takes the approving page's own {@link Trip}, not a trip id, and that is the whole point.</b> The
+     * membership gate used to re-read the trip from the DAO — microseconds after the caller had added the
+     * person to it and saved. A DAO write invalidates the shared cache asynchronously, so that read could
+     * still return the pre-approval roster, the gate answered "not a trip member", and the opt-in the person
+     * gave at registration was dropped without a word. It reproduced nowhere locally, because nothing local
+     * has that delay. Approval already holds the authoritative roster; asking storage for it again can only
+     * be wrong.
+     *
+     * <p>Absent answer means the question was never shown (a trip with chat off, or a registration predating
+     * the question), and nothing is written -- which leaves the person on the shipped default rather than
+     * opting them out of something they never declined.
+     *
+     * @return whether a preference was written; {@code false} covers "nothing to apply" as well as failure.
      */
-    public boolean applyRegistrationDigestChoice(final String tripId, final Registration registration) {
-        if (registration == null || !registration.getOptions().containsKey(DIGEST_REG_OPTION)) {
+    public boolean applyRegistrationDigestChoice(final Trip trip, final Registration registration) {
+        if (trip == null || registration == null
+                || !registration.getOptions().containsKey(DIGEST_REG_OPTION)) {
             return false;
         }
         final Person.Id who = registration.getUserId();
-        return setEmailPrefs(tripId, who, mentionEmailForTrip(tripId, who), digestChoice(registration));
+        if (!trip.getPeople().contains(who)) {
+            // Still gated -- a membership row is what puts someone in the channel -- but against the roster in
+            // hand, which approval has just made true, rather than against a cache that may not know yet.
+            log.warn("Not applying the chat digest choice: {} is not on trip {}", who, trip.getId());
+            return false;
+        }
+        final ChatChannel channel = ensureChannel(trip.getId(), AuditActor.current());
+        if (channel == null) {
+            return false;
+        }
+        final ChatMembership row = membershipRow(channel.getId(), who)
+                .orElseGet(() -> ChatMembership.joining(channel.getId(), who, channel.getCreated()));
+        final boolean digest = digestChoice(registration);
+        return dao().saveChatMembership(
+                row.withNotify(row.getNotify().withEmail(row.getNotify().isMentionEmail(), digest))).join();
     }
 
     /**
