@@ -17,12 +17,29 @@ import lombok.Value;
 @Value
 public class PipelineStatus implements Serializable {
 
-    /** Shown when nothing is configured, so the page still renders and explains itself. */
-    public static final PipelineStatus UNCONFIGURED = new PipelineStatus(
-            null, List.of(), null,
-            "No pipeline is configured for this deployment (TRIP_PIPELINE_NAME is unset), so there is nothing "
-                    + "to start or show. This is expected on a laptop and in tests.",
-            false, null);
+    /**
+     * Shown when nothing is configured, so the page still renders and explains itself.
+     *
+     * <p><b>The message differs by where it is read, because the remedy does.</b> On a laptop this state is
+     * correct and needs no action. On the deployed site it means one specific thing — the app image shipped
+     * through the pipeline, but {@code TRIP_PIPELINE_NAME} lives on the ECS task definition, which only CDK
+     * writes. Saying "expected on a laptop and in tests" to someone looking at production actively points them
+     * away from the fix, which is the one thing this message exists to give them.
+     *
+     * @param local whether this JVM is in local mode; see {@code LocalMode}.
+     */
+    public static PipelineStatus unconfigured(final boolean local) {
+        return new PipelineStatus(null, List.of(), null,
+                local
+                        ? "No pipeline is configured here (TRIP_PIPELINE_NAME is unset). That is expected on a "
+                                + "laptop and in tests; there is nothing to start or show."
+                        : "TRIP_PIPELINE_NAME is not set on this task, so there is nothing to start or show. "
+                                + "That variable and this page's IAM permissions both live on the ECS task "
+                                + "definition, which the release pipeline does not touch -- run "
+                                + "'cdk deploy TripApp' (from medjugorje/infra, with the cdk-deploy profile) "
+                                + "to apply them.",
+                false, null);
+    }
 
     String pipelineName;
     List<PipelineStageStatus> stages;

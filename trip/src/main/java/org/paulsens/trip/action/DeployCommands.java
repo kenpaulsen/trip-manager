@@ -15,6 +15,7 @@ import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.deploy.PipelineStageStatus;
@@ -81,7 +82,7 @@ public class DeployCommands {
     public PipelineStatus getStatus() {
         final String name = pipelineName();
         if (name == null) {
-            return PipelineStatus.UNCONFIGURED;
+            return PipelineStatus.unconfigured(FakeData.isLocal());
         }
         try {
             return toStatus(name, client().getPipelineState(req -> req.name(name)));
