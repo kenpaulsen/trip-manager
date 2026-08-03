@@ -38,10 +38,11 @@ public class DeployCommandsTest {
         // nothing here may reach for AWS credentials that are not there.
         Assert.assertFalse(deploy.isConfigured());
         final PipelineStatus status = deploy.getStatus();
-        Assert.assertSame(status, PipelineStatus.UNCONFIGURED);
         Assert.assertEquals(status.getOverall(), "Not configured");
         Assert.assertTrue(status.getStages().isEmpty());
         Assert.assertNotNull(status.getError(), "an unconfigured page still has to say why it is empty");
+        Assert.assertTrue(status.getError().contains("expected on a laptop"),
+                "in local mode this state is normal and the message should say so; got: " + status.getError());
     }
 
     @Test
@@ -176,5 +177,16 @@ public class DeployCommandsTest {
         AccessDeniedException(final String message) {
             super(message);
         }
+    }
+
+    @Test
+    public void unconfiguredOnTheDEPLOYEDSiteNamesTheCommandThatFixesIt() {
+        // The message a person actually hit in production. The app image ships through the release pipeline,
+        // but TRIP_PIPELINE_NAME and this page's IAM live on the ECS task definition, which only CDK writes --
+        // so "expected on a laptop and in tests" pointed them away from the single thing that fixes it.
+        final String error = PipelineStatus.unconfigured(false).getError();
+        Assert.assertTrue(error.contains("cdk deploy TripApp"), "should name the fix; got: " + error);
+        Assert.assertFalse(error.contains("expected on a laptop"),
+                "on the deployed site this state is NOT expected; got: " + error);
     }
 }
