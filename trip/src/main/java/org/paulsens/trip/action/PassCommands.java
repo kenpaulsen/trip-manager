@@ -89,6 +89,31 @@ public class PassCommands {
         return setPass(email, pass);
     }
 
+    /**
+     * Sets somebody else's password, authorized by privilege rather than by the {@code showAll} view flag.
+     *
+     * <p>The no-{@link Caller} form above reads {@code viewRoot.getViewMap().get("showAll")}, which the page
+     * template sets on every JSF render. That works, and it is unusable anywhere else: off a Faces thread there
+     * is no view map, so the check evaluates to "not an administrator" and the call silently returns false.
+     * It fails closed, which is the right direction, but it means the REST edge cannot reuse it at all.
+     *
+     * <p>This form asks for {@code peopleAdmin} instead. {@code showAll} is the legacy all-or-nothing admin flag
+     * and is being phased out, so new callers authorize by named privilege.
+     *
+     * <p>The check is made HERE and not only at the edge that called us. Resetting another person's password is
+     * the most consequential thing this class does, and an authorization that lives only in the caller is one
+     * refactor away from not being made at all.
+     */
+    public Boolean adminSetPass(final String email, final String pass, final Caller caller) {
+        if (Util.isBlank(email) || Util.isBlank(pass)) {
+            throw new IllegalArgumentException("Email or password is blank.");
+        }
+        if (caller == null || !caller.has(PrivilegeCommands.PEOPLE_ADMIN)) {
+            return false;
+        }
+        return setPass(email, pass);
+    }
+
     public Creds getCredsByAdmin(final String email, final Person.Id id) {
         if (Util.isBlank(email) || id == null) {
             throw new IllegalArgumentException("Email or password is blank.");

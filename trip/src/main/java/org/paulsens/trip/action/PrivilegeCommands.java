@@ -28,6 +28,31 @@ import org.paulsens.trip.model.Privilege;
 @Named("priv")
 @ApplicationScoped
 public class PrivilegeCommands {
+
+    /**
+     * The privilege names, spelled exactly as the XHTML pages spell them.
+     *
+     * <p>Here rather than at the REST edge because both edges need them and a typo is a silent open door -- a
+     * misspelled name matches no stored row, {@code check} answers false, and the feature simply stops working
+     * for everyone who is not a site administrator.
+     *
+     * <p>These are the replacement for the legacy all-or-nothing {@code showAll} flag, which is being phased
+     * out; new code authorizes by name.
+     */
+    public static final String PEOPLE_ADMIN = "peopleAdmin";
+    public static final String PRIVILEGE_ADMIN = "privilegeAdmin";
+    public static final String CONFIG_ADMIN = "configAdmin";
+    public static final String AUDIT_ADMIN = "auditAdmin";
+    public static final String MEDIA_ADMIN = "mediaAdmin";
+    public static final String EMAIL_ADMIN = "emailAdmin";
+    public static final String SITE_DEPLOYER = "siteDeployer";
+    public static final String TRIP_MGR = "tripMgr";
+    public static final String TRIP_VIEW = "tripView";
+    public static final String TRIP_FIN_VIEW = "tripFinView";
+    public static final String TRIP_FIN_ADMIN = "tripFinAdmin";
+    public static final String ADD_TRIP = "addTrip";
+    public static final String ADD_TX = "addTx";
+
     private static final long TIMEOUT = 5_000;
     private final DAO dao = DAO.getInstance();
 

@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
@@ -56,6 +57,24 @@ public class MailCommands {
             final String replyTo,
             final String subjectStr,
             final String bodyStr) {
+        return send(from, to, bcc, replyTo, subjectStr, bodyStr, AuditActor.current());
+    }
+
+    /**
+     * The same send, with the actor supplied by the caller.
+     *
+     * <p>The form above resolves it with {@link AuditActor#current()}, which reads {@code FacesContext} and so
+     * finds nobody on a JAX-RS thread. That is the same bug the comment below describes, one layer out: the
+     * record would be written, and it would name no sender.
+     */
+    public CompletableFuture<SendEmailResponse> send(
+            final String from,
+            final String to,
+            final String bcc,
+            final String replyTo,
+            final String subjectStr,
+            final String bodyStr,
+            final AuditActor who) {
         final Content subject = Content.builder()
                 .data(subjectStr)
                 .build();
@@ -102,7 +121,7 @@ public class MailCommands {
         // AuditActor.current() finds nothing -- so every EMAIL record was written with no actor at all. It
         // looked fine in review: the call was AuditActor.current(), same as everywhere else. It just was not
         // on the thread that has a request.
-        final AuditActor actor = AuditActor.current();
+        final AuditActor actor = (who == null) ? AuditActor.current() : who;
 
         return client.sendEmail(req)
                 .thenApply(r -> logAndReturn(actor, r, to, "Email '" + subjectStr + "' sent. Response: "
@@ -180,6 +199,24 @@ public class MailCommands {
         final ELUtil elUtil = ELUtil.getInstance();
         elUtil.setELValue("#{requestScope.to}", to);
         return String.valueOf(elUtil.eval(template));
+    }
+
+    /**
+     * Renders a template for one person without needing a {@code FacesContext}.
+     *
+     * <p>{@link #previewTemplate} evaluates through {@code ELUtil.eval}, which resolves against the Faces
+     * expression context. Off a Faces thread that yields null for the whole template and
+     * {@code String.valueOf} turns it into the literal text "null" -- so the preview does not fail, it
+     * cheerfully returns something that looks like a rendered result and is not one.
+     *
+     * <p>Uses {@code renderWithoutJsf}, which was written for exactly this and is what the mail templates
+     * already go through. Note its contract: a typo in a template throws {@code PropertyNotFoundException}
+     * rather than rendering blank, deliberately, so callers must contain that per recipient.
+     *
+     * <p>The variable is named {@code to} to match what the templates already reference.
+     */
+    public String renderTemplate(final Person to, final String template) {
+        return ELUtil.getInstance().renderWithoutJsf(template, Map.of("to", to));
     }
 
     public Collection<String> addRecipients(final Collection<String> current, final Collection<Person.Id> newPeople) {

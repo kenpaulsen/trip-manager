@@ -1,14 +1,20 @@
 package org.paulsens.trip.api;
 
+import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.HeaderParam;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.model.Config;
 import org.paulsens.trip.model.SettingDef;
 import org.paulsens.trip.model.SettingSection;
@@ -70,6 +76,83 @@ public class ConfigResource extends BaseResource {
         return ok(Beans.get(ConfigCommands.class).getUnknown().stream()
                 .map(ConfigResource::toDto)
                 .toList());
+    }
+
+    /**
+     * Saves declared settings by name.
+     *
+     * <p>Delegates to {@code saveKnown}, which diffs against what is stored and writes only what changed. That
+     * matters beyond efficiency: every write stamps a {@code modifiedBy}, so saving the whole sheet would
+     * rewrite that field on every setting and destroy the record of who last touched any of them.
+     *
+     * <p>Only declared names are accepted. An unrecognised key would create a row nothing reads -- exactly the
+     * orphans {@code GET /api/config/unknown} exists to surface.
+     */
+    @PUT
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response saveKnown(
+            @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, String> body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        if (!privileges().has(ApiPrivileges.CONFIG_ADMIN)) {
+            return error(403, ApiErrors.FORBIDDEN, "Config access required.");
+        }
+        if (body == null || body.isEmpty()) {
+            return error(400, ApiErrors.BAD_REQUEST, "No settings supplied.");
+        }
+        final List<String> undeclared = body.keySet().stream().filter(name -> !KnownSettings.isKnown(name)).toList();
+        if (!undeclared.isEmpty()) {
+            return error(400, ApiErrors.BAD_REQUEST, "Not declared settings: " + String.join(", ", undeclared));
+        }
+        final ConfigCommands config = Beans.get(ConfigCommands.class);
+        if (!config.saveKnown(body, modifiedBy())) {
+            return error(500, ApiErrors.STORE_FAILED, "Could not save the settings.");
+        }
+        return ok(Map.of("saved", body.keySet().stream().sorted().toList()));
+    }
+
+    /**
+     * Creates a setting that no declaration claims.
+     *
+     * <p>Kept because {@code ConfigCommands} supports it and an operator occasionally needs a value ahead of the
+     * code that will read it. Worth being clear it is the exception: a setting the code actually reads belongs
+     * in {@code KnownSettings}, where one declaration drives both the code and the admin page. Anything created
+     * here shows up under {@code /api/config/unknown} until a declaration catches up, which is the intended
+     * nudge rather than a fault.
+     */
+    @POST
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response createUndeclared(
+            @HeaderParam(CSRF_HEADER) final String csrf, final NewSetting body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        if (!privileges().has(ApiPrivileges.CONFIG_ADMIN)) {
+            return error(403, ApiErrors.FORBIDDEN, "Config access required.");
+        }
+        if (body == null || body.name() == null || body.name().isBlank()) {
+            return error(400, ApiErrors.BAD_REQUEST, "A setting needs a name.");
+        }
+        if (!Beans.get(ConfigCommands.class)
+                .saveNew(body.name(), body.value(), body.type(), body.description(), modifiedBy())) {
+            // saveNew reports its reason through a FacesMessage, which goes nowhere off a Faces thread, so the
+            // client gets a code rather than a growl it will never see.
+            return error(422, ApiErrors.VALIDATION_FAILED, "The setting was refused; check name, type and value.");
+        }
+        return ok(Map.of("saved", true, "name", body.name()));
+    }
+
+    /** A setting created outside the registry. */
+    public record NewSetting(String name, String value, String type, String description) {
+    }
+
+    /** Who to stamp on the row. The email, matching what the settings page records. */
+    private String modifiedBy() {
+        final String email = actor().email();
+        return email == null ? "api" : email;
     }
 
     private static Map<String, Object> toDto(final SettingSection section, final Map<String, String> values) {

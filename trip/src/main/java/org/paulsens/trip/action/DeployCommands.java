@@ -102,6 +102,17 @@ public class DeployCommands {
      * @return the new execution id, or null if nothing was started.
      */
     public String start() {
+        return start(AuditActor.current());
+    }
+
+    /**
+     * Starts the pipeline, recording {@code who} as the actor.
+     *
+     * <p>The no-arg form resolves the actor through {@code FacesContext}, so a deploy triggered over the API
+     * would be recorded as having been started by nobody. Starting a deployment is billable and changes what is
+     * running in production; "somebody deployed" is not an acceptable audit record for it.
+     */
+    public String start(final AuditActor who) {
         final String name = pipelineName();
         if (name == null) {
             growl(FacesMessage.SEVERITY_ERROR, "No pipeline configured",
@@ -110,7 +121,7 @@ public class DeployCommands {
         }
         // Captured on the request thread: AuditActor reads FacesContext, a ThreadLocal, so it must not be
         // resolved from inside anything that might run elsewhere later.
-        final AuditActor actor = AuditActor.current();
+        final AuditActor actor = (who == null) ? AuditActor.current() : who;
         final PipelineStatus current = getStatus();
         if (current.isRunning()) {
             growl(FacesMessage.SEVERITY_WARN, "Already deploying",

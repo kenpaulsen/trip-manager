@@ -22,8 +22,9 @@ public class ApiSurfaceTest {
 
     private static final List<Class<?>> RESOURCES = List.of(
             AuditResource.class, AuthResource.class, ChatAdminResource.class, ChatResource.class,
-            ConfigResource.class, PaymentsResource.class, PeopleResource.class, RegistrationsResource.class,
-            TodosResource.class, TransactionsResource.class, TripsResource.class);
+            ConfigResource.class, DeployResource.class, MailResource.class, PaymentsResource.class,
+            PeopleResource.class, PrivilegesResource.class, RegistrationsResource.class, TodosResource.class,
+            TransactionsResource.class, TripsResource.class);
 
     @Test
     public void theAuditTrailIsReadOnlyAndMustStayThatWay() {
