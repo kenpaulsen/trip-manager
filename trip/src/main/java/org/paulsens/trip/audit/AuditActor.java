@@ -3,6 +3,7 @@ package org.paulsens.trip.audit;
 import jakarta.faces.context.FacesContext;
 import jakarta.servlet.http.HttpSession;
 import java.util.Map;
+import org.paulsens.trip.model.Person;
 
 /**
  * Who is doing the thing being audited.
@@ -66,9 +67,24 @@ public record AuditActor(String email, String id) {
         return email != null || id != null;
     }
 
+    /**
+     * The session's userId as a bare id string.
+     *
+     * <p>It may be a {@link Person.Id} or a plain String depending on which page set it -- {@code login-pass.xhtml}
+     * assigns the object, {@code template.xhtml} assigns a String -- so both have to be handled.
+     *
+     * <p>{@code toString()} alone does NOT handle the object case, which is what this used to rely on. The old
+     * comment reasoned that "Person.Id serializes to its value", and it does -- but that is {@code @JsonValue},
+     * which governs Jackson, not {@code toString()}. {@code Person.Id} is a Lombok {@code @Value} with no
+     * {@code toString()} override, so it renders as {@code Person.Id(value=abc)} and every audit record written
+     * from a session that stored the object got that as its actor id: still non-null, still "known", and useless
+     * for correlating a person's actions or filtering the admin audit page by actor.
+     */
     private static String str(final Object value) {
-        // userId may be a Person.Id or a plain String depending on the page that set it; toString covers both
-        // because Person.Id serializes to its value.
-        return (value == null) ? null : value.toString();
+        return switch (value) {
+            case null -> null;
+            case Person.Id id -> id.getValue();
+            default -> value.toString();
+        };
     }
 }

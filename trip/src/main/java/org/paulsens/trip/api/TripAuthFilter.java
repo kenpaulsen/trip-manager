@@ -16,16 +16,17 @@ import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.model.Person;
 
 /**
- * Session auth for chat API. Never creates a session ({@code getSession(false)}). Sets
- * {@code personId} property for the resource. Returns 401 JSON — never {@code sendError} (that hits the
- * default HTML error page).
+ * Session auth for the whole API. Never creates a session ({@code getSession(false)}) -- only
+ * {@code AuthResource.login} may do that. Sets the {@code personId} property for the resource. Returns 401 JSON,
+ * never {@code sendError}, which would hit the default HTML error page and hand a mobile client an HTML body
+ * where it expects JSON.
  */
 @Provider
-@ChatApi
+@TripApi
 @Priority(Priorities.AUTHENTICATION)
-public class ChatAuthFilter implements ContainerRequestFilter {
+public class TripAuthFilter implements ContainerRequestFilter {
 
-    public static final String PERSON_ID_PROP = "chat.personId";
+    public static final String PERSON_ID_PROP = "trip.personId";
 
     @Context
     private HttpServletRequest request;
@@ -34,12 +35,12 @@ public class ChatAuthFilter implements ContainerRequestFilter {
     public void filter(final ContainerRequestContext ctx) throws IOException {
         final HttpSession session = request.getSession(false);
         if (session == null) {
-            abort(ctx, 401, ChatErrors.NOT_AUTHENTICATED, "Sign in required.");
+            abort(ctx, 401, ApiErrors.NOT_AUTHENTICATED, "Sign in required.");
             return;
         }
         final Object raw = session.getAttribute(PersonCommands.ACTIVE_USER_ID);
         if (raw == null) {
-            abort(ctx, 401, ChatErrors.NOT_AUTHENTICATED, "Sign in required.");
+            abort(ctx, 401, ApiErrors.NOT_AUTHENTICATED, "Sign in required.");
             return;
         }
         final Person.Id personId = raw instanceof Person.Id pid ? pid : Person.Id.from(raw.toString());

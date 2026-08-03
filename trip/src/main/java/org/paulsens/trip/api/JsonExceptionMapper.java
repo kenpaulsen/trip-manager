@@ -33,6 +33,13 @@ public class JsonExceptionMapper implements ExceptionMapper<Throwable> {
                     .entity(body)
                     .build();
         }
+        // A bean rejecting its arguments is the CALLER's fault, not the server's. Without this branch it falls
+        // through to the catch-all below and reports 500 INTERNAL, which tells a client to retry a request that
+        // will fail identically every time, and puts a stack trace in the log for what is really a 400.
+        if (exception instanceof IllegalArgumentException) {
+            return json(400, ApiErrors.BAD_REQUEST,
+                    exception.getMessage() == null ? "Invalid request." : exception.getMessage());
+        }
         if (exception instanceof WebApplicationException wae) {
             final Response existing = wae.getResponse();
             if (existing != null && existing.hasEntity()) {

@@ -1,7 +1,5 @@
 package org.paulsens.trip.api;
 
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpSession;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
@@ -14,7 +12,6 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
-import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.NotAuthorizedException;
 import jakarta.ws.rs.container.AsyncResponse;
@@ -24,13 +21,10 @@ import java.time.Instant;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.paulsens.trip.action.ChatCommands;
-import org.paulsens.trip.action.PersonCommands;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.chat.ChatNudgeRegistry;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.chat.ChatChannel;
@@ -44,15 +38,17 @@ import org.paulsens.trip.model.chat.ChatReactionSummary;
  */
 @Slf4j
 @Path("chat/channels/{channelId}")
-@ChatApi
-public class ChatResource {
+@TripApi
+public class ChatResource extends BaseResource {
 
-    private static final String V1 = ChatCommands.MEDIA_TYPE_V1;
+    private static final String V1 = ApiMediaTypes.CHAT_V1;
     /** Caps the hold well inside the ALB's 60s idle timeout, whatever a client asks for. */
     private static final int MAX_WAIT_SECONDS = 25;
 
-    @Context
-    private HttpServletRequest request;
+    @Override
+    protected String versionedType() {
+        return V1;
+    }
 
     /**
      * The feed. Returns immediately when there is anything to return; with {@code wait=N} an empty poll suspends for
@@ -258,7 +254,7 @@ public class ChatResource {
             @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf,
             @HeaderParam("Content-Type") final String contentType,
             final Map<String, Object> body) {
-        if (csrf == null || !"1".equals(csrf.trim())) {
+        if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
         }
         if (contentType == null || !(contentType.contains("vnd.trip.chat") || contentType.contains("json"))) {
@@ -310,7 +306,7 @@ public class ChatResource {
             @PathParam("channelId") final String channelId,
             @PathParam("msgId") final String msgId,
             @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf) {
-        if (csrf == null || !"1".equals(csrf.trim())) {
+        if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
         }
         final Person.Id me = personId();
@@ -346,7 +342,7 @@ public class ChatResource {
             @PathParam("msgId") final String msgId,
             @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf,
             final Map<String, Object> body) {
-        if (csrf == null || !"1".equals(csrf.trim())) {
+        if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
         }
         final Person.Id me = personId();
@@ -394,7 +390,7 @@ public class ChatResource {
             @PathParam("channelId") final String channelId,
             @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf,
             final Map<String, Object> body) {
-        if (csrf == null || !"1".equals(csrf.trim())) {
+        if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
         }
         final String tripId = tripIdOf(channelId);
@@ -444,7 +440,7 @@ public class ChatResource {
             final String emoji,
             final String csrf,
             final boolean add) {
-        if (csrf == null || !"1".equals(csrf.trim())) {
+        if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
         }
         final Person.Id me = personId();
@@ -538,7 +534,7 @@ public class ChatResource {
     public Response join(
             @PathParam("channelId") final String channelId,
             @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf) {
-        if (csrf == null || !"1".equals(csrf.trim())) {
+        if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
         }
         final String tripId = tripIdOf(channelId);
@@ -556,7 +552,7 @@ public class ChatResource {
     public Response leave(
             @PathParam("channelId") final String channelId,
             @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf) {
-        if (csrf == null || !"1".equals(csrf.trim())) {
+        if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
         }
         final String tripId = tripIdOf(channelId);
@@ -605,36 +601,6 @@ public class ChatResource {
         return "Not permitted.";
     }
 
-    private Person.Id personId() {
-        final Object prop = request.getAttribute(ChatAuthFilter.PERSON_ID_PROP);
-        if (prop instanceof Person.Id pid) {
-            return pid;
-        }
-        final HttpSession session = request.getSession(false);
-        if (session != null) {
-            final Object raw = session.getAttribute(PersonCommands.ACTIVE_USER_ID);
-            if (raw instanceof Person.Id pid) {
-                return pid;
-            }
-            if (raw != null) {
-                return Person.Id.from(raw.toString());
-            }
-        }
-        throw new jakarta.ws.rs.NotAuthorizedException("Sign in required.");
-    }
-
-    /**
-     * Site-admin status read from the session, because the ordinary check goes through {@code FacesContext} and
-     * there is none here. Without this a site administrator is refused every moderation action over the API.
-     */
-    private boolean isSiteAdmin() {
-        return PersonCommands.hasRole(request.getSession(false), "admin");
-    }
-
-    private AuditActor actor() {
-        return AuditActor.from(request.getSession(false));
-    }
-
     /**
      * The trip behind a channel id. Requires the {@code trip:} prefix rather than accepting a bare trip id: the
      * prefix is what lets {@code dm:} and topic channels share this table later, and a lenient parse would read a
@@ -650,38 +616,5 @@ public class ChatResource {
 
     private static String string(final Object o) {
         return o == null ? null : o.toString();
-    }
-
-    /**
-     * Vary: Accept is mandatory, not optional. With the version in the media type the URLs for v1 and a future v2
-     * are byte-identical, so any cache keyed on URL alone -- including the browser's -- would happily hand a v1
-     * body to a v2 request. There is no CDN in front of this app, which makes the browser cache the live risk.
-     */
-    private Response ok(final Object entity) {
-        return Response.ok(entity)
-                .type(negotiatedType())
-                .header("Vary", "Accept")
-                .build();
-    }
-
-    /**
-     * Echoes the versioned media type when the caller asked for it, so a client can confirm which version it got.
-     * Absent or wildcard Accept resolves to v1 -- the OLDEST supported version, never the newest, so a released
-     * mobile build cannot silently change behaviour the day a v2 ships.
-     */
-    private String negotiatedType() {
-        final String accept = request == null ? null : request.getHeader("Accept");
-        return accept != null && accept.contains("vnd.trip.chat.v1") ? V1 : MediaType.APPLICATION_JSON;
-    }
-
-    private Response error(final int status, final String code, final String message) {
-        final Map<String, Object> body = new LinkedHashMap<>();
-        body.put("error", code);
-        body.put("message", message);
-        return Response.status(status)
-                .type(negotiatedType())
-                .header("Vary", "Accept")
-                .entity(body)
-                .build();
     }
 }

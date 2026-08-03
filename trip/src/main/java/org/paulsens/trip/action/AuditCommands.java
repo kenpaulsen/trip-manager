@@ -33,6 +33,22 @@ import org.paulsens.trip.util.Util;
  *
  * <p>Every method RETURNS the message it recorded, because several pages send the same text as a notification
  * email -- that is why they built the string themselves in the first place.
+ *
+ * <h2>The {@code AuditActor} overloads, and why they are not a loophole</h2>
+ *
+ * <p>Every method has a sibling taking an explicit {@link AuditActor}. That looks like it reopens the second
+ * problem above -- callers choosing an actor, and choosing wrong -- so it is worth being precise about what
+ * changed and what did not.
+ *
+ * <p>The invariant is still "the actor is the signed-in session". What varies is only HOW that session is
+ * reached. {@link AuditActor#current()} finds it through {@code FacesContext}, a ThreadLocal that exists only on
+ * a JSF request; on a JAX-RS thread it returns an empty actor, silently, and the write still succeeds. So a REST
+ * caller that could not pass an actor would not get the safe old behaviour -- it would get NO attribution at
+ * all, which is strictly worse than the bug this class was written to fix.
+ *
+ * <p>The overloads therefore take an actor resolved by {@link AuditActor#from(jakarta.servlet.http.HttpSession)}
+ * -- the same session, the same two keys, read without {@code FacesContext}. Pages keep calling the no-arg forms
+ * and still cannot pass one. Nothing may pass an actor it did not get from the caller's own session.
  */
 @Slf4j
 @Named("audit")
@@ -62,46 +78,83 @@ public class AuditCommands {
      * @param what   the change, e.g. "EDITED" or "DELETED".
      */
     public String person(final Person target, final String what) {
+        return person(target, what, AuditActor.current());
+    }
+
+    /** @see #person(Person, String) */
+    public String person(final Person target, final String what, final AuditActor who) {
         final String msg = what + " " + describe(target);
-        return record(AuditAction.PERSON, AuditOutcome.SUCCESS, target, msg);
+        return record(AuditAction.PERSON, AuditOutcome.SUCCESS, target, msg, who);
     }
 
     /** An account's login address changed, which is the event that makes older records look misattributed. */
     public String loginChanged(final Person target, final String oldEmail) {
+        return loginChanged(target, oldEmail, AuditActor.current());
+    }
+
+    /** @see #loginChanged(Person, String) */
+    public String loginChanged(final Person target, final String oldEmail, final AuditActor who) {
         final String msg = "Login for " + describe(target) + " changed from " + oldEmail
                 + " to " + emailOf(target);
-        return record(AuditAction.PERSON, AuditOutcome.SUCCESS, target, msg);
+        return record(AuditAction.PERSON, AuditOutcome.SUCCESS, target, msg, who);
     }
 
     /** Credentials were removed, so this person can no longer sign in. */
     public String credentialsRemoved(final Person target) {
+        return credentialsRemoved(target, AuditActor.current());
+    }
+
+    /** @see #credentialsRemoved(Person) */
+    public String credentialsRemoved(final Person target, final AuditActor who) {
         final String msg = "Credentials removed for " + describe(target);
-        return record(AuditAction.DELETE_CREDS, AuditOutcome.SUCCESS, target, msg);
+        return record(AuditAction.DELETE_CREDS, AuditOutcome.SUCCESS, target, msg, who);
     }
 
     /** Someone registered for a trip. */
     public String registered(final Person target, final Trip trip) {
+        return registered(target, trip, AuditActor.current());
+    }
+
+    /** @see #registered(Person, Trip) */
+    public String registered(final Person target, final Trip trip, final AuditActor who) {
         final String msg = describe(target) + " just registered for the '" + titleOf(trip) + "' trip.";
-        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg);
+        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who);
     }
 
     /** A registration was moved between trips. */
     public String registrationMoved(final Person target, final Trip from, final Trip to) {
-        final String msg = actorEmail() + " moved " + describe(target)
+        return registrationMoved(target, from, to, AuditActor.current());
+    }
+
+    /** @see #registrationMoved(Person, Trip, Trip) */
+    public String registrationMoved(
+            final Person target, final Trip from, final Trip to, final AuditActor who) {
+        final String msg = actorEmail(who) + " moved " + describe(target)
                 + " from '" + titleOf(from) + "' to '" + titleOf(to) + "'.";
-        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg);
+        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who);
     }
 
     /** A registration was cancelled. */
     public String registrationRemoved(final Person target, final Trip trip) {
+        return registrationRemoved(target, trip, AuditActor.current());
+    }
+
+    /** @see #registrationRemoved(Person, Trip) */
+    public String registrationRemoved(final Person target, final Trip trip, final AuditActor who) {
         final String msg = describe(target) + " was removed from '" + titleOf(trip) + "'.";
-        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg);
+        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who);
     }
 
     /** A todo item's status changed for someone. */
     public String todoStatus(final Person target, final String description, final String status) {
+        return todoStatus(target, description, status, AuditActor.current());
+    }
+
+    /** @see #todoStatus(Person, String, String) */
+    public String todoStatus(
+            final Person target, final String description, final String status, final AuditActor who) {
         final String msg = "Set '" + description + "' to " + status + " for " + describe(target);
-        return record(AuditAction.TODO, AuditOutcome.SUCCESS, target, msg);
+        return record(AuditAction.TODO, AuditOutcome.SUCCESS, target, msg, who);
     }
 
     /**
@@ -114,10 +167,16 @@ public class AuditCommands {
      * itself still carried actorEmail; the human-readable half is what regressed.
      */
     public String transaction(final Person target, final Transaction tx) {
-        final String msg = describeActor() + " recorded $" + amountOf(tx) + " (" + noteOf(tx) + ") for "
+        return transaction(target, tx, AuditActor.current());
+    }
+
+    /** @see #transaction(Person, Transaction) */
+    public String transaction(final Person target, final Transaction tx, final AuditActor who) {
+        final AuditActor actor = (who == null) ? AuditActor.current() : who;
+        final String msg = describeActor(actor) + " recorded $" + amountOf(tx) + " (" + noteOf(tx) + ") for "
                 + describe(target);
         final AuditEventBuilder builder = Audit.builder(AuditAction.TRANSACTION, AuditOutcome.SUCCESS)
-                .actor(AuditActor.current())
+                .actor(actor)
                 .targetPerson(target)
                 .message(msg);
         if (tx != null && tx.getTxId() != null) {
@@ -148,14 +207,19 @@ public class AuditCommands {
      * performed by the person being impersonated, and nothing anywhere records that a switch happened.
      */
     public String impersonation(final Person target) {
-        final String msg = actorEmail() + " is now acting as " + describe(target);
-        return record(AuditAction.IMPERSONATION, AuditOutcome.SUCCESS, target, msg);
+        return impersonation(target, AuditActor.current());
+    }
+
+    /** @see #impersonation(Person) */
+    public String impersonation(final Person target, final AuditActor who) {
+        final String msg = actorEmail(who) + " is now acting as " + describe(target);
+        return record(AuditAction.IMPERSONATION, AuditOutcome.SUCCESS, target, msg, who);
     }
 
     private static String record(final AuditAction action, final AuditOutcome outcome, final Person target,
-            final String msg) {
+            final String msg, final AuditActor who) {
         Audit.builder(action, outcome)
-                .actor(AuditActor.current())
+                .actor(who == null ? AuditActor.current() : who)
                 .targetPerson(target)
                 .message(msg)
                 .log();
@@ -183,8 +247,8 @@ public class AuditCommands {
         }
     }
 
-    private static String actorEmail() {
-        final AuditActor actor = AuditActor.current();
+    private static String actorEmail(final AuditActor who) {
+        final AuditActor actor = (who == null) ? AuditActor.current() : who;
         return (actor.email() == null) ? "Someone" : actor.email();
     }
 
@@ -197,8 +261,8 @@ public class AuditCommands {
      *
      * <p>Falls back to the bare email, then to "Someone". A missing name must never cost us the record.
      */
-    private static String describeActor() {
-        final AuditActor actor = AuditActor.current();
+    private static String describeActor(final AuditActor who) {
+        final AuditActor actor = (who == null) ? AuditActor.current() : who;
         if (actor.email() == null) {
             return "Someone";
         }

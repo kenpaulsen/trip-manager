@@ -69,6 +69,18 @@ public class PrivilegeCommands {
     }
 
     public boolean savePrivilege(final Privilege privilege) {
+        return savePrivilege(privilege, AuditActor.current());
+    }
+
+    /**
+     * Saves a privilege, recording {@code who} as the actor.
+     *
+     * <p>The no-arg form resolves the actor with {@link AuditActor#current()}, which reads {@code FacesContext}.
+     * On a JAX-RS thread there is no {@code FacesContext} and that returns an empty actor -- silently, with a
+     * successful save. A privilege change is exactly the record you go looking for months later, and "somebody
+     * granted site-admin to this person" is not an answer, so the REST edge passes the session-derived actor.
+     */
+    public boolean savePrivilege(final Privilege privilege, final AuditActor who) {
         if ((privilege == null) || (privilege.getId() == null) || privilege.getId().isBlank()) {
             throw new IllegalStateException("Cannot save a privilege without a name!");
         }
@@ -84,7 +96,7 @@ public class PrivilegeCommands {
         // Audited here rather than at the pages, because there are three call sites and one of them (the trip
         // editor's manager checkboxes) grants privileges without ever mentioning the word.
         Audit.builder(AuditAction.PRIVILEGE, AuditOutcome.of(saved))
-                .actor(AuditActor.current())
+                .actor(who == null ? AuditActor.current() : who)
                 .target(AuditEventBuilder.TARGET_PRIVILEGE, privilege.getId())
                 .message(describeChange(privilege, before))
                 .log();

@@ -14,6 +14,9 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- One version for the mapstruct dependency and its processor; they must not drift. -->
+        <mapstruct.version>1.6.3</mapstruct.version>
+        <lombok.version>1.18.44</lombok.version>
     </properties>
 
     <dependencies>
@@ -117,6 +120,16 @@
             <version>3.1.10</version>
         </dependency>
         <!--
+            MapStruct maps domain models to the api/dto records. Compile-time only: it generates plain Java, so
+            it adds nothing to the runtime and needs no jlink module (contrast jdk.net, whose omission 500s any
+            page touching S3). The processor itself is wired in annotationProcessorPaths below, NOT here.
+        -->
+        <dependency>
+            <groupId>org.mapstruct</groupId>
+            <artifactId>mapstruct</artifactId>
+            <version>${mapstruct.version}</version>
+        </dependency>
+        <!--
             NOTE: jersey-test-framework is deliberately NOT a dependency. JerseyTest is JUnit 5 based, and
             pulling junit-jupiter onto this module's test classpath is what silently disabled the entire TestNG
             suite (see the surefire pin below). Resource behaviour is covered instead by TestNG tests against
@@ -218,6 +231,33 @@
                     <source>25</source>
                     <target>25</target>
                     <release>25</release>
+                    <!--
+                        Declaring annotationProcessorPaths HERE overrides the parent's (trip/pom.xml), it does
+                        not add to it. Lombok is therefore re-listed explicitly: drop it and every @Getter in
+                        the module vanishes and the build collapses.
+
+                        Order is load-bearing. lombok-mapstruct-binding makes MapStruct wait for Lombok to
+                        generate accessors; without it MapStruct runs first, sees a model class with no
+                        getters, and emits a mapper that silently maps NOTHING. It compiles and the tests that
+                        catch it are the round-trip ones.
+                    -->
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok-mapstruct-binding</artifactId>
+                            <version>0.2.0</version>
+                        </path>
+                        <path>
+                            <groupId>org.mapstruct</groupId>
+                            <artifactId>mapstruct-processor</artifactId>
+                            <version>${mapstruct.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
                 </configuration>
             </plugin>
             <plugin>
