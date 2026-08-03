@@ -129,8 +129,7 @@ public class AuthResource extends BaseResource {
     @TripApi
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response me() {
-        final Person.Id me = personId();
-        final Person person = Beans.get(PersonCommands.class).getPerson(me);
+        final Person person = findPerson(personId());
         if (person == null) {
             // The session names a person who is no longer there -- a deleted account with a live session.
             return error(404, ApiErrors.NOT_FOUND, "Signed-in person not found.");

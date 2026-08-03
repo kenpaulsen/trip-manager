@@ -37,6 +37,15 @@ public abstract class BaseResource {
     protected HttpServletRequest request;
 
     /**
+     * Memoized per request, which is safe because JAX-RS creates a resource instance per request.
+     *
+     * <p>Worth doing rather than rebuilding on each call: {@link #privileges()} is asked inside list filters --
+     * {@code TripsResource} consults it twice per trip -- and each construction costs two CDI lookups, so a
+     * fifty-trip listing was doing two hundred of them to answer a question whose inputs cannot change mid-request.
+     */
+    private ApiPrivileges cachedPrivileges;
+
+    /**
      * This resource's versioned media type, from {@link ApiMediaTypes}. Drives both what is echoed in
      * {@code Content-Type} and what an {@code Accept} header is matched against.
      */
@@ -115,7 +124,30 @@ public abstract class BaseResource {
 
     /** The authorization gate for this caller. Every endpoint that is not purely self-scoped consults it. */
     protected ApiPrivileges privileges() {
-        return ApiPrivileges.of(request.getSession(false), personId());
+        if (cachedPrivileges == null) {
+            cachedPrivileges = ApiPrivileges.of(request.getSession(false), personId());
+        }
+        return cachedPrivileges;
+    }
+
+    /**
+     * The person with this id, or {@code null} if there is no such person.
+     *
+     * <p>{@code PersonCommands.getPerson} does NOT answer null on a miss -- it answers
+     * {@code new Person()}, whose constructor mints a fresh random id. That is a reasonable default for a JSF
+     * page binding a form to "the person being edited", and it is a trap for a resource: a plain
+     * {@code person == null} check never fires, so a GET for a nonexistent id returns a blank stranger with a
+     * made-up id instead of a 404, and a PUT applies the request body to that blank object and SAVES it,
+     * creating a junk row on every write to an id that does not exist.
+     *
+     * <p>The fresh id is what makes the miss detectable: a real record's id equals the one that was asked for.
+     */
+    protected static Person findPerson(final Person.Id id) {
+        if (id == null) {
+            return null;
+        }
+        final Person person = Beans.get(PersonCommands.class).getPerson(id);
+        return (person == null || !id.equals(person.getId())) ? null : person;
     }
 
     /**

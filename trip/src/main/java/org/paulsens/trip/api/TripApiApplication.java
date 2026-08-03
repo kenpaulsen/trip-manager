@@ -21,6 +21,9 @@ public class TripApiApplication extends Application {
         return Set.of(
                 AuthResource.class,
                 ChatResource.class,
+                PeopleResource.class,
+                RegistrationsResource.class,
+                TripsResource.class,
                 TripAuthFilter.class,
                 JsonExceptionMapper.class,
                 // Must accompany JacksonFeature: without it Jackson uses a default mapper with no JavaTimeModule
