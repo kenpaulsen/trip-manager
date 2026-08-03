@@ -19,9 +19,11 @@ public class TripApiApplication extends Application {
     @Override
     public Set<Class<?>> getClasses() {
         return Set.of(
+                AuditResource.class,
                 AuthResource.class,
                 ChatAdminResource.class,
                 ChatResource.class,
+                ConfigResource.class,
                 PaymentsResource.class,
                 PeopleResource.class,
                 RegistrationsResource.class,
