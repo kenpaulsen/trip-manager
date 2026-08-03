@@ -24,6 +24,7 @@ public final class ApiMediaTypes {
     public static final String TRIPS_V1 = "application/vnd.trip.trips.v1+json";
     public static final String REGISTRATIONS_V1 = "application/vnd.trip.registrations.v1+json";
     public static final String TODOS_V1 = "application/vnd.trip.todos.v1+json";
+    public static final String CHAT_ADMIN_V1 = "application/vnd.trip.chatadmin.v1+json";
     public static final String TRANSACTIONS_V1 = "application/vnd.trip.transactions.v1+json";
     public static final String PAYMENTS_V1 = "application/vnd.trip.payments.v1+json";
     public static final String MEDIA_V1 = "application/vnd.trip.media.v1+json";

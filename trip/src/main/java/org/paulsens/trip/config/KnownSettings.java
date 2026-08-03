@@ -138,6 +138,18 @@ public final class KnownSettings {
                     + "variation selector is a different entry. Reactions already stored with a removed emoji "
                     + "stay in the data but stop being offered.");
 
+    // --- payments ---
+
+    public static final SettingDef PAYMENT_RETURN_URL_PREFIXES = new SettingDef(
+            "payment.returnUrl.allowedPrefixes", Config.Type.STRING,
+            "https://my.centermirmedjugorje.com,https://www.visitqueenofpeace.com,https://visitqueenofpeace.com",
+            "Allowed payment return addresses",
+            "Comma-separated. A mobile app supplies its own return and cancel address for a PayPal payment, and "
+                    + "anything not starting with one of these is refused. Without the check the payment "
+                    + "endpoint is an open redirect: an attacker borrows our PayPal flow to make their own page "
+                    + "look like part of this site. Add an app's custom scheme (e.g. trip://) here before "
+                    + "shipping it, not after.");
+
     private static final List<SettingSection> SECTIONS = List.of(
             new SettingSection("Home page", null,
                     List.of(HOME_BANNER_ENABLED, HOME_BANNER_TEXT)),
@@ -156,7 +168,11 @@ public final class KnownSettings {
                             CHAT_AUTO_MUTE_LADDER_MINUTES, CHAT_AUTO_MUTE_TIER_DECAY_HOURS,
                             CHAT_ALARM_DEDUPE_WINDOW_SECONDS)),
             new SettingSection("Chat appearance", null,
-                    List.of(CHAT_REACTIONS_PALETTE, CHAT_BACKGROUND_COLORS, CHAT_BACKGROUND_IMAGE)));
+                    List.of(CHAT_REACTIONS_PALETTE, CHAT_BACKGROUND_COLORS, CHAT_BACKGROUND_IMAGE)),
+            new SettingSection("Payments",
+                    "Only applies to payments started through the API. The web checkout derives its return "
+                            + "address from the page the payer was on and never consults this.",
+                    List.of(PAYMENT_RETURN_URL_PREFIXES)));
 
     private static final Map<String, SettingDef> BY_NAME = index();
 

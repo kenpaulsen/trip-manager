@@ -100,27 +100,11 @@ public class PayCommands {
             return;
         }
         try {
-            final String returnUrl = buildCurrentUrl(tripId, false);
-            final String cancelUrl = buildCurrentUrl(tripId, true);
-            final String invoiceId = genInvoiceId();
-
-            final ApiResponse<Order> response = PayPalClient.getInstance()
-                    .createOrder(payer, userId, amount, invoiceId, "CFPW", description, returnUrl, cancelUrl)
-                    .orTimeout(10_000, TimeUnit.MILLISECONDS)
-                    .join();
-
-            if (response == null || response.getResult() == null) {
-                log.error("Null response from PayPal createOrder for userId={}", userId);
+            final Optional<String> approvalUrl = createApprovalUrl(payer, userId, amount, description,
+                    buildCurrentUrl(tripId, false), buildCurrentUrl(tripId, true));
+            if (approvalUrl.isEmpty()) {
                 TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
                         "Payment Error", "Unable to create payment. Please try again.");
-                return;
-            }
-
-            final Optional<String> approvalUrl = PayPalClient.getInstance().getApprovalUrl(response.getResult());
-            if (approvalUrl.isEmpty()) {
-                log.error("No approval URL in PayPal order response for userId={}", userId);
-                TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                        "Payment Error", "Unable to get payment URL from PayPal. Please try again.");
                 return;
             }
 
@@ -277,6 +261,43 @@ public class PayCommands {
      * @param tripId      Optional trip ID to preserve in the URL.
      * @param isCancelUrl If {@code true}, appends {@code &cancelled=true}.
      */
+    /**
+     * Creates a PayPal order and returns the URL the payer must be sent to, without sending them there.
+     *
+     * <p>Split out of {@link #initPayment} for callers that have nowhere to redirect TO. {@code initPayment}
+     * derives its return and cancel URLs from the current servlet request and then hands the browser to PayPal
+     * with {@code ExternalContext.redirect}; a native mobile client has neither a servlet request to derive
+     * from nor a browser to redirect, so it supplies its own URLs -- a universal link or a custom scheme -- and
+     * opens the result itself.
+     *
+     * <p>The caller is responsible for validating any URL that came from a client. See
+     * {@code PaymentsResource}: an unvalidated return URL turns this into an open redirect that borrows the
+     * site's PayPal flow to lend credibility to somebody else's page.
+     *
+     * @return the approval URL, or empty if PayPal declined to create the order.
+     */
+    public Optional<String> createApprovalUrl(
+            final Person payer,
+            final Person.Id userId,
+            final Float amount,
+            final String description,
+            final String returnUrl,
+            final String cancelUrl) {
+        final ApiResponse<Order> response = PayPalClient.getInstance()
+                .createOrder(payer, userId, amount, genInvoiceId(), "CFPW", description, returnUrl, cancelUrl)
+                .orTimeout(10_000, TimeUnit.MILLISECONDS)
+                .join();
+        if (response == null || response.getResult() == null) {
+            log.error("Null response from PayPal createOrder for userId={}", userId);
+            return Optional.empty();
+        }
+        final Optional<String> approvalUrl = PayPalClient.getInstance().getApprovalUrl(response.getResult());
+        if (approvalUrl.isEmpty()) {
+            log.error("No approval URL in PayPal order response for userId={}", userId);
+        }
+        return approvalUrl;
+    }
+
     private String buildCurrentUrl(final String tripId, final boolean isCancelUrl) {
         final FacesContext fc = FacesContext.getCurrentInstance();
         final HttpServletRequest req = (HttpServletRequest) fc.getExternalContext().getRequest();

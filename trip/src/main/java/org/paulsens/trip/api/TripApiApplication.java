@@ -20,9 +20,13 @@ public class TripApiApplication extends Application {
     public Set<Class<?>> getClasses() {
         return Set.of(
                 AuthResource.class,
+                ChatAdminResource.class,
                 ChatResource.class,
+                PaymentsResource.class,
                 PeopleResource.class,
                 RegistrationsResource.class,
+                TodosResource.class,
+                TransactionsResource.class,
                 TripsResource.class,
                 TripAuthFilter.class,
                 JsonExceptionMapper.class,

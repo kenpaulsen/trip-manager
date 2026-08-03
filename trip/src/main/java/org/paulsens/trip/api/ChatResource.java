@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.paulsens.trip.action.ChatCommands;
@@ -583,6 +584,184 @@ public class ChatResource extends BaseResource {
         // materially different act from scrolling, so it is audited with the count, per the design.
         chat.auditExport(tripId, page.getMessages().size(), actor());
         return ok(page);
+    }
+
+    // --- roster, preferences and moderation ---
+    //
+    // These live here, on the channel path, rather than in a second resource rooted at "chat". A resource at
+    // "chat" declaring a "channels/..." sub-path would overlap this one's "chat/channels/{channelId}", which is
+    // a routing ambiguity nobody wants to debug. The non-channel-scoped listing is ChatAdminResource's.
+
+    /** Who is in this chat, and in what state. Members see the roster; it is how mentions get built. */
+    @GET
+    @Path("roster")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response roster(@PathParam("channelId") final String channelId) {
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        final ChatCommands chat = ChatCommands.getChatCommands();
+        if (!chat.isTripMember(tripId, personId())) {
+            return error(403, ChatErrors.NOT_A_TRIP_MEMBER, "Not a member of this trip.");
+        }
+        return ok(chat.roster(tripId));
+    }
+
+    /** This caller's own email preferences for this chat. Never anybody else's. */
+    @GET
+    @Path("prefs")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response prefs(@PathParam("channelId") final String channelId) {
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        final ChatCommands chat = ChatCommands.getChatCommands();
+        final Person.Id me = personId();
+        final Map<String, Object> result = new LinkedHashMap<>();
+        result.put("mentionEmail", chat.mentionEmailForTrip(tripId, me));
+        result.put("dailyDigest", chat.dailyDigestForTrip(tripId, me));
+        return ok(result);
+    }
+
+    @PUT
+    @Path("prefs")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response savePrefs(
+            @PathParam("channelId") final String channelId,
+            @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf,
+            final Map<String, Object> body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
+        }
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        final ChatCommands chat = ChatCommands.getChatCommands();
+        final Person.Id me = personId();
+        final boolean mention = bool(body, "mentionEmail", chat.mentionEmailForTrip(tripId, me));
+        final boolean digest = bool(body, "dailyDigest", chat.dailyDigestForTrip(tripId, me));
+        if (!chat.setEmailPrefs(tripId, me, mention, digest)) {
+            return error(403, ChatErrors.FORBIDDEN, "Could not save preferences for this chat.");
+        }
+        return ok(Map.of("mentionEmail", mention, "dailyDigest", digest));
+    }
+
+    /** Mutes somebody for a number of minutes. Chat managers and site administrators. */
+    @POST
+    @Path("members/{personId}/mute")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response mute(
+            @PathParam("channelId") final String channelId,
+            @PathParam("personId") final String targetId,
+            @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf,
+            final Map<String, Object> body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
+        }
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        final int minutes = intValue(body, "minutes", 0);
+        if (minutes <= 0) {
+            return error(400, ChatErrors.FORBIDDEN, "A positive number of minutes is required.");
+        }
+        final Instant until = Instant.now().plusSeconds(minutes * 60L);
+        final String reason = string(body == null ? null : body.get("reason"));
+        // isSiteAdmin() is passed explicitly: the bean's own check reads FacesContext and reports false here,
+        // so without it a site administrator is refused every moderation action over the API.
+        final boolean ok = ChatCommands.getChatCommands()
+                .mute(tripId, Person.Id.from(targetId), until, reason, actor(), isSiteAdmin());
+        return ok ? ok(Map.of("muted", true, "until", until.toString()))
+                : error(403, ChatErrors.FORBIDDEN, "Chat manager required.");
+    }
+
+    @POST
+    @Path("members/{personId}/unmute")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response unmute(
+            @PathParam("channelId") final String channelId,
+            @PathParam("personId") final String targetId,
+            @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf) {
+        if (csrfMissing(csrf)) {
+            return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
+        }
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        final boolean ok = ChatCommands.getChatCommands()
+                .unmute(tripId, Person.Id.from(targetId), actor(), isSiteAdmin());
+        return ok ? ok(Map.of("unmuted", true))
+                : error(403, ChatErrors.FORBIDDEN, "Chat manager required.");
+    }
+
+    /** Removes somebody from the chat. They cannot rejoin themselves -- only an admin can undo this. */
+    @DELETE
+    @Path("members/{personId}")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response removeMember(
+            @PathParam("channelId") final String channelId,
+            @PathParam("personId") final String targetId,
+            @QueryParam("reason") final String reason,
+            @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf) {
+        if (csrfMissing(csrf)) {
+            return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
+        }
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        final boolean ok = ChatCommands.getChatCommands()
+                .removeMember(tripId, Person.Id.from(targetId), reason, actor(), isSiteAdmin());
+        return ok ? ok(Map.of("removed", true))
+                : error(403, ChatErrors.FORBIDDEN, "Chat manager required.");
+    }
+
+    /**
+     * Re-adds somebody an administrator previously removed.
+     *
+     * <p>{@code acknowledgement} is required by the bean and is not ceremony: the rule is that nobody is put
+     * back into a chat without their permission, so an add with nothing confirmed fails rather than being
+     * recorded as unacknowledged.
+     */
+    @POST
+    @Path("members/{personId}")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response addMember(
+            @PathParam("channelId") final String channelId,
+            @PathParam("personId") final String targetId,
+            @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf,
+            final Map<String, Object> body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
+        }
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        final String acknowledgement = string(body == null ? null : body.get("acknowledgement"));
+        final boolean ok = ChatCommands.getChatCommands()
+                .addMember(tripId, Person.Id.from(targetId), acknowledgement, actor(), isSiteAdmin());
+        return ok ? ok(Map.of("added", true))
+                : error(403, ChatErrors.FORBIDDEN,
+                        "Chat manager required, and the person's permission must be confirmed.");
+    }
+
+    private static boolean bool(final Map<String, Object> body, final String key, final boolean fallback) {
+        final Object value = body == null ? null : body.get(key);
+        return (value instanceof Boolean flag) ? flag : fallback;
+    }
+
+    private static int intValue(final Map<String, Object> body, final String key, final int fallback) {
+        final Object value = body == null ? null : body.get(key);
+        return (value instanceof Number number) ? number.intValue() : fallback;
     }
 
     private static String denialMessage(final String code) {

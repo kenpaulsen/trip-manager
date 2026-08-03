@@ -1515,8 +1515,22 @@ public class ChatCommands {
     public boolean mute(
             final String tripId, final Person.Id target, final Instant until,
             final String reason, final AuditActor actor) {
+        return mute(tripId, target, until, reason, actor, false);
+    }
+
+    /**
+     * Mutes somebody, with the caller's site-admin status supplied explicitly.
+     *
+     * <p>Same reason {@code deleteMessage} has this overload: {@code canAdminister} falls back to
+     * {@code PersonCommands.hasRole("admin")}, which resolves through {@code FacesContext} and therefore reports
+     * false on a JAX-RS thread. Without the hint a site administrator is silently refused every moderation
+     * action over the API unless they also hold an explicit {@code chatAdmin} or {@code chatMgr} row.
+     */
+    public boolean mute(
+            final String tripId, final Person.Id target, final Instant until,
+            final String reason, final AuditActor actor, final boolean siteAdminHint) {
         final AuditActor who = actor != null ? actor : AuditActor.current();
-        if (denyUnlessAdmin(tripId, who, "mute " + target.getValue())) {
+        if (denyUnlessAdmin(tripId, who, "mute " + target.getValue(), siteAdminHint)) {
             return false;
         }
         return applyMute(tripId, target, until, reason, who);
@@ -1543,8 +1557,14 @@ public class ChatCommands {
     }
 
     public boolean unmute(final String tripId, final Person.Id target, final AuditActor actor) {
+        return unmute(tripId, target, actor, false);
+    }
+
+    /** @see #mute(String, Person.Id, Instant, String, AuditActor, boolean) for why the hint exists. */
+    public boolean unmute(
+            final String tripId, final Person.Id target, final AuditActor actor, final boolean siteAdminHint) {
         final AuditActor who = actor != null ? actor : AuditActor.current();
-        if (denyUnlessAdmin(tripId, who, "unmute " + target.getValue())) {
+        if (denyUnlessAdmin(tripId, who, "unmute " + target.getValue(), siteAdminHint)) {
             return false;
         }
         final ChatChannel channel = ensureChannel(tripId, who);
@@ -1562,8 +1582,15 @@ public class ChatCommands {
 
     public boolean removeMember(
             final String tripId, final Person.Id target, final String reason, final AuditActor actor) {
+        return removeMember(tripId, target, reason, actor, false);
+    }
+
+    /** @see #mute(String, Person.Id, Instant, String, AuditActor, boolean) for why the hint exists. */
+    public boolean removeMember(
+            final String tripId, final Person.Id target, final String reason, final AuditActor actor,
+            final boolean siteAdminHint) {
         final AuditActor who = actor != null ? actor : AuditActor.current();
-        if (denyUnlessAdmin(tripId, who, "remove " + target.getValue())) {
+        if (denyUnlessAdmin(tripId, who, "remove " + target.getValue(), siteAdminHint)) {
             return false;
         }
         final ChatChannel channel = ensureChannel(tripId, who);
@@ -1585,8 +1612,15 @@ public class ChatCommands {
      */
     public boolean addMember(
             final String tripId, final Person.Id target, final String acknowledgement, final AuditActor actor) {
+        return addMember(tripId, target, acknowledgement, actor, false);
+    }
+
+    /** @see #mute(String, Person.Id, Instant, String, AuditActor, boolean) for why the hint exists. */
+    public boolean addMember(
+            final String tripId, final Person.Id target, final String acknowledgement, final AuditActor actor,
+            final boolean siteAdminHint) {
         final AuditActor who = actor != null ? actor : AuditActor.current();
-        if (denyUnlessAdmin(tripId, who, "add " + target.getValue())) {
+        if (denyUnlessAdmin(tripId, who, "add " + target.getValue(), siteAdminHint)) {
             return false;
         }
         // The acknowledgement IS the control here: the requirement is that a person is never re-enabled without
@@ -1658,8 +1692,17 @@ public class ChatCommands {
             final String tripId,
             final ChatSettings newSettings,
             final AuditActor actor) {
+        return updateSettings(tripId, newSettings, actor, false);
+    }
+
+    /** @see #mute(String, Person.Id, Instant, String, AuditActor, boolean) for why the hint exists. */
+    public boolean updateSettings(
+            final String tripId,
+            final ChatSettings newSettings,
+            final AuditActor actor,
+            final boolean siteAdminHint) {
         final AuditActor who = actor != null ? actor : AuditActor.current();
-        if (denyUnlessAdmin(tripId, who, "update settings")) {
+        if (denyUnlessAdmin(tripId, who, "update settings", siteAdminHint)) {
             return false;
         }
         final ChatChannel channel = ensureChannel(tripId, who);

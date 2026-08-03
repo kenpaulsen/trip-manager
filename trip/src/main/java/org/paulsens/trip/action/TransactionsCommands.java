@@ -122,6 +122,29 @@ public class TransactionsCommands {
                 final Object... objArr) {
         final List<Person.Id> txPeople = (objArr == null) ? Collections.emptyList() :
                 Arrays.stream(objArr).flatMap(this::castToPersonId).toList();
+        return saveGroupTransaction(gid, origPeople, type, txType, date, amount, cat, note, tripId, eventId,
+                txPeople);
+    }
+
+    /**
+     * The same group transaction save, with the member list already typed.
+     *
+     * <p>The {@code Object...} form above exists because the batch-transaction page submits its selections
+     * through PrimeFaces widgets that hand back a mixture of arrays, collections and bare Strings depending on
+     * the control -- {@code castToPersonId} untangles that. A caller that already holds
+     * {@code List<Person.Id>}, such as a REST resource deserializing a JSON array, has nothing to untangle, and
+     * routing it through the varargs form would mean handing a typed list to a method whose whole job is to
+     * guess at untyped input.
+     *
+     * <p>Deliberately a different NAME rather than an overload: {@code List} is more specific than
+     * {@code Object...}, so an overload would silently capture any existing call site that happens to pass a
+     * single list, changing which coercion runs without changing the call.
+     */
+    public boolean saveGroupTransaction(final String gid, final List<Person.Id> origPeople, final Type type,
+                final Transaction.TransactionType txType, final LocalDateTime date, final Float amount,
+                final String cat, final String note, final String tripId, final String eventId,
+                final List<Person.Id> members) {
+        final List<Person.Id> txPeople = (members == null) ? Collections.emptyList() : members;
         final String groupId = isNullOrEmpty(gid) ? UUID.randomUUID().toString() : gid;
         final AtomicBoolean result = new AtomicBoolean(true);
 

@@ -1,6 +1,7 @@
 package org.paulsens.trip.api.mapper;
 
 import java.util.List;
+import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 
 /**
@@ -27,5 +28,13 @@ public class ValueMappers {
 
     public List<Person.Id> toPersonIds(final List<String> values) {
         return values == null ? null : values.stream().map(Person.Id::from).toList();
+    }
+
+    public String toString(final DataId id) {
+        return id == null ? null : id.getValue();
+    }
+
+    public DataId toDataId(final String value) {
+        return (value == null || value.isBlank()) ? null : DataId.from(value);
     }
 }
