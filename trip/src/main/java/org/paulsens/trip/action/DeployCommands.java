@@ -16,6 +16,7 @@ import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
+import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.deploy.PipelineStageStatus;
@@ -93,35 +94,71 @@ public class DeployCommands {
     }
 
     /**
-     * Starts a pipeline run.
+     * Starts a pipeline run on behalf of a signed-in person.
      *
      * <p>Refused while a run is already in progress. CodePipeline would accept the request and supersede the
      * running execution, which wastes the build already underway and -- more to the point -- makes two people
      * clicking at once look like one deployment that mysteriously restarted.
      *
+     * <p>The id is resolved to an actor here rather than by the caller so that a page or a resource holding a
+     * {@code Person.Id} does not have to know how audit identity is assembled.
+     *
      * @return the new execution id, or null if nothing was started.
      */
-    public String start() {
-        return start(AuditActor.current());
+    public String start(final Person.Id personId) {
+        if (personId == null) {
+            throw new IllegalArgumentException("A deployment must record who started it.");
+        }
+        final Person person = new PersonCommands().getPerson(personId);
+        // The email may be absent -- getPerson answers a blank Person for an unknown id. The actor still
+        // carries the id, which is enough to attribute the deploy; a missing name must not block it.
+        final String email = (person == null) ? null : person.getEmail();
+        return start(new AuditActor(email, personId.getValue()));
+    }
+
+    /**
+     * Starts the pipeline on behalf of a named actor -- an email address, or {@link AuditActor#SYSTEM_ID} when
+     * the application triggered the deployment itself.
+     *
+     * <p>Exists so a caller that has a name but no {@code Person.Id} still has to say something. It is
+     * deliberately not possible to start a deployment without naming somebody.
+     *
+     * <p>Named {@code startAs} rather than being a third {@code start} overload: EL resolves overloads by the
+     * runtime type of the argument, and a page passing a session value that is sometimes a {@code Person.Id}
+     * and sometimes a {@code String} would silently pick a different method depending on which page set it.
+     * For the same reason the deploy page passes {@code audit.currentActor} -- always an {@link AuditActor},
+     * never whatever type {@code sessionScope.userId} happens to hold on the page that set it -- rather than an
+     * id whose runtime type varies.
+     */
+    public String startAs(final String actorName) {
+        if (actorName == null || actorName.isBlank()) {
+            throw new IllegalArgumentException("A deployment must record who started it.");
+        }
+        return start(AuditActor.SYSTEM_ID.equalsIgnoreCase(actorName.trim())
+                ? AuditActor.system() : new AuditActor(actorName.trim(), null));
     }
 
     /**
      * Starts the pipeline, recording {@code who} as the actor.
      *
-     * <p>The no-arg form resolves the actor through {@code FacesContext}, so a deploy triggered over the API
-     * would be recorded as having been started by nobody. Starting a deployment is billable and changes what is
-     * running in production; "somebody deployed" is not an acceptable audit record for it.
+     * <p>There is deliberately NO argument-less form. One resolving the actor through {@code FacesContext}
+     * would record a deploy triggered over the API, or from any pool thread, as having been started by nobody.
+     * Starting a deployment is billable and changes what is running in production, so "somebody deployed" is
+     * not an acceptable record of it -- and the failure is silent, which is how it would survive review.
      */
     public String start(final AuditActor who) {
+        if (who == null || !who.isKnown()) {
+            throw new IllegalArgumentException("A deployment must record who started it.");
+        }
         final String name = pipelineName();
         if (name == null) {
             growl(FacesMessage.SEVERITY_ERROR, "No pipeline configured",
                     "This deployment has no pipeline, so there is nothing to start.");
             return null;
         }
-        // Captured on the request thread: AuditActor reads FacesContext, a ThreadLocal, so it must not be
-        // resolved from inside anything that might run elsewhere later.
-        final AuditActor actor = (who == null) ? AuditActor.current() : who;
+        // No fallback to AuditActor.current(): the guard above already required a known actor, and a fallback
+        // here is exactly how an unattributed deploy would creep back in.
+        final AuditActor actor = who;
         final PipelineStatus current = getStatus();
         if (current.isRunning()) {
             growl(FacesMessage.SEVERITY_WARN, "Already deploying",

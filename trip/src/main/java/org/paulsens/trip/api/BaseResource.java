@@ -8,6 +8,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.model.Person;
@@ -120,6 +121,16 @@ public abstract class BaseResource {
 
     protected AuditActor actor() {
         return AuditActor.from(request.getSession(false));
+    }
+
+    /**
+     * The caller, for beans that take one directly.
+     *
+     * <p>Shares the memoized {@link ApiPrivileges} above, so a bean asking several privilege questions during
+     * one request pays for each lookup once.
+     */
+    protected Caller caller() {
+        return privileges().caller();
     }
 
     /** The authorization gate for this caller. Every endpoint that is not purely self-scoped consults it. */

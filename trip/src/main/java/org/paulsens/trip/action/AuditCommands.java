@@ -65,6 +65,21 @@ public class AuditCommands {
      * @param auditType The TYPE of message (i.e. LOGIN, CREATE_CREDS, etc).
      * @param msg       The "message" to write to the audit log.
      */
+    /**
+     * The signed-in user as an {@link AuditActor}, for pages that must hand one to a bean.
+     *
+     * <p>Exists so an XHTML page can pass the actor EXPLICITLY -- {@code mail.send(..., audit.currentActor)} --
+     * rather than the bean resolving it behind the caller's back. The difference matters because the bean
+     * cannot tell whether it is on a request thread, and if it is not, resolving it there yields nobody
+     * silently; the page always can, because a page only ever runs on one.
+     *
+     * <p>JSF only. Anything without a {@code FacesContext} -- a resource, a scheduler -- has its own answer:
+     * {@code AuditActor.from(session)} or {@link AuditActor#system()}.
+     */
+    public AuditActor getCurrentActor() {
+        return AuditActor.current();
+    }
+
     @Deprecated
     public void log(final String userEmail, final String auditType, final String msg) {
         Audit.log(Util.orDefault(userEmail, ""), Util.orDefault(auditType, ""),

@@ -319,10 +319,10 @@ public class ChatResource extends BaseResource {
         // An author may remove their own; anyone else needs to administer the chat. The bean re-derives both from
         // the stored message rather than trusting anything here, so this only shapes the error the client sees.
         if (!chat.canDelete(tripId, ChatMessage.Id.from(msgId), me)
-                && !chat.canAdminister(tripId, me, isSiteAdmin())) {
+                && !chat.canAdminister(tripId, caller())) {
             return error(403, ChatErrors.FORBIDDEN, "You can only remove your own messages.");
         }
-        final boolean ok = chat.deleteMessage(tripId, ChatMessage.Id.from(msgId), actor(), isSiteAdmin());
+        final boolean ok = chat.deleteMessage(tripId, ChatMessage.Id.from(msgId), actor(), caller());
         if (!ok) {
             return error(404, ChatErrors.NOT_FOUND, "Message not found.");
         }
@@ -576,7 +576,7 @@ public class ChatResource extends BaseResource {
             return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
         }
         final ChatCommands chat = ChatCommands.getChatCommands();
-        if (!chat.canAdminister(tripId, me, isSiteAdmin())) {
+        if (!chat.canAdminister(tripId, caller())) {
             return error(403, ChatErrors.FORBIDDEN, "Chat manager required.");
         }
         final ChatPage page = chat.history(tripId, me, null, Math.min(limit, 1000));
@@ -673,10 +673,10 @@ public class ChatResource extends BaseResource {
         }
         final Instant until = Instant.now().plusSeconds(minutes * 60L);
         final String reason = string(body == null ? null : body.get("reason"));
-        // isSiteAdmin() is passed explicitly: the bean's own check reads FacesContext and reports false here,
-        // so without it a site administrator is refused every moderation action over the API.
+        // caller() carries the session-derived identity AND role: the bean's own role check reads FacesContext
+        // and reports false here, so without this a site administrator is refused every moderation action.
         final boolean ok = ChatCommands.getChatCommands()
-                .mute(tripId, Person.Id.from(targetId), until, reason, actor(), isSiteAdmin());
+                .mute(tripId, Person.Id.from(targetId), until, reason, actor(), caller());
         return ok ? ok(Map.of("muted", true, "until", until.toString()))
                 : error(403, ChatErrors.FORBIDDEN, "Chat manager required.");
     }
@@ -696,7 +696,7 @@ public class ChatResource extends BaseResource {
             return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
         }
         final boolean ok = ChatCommands.getChatCommands()
-                .unmute(tripId, Person.Id.from(targetId), actor(), isSiteAdmin());
+                .unmute(tripId, Person.Id.from(targetId), actor(), caller());
         return ok ? ok(Map.of("unmuted", true))
                 : error(403, ChatErrors.FORBIDDEN, "Chat manager required.");
     }
@@ -718,7 +718,7 @@ public class ChatResource extends BaseResource {
             return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
         }
         final boolean ok = ChatCommands.getChatCommands()
-                .removeMember(tripId, Person.Id.from(targetId), reason, actor(), isSiteAdmin());
+                .removeMember(tripId, Person.Id.from(targetId), reason, actor(), caller());
         return ok ? ok(Map.of("removed", true))
                 : error(403, ChatErrors.FORBIDDEN, "Chat manager required.");
     }
@@ -748,7 +748,7 @@ public class ChatResource extends BaseResource {
         }
         final String acknowledgement = string(body == null ? null : body.get("acknowledgement"));
         final boolean ok = ChatCommands.getChatCommands()
-                .addMember(tripId, Person.Id.from(targetId), acknowledgement, actor(), isSiteAdmin());
+                .addMember(tripId, Person.Id.from(targetId), acknowledgement, actor(), caller());
         return ok ? ok(Map.of("added", true))
                 : error(403, ChatErrors.FORBIDDEN,
                         "Chat manager required, and the person's permission must be confirmed.");

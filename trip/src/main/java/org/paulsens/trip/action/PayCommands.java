@@ -22,6 +22,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
+import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
@@ -173,11 +174,14 @@ public class PayCommands {
                 bindToTrip(tx, userId, tripId);
             }
 
-            // Audit
+            // Audit. The actor is the payer: they are the one who just completed this checkout.
+            // Built here, on the request thread, because the notification below crosses into SES's
+            // completion thread where AuditActor.current() would find nobody.
+            final AuditActor actor = new AuditActor(email, userId == null ? null : userId.getValue());
             audit.log(email, "PAYMENT", note);
 
             // Notify
-            sendPaymentNotification(order, person, gross, feeOpt, tripId);
+            sendPaymentNotification(order, person, gross, feeOpt, tripId, actor);
             log.info("PayPal payment captured: orderId={}, user email={}, amount={}", orderId, email, gross);
             return true;
         } catch (final Exception ex) {
@@ -333,7 +337,7 @@ public class PayCommands {
 
     private void sendPaymentNotification(
             final Order order, final Person user, final float gross,
-            final Optional<Float> feeOpt, final String tripId) {
+            final Optional<Float> feeOpt, final String tripId, final AuditActor actor) {
         try {
             final String subject = String.format("PayPal payment received – $%.2f", gross);
             final String feeInfo = feeOpt.map(f -> String.format(" (PayPal fee: $%.2f, net: $%.2f)", f, gross - f))
@@ -352,7 +356,10 @@ public class PayCommands {
                     (tripId != null) ? trips.getTrip(tripId).getTitle() : "N/A",
                     getPaymentId(order)
                     /*getDescription(order, "[empty]")*/);
-            mail.send(FROM_ADDRESS, NOTIFY_EMAIL, "ken@centerforpeacewest.com", NOTIFY_EMAIL, subject, body);
+            // The payer asked for this, indirectly but genuinely -- a payment notification is not a
+            // scheduled job, so it is attributed to them rather than to System.
+            mail.send(FROM_ADDRESS, NOTIFY_EMAIL, "ken@centerforpeacewest.com", NOTIFY_EMAIL, subject, body,
+                    actor);
         } catch (final Exception ex) {
             log.warn("Failed to send payment notification email for order {}", getPaymentId(order), ex);
         }

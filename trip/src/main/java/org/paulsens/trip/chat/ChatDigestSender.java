@@ -15,6 +15,7 @@ import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.action.MailCommands;
 import org.paulsens.trip.action.PersonCommands;
+import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.dynamo.DAO;
@@ -248,8 +249,10 @@ public class ChatDigestSender {
         //
         // A timeout is part of the fix, not decoration: this runs on the single scheduler thread, so one hung
         // request would stall every remaining recipient behind it.
+        // System, not an empty actor: nobody asked for this send, the scheduler did. An unknown actor would
+        // read as "we lost track of who did this"; System is an answer.
         final SendEmailResponse response = mail.send(from(), to, null, replyTo(),
-                        "New messages in the " + tripTitle(candidate) + " chat", body)
+                        "New messages in the " + tripTitle(candidate) + " chat", body, AuditActor.system())
                 .orTimeout(SEND_TIMEOUT.toSeconds(), TimeUnit.SECONDS)
                 .join();
         if (response == null) {

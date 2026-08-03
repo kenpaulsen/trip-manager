@@ -58,6 +58,9 @@ import org.paulsens.trip.util.ScopeUtil;
 @ApplicationScoped
 public class ChatCommands {
 
+    private static final String CHAT_ADMIN_PRIV = "chatAdmin";
+    private static final String CHAT_MGR_PRIV = "chatMgr";
+
     public static final String MEDIA_TYPE_V1 = "application/vnd.trip.chat.v1+json";
     public static final String CSRF_HEADER = "X-Trip-Chat";
 
@@ -157,24 +160,29 @@ public class ChatCommands {
     // --- authorization helpers ---
 
     public boolean canAdminister(final String tripId, final Person.Id me) {
-        return canAdminister(tripId, me, false);
+        // JSF path: the role is reachable through FacesContext here, which is what Caller.current() reads.
+        return canAdminister(tripId, Caller.current());
     }
 
     /**
-     * @param siteAdminHint whether the caller has already established site-admin status from a source this method
-     *     cannot reach. Required because the site-admin role lives in the HTTP session and the usual check reads it
-     *     through {@code FacesContext}, which does not exist on the REST edge -- so without the hint a site admin
-     *     is silently refused every privileged action there. The REST resource supplies it from the session.
+     * Whether {@code caller} may administer this chat.
+     *
+     * <p>Takes a {@link Caller} rather than a {@code Person.Id} plus a {@code siteAdminHint} boolean. The hint
+     * existed because the site-admin role lives in the HTTP session and the usual check reads it through
+     * {@code FacesContext}, which does not exist on the REST edge -- so without it a site administrator was
+     * silently refused every privileged action there. A boolean meaning "trust me, I checked" is a poor way to
+     * carry that: it has to be threaded through every method, and a caller passing {@code false} by omission
+     * looks identical to one that genuinely is not an administrator.
+     *
+     * <p>{@code Caller} resolves the same fact once, per edge, and caches its privilege answers -- so the two
+     * lookups below cost one each per request no matter how many messages are checked.
      */
-    public boolean canAdminister(final String tripId, final Person.Id me, final boolean siteAdminHint) {
-        if (me == null) {
+    public boolean canAdminister(final String tripId, final Caller caller) {
+        if (caller == null || caller.personId() == null) {
             return false;
         }
-        if (siteAdminHint || PersonCommands.getPersonCommands().hasRole("admin")) {
-            return true;
-        }
-        final PrivilegeCommands priv = new PrivilegeCommands();
-        return priv.check("chatAdmin", null, me) || priv.check("chatMgr", tripId, me);
+        // Caller.has already short-circuits on site-admin, so the role is not consulted separately.
+        return caller.has(CHAT_ADMIN_PRIV) || caller.has(CHAT_MGR_PRIV, tripId);
     }
 
     /**
@@ -184,13 +192,16 @@ public class ChatCommands {
      * cannot escalate. Denials are audited as failures, because an attempted moderation is worth seeing.
      */
     private boolean denyUnlessAdmin(final String tripId, final AuditActor who, final String what) {
-        return denyUnlessAdmin(tripId, who, what, false);
+        return denyUnlessAdmin(tripId, who, what, Caller.current());
     }
 
     private boolean denyUnlessAdmin(
-            final String tripId, final AuditActor who, final String what, final boolean siteAdminHint) {
-        final Person.Id me = who == null || who.id() == null ? currentUserId() : Person.Id.from(who.id());
-        if (me != null && canAdminister(tripId, me, siteAdminHint)) {
+            final String tripId, final AuditActor who, final String what, final Caller caller) {
+        // Identity may come from the ACTOR rather than the caller. These methods are reachable with only an
+        // AuditActor -- from a background thread, or a test -- where Caller.current() finds nobody; falling
+        // back to the actor's own id is what lets those paths still authorize as the person they name.
+        final Caller effective = (caller != null && caller.personId() != null) ? caller : Caller.forActor(who);
+        if (canAdminister(tripId, effective)) {
             return false;
         }
         log.warn("Denied chat admin operation '{}' on trip {} for actor {}", what, tripId,
@@ -1326,7 +1337,7 @@ public class ChatCommands {
 
     public boolean deleteMessage(
             final String tripId, final ChatMessage.Id msgId, final AuditActor actor) {
-        return deleteMessage(tripId, msgId, actor, false);
+        return deleteMessage(tripId, msgId, actor, Caller.current());
     }
 
     /**
@@ -1341,7 +1352,7 @@ public class ChatCommands {
      */
     public boolean deleteMessage(
             final String tripId, final ChatMessage.Id msgId, final AuditActor actor,
-            final boolean siteAdminHint) {
+            final Caller caller) {
         final AuditActor who = actor != null ? actor : AuditActor.current();
         final ChatChannel channel = getChannel(tripId);
         if (channel == null) {
@@ -1350,7 +1361,7 @@ public class ChatCommands {
         final Optional<ChatMessage> before = dao().getChatMessage(channel.getId(), msgId).join();
         if (!isOwnMessage(before, who)) {
             if (denyUnlessAdmin(tripId, who, "delete message " + (msgId == null ? "?" : msgId.getValue()),
-                    siteAdminHint)) {
+                    caller)) {
                 return false;
             }
         }
@@ -1515,7 +1526,7 @@ public class ChatCommands {
     public boolean mute(
             final String tripId, final Person.Id target, final Instant until,
             final String reason, final AuditActor actor) {
-        return mute(tripId, target, until, reason, actor, false);
+        return mute(tripId, target, until, reason, actor, Caller.current());
     }
 
     /**
@@ -1528,9 +1539,9 @@ public class ChatCommands {
      */
     public boolean mute(
             final String tripId, final Person.Id target, final Instant until,
-            final String reason, final AuditActor actor, final boolean siteAdminHint) {
+            final String reason, final AuditActor actor, final Caller caller) {
         final AuditActor who = actor != null ? actor : AuditActor.current();
-        if (denyUnlessAdmin(tripId, who, "mute " + target.getValue(), siteAdminHint)) {
+        if (denyUnlessAdmin(tripId, who, "mute " + target.getValue(), caller)) {
             return false;
         }
         return applyMute(tripId, target, until, reason, who);
@@ -1557,14 +1568,14 @@ public class ChatCommands {
     }
 
     public boolean unmute(final String tripId, final Person.Id target, final AuditActor actor) {
-        return unmute(tripId, target, actor, false);
+        return unmute(tripId, target, actor, Caller.current());
     }
 
     /** @see #mute(String, Person.Id, Instant, String, AuditActor, boolean) for why the hint exists. */
     public boolean unmute(
-            final String tripId, final Person.Id target, final AuditActor actor, final boolean siteAdminHint) {
+            final String tripId, final Person.Id target, final AuditActor actor, final Caller caller) {
         final AuditActor who = actor != null ? actor : AuditActor.current();
-        if (denyUnlessAdmin(tripId, who, "unmute " + target.getValue(), siteAdminHint)) {
+        if (denyUnlessAdmin(tripId, who, "unmute " + target.getValue(), caller)) {
             return false;
         }
         final ChatChannel channel = ensureChannel(tripId, who);
@@ -1582,15 +1593,15 @@ public class ChatCommands {
 
     public boolean removeMember(
             final String tripId, final Person.Id target, final String reason, final AuditActor actor) {
-        return removeMember(tripId, target, reason, actor, false);
+        return removeMember(tripId, target, reason, actor, Caller.current());
     }
 
     /** @see #mute(String, Person.Id, Instant, String, AuditActor, boolean) for why the hint exists. */
     public boolean removeMember(
             final String tripId, final Person.Id target, final String reason, final AuditActor actor,
-            final boolean siteAdminHint) {
+            final Caller caller) {
         final AuditActor who = actor != null ? actor : AuditActor.current();
-        if (denyUnlessAdmin(tripId, who, "remove " + target.getValue(), siteAdminHint)) {
+        if (denyUnlessAdmin(tripId, who, "remove " + target.getValue(), caller)) {
             return false;
         }
         final ChatChannel channel = ensureChannel(tripId, who);
@@ -1612,15 +1623,15 @@ public class ChatCommands {
      */
     public boolean addMember(
             final String tripId, final Person.Id target, final String acknowledgement, final AuditActor actor) {
-        return addMember(tripId, target, acknowledgement, actor, false);
+        return addMember(tripId, target, acknowledgement, actor, Caller.current());
     }
 
     /** @see #mute(String, Person.Id, Instant, String, AuditActor, boolean) for why the hint exists. */
     public boolean addMember(
             final String tripId, final Person.Id target, final String acknowledgement, final AuditActor actor,
-            final boolean siteAdminHint) {
+            final Caller caller) {
         final AuditActor who = actor != null ? actor : AuditActor.current();
-        if (denyUnlessAdmin(tripId, who, "add " + target.getValue(), siteAdminHint)) {
+        if (denyUnlessAdmin(tripId, who, "add " + target.getValue(), caller)) {
             return false;
         }
         // The acknowledgement IS the control here: the requirement is that a person is never re-enabled without
@@ -1692,7 +1703,7 @@ public class ChatCommands {
             final String tripId,
             final ChatSettings newSettings,
             final AuditActor actor) {
-        return updateSettings(tripId, newSettings, actor, false);
+        return updateSettings(tripId, newSettings, actor, Caller.current());
     }
 
     /** @see #mute(String, Person.Id, Instant, String, AuditActor, boolean) for why the hint exists. */
@@ -1700,9 +1711,9 @@ public class ChatCommands {
             final String tripId,
             final ChatSettings newSettings,
             final AuditActor actor,
-            final boolean siteAdminHint) {
+            final Caller caller) {
         final AuditActor who = actor != null ? actor : AuditActor.current();
-        if (denyUnlessAdmin(tripId, who, "update settings", siteAdminHint)) {
+        if (denyUnlessAdmin(tripId, who, "update settings", caller)) {
             return false;
         }
         final ChatChannel channel = ensureChannel(tripId, who);

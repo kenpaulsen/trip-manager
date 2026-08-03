@@ -12,6 +12,7 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
+import org.paulsens.trip.audit.AuditActor;
 
 public class MailCommandsTest {
 
@@ -52,7 +53,7 @@ public class MailCommandsTest {
         // A missing address is a data problem, not a transient one, so this is a logged no-op: returning a failed
         // future would break the thenCombine chain in sendTemplate and lose the recipients that DID work.
         final SendEmailResponse response = new MailCommands()
-                .send("from@example.com", "joe.smith", null, "reply@example.com", "subj", "body")
+                .send("from@example.com", "joe.smith", null, "reply@example.com", "subj", "body", AuditActor.system())
                 .join();
         assertNotNull(response, "An unsendable request must complete, not fail");
     }

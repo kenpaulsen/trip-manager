@@ -49,23 +49,19 @@ public class MailCommands {
             .credentialsProvider(DefaultCredentialsProvider.builder().build())
             .build();
 
-    // NOTE: See "sendTemplate" that method is generally more useful
-    public CompletableFuture<SendEmailResponse> send(
-            final String from,
-            final String to,
-            final String bcc,
-            final String replyTo,
-            final String subjectStr,
-            final String bodyStr) {
-        return send(from, to, bcc, replyTo, subjectStr, bodyStr, AuditActor.current());
-    }
-
     /**
-     * The same send, with the actor supplied by the caller.
+     * Sends one email, recording {@code who} asked for it.
      *
-     * <p>The form above resolves it with {@link AuditActor#current()}, which reads {@code FacesContext} and so
-     * finds nobody on a JAX-RS thread. That is the same bug the comment below describes, one layer out: the
-     * record would be written, and it would name no sender.
+     * <p>There is deliberately no form without an actor. One resolving it through {@link AuditActor#current()}
+     * would read {@code FacesContext} -- a ThreadLocal -- and find nobody whenever the caller is a JAX-RS
+     * resource, a scheduler, or anything on a pool thread. The record still gets written; it just names no
+     * sender, which is indistinguishable from a correct record until somebody tries to read the trail. That
+     * exact bug already cost this application every EMAIL record between the Phase 10 rework and 2026-07-28.
+     *
+     * <p>The caller always knows who is asking. When nobody is -- the daily digest, a scheduled job -- the
+     * answer is {@link AuditActor#system()}, which says so, rather than an empty actor, which does not.
+     *
+     * <p>NOTE: see {@code sendTemplate}; that method is generally more useful.
      */
     public CompletableFuture<SendEmailResponse> send(
             final String from,
@@ -175,6 +171,25 @@ public class MailCommands {
             final String replyTo,
             final String subjectStr,
             final String template) {
+        return sendTemplate(from, to, bcc, replyTo, subjectStr, template, AuditActor.current());
+    }
+
+    /**
+     * The same merge, with the actor supplied.
+     *
+     * <p>The form above resolves it with {@link AuditActor#current()}. That is correct where it is called
+     * from -- an XHTML page, on the request thread, before any of the sends below go asynchronous -- and it is
+     * the reason this one exists: a merge started from anywhere else must say who asked for it, because by the
+     * time each individual send completes there is no request left to ask.
+     */
+    public CompletableFuture<List<SendEmailResponse>> sendTemplate(
+            final String from,
+            final Collection<Person> to,
+            final String bcc,
+            final String replyTo,
+            final String subjectStr,
+            final String template,
+            final AuditActor actor) {
         CompletableFuture<List<SendEmailResponse>> result = CompletableFuture.completedFuture(new ArrayList<>());
         for (final Person person : to) {
             final String toEmail = formatEmail(person);
@@ -189,7 +204,7 @@ public class MailCommands {
                 return CompletableFuture.failedFuture(new IllegalStateException("Body and subject must be a String!"));
             }
             result = result.thenCombine(
-                    send(from, toEmail, bcc, replyTo, String.valueOf(subject), String.valueOf(body)),
+                    send(from, toEmail, bcc, replyTo, String.valueOf(subject), String.valueOf(body), actor),
                     this::combineNewResp);
         }
         return result;

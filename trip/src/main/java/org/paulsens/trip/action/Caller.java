@@ -1,8 +1,13 @@
 package org.paulsens.trip.action;
 
 import jakarta.servlet.http.HttpSession;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.util.ScopeUtil;
 
 /**
@@ -34,6 +39,8 @@ public final class Caller {
     private final boolean siteAdmin;
     private final AuditActor actor;
     private final PrivilegeCommands privileges;
+    private final Map<String, Boolean> answers = new HashMap<>();
+    private Set<String> globalHeld;
 
     /**
      * Explicit-collaborator constructor, public so a test can build a caller without a container.
@@ -66,6 +73,19 @@ public final class Caller {
                 PersonCommands.hasRole(session, SITE_ADMIN_ROLE),
                 AuditActor.from(session),
                 new PrivilegeCommands());
+    }
+
+    /**
+     * A caller identified by an {@link AuditActor} alone.
+     *
+     * <p>For beans whose public API takes an actor and nothing else -- the chat moderation methods do -- and
+     * which must still be able to say who is acting when no session is reachable: a unit test, or a call made
+     * from a thread that has no request. Site-admin is NOT assumed, since an actor carries no role; such a
+     * caller is authorized purely by the privileges the person actually holds.
+     */
+    public static Caller forActor(final AuditActor who) {
+        final Person.Id id = (who == null || who.id() == null) ? null : Person.Id.from(who.id());
+        return new Caller(id, false, who == null ? AuditActor.from(null) : who, new PrivilegeCommands());
     }
 
     /** The caller behind a JSF request, resolved through {@code FacesContext}. */
@@ -108,12 +128,48 @@ public final class Caller {
      * <p>A site administrator holds everything, checked first. Without that short-circuit an administrator is
      * refused whenever nobody remembered to create the backing privilege row -- which is most of them, since
      * the rows exist to grant access to people who are not administrators.
+     *
+     * <p>Answers are memoized for the life of this caller, which is one request. The underlying check is a map
+     * lookup followed by a linear scan of everyone holding that privilege, and the call sites are not one-shot:
+     * {@code TripsResource.canRead} asks twice per trip inside a list filter, so a fifty-trip listing was a
+     * hundred scans of the same two rows. Privileges cannot meaningfully change mid-request, so caching within
+     * one is free of the staleness a longer-lived cache would have.
      */
     public boolean has(final String privilegeName, final String tripId) {
         if (siteAdmin) {
             return true;
         }
-        return personId != null && privileges.check(privilegeName, tripId, personId);
+        if (personId == null || privilegeName == null) {
+            return false;
+        }
+        // Plain HashMap, not concurrent: a Caller belongs to one request and is never shared between threads.
+        return answers.computeIfAbsent(
+                privilegeName + '@' + (tripId == null ? "" : tripId),
+                key -> privileges.check(privilegeName, tripId, personId));
+    }
+
+    /**
+     * Every GLOBAL privilege this caller holds, by name.
+     *
+     * <p>Exists for the road away from {@link #isSiteAdmin()}. That flag is the same all-or-nothing notion as
+     * the legacy {@code showAll} view flag -- both derive from the session's role -- and it is on the way out;
+     * what replaces it is asking whether somebody holds the specific privilege the operation needs. Having the
+     * held set in one place makes that a rewrite of call sites rather than a redesign.
+     *
+     * <p>Trip-scoped privileges are deliberately not included: they are keyed per trip, so "all of them" is not
+     * a bounded question. Ask {@link #has(String, String)} for those.
+     *
+     * <p>Computed once, from a single pass over the global privileges -- a bounded list, one per declared name.
+     * A site administrator is reported as holding all of them, which is what {@link #has} already answers.
+     */
+    public Set<String> globalPrivileges() {
+        if (globalHeld == null) {
+            globalHeld = personId == null ? Set.of() : privileges.getGlobalPrivileges().stream()
+                    .filter(priv -> siteAdmin || priv.getPeople().contains(personId))
+                    .map(Privilege::getId)
+                    .collect(Collectors.toUnmodifiableSet());
+        }
+        return globalHeld;
     }
 
     private static Person.Id personIdOf(final Object raw) {

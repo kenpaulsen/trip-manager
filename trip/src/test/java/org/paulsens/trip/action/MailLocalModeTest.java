@@ -3,6 +3,7 @@ package org.paulsens.trip.action;
 import org.paulsens.trip.dynamo.FakeData;
 import org.testng.Assert;
 import org.testng.annotations.Test;
+import org.paulsens.trip.audit.AuditActor;
 
 /**
  * Local mode must not send real email.
@@ -26,7 +27,8 @@ public class MailLocalModeTest {
 
         // A real-looking address on purpose: the bug was that fake test DATA carried real addresses.
         final var response = mail.send("Test <no-reply@visitqueenofpeace.com>", "someone@example.com", null,
-                "no-reply@visitqueenofpeace.com", "Local mode must not send this", "<p>body</p>").join();
+                "no-reply@visitqueenofpeace.com", "Local mode must not send this", "<p>body</p>",
+                AuditActor.system()).join();
 
         // The empty response is the local-mode stand-in; a real send comes back with an SES message id.
         Assert.assertNull(response.messageId(),

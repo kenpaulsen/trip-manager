@@ -24,6 +24,24 @@ public record AuditActor(String email, String id) {
 
     private static final AuditActor UNKNOWN = new AuditActor(null, null);
 
+    /** The id recorded for work the application started by itself. Not a person id; no person owns it. */
+    public static final String SYSTEM_ID = "System";
+
+    private static final AuditActor SYSTEM = new AuditActor(SYSTEM_ID, SYSTEM_ID);
+
+    /**
+     * The application acting on its own behalf -- the daily digest, a scheduled job, anything no human asked
+     * for just now.
+     *
+     * <p>Distinct from {@link #UNKNOWN}, and the distinction is the point. An empty actor means "we do not know
+     * who did this", which in an audit trail is a defect; {@code System} means "nobody did, this is the
+     * application running on a timer", which is an answer. Reading a trail full of blank actors, you cannot
+     * tell which of those you are looking at -- so the scheduled paths say so explicitly.
+     */
+    public static AuditActor system() {
+        return SYSTEM;
+    }
+
     /**
      * The signed-in user, or an empty actor outside a request (background threads, tests, the reset-password
      * flow where nobody is signed in yet).
