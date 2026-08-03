@@ -72,10 +72,10 @@ public class ChatCommandsTest {
         final Person.Id victim = Person.Id.from("victim-" + System.nanoTime());
         chat.ensureChannel(TRIP, actor);
 
-        Assert.assertFalse(chat.removeMember(TRIP, victim, "no right to do this", stranger),
+        Assert.assertFalse(chat.removeMember(TRIP, victim, "no right to do this", Caller.forActor(stranger)),
                 "a caller without chatMgr must not be able to remove a member");
-        Assert.assertFalse(chat.mute(TRIP, victim, Instant.now().plusSeconds(600), "nope", stranger));
-        Assert.assertFalse(chat.updateSettings(TRIP, ChatSettings.defaults(), stranger));
+        Assert.assertFalse(chat.mute(TRIP, victim, Instant.now().plusSeconds(600), "nope", Caller.forActor(stranger)));
+        Assert.assertFalse(chat.updateSettings(TRIP, ChatSettings.defaults(), Caller.forActor(stranger)));
         Assert.assertNull(DAO.getInstance()
                         .getChatMembership(ChatChannel.Id.forTrip(TRIP), victim).join().orElse(null),
                 "a denied removal must not have written a membership row");
@@ -86,9 +86,9 @@ public class ChatCommandsTest {
         // The acknowledgement is the whole control: nobody is re-enabled without their permission.
         final Person.Id target = Person.Id.from("add-target-" + System.nanoTime());
         chat.ensureChannel(TRIP, actor);
-        Assert.assertFalse(chat.addMember(TRIP, target, null, actor));
-        Assert.assertFalse(chat.addMember(TRIP, target, "   ", actor));
-        Assert.assertTrue(chat.addMember(TRIP, target, "I confirmed by phone", actor));
+        Assert.assertFalse(chat.addMember(TRIP, target, null, Caller.forActor(actor)));
+        Assert.assertFalse(chat.addMember(TRIP, target, "   ", Caller.forActor(actor)));
+        Assert.assertTrue(chat.addMember(TRIP, target, "I confirmed by phone", Caller.forActor(actor)));
     }
 
     @Test
@@ -132,7 +132,7 @@ public class ChatCommandsTest {
         chat.ensureChannel(tripId, actor);
         // Use a person id that may be on the fake trip — materialize remove
         final Person.Id target = Person.Id.from("implicit-user-" + System.nanoTime());
-        Assert.assertTrue(chat.removeMember(tripId, target, "test remove", actor));
+        Assert.assertTrue(chat.removeMember(tripId, target, "test remove", Caller.forActor(actor)));
         final ChatMembership row = DAO.getInstance()
                 .getChatMembership(ChatChannel.Id.forTrip(tripId), target).join().orElse(null);
         Assert.assertNotNull(row, "REMOVE of implicit member must write a row");
@@ -211,7 +211,7 @@ public class ChatCommandsTest {
         // to be one, which defeats the moderation action.
         final Person.Id muted = reactor("muted");
         final ChatMessage.Id msg = postAs(muted, "before the mute");
-        Assert.assertTrue(chat.mute(TRIP, muted, Instant.now().plusSeconds(600), "testing", actor));
+        Assert.assertTrue(chat.mute(TRIP, muted, Instant.now().plusSeconds(600), "testing", Caller.forActor(actor)));
 
         final ChatCommands.ReactResult result = chat.react(TRIP, muted, msg, "👍");
         Assert.assertFalse(result.ok());
@@ -223,11 +223,11 @@ public class ChatCommandsTest {
         final Person.Id me = reactor("disabled");
         final ChatMessage.Id msg = postAs(me, "no reactions here");
         Assert.assertTrue(chat.updateSettings(
-                TRIP, ChatSettings.defaults().toBuilder().allowReactions(false).build(), actor));
+                TRIP, ChatSettings.defaults().toBuilder().allowReactions(false).build(), Caller.forActor(actor)));
         try {
             Assert.assertEquals(chat.react(TRIP, me, msg, "👍").code(), "REACTIONS_DISABLED");
         } finally {
-            Assert.assertTrue(chat.updateSettings(TRIP, ChatSettings.defaults(), actor));
+            Assert.assertTrue(chat.updateSettings(TRIP, ChatSettings.defaults(), Caller.forActor(actor)));
         }
     }
 
@@ -326,7 +326,7 @@ public class ChatCommandsTest {
         // message they sent before the mute.
         final Person.Id muted = reactor("muted-editor");
         final ChatMessage.Id msg = postAs(muted, "before the mute");
-        Assert.assertTrue(chat.mute(TRIP, muted, Instant.now().plusSeconds(600), "testing", actor));
+        Assert.assertTrue(chat.mute(TRIP, muted, Instant.now().plusSeconds(600), "testing", Caller.forActor(actor)));
 
         Assert.assertEquals(chat.editMessage(TRIP, muted, msg, "after the mute").code(), "MUTED");
     }
@@ -344,7 +344,7 @@ public class ChatCommandsTest {
     public void aDeletedMessageCannotBeEdited() {
         final Person.Id me = reactor("deleted-edit");
         final ChatMessage.Id msg = postAs(me, "will be removed");
-        Assert.assertTrue(chat.deleteMessage(TRIP, msg, actor));
+        Assert.assertTrue(chat.deleteMessage(TRIP, msg, Caller.forActor(actor)));
 
         // Editing a tombstone would resurrect a body an administrator removed.
         Assert.assertEquals(chat.editMessage(TRIP, me, msg, "back from the dead").code(), "not_found");

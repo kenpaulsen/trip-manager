@@ -45,6 +45,7 @@ public abstract class BaseResource {
      * fifty-trip listing was doing two hundred of them to answer a question whose inputs cannot change mid-request.
      */
     private ApiPrivileges cachedPrivileges;
+    private Caller cachedCaller;
 
     /**
      * This resource's versioned media type, from {@link ApiMediaTypes}. Drives both what is echoed in
@@ -126,17 +127,27 @@ public abstract class BaseResource {
     /**
      * The caller, for beans that take one directly.
      *
-     * <p>Shares the memoized {@link ApiPrivileges} above, so a bean asking several privilege questions during
-     * one request pays for each lookup once.
+     * <p>Built from the session rather than through {@link #privileges()}, which resolves the id via
+     * {@link #personId()} and THROWS when nobody is signed in. {@code actor()} answers an unknown actor in that
+     * situation rather than throwing, and these two must behave alike: a bean that takes a caller should be
+     * able to refuse an anonymous one on its merits, not have the refusal arrive as an exception from a
+     * different layer.
+     *
+     * <p>Memoized alongside {@link #privileges()} so a request that asks several privilege questions pays for
+     * each underlying lookup once.
      */
     protected Caller caller() {
-        return privileges().caller();
+        if (cachedCaller == null) {
+            cachedCaller = Caller.of(request.getSession(false));
+        }
+        return cachedCaller;
     }
 
     /** The authorization gate for this caller. Every endpoint that is not purely self-scoped consults it. */
     protected ApiPrivileges privileges() {
         if (cachedPrivileges == null) {
-            cachedPrivileges = ApiPrivileges.of(request.getSession(false), personId());
+            // Shares this request's Caller, so its privilege cache is one cache, not two.
+            cachedPrivileges = ApiPrivileges.of(caller());
         }
         return cachedPrivileges;
     }

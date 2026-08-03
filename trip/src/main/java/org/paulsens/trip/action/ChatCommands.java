@@ -191,12 +191,26 @@ public class ChatCommands {
      * postback. Every mutating admin method below calls this before touching anything, so a caller that forgets
      * cannot escalate. Denials are audited as failures, because an attempted moderation is worth seeing.
      */
-    private boolean denyUnlessAdmin(final String tripId, final AuditActor who, final String what) {
-        return denyUnlessAdmin(tripId, who, what, Caller.current());
+    /**
+     * The actor a {@link Caller} represents.
+     *
+     * <p>These methods used to take an {@code AuditActor} AND a {@code Caller}, which is the same person asked
+     * for twice -- and two parameters that must agree are two parameters that can disagree. A caller carries
+     * its own actor, so identity and authorization now come from one object and cannot drift apart.
+     *
+     * <p>The types stay separate on purpose, though. {@code AuditActor} is an immutable value built to cross
+     * async boundaries -- {@code MailCommands} carries one into an SES completion callback deliberately --
+     * whereas a {@code Caller} holds a request-scoped privilege cache that must NOT outlive its request. Making
+     * one a subtype of the other would remove the type system's only objection to carrying a Caller somewhere
+     * its cached answers are already stale.
+     */
+    private static AuditActor actorOf(final Caller caller) {
+        return caller == null ? AuditActor.current() : caller.auditActor();
     }
 
     private boolean denyUnlessAdmin(
-            final String tripId, final AuditActor who, final String what, final Caller caller) {
+            final String tripId, final String what, final Caller caller) {
+        final AuditActor who = actorOf(caller);
         // Identity may come from the ACTOR rather than the caller. These methods are reachable with only an
         // AuditActor -- from a background thread, or a test -- where Caller.current() finds nobody; falling
         // back to the actor's own id is what lets those paths still authorize as the person they name.
@@ -1335,11 +1349,6 @@ public class ChatCommands {
 
     // --- admin ---
 
-    public boolean deleteMessage(
-            final String tripId, final ChatMessage.Id msgId, final AuditActor actor) {
-        return deleteMessage(tripId, msgId, actor, Caller.current());
-    }
-
     /**
      * Removes a message, leaving a tombstone.
      *
@@ -1351,16 +1360,15 @@ public class ChatCommands {
      * <p>Author identity is resolved from the stored message, never from the caller, so "my own" cannot be claimed.
      */
     public boolean deleteMessage(
-            final String tripId, final ChatMessage.Id msgId, final AuditActor actor,
-            final Caller caller) {
-        final AuditActor who = actor != null ? actor : AuditActor.current();
+            final String tripId, final ChatMessage.Id msgId, final Caller caller) {
+        final AuditActor who = actorOf(caller);
         final ChatChannel channel = getChannel(tripId);
         if (channel == null) {
             return false;
         }
         final Optional<ChatMessage> before = dao().getChatMessage(channel.getId(), msgId).join();
         if (!isOwnMessage(before, who)) {
-            if (denyUnlessAdmin(tripId, who, "delete message " + (msgId == null ? "?" : msgId.getValue()),
+            if (denyUnlessAdmin(tripId, "delete message " + (msgId == null ? "?" : msgId.getValue()),
                     caller)) {
                 return false;
             }
@@ -1416,21 +1424,21 @@ public class ChatCommands {
             return false;
         }
         return mute(tripId, Person.Id.from(personId),
-                Instant.now().plusSeconds(minutes * 60L), reason, AuditActor.current());
+                Instant.now().plusSeconds(minutes * 60L), reason, Caller.current());
     }
 
     public boolean unmuteUi(final String tripId, final String personId) {
         if (personId == null) {
             return false;
         }
-        return unmute(tripId, Person.Id.from(personId), AuditActor.current());
+        return unmute(tripId, Person.Id.from(personId), Caller.current());
     }
 
     public boolean removeMemberUi(final String tripId, final String personId, final String reason) {
         if (personId == null) {
             return false;
         }
-        return removeMember(tripId, Person.Id.from(personId), reason, AuditActor.current());
+        return removeMember(tripId, Person.Id.from(personId), reason, Caller.current());
     }
 
     /**
@@ -1520,13 +1528,7 @@ public class ChatCommands {
                 .backgroundColor(new ChatAppearance(backgroundColor, null).getBackgroundColor())
                 .backgroundImageUrl(new ChatAppearance(null, backgroundImageUrl).getBackgroundImageUrl())
                 .build();
-        return updateSettings(tripId, updated, AuditActor.current());
-    }
-
-    public boolean mute(
-            final String tripId, final Person.Id target, final Instant until,
-            final String reason, final AuditActor actor) {
-        return mute(tripId, target, until, reason, actor, Caller.current());
+        return updateSettings(tripId, updated, Caller.current());
     }
 
     /**
@@ -1539,9 +1541,9 @@ public class ChatCommands {
      */
     public boolean mute(
             final String tripId, final Person.Id target, final Instant until,
-            final String reason, final AuditActor actor, final Caller caller) {
-        final AuditActor who = actor != null ? actor : AuditActor.current();
-        if (denyUnlessAdmin(tripId, who, "mute " + target.getValue(), caller)) {
+            final String reason, final Caller caller) {
+        final AuditActor who = actorOf(caller);
+        if (denyUnlessAdmin(tripId, "mute " + target.getValue(), caller)) {
             return false;
         }
         return applyMute(tripId, target, until, reason, who);
@@ -1567,15 +1569,11 @@ public class ChatCommands {
         return ok;
     }
 
-    public boolean unmute(final String tripId, final Person.Id target, final AuditActor actor) {
-        return unmute(tripId, target, actor, Caller.current());
-    }
-
     /** @see #mute(String, Person.Id, Instant, String, AuditActor, boolean) for why the hint exists. */
     public boolean unmute(
-            final String tripId, final Person.Id target, final AuditActor actor, final Caller caller) {
-        final AuditActor who = actor != null ? actor : AuditActor.current();
-        if (denyUnlessAdmin(tripId, who, "unmute " + target.getValue(), caller)) {
+            final String tripId, final Person.Id target, final Caller caller) {
+        final AuditActor who = actorOf(caller);
+        if (denyUnlessAdmin(tripId, "unmute " + target.getValue(), caller)) {
             return false;
         }
         final ChatChannel channel = ensureChannel(tripId, who);
@@ -1591,17 +1589,11 @@ public class ChatCommands {
         return ok;
     }
 
-    public boolean removeMember(
-            final String tripId, final Person.Id target, final String reason, final AuditActor actor) {
-        return removeMember(tripId, target, reason, actor, Caller.current());
-    }
-
     /** @see #mute(String, Person.Id, Instant, String, AuditActor, boolean) for why the hint exists. */
     public boolean removeMember(
-            final String tripId, final Person.Id target, final String reason, final AuditActor actor,
-            final Caller caller) {
-        final AuditActor who = actor != null ? actor : AuditActor.current();
-        if (denyUnlessAdmin(tripId, who, "remove " + target.getValue(), caller)) {
+            final String tripId, final Person.Id target, final String reason, final Caller caller) {
+        final AuditActor who = actorOf(caller);
+        if (denyUnlessAdmin(tripId, "remove " + target.getValue(), caller)) {
             return false;
         }
         final ChatChannel channel = ensureChannel(tripId, who);
@@ -1621,17 +1613,12 @@ public class ChatCommands {
     /**
      * Admin add/re-add. {@code acknowledgement} is recorded verbatim in the audit trail.
      */
-    public boolean addMember(
-            final String tripId, final Person.Id target, final String acknowledgement, final AuditActor actor) {
-        return addMember(tripId, target, acknowledgement, actor, Caller.current());
-    }
-
     /** @see #mute(String, Person.Id, Instant, String, AuditActor, boolean) for why the hint exists. */
     public boolean addMember(
-            final String tripId, final Person.Id target, final String acknowledgement, final AuditActor actor,
+            final String tripId, final Person.Id target, final String acknowledgement,
             final Caller caller) {
-        final AuditActor who = actor != null ? actor : AuditActor.current();
-        if (denyUnlessAdmin(tripId, who, "add " + target.getValue(), caller)) {
+        final AuditActor who = actorOf(caller);
+        if (denyUnlessAdmin(tripId, "add " + target.getValue(), caller)) {
             return false;
         }
         // The acknowledgement IS the control here: the requirement is that a person is never re-enabled without
@@ -1699,21 +1686,13 @@ public class ChatCommands {
         return person == null ? personId : person.getPreferredName();
     }
 
-    public boolean updateSettings(
-            final String tripId,
-            final ChatSettings newSettings,
-            final AuditActor actor) {
-        return updateSettings(tripId, newSettings, actor, Caller.current());
-    }
-
     /** @see #mute(String, Person.Id, Instant, String, AuditActor, boolean) for why the hint exists. */
     public boolean updateSettings(
             final String tripId,
             final ChatSettings newSettings,
-            final AuditActor actor,
             final Caller caller) {
-        final AuditActor who = actor != null ? actor : AuditActor.current();
-        if (denyUnlessAdmin(tripId, who, "update settings", caller)) {
+        final AuditActor who = actorOf(caller);
+        if (denyUnlessAdmin(tripId, "update settings", caller)) {
             return false;
         }
         final ChatChannel channel = ensureChannel(tripId, who);

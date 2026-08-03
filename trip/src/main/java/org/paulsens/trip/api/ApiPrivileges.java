@@ -42,8 +42,8 @@ public final class ApiPrivileges {
         this.people = people;
     }
 
-    public static ApiPrivileges of(final HttpSession session, final Person.Id viewer) {
-        return new ApiPrivileges(Caller.of(session), Beans.get(PersonCommands.class));
+    public static ApiPrivileges of(final Caller caller) {
+        return new ApiPrivileges(caller, Beans.get(PersonCommands.class));
     }
 
     /** The shared caller, for beans that take one directly rather than a boolean hint. */

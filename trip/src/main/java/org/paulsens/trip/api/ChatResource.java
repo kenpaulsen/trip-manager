@@ -322,7 +322,7 @@ public class ChatResource extends BaseResource {
                 && !chat.canAdminister(tripId, caller())) {
             return error(403, ChatErrors.FORBIDDEN, "You can only remove your own messages.");
         }
-        final boolean ok = chat.deleteMessage(tripId, ChatMessage.Id.from(msgId), actor(), caller());
+        final boolean ok = chat.deleteMessage(tripId, ChatMessage.Id.from(msgId), caller());
         if (!ok) {
             return error(404, ChatErrors.NOT_FOUND, "Message not found.");
         }
@@ -676,7 +676,7 @@ public class ChatResource extends BaseResource {
         // caller() carries the session-derived identity AND role: the bean's own role check reads FacesContext
         // and reports false here, so without this a site administrator is refused every moderation action.
         final boolean ok = ChatCommands.getChatCommands()
-                .mute(tripId, Person.Id.from(targetId), until, reason, actor(), caller());
+                .mute(tripId, Person.Id.from(targetId), until, reason, caller());
         return ok ? ok(Map.of("muted", true, "until", until.toString()))
                 : error(403, ChatErrors.FORBIDDEN, "Chat manager required.");
     }
@@ -696,7 +696,7 @@ public class ChatResource extends BaseResource {
             return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
         }
         final boolean ok = ChatCommands.getChatCommands()
-                .unmute(tripId, Person.Id.from(targetId), actor(), caller());
+                .unmute(tripId, Person.Id.from(targetId), caller());
         return ok ? ok(Map.of("unmuted", true))
                 : error(403, ChatErrors.FORBIDDEN, "Chat manager required.");
     }
@@ -718,7 +718,7 @@ public class ChatResource extends BaseResource {
             return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
         }
         final boolean ok = ChatCommands.getChatCommands()
-                .removeMember(tripId, Person.Id.from(targetId), reason, actor(), caller());
+                .removeMember(tripId, Person.Id.from(targetId), reason, caller());
         return ok ? ok(Map.of("removed", true))
                 : error(403, ChatErrors.FORBIDDEN, "Chat manager required.");
     }
@@ -748,7 +748,7 @@ public class ChatResource extends BaseResource {
         }
         final String acknowledgement = string(body == null ? null : body.get("acknowledgement"));
         final boolean ok = ChatCommands.getChatCommands()
-                .addMember(tripId, Person.Id.from(targetId), acknowledgement, actor(), caller());
+                .addMember(tripId, Person.Id.from(targetId), acknowledgement, caller());
         return ok ? ok(Map.of("added", true))
                 : error(403, ChatErrors.FORBIDDEN,
                         "Chat manager required, and the person's permission must be confirmed.");
