@@ -22,7 +22,7 @@ public final class Creds implements Serializable {
             @JsonProperty("priv") String priv,
             @JsonProperty("pass") String pass,
             @JsonProperty("lastLogin") Long lastLogin) {
-        this.email = email.toLowerCase(Locale.getDefault());
+        this.email = email.toLowerCase(Locale.ROOT);
         this.userId = userId;
         this.priv = priv;
         this.pass = pass;
@@ -30,6 +30,6 @@ public final class Creds implements Serializable {
     }
 
     public Creds(final String email, final Person.Id id, final String pass) {
-        this(email.toLowerCase(Locale.getDefault()), id, USER_PRIV, pass, null);
+        this(email.toLowerCase(Locale.ROOT), id, USER_PRIV, pass, null);
     }
 }

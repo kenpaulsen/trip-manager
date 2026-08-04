@@ -211,7 +211,7 @@ public class FakeData {
 
     static Map<String, AttributeValue> getTestUserCreds(final GetItemRequest giReq) {
         final AttributeValue email = giReq.key().get(CredentialsDAO.EMAIL);
-        final AttributeValue lowEmail = email.toBuilder().s(email.s().toLowerCase(Locale.getDefault())).build();
+        final AttributeValue lowEmail = email.toBuilder().s(email.s().toLowerCase(Locale.ROOT)).build();
         final AttributeValue priv;
         if (lowEmail.s().startsWith("admin")) {
             priv = AttributeValue.builder().s("admin").build();

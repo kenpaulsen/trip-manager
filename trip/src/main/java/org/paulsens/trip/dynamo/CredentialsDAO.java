@@ -64,7 +64,7 @@ public class CredentialsDAO {
     }
 
     private Map<String, AttributeValue> getCredQueryKey(final String email) {
-        return Map.of(EMAIL, AttributeValue.builder().s(email.toLowerCase()).build());
+        return Map.of(EMAIL, AttributeValue.builder().s(email.toLowerCase(Locale.ROOT)).build());
     }
 
     /**
@@ -113,7 +113,7 @@ public class CredentialsDAO {
         // this with the user's chosen password; if that second save were ever to fail, the account is left with a
         // password nobody knows -- recoverable only via reset -- instead of one anyone could guess.
         final Creds creds = new Creds(
-                email.toLowerCase(Locale.getDefault()),
+                email.toLowerCase(Locale.ROOT),
                 user.getId(),
                 Creds.USER_PRIV,
                 RandomData.genPassChars(24),
@@ -123,7 +123,7 @@ public class CredentialsDAO {
 
     protected CompletableFuture<Boolean> saveCreds(final Creds creds) {
         final Map<String, AttributeValue> map = new HashMap<>();
-        map.put(EMAIL, AttributeValue.builder().s(creds.getEmail().toLowerCase(Locale.getDefault())).build());
+        map.put(EMAIL, AttributeValue.builder().s(creds.getEmail().toLowerCase(Locale.ROOT)).build());
         map.put(USER_ID, AttributeValue.builder().s(creds.getUserId().getValue()).build());
         map.put(PW, AttributeValue.builder().s(hashIfNeeded(creds.getPass())).build());
         map.put(PRIV, AttributeValue.builder().s(creds.getPriv()).build());
@@ -171,7 +171,7 @@ public class CredentialsDAO {
     }
 
     private Creds validateCreds(final GetItemResponse resp, final String email, final String pass) {
-        final String lowEmail = email.toLowerCase();
+        final String lowEmail = email.toLowerCase(Locale.ROOT);
         if (!resp.hasItem()) {
             // No credentials on file. We used to auto-create them here with the last name as the initial password;
             // that made every registered person's account guessable, so it is gone. A person without credentials

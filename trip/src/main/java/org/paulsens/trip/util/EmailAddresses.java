@@ -22,6 +22,11 @@ public final class EmailAddresses {
     /**
      * The trimmed address, or {@code null} if it is not usable.
      *
+     * <p><b>Outbound recipients only, never identity.</b> This deliberately preserves case (an address's local
+     * part is case-sensitive on the wire), so two spellings of one mailbox compare unequal here. Everything
+     * that treats an email as a KEY -- {@code Person.setEmail}, {@code CredentialsDAO}, the email index --
+     * lowercases with {@code Locale.ROOT} instead; use those paths for identity.
+     *
      * @param candidate a bare address; callers holding a {@code "Name <addr>"} display form must extract the
      *                  address first, or the angle brackets and space will fail the check.
      */

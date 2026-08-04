@@ -72,7 +72,7 @@ public final class Person implements Serializable, Comparable<Person> {
         this.sex = sex;
         this.birthdate = birthdate;
         this.cell = trim(cell);
-        this.email = email == null ? null : trim(email).toLowerCase(Locale.getDefault());
+        this.email = email == null ? null : trim(email).toLowerCase(Locale.ROOT);
         this.tsa = trim(tsa);
         this.address = (address == null) ? new Address() : address;
         this.passport = (passport == null) ? new Passport() : passport;
@@ -116,7 +116,7 @@ public final class Person implements Serializable, Comparable<Person> {
     }
 
     public void setEmail(final String email) {
-        this.email = (email == null) ? null : email.trim().toLowerCase(Locale.getDefault());
+        this.email = (email == null) ? null : email.trim().toLowerCase(Locale.ROOT);
     }
 
     public int compareTo(final Person other) {
