@@ -62,6 +62,7 @@ public class PrivilegeCommands {
      */
     public Privilege createPrivilege(
             final String name, final String description, final String tripId, final List<Person.Id> people) {
+        Privilege.requireStorableTripScope(tripId);
         return new Privilege(Privilege.idFor(name, tripId), description, people);
     }
 
@@ -89,6 +90,7 @@ public class PrivilegeCommands {
 
     /** The named privilege if it exists, otherwise a new (unsaved) one with the given description. */
     public Privilege getOrCreate(final String name, final String tripId, final String description) {
+        Privilege.requireStorableTripScope(blankToNull(tripId));
         final String id = Privilege.idFor(name, blankToNull(tripId));
         return getPrivilegeById(id).orElseGet(() -> new Privilege(id, description, List.of()));
     }
@@ -158,18 +160,38 @@ public class PrivilegeCommands {
                 .orElse(false);
     }
 
-    /** Grants the named privilege to {@code personId}. No-op if already held or the privilege is unknown. */
+    /**
+     * Grants the named privilege to {@code personId}.
+     *
+     * @return true when the grant was stored; false when they already held it. A grant against a privilege
+     *         nobody ever SAVED cannot succeed ({@code getOrCreate} answers an unsaved object; this resolves
+     *         only stored rows) -- that case is a failed grant, so it is logged as an error and audited as a
+     *         failure rather than returned as a quiet false a caller would read as "already held".
+     */
     public boolean add(final String name, final String tripId, final Person.Id personId) {
+        Privilege.requireStorableTripScope(blankToNull(tripId));
         if (check(name, tripId, personId)) {
             return false;
         }
-        return getPrivilegeById(Privilege.idFor(name, blankToNull(tripId)))
-                .map(priv -> priv.withNewPerson(personId))
-                .map(this::savePrivilege)
-                .orElse(false);
+        final String id = Privilege.idFor(name, blankToNull(tripId));
+        final Privilege stored = getPrivilegeById(id).orElse(null);
+        if (stored == null) {
+            log.error("Grant of '{}' to {} did NOT happen: no privilege named '{}' has been saved.",
+                    id, personId, id);
+            Audit.builder(AuditAction.PRIVILEGE, AuditOutcome.FAILURE)
+                    .target(AuditEventBuilder.TARGET_PRIVILEGE, id)
+                    .message("Grant to " + personId.getValue() + " failed: privilege was never created")
+                    .log();
+            return false;
+        }
+        return savePrivilege(stored.withNewPerson(personId));
     }
 
-    /** Revokes the named privilege from {@code personId}. */
+    /**
+     * Revokes the named privilege from {@code personId}. Idempotent by design: revoking from someone who never
+     * held it re-saves the unchanged row and reports the SAVE -- {@code true} means "they do not hold it now",
+     * not "they held it a moment ago". False means the privilege itself does not exist.
+     */
     public boolean remove(final String name, final String tripId, final Person.Id personId) {
         return getPrivilegeById(Privilege.idFor(name, blankToNull(tripId)))
                 .map(priv -> priv.withoutPerson(personId))

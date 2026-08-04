@@ -180,10 +180,14 @@ public class PrivilegeAndBindingTest {
         Assert.assertEquals(scoped.getTripId(), tripId);
         Assert.assertFalse(scoped.isGlobal());
 
-        final Privilege notAUuid = privileges.createPrivilege("scoped", "d", "trip-1", List.of(alice));
-        Assert.assertTrue(notAUuid.isGlobal(),
-                "A non-UUID trip id does not parse as a suffix, so the privilege reads as global");
-        Assert.assertEquals(notAUuid.getName(), "scopedtrip-1", "and the base name absorbs it");
+        // A non-UUID scope used to be ACCEPTED and silently parse back as GLOBAL -- a trip-scoped grant
+        // becoming site-wide. The write paths now refuse it outright (2026-08-04).
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> privileges.createPrivilege("scoped", "d", "trip-1", List.of(alice)));
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> privileges.getOrCreate("scoped", "trip-1", "d"));
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> privileges.add("scoped", "trip-1", alice));
 
         Assert.assertTrue(privileges.createPrivilege("global", "d", null, List.of()).isGlobal());
     }

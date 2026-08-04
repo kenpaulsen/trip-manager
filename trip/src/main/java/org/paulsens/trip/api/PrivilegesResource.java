@@ -130,10 +130,15 @@ public class PrivilegesResource extends BaseResource {
         if (!privileges().has(ApiPrivileges.PRIVILEGE_ADMIN)) {
             return error(403, ApiErrors.FORBIDDEN, "Privilege administration required.");
         }
-        final boolean added = Beans.get(PrivilegeCommands.class)
-                .add(name, tripId, Person.Id.from(personIdParam));
-        // add() answers false when the person already holds it, which is not a failure -- the caller's intent
-        // is satisfied either way, so this is 200 with the distinction reported rather than an error.
+        final PrivilegeCommands commands = Beans.get(PrivilegeCommands.class);
+        // Existence is checked FIRST because add() answers false for two opposite reasons: "already held"
+        // (the caller's intent is satisfied) and "no such privilege" (the grant silently did not happen).
+        // Before this check, a grant against a privilege nobody created reported {"alreadyHeld": true}.
+        if (commands.getPrivilege(name, tripId).getId().isEmpty()) {
+            return error(404, ApiErrors.NOT_FOUND, "No privilege named '" + name + "' exists"
+                    + (tripId == null || tripId.isBlank() ? "." : " for that trip."));
+        }
+        final boolean added = commands.add(name, tripId, Person.Id.from(personIdParam));
         return ok(Map.of("granted", added, "alreadyHeld", !added));
     }
 

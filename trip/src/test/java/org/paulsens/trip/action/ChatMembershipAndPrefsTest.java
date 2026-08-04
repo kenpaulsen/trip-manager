@@ -39,7 +39,7 @@ public class ChatMembershipAndPrefsTest {
     @BeforeMethod
     public void setUp() throws IOException {
         DAO.getInstance();
-        tripId = "chat-prefs-" + System.nanoTime();
+        tripId = java.util.UUID.randomUUID().toString(); // scoped grants refuse a non-UUID scope
         member = person("Member");
         adminId = person("Admin");
         seedTrip();

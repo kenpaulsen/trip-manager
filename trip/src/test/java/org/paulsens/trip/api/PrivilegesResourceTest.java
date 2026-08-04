@@ -167,6 +167,8 @@ public class PrivilegesResourceTest extends ResourceTestSupport {
     @Test
     public void grantingAnAlreadyHeldPrivilegeIsSuccessWithTheDistinctionReported() {
         signedInAsSiteAdmin(ADMIN);
+        Mockito.when(commands.getPrivilege("mail", null))
+                .thenReturn(new org.paulsens.trip.model.Privilege("mail", "d", java.util.List.of(SUBJECT)));
         Mockito.when(commands.add("mail", null, SUBJECT)).thenReturn(false);
 
         final Response response = resource.add("mail", SUBJECT.getValue(), CSRF_OK, null);
@@ -178,9 +180,29 @@ public class PrivilegesResourceTest extends ResourceTestSupport {
         Assert.assertEquals(body.get("alreadyHeld"), true);
     }
 
+    /**
+     * The lie this fixes: add() answers false both for "already held" and "no such privilege", and the
+     * response mapped false to {"alreadyHeld": true} -- so granting against a privilege nobody ever created
+     * told the client the person already held it. Existence is now checked first and answered as a 404.
+     */
+    @Test
+    public void grantingAgainstANonexistentPrivilegeIs404NotAlreadyHeld() {
+        signedInAsSiteAdmin(ADMIN);
+        Mockito.when(commands.getPrivilege("neverCreated", null))
+                .thenReturn(org.paulsens.trip.model.Privilege.NONE);
+
+        final Response response = resource.add("neverCreated", SUBJECT.getValue(), CSRF_OK, null);
+
+        assertError(response, 404, ApiErrors.NOT_FOUND);
+        Mockito.verify(commands, Mockito.never())
+                .add(Mockito.anyString(), Mockito.any(), Mockito.any());
+    }
+
     @Test
     public void grantingANewHolderReportsGranted() {
         signedInAsSiteAdmin(ADMIN);
+        Mockito.when(commands.getPrivilege("mail", "t1"))
+                .thenReturn(new org.paulsens.trip.model.Privilege("mail", "d", java.util.List.of()));
         Mockito.when(commands.add("mail", "t1", SUBJECT)).thenReturn(true);
 
         final Response response = resource.add("mail", SUBJECT.getValue(), CSRF_OK, "t1");

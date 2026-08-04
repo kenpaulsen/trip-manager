@@ -48,9 +48,37 @@ public class Privilege implements Serializable {
         this.people = (people == null) ? List.of() : people;
     }
 
-    /** Builds the identity for a base name plus an optional trip id (null/blank == global). */
+    /** A complete trip id: the same canonical-UUID shape {@link #TRIP_ID_SUFFIX} anchors on. */
+    private static final Pattern TRIP_ID = Pattern.compile(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+
+    /**
+     * Builds the identity for a base name plus an optional trip id (null/blank == global).
+     *
+     * <p>Deliberately lenient: reads (authorization checks, lookups) build the same concatenation whatever the
+     * trip id looks like, so they stay symmetric with whatever was stored. It is the WRITE paths that must
+     * refuse a non-round-trippable scope -- see {@link #requireStorableTripScope(String)}.
+     */
     public static String idFor(final String baseName, final String tripId) {
         return (tripId == null || tripId.isBlank()) ? baseName : baseName + tripId;
+    }
+
+    /**
+     * Refuses a trip scope that cannot survive storage.
+     *
+     * <p>The identity is parsed back into (name, tripId) by anchoring on a canonical-UUID suffix, so a
+     * non-UUID trip id concatenates fine and then reads back as GLOBAL -- a trip-scoped grant silently
+     * becoming site-wide. Real trip ids are minted UUIDs (verified against production 2026-08-04), so the
+     * write paths call this to refuse the one shape that cannot round-trip rather than storing it wrong.
+     *
+     * @param tripId the requested scope; null/blank (global) is always fine.
+     * @throws IllegalArgumentException if {@code tripId} is non-blank and not a canonical UUID.
+     */
+    public static void requireStorableTripScope(final String tripId) {
+        if (tripId != null && !tripId.isBlank() && !TRIP_ID.matcher(tripId).matches()) {
+            throw new IllegalArgumentException("Trip id '" + tripId + "' is not a canonical UUID; a privilege "
+                    + "scoped to it would silently parse back as GLOBAL. Refusing to store it.");
+        }
     }
 
     /** The base privilege name, without any trip id suffix. */

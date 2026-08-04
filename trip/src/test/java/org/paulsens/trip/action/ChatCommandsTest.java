@@ -30,7 +30,9 @@ import org.testng.annotations.Test;
 public class ChatCommandsTest {
 
     /** Dedicated trip id — not FakeData's {@code faketrip}, so this suite never depends on global seed state. */
-    private static final String TRIP = "chat-cmd-trip";
+    // A real UUID: the setup grants a trip-scoped privilege, and the write path refuses a scope that
+    // cannot round-trip through the UUID-suffix identity parse.
+    private static final String TRIP = java.util.UUID.randomUUID().toString();
 
     private ChatCommands chat;
     private AuditActor actor;
