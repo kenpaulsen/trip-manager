@@ -39,6 +39,8 @@ public final class CloudWatchAuditSink implements AuditSink {
     /** CloudWatch caps a batch at 10,000 events / 1 MB; stay well under both. */
     private static final int MAX_BATCH = 1_000;
     private static final long FLUSH_INTERVAL_MS = 2_000L;
+    /** Upper bound on one delivery attempt; a slower CloudWatch is treated as a failed delivery, not waited on. */
+    private static final long SEND_TIMEOUT_SECONDS = 30L;
     private static final DateTimeFormatter STREAM_DATE =
             DateTimeFormatter.ofPattern("yyyy/MM/dd").withZone(ZoneOffset.UTC);
 
@@ -147,7 +149,13 @@ public final class CloudWatchAuditSink implements AuditSink {
                     .logGroupName(logGroup)
                     .logStreamName(logStream)
                     .logEvents(batch)
-                    .build()).join();
+                    .build())
+                    // BOUNDED, because this join is reached from close() as well as the flusher: an
+                    // unresponsive endpoint whose future never completes would otherwise wedge the flusher
+                    // silently and block container shutdown. A timeout takes the same fallback as any other
+                    // delivery failure -- the records print to stdout, which the awslogs driver still captures.
+                    .orTimeout(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .join();
         } catch (RuntimeException ex) {
             // Delivery failed: print the records so they still land in the application log group via stdout.
             System.out.println("AUDIT-DELIVERY-FAILED (" + ex + ") -- records follow:");
