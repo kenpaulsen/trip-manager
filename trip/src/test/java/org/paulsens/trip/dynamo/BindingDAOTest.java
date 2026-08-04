@@ -16,7 +16,7 @@ public class BindingDAOTest {
 
     @Test
     public void canRetrieveBindingAndReverseToo() {
-        final BindingDAO dao = new BindingDAO(FakeData.createFakePersistence());
+        final BindingDAO dao = new BindingDAO(DynamoLocal.persistence());
         final String id1 = RandomData.genAlpha(12);
         final String id2 = RandomData.genAlpha(7) + ',' + RandomData.genAlpha(7);
         final String id3 = RandomData.genAlpha(10);

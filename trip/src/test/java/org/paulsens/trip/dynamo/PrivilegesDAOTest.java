@@ -29,7 +29,7 @@ public class PrivilegesDAOTest {
 
     @BeforeMethod
     public void setup() {
-        dao = new PrivilegesDAO(new ObjectMapper().findAndRegisterModules(), FakeData.createFakePersistence());
+        dao = new PrivilegesDAO(new ObjectMapper().findAndRegisterModules(), DynamoLocal.persistence());
     }
 
     @Test
@@ -93,14 +93,22 @@ public class PrivilegesDAOTest {
         assertEquals(get(dao.getPrivilege(priv.getName())), Optional.of(priv));
     }
 
+    /**
+     * Clearing the cache must not lose data.
+     *
+     * <p>This asserted the OPPOSITE until the DAO tests moved onto a real engine: that the row was GONE after a
+     * clear. That was true only because the fake persistence stored nothing, so the cache WAS the store. The
+     * real invariant is that a clear drops the cached copy and the next read is served by the store.
+     */
     @Test
-    public void clearCacheWorks() {
+    public void clearingTheCacheDoesNotLoseTheRow() {
         final Privilege priv = new Privilege("clear-" + RandomData.genAlpha(5), "desc", List.of());
         get(dao.savePrivilege(priv));
         assertTrue(get(dao.getPrivilege(priv.getName())).isPresent());
+
         dao.clearCache();
-        // After clearing, getPrivilege goes to persistence (returns null for non-pass tables)
-        assertTrue(get(dao.getPrivilege(priv.getName())).isEmpty());
+
+        assertTrue(get(dao.getPrivilege(priv.getName())).isPresent());
     }
 
     @Test

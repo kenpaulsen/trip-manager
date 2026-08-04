@@ -24,17 +24,26 @@ public class ChatReactionDAOTest {
 
     private ChatDAO dao;
     private ChatChannel channel;
-    private InMemoryPersistence persistence;
+    private Persistence persistence;
     private InMemoryCacheClient cache;
 
+    /**
+     * A fresh CHANNEL per test, not a fresh store.
+     *
+     * <p>The engine is shared for the whole JVM and deliberately not reset between tests -- resetting a shared
+     * store is how one test's teardown starts deleting another's rows. So isolation is by key: each method gets
+     * its own trip id, and therefore its own channel partition. With a fixed "t1" these tests saw each other's
+     * messages the moment they stopped getting a private in-memory store.
+     */
     @BeforeMethod
     public void setUp() {
         final ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
-        persistence = new InMemoryPersistence();
+        persistence = DynamoLocal.persistence();
         cache = new InMemoryCacheClient();
         dao = new ChatDAO(mapper, persistence, cache);
+        final String tripId = DynamoLocal.uniqueId("reaction-trip");
         channel = new ChatChannel(
-                ChatChannel.Id.forTrip("t1"), "t1", ChatChannel.Kind.TRIP, "Test",
+                ChatChannel.Id.forTrip(tripId), tripId, ChatChannel.Kind.TRIP, "Test",
                 null, null, ChatSettings.defaults(), Instant.parse("2026-01-01T00:00:00Z"),
                 "admin", null, null);
         dao.saveChannel(channel).join();

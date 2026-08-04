@@ -24,7 +24,7 @@ public class TransactionDAOTest {
 
     @BeforeMethod
     public void setup() {
-        dao = new TransactionDAO(new ObjectMapper().findAndRegisterModules(), FakeData.createFakePersistence());
+        dao = new TransactionDAO(new ObjectMapper().findAndRegisterModules(), DynamoLocal.persistence());
     }
 
     @Test
@@ -131,13 +131,22 @@ public class TransactionDAOTest {
         assertEquals(txs.get(2).getNote(), "third");
     }
 
+    /**
+     * Clearing the cache must not lose data.
+     *
+     * <p>This asserted the OPPOSITE until the DAO tests moved onto a real engine: that the row was GONE after a
+     * clear. That was true only because the fake persistence stored nothing, so the cache WAS the store. The
+     * real invariant is that a clear drops the cached copy and the next read is served by the store.
+     */
     @Test
-    public void clearCacheWorks() throws IOException {
+    public void clearingTheCacheDoesNotLoseTheRow() throws IOException {
         final Person.Id userId = Person.Id.newInstance();
         get(dao.saveTransaction(new Transaction(userId, "g", Transaction.Type.Tx)));
         assertEquals(get(dao.getTransactions(userId)).size(), 1);
+
         dao.clearCache();
-        assertEquals(get(dao.getTransactions(userId)).size(), 0);
+
+        assertEquals(get(dao.getTransactions(userId)).size(), 1);
     }
 
     private <T> T get(final CompletableFuture<T> future) {

@@ -92,6 +92,25 @@ public class ModelSerializationTest {
                         + "save for that user, and every later request they make returns 500: " + offenders);
     }
 
+    /**
+     * The sweep above only walks {@code org.paulsens.trip.model}, and not everything parked in viewScope lives
+     * there. {@code chats.xhtml} stashes {@code chat.myChats(userId)} -- a list of
+     * {@link org.paulsens.trip.action.ChatCommands.ChatSummary}, declared in the <em>action</em> package -- so
+     * the record sat outside the guard and was not Serializable. Under the Valkey session store that broke the
+     * session save for anyone who opened the page, taking out every later request they made.
+     *
+     * <p>Found on 2026-08-03 by the Playwright webtest suite in redis mode, where the aborted responses showed
+     * up as ~18 unrelated {@code /trip/*} pages failing to render. Add a case here for any other action-package
+     * type a page puts in a scope.
+     */
+    @Test
+    public void viewScopeTypesDeclaredOutsideTheModelPackageAreSerializable() throws Exception {
+        final Class<?> summary = org.paulsens.trip.action.ChatCommands.ChatSummary.class;
+        Assert.assertTrue(Serializable.class.isAssignableFrom(summary),
+                summary.getName() + " is placed in viewScope by chats.xhtml, so it must be Serializable or the "
+                        + "session save throws and every later request on that session fails");
+    }
+
     @Test
     public void modelSweepDiscoversChatSubPackage() throws Exception {
         // Guard against silent escape: a non-recursive dir.listFiles would drop model.chat entirely.

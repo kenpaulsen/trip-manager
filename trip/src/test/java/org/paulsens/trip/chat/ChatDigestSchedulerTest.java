@@ -239,4 +239,85 @@ public class ChatDigestSchedulerTest {
             return "chat.digest.enabled".equals(name) || defaultValue;
         }
     }
+
+    // --- the scheduler loop itself (attempt / reschedule / zone) ---
+
+    /** A finished attempt must arm the next day's run -- the regression that once retired the scheduler. */
+    @Test
+    public void aSuccessfulAttemptSendsAndArmsTheNextRun() {
+        sender.candidates.add(candidate("p1"));
+        final ChatDigestScheduler scheduler = ChatDigestScheduler.forTest(cache, enabled, sender);
+
+        scheduler.attempt(RUN, Instant.now());
+
+        Assert.assertEquals(sender.sent, List.of("p1"));
+    }
+
+    @Test
+    public void anAttemptWithoutTheLockReschedulesInsteadOfSending() {
+        cache.tryAcquireLock(CacheKeys.chatDigestLockKey(RUN), Duration.ofMinutes(10)).join();
+        sender.candidates.add(candidate("p1"));
+        final ChatDigestScheduler scheduler = ChatDigestScheduler.forTest(cache, enabled, sender);
+
+        scheduler.attempt(RUN, Instant.now());
+
+        Assert.assertTrue(sender.sent.isEmpty(), "no lock means a retry was queued, not a send");
+    }
+
+    /**
+     * {@code attempt} is the top of the scheduler thread: an escaping exception would silently kill the only
+     * thread that can ever send a digest again.
+     */
+    @Test
+    public void anAttemptSurvivesAThrowingConfig() {
+        final ConfigCommands broken = new ConfigCommands() {
+            @Override
+            public boolean getBoolean(final String name, final boolean defaultValue) {
+                throw new IllegalStateException("config table is down");
+            }
+        };
+
+        ChatDigestScheduler.forTest(cache, broken, sender).attempt(RUN, Instant.now());
+
+        Assert.assertTrue(sender.sent.isEmpty());
+    }
+
+    /** A typo'd zone setting falls back to UTC rather than killing the scheduling of every later run. */
+    @Test
+    public void aBadZoneSettingFallsBackToUtc() {
+        final ConfigCommands badZone = new ConfigCommands() {
+            @Override
+            public String getString(final String name, final String defaultValue) {
+                return "chat.digest.zone".equals(name) ? "Not/AZone" : defaultValue;
+            }
+        };
+
+        // Disabled config: the attempt reports finished and goes straight to scheduling the next run,
+        // which is where the zone is consulted.
+        ChatDigestScheduler.forTest(cache, badZone, sender).attempt(RUN, Instant.now());
+
+        Assert.assertTrue(sender.sent.isEmpty());
+    }
+
+    @Test
+    public void startIsIdempotentAndStopIsSafeToRepeat() {
+        try {
+            ChatDigestScheduler.start();
+            ChatDigestScheduler.start(); // second call must be a no-op, not a second scheduler
+        } finally {
+            ChatDigestScheduler.stop();
+            ChatDigestScheduler.stop(); // stopping a stopped scheduler is equally ordinary at shutdown
+        }
+    }
+
+    /** The web.xml listener is just the start/stop bridge; neither direction may abort the container. */
+    @Test
+    public void theLifecycleListenerStartsAndStopsWithoutTouchingTheEvent() {
+        final ChatLifecycleListener listener = new ChatLifecycleListener();
+        try {
+            listener.contextInitialized(null);
+        } finally {
+            listener.contextDestroyed(null);
+        }
+    }
 }

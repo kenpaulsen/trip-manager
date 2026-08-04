@@ -30,6 +30,9 @@ hs_err_pid*
 *.swp
 .idea
 
+# DynamoDB Local writes this into the working directory even with -inMemory
+dynamodb-local-metadata.json
+
 # Project files
 trip/logs
 trip/src/main/webapp/WEB-INF/glassfish-web.xml

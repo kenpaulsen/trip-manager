@@ -28,7 +28,7 @@ public class PersonDAOTest {
 
     @BeforeMethod
     public void setup() {
-        dao = new PersonDAO(new ObjectMapper().findAndRegisterModules(), FakeData.createFakePersistence());
+        dao = new PersonDAO(new ObjectMapper().findAndRegisterModules(), DynamoLocal.persistence());
     }
 
     @Test
@@ -149,15 +149,23 @@ public class PersonDAOTest {
         assertNull(get(dao.getPersonByEmail("del@test.com")));
     }
 
+    /**
+     * Clearing the cache must not lose data.
+     *
+     * <p>This asserted the OPPOSITE until the DAO tests moved onto a real engine: that the row was GONE after a
+     * clear. That was true only because the fake persistence stored nothing, so the cache WAS the store. The
+     * real invariant is that a clear drops the cached copy and the next read is served by the store.
+     */
     @Test
-    public void clearCacheWorks() throws IOException {
+    public void clearingTheCacheDoesNotLoseTheRow() throws IOException {
         final Person person = Person.builder().first("Clear").last("Me").build();
         get(dao.savePerson(person));
         assertTrue(get(dao.getPerson(person.getId())).isPresent());
+
         dao.clearCache();
-        // Fake persistence stores nothing, so after a clear the person is gone (cache was the store)
-        assertEquals(get(dao.getPerson(person.getId())), Optional.empty());
-        assertTrue(get(dao.searchPeople("clear", 10)).isEmpty());
+
+        assertTrue(get(dao.getPerson(person.getId())).isPresent(),
+                "the store still has it after the cached copy is dropped");
     }
 
     @Test

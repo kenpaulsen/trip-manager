@@ -89,7 +89,10 @@ public class TripCommands {
         if (updated == null || updated.getId() == null) {
             return List.of();
         }
-        final Trip stored = DAO.getInstance().getTrip(updated.getId()).join().orElse(null);
+        // exceptionally, not a bare join: this pre-read is advisory, and the save it precedes must survive it.
+        final Trip stored = DAO.getInstance().getTrip(updated.getId())
+                .exceptionally(ex -> Optional.empty())
+                .join().orElse(null);
         if (stored == null) {
             return List.of();
         }

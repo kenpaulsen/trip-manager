@@ -32,7 +32,7 @@ public class TripDAOTest {
     @BeforeMethod
     public void setup() {
         final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
-        final Persistence persistence = FakeData.createFakePersistence();
+        final Persistence persistence = DynamoLocal.persistence();
         tripEventDao = new TripEventDAO(mapper, persistence);
         dao = new TripDAO(mapper, persistence, tripEventDao);
     }

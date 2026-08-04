@@ -21,7 +21,7 @@ public class RegistrationDAOTest {
 
     @BeforeMethod
     public void setup() {
-        dao = new RegistrationDAO(new ObjectMapper().findAndRegisterModules(), FakeData.createFakePersistence());
+        dao = new RegistrationDAO(new ObjectMapper().findAndRegisterModules(), DynamoLocal.persistence());
     }
 
     @Test
@@ -94,14 +94,22 @@ public class RegistrationDAOTest {
         assertEquals(retrieved.getStatus(), Registration.Status.CONFIRMED);
     }
 
+    /**
+     * Clearing the cache must not lose data.
+     *
+     * <p>This asserted the OPPOSITE until the DAO tests moved onto a real engine: that the row was GONE after a
+     * clear. That was true only because the fake persistence stored nothing, so the cache WAS the store. The
+     * real invariant is that a clear drops the cached copy and the next read is served by the store.
+     */
     @Test
-    public void clearCacheWorks() throws IOException {
+    public void clearingTheCacheDoesNotLoseTheRow() throws IOException {
         final String tripId = RandomData.genAlpha(10);
         get(dao.saveRegistration(new Registration(tripId, Person.Id.newInstance())));
         assertEquals(get(dao.getRegistrations(tripId)).size(), 1);
+
         dao.clearCache();
-        // After clearing, query returns empty from fake persistence
-        assertEquals(get(dao.getRegistrations(tripId)).size(), 0);
+
+        assertEquals(get(dao.getRegistrations(tripId)).size(), 1);
     }
 
     @Test

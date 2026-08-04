@@ -12,6 +12,10 @@ import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
+/*
+ * NOTE: InMemoryPersistence on purpose: each test wants its OWN empty store to reason about allocation, and the
+ * shared DynamoLocal engine is deliberately not reset between tests.
+ */
 public class ChatIdAllocatorTest {
 
     @Test

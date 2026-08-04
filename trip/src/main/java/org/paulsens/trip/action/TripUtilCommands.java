@@ -22,6 +22,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.dynamo.LocalMode;
 import org.primefaces.model.SortMeta;
 import org.primefaces.model.SortOrder;
 
@@ -30,6 +31,21 @@ import org.primefaces.model.SortOrder;
 @Named("tripUtil")
 @SuppressWarnings("unused")
 public class TripUtilCommands {
+    /**
+     * Whether this JVM is running on fake data rather than against AWS, for EL that must not fire in a
+     * non-production deployment -- {@code #{tripUtil.local}}.
+     *
+     * <p>The motivating case is the analytics tag in {@code template.xhtml}: every local run, every
+     * {@code TRIP_LOCAL_MODE=true} container and every webtest page load was reporting hits to the real Google
+     * Analytics property, so the production numbers included test traffic. It also made the test suite wait on an
+     * internet round trip for a script it had no interest in.
+     *
+     * @return {@code true} when {@link LocalMode} resolved this JVM to local mode.
+     */
+    public boolean isLocal() {
+        return LocalMode.isLocal();
+    }
+
     /**
      *  This method creates a {@code FacesMessage}.  It takes 3 String arguments: severity, summary, and detail.
      *

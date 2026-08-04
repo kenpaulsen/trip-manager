@@ -3,6 +3,7 @@ package org.paulsens.trip.api;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import jakarta.ws.rs.NotAuthorizedException;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -10,8 +11,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.PersonCommands;
+import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Trip;
 
 /**
  * What every resource on this API needs and none of them should reinvent: response shaping, {@code Accept}
@@ -170,6 +173,54 @@ public abstract class BaseResource {
         }
         final Person person = Beans.get(PersonCommands.class).getPerson(id);
         return (person == null || !id.equals(person.getId())) ? null : person;
+    }
+
+    /**
+     * The trip with this id, or {@code null} if there is no such trip.
+     *
+     * <p>Same trap as {@link #findPerson}: {@code TripCommands.getTrip} answers a miss with
+     * {@code Trip.builder().build()}, whose builder mints a random id, so a null check on the result never
+     * fires. Any resource that trusted it returned a blank made-up trip on a GET -- or worse, keyed a WRITE off
+     * a trip id nobody ever created. The minted id is what makes the miss detectable: a real trip's id equals
+     * the one that was asked for.
+     */
+    protected static Trip findTrip(final String tripId) {
+        if (tripId == null) {
+            return null;
+        }
+        final Trip trip = Beans.get(TripCommands.class).getTrip(tripId);
+        return (trip == null || !tripId.equals(trip.getId())) ? null : trip;
+    }
+
+    /**
+     * The trip with this id, or a 404 out of the whole request.
+     *
+     * <p>For endpoints whose path names a trip that simply must exist: instead of every method carrying its own
+     * {@code if (findTrip(...) == null) return error(404, ...)}, this throws the same negotiated error body as
+     * a {@link WebApplicationException}, which {@code JsonExceptionMapper} passes through untouched. Use
+     * {@link #findTrip} instead when "no such trip" is an answer the endpoint wants to shape itself.</p>
+     */
+    protected Trip requireTrip(final String tripId) {
+        final Trip trip = findTrip(tripId);
+        if (trip == null) {
+            throw new WebApplicationException(error(404, ApiErrors.NOT_FOUND, "No such trip."));
+        }
+        return trip;
+    }
+
+    /**
+     * The person with this id, or a 404 out of the whole request.
+     *
+     * <p>The same guard as {@link #requireTrip}, for the personId half of the invented-record trap: several
+     * {@code get*} beans answer a miss by CREATING what was asked for ({@code getRoomPDV} even saves it), so an
+     * endpoint that skips this check turns a mistyped person id into a junk row keyed to nobody.</p>
+     */
+    protected Person requireSubject(final Person.Id subject) {
+        final Person person = findPerson(subject);
+        if (person == null) {
+            throw new WebApplicationException(error(404, ApiErrors.NOT_FOUND, "No such person."));
+        }
+        return person;
     }
 
     /**

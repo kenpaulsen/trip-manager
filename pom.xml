@@ -9,6 +9,7 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <jacoco.version>0.8.15</jacoco.version>
     </properties>
 
     <modules>
@@ -158,6 +159,67 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
                 <version>3.5.0</version>
+            </plugin>
+            <plugin>
+                <!--
+                    Test coverage. The report is bound to `test`, not `verify`, so the everyday
+                    `mvn test -pl trip` produces it with no extra command to remember:
+                    trip/target/site/jacoco/index.html
+
+                    prepare-agent sets the `argLine` property that surefire picks up. Nothing else here sets
+                    argLine; if something ever does, it must append ${argLine} or coverage silently reports
+                    zero for everything while the build still passes.
+
+                    Accurate numbers depend on lombok.config's addLombokGeneratedAnnotation - without it the
+                    generated equals/hashCode/toString/builder methods on every @Data model count as uncovered
+                    and bury the real gaps.
+                -->
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <configuration>
+                    <!--
+                        Every exclusion here was approved individually. Adding one is not a way to make the
+                        coverage gate pass: if a class is hard to test, that is usually worth knowing.
+                    -->
+                    <excludes>
+                        <!-- MapStruct-generated; the hand-written mapper interfaces are still measured. -->
+                        <exclude>**/*MapperImpl.class</exclude>
+                        <exclude>**/App.class</exclude>
+                        <!--
+                            TODO: remove both PayPal exclusions once the PayPal rework lands.
+
+                            Excluded 2026-08-03 because this version of the PayPal code is not in use and is
+                            about to be replaced, so holding it to the floor would fail the build over code
+                            already on its way out. PayCommandsCaptureTest still exists and still runs; only
+                            the coverage requirement is lifted.
+                        -->
+                        <exclude>org/paulsens/trip/pay/**</exclude>
+                        <exclude>**/PayCommands.class</exclude>
+                        <!--
+                            Mojarra instantiates these through the JSF factory chain to override the server
+                            name; constructing one outside a container means faking the whole factory stack for
+                            three overrides. Covers TripFacesContext, its TripExternalContext inner class, and
+                            TripFacesContextFactory.
+                        -->
+                        <exclude>**/TripFacesContext*.class</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

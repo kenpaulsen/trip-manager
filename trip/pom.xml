@@ -17,6 +17,13 @@
         <!-- One version for the mapstruct dependency and its processor; they must not drift. -->
         <mapstruct.version>1.6.3</mapstruct.version>
         <lombok.version>1.18.44</lombok.version>
+        <!--
+            The coverage gate's kill switch. False here so a laptop `mvn package` reports coverage shortfalls
+            without failing the build; GitHub Actions passes -Djacoco.check.halt=true, which is where the gate
+            actually blocks. Deliberately NOT enabled in the CodePipeline buildspec (it runs -DskipTests, a
+            cost decision), so GitHub is the one place a coverage regression stops anything.
+        -->
+        <jacoco.check.halt>false</jacoco.check.halt>
     </properties>
 
     <dependencies>
@@ -204,6 +211,29 @@
             <artifactId>mockito-core</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>com.github.fppt</groupId>
+            <artifactId>jedis-mock</artifactId>
+            <version>1.1.16</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>DynamoDBLocal</artifactId>
+            <version>2.6.1</version>
+            <scope>test</scope>
+        </dependency>
+        <!--
+            DynamoDBLocal drags in log4j-core 2.17.1, while POI puts log4j-api 2.24.3 on the compile classpath.
+            The mismatch is not a warning: log4j-core dies with NoSuchMethodError LoaderUtil.getClassLoaders()
+            while DynamoDB Local is still starting, so every test using it fails in @BeforeClass.
+        -->
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <version>2.24.3</version>
+            <scope>test</scope>
+        </dependency>
         <!--
             An EL IMPLEMENTATION, test scope only. jakarta.el-api on the compile classpath is just the API;
             ExpressionFactory.newInstance() needs a provider, which at runtime comes from Tomcat. Without this,
@@ -262,6 +292,24 @@
             </plugin>
             <plugin>
                 <!--
+                    Resolves each dependency's jar path into a property named after its coordinates, which is how
+                    surefire's argLine above gets ${org.mockito:mockito-core:jar} without hard-coding a path or a
+                    version.
+                -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.9.0</version>
+                <executions>
+                    <execution>
+                        <id>resolve-agent-paths</id>
+                        <goals>
+                            <goal>properties</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <!--
                     The TestNG provider is pinned EXPLICITLY. Surefire otherwise auto-detects a provider from
                     the test classpath, and the moment any dependency drags in JUnit (jersey-test-framework
                     brings junit-jupiter) it silently switches to the JUnit platform provider: every TestNG test
@@ -280,6 +328,18 @@
                     </dependency>
                 </dependencies>
                 <configuration>
+                    <!--
+                        @{argLine}, NOT ${argLine}. The '@' is surefire's late replacement, evaluated after
+                        JaCoCo's prepare-agent has set the argLine property. With '$' the property is resolved
+                        too early, JaCoCo's -javaagent is dropped, and every coverage figure silently reads zero
+                        while the build stays green: the same shape of failure as the surefire provider note
+                        below, and just as invisible.
+
+                        The mockito agent is explicit because Mockito otherwise self-attaches at runtime, which
+                        the JDK already warns about and will refuse in a future release. This suite leans on
+                        mockStatic heavily (every api resource test), so that is not a warning to sit on.
+                    -->
+                    <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
                     <!-- A run that finds no tests is a broken run, not a passing one. -->
                     <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                     <systemPropertyVariables>
@@ -295,6 +355,73 @@
                         <trip.local.mode>true</trip.local.mode>
                     </systemPropertyVariables>
                 </configuration>
+            </plugin>
+            <plugin>
+                <!--
+                    The coverage GATE (the report itself is configured in the parent). Two rules, both on LINE
+                    coverage: the bundle must hold 90%, and every individual class must hold 90%. The
+                    per-class floor is the half that catches a new, simple, untested class before production,
+                    which the overall number alone would absorb without a ripple.
+
+                    Bound to `test` (not `verify`) because CI runs `mvn package`, which never reaches verify.
+                    haltOnFailure comes from ${jacoco.check.halt}: false locally, true in GitHub Actions.
+
+                    Every name on the exclusion list was approved individually on 2026-08-03; each is excluded
+                    from the PER-CLASS rule only and still counts toward the bundle number. Adding a name here
+                    is not a way to make the gate pass.
+                -->
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <haltOnFailure>${jacoco.check.halt}</haltOnFailure>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.90</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                                <rule>
+                                    <element>CLASS</element>
+                                    <excludes>
+                                        <!-- FacesContext-bound UI helpers; the chat rules themselves are tested. -->
+                                        <exclude>org.paulsens.trip.action.ChatCommands</exclude>
+                                        <!-- main() constructs a real DynamoPersistence; the sweep logic is tested. -->
+                                        <exclude>org.paulsens.trip.dynamo.PasswordMigration</exclude>
+                                        <!-- The cluster constructor needs a real cluster; see ValkeyClusterPubSubTest. -->
+                                        <exclude>org.paulsens.trip.cache.ValkeyCacheClient</exclude>
+                                        <!-- The public constructor creates a real CloudWatch log stream. -->
+                                        <exclude>org.paulsens.trip.audit.CloudWatchAuditSink</exclude>
+                                        <!-- The lazy s3()/regionName() builders reach real AWS if invoked. -->
+                                        <exclude>org.paulsens.trip.action.MediaCommands</exclude>
+                                        <!-- The Secrets Manager SUCCESS path needs a live secret; failures are tested. -->
+                                        <exclude>org.paulsens.trip.security.Pepper</exclude>
+                                        <!-- Queue-full/interrupt branches require racing the writer thread. -->
+                                        <exclude>org.paulsens.trip.audit.DynamoAuditSink</exclude>
+                                    </excludes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.90</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

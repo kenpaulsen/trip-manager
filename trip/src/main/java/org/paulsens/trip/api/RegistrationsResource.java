@@ -16,7 +16,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.AuditCommands;
 import org.paulsens.trip.action.RegistrationCommands;
 import org.paulsens.trip.action.PersonCommands;
-import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.api.dto.RegistrationDto;
 import org.paulsens.trip.api.mapper.RegistrationMapper;
 import org.paulsens.trip.model.Person;
@@ -87,6 +86,11 @@ public class RegistrationsResource extends BaseResource {
         if (!canSeeAnswers(tripId, subject)) {
             return error(403, ApiErrors.FORBIDDEN, "Not permitted to read this registration.");
         }
+        // The registration may be transient, but the TRIP and PERSON must be real: without these checks the
+        // invented record makes a nonexistent trip -- or a mistyped person id -- look like someone who simply
+        // hasn't registered yet.
+        requireTrip(tripId);
+        requireSubject(subject);
         final Registration reg = Beans.get(RegistrationCommands.class).getRegistration(tripId, subject);
         return ok(RegistrationMapper.INSTANCE.toDto(reg));
     }
@@ -118,13 +122,17 @@ public class RegistrationsResource extends BaseResource {
         if (body != null && body.status() != null && !staff) {
             return error(403, ApiErrors.FORBIDDEN, "Only trip staff may change a registration's status.");
         }
+        // getRegistration invents a record keyed to whatever was asked for, so without these checks a PUT to a
+        // trip nobody created -- or a staff PUT with a mistyped person id -- saves a junk row under that key.
+        final Trip trip = requireTrip(tripId);
+        final Person person = requireSubject(subject);
         final RegistrationCommands registrations = Beans.get(RegistrationCommands.class);
         final Registration existing = registrations.getRegistration(tripId, subject);
         final Registration toSave = merge(existing, body);
         if (!registrations.saveRegistration(toSave)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the registration.");
         }
-        audit(tripId, subject, existing, toSave);
+        audit(trip, person, existing, toSave);
         // Echo the object just saved; a re-read can still serve the pre-save value while the cache catches up.
         return ok(RegistrationMapper.INSTANCE.toDto(toSave));
     }
@@ -139,6 +147,11 @@ public class RegistrationsResource extends BaseResource {
         if (!canSeeAnswers(tripId, subject)) {
             return error(403, ApiErrors.FORBIDDEN, "Not permitted to read this room assignment.");
         }
+        // getRoomPDV CREATES AND SAVES a blank record on a miss -- convenient for the JSF room editor, but here
+        // it means a GET with a garbage tripId OR a garbage personId writes a junk person_data row. Refuse both
+        // before it can.
+        requireTrip(tripId);
+        requireSubject(subject);
         final PersonDataValue pdv = Beans.get(RegistrationCommands.class).getRoomPDV(tripId, subject);
         final Map<String, Object> result = new LinkedHashMap<>();
         result.put("tripId", tripId);
@@ -163,6 +176,8 @@ public class RegistrationsResource extends BaseResource {
         if (!isTripStaff(tripId)) {
             return error(403, ApiErrors.FORBIDDEN, "Trip staff required.");
         }
+        requireTrip(tripId);
+        requireSubject(Person.Id.from(personIdParam));
         final Object room = body == null ? null : body.get("room");
         // The value is passed in rather than read back out of the PDV on purpose: saveRoom documents that a
         // re-read here can hand back the pre-save value in production.
@@ -223,12 +238,10 @@ public class RegistrationsResource extends BaseResource {
      * registration event, and auditing every save would bury the approvals nobody could then find.
      */
     private void audit(
-            final String tripId, final Person.Id subject, final Registration before, final Registration after) {
+            final Trip trip, final Person person, final Registration before, final Registration after) {
         if (before.getStatus() == after.getStatus()) {
             return;
         }
-        final Person person = findPerson(subject);
-        final Trip trip = Beans.get(TripCommands.class).getTrip(tripId);
         final AuditCommands audit = Beans.get(AuditCommands.class);
         if (after.getStatus() == Registration.Status.NOT_REGISTERED) {
             audit.registrationRemoved(person, trip, actor());

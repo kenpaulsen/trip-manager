@@ -17,6 +17,11 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
+/*
+ * NOTE: InMemoryPersistence on purpose: getRejectionCount()/size() instrument the conditional-put collisions that
+ * the +1ms rule depends on, and a real engine exposes neither. The reserved-keyword query that the fake
+ * CANNOT check is covered separately by AuditDAORealEngineTest.
+ */
 public class AuditDAOTest {
 
     private AuditDAO dao;

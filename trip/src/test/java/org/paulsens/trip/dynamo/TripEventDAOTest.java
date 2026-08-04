@@ -25,7 +25,7 @@ public class TripEventDAOTest {
 
     @BeforeMethod
     public void setup() {
-        dao = new TripEventDAO(new ObjectMapper().findAndRegisterModules(), FakeData.createFakePersistence());
+        dao = new TripEventDAO(new ObjectMapper().findAndRegisterModules(), DynamoLocal.persistence());
     }
 
     @Test
@@ -91,15 +91,23 @@ public class TripEventDAOTest {
         assertTrue(get(dao.saveAllTripEvents(trip)));
     }
 
+    /**
+     * Clearing the cache must not lose data.
+     *
+     * <p>This asserted the OPPOSITE until the DAO tests moved onto a real engine: that the row was GONE after a
+     * clear. That was true only because the fake persistence stored nothing, so the cache WAS the store. The
+     * real invariant is that a clear drops the cached copy and the next read is served by the store.
+     */
     @Test
-    public void clearCacheWorks() {
+    public void clearingTheCacheDoesNotLoseTheRow() {
         final TripEvent te = new TripEvent(UUID.randomUUID().toString(), TripEvent.Type.EVENT,
                 "Concert", "notes", LocalDateTime.now(), null, null, null);
         get(dao.saveTripEvent(te));
         assertEquals(get(dao.getTripEvent(te.getId())), te);
+
         dao.clearCache();
-        // After clearing, fetching again goes to persistence (returns null for non-pass tables)
-        assertNull(get(dao.getTripEvent(te.getId())));
+
+        assertEquals(get(dao.getTripEvent(te.getId())), te);
     }
 
     @Test

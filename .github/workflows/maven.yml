@@ -18,4 +18,14 @@ jobs:
         distribution: 'temurin'
         java-version: '25'
     - name: Build with Maven
-      run: mvn -B package --file pom.xml
+      # -Djacoco.check.halt=true arms the coverage gate (90% overall, 90% per class): GitHub is the ONE place
+      # a coverage regression blocks. Locally and in the CodePipeline buildspec the same check only reports.
+      run: mvn -B package --file pom.xml -Djacoco.check.halt=true
+    # JaCoCo's report is written during `test`, so `package` above has already produced it.
+    - name: Upload coverage report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: jacoco-coverage
+        path: '*/target/site/jacoco/'
+        if-no-files-found: warn

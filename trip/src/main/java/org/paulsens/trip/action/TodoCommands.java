@@ -275,8 +275,10 @@ public class TodoCommands {
             log.warn("getTodoStatusesForTodo invoked with null todo!");
             return List.of();
         }
+        // getTrip answers a miss with a blank trip carrying a freshly minted id, never null, so the miss is
+        // detected the way BaseResource.findTrip does it: a real trip's id equals the one that was asked for.
         final Trip trip = getTripCommands().getTrip(todo.getTripId());
-        if (trip == null) {
+        if (trip == null || !todo.getTripId().equals(trip.getId())) {
             log.warn("Trip not found in getTodoStatusesForTodo!");
             return List.of();
         }

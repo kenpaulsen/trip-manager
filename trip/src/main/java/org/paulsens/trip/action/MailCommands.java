@@ -43,11 +43,20 @@ public class MailCommands {
     private static final String EMAIL_TPL_PREFIX = "mailTemplates/";
     private static final String EMAIL_TPL_SUFFIX = ".tpl";
 
-    final SesAsyncClient client = SesAsyncClient.builder()
-            .region(Region.US_WEST_2)
-            // Default chain: finds the ECS task role / instance role in AWS, and ~/.aws [default] on a laptop.
-            .credentialsProvider(DefaultCredentialsProvider.builder().build())
-            .build();
+    final SesAsyncClient client;
+
+    public MailCommands() {
+        this(SesAsyncClient.builder()
+                .region(Region.US_WEST_2)
+                // Default chain: finds the ECS task role / instance role in AWS, and ~/.aws [default] on a laptop.
+                .credentialsProvider(DefaultCredentialsProvider.builder().build())
+                .build());
+    }
+
+    /** Test seam: the SES path (request shape, audit attribution, error mapping) is untestable without it. */
+    MailCommands(final SesAsyncClient client) {
+        this.client = client;
+    }
 
     /**
      * Sends one email, recording {@code who} asked for it.

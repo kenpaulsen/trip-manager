@@ -19,6 +19,10 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+/*
+ * NOTE: InMemoryPersistence on purpose: getRejectionCount() instruments the id-allocation collisions this suite
+ * asserts on, and a real engine exposes no such counter.
+ */
 public class ChatDAOTest {
 
     private InMemoryPersistence persistence;

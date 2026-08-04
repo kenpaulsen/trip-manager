@@ -1947,8 +1947,18 @@ public class ChatCommands {
         TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, msg, null);
     }
 
+    /**
+     * A row of {@code chats.xhtml}, which stashes the whole list in {@code viewScope}.
+     *
+     * <p>{@code Serializable} is load-bearing, not decoration: viewScope lives in the HTTP session, and
+     * production stores sessions in Valkey through Redisson. A non-serializable attribute makes the session
+     * SAVE throw, so the response is torn down after the page has already rendered -- and then every later
+     * request on that session fails too. The visible symptom is a site-wide outage, not a chat bug. Every field
+     * here must stay serializable as well ({@link ChatChannel} already is).
+     */
     public record ChatSummary(
-            ChatChannel channel, String tripTitle, long lastActivityMillis, boolean unread) {
+            ChatChannel channel, String tripTitle, long lastActivityMillis, boolean unread)
+            implements java.io.Serializable {
     }
 
     /** Outcome of a reaction toggle. Carries a code so the REST edge can map it to a status without re-deciding. */

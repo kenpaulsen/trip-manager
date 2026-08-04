@@ -21,7 +21,7 @@ public class TodoDAOTest {
 
     @BeforeMethod
     public void setup() {
-        dao = new TodoDAO(new ObjectMapper().findAndRegisterModules(), FakeData.createFakePersistence());
+        dao = new TodoDAO(new ObjectMapper().findAndRegisterModules(), DynamoLocal.persistence());
     }
 
     @Test
@@ -99,14 +99,23 @@ public class TodoDAOTest {
         assertEquals(get(dao.getTodoItem(tripId, dataId)).get().getDescription(), "Updated");
     }
 
+    /**
+     * Clearing the cache must not lose data.
+     *
+     * <p>This asserted the OPPOSITE until the DAO tests moved onto a real engine: that the row was GONE after a
+     * clear. That was true only because the fake persistence stored nothing, so the cache WAS the store. The
+     * real invariant is that a clear drops the cached copy and the next read is served by the store.
+     */
     @Test
-    public void clearCacheWorks() throws IOException {
+    public void clearingTheCacheDoesNotLoseTheRow() throws IOException {
         final String tripId = RandomData.genAlpha(10);
         get(dao.saveTodo(TodoItem.builder()
                 .tripId(tripId).dataId(DataId.newInstance()).description("clear me").build()));
         assertEquals(get(dao.getTodoItems(tripId)).size(), 1);
+
         dao.clearCache();
-        assertEquals(get(dao.getTodoItems(tripId)).size(), 0);
+
+        assertEquals(get(dao.getTodoItems(tripId)).size(), 1);
     }
 
     @Test

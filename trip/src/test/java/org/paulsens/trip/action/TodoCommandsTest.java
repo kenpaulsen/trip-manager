@@ -20,6 +20,17 @@ import static org.testng.Assert.assertTrue;
 public class TodoCommandsTest {
     private final TodoCommands todoCommands = new TodoCommands();
 
+    /**
+     * getTrip answers a miss with a blank trip carrying a freshly minted id -- never null -- so the miss must be
+     * detected by comparing the answered id to the one asked for. Before that check, a todo pointing at a trip
+     * nobody ever created sailed past the "trip not found" guard on the blank object instead of being refused.
+     */
+    @Test
+    public void statusesForATodoOnANonexistentTripAreEmpty() {
+        final TodoItem orphan = todoCommands.createTodo("no-such-trip-" + RandomData.genAlpha(8));
+        assertEquals(todoCommands.getTodoStatusesForTodo(orphan), List.of());
+    }
+
     @Test
     public void testCreateTodo() {
         final String tripId = RandomData.genAlpha(15);

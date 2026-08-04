@@ -57,16 +57,25 @@ public final class CloudWatchAuditSink implements AuditSink {
      *         the day someone asks what happened.
      */
     public CloudWatchAuditSink(final String logGroup) {
+        this(logGroup, CloudWatchLogsAsyncClient.builder()
+                .region(resolveRegion())
+                // Default chain: the ECS task role in AWS, ~/.aws [default] on a laptop.
+                .credentialsProvider(DefaultCredentialsProvider.builder().build())
+                .build());
+    }
+
+    /**
+     * @param client the log client to publish through. Package-private so a test can supply one: the batching,
+     *               the bounded queue and the stdout fallback are the parts worth verifying, and none of them
+     *               are reachable through a constructor that builds its own AWS client.
+     */
+    CloudWatchAuditSink(final String logGroup, final CloudWatchLogsAsyncClient client) {
         this.logGroup = logGroup;
         // One stream per JVM. Two tasks writing the same stream is legal but pointlessly confusing, and the
         // container hostname alone repeats across restarts, so add a short random suffix.
         this.logStream = STREAM_DATE.format(Instant.now()) + "/" + hostName() + "-"
                 + UUID.randomUUID().toString().substring(0, 8);
-        this.client = CloudWatchLogsAsyncClient.builder()
-                .region(resolveRegion())
-                // Default chain: the ECS task role in AWS, ~/.aws [default] on a laptop.
-                .credentialsProvider(DefaultCredentialsProvider.builder().build())
-                .build();
+        this.client = client;
 
         createStream();
 

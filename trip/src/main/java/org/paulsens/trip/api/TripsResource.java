@@ -85,7 +85,7 @@ public class TripsResource extends BaseResource {
     @Path("{tripId}")
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response get(@PathParam("tripId") final String tripId) {
-        final Trip trip = trip(tripId);
+        final Trip trip = findTrip(tripId);
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
         }
@@ -101,7 +101,7 @@ public class TripsResource extends BaseResource {
     @Path("{tripId}/events")
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response events(@PathParam("tripId") final String tripId) {
-        final Trip trip = trip(tripId);
+        final Trip trip = findTrip(tripId);
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
         }
@@ -117,7 +117,7 @@ public class TripsResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response event(
             @PathParam("tripId") final String tripId, @PathParam("eventId") final String eventId) {
-        final Trip trip = trip(tripId);
+        final Trip trip = findTrip(tripId);
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
         }
@@ -144,7 +144,7 @@ public class TripsResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response lodging(
             @PathParam("tripId") final String tripId, @PathParam("eventId") final String eventId) {
-        final Trip trip = trip(tripId);
+        final Trip trip = findTrip(tripId);
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
         }
@@ -210,7 +210,7 @@ public class TripsResource extends BaseResource {
         }
         // Load, mutate, save the SAME object: a DAO read hands back a copy, so editing anything else and saving
         // its parent writes nothing while reporting success.
-        final Trip trip = trip(tripId);
+        final Trip trip = findTrip(tripId);
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
         }
@@ -241,7 +241,7 @@ public class TripsResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        final Trip trip = trip(tripId);
+        final Trip trip = findTrip(tripId);
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
         }
@@ -277,7 +277,7 @@ public class TripsResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        final Trip trip = trip(tripId);
+        final Trip trip = findTrip(tripId);
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
         }
@@ -317,12 +317,6 @@ public class TripsResource extends BaseResource {
     private static List<String> eventIds(final Map<String, Object> body) {
         final Object ids = body == null ? null : body.get("eventIds");
         return (ids instanceof List<?> list) ? (List<String>) list : List.of();
-    }
-
-    private Trip trip(final String tripId) {
-        // getTrip never returns null -- it answers an empty Trip on a miss -- so "not found" is a blank id.
-        final Trip trip = Beans.get(TripCommands.class).getTrip(tripId);
-        return (trip == null || trip.getId() == null) ? null : trip;
     }
 
     private TripDto withViewerEvents(final Trip trip, final Person.Id me) {

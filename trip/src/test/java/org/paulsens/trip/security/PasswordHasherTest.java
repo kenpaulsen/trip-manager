@@ -112,4 +112,50 @@ public class PasswordHasherTest {
     private static String b64(final byte[] bytes) {
         return java.util.Base64.getEncoder().encodeToString(bytes);
     }
+
+    @Test
+    public void needsRehashIsFalseForNull() {
+        assertFalse(peppered(1, KEY_ONE).needsRehash(null));
+    }
+
+    /**
+     * The singleton resolves its pepper EXACTLY once, and remembers a failure just as firmly as a success: a
+     * misconfigured secret must not be re-fetched (and re-stack-dumped) on every login attempt.
+     *
+     * <p>The statics are reset around the test by reflection so its outcome never leaks into other tests that
+     * touch {@code getInstance()}.
+     */
+    @Test
+    public void getInstanceResolvesOnceAndCachesAFailureWithoutRedumping() throws Exception {
+        if (System.getenv(Pepper.KEY_ENV) != null || System.getenv(Pepper.SECRET_ENV) != null) {
+            throw new org.testng.SkipException("A pepper is configured in this environment");
+        }
+        resetSingleton();
+        try {
+            // A bad key makes resolution fail; the failure must be remembered, not retried.
+            System.setProperty(Pepper.KEY_PROP, "!!! not base64 !!!");
+            final IllegalStateException first = org.testng.Assert.expectThrows(
+                    IllegalStateException.class, PasswordHasher::getInstance);
+            assertTrue(first.getMessage().contains("unavailable"), first.getMessage());
+            // Fixing the property does NOT help until restart -- by design, and this pins it.
+            System.clearProperty(Pepper.KEY_PROP);
+            org.testng.Assert.expectThrows(IllegalStateException.class, PasswordHasher::getInstance);
+
+            // After a (simulated) restart, resolution succeeds and later calls reuse the same instance.
+            resetSingleton();
+            final PasswordHasher resolved = PasswordHasher.getInstance();
+            org.testng.Assert.assertSame(PasswordHasher.getInstance(), resolved);
+        } finally {
+            System.clearProperty(Pepper.KEY_PROP);
+            resetSingleton();
+        }
+    }
+
+    private static void resetSingleton() throws Exception {
+        for (final String field : new String[] {"instance", "resolutionFailure"}) {
+            final java.lang.reflect.Field f = PasswordHasher.class.getDeclaredField(field);
+            f.setAccessible(true);
+            f.set(null, null);
+        }
+    }
 }
