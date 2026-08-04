@@ -205,9 +205,9 @@ public class ChatMembershipAndPrefsTest {
 
         Assert.assertTrue(chat.canDelete(tripId, mine, member));
         Assert.assertFalse(chat.canDelete(tripId, mine, person("Other")));
-        // NOT true off a Faces thread: canDelete's admin branch goes through canAdminister(String, Person.Id),
-        // which IGNORES the id it is given and answers about Caller.current() -- see the test below. The REST
-        // edge compensates by also calling canAdminister(tripId, caller()) with a real Caller.
+        // NOT true off a Faces thread: canDelete's admin branch asks about the SIGNED-IN user (the one-arg
+        // canAdminister), and there is no session here. The REST edge compensates by also calling
+        // canAdminister(tripId, caller()) with a real Caller.
         Assert.assertFalse(chat.canDelete(tripId, mine, adminId));
 
         Assert.assertFalse(chat.canDelete(tripId, null, member));
@@ -216,21 +216,19 @@ public class ChatMembershipAndPrefsTest {
     }
 
     /**
-     * {@code canAdminister(String, Person.Id)} does not use its {@code Person.Id}.
+     * {@code canAdminister(String)} answers about the SIGNED-IN user, and says so in its signature.
      *
-     * <p>It delegates to {@code Caller.current()}, so it answers "may the CURRENT session administer this
-     * chat", not "may this person". On a JSF request the two coincide, which is why it works; anywhere else it
-     * silently answers about nobody. Pinned because the signature reads as though the id decides, and because
-     * the Caller-taking overload exists precisely to avoid this.
+     * <p>It used to take a {@code Person.Id} it never consulted -- callers got the right answer only because
+     * they all happened to pass the current user's id. The id parameter is gone so that mistake can no longer
+     * be expressed; a per-person answer goes through the Caller-taking overload.
      */
     @Test
-    public void theIdTakingCanAdministerIgnoresItsIdAndReadsTheCurrentSession() {
+    public void theJsfCanAdministerAnswersForTheSignedInUserOnly() {
         chat.ensureChannel(tripId, actor);
 
-        Assert.assertFalse(chat.canAdminister(tripId, adminId),
-                "chatMgr holder, but no FacesContext: the id is not what is consulted");
-        Assert.assertFalse(chat.canAdminister(tripId, person("Nobody")));
-        // The Caller-taking overload is the one that actually answers about a given person.
+        Assert.assertFalse(chat.canAdminister(tripId),
+                "no FacesContext means no signed-in user, whatever privileges exist");
+        // The Caller-taking overload is the one that answers about a given person.
         Assert.assertTrue(chat.canAdminister(tripId, Caller.forActor(actor)));
     }
 

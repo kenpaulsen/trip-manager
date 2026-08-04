@@ -159,7 +159,17 @@ public class ChatCommands {
 
     // --- authorization helpers ---
 
-    public boolean canAdminister(final String tripId, final Person.Id me) {
+    /**
+     * Whether the SIGNED-IN user may administer this chat (the JSF/EL entry).
+     *
+     * <p>This used to take a {@code Person.Id} it never consulted -- every call site happened to pass the
+     * current user's id, so the answers were right by coincidence while the signature promised a per-person
+     * check it did not perform. There is deliberately no id parameter now: a caller that needs "may THIS
+     * person administer" has no method to mistake for it, and would add one against
+     * {@code PrivilegeCommands.check} (noting that the site-admin role lives in the HTTP session, so it is
+     * only knowable for the signed-in user).
+     */
+    public boolean canAdminister(final String tripId) {
         // JSF path: the role is reachable through FacesContext here, which is what Caller.current() reads.
         return canAdminister(tripId, Caller.current());
     }
@@ -323,7 +333,7 @@ public class ChatCommands {
             return "This chat is closed. The trip is over, so it is read-only now.";
         }
         if (channel.getSettings().getPostPolicy() == ChatSettings.PostPolicy.ADMINS_ONLY
-                && !canAdminister(tripId, personId)) {
+                && !canAdminister(tripId)) {
             return "Only trip administrators can post in this chat.";
         }
         final ChatMembership row = membershipFor(channel.getId(), personId);
@@ -642,6 +652,13 @@ public class ChatCommands {
 
     // --- send / feed ---
 
+    /**
+     * {@code authorId} MUST be the signed-in user. Every current caller passes exactly that, and two checks in
+     * this path (the ADMINS_ONLY post policy and the @all allowance exemption) resolve adminship through
+     * {@code Caller.current()} -- so an authorId that is not the caller would have its membership and mute
+     * checked as one person and its adminship as another. If sending on someone's behalf is ever needed, that
+     * caller must bring its own authorization design, not this method.
+     */
     public SendResult send(
             final String tripId,
             final Person.Id authorId,
@@ -738,7 +755,9 @@ public class ChatCommands {
         if (!ChatMentions.mentionsEveryone(sent.getBody())) {
             return false;
         }
-        if (canAdminister(channel.getTripId(), authorId)) {
+        // The author IS the signed-in caller: this runs inside that author's own send (see send()'s
+        // authorId contract), so the caller-based check is the author check.
+        if (canAdminister(channel.getTripId())) {
             return false;
         }
         final ChatMessage.Id since = ChatMessage.Id.of(now.minus(EVERYONE_WINDOW).toEpochMilli());
@@ -778,7 +797,7 @@ public class ChatCommands {
             return SendResult.fail("archived", "This chat is archived and read-only.");
         }
         if (channel.getSettings().getPostPolicy() == ChatSettings.PostPolicy.ADMINS_ONLY
-                && !canAdminister(channel.getTripId(), me)) {
+                && !canAdminister(channel.getTripId())) {
             return SendResult.fail("forbidden", "Only administrators can post in this chat.");
         }
         return null;
@@ -1407,7 +1426,7 @@ public class ChatCommands {
         if (me == null || msgId == null) {
             return false;
         }
-        if (canAdminister(tripId, me)) {
+        if (canAdminister(tripId)) {
             return true;
         }
         final ChatChannel channel = getChannel(tripId);
