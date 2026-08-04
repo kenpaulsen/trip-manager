@@ -89,10 +89,8 @@ public class ActionBeanFailurePathsTest {
         Assert.assertFalse(txs.saveTransaction(new Transaction(user, null, null)));
         Assert.assertTrue(txs.getTransactions(user).isEmpty());
         Assert.assertNull(txs.getTransaction(user, "tx-1"));
-        // getTripTransactions has NO exceptionally handler: a store failure propagates. Pinned as-is;
-        // whether it should fail soft like its siblings is a review question, not a test's call.
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                () -> txs.getTripTransactions("trip-1"));
+        Assert.assertTrue(txs.getTripTransactions("trip-1").isEmpty(),
+                "the trip ledger fails soft like its sibling reads (aligned 2026-08-04)");
     }
 
     @Test

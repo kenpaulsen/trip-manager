@@ -75,6 +75,12 @@ public class TransactionsCommands {
                 .thenApply(optTrip -> optTrip.map(Trip::getPeople))
                 .thenApply(optPeople -> optPeople.orElse(List.of()))
                 .thenApply(people -> people.stream().flatMap(id -> getTransactions(id).stream()).toList())
+                .exceptionally(ex -> {
+                    // Same contract as every other read here: a store failure logs and renders empty rather
+                    // than blank-paging the finance view. This was the one read that propagated raw.
+                    log.error("Error querying transactions for trip {}: ", tripId, ex);
+                    return Collections.emptyList();
+                })
                 .join();
     }
 
