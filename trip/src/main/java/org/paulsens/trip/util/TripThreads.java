@@ -1,6 +1,8 @@
 package org.paulsens.trip.util;
 
 import java.util.concurrent.ThreadFactory;
+import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.audit.RequestContext;
 
 /**
  * Virtual-thread spawner for background work -- the successor of the old {@code PersistenceExecutors}
@@ -21,6 +23,19 @@ public final class TripThreads {
         final Thread thread = FACTORY.newThread(task);
         thread.start();
         return thread;
+    }
+
+    /**
+     * Fire-and-forget with an explicit actor: plain spawns do NOT inherit ScopedValues (only
+     * StructuredTaskScope forks do), so work that outlives its request re-binds the identity it should be
+     * audited under. Background work nobody asked for binds {@link AuditActor#system()}.
+     */
+    public static Thread startAs(final AuditActor actor, final Runnable task) {
+        return start(() -> runBound(actor, task));
+    }
+
+    private static void runBound(final AuditActor actor, final Runnable task) {
+        ScopedValue.where(RequestContext.SCOPE, RequestContext.of(actor)).run(task);
     }
 
     /** The named virtual-thread factory, for the rare caller that manages its own lifecycle. */

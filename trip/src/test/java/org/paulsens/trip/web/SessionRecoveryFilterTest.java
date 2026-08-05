@@ -86,4 +86,67 @@ public class SessionRecoveryFilterTest {
         a.initCause(b);
         Assert.assertFalse(SessionRecoveryFilter.isSessionDeserializationFailure(b));
     }
+
+    // --- doFilter itself: identity binding, checked-exception tunneling, and the recovery path ---
+
+    private static jakarta.servlet.http.HttpServletRequest requestWithSession(final String email) {
+        final jakarta.servlet.http.HttpServletRequest req =
+                org.mockito.Mockito.mock(jakarta.servlet.http.HttpServletRequest.class);
+        final jakarta.servlet.http.HttpSession session =
+                org.mockito.Mockito.mock(jakarta.servlet.http.HttpSession.class);
+        org.mockito.Mockito.when(req.getSession(false)).thenReturn(session);
+        org.mockito.Mockito.when(session.getAttribute("loginEmail")).thenReturn(email);
+        org.mockito.Mockito.when(req.getContextPath()).thenReturn("");
+        org.mockito.Mockito.when(req.getRequestURI()).thenReturn("/page.jsf");
+        org.mockito.Mockito.when(req.getMethod()).thenReturn("GET");
+        return req;
+    }
+
+    @Test
+    public void doFilterBindsTheRequestIdentityForTheChain() throws Exception {
+        final SessionRecoveryFilter filter = new SessionRecoveryFilter();
+        final java.util.concurrent.atomic.AtomicReference<org.paulsens.trip.audit.AuditActor> seen =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        filter.doFilter(requestWithSession("bound@x.org"),
+                org.mockito.Mockito.mock(jakarta.servlet.http.HttpServletResponse.class),
+                (rq, rs) -> seen.set(org.paulsens.trip.audit.AuditActor.current()));
+        Assert.assertEquals(seen.get().email(), "bound@x.org",
+                "the chain must observe the bound identity via AuditActor.current()");
+    }
+
+    /** The ScopedValue tunnel must not change what callers see: checked exceptions come out as themselves. */
+    @Test
+    public void chainExceptionsSurviveTheTunnelUnchanged() {
+        final SessionRecoveryFilter filter = new SessionRecoveryFilter();
+        final jakarta.servlet.http.HttpServletRequest req = requestWithSession(null);
+        final jakarta.servlet.http.HttpServletResponse res =
+                org.mockito.Mockito.mock(jakarta.servlet.http.HttpServletResponse.class);
+        Assert.assertThrows(java.io.IOException.class, () -> filter.doFilter(req, res, (rq, rs) -> {
+            throw new java.io.IOException("io");
+        }));
+        Assert.assertThrows(jakarta.servlet.ServletException.class, () -> filter.doFilter(req, res, (rq, rs) -> {
+            throw new jakarta.servlet.ServletException("se");
+        }));
+        Assert.assertThrows(IllegalStateException.class, () -> filter.doFilter(req, res, (rq, rs) -> {
+            throw new IllegalStateException("app bug");
+        }));
+    }
+
+    /** A Kryo-shaped failure from the chain triggers recovery (cookie expiry + redirect), not a rethrow. */
+    @Test
+    public void aKryoFailureFromTheChainTriggersRecovery() throws Exception {
+        final SessionRecoveryFilter filter = new SessionRecoveryFilter();
+        final jakarta.servlet.http.HttpServletRequest req = requestWithSession(null);
+        final jakarta.servlet.http.HttpServletResponse res =
+                org.mockito.Mockito.mock(jakarta.servlet.http.HttpServletResponse.class);
+        final DateTimeException kryoShaped =
+                new DateTimeException("Invalid value for MonthOfYear (valid values 1 - 12): 19");
+        kryoShaped.setStackTrace(new StackTraceElement[] {
+                new StackTraceElement("org.redisson.codec.Kryo5Codec$4", "decode", "Kryo5Codec.java", 199),
+        });
+        filter.doFilter(req, res, (rq, rs) -> {
+            throw new RuntimeException("wrapped", kryoShaped);
+        });
+        org.mockito.Mockito.verify(res).sendRedirect("/page.jsf");
+    }
 }

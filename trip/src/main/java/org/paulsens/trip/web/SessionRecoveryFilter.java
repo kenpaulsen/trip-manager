@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.IdentityHashMap;
 import java.util.Locale;
 import java.util.Map;
+import org.paulsens.trip.audit.RequestContext;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
@@ -63,14 +64,55 @@ public class SessionRecoveryFilter implements Filter {
     public void doFilter(final ServletRequest request, final ServletResponse response, final FilterChain chain)
             throws IOException, ServletException {
         try {
+            // Bind the request identity for the whole chain (this is the outermost filter). call(), not
+            // run(): doFilter throws checked exceptions -- tunneled through one carrier type because call()
+            // infers a single throws clause. getSession(false): resolving identity must never CREATE a session.
+            ScopedValue.where(RequestContext.SCOPE, contextOf(request))
+                    .call(() -> runChain(chain, request, response));
+        } catch (final Tunnel tunneled) {
+            handleFailure(request, response, tunneled.getCause());
+        } catch (final RuntimeException | Error ex) {
+            handleFailure(request, response, ex);
+        }
+    }
+
+    private static RequestContext contextOf(final ServletRequest request) {
+        return (request instanceof HttpServletRequest req)
+                ? RequestContext.from(req.getSession(false))
+                : RequestContext.from(null);
+    }
+
+    /** Carries the chain's checked exceptions across the ScopedValue.call boundary. */
+    private static final class Tunnel extends Exception {
+        Tunnel(final Exception cause) {
+            super(cause);
+        }
+    }
+
+    private static Void runChain(final FilterChain chain, final ServletRequest request,
+            final ServletResponse response) throws Tunnel {
+        try {
             chain.doFilter(request, response);
-        } catch (final IOException | ServletException | RuntimeException | Error ex) {
-            if (!(request instanceof HttpServletRequest req)
-                    || !(response instanceof HttpServletResponse res)
-                    || !isSessionDeserializationFailure(ex)) {
-                throw ex;
-            }
+        } catch (final IOException | ServletException ex) {
+            throw new Tunnel(ex);
+        }
+        return null;
+    }
+
+    private void handleFailure(final ServletRequest request, final ServletResponse response, final Throwable ex)
+            throws IOException, ServletException {
+        if ((request instanceof HttpServletRequest req)
+                && (response instanceof HttpServletResponse res)
+                && isSessionDeserializationFailure(ex)) {
             recover(req, res, ex);
+            return;
+        }
+        switch (ex) {
+            case IOException io -> throw io;
+            case ServletException se -> throw se;
+            case RuntimeException re -> throw re;
+            case Error err -> throw err;
+            default -> throw new ServletException(ex);
         }
     }
 

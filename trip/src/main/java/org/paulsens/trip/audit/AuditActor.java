@@ -45,8 +45,16 @@ public record AuditActor(String email, String id) {
     /**
      * The signed-in user, or an empty actor outside a request (background threads, tests, the reset-password
      * flow where nobody is signed in yet).
+     *
+     * <p>Resolution order: the {@link RequestContext} ScopedValue first -- bound by the outermost filter and
+     * inherited by every StructuredTaskScope fork, so subtasks of a request see its actor with no
+     * hand-capturing -- then the FacesContext path as a fallback for Mojarra-internal threads and tests that
+     * mock a Faces environment without the filter.</p>
      */
     public static AuditActor current() {
+        if (RequestContext.SCOPE.isBound()) {
+            return RequestContext.SCOPE.get().actor();
+        }
         final FacesContext context = FacesContext.getCurrentInstance();
         if (context == null || context.getExternalContext() == null) {
             return UNKNOWN;
