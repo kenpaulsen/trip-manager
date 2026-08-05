@@ -73,6 +73,18 @@
             <groupId>com.paypal.sdk</groupId>
             <artifactId>paypal-server-sdk</artifactId>
             <version>2.2.0</version>
+            <exclusions>
+                <!--
+                    okio 3.x splits into okio (Kotlin metadata only, ZERO class files) + okio-jvm (all the
+                    real classes, which stays). The empty twin claims the same JPMS module name as okio-jvm,
+                    which breaks the Dockerfile's jdeps module-path analysis with "two versions of module
+                    okio". Nothing can ever load a class from it, so it is safe to drop from the WAR.
+                -->
+                <exclusion>
+                    <groupId>com.squareup.okio</groupId>
+                    <artifactId>okio</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
@@ -183,11 +195,14 @@
             <artifactId>poi-ooxml</artifactId>
             <version>5.5.1</version>
         </dependency>
-        <dependency>
-            <groupId>jakarta.servlet.jsp.jstl</groupId>
-            <artifactId>jakarta.servlet.jsp.jstl-api</artifactId>
-            <version>3.0.2</version>
-        </dependency>
+        <!--
+            jakarta.servlet.jsp.jstl-api was declared here for years but is vestigial: the webapp is
+            XHTML/Facelets only, and Facelets' JSTL namespaces (xmlns:c, used by trip/todo.xhtml) are
+            implemented inside Mojarra; the JSTL API jar is only consulted by actual JSP pages, of which
+            there are none. Its module-info also requires jakarta.servlet.jsp and jakarta.el, which nothing
+            in WEB-INF/lib provides, and that broke the Dockerfile's jdeps module gate. Removed 2026-08-04;
+            the webtest suite renders the todo page and proves the c: tags still work.
+        -->
         <dependency>
             <groupId>jakarta.enterprise</groupId>
             <artifactId>jakarta.enterprise.cdi-api</artifactId>
@@ -261,6 +276,17 @@
                     <source>25</source>
                     <target>25</target>
                     <release>25</release>
+                    <!--
+                        Preview features (StructuredTaskScope, JEP 505) are enabled for THIS module only. The
+                        root pom and jsft stay non-preview on purpose: preview marks every classfile with
+                        minor version 0xFFFF, pinning it to exactly this JDK feature release, and only this
+                        module uses the preview API. The flag must also appear in surefire's argLine below
+                        and in the deployed JVM's CATALINA_OPTS (medjugorje Dockerfile AND
+                        ci/buildspec-integtest.yml, which overrides the ENV wholesale).
+                    -->
+                    <compilerArgs>
+                        <arg>--enable-preview</arg>
+                    </compilerArgs>
                     <!--
                         Declaring annotationProcessorPaths HERE overrides the parent's (trip/pom.xml), it does
                         not add to it. Lombok is therefore re-listed explicitly: drop it and every @Getter in
@@ -339,7 +365,7 @@
                         the JDK already warns about and will refuse in a future release. This suite leans on
                         mockStatic heavily (every api resource test), so that is not a warning to sit on.
                     -->
-                    <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
+                    <argLine>@{argLine} --enable-preview -javaagent:${org.mockito:mockito-core:jar}</argLine>
                     <!-- A run that finds no tests is a broken run, not a passing one. -->
                     <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                     <systemPropertyVariables>
