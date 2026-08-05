@@ -66,10 +66,14 @@ public class TransactionDAO {
         map.put(USER_ID, AttributeValue.builder().s(tx.getUserId().getValue()).build());
         map.put(TX_ID, AttributeValue.builder().s(tx.getTxId()).build());
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(tx)).build());
-        return persistence.putItem(b -> b.tableName(TRANSACTION_TABLE).item(map))
-                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
-                        ? updateCacheForTx(tx)
-                        : CompletableFuture.completedFuture(false));
+        try {
+            final boolean saved = persistence.putItem(b -> b.tableName(TRANSACTION_TABLE).item(map))
+                    .sdkHttpResponse().isSuccessful();
+            return saved ? updateCacheForTx(tx) : CompletableFuture.completedFuture(false);
+        } catch (final RuntimeException ex) {
+            // Shim until Phase 5: persistence failures are synchronous now but callers expect a failed future.
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     public void clearCache() {
@@ -85,11 +89,14 @@ public class TransactionDAO {
 
     private CompletableFuture<List<Transaction>> loadUserTxData(final Person.Id userId) {
         log.info("Cache Miss for tx data for userId: {}", userId.getValue());
-        return persistence.queryAll(qb -> txByUserId(qb, userId))
-                .thenApply(items -> items.stream()
-                        .map(m -> toTransaction(m.get(CONTENT)))
-                        .filter(tx -> (tx != null) && (tx.getDeleted() == null))
-                        .toList());
+        try {
+            return CompletableFuture.completedFuture(persistence.queryAll(qb -> txByUserId(qb, userId)).stream()
+                    .map(m -> toTransaction(m.get(CONTENT)))
+                    .filter(tx -> (tx != null) && (tx.getDeleted() == null))
+                    .toList());
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private Transaction toTransaction(final AttributeValue content) {

@@ -5,7 +5,6 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import software.amazon.awssdk.http.SdkHttpResponse;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -20,34 +19,40 @@ import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
 import software.amazon.awssdk.services.dynamodb.model.ScanResponse;
 
+/**
+ * Abstracts the datastore. Since the virtual-threads migration these are plain BLOCKING calls: the caller's
+ * (virtual) thread waits for the I/O, errors surface as ordinary thrown exceptions, and no continuation ever
+ * runs on an SDK or Netty thread. The defaults implement a benign empty store so fakes only override what
+ * they model.
+ */
 public interface Persistence {
-    default CompletableFuture<PutItemResponse> putItem(Consumer<PutItemRequest.Builder> putItemRequest) {
+    default PutItemResponse putItem(Consumer<PutItemRequest.Builder> putItemRequest) {
         final PutItemResponse.Builder builder = PutItemResponse.builder();
         builder.sdkHttpResponse(SdkHttpResponse.builder().statusCode(200).build());
-        return CompletableFuture.completedFuture(builder.build());
+        return builder.build();
     }
 
-    default CompletableFuture<ScanResponse> scan(Consumer<ScanRequest.Builder> scanRequest) {
-        return CompletableFuture.completedFuture(ScanResponse.builder().items(new ArrayList<>()).build());
+    default ScanResponse scan(Consumer<ScanRequest.Builder> scanRequest) {
+        return ScanResponse.builder().items(new ArrayList<>()).build();
     }
 
-    default CompletableFuture<QueryResponse> query(Consumer<QueryRequest.Builder> queryRequest) {
-        return CompletableFuture.completedFuture(QueryResponse.builder().items(new ArrayList<>()).build());
+    default QueryResponse query(Consumer<QueryRequest.Builder> queryRequest) {
+        return QueryResponse.builder().items(new ArrayList<>()).build();
     }
 
-    default CompletableFuture<GetItemResponse> getItem(Consumer<GetItemRequest.Builder> getItemRequest) {
+    default GetItemResponse getItem(Consumer<GetItemRequest.Builder> getItemRequest) {
         final GetItemRequest.Builder builder = GetItemRequest.builder();
         getItemRequest.accept(builder); // Populate it from the consumer
         final GetItemRequest giReq = builder.build();
         final Map<String, AttributeValue> attrs = (CredentialsDAO.PASS_TABLE.equals(giReq.tableName())) ?
                 FakeData.getTestUserCreds(giReq) : null /*new HashMap<>()*/;
-        return CompletableFuture.completedFuture(GetItemResponse.builder().item(attrs).build());
+        return GetItemResponse.builder().item(attrs).build();
     }
 
-    default CompletableFuture<DeleteItemResponse> deleteItem(Consumer<DeleteItemRequest.Builder> deleteItemRequest) {
+    default DeleteItemResponse deleteItem(Consumer<DeleteItemRequest.Builder> deleteItemRequest) {
         final DeleteItemResponse.Builder builder = DeleteItemResponse.builder();
         builder.sdkHttpResponse(SdkHttpResponse.builder().statusCode(200).build());
-        return CompletableFuture.completedFuture(builder.build());
+        return builder.build();
     }
 
     /**
@@ -55,8 +60,8 @@ public interface Persistence {
      * the 1 MB response limit; loaders that feed the shared cache must use this instead. This default delegates to
      * {@link #scan} (one page) so fakes and tests keep their existing behavior.
      */
-    default CompletableFuture<List<Map<String, AttributeValue>>> scanAll(Consumer<ScanRequest.Builder> scanRequest) {
-        return scan(scanRequest).thenApply(ScanResponse::items);
+    default List<Map<String, AttributeValue>> scanAll(Consumer<ScanRequest.Builder> scanRequest) {
+        return scan(scanRequest).items();
     }
 
     /**
@@ -69,8 +74,8 @@ public interface Persistence {
      * partition that grows without bound, such as a chat channel's message log -- call {@link #query} and take
      * the one page.
      */
-    default CompletableFuture<List<Map<String, AttributeValue>>> queryAll(Consumer<QueryRequest.Builder> queryRequest) {
-        return query(queryRequest).thenApply(QueryResponse::items);
+    default List<Map<String, AttributeValue>> queryAll(Consumer<QueryRequest.Builder> queryRequest) {
+        return query(queryRequest).items();
     }
 
     default AttributeValue toStrAttr(final String val) {

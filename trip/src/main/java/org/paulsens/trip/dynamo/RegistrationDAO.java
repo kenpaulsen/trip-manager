@@ -59,14 +59,21 @@ public class RegistrationDAO {
         map.put(TRIP_ID, persistence.toStrAttr(reg.getTripId()));
         map.put(USER_ID, persistence.toStrAttr(reg.getUserId().getValue()));
         map.put(CONTENT, persistence.toStrAttr(mapper.writeValueAsString(reg)));
-        return persistence.putItem(b -> b.tableName(REGISTRATION_TABLE).item(map))
-                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
-                        ? cache.put(reg.getTripId(), reg)
-                        : CompletableFuture.completedFuture(false))
-                .exceptionally(ex -> {
-                    log.error("Failed to save registration!", ex);
-                    return false;
-                });
+        try {
+            final boolean saved = persistence.putItem(b -> b.tableName(REGISTRATION_TABLE).item(map))
+                    .sdkHttpResponse().isSuccessful();
+            if (!saved) {
+                return CompletableFuture.completedFuture(false);
+            }
+            return cache.put(reg.getTripId(), reg).exceptionally(this::logSaveRegistrationFailure);
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.completedFuture(logSaveRegistrationFailure(ex));
+        }
+    }
+
+    private Boolean logSaveRegistrationFailure(final Throwable ex) {
+        log.error("Failed to save registration!", ex);
+        return false;
     }
 
     protected CompletableFuture<List<Registration>> getRegistrations(final String tripId) {
@@ -83,11 +90,15 @@ public class RegistrationDAO {
 
     private CompletableFuture<List<Registration>> loadTripRegData(final String tripId) {
         log.info("Cache miss for registration data for tripId: {}", tripId);
-        return persistence.queryAll(qb -> registrationsByTripId(qb, tripId))
-                .thenApply(items -> items.stream()
-                        .map(m -> toRegistration(m.get(CONTENT)))
-                        .filter(reg -> (reg != null) && !DELETED.equals(reg.getStatus()))
-                        .toList());
+        try {
+            return CompletableFuture.completedFuture(
+                    persistence.queryAll(qb -> registrationsByTripId(qb, tripId)).stream()
+                            .map(m -> toRegistration(m.get(CONTENT)))
+                            .filter(reg -> (reg != null) && !DELETED.equals(reg.getStatus()))
+                            .toList());
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private void registrationsByTripId(final QueryRequest.Builder qb, final String tripId) {

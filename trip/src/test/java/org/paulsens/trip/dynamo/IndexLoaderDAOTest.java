@@ -49,7 +49,7 @@ public class IndexLoaderDAOTest {
         // A row the console mangled must be skipped by the scan, not kill the whole index build.
         persistence.putItem(b -> b.tableName("people").item(Map.of(
                 "id", AttributeValue.builder().s("bad-" + last).build(),
-                "content", AttributeValue.builder().s("{ not json").build()))).join();
+                "content", AttributeValue.builder().s("{ not json").build())));
 
         final PersonDAO reader = new PersonDAO(mapper, DynamoLocal.persistence(), valkeyLike());
         final List<Person> found = reader.searchPeople(last.toLowerCase(), 10).join();

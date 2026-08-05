@@ -28,7 +28,7 @@ public class DAOParseTailsTest {
     private void plant(final String table, final Map<String, AttributeValue> key) {
         final java.util.HashMap<String, AttributeValue> item = new java.util.HashMap<>(key);
         item.put("content", AttributeValue.builder().s("{ not json").build());
-        persistence.putItem(b -> b.tableName(table).item(item)).join();
+        persistence.putItem(b -> b.tableName(table).item(item));
     }
 
     private static AttributeValue s(final String value) {

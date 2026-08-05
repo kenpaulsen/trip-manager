@@ -56,7 +56,7 @@ public class MiscDynamoTailsTest {
     public void aFailingPrivilegePointReadMapsToEmpty() {
         final Persistence failing = Mockito.mock(Persistence.class,
                 AdditionalAnswers.delegatesTo(DynamoLocal.persistence()));
-        Mockito.doReturn(CompletableFuture.failedFuture(new IllegalStateException("read refused")))
+        Mockito.doThrow(new IllegalStateException("read refused"))
                 .when(failing).getItem(ArgumentMatchers.any());
 
         Assert.assertTrue(new PrivilegesDAO(mapper, failing)
@@ -68,7 +68,7 @@ public class MiscDynamoTailsTest {
     public void theDynamoAuditSinkContainsAFailingStoreOnDrain() {
         final DAO failing = Mockito.mock(DAO.class);
         Mockito.when(failing.saveAuditEvent(ArgumentMatchers.any()))
-                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("index down")));
+                .thenThrow(new IllegalStateException("index down"));
         try (MockedStatic<DAO> daoStatic = Mockito.mockStatic(DAO.class)) {
             daoStatic.when(DAO::getInstance).thenReturn(failing);
             final org.paulsens.trip.audit.DynamoAuditSink sink =
@@ -90,10 +90,10 @@ public class MiscDynamoTailsTest {
                 .keyConditionExpression("tripId = :anything")
                 .expressionAttributeValues(java.util.Map.of(":anything",
                         software.amazon.awssdk.services.dynamodb.model.AttributeValue.builder()
-                                .s("no-such-trip").build()))).join());
+                                .s("no-such-trip").build()))));
 
         Assert.assertNotNull(fake.query(qb -> qb.tableName("registrations")
-                .keyConditionExpression("tripId = :x")).join(),
+                .keyConditionExpression("tripId = :x")),
                 "no values at all resolves to no partition, not an NPE");
     }
 
@@ -106,7 +106,7 @@ public class MiscDynamoTailsTest {
                 .keyConditionExpression("day = :d")
                 .expressionAttributeValues(java.util.Map.of(":d",
                         software.amazon.awssdk.services.dynamodb.model.AttributeValue.builder()
-                                .s("2026-01-01").build()))).join());
+                                .s("2026-01-01").build()))));
     }
 
     @Test
@@ -130,7 +130,7 @@ public class MiscDynamoTailsTest {
         // A failing point read logs and answers absent -- the chat page shows nothing, not a 500.
         final Persistence failing = Mockito.mock(Persistence.class,
                 AdditionalAnswers.delegatesTo(DynamoLocal.persistence()));
-        Mockito.doReturn(CompletableFuture.failedFuture(new IllegalStateException("read refused")))
+        Mockito.doThrow(new IllegalStateException("read refused"))
                 .when(failing).getItem(ArgumentMatchers.any());
         final ChatDAO broken = new ChatDAO(mapper, failing,
                 new org.paulsens.trip.cache.InMemoryCacheClient());

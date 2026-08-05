@@ -68,10 +68,13 @@ public class PrivilegesDAO {
             log.warn(error);
             throw new IllegalStateException(error);
         }
-        return persistence.putItem(b -> b.tableName(PRIVILEGE_TABLE).item(map))
-                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
-                        ? cache.put(priv)
-                        : CompletableFuture.completedFuture(false));
+        try {
+            final boolean saved = persistence.putItem(b -> b.tableName(PRIVILEGE_TABLE).item(map))
+                    .sdkHttpResponse().isSuccessful();
+            return saved ? cache.put(priv) : CompletableFuture.completedFuture(false);
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     /** Global (non-trip) privileges. */
@@ -117,20 +120,29 @@ public class PrivilegesDAO {
 
     private CompletableFuture<Optional<Privilege>> pointReadPrivilege(final String id) {
         final Map<String, AttributeValue> key = Map.of(NAME, AttributeValue.builder().s(id).build());
-        return persistence.getItem(b -> b.key(key).tableName(PRIVILEGE_TABLE).build())
-                .thenApply(resp -> resp.item().get(CONTENT))
-                .thenApply(content -> Optional.ofNullable(content == null ? null : parsePrivilege(content.s())))
-                .exceptionally(ex -> logAndReturnEmpty(ex, id));
+        try {
+            final AttributeValue content =
+                    persistence.getItem(b -> b.key(key).tableName(PRIVILEGE_TABLE).build()).item().get(CONTENT);
+            return CompletableFuture.completedFuture(
+                    Optional.ofNullable(content == null ? null : parsePrivilege(content.s())));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.completedFuture(logAndReturnEmpty(ex, id));
+        }
     }
 
     private CompletableFuture<List<Privilege>> loadAllPrivileges() {
-        return persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(PRIVILEGE_TABLE).build())
-                .thenApply(items -> items.stream()
-                        .map(it -> it.get(CONTENT))
-                        .filter(content -> content != null)
-                        .map(content -> parsePrivilege(content.s()))
-                        .filter(priv -> priv != null)
-                        .toList());
+        try {
+            return CompletableFuture.completedFuture(
+                    persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(PRIVILEGE_TABLE).build())
+                            .stream()
+                            .map(it -> it.get(CONTENT))
+                            .filter(content -> content != null)
+                            .map(content -> parsePrivilege(content.s()))
+                            .filter(priv -> priv != null)
+                            .toList());
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private Privilege parsePrivilege(final String json) {

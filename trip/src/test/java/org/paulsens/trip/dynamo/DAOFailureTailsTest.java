@@ -9,6 +9,8 @@ import org.mockito.AdditionalAnswers;
 import org.mockito.ArgumentMatchers;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+import org.paulsens.trip.cache.CacheClient;
+import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.TodoItem;
@@ -34,7 +36,7 @@ public class DAOFailureTailsTest {
     private Persistence failingWrites() {
         final Persistence failing = Mockito.mock(Persistence.class,
                 AdditionalAnswers.delegatesTo(DynamoLocal.persistence()));
-        Mockito.doReturn(CompletableFuture.failedFuture(new IllegalStateException("write refused")))
+        Mockito.doThrow(new IllegalStateException("write refused"))
                 .when(failing).putItem(ArgumentMatchers.any());
         return failing;
     }
@@ -76,6 +78,171 @@ public class DAOFailureTailsTest {
                 () -> new MediaDAO(mapper, failing).saveMedia(
                         new org.paulsens.trip.model.MediaItem("m", "k", "t", null, "ct", 1, null, 0,
                                 null, null)).join());
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> new TransactionDAO(mapper, failing).saveTransaction(
+                        new org.paulsens.trip.model.Transaction(Person.Id.from("u"), "g1",
+                                org.paulsens.trip.model.Transaction.Type.Tx)).join());
+    }
+
+    /** Delegates to the real engine but fails every partition read. */
+    private Persistence failingReads() {
+        final Persistence failing = Mockito.mock(Persistence.class,
+                AdditionalAnswers.delegatesTo(DynamoLocal.persistence()));
+        Mockito.doThrow(new IllegalStateException("read refused"))
+                .when(failing).queryAll(ArgumentMatchers.any());
+        return failing;
+    }
+
+    /**
+     * A failed partition read must surface at the caller's join, never hang or silently answer empty --
+     * these are the (synchronous, since the sync-client port) loader failure paths of the partition DAOs.
+     */
+    @Test
+    public void aFailedReadPropagatesFromTheLoaders() {
+        final Persistence failing = failingReads();
+        final String tripId = "failread-" + RandomData.genAlpha(6);
+
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> new RegistrationDAO(mapper, failing).getRegistrations(tripId).join());
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> new TransactionDAO(mapper, failing).getTransactions(Person.Id.from("u")).join());
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> new TodoDAO(mapper, failing).getTodoItems(tripId).join());
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> new PersonDataValueDAO(mapper, failing).getPersonDataValues(Person.Id.from("u")).join());
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> new BindingDAO(failing, new InMemoryCacheClient())
+                        .getBindings(tripId, org.paulsens.trip.model.BindingType.TRIP,
+                                org.paulsens.trip.model.BindingType.TRIP_EVENT).join());
+    }
+
+    /** Same contract for the point-read and full-scan loaders, and for the binding write pair. */
+    @Test
+    public void aFailedPointOrScanReadPropagatesToo() {
+        final Persistence failing = Mockito.mock(Persistence.class,
+                AdditionalAnswers.delegatesTo(DynamoLocal.persistence()));
+        Mockito.doThrow(new IllegalStateException("read refused")).when(failing).getItem(ArgumentMatchers.any());
+        Mockito.doThrow(new IllegalStateException("scan refused")).when(failing).scanAll(ArgumentMatchers.any());
+        Mockito.doThrow(new IllegalStateException("write refused")).when(failing).putItem(ArgumentMatchers.any());
+        Mockito.doThrow(new IllegalStateException("delete refused"))
+                .when(failing).deleteItem(ArgumentMatchers.any());
+
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> new TripEventDAO(mapper, failing).getTripEvent("never-there").join());
+        // A valkey-like (non-InMemory) client is required: with InMemoryCacheClient the scan loaders are
+        // deliberately unreachable (soft revalidate off -- the cache IS the local datastore).
+        final CacheClient valkeyLike = Mockito.mock(CacheClient.class,
+                AdditionalAnswers.delegatesTo(new InMemoryCacheClient()));
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> new ConfigDAO(mapper, failing, valkeyLike).getAllConfig().join());
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> new PrivilegesDAO(mapper, failing, valkeyLike).getGlobalPrivileges().join());
+        final BindingDAO bindings = new BindingDAO(failing, new InMemoryCacheClient());
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> bindings.saveBinding("a", org.paulsens.trip.model.BindingType.TRIP,
+                        "b", org.paulsens.trip.model.BindingType.TRIP_EVENT, false).join());
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> bindings.removeBinding("a", org.paulsens.trip.model.BindingType.TRIP,
+                        "b", org.paulsens.trip.model.BindingType.TRIP_EVENT, false).join());
+    }
+
+    /** Credentials: reads propagate; the save maps to false (logged) -- login must not 500 on a flaky store. */
+    @Test
+    public void credentialsFailureTails() {
+        final Persistence failing = Mockito.mock(Persistence.class,
+                AdditionalAnswers.delegatesTo(DynamoLocal.persistence()));
+        Mockito.doThrow(new IllegalStateException("read refused")).when(failing).getItem(ArgumentMatchers.any());
+        Mockito.doThrow(new IllegalStateException("write refused")).when(failing).putItem(ArgumentMatchers.any());
+        final CredentialsDAO dao = new CredentialsDAO(failing, new PersonDAO(mapper, DynamoLocal.persistence()));
+
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> dao.getCredsByEmailAndPass("who@test.com", "pw").join());
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> dao.getCredsByEmailAdminOnly("who@test.com", Person.Id.from("u")).join());
+        Assert.assertFalse(dao.saveCreds(new org.paulsens.trip.model.Creds(
+                        "who@test.com", Person.Id.from("u"), "user", "pw", null)).join(),
+                "a refused credential write maps to false, never an exception into the login flow");
+    }
+
+    /** Media: the point read degrades to empty (logged); the full load and the delete propagate. */
+    @Test
+    public void mediaFailureTails() {
+        final Persistence failing = Mockito.mock(Persistence.class,
+                AdditionalAnswers.delegatesTo(DynamoLocal.persistence()));
+        Mockito.doThrow(new IllegalStateException("read refused")).when(failing).getItem(ArgumentMatchers.any());
+        Mockito.doThrow(new IllegalStateException("scan refused")).when(failing).scanAll(ArgumentMatchers.any());
+        Mockito.doThrow(new IllegalStateException("delete refused"))
+                .when(failing).deleteItem(ArgumentMatchers.any());
+        final CacheClient valkeyLike = Mockito.mock(CacheClient.class,
+                AdditionalAnswers.delegatesTo(new InMemoryCacheClient()));
+        final MediaDAO dao = new MediaDAO(mapper, failing, valkeyLike);
+
+        Assert.assertTrue(dao.getMedia("m-x").join().isEmpty(),
+                "a failing media point read must degrade to empty (the page renders without the tile)");
+        Assert.assertThrows(java.util.concurrent.CompletionException.class, () -> dao.getAllMedia().join());
+        Assert.assertThrows(java.util.concurrent.CompletionException.class, () -> dao.deleteMedia("m-x").join());
+    }
+
+    /** Chat: point reads degrade to empty (logged); list/page/reaction paths propagate. */
+    @Test
+    public void chatFailureTails() {
+        final Persistence failing = Mockito.mock(Persistence.class,
+                AdditionalAnswers.delegatesTo(DynamoLocal.persistence()));
+        Mockito.doThrow(new IllegalStateException("read refused")).when(failing).getItem(ArgumentMatchers.any());
+        Mockito.doThrow(new IllegalStateException("query refused"))
+                .when(failing).queryAll(ArgumentMatchers.any());
+        Mockito.doThrow(new IllegalStateException("delete refused"))
+                .when(failing).deleteItem(ArgumentMatchers.any());
+        final ChatDAO dao = new ChatDAO(mapper, failing, new InMemoryCacheClient());
+        final org.paulsens.trip.model.chat.ChatChannel.Id channel =
+                org.paulsens.trip.model.chat.ChatChannel.Id.from("trip:tails-" + RandomData.genAlpha(6));
+
+        Assert.assertTrue(dao.getChannel(channel).join().isEmpty(),
+                "a failing channel point read must degrade to empty");
+        Assert.assertTrue(dao.getMembership(channel, Person.Id.from("p")).join().isEmpty(),
+                "a failing membership point read must degrade to empty");
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> dao.listMembers(channel).join());
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> dao.deleteReaction(channel,
+                        org.paulsens.trip.model.chat.ChatMessage.Id.from("00000000000001-0000"),
+                        Person.Id.from("p"), ":+1:").join());
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> dao.getMessage(channel,
+                        org.paulsens.trip.model.chat.ChatMessage.Id.from("00000000000001-0000")).join());
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> dao.getReactionsForRange(channel,
+                        org.paulsens.trip.model.chat.ChatMessage.Id.from("00000000000001-0000"),
+                        org.paulsens.trip.model.chat.ChatMessage.Id.from("00000000000009-0000")).join());
+    }
+
+    /** The chat WRITE shims: a refused row write surfaces at the join for every chat table. */
+    @Test
+    public void chatWriteFailureTailsPropagate() {
+        final Persistence failing = Mockito.mock(Persistence.class,
+                AdditionalAnswers.delegatesTo(DynamoLocal.persistence()));
+        Mockito.doThrow(new IllegalStateException("write refused")).when(failing).putItem(ArgumentMatchers.any());
+        final ChatDAO dao = new ChatDAO(mapper, failing, new InMemoryCacheClient());
+        final String tripId = "tails-" + RandomData.genAlpha(6);
+        final org.paulsens.trip.model.chat.ChatChannel channel =
+                new org.paulsens.trip.model.chat.ChatChannel(
+                        org.paulsens.trip.model.chat.ChatChannel.Id.forTrip(tripId), tripId,
+                        org.paulsens.trip.model.chat.ChatChannel.Kind.TRIP, "Test", null, null, null,
+                        java.time.Instant.now(), "admin", null, null);
+
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> dao.saveChannel(channel).join());
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> dao.saveMembership(new org.paulsens.trip.model.chat.ChatMembership(
+                        channel.getId(), Person.Id.from("p"),
+                        org.paulsens.trip.model.chat.ChatMembership.MemberState.JOINED, null,
+                        java.time.Instant.now(), null, null, null, null, null, null, null,
+                        org.paulsens.trip.model.chat.ChatNotifyPref.defaults(), null, null, null,
+                        null)).join());
+        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                () -> dao.putReaction(new org.paulsens.trip.model.chat.ChatReaction(
+                        channel.getId(), org.paulsens.trip.model.chat.ChatMessage.Id.from("00000000000001-0000"),
+                        Person.Id.from("p"), ":+1:", java.time.Instant.now(), null)).join());
     }
 
     @Test
@@ -102,7 +269,7 @@ public class DAOFailureTailsTest {
                 "day", software.amazon.awssdk.services.dynamodb.model.AttributeValue.builder().s(today).build(),
                 "ts", software.amazon.awssdk.services.dynamodb.model.AttributeValue.builder().s("1").build(),
                 "content", software.amazon.awssdk.services.dynamodb.model.AttributeValue.builder()
-                        .s("{ not json").build()))).join();
+                        .s("{ not json").build())));
 
         final org.paulsens.trip.model.AuditPage page = dao.getAuditEvents(
                 org.paulsens.trip.model.AuditQuery.builder().build()).join();
@@ -132,6 +299,27 @@ public class DAOFailureTailsTest {
             viewMap.put(CredentialsDAO.IS_ADMIN, "true");
             Assert.assertNull(dao.adminGetCredsByEmail("missing-" + RandomData.genAlpha(6) + "@x.org")
                     .join(), "admin, but no such account: null rather than an invented Creds");
+        }
+    }
+
+    /** The admin-gated read and remove paths surface store failures at the join (never hang or invent). */
+    @Test
+    public void adminCredsFailureTailsPropagate() {
+        final Persistence failing = Mockito.mock(Persistence.class,
+                AdditionalAnswers.delegatesTo(DynamoLocal.persistence()));
+        Mockito.doThrow(new IllegalStateException("read refused")).when(failing).getItem(ArgumentMatchers.any());
+        final CredentialsDAO dao = new CredentialsDAO(failing,
+                new PersonDAO(mapper, DynamoLocal.persistence()));
+
+        final FacesContext ctx = Mockito.mock(FacesContext.class, Mockito.RETURNS_DEEP_STUBS);
+        final Map<String, Object> viewMap = new HashMap<>();
+        viewMap.put(CredentialsDAO.IS_ADMIN, "true");
+        Mockito.when(ctx.getViewRoot().getViewMap(false)).thenReturn(viewMap);
+        try (MockedStatic<FacesContext> faces = Mockito.mockStatic(FacesContext.class)) {
+            faces.when(FacesContext::getCurrentInstance).thenReturn(ctx);
+
+            Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                    () -> dao.adminGetCredsByEmail("x@example.org").join());
         }
     }
 }

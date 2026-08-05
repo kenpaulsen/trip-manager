@@ -166,7 +166,7 @@ public class TripDAOTest {
         final AtomicInteger scanCount = new AtomicInteger(0);
         final Persistence pointPersistence = new Persistence() {
             @Override
-            public CompletableFuture<GetItemResponse> getItem(final Consumer<GetItemRequest.Builder> req) {
+            public GetItemResponse getItem(final Consumer<GetItemRequest.Builder> req) {
                 getItemCount.incrementAndGet();
                 final GetItemRequest.Builder b = GetItemRequest.builder();
                 req.accept(b);
@@ -174,11 +174,11 @@ public class TripDAOTest {
                 if ("tripA".equals(b.build().key().get("id").s())) {
                     resp.item(Map.of("id", toStrAttr("tripA"), "content", toStrAttr(tripJson)));
                 }
-                return CompletableFuture.completedFuture(resp.build());
+                return resp.build();
             }
 
             @Override
-            public CompletableFuture<ScanResponse> scan(final Consumer<ScanRequest.Builder> req) {
+            public ScanResponse scan(final Consumer<ScanRequest.Builder> req) {
                 scanCount.incrementAndGet();
                 return Persistence.super.scan(req);
             }

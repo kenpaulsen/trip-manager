@@ -22,6 +22,7 @@ import org.paulsens.trip.cache.TripIndex;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 
 /**
  * Trips are point entries: {@link #getTrip(String)} is a point read (cached). List queries -- active/inactive
@@ -84,16 +85,22 @@ public class TripDAO {
         final CompletableFuture<Boolean> saveTripEvents = tripEventDao.saveAllTripEvents(trip);
         // Fetch the prior version first so the index can diff the membership list (drop removed people).
         final CompletableFuture<Boolean> saveTrip = getTrip(trip.getId())
-                .thenCompose(prev -> persistence.putItem(b -> b.tableName(TRIP_TABLE).item(map))
-                        .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
-                                ? updateCaches(prev.orElse(null), trip)
-                                : CompletableFuture.completedFuture(false)));
+                .thenCompose(prev -> putTripItem(map, prev.orElse(null), trip));
         return CompletableFuture.allOf(saveTrip, saveTripEvents)
                 .thenApply(ignore -> saveTrip.join() && saveTripEvents.join())
-                .exceptionally(ex -> {
-                    log.error("Failed to save trip!", ex);
-                    return false;
-                });
+                .exceptionally(this::logSaveTripFailure);
+    }
+
+    private CompletableFuture<Boolean> putTripItem(
+            final Map<String, AttributeValue> map, final Trip prev, final Trip trip) {
+        final boolean saved = persistence.putItem(b -> b.tableName(TRIP_TABLE).item(map))
+                .sdkHttpResponse().isSuccessful();
+        return saved ? updateCaches(prev, trip) : CompletableFuture.completedFuture(false);
+    }
+
+    private Boolean logSaveTripFailure(final Throwable ex) {
+        log.error("Failed to save trip!", ex);
+        return false;
     }
 
     protected CompletableFuture<Optional<Trip>> getTrip(final String id) {
@@ -156,17 +163,26 @@ public class TripDAO {
 
     private CompletableFuture<Trip> loadTripById(final String id) {
         final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id).build());
-        return persistence.getItem(b -> b.key(key).tableName(TRIP_TABLE).build())
-                .thenApply(resp -> toTrip(resp.item().get(CONTENT)));
+        try {
+            final GetItemResponse resp = persistence.getItem(b -> b.key(key).tableName(TRIP_TABLE).build());
+            return CompletableFuture.completedFuture(toTrip(resp.item().get(CONTENT)));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private CompletableFuture<List<TripIndex.Entry>> loadAllEntries() {
-        return persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(TRIP_TABLE).build())
-                .thenApply(items -> items.stream()
-                        .map(it -> toTrip(it.get(CONTENT)))
-                        .filter(trip -> trip != null)
-                        .map(TripDAO::entryOf)
-                        .toList());
+        try {
+            return CompletableFuture.completedFuture(
+                    persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(TRIP_TABLE).build())
+                            .stream()
+                            .map(it -> toTrip(it.get(CONTENT)))
+                            .filter(trip -> trip != null)
+                            .map(TripDAO::entryOf)
+                            .toList());
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private static TripIndex.Entry entryOf(final Trip trip) {

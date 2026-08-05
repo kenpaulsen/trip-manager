@@ -90,8 +90,13 @@ public final class PasswordMigration {
      * and rewrites plaintext rows up to {@code parallelism} at a time.
      */
     CompletableFuture<Result> run(final boolean apply, final int parallelism) {
-        return persistence.scanAll(b -> b.tableName(CredentialsDAO.PASS_TABLE))
-                .thenCompose(rows -> upgradeAll(rows, apply, Math.max(1, parallelism)));
+        try {
+            final List<Map<String, AttributeValue>> rows =
+                    persistence.scanAll(b -> b.tableName(CredentialsDAO.PASS_TABLE));
+            return upgradeAll(rows, apply, Math.max(1, parallelism));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private CompletableFuture<Result> upgradeAll(final List<Map<String, AttributeValue>> rows, final boolean apply,
@@ -137,7 +142,8 @@ public final class PasswordMigration {
                     updated.put(CredentialsDAO.PW, AttributeValue.builder().s(hasher.hash(plaintext)).build());
                     return updated;
                 }, pool)
-                .thenCompose(updated -> persistence.putItem(
+                // The put itself is synchronous now; it simply runs on the same bounded worker as the hash.
+                .thenApply(updated -> persistence.putItem(
                         b -> b.tableName(CredentialsDAO.PASS_TABLE).item(updated)))
                 .handle((resp, ex) -> {
                     if (ex != null || resp == null || !resp.sdkHttpResponse().isSuccessful()) {

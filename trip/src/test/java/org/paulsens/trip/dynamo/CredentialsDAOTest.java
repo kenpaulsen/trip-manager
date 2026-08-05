@@ -80,7 +80,7 @@ public class CredentialsDAOTest {
         final List<Map<String, AttributeValue>> captured = new ArrayList<>();
         final Persistence capturingPersistence = new Persistence() {
             @Override
-            public CompletableFuture<PutItemResponse> putItem(Consumer<PutItemRequest.Builder> putItemRequest) {
+            public PutItemResponse putItem(Consumer<PutItemRequest.Builder> putItemRequest) {
                 final PutItemRequest.Builder builder = PutItemRequest.builder();
                 putItemRequest.accept(builder);
                 captured.add(builder.build().item());
@@ -107,7 +107,7 @@ public class CredentialsDAOTest {
         final List<Map<String, AttributeValue>> captured = new ArrayList<>();
         final Persistence capturingPersistence = new Persistence() {
             @Override
-            public CompletableFuture<PutItemResponse> putItem(Consumer<PutItemRequest.Builder> putItemRequest) {
+            public PutItemResponse putItem(Consumer<PutItemRequest.Builder> putItemRequest) {
                 final PutItemRequest.Builder builder = PutItemRequest.builder();
                 putItemRequest.accept(builder);
                 captured.add(builder.build().item());
@@ -128,7 +128,7 @@ public class CredentialsDAOTest {
         final List<Map<String, AttributeValue>> captured = new ArrayList<>();
         final Persistence capturingPersistence = new Persistence() {
             @Override
-            public CompletableFuture<PutItemResponse> putItem(Consumer<PutItemRequest.Builder> putItemRequest) {
+            public PutItemResponse putItem(Consumer<PutItemRequest.Builder> putItemRequest) {
                 final PutItemRequest.Builder builder = PutItemRequest.builder();
                 putItemRequest.accept(builder);
                 captured.add(builder.build().item());
@@ -149,7 +149,7 @@ public class CredentialsDAOTest {
         final List<Map<String, AttributeValue>> captured = new ArrayList<>();
         final Persistence capturingPersistence = new Persistence() {
             @Override
-            public CompletableFuture<PutItemResponse> putItem(Consumer<PutItemRequest.Builder> putItemRequest) {
+            public PutItemResponse putItem(Consumer<PutItemRequest.Builder> putItemRequest) {
                 final PutItemRequest.Builder builder = PutItemRequest.builder();
                 putItemRequest.accept(builder);
                 captured.add(builder.build().item());
@@ -192,7 +192,7 @@ public class CredentialsDAOTest {
         final AtomicInteger putItemCount = new AtomicInteger(0);
         final Persistence countingPersistence = new Persistence() {
             @Override
-            public CompletableFuture<PutItemResponse> putItem(Consumer<PutItemRequest.Builder> putItemRequest) {
+            public PutItemResponse putItem(Consumer<PutItemRequest.Builder> putItemRequest) {
                 putItemCount.incrementAndGet();
                 return Persistence.super.putItem(putItemRequest);
             }
@@ -286,11 +286,11 @@ public class CredentialsDAOTest {
         final List<Map<String, AttributeValue>> puts = new ArrayList<>();
         final Persistence stub = new Persistence() {
             @Override
-            public CompletableFuture<GetItemResponse> getItem(Consumer<GetItemRequest.Builder> req) {
-                return CompletableFuture.completedFuture(GetItemResponse.builder().build()); // hasItem() == false
+            public GetItemResponse getItem(Consumer<GetItemRequest.Builder> req) {
+                return GetItemResponse.builder().build(); // hasItem() == false
             }
             @Override
-            public CompletableFuture<PutItemResponse> putItem(Consumer<PutItemRequest.Builder> req) {
+            public PutItemResponse putItem(Consumer<PutItemRequest.Builder> req) {
                 final PutItemRequest.Builder b = PutItemRequest.builder();
                 req.accept(b);
                 puts.add(b.build().item());
@@ -313,11 +313,11 @@ public class CredentialsDAOTest {
                 CredentialsDAO.PW, AttributeValue.builder().s(storedPass).build());
         final Persistence stub = new Persistence() {
             @Override
-            public CompletableFuture<GetItemResponse> getItem(Consumer<GetItemRequest.Builder> req) {
-                return CompletableFuture.completedFuture(GetItemResponse.builder().item(row).build());
+            public GetItemResponse getItem(Consumer<GetItemRequest.Builder> req) {
+                return GetItemResponse.builder().item(row).build();
             }
             @Override
-            public CompletableFuture<PutItemResponse> putItem(Consumer<PutItemRequest.Builder> req) {
+            public PutItemResponse putItem(Consumer<PutItemRequest.Builder> req) {
                 final PutItemRequest.Builder b = PutItemRequest.builder();
                 req.accept(b);
                 puts.add(b.build().item());

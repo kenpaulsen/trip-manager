@@ -78,21 +78,21 @@ public class FakeDataTest {
     @Test
     public void fakePersistencePutItemReturnsSuccess() {
         final Persistence p = FakeData.createFakePersistence();
-        final PutItemResponse resp = get(p.putItem(b -> b.tableName("test")));
+        final PutItemResponse resp = p.putItem(b -> b.tableName("test"));
         assertTrue(resp.sdkHttpResponse().isSuccessful());
     }
 
     @Test
     public void fakePersistenceScanReturnsEmpty() {
         final Persistence p = FakeData.createFakePersistence();
-        final ScanResponse resp = get(p.scan(b -> b.tableName("test")));
+        final ScanResponse resp = p.scan(b -> b.tableName("test"));
         assertTrue(resp.items().isEmpty());
     }
 
     @Test
     public void fakePersistenceQueryReturnsEmpty() {
         final Persistence p = FakeData.createFakePersistence();
-        final QueryResponse resp = get(p.query(b -> b.tableName("test")));
+        final QueryResponse resp = p.query(b -> b.tableName("test"));
         assertTrue(resp.items().isEmpty());
     }
 
@@ -101,16 +101,16 @@ public class FakeDataTest {
         final java.util.concurrent.atomic.AtomicInteger count = new java.util.concurrent.atomic.AtomicInteger(0);
         final Persistence p = FakeData.createFakePersistenceWithQueryMonitor(q -> count.incrementAndGet());
         assertEquals(count.get(), 0);
-        get(p.query(b -> b.tableName("test")));
+        p.query(b -> b.tableName("test"));
         assertEquals(count.get(), 1);
-        get(p.query(b -> b.tableName("test2")));
+        p.query(b -> b.tableName("test2"));
         assertEquals(count.get(), 2);
     }
 
     @Test
     public void queryMonitorPersistenceStillReturnsEmptyResults() {
         final Persistence p = FakeData.createFakePersistenceWithQueryMonitor(q -> {});
-        final QueryResponse resp = get(p.query(b -> b.tableName("test")));
+        final QueryResponse resp = p.query(b -> b.tableName("test"));
         assertTrue(resp.items().isEmpty());
     }
 

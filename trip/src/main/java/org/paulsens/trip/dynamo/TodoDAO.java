@@ -58,14 +58,21 @@ public class TodoDAO {
         map.put(TRIP_ID, persistence.toStrAttr(todo.getTripId()));
         map.put(DATA_ID, persistence.toStrAttr(todo.getDataId().getValue()));
         map.put(CONTENT, persistence.toStrAttr(mapper.writeValueAsString(todo)));
-        return persistence.putItem(b -> b.tableName(TODO_ITEM_TABLE).item(map))
-                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
-                        ? cache.put(todo.getTripId(), todo)
-                        : CompletableFuture.completedFuture(false))
-                .exceptionally(ex -> {
-                    log.error("Failed to save todo (" + todo.getDescription() + ")!", ex);
-                    return false;
-                });
+        try {
+            final boolean saved = persistence.putItem(b -> b.tableName(TODO_ITEM_TABLE).item(map))
+                    .sdkHttpResponse().isSuccessful();
+            if (!saved) {
+                return CompletableFuture.completedFuture(false);
+            }
+            return cache.put(todo.getTripId(), todo).exceptionally(ex -> logSaveTodoFailure(todo, ex));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.completedFuture(logSaveTodoFailure(todo, ex));
+        }
+    }
+
+    private Boolean logSaveTodoFailure(final TodoItem todo, final Throwable ex) {
+        log.error("Failed to save todo (" + todo.getDescription() + ")!", ex);
+        return false;
     }
 
     protected CompletableFuture<List<TodoItem>> getTodoItems(final String tripId) {
@@ -82,11 +89,15 @@ public class TodoDAO {
 
     private CompletableFuture<List<TodoItem>> loadTodoItems(final String tripId) {
         log.info("Cache miss for todo items for tripId: {}", tripId);
-        return persistence.queryAll(qb -> queryTodoItemsByTrip(qb, tripId))
-                .thenApply(items -> items.stream()
-                        .map(m -> toTodoItem(m.get(CONTENT)))
-                        .filter(Objects::nonNull)
-                        .toList());
+        try {
+            return CompletableFuture.completedFuture(
+                    persistence.queryAll(qb -> queryTodoItemsByTrip(qb, tripId)).stream()
+                            .map(m -> toTodoItem(m.get(CONTENT)))
+                            .filter(Objects::nonNull)
+                            .toList());
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private void queryTodoItemsByTrip(final QueryRequest.Builder qb, final String tripId) {

@@ -73,10 +73,13 @@ public class ConfigDAO {
             log.warn(error);
             throw new IllegalStateException(error);
         }
-        return persistence.putItem(b -> b.tableName(CONFIG_TABLE).item(map))
-                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
-                        ? cache.put(config)
-                        : CompletableFuture.completedFuture(false));
+        try {
+            final boolean saved = persistence.putItem(b -> b.tableName(CONFIG_TABLE).item(map))
+                    .sdkHttpResponse().isSuccessful();
+            return saved ? cache.put(config) : CompletableFuture.completedFuture(false);
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     /** Every setting, for the admin page. */
@@ -98,24 +101,31 @@ public class ConfigDAO {
 
     private CompletableFuture<Optional<Config>> pointReadConfig(final String name) {
         final Map<String, AttributeValue> key = Map.of(NAME, AttributeValue.builder().s(name).build());
-        return persistence.getItem(b -> b.key(key).tableName(CONFIG_TABLE).build())
-                .thenApply(resp -> resp.item().get(CONTENT))
-                .thenApply(content -> Optional.ofNullable(content == null ? null : parseConfig(content.s())))
-                .exceptionally(ex -> {
-                    // Deliberately not rethrown: the caller has a default and the site must keep serving.
-                    log.debug("ConfigDAO: unable to read config ({})", name, ex);
-                    return Optional.empty();
-                });
+        try {
+            final AttributeValue content =
+                    persistence.getItem(b -> b.key(key).tableName(CONFIG_TABLE).build()).item().get(CONTENT);
+            return CompletableFuture.completedFuture(
+                    Optional.ofNullable(content == null ? null : parseConfig(content.s())));
+        } catch (final RuntimeException ex) {
+            // Deliberately not rethrown: the caller has a default and the site must keep serving.
+            log.debug("ConfigDAO: unable to read config ({})", name, ex);
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
     }
 
     private CompletableFuture<List<Config>> loadAllConfig() {
-        return persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(CONFIG_TABLE).build())
-                .thenApply(items -> items.stream()
-                        .map(it -> it.get(CONTENT))
-                        .filter(content -> content != null)
-                        .map(content -> parseConfig(content.s()))
-                        .filter(config -> config != null)
-                        .toList());
+        try {
+            return CompletableFuture.completedFuture(
+                    persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(CONFIG_TABLE).build())
+                            .stream()
+                            .map(it -> it.get(CONTENT))
+                            .filter(content -> content != null)
+                            .map(content -> parseConfig(content.s()))
+                            .filter(config -> config != null)
+                            .toList());
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private Config parseConfig(final String json) {

@@ -97,6 +97,16 @@
             <version>3.6.0</version>
         </dependency>
         <dependency>
+            <!--
+                Sync HTTP client for every AWS SDK client (virtual-threads migration): blocking socket I/O
+                parks the calling virtual thread, and its bounded connection pool doubles as the DynamoDB
+                admission bound. netty-nio-client leaves the WAR once the last async client (SES, CW Logs)
+                converts in Phase 7.
+            -->
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>apache-client</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-annotations</artifactId>
         </dependency>

@@ -1,18 +1,18 @@
 package org.paulsens.trip.dynamo;
 
+import java.net.URI;
+import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.net.URI;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.http.apache.ApacheHttpClient;
 import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
-import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClientBuilder;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.dynamodb.DynamoDbClientBuilder;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.DeleteItemResponse;
@@ -25,8 +25,28 @@ import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
 import software.amazon.awssdk.services.dynamodb.model.ScanResponse;
 
+/**
+ * The real (deployed) {@link Persistence}: a synchronous DynamoDB client called from virtual threads.
+ *
+ * <p>Deliberately the SYNC client since the virtual-threads migration: a blocking socket read parks the
+ * calling virtual thread (the JDK schedules it off its carrier), so nothing is gained by NIO here -- and
+ * with no {@code CompletableFuture} in the path there is no completion thread whose safety anyone has to
+ * reason about. The old async client ran DAO continuations (including Jackson parses that joined nested
+ * futures) on the SDK's small {@code sdk-async-response} pool, with caller-runs overflow onto the Netty
+ * event loop.</p>
+ */
 class DynamoPersistence implements Persistence {
-    private final DynamoDbAsyncClient client;
+    /**
+     * The connection pool is the DynamoDB admission bound -- the explicit replacement for the implicit cap
+     * the old 100-platform-thread Tomcat pool provided. Acquisition beyond the pool queues briefly
+     * (better slow...) and then fails fast (...but not a pile-up).
+     */
+    private static final int MAX_CONNECTIONS = 100;
+    private static final Duration ACQUISITION_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration ATTEMPT_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration CALL_TIMEOUT = Duration.ofSeconds(30);
+
+    private final DynamoDbClient client;
 
     DynamoPersistence() {
         this(resolveEndpoint());
@@ -38,14 +58,19 @@ class DynamoPersistence implements Persistence {
      *                 engine rather than the account's real tables.
      */
     DynamoPersistence(final URI endpoint) {
-        final DynamoDbAsyncClientBuilder builder = DynamoDbAsyncClient.builder()
+        final DynamoDbClientBuilder builder = DynamoDbClient.builder()
                 .region(resolveRegion())
                 // Default chain: finds the ECS task role / instance role in AWS, and ~/.aws [default] on a laptop.
                 .credentialsProvider(endpoint == null
                         ? DefaultCredentialsProvider.builder().build()
                         // A local engine accepts any credentials and there may be none configured; asking the
                         // default chain would fail before the first request.
-                        : StaticCredentialsProvider.create(AwsBasicCredentials.create("local", "local")));
+                        : StaticCredentialsProvider.create(AwsBasicCredentials.create("local", "local")))
+                .httpClientBuilder(ApacheHttpClient.builder()
+                        .maxConnections(MAX_CONNECTIONS)
+                        .connectionAcquisitionTimeout(ACQUISITION_TIMEOUT))
+                // Explicit timeouts rather than inherited defaults; a hung call must release its thread.
+                .overrideConfiguration(o -> o.apiCallAttemptTimeout(ATTEMPT_TIMEOUT).apiCallTimeout(CALL_TIMEOUT));
         if (endpoint != null) {
             builder.endpointOverride(endpoint);
         }
@@ -77,41 +102,46 @@ class DynamoPersistence implements Persistence {
         return (region == null || region.isBlank()) ? Region.US_WEST_2 : Region.of(region.trim());
     }
 
-    public CompletableFuture<ScanResponse> scan(Consumer<ScanRequest.Builder> scanRequest) {
+    @Override
+    public ScanResponse scan(final Consumer<ScanRequest.Builder> scanRequest) {
         return client.scan(scanRequest);
     }
 
-    public CompletableFuture<PutItemResponse> putItem(Consumer<PutItemRequest.Builder> putItemRequest) {
+    @Override
+    public PutItemResponse putItem(final Consumer<PutItemRequest.Builder> putItemRequest) {
         return client.putItem(putItemRequest);
     }
 
-    public CompletableFuture<QueryResponse> query(Consumer<QueryRequest.Builder> queryRequest) {
+    @Override
+    public QueryResponse query(final Consumer<QueryRequest.Builder> queryRequest) {
         return client.query(queryRequest);
     }
 
-    public CompletableFuture<GetItemResponse> getItem(Consumer<GetItemRequest.Builder> getItemRequest) {
+    @Override
+    public GetItemResponse getItem(final Consumer<GetItemRequest.Builder> getItemRequest) {
         return client.getItem(getItemRequest);
     }
 
-    public CompletableFuture<DeleteItemResponse> deleteItem(Consumer<DeleteItemRequest.Builder> delItemRequest) {
+    @Override
+    public DeleteItemResponse deleteItem(final Consumer<DeleteItemRequest.Builder> delItemRequest) {
         return client.deleteItem(delItemRequest);
     }
 
     @Override
-    public CompletableFuture<List<Map<String, AttributeValue>>> scanAll(
-            final Consumer<ScanRequest.Builder> scanRequest) {
-        final List<Map<String, AttributeValue>> items = Collections.synchronizedList(new ArrayList<>());
-        return client.scanPaginator(scanRequest)
-                .subscribe(page -> items.addAll(page.items()))
-                .thenApply(ignored -> items);
+    public List<Map<String, AttributeValue>> scanAll(final Consumer<ScanRequest.Builder> scanRequest) {
+        final List<Map<String, AttributeValue>> items = new ArrayList<>();
+        for (final ScanResponse page : client.scanPaginator(scanRequest)) {
+            items.addAll(page.items());
+        }
+        return items;
     }
 
     @Override
-    public CompletableFuture<List<Map<String, AttributeValue>>> queryAll(
-            final Consumer<QueryRequest.Builder> queryRequest) {
-        final List<Map<String, AttributeValue>> items = Collections.synchronizedList(new ArrayList<>());
-        return client.queryPaginator(queryRequest)
-                .subscribe(page -> items.addAll(page.items()))
-                .thenApply(ignored -> items);
+    public List<Map<String, AttributeValue>> queryAll(final Consumer<QueryRequest.Builder> queryRequest) {
+        final List<Map<String, AttributeValue>> items = new ArrayList<>();
+        for (final QueryResponse page : client.queryPaginator(queryRequest)) {
+            items.addAll(page.items());
+        }
+        return items;
     }
 }

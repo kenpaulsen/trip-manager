@@ -68,9 +68,9 @@ public class FakeData {
             final Consumer<Consumer<QueryRequest.Builder>> whenQueryCalled) {
         return new Persistence() {
             @Override
-            public CompletableFuture<QueryResponse> query(Consumer<QueryRequest.Builder> queryRequest) {
+            public QueryResponse query(Consumer<QueryRequest.Builder> queryRequest) {
                 whenQueryCalled.accept(queryRequest);
-                return CompletableFuture.completedFuture(QueryResponse.builder().items(new ArrayList<>()).build());
+                return QueryResponse.builder().items(new ArrayList<>()).build();
             }
         };
     }

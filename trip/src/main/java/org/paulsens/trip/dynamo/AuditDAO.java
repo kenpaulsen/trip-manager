@@ -94,21 +94,23 @@ public class AuditDAO {
         }
         item.put(CONTENT, persistence.toStrAttr(json));
 
-        return persistence.putItem(b -> b.tableName(AUDIT_TABLE)
-                        .item(item)
-                        // The whole reason writes are conditional: without this, a same-millisecond collision
-                        // silently replaces an existing audit record instead of failing.
-                        .conditionExpression("attribute_not_exists(" + SORT + ")"))
-                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
-                .exceptionallyCompose(ex -> {
-                    if (isConditionalFailure(ex)) {
-                        // Taken. Move one millisecond later, which keeps this record AFTER the one already
-                        // there -- events arrive in order, so nudging the loser forward preserves that order.
-                        return saveWithRetry(event.withNextMilli(), attempt + 1);
-                    }
-                    log.warn("Unable to store audit event (it remains in the log stream): {}", event, ex);
-                    return CompletableFuture.completedFuture(false);
-                });
+        try {
+            return CompletableFuture.completedFuture(
+                    persistence.putItem(b -> b.tableName(AUDIT_TABLE)
+                                    .item(item)
+                                    // The whole reason writes are conditional: without this, a same-millisecond
+                                    // collision silently replaces an existing audit record instead of failing.
+                                    .conditionExpression("attribute_not_exists(" + SORT + ")"))
+                            .sdkHttpResponse().isSuccessful());
+        } catch (final RuntimeException ex) {
+            if (isConditionalFailure(ex)) {
+                // Taken. Move one millisecond later, which keeps this record AFTER the one already
+                // there -- events arrive in order, so nudging the loser forward preserves that order.
+                return saveWithRetry(event.withNextMilli(), attempt + 1);
+            }
+            log.warn("Unable to store audit event (it remains in the log stream): {}", event, ex);
+            return CompletableFuture.completedFuture(false);
+        }
     }
 
     private static boolean isConditionalFailure(final Throwable ex) {
@@ -181,29 +183,30 @@ public class AuditDAO {
             values.put(":before", persistence.toStrAttr(AuditEvent.sortKeyFor(query.getBefore())));
         }
 
-        return persistence.queryAll(b -> {
-            b.tableName(AUDIT_TABLE)
-                    .keyConditionExpression(keyCond.toString())
-                    .expressionAttributeNames(names)
-                    .expressionAttributeValues(values)
-                    // Newest first WITHIN the partition; the walk supplies the across-partition ordering.
-                    .scanIndexForward(false);
-            b.build();
-        }).thenApply(items -> items.stream()
-                .map(item -> item.get(CONTENT))
-                .filter(content -> content != null)
-                .map(content -> parseEvent(content.s()))
-                .filter(event -> event != null)
-                .filter(query::matches)
-                .toList())
-                .exceptionally(ex -> {
-                    // One unreadable day must not blank the whole page -- but it MUST be counted. Swallowing
-                    // this silently is how a reserved-word error in every single query presented as "no
-                    // records" over a table holding 36,000 of them.
-                    log.warn("Unable to read audit partition {}", day, ex);
-                    failures.incrementAndGet();
-                    return List.of();
-                });
+        try {
+            return CompletableFuture.completedFuture(persistence.queryAll(b -> {
+                b.tableName(AUDIT_TABLE)
+                        .keyConditionExpression(keyCond.toString())
+                        .expressionAttributeNames(names)
+                        .expressionAttributeValues(values)
+                        // Newest first WITHIN the partition; the walk supplies the across-partition ordering.
+                        .scanIndexForward(false);
+                b.build();
+            }).stream()
+                    .map(item -> item.get(CONTENT))
+                    .filter(content -> content != null)
+                    .map(content -> parseEvent(content.s()))
+                    .filter(event -> event != null)
+                    .filter(query::matches)
+                    .toList());
+        } catch (final RuntimeException ex) {
+            // One unreadable day must not blank the whole page -- but it MUST be counted. Swallowing
+            // this silently is how a reserved-word error in every single query presented as "no
+            // records" over a table holding 36,000 of them.
+            log.warn("Unable to read audit partition {}", day, ex);
+            failures.incrementAndGet();
+            return CompletableFuture.completedFuture(List.of());
+        }
     }
 
     /**

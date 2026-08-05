@@ -50,7 +50,7 @@ public class TripEventDAOTest {
         final AtomicInteger getItemCount = new AtomicInteger(0);
         final Persistence countingPersistence = new Persistence() {
             @Override
-            public CompletableFuture<GetItemResponse> getItem(Consumer<GetItemRequest.Builder> getItemRequest) {
+            public GetItemResponse getItem(Consumer<GetItemRequest.Builder> getItemRequest) {
                 getItemCount.incrementAndGet();
                 return Persistence.super.getItem(getItemRequest);
             }

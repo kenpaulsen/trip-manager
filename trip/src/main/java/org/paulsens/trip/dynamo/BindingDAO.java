@@ -131,10 +131,15 @@ public class BindingDAO {
         map.put(ID1_TYPE, AttributeValue.builder().s(key.getType().name()).build());
         map.put(ID2, AttributeValue.builder().s(destKey.getValue()).build());
         map.put(ID2_TYPE, AttributeValue.builder().s(destKey.getType().name()).build());
-        return persistence.putItem(b -> b.tableName(BINDINGS_TABLE).item(map))
-                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
-                        ? cache.add(key.getValue(), destTypeId(destKey.getType()), destKey.getId())
-                        : CompletableFuture.completedFuture(false));
+        try {
+            final boolean saved = persistence.putItem(b -> b.tableName(BINDINGS_TABLE).item(map))
+                    .sdkHttpResponse().isSuccessful();
+            return saved
+                    ? cache.add(key.getValue(), destTypeId(destKey.getType()), destKey.getId())
+                    : CompletableFuture.completedFuture(false);
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private CompletableFuture<Boolean> removeBinding(final TypeAndId key, final TypeAndId destKey) {
@@ -144,31 +149,36 @@ public class BindingDAO {
         final Map<String, AttributeValue> primaryKey = Map.of(
                 ID1, AttributeValue.builder().s(key.getValue()).build(),
                 ID2, AttributeValue.builder().s(destKey.getValue()).build());
-        return persistence.deleteItem(b -> b
-                        .tableName(BINDINGS_TABLE)
-                        .key(primaryKey))
-                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
-                        ? cache.remove(key.getValue(), destTypeId(destKey.getType()), destKey.getId())
-                        : CompletableFuture.completedFuture(false));
+        try {
+            final boolean deleted = persistence.deleteItem(b -> b.tableName(BINDINGS_TABLE).key(primaryKey))
+                    .sdkHttpResponse().isSuccessful();
+            return deleted
+                    ? cache.remove(key.getValue(), destTypeId(destKey.getType()), destKey.getId())
+                    : CompletableFuture.completedFuture(false);
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     /** Loads every direction of the source's partition: destination-type id -> bound destination ids. */
     private CompletableFuture<Map<String, List<String>>> loadBindings(final TypeAndId key) {
         log.info("Cache Miss for {} ({}) bindings.", key.getType().name(), key.getId());
-        return persistence.queryAll(qb -> createQueryByID1(qb, key))
-                .thenApply(items -> {
-                    // Pre-seed every dest type (including empty) so cache reconcile can clear deleted edges.
-                    final Map<String, List<String>> result = new HashMap<>();
-                    for (final BindingType type : BindingType.values()) {
-                        result.put(destTypeId(type), new ArrayList<>());
-                    }
-                    for (final Map<String, AttributeValue> row : items) {
-                        final TypeAndId key2 = TypeAndId.from(row.get(ID2).s());
-                        result.computeIfAbsent(destTypeId(key2.getType()), na -> new ArrayList<>())
-                                .add(key2.getId());
-                    }
-                    return result;
-                });
+        try {
+            final List<Map<String, AttributeValue>> items = persistence.queryAll(qb -> createQueryByID1(qb, key));
+            // Pre-seed every dest type (including empty) so cache reconcile can clear deleted edges.
+            final Map<String, List<String>> result = new HashMap<>();
+            for (final BindingType type : BindingType.values()) {
+                result.put(destTypeId(type), new ArrayList<>());
+            }
+            for (final Map<String, AttributeValue> row : items) {
+                final TypeAndId key2 = TypeAndId.from(row.get(ID2).s());
+                result.computeIfAbsent(destTypeId(key2.getType()), na -> new ArrayList<>())
+                        .add(key2.getId());
+            }
+            return CompletableFuture.completedFuture(result);
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private static String destTypeId(final BindingType type) {

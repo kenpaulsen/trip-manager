@@ -75,10 +75,14 @@ public class PersonDAO {
         }
         // The previous version drives the search-index / email-lookup diff (removing stale tokens and mappings).
         return getPerson(person.getId())
-                .thenCompose(prev -> persistence.putItem(b -> b.tableName(PERSON_TABLE).item(map))
-                        .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
-                                ? updateCachesForPerson(prev.orElse(null), person)
-                                : CompletableFuture.completedFuture(false)));
+                .thenCompose(prev -> putPersonItem(map, prev.orElse(null), person));
+    }
+
+    private CompletableFuture<Boolean> putPersonItem(
+            final Map<String, AttributeValue> map, final Person prev, final Person person) {
+        final boolean saved = persistence.putItem(b -> b.tableName(PERSON_TABLE).item(map))
+                .sdkHttpResponse().isSuccessful();
+        return saved ? updateCachesForPerson(prev, person) : CompletableFuture.completedFuture(false);
     }
 
     protected CompletableFuture<Optional<Person>> getPerson(final Person.Id id) {
@@ -178,15 +182,20 @@ public class PersonDAO {
     }
 
     private CompletableFuture<Optional<Person>> queryEmailIndex(final String lowEmail) {
-        return persistence.queryAll(b -> b.tableName(PERSON_TABLE)
-                        .indexName(EMAIL_INDEX)
-                        .keyConditionExpression(EMAIL_ATTR + " = :e")
-                        .expressionAttributeValues(Map.of(":e", persistence.toStrAttr(lowEmail)))
-                        .build())
-                .thenCompose(items -> cacheEmailHit(lowEmail, items.stream()
-                        .map(item -> toPerson(item.get(CONTENT)))
-                        .filter(p -> p != null && p.getDeleted() == null)
-                        .findFirst()));
+        final List<Map<String, AttributeValue>> items;
+        try {
+            items = persistence.queryAll(b -> b.tableName(PERSON_TABLE)
+                    .indexName(EMAIL_INDEX)
+                    .keyConditionExpression(EMAIL_ATTR + " = :e")
+                    .expressionAttributeValues(Map.of(":e", persistence.toStrAttr(lowEmail)))
+                    .build());
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
+        return cacheEmailHit(lowEmail, items.stream()
+                .map(item -> toPerson(item.get(CONTENT)))
+                .filter(p -> p != null && p.getDeleted() == null)
+                .findFirst());
     }
 
     private CompletableFuture<Optional<Person>> cacheEmailHit(final String lowEmail, final Optional<Person> person) {
@@ -201,9 +210,14 @@ public class PersonDAO {
 
     private CompletableFuture<Person> loadPersonById(final String id) {
         final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id).build());
-        return persistence.getItem(b -> b.key(key).tableName(PERSON_TABLE).build())
-                .thenApply(resp -> toPerson(resp.item().get(CONTENT)))
-                .thenApply(person -> (person == null || person.getDeleted() != null) ? null : person);
+        try {
+            final Person person = toPerson(
+                    persistence.getItem(b -> b.key(key).tableName(PERSON_TABLE).build()).item().get(CONTENT));
+            return CompletableFuture.completedFuture(
+                    (person == null || person.getDeleted() != null) ? null : person);
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private CompletableFuture<List<Person>> resolvePeople(final List<String> ids) {
@@ -231,15 +245,17 @@ public class PersonDAO {
     }
 
     private CompletableFuture<Map<String, Set<String>>> loadAllSearchTokens() {
-        return persistence.scanAll(b -> b.consistentRead(false).limit(2000).tableName(PERSON_TABLE).build())
-                .thenApply(items -> {
-                    final Map<String, Set<String>> tokens = new HashMap<>();
-                    items.stream()
-                            .map(it -> toPerson(it.get(CONTENT)))
-                            .filter(p -> p != null && p.getDeleted() == null)
-                            .forEach(p -> tokens.put(p.getId().getValue(), searchTokens(p)));
-                    return tokens;
-                });
+        try {
+            final Map<String, Set<String>> tokens = new HashMap<>();
+            persistence.scanAll(b -> b.consistentRead(false).limit(2000).tableName(PERSON_TABLE).build())
+                    .stream()
+                    .map(it -> toPerson(it.get(CONTENT)))
+                    .filter(p -> p != null && p.getDeleted() == null)
+                    .forEach(p -> tokens.put(p.getId().getValue(), searchTokens(p)));
+            return CompletableFuture.completedFuture(tokens);
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private static String normalizedEmail(final Person person) {

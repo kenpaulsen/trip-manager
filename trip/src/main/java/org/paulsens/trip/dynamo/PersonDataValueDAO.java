@@ -62,14 +62,21 @@ public class PersonDataValueDAO {
         map.put(DATA_ID, persistence.toStrAttr(pdv.getDataId().getValue()));
         map.put(TYPE, persistence.toStrAttr(pdv.getType()));
         map.put(CONTENT, persistence.toStrAttr(mapper.writeValueAsString(pdv)));
-        return persistence.putItem(b -> b.tableName(PERSON_DATA_VALUE_TABLE).item(map))
-                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
-                        ? cache.put(pdv.getUserId().getValue(), pdv)
-                        : CompletableFuture.completedFuture(false))
-                .exceptionally(ex -> {
-                    log.error("Failed to save PDV '" + pdv.getDataId() + "': (" + pdv.getContent() + ")!", ex);
-                    return false;
-                });
+        try {
+            final boolean saved = persistence.putItem(b -> b.tableName(PERSON_DATA_VALUE_TABLE).item(map))
+                    .sdkHttpResponse().isSuccessful();
+            if (!saved) {
+                return CompletableFuture.completedFuture(false);
+            }
+            return cache.put(pdv.getUserId().getValue(), pdv).exceptionally(ex -> logSavePdvFailure(pdv, ex));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.completedFuture(logSavePdvFailure(pdv, ex));
+        }
+    }
+
+    private Boolean logSavePdvFailure(final PersonDataValue pdv, final Throwable ex) {
+        log.error("Failed to save PDV '" + pdv.getDataId() + "': (" + pdv.getContent() + ")!", ex);
+        return false;
     }
 
     protected CompletableFuture<Map<DataId, PersonDataValue>> getPersonDataValues(final Person.Id pid) {
@@ -91,11 +98,15 @@ public class PersonDataValueDAO {
 
     private CompletableFuture<List<PersonDataValue>> loadPersonDataValues(final Person.Id pid) {
         log.info("Cache miss for person data values for person id: {}", pid);
-        return persistence.queryAll(qb -> queryPersonDataValuesByPerson(qb, pid))
-                .thenApply(items -> items.stream()
-                        .map(m -> toPersonDataValue(m.get(CONTENT)))
-                        .filter(Objects::nonNull)
-                        .toList());
+        try {
+            return CompletableFuture.completedFuture(
+                    persistence.queryAll(qb -> queryPersonDataValuesByPerson(qb, pid)).stream()
+                            .map(m -> toPersonDataValue(m.get(CONTENT)))
+                            .filter(Objects::nonNull)
+                            .toList());
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private void queryPersonDataValuesByPerson(final QueryRequest.Builder qb, final Person.Id pid) {

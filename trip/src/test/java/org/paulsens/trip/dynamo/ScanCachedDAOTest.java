@@ -75,7 +75,7 @@ public class ScanCachedDAOTest {
                 new Privilege(Privilege.idFor("goodPriv", tripId), "fine", List.of())).join());
         persistence.putItem(b -> b.tableName("privs").item(Map.of(
                 "name", AttributeValue.builder().s(Privilege.idFor("badPriv", tripId)).build(),
-                "content", AttributeValue.builder().s("{ not json").build()))).join();
+                "content", AttributeValue.builder().s("{ not json").build())));
 
         final List<Privilege> listed = new PrivilegesDAO(mapper, DynamoLocal.persistence(), valkeyLike())
                 .getTripPrivileges(tripId).join();

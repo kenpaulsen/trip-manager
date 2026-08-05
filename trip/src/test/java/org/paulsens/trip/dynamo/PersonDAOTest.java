@@ -187,7 +187,7 @@ public class PersonDAOTest {
         final AtomicInteger scanCount = new AtomicInteger(0);
         final Persistence pointPersistence = new Persistence() {
             @Override
-            public CompletableFuture<GetItemResponse> getItem(final Consumer<GetItemRequest.Builder> req) {
+            public GetItemResponse getItem(final Consumer<GetItemRequest.Builder> req) {
                 getCount.incrementAndGet();
                 final GetItemRequest.Builder builder = GetItemRequest.builder();
                 req.accept(builder);
@@ -196,11 +196,11 @@ public class PersonDAOTest {
                 if ("alice".equals(id)) {
                     resp.item(Map.of("id", toStrAttr(id), "content", toStrAttr(aliceJson)));
                 }
-                return CompletableFuture.completedFuture(resp.build());
+                return resp.build();
             }
 
             @Override
-            public CompletableFuture<software.amazon.awssdk.services.dynamodb.model.ScanResponse> scan(
+            public software.amazon.awssdk.services.dynamodb.model.ScanResponse scan(
                     final Consumer<software.amazon.awssdk.services.dynamodb.model.ScanRequest.Builder> req) {
                 scanCount.incrementAndGet();
                 return Persistence.super.scan(req);
@@ -226,7 +226,7 @@ public class PersonDAOTest {
         final AtomicInteger queryCount = new AtomicInteger(0);
         final Persistence gsiPersistence = new Persistence() {
             @Override
-            public CompletableFuture<QueryResponse> query(final Consumer<QueryRequest.Builder> req) {
+            public QueryResponse query(final Consumer<QueryRequest.Builder> req) {
                 queryCount.incrementAndGet();
                 final QueryRequest.Builder builder = QueryRequest.builder();
                 req.accept(builder);
@@ -239,7 +239,7 @@ public class PersonDAOTest {
                 } else {
                     resp.items(List.of());
                 }
-                return CompletableFuture.completedFuture(resp.build());
+                return resp.build();
             }
         };
         final PersonDAO gsiDao = new PersonDAO(mapper, gsiPersistence);

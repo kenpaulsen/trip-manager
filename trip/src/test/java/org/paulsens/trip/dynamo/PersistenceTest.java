@@ -24,28 +24,28 @@ public class PersistenceTest {
 
     @Test
     public void putItemReturns200() {
-        final PutItemResponse resp = get(persistence.putItem(b -> b.tableName("test")));
+        final PutItemResponse resp = persistence.putItem(b -> b.tableName("test"));
         assertEquals(resp.sdkHttpResponse().statusCode(), 200);
         assertTrue(resp.sdkHttpResponse().isSuccessful());
     }
 
     @Test
     public void scanReturnsEmptyItems() {
-        final ScanResponse resp = get(persistence.scan(b -> b.tableName("test")));
+        final ScanResponse resp = persistence.scan(b -> b.tableName("test"));
         assertNotNull(resp.items());
         assertTrue(resp.items().isEmpty());
     }
 
     @Test
     public void queryReturnsEmptyItems() {
-        final QueryResponse resp = get(persistence.query(b -> b.tableName("test")));
+        final QueryResponse resp = persistence.query(b -> b.tableName("test"));
         assertNotNull(resp.items());
         assertTrue(resp.items().isEmpty());
     }
 
     @Test
     public void deleteItemReturns200() {
-        final DeleteItemResponse resp = get(persistence.deleteItem(b -> b.tableName("test")));
+        final DeleteItemResponse resp = persistence.deleteItem(b -> b.tableName("test"));
         assertEquals(resp.sdkHttpResponse().statusCode(), 200);
         assertTrue(resp.sdkHttpResponse().isSuccessful());
     }
@@ -58,14 +58,14 @@ public class PersistenceTest {
 
     @Test
     public void scanAllDefaultsToSinglePageScan() {
-        final List<Map<String, AttributeValue>> items = get(persistence.scanAll(b -> b.tableName("test")));
+        final List<Map<String, AttributeValue>> items = persistence.scanAll(b -> b.tableName("test"));
         assertNotNull(items);
         assertTrue(items.isEmpty());
     }
 
     @Test
     public void queryAllDefaultsToSinglePageQuery() {
-        final List<Map<String, AttributeValue>> items = get(persistence.queryAll(b -> b.tableName("test")));
+        final List<Map<String, AttributeValue>> items = persistence.queryAll(b -> b.tableName("test"));
         assertNotNull(items);
         assertTrue(items.isEmpty());
     }
@@ -75,11 +75,11 @@ public class PersistenceTest {
         final Map<String, AttributeValue> row = Map.of("id", AttributeValue.builder().s("x").build());
         final Persistence custom = new Persistence() {
             @Override
-            public CompletableFuture<ScanResponse> scan(final Consumer<ScanRequest.Builder> scanRequest) {
-                return CompletableFuture.completedFuture(ScanResponse.builder().items(List.of(row)).build());
+            public ScanResponse scan(final Consumer<ScanRequest.Builder> scanRequest) {
+                return ScanResponse.builder().items(List.of(row)).build();
             }
         };
-        final List<Map<String, AttributeValue>> items = get(custom.scanAll(b -> b.tableName("test")));
+        final List<Map<String, AttributeValue>> items = custom.scanAll(b -> b.tableName("test"));
         assertEquals(items, List.of(row));
     }
 

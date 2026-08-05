@@ -90,12 +90,12 @@ public class PasswordMigrationTest {
             final List<Map<String, AttributeValue>> puts) {
         return new Persistence() {
             @Override
-            public CompletableFuture<List<Map<String, AttributeValue>>> scanAll(
+            public List<Map<String, AttributeValue>> scanAll(
                     final Consumer<ScanRequest.Builder> scanRequest) {
-                return CompletableFuture.completedFuture(rows);
+                return rows;
             }
             @Override
-            public CompletableFuture<PutItemResponse> putItem(final Consumer<PutItemRequest.Builder> req) {
+            public PutItemResponse putItem(final Consumer<PutItemRequest.Builder> req) {
                 final PutItemRequest.Builder b = PutItemRequest.builder();
                 req.accept(b);
                 puts.add(b.build().item());

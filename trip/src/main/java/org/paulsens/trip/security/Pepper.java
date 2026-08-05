@@ -13,7 +13,7 @@ import javax.crypto.spec.SecretKeySpec;
 import lombok.extern.slf4j.Slf4j;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.secretsmanager.SecretsManagerAsyncClient;
+import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
 import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest;
 
 /**
@@ -143,14 +143,13 @@ public final class Pepper {
     }
 
     private static Pepper fromSecretsManager(final String secretId) {
-        try (SecretsManagerAsyncClient client = SecretsManagerAsyncClient.builder()
+        try (SecretsManagerClient client = SecretsManagerClient.builder()
                 .region(resolveRegion())
                 // Default chain: finds the ECS task role / instance role in AWS, and ~/.aws [default] on a laptop.
                 .credentialsProvider(DefaultCredentialsProvider.builder().build())
                 .build()) {
             final String secret = client
                     .getSecretValue(GetSecretValueRequest.builder().secretId(secretId).build())
-                    .join()
                     .secretString();
             final Pepper pepper = parseSecret(secret);
             log.info("Loaded password pepper (current version {}) from Secrets Manager secret '{}'.",

@@ -214,10 +214,10 @@ public class AuditDAOTest {
         // "Nothing matched" and "nothing could be read" must not render identically.
         final AuditDAO brittle = new AuditDAO(new ObjectMapper().findAndRegisterModules(), new Persistence() {
             @Override
-            public CompletableFuture<List<java.util.Map<String, software.amazon.awssdk.services.dynamodb.model
-                    .AttributeValue>>> queryAll(final java.util.function.Consumer<
+            public List<java.util.Map<String, software.amazon.awssdk.services.dynamodb.model
+                    .AttributeValue>> queryAll(final java.util.function.Consumer<
                             software.amazon.awssdk.services.dynamodb.model.QueryRequest.Builder> request) {
-                return CompletableFuture.failedFuture(new IllegalStateException("boom"));
+                throw new IllegalStateException("boom");
             }
         });
 
@@ -233,10 +233,10 @@ public class AuditDAOTest {
         // A single unparseable or unreachable partition must degrade, not empty the whole view.
         final AuditDAO brittle = new AuditDAO(new ObjectMapper().findAndRegisterModules(), new Persistence() {
             @Override
-            public CompletableFuture<List<java.util.Map<String, software.amazon.awssdk.services.dynamodb.model
-                    .AttributeValue>>> queryAll(final java.util.function.Consumer<
+            public List<java.util.Map<String, software.amazon.awssdk.services.dynamodb.model
+                    .AttributeValue>> queryAll(final java.util.function.Consumer<
                             software.amazon.awssdk.services.dynamodb.model.QueryRequest.Builder> request) {
-                return CompletableFuture.failedFuture(new IllegalStateException("boom"));
+                throw new IllegalStateException("boom");
             }
         });
 

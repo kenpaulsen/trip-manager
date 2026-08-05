@@ -100,10 +100,14 @@ public class ChatDAO {
             return CompletableFuture.completedFuture(false);
         }
         item.put(ATTR_CONTENT, persistence.toStrAttr(json));
-        return persistence.putItem(b -> b.tableName(CHANNELS_TABLE).item(item))
-                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
-                        ? channelCache.put(channel.getId().getValue(), channel)
-                        : CompletableFuture.completedFuture(false));
+        try {
+            final boolean saved = persistence.putItem(b -> b.tableName(CHANNELS_TABLE).item(item))
+                    .sdkHttpResponse().isSuccessful();
+            return saved ? channelCache.put(channel.getId().getValue(), channel)
+                    : CompletableFuture.completedFuture(false);
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     protected CompletableFuture<Optional<ChatChannel>> getChannel(final ChatChannel.Id id) {
@@ -117,9 +121,12 @@ public class ChatDAO {
     private CompletableFuture<Optional<ChatChannel>> pointReadChannel(final String channelId) {
         final Map<String, AttributeValue> key =
                 Map.of(ATTR_CHANNEL_ID, AttributeValue.builder().s(channelId).build());
-        return persistence.getItem(b -> b.tableName(CHANNELS_TABLE).key(key).build())
-                .thenApply(this::channelFrom)
-                .exceptionally(ex -> logChannelReadFailure(channelId, ex));
+        try {
+            return CompletableFuture.completedFuture(
+                    channelFrom(persistence.getItem(b -> b.tableName(CHANNELS_TABLE).key(key).build())));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.completedFuture(logChannelReadFailure(channelId, ex));
+        }
     }
 
     private Optional<ChatChannel> channelFrom(final GetItemResponse resp) {
@@ -151,10 +158,14 @@ public class ChatDAO {
             return CompletableFuture.completedFuture(false);
         }
         item.put(ATTR_CONTENT, persistence.toStrAttr(json));
-        return persistence.putItem(b -> b.tableName(MEMBERS_TABLE).item(item))
-                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
-                        ? cacheMembership(channelId, personId, json)
-                        : CompletableFuture.completedFuture(false));
+        try {
+            final boolean saved = persistence.putItem(b -> b.tableName(MEMBERS_TABLE).item(item))
+                    .sdkHttpResponse().isSuccessful();
+            return saved ? cacheMembership(channelId, personId, json)
+                    : CompletableFuture.completedFuture(false);
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     /** The row is already durable; the cache write is best effort, so its result never fails the save. */
@@ -186,9 +197,12 @@ public class ChatDAO {
         final Map<String, AttributeValue> key = Map.of(
                 ATTR_CHANNEL_ID, AttributeValue.builder().s(channelId).build(),
                 ATTR_PERSON_ID, AttributeValue.builder().s(personId).build());
-        return persistence.getItem(b -> b.tableName(MEMBERS_TABLE).key(key).build())
-                .thenApply(resp -> membershipFrom(channelId, personId, resp))
-                .exceptionally(ex -> logMembershipReadFailure(channelId, personId, ex));
+        try {
+            return CompletableFuture.completedFuture(membershipFrom(channelId, personId,
+                    persistence.getItem(b -> b.tableName(MEMBERS_TABLE).key(key).build())));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.completedFuture(logMembershipReadFailure(channelId, personId, ex));
+        }
     }
 
     private Optional<ChatMembership> membershipFrom(
@@ -218,17 +232,21 @@ public class ChatDAO {
         final Map<String, String> names = Map.of("#channelId", ATTR_CHANNEL_ID);
         final Map<String, AttributeValue> values =
                 Map.of(":c", AttributeValue.builder().s(cId).build());
-        return persistence.queryAll(b -> b.tableName(MEMBERS_TABLE)
-                        .keyConditionExpression("#channelId = :c")
-                        .expressionAttributeNames(names)
-                        .expressionAttributeValues(values)
-                        .build())
-                .thenApply(items -> items.stream()
-                        .map(item -> item.get(ATTR_CONTENT))
-                        .filter(c -> c != null)
-                        .map(c -> parseMembership(c.s()))
-                        .filter(m -> m != null)
-                        .toList());
+        try {
+            return CompletableFuture.completedFuture(persistence.queryAll(b -> b.tableName(MEMBERS_TABLE)
+                            .keyConditionExpression("#channelId = :c")
+                            .expressionAttributeNames(names)
+                            .expressionAttributeValues(values)
+                            .build())
+                    .stream()
+                    .map(item -> item.get(ATTR_CONTENT))
+                    .filter(c -> c != null)
+                    .map(c -> parseMembership(c.s()))
+                    .filter(m -> m != null)
+                    .toList());
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     // --- messages ---
@@ -301,14 +319,16 @@ public class ChatDAO {
         if (message.getExpiresAt() != null) {
             item.put(ATTR_EXPIRES_AT, AttributeValue.builder().n(Long.toString(message.getExpiresAt())).build());
         }
-        return persistence.putItem(b -> b.tableName(MESSAGES_TABLE)
-                        .item(item)
-                        .conditionExpression("attribute_not_exists(#msgId)")
-                        .expressionAttributeNames(Map.of("#msgId", ATTR_MSG_ID)))
-                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
-                        ? bufferAndReturn(message, channel)
-                        : CompletableFuture.completedFuture(Optional.empty()))
-                .exceptionallyCompose(ex -> retryOrFail(message, channel, attempt, ex));
+        try {
+            final boolean saved = persistence.putItem(b -> b.tableName(MESSAGES_TABLE)
+                            .item(item)
+                            .conditionExpression("attribute_not_exists(#msgId)")
+                            .expressionAttributeNames(Map.of("#msgId", ATTR_MSG_ID)))
+                    .sdkHttpResponse().isSuccessful();
+            return saved ? bufferAndReturn(message, channel) : CompletableFuture.completedFuture(Optional.empty());
+        } catch (final RuntimeException ex) {
+            return retryOrFail(message, channel, attempt, ex);
+        }
     }
 
     private CompletableFuture<Optional<ChatMessage>> bufferAndReturn(
@@ -413,8 +433,12 @@ public class ChatDAO {
         final Map<String, AttributeValue> key = Map.of(
                 ATTR_CHANNEL_ID, AttributeValue.builder().s(cId).build(),
                 ATTR_MSG_ID, AttributeValue.builder().s(mId).build());
-        return persistence.getItem(b -> b.tableName(MESSAGES_TABLE).key(key).build())
-                .thenApply(this::messageFrom);
+        try {
+            return CompletableFuture.completedFuture(
+                    messageFrom(persistence.getItem(b -> b.tableName(MESSAGES_TABLE).key(key).build())));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private Optional<ChatMessage> messageFrom(final GetItemResponse resp) {
@@ -465,10 +489,13 @@ public class ChatDAO {
             item.put(ATTR_EXPIRES_AT,
                     AttributeValue.builder().n(Long.toString(tombstoned.getExpiresAt())).build());
         }
-        return persistence.putItem(b -> b.tableName(MESSAGES_TABLE).item(item))
-                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
-                        ? cacheTombstone(tombstoned, json)
-                        : CompletableFuture.completedFuture(Optional.empty()));
+        try {
+            final boolean saved = persistence.putItem(b -> b.tableName(MESSAGES_TABLE).item(item))
+                    .sdkHttpResponse().isSuccessful();
+            return saved ? cacheTombstone(tombstoned, json) : CompletableFuture.completedFuture(Optional.empty());
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private CompletableFuture<Optional<ChatMessage>> cacheTombstone(
@@ -508,10 +535,13 @@ public class ChatDAO {
             item.put(ATTR_EXPIRES_AT,
                     AttributeValue.builder().n(Long.toString(edited.getExpiresAt())).build());
         }
-        return persistence.putItem(b -> b.tableName(MESSAGES_TABLE).item(item))
-                .thenCompose(resp -> resp.sdkHttpResponse().isSuccessful()
-                        ? cacheEdit(edited, json)
-                        : CompletableFuture.completedFuture(Optional.empty()));
+        try {
+            final boolean saved = persistence.putItem(b -> b.tableName(MESSAGES_TABLE).item(item))
+                    .sdkHttpResponse().isSuccessful();
+            return saved ? cacheEdit(edited, json) : CompletableFuture.completedFuture(Optional.empty());
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private CompletableFuture<Optional<ChatMessage>> cacheEdit(final ChatMessage edited, final String json) {
@@ -706,13 +736,18 @@ public class ChatDAO {
         // query(), NOT queryAll(): DynamoDB's limit caps one page, so a paginating read walks the whole
         // partition and only then truncates in memory -- every page load would read the channel's entire
         // history. A message log grows without bound, so this read must stay one bounded page.
-        return persistence.query(b -> b.tableName(MESSAGES_TABLE)
-                        .keyConditionExpression(cond.toString())
-                        .expressionAttributeNames(names)
-                        .expressionAttributeValues(values)
-                        .scanIndexForward(forward)
-                        .limit(limit))
-                .thenApply(resp -> toMessages(resp.items(), limit));
+        try {
+            return CompletableFuture.completedFuture(toMessages(
+                    persistence.query(b -> b.tableName(MESSAGES_TABLE)
+                            .keyConditionExpression(cond.toString())
+                            .expressionAttributeNames(names)
+                            .expressionAttributeValues(values)
+                            .scanIndexForward(forward)
+                            .limit(limit)).items(),
+                    limit));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private List<ChatMessage> toMessages(final List<Map<String, AttributeValue>> items, final int limit) {
@@ -948,10 +983,13 @@ public class ChatDAO {
             item.put(ATTR_EXPIRES_AT,
                     AttributeValue.builder().n(Long.toString(reaction.getExpiresAt())).build());
         }
-        return persistence.putItem(b -> b.tableName(REACTIONS_TABLE).item(item))
-                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
-                .thenCompose(ok -> afterReactionWritten(
-                        ok, reaction.getChannelId(), reaction.getTargetMessageId()));
+        try {
+            final boolean saved = persistence.putItem(b -> b.tableName(REACTIONS_TABLE).item(item))
+                    .sdkHttpResponse().isSuccessful();
+            return afterReactionWritten(saved, reaction.getChannelId(), reaction.getTargetMessageId());
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     protected CompletableFuture<Boolean> deleteReaction(
@@ -963,9 +1001,13 @@ public class ChatDAO {
                 ATTR_CHANNEL_ID, AttributeValue.builder().s(channelId.getValue()).build(),
                 ATTR_SK, AttributeValue.builder()
                         .s(ChatReaction.sortKey(targetMessageId, personId, emoji)).build());
-        return persistence.deleteItem(b -> b.tableName(REACTIONS_TABLE).key(key))
-                .thenApply(resp -> resp.sdkHttpResponse().isSuccessful())
-                .thenCompose(ok -> afterReactionWritten(ok, channelId, targetMessageId));
+        try {
+            final boolean deleted = persistence.deleteItem(b -> b.tableName(REACTIONS_TABLE).key(key))
+                    .sdkHttpResponse().isSuccessful();
+            return afterReactionWritten(deleted, channelId, targetMessageId);
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     /**
@@ -1062,17 +1104,21 @@ public class ChatDAO {
                 ":c", AttributeValue.builder().s(channelId.getValue()).build(),
                 ":lo", AttributeValue.builder().s(ChatReaction.rangeLower(oldest)).build(),
                 ":hi", AttributeValue.builder().s(ChatReaction.rangeUpper(newest)).build());
-        return persistence.queryAll(b -> b.tableName(REACTIONS_TABLE)
-                        .keyConditionExpression("#channelId = :c AND #sk BETWEEN :lo AND :hi")
-                        .expressionAttributeNames(names)
-                        .expressionAttributeValues(values)
-                        .build())
-                .thenApply(items -> items.stream()
-                        .map(item -> item.get(ATTR_CONTENT))
-                        .filter(c -> c != null)
-                        .map(c -> parseReaction(c.s()))
-                        .filter(r -> r != null)
-                        .toList());
+        try {
+            return CompletableFuture.completedFuture(persistence.queryAll(b -> b.tableName(REACTIONS_TABLE)
+                            .keyConditionExpression("#channelId = :c AND #sk BETWEEN :lo AND :hi")
+                            .expressionAttributeNames(names)
+                            .expressionAttributeValues(values)
+                            .build())
+                    .stream()
+                    .map(item -> item.get(ATTR_CONTENT))
+                    .filter(c -> c != null)
+                    .map(c -> parseReaction(c.s()))
+                    .filter(r -> r != null)
+                    .toList());
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     protected CompletableFuture<Map<ChatMessage.Id, ChatReactionSummary>> summariesForMessages(

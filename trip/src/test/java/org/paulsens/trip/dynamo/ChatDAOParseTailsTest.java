@@ -34,7 +34,7 @@ public class ChatDAOParseTailsTest {
     public void aMangledChannelReadsAsAbsent() {
         final String channelId = "trip:parse-chan-" + RandomData.genAlpha(6);
         persistence.putItem(b -> b.tableName("chat_channels").item(Map.of(
-                "channelId", s(channelId), "content", s("{ not json")))).join();
+                "channelId", s(channelId), "content", s("{ not json"))));
 
         Assert.assertTrue(dao.getChannel(ChatChannel.Id.from(channelId)).join().isEmpty());
     }
@@ -43,7 +43,7 @@ public class ChatDAOParseTailsTest {
     public void aMangledMembershipReadsAsAbsentAndIsSkippedFromTheRoster() {
         final String channelId = "trip:parse-mem-" + RandomData.genAlpha(6);
         persistence.putItem(b -> b.tableName("chat_members").item(Map.of(
-                "channelId", s(channelId), "personId", s("bad"), "content", s("{ not json")))).join();
+                "channelId", s(channelId), "personId", s("bad"), "content", s("{ not json"))));
 
         Assert.assertTrue(dao.getMembership(ChatChannel.Id.from(channelId), Person.Id.from("bad"))
                 .join().isEmpty());

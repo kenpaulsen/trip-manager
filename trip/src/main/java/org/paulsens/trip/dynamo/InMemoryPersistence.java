@@ -6,7 +6,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -68,7 +67,7 @@ public class InMemoryPersistence implements Persistence {
     private final AtomicInteger rejections = new AtomicInteger();
 
     @Override
-    public CompletableFuture<PutItemResponse> putItem(final Consumer<PutItemRequest.Builder> request) {
+    public PutItemResponse putItem(final Consumer<PutItemRequest.Builder> request) {
         final PutItemRequest.Builder builder = PutItemRequest.builder();
         request.accept(builder);
         final PutItemRequest put = builder.build();
@@ -88,17 +87,16 @@ public class InMemoryPersistence implements Persistence {
                 && put.conditionExpression().contains("attribute_not_exists");
         if (conditional && partition.containsKey(sk)) {
             rejections.incrementAndGet();
-            return CompletableFuture.<PutItemResponse>failedFuture(
-                    ConditionalCheckFailedException.builder().message("key exists: " + sk).build());
+            throw ConditionalCheckFailedException.builder().message("key exists: " + sk).build();
         }
         partition.put(sk, new HashMap<>(item));
         final PutItemResponse.Builder response = PutItemResponse.builder();
         response.sdkHttpResponse(SdkHttpResponse.builder().statusCode(200).build());
-        return CompletableFuture.completedFuture(response.build());
+        return response.build();
     }
 
     @Override
-    public CompletableFuture<GetItemResponse> getItem(final Consumer<GetItemRequest.Builder> getItemRequest) {
+    public GetItemResponse getItem(final Consumer<GetItemRequest.Builder> getItemRequest) {
         final GetItemRequest.Builder builder = GetItemRequest.builder();
         getItemRequest.accept(builder);
         final GetItemRequest giReq = builder.build();
@@ -113,12 +111,11 @@ public class InMemoryPersistence implements Persistence {
                 .getOrDefault(giReq.tableName(), Map.of())
                 .getOrDefault(pk, Map.of())
                 .get(sk);
-        return CompletableFuture.completedFuture(
-                GetItemResponse.builder().item(item == null ? Map.of() : item).build());
+        return GetItemResponse.builder().item(item == null ? Map.of() : item).build();
     }
 
     @Override
-    public CompletableFuture<DeleteItemResponse> deleteItem(
+    public DeleteItemResponse deleteItem(
             final Consumer<DeleteItemRequest.Builder> deleteItemRequest) {
         final DeleteItemRequest.Builder builder = DeleteItemRequest.builder();
         deleteItemRequest.accept(builder);
@@ -137,7 +134,7 @@ public class InMemoryPersistence implements Persistence {
         }
         final DeleteItemResponse.Builder response = DeleteItemResponse.builder();
         response.sdkHttpResponse(SdkHttpResponse.builder().statusCode(200).build());
-        return CompletableFuture.completedFuture(response.build());
+        return response.build();
     }
 
     /**
@@ -145,7 +142,7 @@ public class InMemoryPersistence implements Persistence {
      * (chat loaders do not scan).
      */
     @Override
-    public CompletableFuture<List<Map<String, AttributeValue>>> scanAll(
+    public List<Map<String, AttributeValue>> scanAll(
             final Consumer<software.amazon.awssdk.services.dynamodb.model.ScanRequest.Builder> request) {
         final software.amazon.awssdk.services.dynamodb.model.ScanRequest.Builder builder =
                 software.amazon.awssdk.services.dynamodb.model.ScanRequest.builder();
@@ -163,7 +160,7 @@ public class InMemoryPersistence implements Persistence {
                 throw new IllegalStateException("Unable to serialize fake person " + person.getId(), ex);
             }
         }
-        return CompletableFuture.completedFuture(items);
+        return items;
     }
 
     /**
@@ -171,9 +168,9 @@ public class InMemoryPersistence implements Persistence {
      * has no 1 MB page limit to paginate around -- one "page" is always the complete answer.
      */
     @Override
-    public CompletableFuture<List<Map<String, AttributeValue>>> queryAll(
+    public List<Map<String, AttributeValue>> queryAll(
             final Consumer<QueryRequest.Builder> request) {
-        return query(request).thenApply(QueryResponse::items);
+        return query(request).items();
     }
 
     /**
@@ -181,7 +178,7 @@ public class InMemoryPersistence implements Persistence {
      * whole partition (the chat message log) get the same truncation here as they do against real DynamoDB.
      */
     @Override
-    public CompletableFuture<QueryResponse> query(final Consumer<QueryRequest.Builder> request) {
+    public QueryResponse query(final Consumer<QueryRequest.Builder> request) {
         final QueryRequest.Builder builder = QueryRequest.builder();
         request.accept(builder);
         final QueryRequest query = builder.build();
@@ -208,7 +205,7 @@ public class InMemoryPersistence implements Persistence {
         // Resolve the partition key value. Audit uses :day; chat uses :c.
         final String pkValue = resolvePk(values, names, expr, keys);
         if (pkValue == null) {
-            return CompletableFuture.completedFuture(QueryResponse.builder().items(List.of()).build());
+            return QueryResponse.builder().items(List.of()).build();
         }
 
         final List<Map<String, AttributeValue>> result = new ArrayList<>(
@@ -223,11 +220,11 @@ public class InMemoryPersistence implements Persistence {
 
         Integer limit = query.limit();
         if (limit != null && limit > 0 && result.size() > limit) {
-            return CompletableFuture.completedFuture(QueryResponse.builder()
+            return QueryResponse.builder()
                     .items(new ArrayList<>(result.subList(0, limit)))
-                    .build());
+                    .build();
         }
-        return CompletableFuture.completedFuture(QueryResponse.builder().items(result).build());
+        return QueryResponse.builder().items(result).build();
     }
 
     /** The sort key as a comparable string; a table without one, or a missing value, sorts as empty. */
