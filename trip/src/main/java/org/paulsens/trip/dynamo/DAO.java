@@ -157,80 +157,80 @@ public class DAO {
     }
 
     // People
-    public CompletableFuture<Boolean> savePerson(final Person person) throws IOException {
+    public Boolean savePerson(final Person person) throws IOException {
         return personDao.savePerson(person);
     }
-    public CompletableFuture<List<Person>> searchPeople(final String query, final int limit) {
+    public List<Person> searchPeople(final String query, final int limit) {
         return personDao.searchPeople(query, limit);
     }
-    public CompletableFuture<Optional<Person>> getPerson(final Person.Id id) {
+    public Optional<Person> getPerson(final Person.Id id) {
         return personDao.getPerson(id);
     }
-    public CompletableFuture<Person> getPersonByEmail(final String email) {
+    public Person getPersonByEmail(final String email) {
         return personDao.getPersonByEmail(email);
     }
 
     // Trips
-    public CompletableFuture<Boolean> saveTrip(final Trip trip) throws IOException {
+    public Boolean saveTrip(final Trip trip) throws IOException {
         return tripDao.saveTrip(trip);
     }
-    public CompletableFuture<Optional<Trip>> getTrip(final String id) {
+    public Optional<Trip> getTrip(final String id) {
         return tripDao.getTrip(id);
     }
-    public CompletableFuture<List<Trip>> getActiveTrips(final LocalDateTime cutoff) {
+    public List<Trip> getActiveTrips(final LocalDateTime cutoff) {
         return tripDao.getActiveTrips(cutoff);
     }
-    public CompletableFuture<List<Trip>> getInactiveTrips(final LocalDateTime cutoff, final int limit) {
+    public List<Trip> getInactiveTrips(final LocalDateTime cutoff, final int limit) {
         return tripDao.getInactiveTrips(cutoff, limit);
     }
-    public CompletableFuture<List<Trip>> getRecentTrips(final int limit) {
+    public List<Trip> getRecentTrips(final int limit) {
         return tripDao.getRecentTrips(limit);
     }
-    public CompletableFuture<List<Trip>> getTripsForUser(final Person.Id userId) {
+    public List<Trip> getTripsForUser(final Person.Id userId) {
         return tripDao.getTripsForUser(userId);
     }
 
     // Trip Events
-    public CompletableFuture<TripEvent> getTripEvent(final String id) {
+    public TripEvent getTripEvent(final String id) {
         return tripEventDao.getTripEvent(id);
     }
-    public CompletableFuture<Boolean> saveTripEvent(final TripEvent te) {
+    public Boolean saveTripEvent(final TripEvent te) {
         return tripEventDao.saveTripEvent(te);
     }
-    public CompletableFuture<Boolean> saveAllTripEvents(final Trip trip) {
+    public Boolean saveAllTripEvents(final Trip trip) {
         return tripEventDao.saveAllTripEvents(trip);
     }
 
     // Registrations
-    public CompletableFuture<Boolean> saveRegistration(final Registration reg) throws IOException {
+    public Boolean saveRegistration(final Registration reg) throws IOException {
         return regDao.saveRegistration(reg);
     }
-    public CompletableFuture<List<Registration>> getRegistrations(final String tripId) {
+    public List<Registration> getRegistrations(final String tripId) {
         return regDao.getRegistrations(tripId);
     }
-    public CompletableFuture<Optional<Registration>> getRegistration(final String tripId, final Person.Id userId) {
+    public Optional<Registration> getRegistration(final String tripId, final Person.Id userId) {
         return regDao.getRegistration(tripId, userId);
     }
 
     // Transactions
-    public CompletableFuture<List<Transaction>> getTransactions(final Person.Id userId) {
+    public List<Transaction> getTransactions(final Person.Id userId) {
         return txDao.getTransactions(userId);
     }
-    public CompletableFuture<Optional<Transaction>> getTransaction(final Person.Id userId, final String txId) {
+    public Optional<Transaction> getTransaction(final Person.Id userId, final String txId) {
         return txDao.getTransaction(userId, txId);
     }
-    public CompletableFuture<Boolean> saveTransaction(final Transaction tx) throws IOException {
+    public Boolean saveTransaction(final Transaction tx) throws IOException {
         return txDao.saveTransaction(tx);
     }
 
     // Credentials
-    public CompletableFuture<Creds> adminGetCredsByEmail(final String email) {
+    public Creds adminGetCredsByEmail(final String email) {
         return credDao.adminGetCredsByEmail(email);
     }
-    public CompletableFuture<Creds> getCredsByEmailAndPass(final String email, final String pass) {
+    public Creds getCredsByEmailAndPass(final String email, final String pass) {
         return credDao.getCredsByEmailAndPass(email, pass);
     }
-    public CompletableFuture<Creds> getCredsByEmailAdminOnly(final String email, final Person.Id id) {
+    public Creds getCredsByEmailAdminOnly(final String email, final Person.Id id) {
         return credDao.getCredsByEmailAdminOnly(email, id);
     }
     public Long updateLastLogin(final Creds creds) {
@@ -239,53 +239,53 @@ public class DAO {
     public Optional<Creds> createCreds(final String email) {
         return credDao.createCreds(email);
     }
-    public CompletableFuture<Boolean> saveCreds(final Creds creds) {
+    public Boolean saveCreds(final Creds creds) {
         return credDao.saveCreds(creds);
     }
-    public CompletableFuture<Boolean> removeCreds(final String email) {
+    public Boolean removeCreds(final String email) {
         return credDao.removeCreds(email);
     }
 
     // Todos
-    public CompletableFuture<Boolean> saveTodo(final TodoItem todo) throws IOException {
+    public Boolean saveTodo(final TodoItem todo) throws IOException {
         return todoDao.saveTodo(todo);
     }
-    public CompletableFuture<List<TodoItem>> getTodoItems(final String tripId) {
+    public List<TodoItem> getTodoItems(final String tripId) {
         return todoDao.getTodoItems(tripId);
     }
-    public CompletableFuture<Optional<TodoItem>> getTodoItem(final String tripId, final DataId pdvId){
+    public Optional<TodoItem> getTodoItem(final String tripId, final DataId pdvId){
         return todoDao.getTodoItem(tripId, pdvId);
     }
 
     // Per-User Stored Data
-    public CompletableFuture<Boolean> savePersonDataValue(final PersonDataValue pdv) throws IOException {
+    public Boolean savePersonDataValue(final PersonDataValue pdv) throws IOException {
         return pdvDao.savePersonDataValue(pdv);
     }
-    public CompletableFuture<Map<DataId, PersonDataValue>> getPersonDataValues(final Person.Id pid) {
+    public Map<DataId, PersonDataValue> getPersonDataValues(final Person.Id pid) {
         return pdvDao.getPersonDataValues(pid);
     }
-    public CompletableFuture<Optional<PersonDataValue>> getPersonDataValue(final Person.Id pid, final DataId pdvId) {
+    public Optional<PersonDataValue> getPersonDataValue(final Person.Id pid, final DataId pdvId) {
         return pdvDao.getPersonDataValue(pid, pdvId);
     }
 
     // Privileges
-    public CompletableFuture<Boolean> savePrivilege(final Privilege priv) {
+    public Boolean savePrivilege(final Privilege priv) {
         return privDao.savePrivilege(priv);
     }
     // Managed media metadata (see MediaDAO); the bytes live in S3.
-    public CompletableFuture<Optional<MediaItem>> getMedia(final String id) {
+    public Optional<MediaItem> getMedia(final String id) {
         return mediaDao.getMedia(id);
     }
-    public CompletableFuture<List<MediaItem>> getAllMedia() {
+    public List<MediaItem> getAllMedia() {
         return mediaDao.getAllMedia();
     }
-    public CompletableFuture<List<MediaItem>> getMediaInSlot(final String slot) {
+    public List<MediaItem> getMediaInSlot(final String slot) {
         return mediaDao.getMediaInSlot(slot);
     }
-    public CompletableFuture<Boolean> saveMedia(final MediaItem item) {
+    public Boolean saveMedia(final MediaItem item) {
         return mediaDao.saveMedia(item);
     }
-    public CompletableFuture<Boolean> deleteMedia(final String id) {
+    public Boolean deleteMedia(final String id) {
         return mediaDao.deleteMedia(id);
     }
     /**
@@ -302,129 +302,129 @@ public class DAO {
     }
 
     // Runtime settings (see ConfigDAO). Reads never throw; callers always supply a default.
-    public CompletableFuture<Optional<Config>> getConfig(final String name) {
+    public Optional<Config> getConfig(final String name) {
         return configDao.getConfig(name);
     }
-    public CompletableFuture<List<Config>> getAllConfig() {
+    public List<Config> getAllConfig() {
         return configDao.getAllConfig();
     }
-    public CompletableFuture<Boolean> saveConfig(final Config config) {
+    public Boolean saveConfig(final Config config) {
         return configDao.saveConfig(config);
     }
 
     // Audit trail (see AuditDAO). Deliberately uncached: written constantly, read only by the admin page.
-    public CompletableFuture<Boolean> saveAuditEvent(final AuditEvent event) {
+    public Boolean saveAuditEvent(final AuditEvent event) {
         return auditDao.saveAuditEvent(event);
     }
-    public CompletableFuture<AuditPage> getAuditEvents(final AuditQuery query) {
+    public AuditPage getAuditEvents(final AuditQuery query) {
         return auditDao.getAuditEvents(query);
     }
-    public CompletableFuture<List<AuditEvent>> exportAuditEvents(final AuditQuery query) {
+    public List<AuditEvent> exportAuditEvents(final AuditQuery query) {
         return auditDao.exportAuditEvents(query);
     }
 
-    public CompletableFuture<Optional<Privilege>> getPrivilege(final String name) {
+    public Optional<Privilege> getPrivilege(final String name) {
         return privDao.getPrivilege(name);
     }
-    public CompletableFuture<List<Privilege>> getGlobalPrivileges() {
+    public List<Privilege> getGlobalPrivileges() {
         return privDao.getGlobalPrivileges();
     }
-    public CompletableFuture<List<Privilege>> getTripPrivileges(final String tripId) {
+    public List<Privilege> getTripPrivileges(final String tripId) {
         return privDao.getTripPrivileges(tripId);
     }
 
     // Chat (see ChatDAO). Ships dark in P0; user-visible in P1.
-    public CompletableFuture<Boolean> saveChatChannel(final ChatChannel channel) {
+    public Boolean saveChatChannel(final ChatChannel channel) {
         return chatDao.saveChannel(channel);
     }
-    public CompletableFuture<Optional<ChatChannel>> getChatChannel(final ChatChannel.Id id) {
+    public Optional<ChatChannel> getChatChannel(final ChatChannel.Id id) {
         return chatDao.getChannel(id);
     }
-    public CompletableFuture<Boolean> saveChatMembership(final ChatMembership member) {
+    public Boolean saveChatMembership(final ChatMembership member) {
         return chatDao.saveMembership(member);
     }
-    public CompletableFuture<Optional<ChatMembership>> getChatMembership(
+    public Optional<ChatMembership> getChatMembership(
             final ChatChannel.Id channelId, final Person.Id personId) {
         return chatDao.getMembership(channelId, personId);
     }
-    public CompletableFuture<List<ChatMembership>> listChatMembers(final ChatChannel.Id channelId) {
+    public List<ChatMembership> listChatMembers(final ChatChannel.Id channelId) {
         return chatDao.listMembers(channelId);
     }
-    public CompletableFuture<Optional<ChatMessage>> saveChatMessage(
+    public Optional<ChatMessage> saveChatMessage(
             final ChatMessage draft, final ChatChannel channel, final Trip trip) {
         return chatDao.saveMessage(draft, channel, trip);
     }
-    public CompletableFuture<Optional<ChatMessage>> getChatMessage(
+    public Optional<ChatMessage> getChatMessage(
             final ChatChannel.Id channelId, final ChatMessage.Id msgId) {
         return chatDao.getMessage(channelId, msgId);
     }
-    public CompletableFuture<Optional<ChatMessage>> getVisibleChatMessage(
+    public Optional<ChatMessage> getVisibleChatMessage(
             final ChatChannel.Id channelId, final ChatMessage.Id msgId,
             final ChatMembership member, final ChatChannel channel, final Trip trip,
             final java.time.Instant now) {
         return chatDao.getVisibleMessage(channelId, msgId, member, channel, trip, now);
     }
-    public CompletableFuture<Optional<ChatMessage>> tombstoneChatMessage(
+    public Optional<ChatMessage> tombstoneChatMessage(
             final ChatChannel.Id channelId, final ChatMessage.Id msgId, final String deletedBy) {
         return chatDao.tombstoneMessage(channelId, msgId, deletedBy);
     }
-    public CompletableFuture<ChatPage> getChatMessagesSince(
+    public ChatPage getChatMessagesSince(
             final ChatChannel.Id channelId, final ChatMessage.Id since, final int limit,
             final ChatMembership member, final ChatChannel channel, final Trip trip,
             final java.time.Instant now) {
         return chatDao.getMessagesSince(channelId, since, limit, member, channel, trip, now);
     }
-    public CompletableFuture<ChatPage> getChatMessagesBefore(
+    public ChatPage getChatMessagesBefore(
             final ChatChannel.Id channelId, final ChatMessage.Id before, final int limit,
             final ChatMembership member, final ChatChannel channel, final Trip trip,
             final java.time.Instant now) {
         return chatDao.getMessagesBefore(channelId, before, limit, member, channel, trip, now);
     }
-    public CompletableFuture<Boolean> putChatReaction(final ChatReaction reaction) {
+    public Boolean putChatReaction(final ChatReaction reaction) {
         return chatDao.putReaction(reaction);
     }
-    public CompletableFuture<Boolean> deleteChatReaction(
+    public Boolean deleteChatReaction(
             final ChatChannel.Id channelId, final ChatMessage.Id targetMessageId,
             final Person.Id personId, final String emoji) {
         return chatDao.deleteReaction(channelId, targetMessageId, personId, emoji);
     }
-    public CompletableFuture<Map<ChatMessage.Id, ChatReactionSummary>> getChatReactionSummaries(
+    public Map<ChatMessage.Id, ChatReactionSummary> getChatReactionSummaries(
             final ChatChannel.Id channelId, final List<ChatMessage> messages) {
         return chatDao.summariesForMessages(channelId, messages);
     }
-    public CompletableFuture<Map<ChatMessage.Id, ChatReactionSummary>> getChatReactionWindow(
+    public Map<ChatMessage.Id, ChatReactionSummary> getChatReactionWindow(
             final ChatChannel.Id channelId, final ChatMessage.Id oldest, final ChatMessage.Id newest) {
         return chatDao.summariesForWindow(channelId, oldest, newest);
     }
-    public CompletableFuture<Long> getChatReactionsVersion(final ChatChannel.Id channelId) {
+    public Long getChatReactionsVersion(final ChatChannel.Id channelId) {
         return chatDao.currentReactionsVersion(channelId);
     }
-    public CompletableFuture<Optional<ChatMessage>> editChatMessage(
+    public Optional<ChatMessage> editChatMessage(
             final ChatChannel.Id channelId, final ChatMessage.Id msgId, final String newBody) {
         return chatDao.editMessage(channelId, msgId, newBody);
     }
-    public CompletableFuture<Boolean> saveChatCursor(
+    public Boolean saveChatCursor(
             final ChatChannel.Id channelId, final Person.Id personId, final ChatMessage.Id cursor) {
         return chatDao.saveCursor(channelId, personId, cursor);
     }
-    public CompletableFuture<Optional<ChatMessage.Id>> getChatCursor(
+    public Optional<ChatMessage.Id> getChatCursor(
             final ChatChannel.Id channelId, final Person.Id personId) {
         return chatDao.getCursor(channelId, personId);
     }
-    public CompletableFuture<Map<String, String>> getChatLastActivity() {
+    public Map<String, String> getChatLastActivity() {
         return chatDao.lastActivity();
     }
 
     // Bindings
-    public CompletableFuture<Boolean> saveBinding(final String id, final BindingType type,
+    public Boolean saveBinding(final String id, final BindingType type,
             final String destId, final BindingType destType, final boolean bidirectionalBindings) {
         return bindingDao.saveBinding(id, type, destId, destType, bidirectionalBindings);
     }
-    public CompletableFuture<List<String>> getBindings(
+    public List<String> getBindings(
             final String name, final BindingType type, BindingType destType) {
         return bindingDao.getBindings(name, type, destType);
     }
-    public CompletableFuture<Boolean> removeBinding(final String id, final BindingType type,
+    public Boolean removeBinding(final String id, final BindingType type,
             final String destId, final BindingType destType, final boolean bidirectionalBindings) {
         return bindingDao.removeBinding(id, type, destId, destType, bidirectionalBindings);
     }

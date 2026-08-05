@@ -58,7 +58,7 @@ public class PrivilegesDAO {
                 .build();
     }
 
-    protected CompletableFuture<Boolean> savePrivilege(final Privilege priv) {
+    protected Boolean savePrivilege(final Privilege priv) {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(NAME, persistence.toStrAttr(priv.getId()));
         try {
@@ -71,30 +71,30 @@ public class PrivilegesDAO {
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(PRIVILEGE_TABLE).item(map))
                     .sdkHttpResponse().isSuccessful();
-            return CompletableFuture.completedFuture(saved && cache.put(priv));
+            return saved && cache.put(priv);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
     /** Global (non-trip) privileges. */
-    protected CompletableFuture<List<Privilege>> getGlobalPrivileges() {
+    protected List<Privilege> getGlobalPrivileges() {
         try {
-            return CompletableFuture.completedFuture(cache.getPartition(CacheKeys.PRIV_GLOBAL_PARTITION));
+            return cache.getPartition(CacheKeys.PRIV_GLOBAL_PARTITION);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
     /** Privileges scoped to the given trip. */
-    protected CompletableFuture<List<Privilege>> getTripPrivileges(final String tripId) {
+    protected List<Privilege> getTripPrivileges(final String tripId) {
         if (tripId == null) {
             return getGlobalPrivileges();
         }
         try {
-            return CompletableFuture.completedFuture(cache.getPartition(tripId));
+            return cache.getPartition(tripId);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
@@ -102,15 +102,15 @@ public class PrivilegesDAO {
      * A single privilege by id (== DynamoDB name). Stays cheap: served from its partition hash, or a point read of
      * the single row on a miss -- never a table scan.
      */
-    protected CompletableFuture<Optional<Privilege>> getPrivilege(final String id) {
+    protected Optional<Privilege> getPrivilege(final String id) {
         if (id == null) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Optional.empty();
         }
         try {
-            return CompletableFuture.completedFuture(
-                    cache.getOne(partitionOf(id), baseNameOf(id), () -> pointReadPrivilege(id)));
+            return 
+                    cache.getOne(partitionOf(id), baseNameOf(id), () -> pointReadPrivilege(id));
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 

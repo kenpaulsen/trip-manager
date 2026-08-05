@@ -57,8 +57,8 @@ public class DAOTest {
         final String last = RandomData.genAlpha(9);
         final Person person = new Person(id, null, first, null, last, null,
                 null, null, null, null, null, null, null, null, null, null, null);
-        assertTrue(DB_UTILS.savePerson(person).join());
-        final Person samePerson = DB_UTILS.getPerson(id).join().orElse(null);
+        assertTrue(DB_UTILS.savePerson(person));
+        final Person samePerson = DB_UTILS.getPerson(id).orElse(null);
         assertEquals(samePerson, person);
     }
 
@@ -70,11 +70,11 @@ public class DAOTest {
                 null, null, null, null, null, null, null, null, null, null);
         final Person person3 = new Person(Person.Id.from("3"), "n3", "n3", null, "l3", null, null,
                 null, null, null, null, null, null, null, null, null, null);
-        assertTrue(DB_UTILS.savePerson(person2).join());
-        assertTrue(DB_UTILS.savePerson(person1).join());
-        assertTrue(DB_UTILS.savePerson(person3).join());
+        assertTrue(DB_UTILS.savePerson(person2));
+        assertTrue(DB_UTILS.savePerson(person1));
+        assertTrue(DB_UTILS.savePerson(person3));
         // No list-all anymore: find them via prefix search (last names all start with "l")
-        final List<Person> people = DB_UTILS.searchPeople("l", 10).join();
+        final List<Person> people = DB_UTILS.searchPeople("l", 10);
         assertEquals(people.size(), 3);
         final Person person = people.stream().filter(p -> Person.Id.from("1").equals(p.getId())).findAny().orElse(null);
         assertEquals(person, person1);
@@ -103,19 +103,19 @@ public class DAOTest {
                 .regOptions(FakeData.getDefaultOptions())
                 .build();
 
-        assertEquals(DB_UTILS.getRecentTrips(100).join().size(), 0, "Should start w/ no trips.");
-        assertTrue(DB_UTILS.saveTrip(trip).join());
-        assertEquals(DB_UTILS.getRecentTrips(100).join().size(), 1, "Expected 1 to be added.");
-        assertTrue(DB_UTILS.saveTrip(trip).join()); // Verify idempotency, should still be 1
-        assertEquals(DB_UTILS.getRecentTrips(100).join().size(), 1, "Expected only 1 still.");
+        assertEquals(DB_UTILS.getRecentTrips(100).size(), 0, "Should start w/ no trips.");
+        assertTrue(DB_UTILS.saveTrip(trip));
+        assertEquals(DB_UTILS.getRecentTrips(100).size(), 1, "Expected 1 to be added.");
+        assertTrue(DB_UTILS.saveTrip(trip)); // Verify idempotency, should still be 1
+        assertEquals(DB_UTILS.getRecentTrips(100).size(), 1, "Expected only 1 still.");
         trip.setId(RandomData.genAlpha(10));
-        assertTrue(DB_UTILS.saveTrip(trip).join()); // Verify idempotency, should still be 1
-        assertEquals(DB_UTILS.getRecentTrips(100).join().size(), 2, "Expected 2 now.");
-        final Trip newTrip = DB_UTILS.getTrip(trip.getId()).join().orElse(null);
+        assertTrue(DB_UTILS.saveTrip(trip)); // Verify idempotency, should still be 1
+        assertEquals(DB_UTILS.getRecentTrips(100).size(), 2, "Expected 2 now.");
+        final Trip newTrip = DB_UTILS.getTrip(trip.getId()).orElse(null);
         assertEquals(newTrip, trip, "Getting trip should be equal.");
         // Reads return the saved snapshot, not a shared mutable instance: the original id still resolves to the
         // trip as it was saved under that id (before setId() above).
-        final Trip origTrip = DB_UTILS.getTrip(id).join().orElse(null);
+        final Trip origTrip = DB_UTILS.getTrip(id).orElse(null);
         assertNotNull(origTrip, "The original id should still resolve to its own trip.");
         assertEquals(origTrip.getId(), id, "The original trip snapshot keeps its own id.");
     }
@@ -127,8 +127,8 @@ public class DAOTest {
                 .dataId(DataId.newInstance())
                 .description(RandomData.genAlpha(19))
                 .build();
-        assertTrue(DB_UTILS.saveTodo(todo).join());
-        final TodoItem restoredItem = DB_UTILS.getTodoItem(todo.getTripId(), todo.getDataId()).join().orElse(null);
+        assertTrue(DB_UTILS.saveTodo(todo));
+        final TodoItem restoredItem = DB_UTILS.getTodoItem(todo.getTripId(), todo.getDataId()).orElse(null);
         assertEquals(restoredItem, todo);
     }
 
@@ -157,7 +157,7 @@ public class DAOTest {
                 .peek(this::saveTodo)
                 .forEach(goodValues::add);
         assertEquals(goodValues.size(), todoInsertSize);
-        final List<TodoItem> result = DB_UTILS.getTodoItems(tripId).join();
+        final List<TodoItem> result = DB_UTILS.getTodoItems(tripId);
         assertEquals(goodValues.size(), result.size());
         for (int idx = 0; idx < todoInsertSize; idx++) {
             assertTrue(goodValues.contains(result.get(idx)));
@@ -172,10 +172,10 @@ public class DAOTest {
                 .type(RandomData.genAlpha(13))
                 .content(Map.of(RandomData.genAlpha(3), RandomData.genAlpha(33)))
                 .build();
-        assertEquals(DB_UTILS.getPersonDataValue(pdv.getUserId(), pdv.getDataId()).join(), Optional.empty());
+        assertEquals(DB_UTILS.getPersonDataValue(pdv.getUserId(), pdv.getDataId()), Optional.empty());
         DB_UTILS.savePersonDataValue(pdv);
         final PersonDataValue restoredPDV = DB_UTILS.getPersonDataValue(pdv.getUserId(), pdv.getDataId())
-                .join().orElse(null);
+                .orElse(null);
         assertEquals(restoredPDV, pdv);
     }
 
@@ -203,7 +203,7 @@ public class DAOTest {
                 .peek(this::savePersonDataValue)
                 .forEach(goodValues::add);
         assertEquals(goodValues.size(), pdvInsertSize);
-        final Map<DataId, PersonDataValue> result = DB_UTILS.getPersonDataValues(pid).join();
+        final Map<DataId, PersonDataValue> result = DB_UTILS.getPersonDataValues(pid);
         assertEquals(goodValues.size(), result.size());
         for (final PersonDataValue good : goodValues) {
             assertTrue(result.containsKey(good.getDataId()));
@@ -212,23 +212,23 @@ public class DAOTest {
 
     @Test
     public void nullEmailOrPassReturnsNothing() {
-        assertNull(DB_UTILS.getCredsByEmailAndPass(null, RandomData.genAlpha(5)).join());
-        assertNull(DB_UTILS.getCredsByEmailAndPass(RandomData.genAlpha(5), null).join());
-        assertNull(DB_UTILS.getCredsByEmailAndPass(null, null).join());
-        assertNull(DB_UTILS.getCredsByEmailAndPass(RandomData.genAlpha(5), RandomData.genAlpha(4)).join());
+        assertNull(DB_UTILS.getCredsByEmailAndPass(null, RandomData.genAlpha(5)));
+        assertNull(DB_UTILS.getCredsByEmailAndPass(RandomData.genAlpha(5), null));
+        assertNull(DB_UTILS.getCredsByEmailAndPass(null, null));
+        assertNull(DB_UTILS.getCredsByEmailAndPass(RandomData.genAlpha(5), RandomData.genAlpha(4)));
     }
 
     @Test
     public void adminCanLogin() {
         final String adminUN = "admin" + RandomData.genAlpha(8);
-        final Creds creds = DB_UTILS.getCredsByEmailAndPass(adminUN, "admin").join();
+        final Creds creds = DB_UTILS.getCredsByEmailAndPass(adminUN, "admin");
         assertEquals(creds.getPriv(), "admin");
     }
 
     @Test
     public void userCanLogin() {
         final String userUN = "user" + RandomData.genAlpha(8);
-        final Creds creds = DB_UTILS.getCredsByEmailAndPass(userUN, "user").join();
+        final Creds creds = DB_UTILS.getCredsByEmailAndPass(userUN, "user");
         assertEquals(creds.getPriv(), "user");
     }
 
@@ -236,14 +236,14 @@ public class DAOTest {
     public void adminPasswordIsChecked() {
         final String adminUN = "admin" + RandomData.genAlpha(8);
         final String adminPW = RandomData.genAlpha(4);
-        assertNull(DB_UTILS.getCredsByEmailAndPass(adminUN, adminPW).join());
+        assertNull(DB_UTILS.getCredsByEmailAndPass(adminUN, adminPW));
     }
 
     @Test
     public void userPasswordIsChecked() {
         final String userUN = "user" + RandomData.genAlpha(8);
         final String userPW = RandomData.genAlpha(4);
-        assertNull(DB_UTILS.getCredsByEmailAndPass(userUN, userPW).join());
+        assertNull(DB_UTILS.getCredsByEmailAndPass(userUN, userPW));
     }
 
     @Test
@@ -257,14 +257,14 @@ public class DAOTest {
         final Transaction tx = new Transaction(
                 id, userId, groupId, Type.Shared, Transaction.TransactionType.Bill, txDate, 0.45f, category, note);
         final Transaction tx2 = new Transaction(userId, groupId, Type.Shared);
-        assertEquals(DB_UTILS.getTransactions(userId).join().size(), 0, "Should start w/ no txs.");
-        assertTrue(DB_UTILS.saveTransaction(tx).join());
-        assertEquals(DB_UTILS.getTransactions(userId).join().size(), 1, "Expected 1 to be added.");
-        assertTrue(DB_UTILS.saveTransaction(tx).join()); // Verify idempotency, should be 1
-        assertEquals(DB_UTILS.getTransactions(userId).join().size(), 1, "Expected only 1 still.");
-        assertTrue(DB_UTILS.saveTransaction(tx2).join()); // Now should be 2
-        assertEquals(DB_UTILS.getTransactions(userId).join().size(), 2, "Expected 2 now.");
-        final Transaction sameTx = DB_UTILS.getTransaction(userId, id).join().orElse(null);
+        assertEquals(DB_UTILS.getTransactions(userId).size(), 0, "Should start w/ no txs.");
+        assertTrue(DB_UTILS.saveTransaction(tx));
+        assertEquals(DB_UTILS.getTransactions(userId).size(), 1, "Expected 1 to be added.");
+        assertTrue(DB_UTILS.saveTransaction(tx)); // Verify idempotency, should be 1
+        assertEquals(DB_UTILS.getTransactions(userId).size(), 1, "Expected only 1 still.");
+        assertTrue(DB_UTILS.saveTransaction(tx2)); // Now should be 2
+        assertEquals(DB_UTILS.getTransactions(userId).size(), 2, "Expected 2 now.");
+        final Transaction sameTx = DB_UTILS.getTransaction(userId, id).orElse(null);
         assertEquals(sameTx, tx, "Getting tx should be equal.");
     }
 
@@ -276,7 +276,7 @@ public class DAOTest {
                 .limit(20)
                 .peek(this::saveTransaction)
                 .forEach(tx -> txs.put(tx.getTxId(), tx));
-        final List<Transaction> sortedTxs = DB_UTILS.getTransactions(person).join();
+        final List<Transaction> sortedTxs = DB_UTILS.getTransactions(person);
         assertEquals(sortedTxs.size(), 20, "Should have 20 txs.");
         for (int idx = 0; idx < sortedTxs.size() - 1; idx++) {
             final Transaction currTx = sortedTxs.get(idx);
@@ -290,7 +290,7 @@ public class DAOTest {
 
     private void saveTodo(final TodoItem todo) {
         try {
-            DB_UTILS.saveTodo(todo).join();
+            DB_UTILS.saveTodo(todo);
         } catch (final IOException ex) {
             throw new RuntimeException("failed to save TodoItem: " + todo, ex);
         }
@@ -298,7 +298,7 @@ public class DAOTest {
 
     private void savePersonDataValue(final PersonDataValue pdv) {
         try {
-            DB_UTILS.savePersonDataValue(pdv).join();
+            DB_UTILS.savePersonDataValue(pdv);
         } catch (final IOException ex) {
             throw new RuntimeException("failed to save PersonDataValue: " + pdv, ex);
         }
@@ -306,7 +306,7 @@ public class DAOTest {
 
     private void saveTransaction(final Transaction tx) {
         try {
-            DB_UTILS.saveTransaction(tx).join();
+            DB_UTILS.saveTransaction(tx);
         } catch (final IOException ex) {
             throw new RuntimeException("failed to save tx", ex);
         }

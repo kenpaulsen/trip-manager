@@ -51,17 +51,17 @@ public class ScanCachedDAOTest {
         final String tripId = java.util.UUID.randomUUID().toString();
         final Privilege scoped = new Privilege(Privilege.idFor("scanPriv", tripId), "scoped", List.of());
         final PrivilegesDAO writer = new PrivilegesDAO(mapper, DynamoLocal.persistence());
-        Assert.assertTrue(writer.savePrivilege(scoped).join());
+        Assert.assertTrue(writer.savePrivilege(scoped));
 
         // A different DAO with a cold (valkey-like) cache: its first listing must come from the SCAN.
         final PrivilegesDAO reader = new PrivilegesDAO(mapper, DynamoLocal.persistence(), valkeyLike());
 
-        Assert.assertTrue(reader.getTripPrivileges(tripId).join().contains(scoped),
+        Assert.assertTrue(reader.getTripPrivileges(tripId).contains(scoped),
                 "the cold cache must scan the table, not answer empty");
-        Assert.assertTrue(reader.getPrivilege(scoped.getId()).join().isPresent(),
+        Assert.assertTrue(reader.getPrivilege(scoped.getId()).isPresent(),
                 "after the scan, a point lookup is served from the partition hash");
         reader.clearCache();
-        Assert.assertTrue(reader.getTripPrivileges(tripId).join().contains(scoped),
+        Assert.assertTrue(reader.getTripPrivileges(tripId).contains(scoped),
                 "an invalidated cache rebuilds by scanning again");
     }
 
@@ -72,13 +72,13 @@ public class ScanCachedDAOTest {
         final Persistence persistence = DynamoLocal.persistence();
         final PrivilegesDAO writer = new PrivilegesDAO(mapper, persistence);
         Assert.assertTrue(writer.savePrivilege(
-                new Privilege(Privilege.idFor("goodPriv", tripId), "fine", List.of())).join());
+                new Privilege(Privilege.idFor("goodPriv", tripId), "fine", List.of())));
         persistence.putItem(b -> b.tableName("privs").item(Map.of(
                 "name", AttributeValue.builder().s(Privilege.idFor("badPriv", tripId)).build(),
                 "content", AttributeValue.builder().s("{ not json").build())));
 
         final List<Privilege> listed = new PrivilegesDAO(mapper, DynamoLocal.persistence(), valkeyLike())
-                .getTripPrivileges(tripId).join();
+                .getTripPrivileges(tripId);
 
         Assert.assertEquals(listed.size(), 1, "the mangled row is skipped, the good one survives: " + listed);
     }
@@ -89,23 +89,23 @@ public class ScanCachedDAOTest {
     public void aColdConfigListingIsBuiltByScanningTheTable() {
         final String name = "scan.config." + RandomData.genAlpha(8);
         final Config setting = new Config(name, "42", Config.Type.INT, "test row", LocalDateTime.now(), "test");
-        Assert.assertTrue(new ConfigDAO(mapper, DynamoLocal.persistence()).saveConfig(setting).join());
+        Assert.assertTrue(new ConfigDAO(mapper, DynamoLocal.persistence()).saveConfig(setting));
 
         final ConfigDAO reader = new ConfigDAO(mapper, DynamoLocal.persistence(), valkeyLike());
 
-        Assert.assertTrue(reader.getAllConfig().join().stream().anyMatch(c -> name.equals(c.getName())));
-        Assert.assertEquals(reader.getConfig(name).join().map(Config::getValue), Optional.of("42"));
+        Assert.assertTrue(reader.getAllConfig().stream().anyMatch(c -> name.equals(c.getName())));
+        Assert.assertEquals(reader.getConfig(name).map(Config::getValue), Optional.of("42"));
         reader.clearCache();
-        Assert.assertTrue(reader.getAllConfig().join().stream().anyMatch(c -> name.equals(c.getName())));
+        Assert.assertTrue(reader.getAllConfig().stream().anyMatch(c -> name.equals(c.getName())));
     }
 
     @Test
     public void aConfigRowWithNoNameIsRefusedBeforeItTouchesTheTable() {
         final ConfigDAO dao = new ConfigDAO(mapper, DynamoLocal.persistence());
 
-        Assert.assertFalse(dao.saveConfig(null).join());
+        Assert.assertFalse(dao.saveConfig(null));
         Assert.assertFalse(dao.saveConfig(
-                new Config("  ", "v", Config.Type.STRING, null, null, null)).join());
+                new Config("  ", "v", Config.Type.STRING, null, null, null)));
     }
 
     // --- MediaDAO ---
@@ -119,18 +119,18 @@ public class ScanCachedDAOTest {
     public void aColdMediaListingScansAndASlotQueryFiltersAndOrders() {
         final String slot = "slot-" + RandomData.genAlpha(8);
         final MediaDAO writer = new MediaDAO(mapper, DynamoLocal.persistence());
-        Assert.assertTrue(writer.saveMedia(media("m2-" + slot, slot, 2)).join());
-        Assert.assertTrue(writer.saveMedia(media("m1-" + slot, slot, 1)).join());
-        Assert.assertTrue(writer.saveMedia(media("other-" + slot, "elsewhere", 0)).join());
+        Assert.assertTrue(writer.saveMedia(media("m2-" + slot, slot, 2)));
+        Assert.assertTrue(writer.saveMedia(media("m1-" + slot, slot, 1)));
+        Assert.assertTrue(writer.saveMedia(media("other-" + slot, "elsewhere", 0)));
 
         final MediaDAO reader = new MediaDAO(mapper, DynamoLocal.persistence(), valkeyLike());
-        final List<MediaItem> inSlot = reader.getMediaInSlot(" " + slot.toUpperCase() + " ").join();
+        final List<MediaItem> inSlot = reader.getMediaInSlot(" " + slot.toUpperCase() + " ");
 
         Assert.assertEquals(inSlot.stream().map(MediaItem::getId).toList(),
                 List.of("m1-" + slot, "m2-" + slot),
                 "slot matching is trimmed and case-insensitive; order is by position");
-        Assert.assertEquals(reader.getMediaInSlot("   ").join(), List.of());
-        Assert.assertEquals(reader.getMediaInSlot(null).join(), List.of());
+        Assert.assertEquals(reader.getMediaInSlot("   "), List.of());
+        Assert.assertEquals(reader.getMediaInSlot(null), List.of());
     }
 
     @Test
@@ -138,25 +138,25 @@ public class ScanCachedDAOTest {
         final String slot = "del-" + RandomData.genAlpha(8);
         final String id = "gone-" + slot;
         final MediaDAO dao = new MediaDAO(mapper, DynamoLocal.persistence(), valkeyLike());
-        Assert.assertTrue(dao.saveMedia(media(id, slot, 0)).join());
-        Assert.assertEquals(dao.getMediaInSlot(slot).join().size(), 1);
+        Assert.assertTrue(dao.saveMedia(media(id, slot, 0)));
+        Assert.assertEquals(dao.getMediaInSlot(slot).size(), 1);
 
-        Assert.assertTrue(dao.deleteMedia(id).join());
+        Assert.assertTrue(dao.deleteMedia(id));
 
-        Assert.assertTrue(dao.getMediaInSlot(slot).join().isEmpty(),
+        Assert.assertTrue(dao.getMediaInSlot(slot).isEmpty(),
                 "the rebuild after a delete must no longer see the row");
-        Assert.assertFalse(dao.deleteMedia(null).join());
-        Assert.assertFalse(dao.deleteMedia(" ").join());
+        Assert.assertFalse(dao.deleteMedia(null));
+        Assert.assertFalse(dao.deleteMedia(" "));
     }
 
     @Test
     public void mediaGuardsItsInputsAndMissesCleanly() {
         final MediaDAO dao = new MediaDAO(mapper, DynamoLocal.persistence(), valkeyLike());
 
-        Assert.assertFalse(dao.saveMedia(null).join());
-        Assert.assertFalse(dao.saveMedia(media(" ", "slot", 0)).join());
-        Assert.assertTrue(dao.getMedia(null).join().isEmpty());
-        Assert.assertTrue(dao.getMedia("never-saved-" + RandomData.genAlpha(8)).join().isEmpty());
+        Assert.assertFalse(dao.saveMedia(null));
+        Assert.assertFalse(dao.saveMedia(media(" ", "slot", 0)));
+        Assert.assertTrue(dao.getMedia(null).isEmpty());
+        Assert.assertTrue(dao.getMedia("never-saved-" + RandomData.genAlpha(8)).isEmpty());
     }
 
     /** The point-read fallback: an id missing from a cold cache is fetched by key, then cached. */
@@ -164,11 +164,11 @@ public class ScanCachedDAOTest {
     public void aColdPointReadFallsBackToTheTableByKey() {
         final String id = "point-" + RandomData.genAlpha(8);
         Assert.assertTrue(new MediaDAO(mapper, DynamoLocal.persistence())
-                .saveMedia(media(id, null, 0)).join());
+                .saveMedia(media(id, null, 0)));
 
         final MediaDAO reader = new MediaDAO(mapper, DynamoLocal.persistence(), valkeyLike());
 
-        Assert.assertEquals(reader.getMedia(id).join().map(MediaItem::getId), Optional.of(id),
+        Assert.assertEquals(reader.getMedia(id).map(MediaItem::getId), Optional.of(id),
                 "a cold cache with no marker must point-read the row rather than answer empty");
     }
 }

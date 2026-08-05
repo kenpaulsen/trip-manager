@@ -15,8 +15,8 @@ public class PersonConverter implements Converter {
     @Override
     public Object getAsObject(FacesContext ctx, UIComponent comp, String value) {
         final Person person = DAO.getInstance().getPerson(Person.Id.from(value))
-                .orTimeout(3_000, TimeUnit.MILLISECONDS)
-                .join()
+                
+                
                 .orElse(null);
         if (person == null) {
             log.warn("Unable to find person: {}", value);

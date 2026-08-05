@@ -42,34 +42,34 @@ public class CredentialsDAO {
     }
 
     // Only available to super admins
-    protected CompletableFuture<Creds> adminGetCredsByEmail(final String email) {
+    protected Creds adminGetCredsByEmail(final String email) {
         final FacesContext facesContext = FacesContext.getCurrentInstance();
         if ((email == null) || email.isEmpty() || facesContext == null) {
-            return CompletableFuture.completedFuture(null);
+            return null;
         }
         final Map<String, Object> viewMap = facesContext.getViewRoot().getViewMap(false);
         if (viewMap == null || !Boolean.parseBoolean(viewMap.getOrDefault(IS_ADMIN, false).toString())) {
-            return CompletableFuture.completedFuture(null);
+            return null;
         }
         try {
             final GetItemResponse item =
                     persistence.getItem(b -> b.key(getCredQueryKey(email)).tableName(PASS_TABLE).build());
-            return CompletableFuture.completedFuture(item.hasItem() ? credsFromResponse(item) : null);
+            return item.hasItem() ? credsFromResponse(item) : null;
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
-    protected CompletableFuture<Creds> getCredsByEmailAndPass(final String email, final String pass) {
+    protected Creds getCredsByEmailAndPass(final String email, final String pass) {
         if ((email == null) || email.isEmpty() || (pass == null) || pass.isEmpty()) {
-            return CompletableFuture.completedFuture(null);
+            return null;
         }
         try {
             final GetItemResponse item =
                     persistence.getItem(b -> b.key(getCredQueryKey(email)).tableName(PASS_TABLE).build());
-            return CompletableFuture.completedFuture(validateCreds(item, email, pass));
+            return validateCreds(item, email, pass);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
@@ -83,18 +83,18 @@ public class CredentialsDAO {
      * @param id    The {@link Person.Id} that is expected to own the {@link Creds} -- null returned if does not match.
      * @return The Creds for the email if found and validated to match the given {@code id}, or null.
      */
-    protected CompletableFuture<Creds> getCredsByEmailAdminOnly(final String email, final Person.Id id) {
+    protected Creds getCredsByEmailAdminOnly(final String email, final Person.Id id) {
         if ((email == null) || email.isEmpty()) {
-            return CompletableFuture.completedFuture(null);
+            return null;
         }
         try {
             final GetItemResponse item =
                     persistence.getItem(b -> b.key(getCredQueryKey(email)).tableName(PASS_TABLE).build());
             final Creds creds = item.hasItem() ? credsFromResponse(item) : null;
-            return CompletableFuture.completedFuture(
-                    (creds == null || creds.getUserId().equals(id)) ? creds : null);
+            return 
+                    (creds == null || creds.getUserId().equals(id)) ? creds : null;
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
@@ -119,7 +119,7 @@ public class CredentialsDAO {
     }
 
     protected Optional<Creds> createCreds(final String email) {
-        final Person user = personDao.getPersonByEmail(email).join();
+        final Person user = personDao.getPersonByEmail(email);
         if (user == null) {
             log.warn("Email '{}' not found.", email);
             return Optional.empty();
@@ -134,10 +134,10 @@ public class CredentialsDAO {
                 Creds.USER_PRIV,
                 RandomData.genPassChars(24),
                 Instant.now().getEpochSecond());
-        return Optional.ofNullable(saveCreds(creds).join() ? creds : null);
+        return Optional.ofNullable(saveCreds(creds) ? creds : null);
     }
 
-    protected CompletableFuture<Boolean> saveCreds(final Creds creds) {
+    protected Boolean saveCreds(final Creds creds) {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(EMAIL, AttributeValue.builder().s(creds.getEmail().toLowerCase(Locale.ROOT)).build());
         map.put(USER_ID, AttributeValue.builder().s(creds.getUserId().getValue()).build());
@@ -147,20 +147,16 @@ public class CredentialsDAO {
             map.put(LAST_LOGIN, AttributeValue.builder().n("" + creds.getLastLogin()).build());
         }
         try {
-            return CompletableFuture.completedFuture(
-                    persistence.putItem(b -> b.tableName(PASS_TABLE).item(map)).sdkHttpResponse().isSuccessful());
+            return 
+                    persistence.putItem(b -> b.tableName(PASS_TABLE).item(map)).sdkHttpResponse().isSuccessful();
         } catch (final RuntimeException ex) {
             log.error("Failed to save credentials!", ex);
-            return CompletableFuture.completedFuture(false);
+            return false;
         }
     }
 
-    protected CompletableFuture<Boolean> removeCreds(final String email) {
-        return adminGetCredsByEmail(email)
-                .thenApply(this::validateCanRemoveCreds)
-                .thenCompose(canRemove -> canRemove ? removeCredsInternal(email) :
-                        CompletableFuture.completedFuture(false))
-                .orTimeout(3_000, TimeUnit.MILLISECONDS);
+    protected Boolean removeCreds(final String email) {
+        return validateCanRemoveCreds(adminGetCredsByEmail(email)) && removeCredsInternal(email);
     }
 
     private Boolean validateCanRemoveCreds(final Creds creds) {
@@ -168,15 +164,15 @@ public class CredentialsDAO {
         return creds != null && Creds.USER_PRIV.equals(creds.getPriv());
     }
 
-    private CompletableFuture<Boolean> removeCredsInternal(final String email) {
+    private Boolean removeCredsInternal(final String email) {
         log.info("Removing Credentials for user ({}).", email);
         final Map<String, AttributeValue> primaryKey = getCredQueryKey(email);
         try {
-            return CompletableFuture.completedFuture(
+            return 
                     persistence.deleteItem(b -> b.tableName(PASS_TABLE).key(primaryKey))
-                            .sdkHttpResponse().isSuccessful());
+                            .sdkHttpResponse().isSuccessful();
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
@@ -225,10 +221,11 @@ public class CredentialsDAO {
         // login's subsequent lastLogin save (and any later save) stores it as-is rather than hashing again.
         if (hasher.needsRehash(stored)) {
             creds.setPass(hasher.hash(pass));
-            saveCreds(creds).exceptionally(ex -> {
+            try {
+                saveCreds(creds);
+            } catch (final RuntimeException ex) {
                 log.error("Failed to upgrade stored password hash for {}", email, ex);
-                return false;
-            });
+            }
         }
         return creds;
     }

@@ -33,15 +33,15 @@ public class TripEventDAOTest {
         final TripEvent te = new TripEvent(UUID.randomUUID().toString(), TripEvent.Type.FLIGHT,
                 "PDX -> JFK", "Red eye flight", LocalDateTime.now().plusDays(10), LocalDateTime.now().plusDays(11),
                 null, null);
-        assertTrue(get(dao.saveTripEvent(te)));
-        final TripEvent retrieved = get(dao.getTripEvent(te.getId()));
+        assertTrue(dao.saveTripEvent(te));
+        final TripEvent retrieved = dao.getTripEvent(te.getId());
         assertEquals(retrieved, te);
     }
 
     @Test
     public void getTripEventReturnsNullForUnknownId() {
         // Fake persistence returns null item for getItem on non-pass tables
-        final TripEvent result = get(dao.getTripEvent("nonexistent-id"));
+        final TripEvent result = dao.getTripEvent("nonexistent-id");
         assertNull(result);
     }
 
@@ -59,10 +59,10 @@ public class TripEventDAOTest {
                 new ObjectMapper().findAndRegisterModules(), countingPersistence);
         final TripEvent te = new TripEvent(UUID.randomUUID().toString(), TripEvent.Type.LODGING,
                 "Hotel", "Nice place", LocalDateTime.now(), LocalDateTime.now().plusDays(3), null, null);
-        get(countingDao.saveTripEvent(te));
+        countingDao.saveTripEvent(te);
         assertEquals(getItemCount.get(), 0, "Save should not call getItem");
         // Retrieve should come from cache, not from persistence.getItem
-        final TripEvent cached = get(countingDao.getTripEvent(te.getId()));
+        final TripEvent cached = countingDao.getTripEvent(te.getId());
         assertEquals(cached, te);
         assertEquals(getItemCount.get(), 0, "getTripEvent should serve from cache, not call getItem");
     }
@@ -77,9 +77,9 @@ public class TripEventDAOTest {
                 .title("Test Trip")
                 .tripEvents(List.of(te1, te2))
                 .build();
-        assertTrue(get(dao.saveAllTripEvents(trip)));
-        assertEquals(get(dao.getTripEvent(te1.getId())), te1);
-        assertEquals(get(dao.getTripEvent(te2.getId())), te2);
+        assertTrue(dao.saveAllTripEvents(trip));
+        assertEquals(dao.getTripEvent(te1.getId()), te1);
+        assertEquals(dao.getTripEvent(te2.getId()), te2);
     }
 
     @Test
@@ -88,7 +88,7 @@ public class TripEventDAOTest {
                 .title("Empty Trip")
                 .tripEvents(Collections.emptyList())
                 .build();
-        assertTrue(get(dao.saveAllTripEvents(trip)));
+        assertTrue(dao.saveAllTripEvents(trip));
     }
 
     /**
@@ -102,21 +102,21 @@ public class TripEventDAOTest {
     public void clearingTheCacheDoesNotLoseTheRow() {
         final TripEvent te = new TripEvent(UUID.randomUUID().toString(), TripEvent.Type.EVENT,
                 "Concert", "notes", LocalDateTime.now(), null, null, null);
-        get(dao.saveTripEvent(te));
-        assertEquals(get(dao.getTripEvent(te.getId())), te);
+        dao.saveTripEvent(te);
+        assertEquals(dao.getTripEvent(te.getId()), te);
 
         dao.clearCache();
 
-        assertEquals(get(dao.getTripEvent(te.getId())), te);
+        assertEquals(dao.getTripEvent(te.getId()), te);
     }
 
     @Test
     public void saveTripEventIsIdempotent() {
         final TripEvent te = new TripEvent(UUID.randomUUID().toString(), TripEvent.Type.GROUND,
                 "Bus ride", "notes", LocalDateTime.now(), null, null, null);
-        assertTrue(get(dao.saveTripEvent(te)));
-        assertTrue(get(dao.saveTripEvent(te)));
-        assertEquals(get(dao.getTripEvent(te.getId())), te);
+        assertTrue(dao.saveTripEvent(te));
+        assertTrue(dao.saveTripEvent(te));
+        assertEquals(dao.getTripEvent(te.getId()), te);
     }
 
     @Test
@@ -124,19 +124,12 @@ public class TripEventDAOTest {
         final String id = UUID.randomUUID().toString();
         final TripEvent original = new TripEvent(id, TripEvent.Type.FLIGHT,
                 "Original", "notes", LocalDateTime.now(), null, null, null);
-        get(dao.saveTripEvent(original));
-        assertEquals(get(dao.getTripEvent(id)).getTitle(), "Original");
+        dao.saveTripEvent(original);
+        assertEquals(dao.getTripEvent(id).getTitle(), "Original");
         final TripEvent updated = new TripEvent(id, TripEvent.Type.FLIGHT,
                 "Updated", "new notes", LocalDateTime.now(), null, null, null);
-        get(dao.saveTripEvent(updated));
-        assertEquals(get(dao.getTripEvent(id)).getTitle(), "Updated");
+        dao.saveTripEvent(updated);
+        assertEquals(dao.getTripEvent(id).getTitle(), "Updated");
+    }
     }
 
-    private <T> T get(final CompletableFuture<T> future) {
-        try {
-            return future.get(1_000, TimeUnit.MILLISECONDS);
-        } catch (final InterruptedException | ExecutionException | TimeoutException ex) {
-            throw new RuntimeException(ex);
-        }
-    }
-}

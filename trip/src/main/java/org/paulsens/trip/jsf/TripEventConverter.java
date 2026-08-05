@@ -11,7 +11,7 @@ import org.paulsens.trip.model.TripEvent;
 public class TripEventConverter implements Converter<TripEvent> {
     @Override
     public TripEvent getAsObject(FacesContext ctx, UIComponent comp, String value) {
-        return DAO.getInstance().getTripEvent(value).join();
+        return DAO.getInstance().getTripEvent(value);
     }
 
     @Override

@@ -110,7 +110,7 @@ public class ChatAppearanceChoicesTest {
         final ChatChannel channel = chat.ensureChannel(trip().getId(), null);
         final ChatMembership row = chat.membershipRow(channel.getId(), who)
                 .orElseGet(() -> ChatMembership.joining(channel.getId(), who, channel.getCreated()));
-        DAO.getInstance().saveChatMembership(row.withAppearance(look)).join();
+        DAO.getInstance().saveChatMembership(row.withAppearance(look));
     }
 
     @Test

@@ -55,16 +55,13 @@ public class TodoCommands {
     public boolean saveTodo(final TodoItem todo) {
         boolean result;
         try {
-            result = DAO.getInstance()
-                    .saveTodo(todo)
-                    .orTimeout(5_000L, TimeUnit.MILLISECONDS)
-                    .exceptionally(ex -> {
-                        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                                "Error saving todo '" + todo.getDescription() + "': " + todo.getTripId(),
-                                ex.getMessage());
-                        log.error("Error while saving todo: ", ex);
-                        return false;
-                    }).join();
+            result = DAO.getInstance().saveTodo(todo);
+        } catch (final RuntimeException ex) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
+                    "Error saving todo '" + todo.getDescription() + "': " + todo.getTripId(),
+                    ex.getMessage());
+            log.error("Error while saving todo: ", ex);
+            result = false;
         } catch (final IOException ex) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
                     "Unable to save todo '" + todo.getDescription() + "': " + todo.getTripId(), ex.getMessage());
@@ -75,12 +72,12 @@ public class TodoCommands {
     }
 
     public List<TodoItem> getTodos(final String tripId) {
-        return DAO.getInstance()
-                .getTodoItems(tripId)
-                .exceptionally(ex -> {
-                    log.error("Failed to get todos for trip '" + tripId + "'!", ex);
-                    return Collections.emptyList();
-                }).join();
+        try {
+            return DAO.getInstance().getTodoItems(tripId);
+        } catch (final RuntimeException ex) {
+            log.error("Failed to get todos for trip '" + tripId + "'!", ex);
+            return Collections.emptyList();
+        }
     }
 
     public List<TodoStatus> getTodosForUser(final String tripId, final Person.Id userId, final boolean isAdmin) {
@@ -104,12 +101,12 @@ public class TodoCommands {
             log.error("getTodo() called with null PersonDataValue ID.");
             return null;
         }
-        return DAO.getInstance()
-                .getTodoItem(tripId, dataId)
-                .exceptionally(ex -> {
-                    log.error("Failed to get trip '" + tripId + "' todo for '" + dataId.getValue() + "'!", ex);
-                    return Optional.empty();
-                }).join().orElse(null);
+        try {
+            return DAO.getInstance().getTodoItem(tripId, dataId).orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Failed to get trip '" + tripId + "' todo for '" + dataId.getValue() + "'!", ex);
+            return null;
+        }
     }
 
     public TodoStatus getOrCreateTodoStatus(final TodoItem todo, final Person.Id userId) {

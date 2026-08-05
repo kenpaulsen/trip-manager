@@ -228,7 +228,7 @@ public class ConfigCommands {
     /** All settings, name-sorted, for the admin page. */
     public List<Config> getAll() {
         try {
-            return DAO.getInstance().getAllConfig().join().stream()
+            return DAO.getInstance().getAllConfig().stream()
                     .sorted(Comparator.comparing(Config::getName, String.CASE_INSENSITIVE_ORDER))
                     .toList();
         } catch (final RuntimeException ex) {
@@ -276,7 +276,7 @@ public class ConfigCommands {
         final Config stamped = new Config(config.getName().trim(), config.getValue(), config.getType(),
                 config.getDescription(), LocalDateTime.now(), modifiedBy);
         try {
-            final boolean saved = DAO.getInstance().saveConfig(stamped).join();
+            final boolean saved = DAO.getInstance().saveConfig(stamped);
             if (saved) {
                 Audit.builder(AuditAction.CONFIG, AuditOutcome.SUCCESS)
                         .currentActor(modifiedBy)
@@ -318,7 +318,7 @@ public class ConfigCommands {
 
     private Optional<Config> lookup(final String name) {
         try {
-            return DAO.getInstance().getConfig(name).join();
+            return DAO.getInstance().getConfig(name);
         } catch (final RuntimeException ex) {
             // Never propagate: a settings lookup happens mid-render and must not break the page.
             log.error("Unable to read config: " + name, ex);

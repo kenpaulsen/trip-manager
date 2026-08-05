@@ -41,12 +41,12 @@ public class AuditDAORealEngineTest {
     public void aWrittenRecordIsReadableBackThroughTheDayPartitionedQuery() {
         final String actor = DynamoLocal.uniqueId("audit-actor") + "@test";
         final Instant when = Instant.now();
-        Assert.assertTrue(dao.saveAuditEvent(event(actor, when, "a real-engine record")).join());
+        Assert.assertTrue(dao.saveAuditEvent(event(actor, when, "a real-engine record")));
 
         final AuditPage page = dao.getAuditEvents(AuditQuery.builder()
                 .actor(actor)
                 .limit(50)
-                .build()).join();
+                .build());
 
         Assert.assertEquals(page.getEvents().size(), 1,
                 "The day-partitioned query must be one DynamoDB accepts, reserved keyword and all");
@@ -59,11 +59,11 @@ public class AuditDAORealEngineTest {
         final Instant base = Instant.now();
         for (int i = 0; i < 5; i++) {
             Assert.assertTrue(dao.saveAuditEvent(
-                    event(actor, base.plusMillis(i * 10L), "message " + i)).join());
+                    event(actor, base.plusMillis(i * 10L), "message " + i)));
         }
 
         final List<AuditEvent> found = dao.getAuditEvents(AuditQuery.builder()
-                .actor(actor).limit(50).build()).join().getEvents();
+                .actor(actor).limit(50).build()).getEvents();
 
         Assert.assertEquals(found.size(), 5);
         for (int i = 1; i < found.size(); i++) {
@@ -78,15 +78,15 @@ public class AuditDAORealEngineTest {
         final Instant base = Instant.now();
         for (int i = 0; i < 6; i++) {
             Assert.assertTrue(dao.saveAuditEvent(
-                    event(actor, base.plusMillis(i * 10L), "paged " + i)).join());
+                    event(actor, base.plusMillis(i * 10L), "paged " + i)));
         }
 
         final AuditPage first = dao.getAuditEvents(AuditQuery.builder()
-                .actor(actor).limit(3).build()).join();
+                .actor(actor).limit(3).build());
         Assert.assertEquals(first.getEvents().size(), 3);
 
         final AuditPage second = dao.getAuditEvents(AuditQuery.builder()
-                .actor(actor).before(first.nextCursor()).limit(3).build()).join();
+                .actor(actor).before(first.nextCursor()).limit(3).build());
 
         Assert.assertFalse(second.getEvents().isEmpty(), "The cursor must find the older page");
         final List<Instant> firstStamps = first.getEvents().stream().map(AuditEvent::getTimestamp).toList();
@@ -98,15 +98,15 @@ public class AuditDAORealEngineTest {
     public void filtersNarrowTheResultRatherThanTheQuery() {
         final String actor = DynamoLocal.uniqueId("audit-filter") + "@test";
         final Instant when = Instant.now();
-        Assert.assertTrue(dao.saveAuditEvent(event(actor, when, "findable needle")).join());
-        Assert.assertTrue(dao.saveAuditEvent(event(actor, when.plusMillis(5), "other haystack")).join());
+        Assert.assertTrue(dao.saveAuditEvent(event(actor, when, "findable needle")));
+        Assert.assertTrue(dao.saveAuditEvent(event(actor, when.plusMillis(5), "other haystack")));
 
         Assert.assertEquals(dao.getAuditEvents(AuditQuery.builder()
-                .actor(actor).text("needle").limit(50).build()).join().getEvents().size(), 1);
+                .actor(actor).text("needle").limit(50).build()).getEvents().size(), 1);
         Assert.assertEquals(dao.getAuditEvents(AuditQuery.builder()
-                .actor(actor).outcome(AuditOutcome.FAILURE).limit(50).build()).join().getEvents().size(), 0);
+                .actor(actor).outcome(AuditOutcome.FAILURE).limit(50).build()).getEvents().size(), 0);
         Assert.assertEquals(dao.getAuditEvents(AuditQuery.builder()
-                .actor(actor).action(AuditAction.CONFIG).limit(50).build()).join().getEvents().size(), 2);
+                .actor(actor).action(AuditAction.CONFIG).limit(50).build()).getEvents().size(), 2);
     }
 
     @Test
@@ -114,7 +114,7 @@ public class AuditDAORealEngineTest {
         final AuditPage page = dao.getAuditEvents(AuditQuery.builder()
                 .actor(DynamoLocal.uniqueId("nobody") + "@test")
                 .limit(10)
-                .build()).join();
+                .build());
 
         Assert.assertTrue(page.getEvents().isEmpty());
         // The distinction that matters during an incident: nothing MATCHED, not nothing could be READ.
@@ -126,7 +126,7 @@ public class AuditDAORealEngineTest {
         final AuditPage page = dao.getAuditEvents(AuditQuery.builder()
                 .actor(DynamoLocal.uniqueId("window") + "@test")
                 .limit(10)
-                .build()).join();
+                .build());
 
         Assert.assertNotNull(page.getSearchedBackTo());
         Assert.assertFalse(page.getSearchedBackTo().isAfter(LocalDate.now(ZoneOffset.UTC)));

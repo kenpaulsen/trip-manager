@@ -36,7 +36,7 @@ public class ChatDAOParseTailsTest {
         persistence.putItem(b -> b.tableName("chat_channels").item(Map.of(
                 "channelId", s(channelId), "content", s("{ not json"))));
 
-        Assert.assertTrue(dao.getChannel(ChatChannel.Id.from(channelId)).join().isEmpty());
+        Assert.assertTrue(dao.getChannel(ChatChannel.Id.from(channelId)).isEmpty());
     }
 
     @Test
@@ -46,8 +46,8 @@ public class ChatDAOParseTailsTest {
                 "channelId", s(channelId), "personId", s("bad"), "content", s("{ not json"))));
 
         Assert.assertTrue(dao.getMembership(ChatChannel.Id.from(channelId), Person.Id.from("bad"))
-                .join().isEmpty());
-        Assert.assertTrue(dao.listMembers(ChatChannel.Id.from(channelId)).join().isEmpty(),
+                .isEmpty());
+        Assert.assertTrue(dao.listMembers(ChatChannel.Id.from(channelId)).isEmpty(),
                 "a mangled member row must be skipped, not kill the whole roster listing");
     }
 

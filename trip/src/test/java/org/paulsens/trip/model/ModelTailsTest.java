@@ -106,11 +106,11 @@ public class ModelTailsTest {
         final Person person = new Person();
         person.setFirst("Tail");
         person.setLast("Model");
-        Assert.assertTrue(DAO.getInstance().savePerson(person).join());
+        Assert.assertTrue(DAO.getInstance().savePerson(person));
         final Trip trip = Trip.builder().id("person-trips-" + System.nanoTime()).title("Rome")
                 .startDate(LocalDateTime.now()).endDate(LocalDateTime.now().plusDays(3))
                 .people(List.of(person.getId())).build();
-        Assert.assertTrue(DAO.getInstance().saveTrip(trip).join());
+        Assert.assertTrue(DAO.getInstance().saveTrip(trip));
 
         Assert.assertTrue(person.getTripIds().contains(trip.getId()));
     }

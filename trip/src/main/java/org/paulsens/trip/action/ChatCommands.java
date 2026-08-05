@@ -118,17 +118,17 @@ public class ChatCommands {
 
     public ChatChannel ensureChannel(final String tripId, final AuditActor actor) {
         final ChatChannel.Id id = ChatChannel.Id.forTrip(tripId);
-        final Optional<ChatChannel> existing = dao().getChatChannel(id).join();
+        final Optional<ChatChannel> existing = dao().getChatChannel(id);
         if (existing.isPresent()) {
             return existing.get();
         }
-        final Trip trip = dao().getTrip(tripId).join().orElse(null);
+        final Trip trip = dao().getTrip(tripId).orElse(null);
         final String title = trip == null || trip.getTitle() == null ? "Trip chat" : trip.getTitle() + " chat";
         final ChatChannel created = new ChatChannel(
                 id, tripId, ChatChannel.Kind.TRIP, title, null, null,
                 ChatSettings.defaults(), Instant.now(),
                 actor == null ? null : actor.id(), null, null);
-        dao().saveChatChannel(created).join();
+        dao().saveChatChannel(created);
         audit(AuditAction.CHAT_ADMIN, actor, AuditEventBuilder.TARGET_CHAT_CHANNEL, id.getValue(),
                 "channel created");
         return created;
@@ -147,14 +147,14 @@ public class ChatCommands {
         if (existing != null) {
             return existing;
         }
-        final Trip trip = dao().getTrip(tripId).join().orElse(null);
+        final Trip trip = dao().getTrip(tripId).orElse(null);
         final String title = trip == null || trip.getTitle() == null ? "Trip chat" : trip.getTitle() + " chat";
         return new ChatChannel(ChatChannel.Id.forTrip(tripId), tripId, ChatChannel.Kind.TRIP, title,
                 null, null, ChatSettings.defaults(), Instant.EPOCH, null, null, null);
     }
 
     public ChatChannel getChannel(final String tripId) {
-        return dao().getChatChannel(ChatChannel.Id.forTrip(tripId)).join().orElse(null);
+        return dao().getChatChannel(ChatChannel.Id.forTrip(tripId)).orElse(null);
     }
 
     // --- authorization helpers ---
@@ -249,7 +249,7 @@ public class ChatCommands {
         if (tripId == null || personId == null) {
             return false;
         }
-        final Trip trip = dao().getTrip(tripId).join().orElse(null);
+        final Trip trip = dao().getTrip(tripId).orElse(null);
         if (trip == null) {
             return false;
         }
@@ -268,7 +268,7 @@ public class ChatCommands {
      * place allowed to decide what an implicit member may see.
      */
     public Optional<ChatMembership> membershipRow(final ChatChannel.Id channelId, final Person.Id personId) {
-        return dao().getChatMembership(channelId, personId).join();
+        return dao().getChatMembership(channelId, personId);
     }
 
     /**
@@ -396,7 +396,7 @@ public class ChatCommands {
      * in a JavaScript string literal.
      */
     public String rosterJsonForTrip(final String tripId) {
-        final Trip trip = dao().getTrip(tripId).join().orElse(null);
+        final Trip trip = dao().getTrip(tripId).orElse(null);
         if (trip == null) {
             return "[]";
         }
@@ -568,7 +568,7 @@ public class ChatCommands {
                 .withNotify(row.getNotify().withEmail(
                         mentionEmail != null && mentionEmail, dailyDigest != null && dailyDigest))
                 .withAppearance(new ChatAppearance(color, imageUrl));
-        final boolean saved = dao().saveChatMembership(updated).join();
+        final boolean saved = dao().saveChatMembership(updated);
         if (saved) {
             growlWarn("Chat settings saved.");
         } else {
@@ -594,7 +594,7 @@ public class ChatCommands {
         final ChatMembership row = membershipRow(channel.getId(), me)
                 .orElseGet(() -> ChatMembership.joining(channel.getId(), me, channel.getCreated()));
         final boolean saved = dao().saveChatMembership(
-                row.withAppearance(new ChatAppearance(color, imageUrl))).join();
+                row.withAppearance(new ChatAppearance(color, imageUrl)));
         if (saved) {
             growlWarn("Chat settings saved.");
         } else {
@@ -627,7 +627,7 @@ public class ChatCommands {
         if (!isTripMember(channel.getTripId(), me)) {
             return "NOT_A_TRIP_MEMBER";
         }
-        final Optional<ChatMembership> row = dao().getChatMembership(channel.getId(), me).join();
+        final Optional<ChatMembership> row = dao().getChatMembership(channel.getId(), me);
         if (row.isEmpty()) {
             return null; // implicit JOINED -- the default opt-in
         }
@@ -646,7 +646,7 @@ public class ChatCommands {
 
     /** Whether this trip has chat at all, for a page deciding whether to render or redirect. */
     public boolean chatEnabledForTrip(final String tripId) {
-        final Trip trip = dao().getTrip(tripId).join().orElse(null);
+        final Trip trip = dao().getTrip(tripId).orElse(null);
         return trip == null || trip.getChatEnabled();
     }
 
@@ -671,7 +671,7 @@ public class ChatCommands {
         final ChatChannel channel = ensureChannel(tripId, who);
         // One membership read serves the whole send: the authorization chain, the denial reason, and the reply
         // quote's visibility check. It was read four times per send, each a separate blocking round trip.
-        final ChatMembership row = dao().getChatMembership(channel.getId(), authorId).join().orElse(null);
+        final ChatMembership row = dao().getChatMembership(channel.getId(), authorId).orElse(null);
         final SendResult denial = postDenial(channel, authorId, row, now);
         if (denial != null) {
             return denial;
@@ -704,7 +704,7 @@ public class ChatCommands {
         ChatQuote quote = null;
         if (replyToId != null) {
             final Optional<ChatMessage> original = dao().getVisibleChatMessage(
-                    channel.getId(), replyToId, row, channel, tripOf(channel), now).join();
+                    channel.getId(), replyToId, row, channel, tripOf(channel), now);
             if (original.isPresent()) {
                 final Person author = PersonCommands.getPersonCommands().getPerson(original.get().getAuthorId());
                 final String name = author == null ? "Someone" : author.getPreferredName();
@@ -716,10 +716,12 @@ public class ChatCommands {
                 null, channel.getId(), authorId, null,
                 ChatMessage.MessageKind.TEXT, text, quote, null, null,
                 null, null, null, null, clientMessageId, null);
-        final Optional<ChatMessage> saved = dao().saveChatMessage(draft, channel, tripOf(channel))
-                .orTimeout(10, TimeUnit.SECONDS)
-                .exceptionally(this::logSaveFailure)
-                .join();
+        Optional<ChatMessage> saved;
+        try {
+            saved = dao().saveChatMessage(draft, channel, tripOf(channel));
+        } catch (final RuntimeException ex) {
+            saved = logSaveFailure(ex);
+        }
         if (saved.isEmpty()) {
             growlError("Message was not delivered. Try again.");
             return SendResult.fail("store", "Message was not delivered. Try again.");
@@ -762,7 +764,7 @@ public class ChatCommands {
         }
         final ChatMessage.Id since = ChatMessage.Id.of(now.minus(EVERYONE_WINDOW).toEpochMilli());
         return dao().getChatMessagesSince(
-                        channel.getId(), since, 200, null, channel, tripOf(channel), now).join()
+                        channel.getId(), since, 200, null, channel, tripOf(channel), now)
                 .getMessages().stream()
                 .filter(m -> !m.getId().equals(sent.getId()))
                 .filter(m -> authorId.equals(m.getAuthorId()))
@@ -813,10 +815,10 @@ public class ChatCommands {
             return ChatPage.empty();
         }
         final Optional<ChatMembership> member =
-                dao().getChatMembership(channel.getId(), readerId).join();
+                dao().getChatMembership(channel.getId(), readerId);
         return withNames(dao().getChatMessagesSince(
                 channel.getId(), since, limit, member.orElse(null), channel, tripOf(channel), Instant.now())
-                .join());
+                );
     }
 
     public ChatPage history(
@@ -829,10 +831,10 @@ public class ChatCommands {
             return ChatPage.empty();
         }
         final Optional<ChatMembership> member =
-                dao().getChatMembership(channel.getId(), readerId).join();
+                dao().getChatMembership(channel.getId(), readerId);
         return withNames(dao().getChatMessagesBefore(
                 channel.getId(), before, limit, member.orElse(null), channel, tripOf(channel), Instant.now())
-                .join());
+                );
     }
 
     /** The send is not acknowledged unless the durable write succeeded, so a failure must surface. */
@@ -946,7 +948,7 @@ public class ChatCommands {
         }
         final ChatMembership row = membershipFor(channel.getId(), me);
         final Optional<ChatMessage> target = dao().getVisibleChatMessage(
-                channel.getId(), msgId, row, channel, tripOf(channel), now).join();
+                channel.getId(), msgId, row, channel, tripOf(channel), now);
         if (target.isEmpty() || target.get().isDeleted()) {
             return ReactResult.fail("not_found", "Message not found.");
         }
@@ -967,7 +969,7 @@ public class ChatCommands {
             return ReactResult.fail("too_long",
                     "Message is too long (max " + channel.getSettings().getMaxMessageChars() + " characters).");
         }
-        return dao().editChatMessage(channel.getId(), msgId, text).join().isPresent()
+        return dao().editChatMessage(channel.getId(), msgId, text).isPresent()
                 ? ReactResult.success()
                 : ReactResult.fail("store", "Edit was not saved. Try again.");
     }
@@ -1090,7 +1092,7 @@ public class ChatCommands {
                 .orElseGet(() -> ChatMembership.joining(channel.getId(), who, channel.getCreated()));
         final boolean digest = digestChoice(registration);
         return dao().saveChatMembership(
-                row.withNotify(row.getNotify().withEmail(row.getNotify().isMentionEmail(), digest))).join();
+                row.withNotify(row.getNotify().withEmail(row.getNotify().isMentionEmail(), digest)));
     }
 
     /**
@@ -1116,7 +1118,7 @@ public class ChatCommands {
         final ChatMembership row = membershipRow(channel.getId(), me)
                 .orElseGet(() -> ChatMembership.joining(channel.getId(), me, channel.getCreated()));
         return dao().saveChatMembership(row.withNotify(row.getNotify().withEmail(mentionEmail, dailyDigest)))
-                .join();
+                ;
     }
 
     /** Whether this person gets a mail when named. Implicit members hold the defaults, so this is on by default. */
@@ -1165,7 +1167,7 @@ public class ChatCommands {
             try {
                 final ChatMembership row = membershipRow(channel.getId(), person)
                         .orElseGet(() -> ChatMembership.joining(channel.getId(), person, channel.getCreated()));
-                dao().saveChatMembership(row.withLeft(now, "removed from the trip")).join();
+                dao().saveChatMembership(row.withLeft(now, "removed from the trip"));
             } catch (final RuntimeException ex) {
                 log.warn("Unable to take {} off the chat for trip {}", person, tripId, ex);
             }
@@ -1178,7 +1180,7 @@ public class ChatCommands {
         if (channel == null || me == null || cursor == null || !canRead(channel, me)) {
             return false;
         }
-        return dao().saveChatCursor(channel.getId(), me, cursor).join();
+        return dao().saveChatCursor(channel.getId(), me, cursor);
     }
 
     public boolean hasUnread(final String tripId, final Person.Id me) {
@@ -1186,7 +1188,7 @@ public class ChatCommands {
         if (channel == null || me == null || !canRead(channel, me)) {
             return false;
         }
-        return unreadAgainst(channel, me, dao().getChatLastActivity().join());
+        return unreadAgainst(channel, me, dao().getChatLastActivity());
     }
 
     private boolean unreadAgainst(
@@ -1195,7 +1197,7 @@ public class ChatCommands {
         if (activity <= 0L) {
             return false;
         }
-        final ChatMessage.Id cursor = dao().getChatCursor(channel.getId(), me).join().orElse(null);
+        final ChatMessage.Id cursor = dao().getChatCursor(channel.getId(), me).orElse(null);
         // No cursor means they have never opened this chat. Anything at all is unread -- which is the correct
         // first-time signal, and it is also why an absent cursor must not be read as "caught up".
         return cursor == null || cursor.getEpochMilli() < activity;
@@ -1251,14 +1253,14 @@ public class ChatCommands {
         // would confirm it exists and put their name on it in everyone else's chip tooltip.
         final ChatMembership row = membershipFor(channel.getId(), me);
         final Optional<ChatMessage> target = dao().getVisibleChatMessage(
-                channel.getId(), msgId, row, channel, tripOf(channel), now).join();
+                channel.getId(), msgId, row, channel, tripOf(channel), now);
         if (target.isEmpty()) {
             return ReactResult.fail("not_found", "Message not found.");
         }
         final boolean ok = add
                 ? dao().putChatReaction(new ChatReaction(
-                        channel.getId(), msgId, me, emoji, now, target.get().getExpiresAt())).join()
-                : dao().deleteChatReaction(channel.getId(), msgId, me, emoji).join();
+                        channel.getId(), msgId, me, emoji, now, target.get().getExpiresAt()))
+                : dao().deleteChatReaction(channel.getId(), msgId, me, emoji);
         return ok ? ReactResult.success() : ReactResult.fail("store", "Reaction was not saved. Try again.");
     }
 
@@ -1306,12 +1308,12 @@ public class ChatCommands {
         if (channel == null || !canRead(channel, me)) {
             return Map.of();
         }
-        return dao().getChatReactionWindow(channel.getId(), oldest, newest).join();
+        return dao().getChatReactionWindow(channel.getId(), oldest, newest);
     }
 
     public long reactionsVersion(final String tripId) {
         final ChatChannel channel = getChannel(tripId);
-        return channel == null ? 0L : dao().getChatReactionsVersion(channel.getId()).join();
+        return channel == null ? 0L : dao().getChatReactionsVersion(channel.getId());
     }
 
     /** The reaction palette, for the picker and for validating what a client sends back. */
@@ -1325,13 +1327,13 @@ public class ChatCommands {
         final AuditActor who = actor != null ? actor : AuditActor.current();
         final ChatChannel channel = ensureChannel(tripId, who);
         final Instant now = Instant.now();
-        final ChatMembership existing = dao().getChatMembership(channel.getId(), personId).join()
+        final ChatMembership existing = dao().getChatMembership(channel.getId(), personId)
                 .orElseGet(() -> new ChatMembership(
                         channel.getId(), personId, ChatMembership.MemberState.JOINED,
                         ChatMembership.MemberRole.MEMBER, channel.getCreated(), null, null, null,
                         null, null, null, null, null, null, null, null, null));
         final ChatMembership left = existing.withLeft(now, "self");
-        final boolean ok = dao().saveChatMembership(left).join();
+        final boolean ok = dao().saveChatMembership(left);
         if (ok) {
             audit(AuditAction.CHAT_LEAVE, who, AuditEventBuilder.TARGET_CHAT_CHANNEL,
                     channel.getId().getValue(), "left");
@@ -1343,7 +1345,7 @@ public class ChatCommands {
         final AuditActor who = actor != null ? actor : AuditActor.current();
         final ChatChannel channel = ensureChannel(tripId, who);
         final Instant now = Instant.now();
-        final Optional<ChatMembership> existing = dao().getChatMembership(channel.getId(), personId).join();
+        final Optional<ChatMembership> existing = dao().getChatMembership(channel.getId(), personId);
         if (existing.isPresent() && existing.get().getState() == ChatMembership.MemberState.REMOVED) {
             return false; // admin must re-add
         }
@@ -1355,7 +1357,7 @@ public class ChatCommands {
         final ChatMembership rejoined = existing.isEmpty()
                 ? base
                 : base.withRejoined(now, who.id());
-        final boolean ok = dao().saveChatMembership(rejoined).join();
+        final boolean ok = dao().saveChatMembership(rejoined);
         if (ok) {
             final String msg = existing.isPresent() && existing.get().getLeftAt() != null
                     ? "re-joined after leaving on " + existing.get().getLeftAt()
@@ -1385,7 +1387,7 @@ public class ChatCommands {
         if (channel == null) {
             return false;
         }
-        final Optional<ChatMessage> before = dao().getChatMessage(channel.getId(), msgId).join();
+        final Optional<ChatMessage> before = dao().getChatMessage(channel.getId(), msgId);
         if (!isOwnMessage(before, who)) {
             if (denyUnlessAdmin(tripId, "delete message " + (msgId == null ? "?" : msgId.getValue()),
                     caller)) {
@@ -1393,7 +1395,7 @@ public class ChatCommands {
             }
         }
         final Optional<ChatMessage> tomb = dao().tombstoneChatMessage(
-                channel.getId(), msgId, who.id() == null ? who.email() : who.id()).join();
+                channel.getId(), msgId, who.id() == null ? who.email() : who.id());
         if (tomb.isPresent()) {
             final String snap = before.map(m -> snapshot(m.getBody(), 120)).orElse("");
             final String author = before.map(m -> m.getAuthorId() == null ? "?" : m.getAuthorId().getValue())
@@ -1430,7 +1432,7 @@ public class ChatCommands {
             return true;
         }
         final ChatChannel channel = getChannel(tripId);
-        return channel != null && dao().getChatMessage(channel.getId(), msgId).join()
+        return channel != null && dao().getChatMessage(channel.getId(), msgId)
                 .map(ChatMessage::getAuthorId).filter(Objects::nonNull).map(me::equals).orElse(false);
     }
 
@@ -1579,7 +1581,7 @@ public class ChatCommands {
         final ChatChannel channel = ensureChannel(tripId, who);
         final ChatMembership member = materialize(channel, target, Instant.now());
         final ChatMembership muted = member.withMute(until, who.id(), reason);
-        final boolean ok = dao().saveChatMembership(muted).join();
+        final boolean ok = dao().saveChatMembership(muted);
         if (ok) {
             audit(AuditAction.CHAT_ADMIN, who, AuditEventBuilder.TARGET_CHAT_CHANNEL,
                     channel.getId().getValue(),
@@ -1596,11 +1598,11 @@ public class ChatCommands {
             return false;
         }
         final ChatChannel channel = ensureChannel(tripId, who);
-        final Optional<ChatMembership> row = dao().getChatMembership(channel.getId(), target).join();
+        final Optional<ChatMembership> row = dao().getChatMembership(channel.getId(), target);
         if (row.isEmpty()) {
             return true;
         }
-        final boolean ok = dao().saveChatMembership(row.get().withUnmuted()).join();
+        final boolean ok = dao().saveChatMembership(row.get().withUnmuted());
         if (ok) {
             audit(AuditAction.CHAT_ADMIN, who, AuditEventBuilder.TARGET_CHAT_CHANNEL,
                     channel.getId().getValue(), "unmute person=" + target.getValue());
@@ -1620,7 +1622,7 @@ public class ChatCommands {
         // Materialise even for implicit members — absent row ⇒ JOINED, so REMOVE must write a row.
         final ChatMembership member = materialize(channel, target, now);
         final ChatMembership removed = member.withRemoved(now, reason, who.id());
-        final boolean ok = dao().saveChatMembership(removed).join();
+        final boolean ok = dao().saveChatMembership(removed);
         if (ok) {
             audit(AuditAction.CHAT_ADMIN, who, AuditEventBuilder.TARGET_CHAT_CHANNEL,
                     channel.getId().getValue(),
@@ -1648,7 +1650,7 @@ public class ChatCommands {
         }
         final ChatChannel channel = ensureChannel(tripId, who);
         final Instant now = Instant.now();
-        final Optional<ChatMembership> existing = dao().getChatMembership(channel.getId(), target).join();
+        final Optional<ChatMembership> existing = dao().getChatMembership(channel.getId(), target);
         final ChatMembership base = existing.orElseGet(() -> new ChatMembership(
                 channel.getId(), target, ChatMembership.MemberState.JOINED,
                 ChatMembership.MemberRole.MEMBER, now, null, null, null,
@@ -1656,7 +1658,7 @@ public class ChatCommands {
         final ChatMembership added = existing.isPresent()
                 ? base.withRejoined(now, who.id())
                 : base.withState(ChatMembership.MemberState.JOINED);
-        final boolean ok = dao().saveChatMembership(added).join();
+        final boolean ok = dao().saveChatMembership(added);
         if (ok) {
             final String prior = existing.map(m -> m.getState().name()).orElse("implicit");
             audit(AuditAction.CHAT_ADMIN, who, AuditEventBuilder.TARGET_CHAT_CHANNEL,
@@ -1675,7 +1677,7 @@ public class ChatCommands {
     }
 
     public String addWarningText(final ChatChannel channel, final Person.Id target) {
-        final Optional<ChatMembership> row = dao().getChatMembership(channel.getId(), target).join();
+        final Optional<ChatMembership> row = dao().getChatMembership(channel.getId(), target);
         final Person person = PersonCommands.getPersonCommands().getPerson(target);
         final String name = person == null ? target.getValue() : person.getPreferredName();
         if (row.isEmpty()) {
@@ -1726,7 +1728,7 @@ public class ChatCommands {
         if (before.isFullHistoryForNewMembers() && !newSettings.isFullHistoryForNewMembers()) {
             backfillRoster(channel);
         }
-        final boolean ok = dao().saveChatChannel(updated).join();
+        final boolean ok = dao().saveChatChannel(updated);
         if (ok) {
             audit(AuditAction.CHAT_ADMIN, who, AuditEventBuilder.TARGET_CHAT_CHANNEL,
                     channel.getId().getValue(), describeSettingsChange(before, newSettings));
@@ -1800,10 +1802,10 @@ public class ChatCommands {
             return;
         }
         for (final Person.Id pid : trip.getPeople()) {
-            final Optional<ChatMembership> row = dao().getChatMembership(channel.getId(), pid).join();
+            final Optional<ChatMembership> row = dao().getChatMembership(channel.getId(), pid);
             if (row.isEmpty()) {
                 final ChatMembership m = ChatMembership.joining(channel.getId(), pid, channel.getCreated());
-                dao().saveChatMembership(m).join();
+                dao().saveChatMembership(m);
             }
         }
     }
@@ -1811,12 +1813,12 @@ public class ChatCommands {
     // --- my chats ---
 
     public List<ChatSummary> myChats(final Person.Id personId) {
-        final List<Trip> trips = dao().getTripsForUser(personId).join();
+        final List<Trip> trips = dao().getTripsForUser(personId);
         final Map<String, String> lastAct = dao().getCacheClient().getHash(CacheKeys.CHAT_LAST_ACTIVITY);
         final List<ChatSummary> out = new ArrayList<>();
         for (final Trip trip : trips) {
             final ChatChannel.Id cid = ChatChannel.Id.forTrip(trip.getId());
-            final ChatChannel channel = dao().getChatChannel(cid).join().orElse(null);
+            final ChatChannel channel = dao().getChatChannel(cid).orElse(null);
             if (channel == null) {
                 continue;
             }
@@ -1836,7 +1838,7 @@ public class ChatCommands {
         if (channel == null) {
             return List.of();
         }
-        return dao().listChatMembers(channel.getId()).join();
+        return dao().listChatMembers(channel.getId());
     }
 
     // --- JSF helpers ---
@@ -1889,7 +1891,7 @@ public class ChatCommands {
     private ChatMembership materialize(final ChatChannel channel, final Person.Id personId, final Instant now) {
         // An implicit member has been in the channel since it existed, so that is their joinedAt floor.
         final Instant since = channel.getCreated() == null ? now : channel.getCreated();
-        return dao().getChatMembership(channel.getId(), personId).join()
+        return dao().getChatMembership(channel.getId(), personId)
                 .orElseGet(() -> ChatMembership.joining(channel.getId(), personId, since));
     }
 
@@ -1897,7 +1899,7 @@ public class ChatCommands {
         if (channel == null || channel.getTripId() == null) {
             return null;
         }
-        return dao().getTrip(channel.getTripId()).join().orElse(null);
+        return dao().getTrip(channel.getTripId()).orElse(null);
     }
 
     private DAO dao() {

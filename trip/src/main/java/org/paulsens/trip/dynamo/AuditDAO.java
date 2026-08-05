@@ -73,14 +73,14 @@ public class AuditDAO {
      * @return true if it was stored. False means the record did not reach the table -- the caller (the sink)
      *         still has it and prints it, so it is not lost, only unindexed.
      */
-    protected CompletableFuture<Boolean> saveAuditEvent(final AuditEvent event) {
+    protected Boolean saveAuditEvent(final AuditEvent event) {
         return saveWithRetry(event, 0);
     }
 
-    private CompletableFuture<Boolean> saveWithRetry(final AuditEvent event, final int attempt) {
+    private Boolean saveWithRetry(final AuditEvent event, final int attempt) {
         if (attempt >= MAX_WRITE_RETRIES) {
             log.warn("Audit record could not find a free key after {} attempts: {}", MAX_WRITE_RETRIES, event);
-            return CompletableFuture.completedFuture(false);
+            return false;
         }
         final Map<String, AttributeValue> item = new HashMap<>();
         item.put(PARTITION, persistence.toStrAttr(event.getPartition()));
@@ -90,18 +90,18 @@ public class AuditDAO {
             json = mapper.writeValueAsString(event);
         } catch (final IOException ex) {
             log.error("Unable to serialize audit event: {}", event, ex);
-            return CompletableFuture.completedFuture(false);
+            return false;
         }
         item.put(CONTENT, persistence.toStrAttr(json));
 
         try {
-            return CompletableFuture.completedFuture(
+            return 
                     persistence.putItem(b -> b.tableName(AUDIT_TABLE)
                                     .item(item)
                                     // The whole reason writes are conditional: without this, a same-millisecond
                                     // collision silently replaces an existing audit record instead of failing.
                                     .conditionExpression("attribute_not_exists(" + SORT + ")"))
-                            .sdkHttpResponse().isSuccessful());
+                            .sdkHttpResponse().isSuccessful();
         } catch (final RuntimeException ex) {
             if (isConditionalFailure(ex)) {
                 // Taken. Move one millisecond later, which keeps this record AFTER the one already
@@ -109,7 +109,7 @@ public class AuditDAO {
                 return saveWithRetry(event.withNextMilli(), attempt + 1);
             }
             log.warn("Unable to store audit event (it remains in the log stream): {}", event, ex);
-            return CompletableFuture.completedFuture(false);
+            return false;
         }
     }
 
@@ -130,14 +130,14 @@ public class AuditDAO {
      * @param query what to look for and where to resume from.
      * @return the matching events plus how far back the search actually reached.
      */
-    protected CompletableFuture<AuditPage> getAuditEvents(final AuditQuery query) {
+    protected AuditPage getAuditEvents(final AuditQuery query) {
         final LocalDate startDay = (query.getBefore() == null)
                 ? LocalDate.now(ZoneOffset.UTC)
                 : LocalDate.ofInstant(query.getBefore(), ZoneOffset.UTC);
         return walkBackwards(query, startDay, new ArrayList<>(), 0, new java.util.concurrent.atomic.AtomicInteger());
     }
 
-    private CompletableFuture<AuditPage> walkBackwards(final AuditQuery query, final LocalDate day,
+    private AuditPage walkBackwards(final AuditQuery query, final LocalDate day,
             final List<AuditEvent> collected, final int daysExamined,
             final java.util.concurrent.atomic.AtomicInteger failures) {
         final boolean exhausted = daysExamined >= MAX_DAYS_PER_PAGE
@@ -149,14 +149,11 @@ public class AuditDAO {
                     : collected;
             // "Searched back to" is the honest part: with a bounded walk, an empty page means "nothing in this
             // window", and the caller must be able to tell that apart from "nothing at all".
-            return CompletableFuture.completedFuture(
-                    new AuditPage(page, day.plusDays(1), !exhausted, failures.get()));
+            return 
+                    new AuditPage(page, day.plusDays(1), !exhausted, failures.get());
         }
-        return queryDay(query, day, failures)
-                .thenCompose(dayEvents -> {
-                    collected.addAll(dayEvents);
-                    return walkBackwards(query, day.minusDays(1), collected, daysExamined + 1, failures);
-                });
+        collected.addAll(queryDay(query, day, failures));
+        return walkBackwards(query, day.minusDays(1), collected, daysExamined + 1, failures);
     }
 
     /**
@@ -168,7 +165,7 @@ public class AuditDAO {
      * the page rendered "no records" for a table holding 36,000 of them, because the per-day catch below turned
      * each failure into an empty list. {@code ts} is aliased too, for the next person who renames a key.
      */
-    private CompletableFuture<List<AuditEvent>> queryDay(final AuditQuery query, final LocalDate day,
+    private List<AuditEvent> queryDay(final AuditQuery query, final LocalDate day,
             final java.util.concurrent.atomic.AtomicInteger failures) {
         final Map<String, AttributeValue> values = new HashMap<>();
         values.put(":day", persistence.toStrAttr(day.toString()));
@@ -184,7 +181,7 @@ public class AuditDAO {
         }
 
         try {
-            return CompletableFuture.completedFuture(persistence.queryAll(b -> {
+            return persistence.queryAll(b -> {
                 b.tableName(AUDIT_TABLE)
                         .keyConditionExpression(keyCond.toString())
                         .expressionAttributeNames(names)
@@ -198,14 +195,14 @@ public class AuditDAO {
                     .map(content -> parseEvent(content.s()))
                     .filter(event -> event != null)
                     .filter(query::matches)
-                    .toList());
+                    .toList();
         } catch (final RuntimeException ex) {
             // One unreadable day must not blank the whole page -- but it MUST be counted. Swallowing
             // this silently is how a reserved-word error in every single query presented as "no
             // records" over a table holding 36,000 of them.
             log.warn("Unable to read audit partition {}", day, ex);
             failures.incrementAndGet();
-            return CompletableFuture.completedFuture(List.of());
+            return List.of();
         }
     }
 
@@ -213,13 +210,11 @@ public class AuditDAO {
      * Every event in a window, oldest first -- for CSV export, which wants the whole range rather than a page.
      * Bounded by the same day budget so an export cannot become an unbounded table walk.
      */
-    protected CompletableFuture<List<AuditEvent>> exportAuditEvents(final AuditQuery query) {
+    protected List<AuditEvent> exportAuditEvents(final AuditQuery query) {
         final AuditQuery unlimited = query.withLimit(Integer.MAX_VALUE);
-        return getAuditEvents(unlimited).thenApply(page -> {
-            final List<AuditEvent> events = new ArrayList<>(page.getEvents());
-            events.sort(java.util.Comparator.comparing(AuditEvent::getTimestamp));
-            return events;
-        });
+        final List<AuditEvent> events = new ArrayList<>(getAuditEvents(unlimited).getEvents());
+        events.sort(java.util.Comparator.comparing(AuditEvent::getTimestamp));
+        return events;
     }
 
     /** How long the walk may span, for callers that want to explain the window to a user. */

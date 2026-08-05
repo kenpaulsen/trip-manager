@@ -19,12 +19,12 @@ public class DynamoLocalHarnessTest {
                 .last("Person")
                 .build();
 
-        Assert.assertTrue(dao.savePerson(person).join());
+        Assert.assertTrue(dao.savePerson(person));
 
         // A SECOND DAO: no shared cache, so this can only be answered by the store itself.
         final PersonDAO fresh = new PersonDAO(
                 new ObjectMapper().findAndRegisterModules(), DynamoLocal.persistence());
-        final Optional<Person> found = fresh.getPerson(person.getId()).join();
+        final Optional<Person> found = fresh.getPerson(person.getId());
 
         Assert.assertTrue(found.isPresent(), "The row must come back from the engine, not from a cache");
         Assert.assertEquals(found.get().getFirst(), "Harness");

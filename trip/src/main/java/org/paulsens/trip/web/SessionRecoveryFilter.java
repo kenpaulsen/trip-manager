@@ -166,7 +166,7 @@ public class SessionRecoveryFilter implements Filter {
                         .text(AUDIT_PREFIX)
                         .limit(AUDIT_SCAN_LIMIT)
                         .build())
-                .join();
+                ;
         return page.getEvents().stream()
                 .anyMatch(e -> e.getMessage() != null && e.getMessage().contains("session=" + key));
     }

@@ -59,7 +59,7 @@ public class AuditViewCommands {
                 .limit(limit <= 0 ? AuditQuery.DEFAULT_LIMIT : limit)
                 .build();
         try {
-            return DAO.getInstance().getAuditEvents(query).join();
+            return DAO.getInstance().getAuditEvents(query);
         } catch (final RuntimeException ex) {
             // The audit page failing is annoying; the audit page throwing a 500 during an incident is worse.
             log.error("Unable to read the audit trail", ex);
@@ -106,7 +106,7 @@ public class AuditViewCommands {
                 .build();
         final List<AuditEvent> events;
         try {
-            events = DAO.getInstance().exportAuditEvents(query).join();
+            events = DAO.getInstance().exportAuditEvents(query);
         } catch (final RuntimeException ex) {
             log.error("Unable to export the audit trail", ex);
             return "error\nCould not read the audit trail; see the application log.\n";

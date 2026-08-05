@@ -29,8 +29,8 @@ public class RegistrationDAOTest {
         final String tripId = RandomData.genAlpha(10);
         final Person.Id userId = Person.Id.newInstance();
         final Registration reg = new Registration(tripId, userId);
-        assertTrue(get(dao.saveRegistration(reg)));
-        final Optional<Registration> found = get(dao.getRegistration(tripId, userId));
+        assertTrue(dao.saveRegistration(reg));
+        final Optional<Registration> found = dao.getRegistration(tripId, userId);
         assertTrue(found.isPresent());
         assertEquals(found.get().getTripId(), tripId);
         assertEquals(found.get().getUserId(), userId);
@@ -38,14 +38,14 @@ public class RegistrationDAOTest {
 
     @Test
     public void getRegistrationsReturnsEmptyListForUnknownTrip() {
-        final List<Registration> regs = get(dao.getRegistrations(RandomData.genAlpha(10)));
+        final List<Registration> regs = dao.getRegistrations(RandomData.genAlpha(10));
         assertTrue(regs.isEmpty());
     }
 
     @Test
     public void getRegistrationReturnsEmptyForUnknownUser() {
         final String tripId = RandomData.genAlpha(10);
-        final Optional<Registration> result = get(dao.getRegistration(tripId, Person.Id.newInstance()));
+        final Optional<Registration> result = dao.getRegistration(tripId, Person.Id.newInstance());
         assertTrue(result.isEmpty());
     }
 
@@ -55,10 +55,10 @@ public class RegistrationDAOTest {
         final Person.Id user1 = Person.Id.newInstance();
         final Person.Id user2 = Person.Id.newInstance();
         final Person.Id user3 = Person.Id.newInstance();
-        get(dao.saveRegistration(new Registration(tripId, user1)));
-        get(dao.saveRegistration(new Registration(tripId, user2)));
-        get(dao.saveRegistration(new Registration(tripId, user3)));
-        final List<Registration> regs = get(dao.getRegistrations(tripId));
+        dao.saveRegistration(new Registration(tripId, user1));
+        dao.saveRegistration(new Registration(tripId, user2));
+        dao.saveRegistration(new Registration(tripId, user3));
+        final List<Registration> regs = dao.getRegistrations(tripId);
         assertEquals(regs.size(), 3);
     }
 
@@ -67,10 +67,10 @@ public class RegistrationDAOTest {
         final String trip1 = RandomData.genAlpha(10);
         final String trip2 = RandomData.genAlpha(10);
         final Person.Id user = Person.Id.newInstance();
-        get(dao.saveRegistration(new Registration(trip1, user)));
-        get(dao.saveRegistration(new Registration(trip2, user)));
-        assertEquals(get(dao.getRegistrations(trip1)).size(), 1);
-        assertEquals(get(dao.getRegistrations(trip2)).size(), 1);
+        dao.saveRegistration(new Registration(trip1, user));
+        dao.saveRegistration(new Registration(trip2, user));
+        assertEquals(dao.getRegistrations(trip1).size(), 1);
+        assertEquals(dao.getRegistrations(trip2).size(), 1);
     }
 
     @Test
@@ -78,9 +78,9 @@ public class RegistrationDAOTest {
         final String tripId = RandomData.genAlpha(10);
         final Person.Id userId = Person.Id.newInstance();
         final Registration reg = new Registration(tripId, userId);
-        get(dao.saveRegistration(reg));
-        get(dao.saveRegistration(reg));
-        assertEquals(get(dao.getRegistrations(tripId)).size(), 1);
+        dao.saveRegistration(reg);
+        dao.saveRegistration(reg);
+        assertEquals(dao.getRegistrations(tripId).size(), 1);
     }
 
     @Test
@@ -88,8 +88,8 @@ public class RegistrationDAOTest {
         final String tripId = RandomData.genAlpha(10);
         final Person.Id userId = Person.Id.newInstance();
         final Registration confirmed = new Registration(tripId, userId).withStatus(Registration.Status.CONFIRMED);
-        get(dao.saveRegistration(confirmed));
-        final Registration retrieved = get(dao.getRegistration(tripId, userId)).orElse(null);
+        dao.saveRegistration(confirmed);
+        final Registration retrieved = dao.getRegistration(tripId, userId).orElse(null);
         assertNotNull(retrieved);
         assertEquals(retrieved.getStatus(), Registration.Status.CONFIRMED);
     }
@@ -104,31 +104,24 @@ public class RegistrationDAOTest {
     @Test
     public void clearingTheCacheDoesNotLoseTheRow() throws IOException {
         final String tripId = RandomData.genAlpha(10);
-        get(dao.saveRegistration(new Registration(tripId, Person.Id.newInstance())));
-        assertEquals(get(dao.getRegistrations(tripId)).size(), 1);
+        dao.saveRegistration(new Registration(tripId, Person.Id.newInstance()));
+        assertEquals(dao.getRegistrations(tripId).size(), 1);
 
         dao.clearCache();
 
-        assertEquals(get(dao.getRegistrations(tripId)).size(), 1);
+        assertEquals(dao.getRegistrations(tripId).size(), 1);
     }
 
     @Test
     public void updatingRegistrationReplacesInCache() throws IOException {
         final String tripId = RandomData.genAlpha(10);
         final Person.Id userId = Person.Id.newInstance();
-        get(dao.saveRegistration(new Registration(tripId, userId)));
-        assertEquals(get(dao.getRegistration(tripId, userId)).get().getStatus(), Registration.Status.NOT_REGISTERED);
+        dao.saveRegistration(new Registration(tripId, userId));
+        assertEquals(dao.getRegistration(tripId, userId).get().getStatus(), Registration.Status.NOT_REGISTERED);
         final Registration updated = new Registration(tripId, userId).withStatus(Registration.Status.CONFIRMED);
-        get(dao.saveRegistration(updated));
-        assertEquals(get(dao.getRegistration(tripId, userId)).get().getStatus(), Registration.Status.CONFIRMED);
-        assertEquals(get(dao.getRegistrations(tripId)).size(), 1);
+        dao.saveRegistration(updated);
+        assertEquals(dao.getRegistration(tripId, userId).get().getStatus(), Registration.Status.CONFIRMED);
+        assertEquals(dao.getRegistrations(tripId).size(), 1);
+    }
     }
 
-    private <T> T get(final CompletableFuture<T> future) {
-        try {
-            return future.get(1_000, TimeUnit.MILLISECONDS);
-        } catch (final InterruptedException | ExecutionException | TimeoutException ex) {
-            throw new RuntimeException(ex);
-        }
-    }
-}

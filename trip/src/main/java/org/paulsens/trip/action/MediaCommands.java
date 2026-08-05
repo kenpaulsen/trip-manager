@@ -61,7 +61,7 @@ public class MediaCommands {
     /** @return every media item, newest first, for the admin page. */
     public List<MediaItem> getAll() {
         try {
-            return DAO.getInstance().getAllMedia().join().stream()
+            return DAO.getInstance().getAllMedia().stream()
                     .sorted(Comparator.comparing(MediaItem::getUploaded,
                             Comparator.nullsLast(Comparator.reverseOrder())))
                     .toList();
@@ -77,7 +77,7 @@ public class MediaCommands {
      */
     public List<MediaItem> getInSlot(final String slot) {
         try {
-            return DAO.getInstance().getMediaInSlot(slot).join();
+            return DAO.getInstance().getMediaInSlot(slot);
         } catch (final RuntimeException ex) {
             // A page must still render if the media table is unavailable; it just shows nothing in this slot.
             log.error("Unable to list media in slot: " + slot, ex);
@@ -137,7 +137,7 @@ public class MediaCommands {
                 (title == null || title.isBlank()) ? cleanKey : title.trim(),
                 description, contentType, size, slot, position, LocalDateTime.now(), uploadedBy);
         try {
-            if (!DAO.getInstance().saveMedia(item).join()) {
+            if (!DAO.getInstance().saveMedia(item)) {
                 // The object is stored but unlisted: say so plainly rather than reporting success, because the
                 // file exists at its URL and a retry would upload it again.
                 TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Partly uploaded",
@@ -165,7 +165,7 @@ public class MediaCommands {
             return null;
         }
         try {
-            return DAO.getInstance().getMedia(id).join().orElse(null);
+            return DAO.getInstance().getMedia(id).orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Unable to look up media: " + id, ex);
             return null;
@@ -204,7 +204,7 @@ public class MediaCommands {
                 (position == null) ? existing.getPosition() : position,
                 existing.getUploaded(), existing.getUploadedBy());
         try {
-            if (!DAO.getInstance().saveMedia(updated).join()) {
+            if (!DAO.getInstance().saveMedia(updated)) {
                 TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", "The save failed.");
                 return false;
             }
@@ -283,7 +283,7 @@ public class MediaCommands {
     public boolean delete(final String id, final String deletedBy) {
         final Optional<MediaItem> found;
         try {
-            found = DAO.getInstance().getMedia(id).join();
+            found = DAO.getInstance().getMedia(id);
         } catch (final RuntimeException ex) {
             log.error("Unable to look up media for delete: " + id, ex);
             return false;
@@ -293,7 +293,7 @@ public class MediaCommands {
         }
         final MediaItem item = found.get();
         try {
-            if (!DAO.getInstance().deleteMedia(id).join()) {
+            if (!DAO.getInstance().deleteMedia(id)) {
                 return false;
             }
         } catch (final RuntimeException ex) {

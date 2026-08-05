@@ -27,7 +27,7 @@ public class MediaEditTest {
         final MediaItem item = new MediaItem("edit-test-" + System.nanoTime(), key, "Original title",
                 "Original description", "image/jpeg", 2048L, "homepage", 3,
                 LocalDateTime.of(2021, 5, 4, 9, 30), "someone@example.com");
-        Assert.assertTrue(DAO.getInstance().saveMedia(item).join(), "seed should save");
+        Assert.assertTrue(DAO.getInstance().saveMedia(item), "seed should save");
         return item;
     }
 

@@ -97,7 +97,7 @@ public class ChatMentionDispatchTest {
 
     private Trip trip(final String tripId, final Person.Id... people) throws java.io.IOException {
         final Trip built = Trip.builder().id(tripId).title("Rome 2027").people(List.of(people)).build();
-        Assert.assertTrue(DAO.getInstance().saveTrip(built).join());
+        Assert.assertTrue(DAO.getInstance().saveTrip(built));
         return built;
     }
 

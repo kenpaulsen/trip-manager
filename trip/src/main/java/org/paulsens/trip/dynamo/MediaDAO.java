@@ -60,10 +60,10 @@ public class MediaDAO {
                 .build();
     }
 
-    protected CompletableFuture<Boolean> saveMedia(final MediaItem item) {
+    protected Boolean saveMedia(final MediaItem item) {
         if (item == null || item.getId() == null || item.getId().isBlank()) {
             log.warn("Refusing to save a media row with no id");
-            return CompletableFuture.completedFuture(false);
+            return false;
         }
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(ID, persistence.toStrAttr(item.getId()));
@@ -77,18 +77,18 @@ public class MediaDAO {
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(MEDIA_TABLE).item(map))
                     .sdkHttpResponse().isSuccessful();
-            return CompletableFuture.completedFuture(saved && cache.put(item));
+            return saved && cache.put(item);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
     /** Every media item, for the admin page. */
-    protected CompletableFuture<List<MediaItem>> getAllMedia() {
+    protected List<MediaItem> getAllMedia() {
         try {
-            return CompletableFuture.completedFuture(cache.getPartition(CacheKeys.MEDIA_PARTITION));
+            return cache.getPartition(CacheKeys.MEDIA_PARTITION);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
@@ -96,34 +96,34 @@ public class MediaDAO {
      * Items placed in the given slot, ordered by position then upload time. Filtered in memory on purpose: the
      * whole table is already one cached hash, so a slot query costs nothing beyond the filter and needs no GSI.
      */
-    protected CompletableFuture<List<MediaItem>> getMediaInSlot(final String slot) {
+    protected List<MediaItem> getMediaInSlot(final String slot) {
         if (slot == null || slot.isBlank()) {
-            return CompletableFuture.completedFuture(List.of());
+            return List.of();
         }
         final String wanted = slot.trim();
-        return getAllMedia().thenApply(all -> all.stream()
+        return getAllMedia().stream()
                 .filter(item -> wanted.equalsIgnoreCase(item.getSlot()))
                 .sorted(Comparator.comparingInt(MediaItem::getPosition)
                         .thenComparing(MediaItem::getUploaded,
                                 Comparator.nullsLast(Comparator.naturalOrder())))
-                .toList());
+                .toList();
     }
 
-    protected CompletableFuture<Optional<MediaItem>> getMedia(final String id) {
+    protected Optional<MediaItem> getMedia(final String id) {
         if (id == null) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Optional.empty();
         }
         try {
-            return CompletableFuture.completedFuture(
-                    cache.getOne(CacheKeys.MEDIA_PARTITION, id, () -> pointReadMedia(id)));
+            return 
+                    cache.getOne(CacheKeys.MEDIA_PARTITION, id, () -> pointReadMedia(id));
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
-    protected CompletableFuture<Boolean> deleteMedia(final String id) {
+    protected Boolean deleteMedia(final String id) {
         if (id == null || id.isBlank()) {
-            return CompletableFuture.completedFuture(false);
+            return false;
         }
         final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id).build());
         try {
@@ -134,9 +134,9 @@ public class MediaDAO {
             if (deleted) {
                 cache.invalidate();
             }
-            return CompletableFuture.completedFuture(deleted);
+            return deleted;
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 

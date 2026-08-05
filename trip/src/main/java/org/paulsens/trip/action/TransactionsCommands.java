@@ -42,14 +42,12 @@ public class TransactionsCommands {
         // FIXME: Add Validations
         boolean result;
         try {
-            result = DAO.getInstance()
-                    .saveTransaction(tx)
-                    .exceptionally(ex -> {
-                        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                                "Unable to save transaction for userId: " + tx.getUserId().getValue(), ex.getMessage());
-                        log.error("Error while saving transaction: ", ex);
-                        return false;
-                    }).join();
+            result = DAO.getInstance().saveTransaction(tx);
+        } catch (final RuntimeException ex) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
+                    "Unable to save transaction for userId: " + tx.getUserId().getValue(), ex.getMessage());
+            log.error("Error while saving transaction: ", ex);
+            result = false;
         } catch (final IOException ex) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Unable to save transaction for userId: "
                     + tx.getUserId().getValue(), ex.getMessage());
@@ -63,25 +61,28 @@ public class TransactionsCommands {
         if (userId == null) {
             return List.of();
         }
-        return DAO.getInstance().getTransactions(userId)
-                .exceptionally(ex -> {
-                    log.error("Error querying transactions for user {}: ", userId.getValue(), ex);
-                    return Collections.emptyList();
-                }).join();
+        try {
+            return DAO.getInstance().getTransactions(userId);
+        } catch (final RuntimeException ex) {
+            log.error("Error querying transactions for user {}: ", userId.getValue(), ex);
+            return Collections.emptyList();
+        }
     }
 
     public List<Transaction> getTripTransactions(final String tripId) {
-        return DAO.getInstance().getTrip(tripId)
-                .thenApply(optTrip -> optTrip.map(Trip::getPeople))
-                .thenApply(optPeople -> optPeople.orElse(List.of()))
-                .thenApply(people -> people.stream().flatMap(id -> getTransactions(id).stream()).toList())
-                .exceptionally(ex -> {
-                    // Same contract as every other read here: a store failure logs and renders empty rather
-                    // than blank-paging the finance view. This was the one read that propagated raw.
-                    log.error("Error querying transactions for trip {}: ", tripId, ex);
-                    return Collections.emptyList();
-                })
-                .join();
+        try {
+            return DAO.getInstance().getTrip(tripId)
+                    .map(Trip::getPeople)
+                    .orElse(List.of())
+                    .stream()
+                    .flatMap(id -> getTransactions(id).stream())
+                    .toList();
+        } catch (final RuntimeException ex) {
+            // Same contract as every other read here: a store failure logs and renders empty rather
+            // than blank-paging the finance view. This was the one read that propagated raw.
+            log.error("Error querying transactions for trip {}: ", tripId, ex);
+            return Collections.emptyList();
+        }
     }
 
     public Transaction getTransaction(final Person.Id userId, final String txId) {
@@ -92,22 +93,23 @@ public class TransactionsCommands {
             // Create a new Tx
             return createTransaction(userId);
         }
-        return DAO.getInstance().getTransaction(userId, txId)
-                .exceptionally(ex -> {
-                    log.error("Error while getting Tx ({}) for userId: '{}'!", txId, userId, ex);
-                    return Optional.empty();
-                }).join().orElse(null);
+        try {
+            return DAO.getInstance().getTransaction(userId, txId).orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Error while getting Tx ({}) for userId: '{}'!", txId, userId, ex);
+            return null;
+        }
     }
 
     public boolean hasTransaction(final Person.Id userId, final String txId) {
         if (userId == null || txId == null) {
             throw new IllegalArgumentException("You must provide the userId and a txId!");
         }
-        return DAO.getInstance()
-            .getTransaction(userId, txId)
-            .exceptionally(_ -> Optional.empty())
-            .orTimeout(5_000, TimeUnit.MILLISECONDS).join()
-            .isPresent();
+        try {
+            return DAO.getInstance().getTransaction(userId, txId).isPresent();
+        } catch (final RuntimeException ex) {
+            return false;
+        }
     }
 
     public Transaction getBoundTransaction(final String id, final String bindingType) {
@@ -223,8 +225,8 @@ public class TransactionsCommands {
      * @return  Optionally the matching {@code Transaction}.
      */
     public Optional<Transaction> getGroupTransactionForUser(final Person.Id userId, final String groupId) {
-        return DAO.getInstance().getTransactions(userId).thenApply(
-                txs -> txs.stream().filter(tx -> groupId.equals(tx.getGroupId())).findAny()).join();
+        return DAO.getInstance().getTransactions(userId).stream()
+                .filter(tx -> groupId.equals(tx.getGroupId())).findAny();
     }
 
     /**

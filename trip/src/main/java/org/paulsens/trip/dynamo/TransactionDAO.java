@@ -52,26 +52,26 @@ public class TransactionDAO {
                 .build();
     }
 
-    protected CompletableFuture<List<Transaction>> getTransactions(final Person.Id userId) {
+    protected List<Transaction> getTransactions(final Person.Id userId) {
         try {
-            return CompletableFuture.completedFuture(persistence.sortList(
+            return persistence.sortList(
                     cache.getAll(userId.getValue(), () -> loadUserTxData(userId)),
-                    Comparator.comparing(Transaction::getTxDate)));
+                    Comparator.comparing(Transaction::getTxDate));
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
-    protected CompletableFuture<Optional<Transaction>> getTransaction(final Person.Id userId, final String txId) {
+    protected Optional<Transaction> getTransaction(final Person.Id userId, final String txId) {
         try {
-            return CompletableFuture.completedFuture(
-                    cache.getOne(userId.getValue(), txId, () -> loadUserTxData(userId)));
+            return 
+                    cache.getOne(userId.getValue(), txId, () -> loadUserTxData(userId));
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
-    protected CompletableFuture<Boolean> saveTransaction(final Transaction tx) throws IOException {
+    protected Boolean saveTransaction(final Transaction tx) throws IOException {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(USER_ID, AttributeValue.builder().s(tx.getUserId().getValue()).build());
         map.put(TX_ID, AttributeValue.builder().s(tx.getTxId()).build());
@@ -79,10 +79,10 @@ public class TransactionDAO {
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(TRANSACTION_TABLE).item(map))
                     .sdkHttpResponse().isSuccessful();
-            return CompletableFuture.completedFuture(saved && updateCacheForTx(tx));
+            return saved && updateCacheForTx(tx);
         } catch (final RuntimeException ex) {
             // Shim until Phase 5: persistence failures are synchronous now but callers expect a failed future.
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 

@@ -82,7 +82,7 @@ public final class EmailChatNotifier implements ChatNotifier {
         if (!claim(dedupe)) {
             return;
         }
-        final Person person = DAO.getInstance().getPerson(recipient).join().orElse(null);
+        final Person person = DAO.getInstance().getPerson(recipient).orElse(null);
         final String to = person == null ? null : mail.formatEmail(person);
         if (to == null) {
             log.debug("Skipping chat notification for {}: no usable email address", recipient);

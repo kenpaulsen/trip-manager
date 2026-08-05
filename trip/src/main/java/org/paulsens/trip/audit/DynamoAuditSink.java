@@ -86,7 +86,7 @@ public final class DynamoAuditSink implements AuditSink {
     }
 
     private void store(final AuditEvent event) {
-        final boolean stored = DAO.getInstance().saveAuditEvent(event).join();
+        final boolean stored = DAO.getInstance().saveAuditEvent(event);
         if (!stored) {
             // Print it so the record still reaches the application log group; the ledger already has it, but a
             // record missing from the index is a record the admin page will never show.

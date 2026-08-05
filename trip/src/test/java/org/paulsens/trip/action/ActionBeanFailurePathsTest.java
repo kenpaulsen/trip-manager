@@ -33,12 +33,12 @@ public class ActionBeanFailurePathsTest {
     private DAO dao;
 
     @BeforeMethod
-    public void failEveryFuture() {
-        // Any DAO method that answers a future answers a FAILED one; everything else gets Mockito defaults.
-        dao = Mockito.mock(DAO.class, invocation ->
-                CompletableFuture.class.isAssignableFrom(invocation.getMethod().getReturnType())
-                        ? CompletableFuture.failedFuture(new IllegalStateException("store is down"))
-                        : Mockito.RETURNS_DEFAULTS.answer(invocation));
+    public void failEveryRead() {
+        // Since the virtual-threads port DAO methods are direct calls, so "the store is down" is a THROW --
+        // exactly what the beans' try/catch fallbacks (formerly exceptionally handlers) must absorb.
+        dao = Mockito.mock(DAO.class, invocation -> {
+            throw new IllegalStateException("store is down");
+        });
         daoStatic = Mockito.mockStatic(DAO.class);
         daoStatic.when(DAO::getInstance).thenReturn(dao);
     }
@@ -69,6 +69,21 @@ public class ActionBeanFailurePathsTest {
         Assert.assertNull(trips.getTripEvent("evt-1"));
     }
 
+    /** Credential lookups fail soft to null; a privilege save failure maps to false (both logged). */
+    @Test
+    public void credentialAndPrivilegeFailureTails() {
+        final PassCommands pass = new PassCommands();
+        Assert.assertNull(pass.getCreds("who@example.org", "pw"),
+                "a store failure during login must answer null, not blank-page JSF");
+        Assert.assertNull(pass.getCredsByAdmin("who@example.org", Person.Id.from("u")));
+
+        final PrivilegeCommands privs = new PrivilegeCommands();
+        Assert.assertFalse(privs.savePrivilege(
+                        new org.paulsens.trip.model.Privilege("failPriv", "d", java.util.List.of()),
+                        org.paulsens.trip.audit.AuditActor.system()),
+                "a refused privilege write maps to false");
+    }
+
     @Test
     public void personReadsFailSoftExceptByEmailWhichRethrows() {
         final PersonCommands people = new PersonCommands();
@@ -76,7 +91,7 @@ public class ActionBeanFailurePathsTest {
         Assert.assertFalse(people.savePerson(new Person()));
         // Deliberately different from the rest: a store failure during login lookup must not read as
         // "no such account", so this one rethrows rather than answering null.
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+        Assert.assertThrows(IllegalStateException.class,
                 () -> people.getPersonByEmail("x@example.org"));
         Assert.assertTrue(people.searchPeople("ali").isEmpty());
     }

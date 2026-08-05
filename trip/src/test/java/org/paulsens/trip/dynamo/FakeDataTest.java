@@ -181,12 +181,5 @@ public class FakeDataTest {
         assertNotNull(creds);
         assertNotNull(creds.get(CredentialsDAO.LAST_LOGIN));
     }
-
-    private <T> T get(final CompletableFuture<T> future) {
-        try {
-            return future.get(1_000, TimeUnit.MILLISECONDS);
-        } catch (final InterruptedException | ExecutionException | TimeoutException ex) {
-            throw new RuntimeException(ex);
-        }
     }
-}
+

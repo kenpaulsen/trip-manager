@@ -61,12 +61,12 @@ public class TripCommands {
         // agree: a chat still listing people who are no longer on the trip is the wrong answer everywhere.
         final List<Person.Id> removed = peopleRemovedBy(trip);
         try {
-             result = DAO.getInstance().saveTrip(sortTripPeople(trip)).exceptionally(ex -> {
-                    TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Error saving '" + trip.getId()
-                            + "': " + trip.getTitle(), ex.getMessage());
-                     log.error("Error while saving trip: ", ex);
-                    return false;
-                }).join();
+            result = DAO.getInstance().saveTrip(sortTripPeople(trip));
+        } catch (final RuntimeException ex) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Error saving '" + trip.getId()
+                    + "': " + trip.getTitle(), ex.getMessage());
+            log.error("Error while saving trip: ", ex);
+            result = false;
         } catch (final IOException ex) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Unable to save '" + trip.getId() + "': "
                     + trip.getTitle(), ex.getMessage());
@@ -89,10 +89,8 @@ public class TripCommands {
         if (updated == null || updated.getId() == null) {
             return List.of();
         }
-        // exceptionally, not a bare join: this pre-read is advisory, and the save it precedes must survive it.
-        final Trip stored = DAO.getInstance().getTrip(updated.getId())
-                .exceptionally(ex -> Optional.empty())
-                .join().orElse(null);
+        // Advisory pre-read: the save it precedes must survive a failure here.
+        final Trip stored = advisoryGetTrip(updated.getId());
         if (stored == null) {
             return List.of();
         }
@@ -185,7 +183,7 @@ public class TripCommands {
 
     public Trip sortTripPeople(final Trip trip) {
         final List<Person.Id> sortedIdList = trip.getPeople().stream()
-                        .map(id -> DAO.getInstance().getPerson(id).join())
+                        .map(id -> DAO.getInstance().getPerson(id))
                         .map(opt -> opt.orElse(null))
                         .filter(Objects::nonNull)
                         .sorted()
@@ -196,11 +194,12 @@ public class TripCommands {
     }
 
     public List<Trip> getActiveTrips(final int pastDaysToCountAsActive) {
-        return DAO.getInstance().getActiveTrips(LocalDateTime.now().minus(pastDaysToCountAsActive, DAYS))
-                .exceptionally(ex -> {
-                    log.error("Failed to get active trips!", ex);
-                    return Collections.emptyList();
-                }).join();
+        try {
+            return DAO.getInstance().getActiveTrips(LocalDateTime.now().minus(pastDaysToCountAsActive, DAYS));
+        } catch (final RuntimeException ex) {
+            log.error("Failed to get active trips!", ex);
+            return Collections.emptyList();
+        }
     }
 
     /**
@@ -212,11 +211,12 @@ public class TripCommands {
             final Person.Id userId, final boolean isAdmin, final int pastDaysStillActive, final int limit) {
         final LocalDateTime cutoff = LocalDateTime.now().minus(pastDaysStillActive, DAYS);
         if (isAdmin) {
-            return DAO.getInstance().getInactiveTrips(cutoff, limit)
-                    .exceptionally(ex -> {
-                        log.error("Failed to get inactive trips!", ex);
-                        return Collections.emptyList();
-                    }).join();
+            try {
+                return DAO.getInstance().getInactiveTrips(cutoff, limit);
+            } catch (final RuntimeException ex) {
+                log.error("Failed to get inactive trips!", ex);
+                return Collections.emptyList();
+            }
         }
         return getTripsForUser(userId).stream()
                 .filter(trip -> trip.getEndDate() != null && trip.getEndDate().isBefore(cutoff))
@@ -230,19 +230,21 @@ public class TripCommands {
      * scan. Callers (e.g. XHTML dropdowns) pass the cap so it is configurable without a code change.
      */
     public List<Trip> getRecentTrips(final int limit) {
-        return DAO.getInstance().getRecentTrips(limit)
-                .exceptionally(ex -> {
-                    log.error("Failed to get recent trips!", ex);
-                    return Collections.emptyList();
-                }).join();
+        try {
+            return DAO.getInstance().getRecentTrips(limit);
+        } catch (final RuntimeException ex) {
+            log.error("Failed to get recent trips!", ex);
+            return Collections.emptyList();
+        }
     }
 
     public Trip getTrip(final String id) {
-        return DAO.getInstance().getTrip(id)
-                .exceptionally(ex -> {
-                    log.error("Failed to get trip '" + id + "'!", ex);
-                    return Optional.empty();
-                }).join().orElse(Trip.builder().build());
+        try {
+            return DAO.getInstance().getTrip(id).orElse(Trip.builder().build());
+        } catch (final RuntimeException ex) {
+            log.error("Failed to get trip '" + id + "'!", ex);
+            return Trip.builder().build();
+        }
     }
 
     public Trip getBoundTrip(final String id, final String bindingType) {
@@ -287,19 +289,29 @@ public class TripCommands {
         return result;
     }
 
+    private Trip advisoryGetTrip(final String tripId) {
+        try {
+            return DAO.getInstance().getTrip(tripId).orElse(null);
+        } catch (final RuntimeException ex) {
+            return null;
+        }
+    }
+
     public List<Trip> getTripsForUser(final Person.Id userId) {
-        return DAO.getInstance().getTripsForUser(userId)
-                .exceptionally(ex -> {
-                    log.error("Failed to get trips for user!", ex);
-                    return Collections.emptyList();
-                }).join();
+        try {
+            return DAO.getInstance().getTripsForUser(userId);
+        } catch (final RuntimeException ex) {
+            log.error("Failed to get trips for user!", ex);
+            return Collections.emptyList();
+        }
     }
 
     public TripEvent getTripEvent(final String eventId) {
-        return DAO.getInstance().getTripEvent(eventId)
-                .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-                .exceptionally(ex -> logAndReturn(ex, null))
-                .join();
+        try {
+            return DAO.getInstance().getTripEvent(eventId);
+        } catch (final RuntimeException ex) {
+            return logAndReturn(ex, null);
+        }
     }
 
     // This only works for flights
@@ -399,7 +411,7 @@ public class TripCommands {
      * @return The trip or null if not found.
      */
     private Trip findTrip(final String tripId) {
-        return DAO.getInstance().getTrip(tripId).join().orElse(null);
+        return DAO.getInstance().getTrip(tripId).orElse(null);
     }
 
     /**

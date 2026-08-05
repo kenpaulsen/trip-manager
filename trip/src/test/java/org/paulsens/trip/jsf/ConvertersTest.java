@@ -20,7 +20,7 @@ public class ConvertersTest {
         final Person person = new Person();
         person.setFirst("Converted");
         person.setLast("Person");
-        Assert.assertTrue(DAO.getInstance().savePerson(person).join());
+        Assert.assertTrue(DAO.getInstance().savePerson(person));
         return person;
     }
 
@@ -108,7 +108,7 @@ public class ConvertersTest {
     public void aTripEventRoundTripsThroughItsId() throws Exception {
         final TripEvent event = new TripEvent("converter-evt-" + System.nanoTime(), TripEvent.Type.EVENT,
                 "Concert", "notes", LocalDateTime.now(), null, null, null);
-        Assert.assertTrue(DAO.getInstance().saveTripEvent(event).join());
+        Assert.assertTrue(DAO.getInstance().saveTripEvent(event));
         final TripEventConverter converter = new TripEventConverter();
 
         Assert.assertEquals(converter.getAsString(null, null, event), event.getId());

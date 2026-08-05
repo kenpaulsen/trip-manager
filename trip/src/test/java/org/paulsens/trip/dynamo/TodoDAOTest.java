@@ -31,45 +31,45 @@ public class TodoDAOTest {
                 .dataId(DataId.newInstance())
                 .description("Buy sunscreen")
                 .build();
-        assertTrue(get(dao.saveTodo(todo)));
-        final Optional<TodoItem> found = get(dao.getTodoItem(todo.getTripId(), todo.getDataId()));
+        assertTrue(dao.saveTodo(todo));
+        final Optional<TodoItem> found = dao.getTodoItem(todo.getTripId(), todo.getDataId());
         assertTrue(found.isPresent());
         assertEquals(found.get(), todo);
     }
 
     @Test
     public void getTodoItemsReturnsEmptyForUnknownTrip() {
-        assertTrue(get(dao.getTodoItems(RandomData.genAlpha(10))).isEmpty());
+        assertTrue(dao.getTodoItems(RandomData.genAlpha(10)).isEmpty());
     }
 
     @Test
     public void getTodoItemReturnsEmptyForUnknownDataId() {
         final String tripId = RandomData.genAlpha(10);
-        assertTrue(get(dao.getTodoItem(tripId, DataId.newInstance())).isEmpty());
+        assertTrue(dao.getTodoItem(tripId, DataId.newInstance()).isEmpty());
     }
 
     @Test
     public void multipleTodosForSameTrip() throws IOException {
         final String tripId = RandomData.genAlpha(10);
         for (int i = 0; i < 5; i++) {
-            get(dao.saveTodo(TodoItem.builder()
+            dao.saveTodo(TodoItem.builder()
                     .tripId(tripId)
                     .dataId(DataId.newInstance())
                     .description("Todo " + i)
-                    .build()));
+                    .build());
         }
-        assertEquals(get(dao.getTodoItems(tripId)).size(), 5);
+        assertEquals(dao.getTodoItems(tripId).size(), 5);
     }
 
     @Test
     public void todosForDifferentTripsAreIsolated() throws IOException {
         final String trip1 = RandomData.genAlpha(10);
         final String trip2 = RandomData.genAlpha(10);
-        get(dao.saveTodo(TodoItem.builder().tripId(trip1).dataId(DataId.newInstance()).description("t1").build()));
-        get(dao.saveTodo(TodoItem.builder().tripId(trip1).dataId(DataId.newInstance()).description("t1b").build()));
-        get(dao.saveTodo(TodoItem.builder().tripId(trip2).dataId(DataId.newInstance()).description("t2").build()));
-        assertEquals(get(dao.getTodoItems(trip1)).size(), 2);
-        assertEquals(get(dao.getTodoItems(trip2)).size(), 1);
+        dao.saveTodo(TodoItem.builder().tripId(trip1).dataId(DataId.newInstance()).description("t1").build());
+        dao.saveTodo(TodoItem.builder().tripId(trip1).dataId(DataId.newInstance()).description("t1b").build());
+        dao.saveTodo(TodoItem.builder().tripId(trip2).dataId(DataId.newInstance()).description("t2").build());
+        assertEquals(dao.getTodoItems(trip1).size(), 2);
+        assertEquals(dao.getTodoItems(trip2).size(), 1);
     }
 
     @Test
@@ -80,9 +80,9 @@ public class TodoDAOTest {
                 .dataId(DataId.newInstance())
                 .description("Idempotent")
                 .build();
-        get(dao.saveTodo(todo));
-        get(dao.saveTodo(todo));
-        assertEquals(get(dao.getTodoItems(tripId)).size(), 1);
+        dao.saveTodo(todo);
+        dao.saveTodo(todo);
+        assertEquals(dao.getTodoItems(tripId).size(), 1);
     }
 
     @Test
@@ -91,12 +91,12 @@ public class TodoDAOTest {
         final DataId dataId = DataId.newInstance();
         final TodoItem original = TodoItem.builder()
                 .tripId(tripId).dataId(dataId).description("Original").build();
-        get(dao.saveTodo(original));
-        assertEquals(get(dao.getTodoItem(tripId, dataId)).get().getDescription(), "Original");
+        dao.saveTodo(original);
+        assertEquals(dao.getTodoItem(tripId, dataId).get().getDescription(), "Original");
         final TodoItem updated = TodoItem.builder()
                 .tripId(tripId).dataId(dataId).description("Updated").build();
-        get(dao.saveTodo(updated));
-        assertEquals(get(dao.getTodoItem(tripId, dataId)).get().getDescription(), "Updated");
+        dao.saveTodo(updated);
+        assertEquals(dao.getTodoItem(tripId, dataId).get().getDescription(), "Updated");
     }
 
     /**
@@ -109,13 +109,13 @@ public class TodoDAOTest {
     @Test
     public void clearingTheCacheDoesNotLoseTheRow() throws IOException {
         final String tripId = RandomData.genAlpha(10);
-        get(dao.saveTodo(TodoItem.builder()
-                .tripId(tripId).dataId(DataId.newInstance()).description("clear me").build()));
-        assertEquals(get(dao.getTodoItems(tripId)).size(), 1);
+        dao.saveTodo(TodoItem.builder()
+                .tripId(tripId).dataId(DataId.newInstance()).description("clear me").build());
+        assertEquals(dao.getTodoItems(tripId).size(), 1);
 
         dao.clearCache();
 
-        assertEquals(get(dao.getTodoItems(tripId)).size(), 1);
+        assertEquals(dao.getTodoItems(tripId).size(), 1);
     }
 
     @Test
@@ -126,17 +126,10 @@ public class TodoDAOTest {
                 .description("With details")
                 .moreDetails("These are the extra details")
                 .build();
-        get(dao.saveTodo(todo));
-        final TodoItem found = get(dao.getTodoItem(todo.getTripId(), todo.getDataId())).orElse(null);
+        dao.saveTodo(todo);
+        final TodoItem found = dao.getTodoItem(todo.getTripId(), todo.getDataId()).orElse(null);
         assertNotNull(found);
         assertEquals(found.getMoreDetails(), "These are the extra details");
     }
-
-    private <T> T get(final CompletableFuture<T> future) {
-        try {
-            return future.get(1_000, TimeUnit.MILLISECONDS);
-        } catch (final InterruptedException | ExecutionException | TimeoutException ex) {
-            throw new RuntimeException(ex);
-        }
     }
-}
+

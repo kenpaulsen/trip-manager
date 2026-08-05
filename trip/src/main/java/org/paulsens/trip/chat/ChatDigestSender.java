@@ -95,7 +95,7 @@ public class ChatDigestSender {
         // is exactly when people are still talking about it. So look back far enough to cover any archive setting
         // and let isArchived decide per channel -- that is the setting that actually closes a chat.
         final LocalDateTime cutoff = LocalDateTime.ofInstant(now.minus(CLOSED_TRIP_LOOKBACK), ZoneOffset.UTC);
-        for (final Trip trip : dao.getActiveTrips(cutoff).join()) {
+        for (final Trip trip : dao.getActiveTrips(cutoff)) {
             collectForTrip(out, trip, now);
         }
         return out;
@@ -105,7 +105,7 @@ public class ChatDigestSender {
         if (!trip.getChatEnabled()) {
             return;
         }
-        final ChatChannel channel = dao.getChatChannel(ChatChannel.Id.forTrip(trip.getId())).join().orElse(null);
+        final ChatChannel channel = dao.getChatChannel(ChatChannel.Id.forTrip(trip.getId())).orElse(null);
         if (channel == null || !digestAllowed(channel)) {
             return;
         }
@@ -113,7 +113,7 @@ public class ChatDigestSender {
         if (ChatVisibility.isArchived(channel, trip, now)) {
             return;
         }
-        for (final ChatMembership member : dao.listChatMembers(channel.getId()).join()) {
+        for (final ChatMembership member : dao.listChatMembers(channel.getId())) {
             collectForMember(out, channel, trip, member, now);
         }
     }
@@ -129,7 +129,7 @@ public class ChatDigestSender {
         }
         final ChatMessage.Id floor = digestFloor(channel, member, now);
         final ChatPage page = dao.getChatMessagesSince(
-                channel.getId(), floor, MAX_MESSAGES_PER_DIGEST, member, channel, trip, now).join();
+                channel.getId(), floor, MAX_MESSAGES_PER_DIGEST, member, channel, trip, now);
         // Tombstones do not count as news. They stay visible in the app on purpose -- a client holding the message
         // must be told it was withdrawn -- but "1 new message" that turns out to be "Message removed" is a mail
         // nobody wanted, and a digest of nothing but removals is worse.
@@ -172,7 +172,7 @@ public class ChatDigestSender {
             return false;
         }
         // this.dao, not DAO.getInstance(): the injected one is what the tests substitute.
-        return dao.getPerson(member.getPersonId()).join()
+        return dao.getPerson(member.getPersonId())
                 .map(Person::getEmail)
                 .filter(EmailAddresses::isValid)
                 .isPresent();
@@ -186,7 +186,7 @@ public class ChatDigestSender {
      */
     private ChatMessage.Id digestFloor(
             final ChatChannel channel, final ChatMembership member, final Instant now) {
-        final ChatMessage.Id cursor = dao.getChatCursor(channel.getId(), member.getPersonId()).join().orElse(null);
+        final ChatMessage.Id cursor = dao.getChatCursor(channel.getId(), member.getPersonId()).orElse(null);
         final ChatMessage.Id watermark = watermark(channel, member.getPersonId());
         // A hard floor, always applied. Both the cursor and the watermark live in the cache under a 7-day TTL, so
         // "no floor at all" is not exotic -- it is what a quiet week, a cache flush or a brand-new member produces.
@@ -230,7 +230,7 @@ public class ChatDigestSender {
     }
 
     private boolean deliver(final Candidate candidate) {
-        final Person person = dao.getPerson(candidate.personId()).join().orElse(null);
+        final Person person = dao.getPerson(candidate.personId()).orElse(null);
         final String to = person == null ? null : mail.formatEmail(person);
         if (to == null) {
             // Nothing to retry: they have no usable address. Treat as done so the run can finish.

@@ -34,17 +34,14 @@ public class PersonDataValueCommands {
     public static boolean savePersonDataValue(final PersonDataValue pdv) {
         boolean result;
         try {
-            result = DAO.getInstance()
-                    .savePersonDataValue(pdv)
-                    .orTimeout(DYNAMO_TIMEOUT, TimeUnit.MILLISECONDS)
-                    .exceptionally(ex -> {
-                        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                                "Error saving PersonDataValue '" + pdv.getDataId() + "' of type '" + pdv.getType()
-                                        + "' for user: '" + pdv.getUserId() + "'!",
-                                ex.getMessage());
-                        log.error("Error while saving PersonDataValue: ", ex);
-                        return false;
-                    }).join();
+            result = DAO.getInstance().savePersonDataValue(pdv);
+        } catch (final RuntimeException ex) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
+                    "Error saving PersonDataValue '" + pdv.getDataId() + "' of type '" + pdv.getType()
+                            + "' for user: '" + pdv.getUserId() + "'!",
+                    ex.getMessage());
+            log.error("Error while saving PersonDataValue: ", ex);
+            result = false;
         } catch (final IOException ex) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
                     "Error saving PersonDataValue '" + pdv.getDataId() + "' of type '" + pdv.getType()
@@ -56,13 +53,12 @@ public class PersonDataValueCommands {
     }
 
     public static Map<DataId, PersonDataValue> getPersonDataValues(final Person.Id userId) {
-        return DAO.getInstance()
-                .getPersonDataValues(userId)
-                .orTimeout(DYNAMO_TIMEOUT, TimeUnit.MILLISECONDS)
-                .exceptionally(ex -> {
-                    log.error("Failed to get PersonDataValues for user: '" + userId + "'!", ex);
-                    return new HashMap<>();
-                }).join();
+        try {
+            return DAO.getInstance().getPersonDataValues(userId);
+        } catch (final RuntimeException ex) {
+            log.error("Failed to get PersonDataValues for user: '" + userId + "'!", ex);
+            return new HashMap<>();
+        }
     }
 
     public static PersonDataValue getPersonDataValue(final Person.Id userId, final DataId pdvId) {
@@ -74,12 +70,11 @@ public class PersonDataValueCommands {
             log.error("getPersonDataValue() called with null PersonDataValue ID.");
             return null;
         }
-        return DAO.getInstance()
-                .getPersonDataValue(userId, pdvId)
-                .orTimeout(DYNAMO_TIMEOUT, TimeUnit.MILLISECONDS)
-                .exceptionally(ex -> {
-                    log.error("Failed to get PersonDataValue for user '" + userId + "' with id '" + pdvId + "'!", ex);
-                    return Optional.empty();
-                }).join().orElse(null);
+        try {
+            return DAO.getInstance().getPersonDataValue(userId, pdvId).orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Failed to get PersonDataValue for user '" + userId + "' with id '" + pdvId + "'!", ex);
+            return null;
+        }
     }
 }

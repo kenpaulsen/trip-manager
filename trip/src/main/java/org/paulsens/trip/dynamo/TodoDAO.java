@@ -53,7 +53,7 @@ public class TodoDAO {
                 .build();
     }
 
-    protected CompletableFuture<Boolean> saveTodo(final TodoItem todo) throws IOException {
+    protected Boolean saveTodo(final TodoItem todo) throws IOException {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(TRIP_ID, persistence.toStrAttr(todo.getTripId()));
         map.put(DATA_ID, persistence.toStrAttr(todo.getDataId().getValue()));
@@ -62,11 +62,11 @@ public class TodoDAO {
             final boolean saved = persistence.putItem(b -> b.tableName(TODO_ITEM_TABLE).item(map))
                     .sdkHttpResponse().isSuccessful();
             if (!saved) {
-                return CompletableFuture.completedFuture(false);
+                return false;
             }
-            return CompletableFuture.completedFuture(cache.put(todo.getTripId(), todo));
+            return cache.put(todo.getTripId(), todo);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.completedFuture(logSaveTodoFailure(todo, ex));
+            return logSaveTodoFailure(todo, ex);
         }
     }
 
@@ -75,19 +75,19 @@ public class TodoDAO {
         return false;
     }
 
-    protected CompletableFuture<List<TodoItem>> getTodoItems(final String tripId) {
+    protected List<TodoItem> getTodoItems(final String tripId) {
         try {
-            return CompletableFuture.completedFuture(cache.getAll(tripId, () -> loadTodoItems(tripId)));
+            return cache.getAll(tripId, () -> loadTodoItems(tripId));
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
-    protected CompletableFuture<Optional<TodoItem>> getTodoItem(final String tripId, final DataId pdvId) {
+    protected Optional<TodoItem> getTodoItem(final String tripId, final DataId pdvId) {
         try {
-            return CompletableFuture.completedFuture(cache.getOne(tripId, pdvId, () -> loadTodoItems(tripId)));
+            return cache.getOne(tripId, pdvId, () -> loadTodoItems(tripId));
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 

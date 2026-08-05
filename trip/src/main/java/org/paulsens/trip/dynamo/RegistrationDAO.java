@@ -54,7 +54,7 @@ public class RegistrationDAO {
                 .build();
     }
 
-    protected CompletableFuture<Boolean> saveRegistration(final Registration reg) throws IOException {
+    protected Boolean saveRegistration(final Registration reg) throws IOException {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(TRIP_ID, persistence.toStrAttr(reg.getTripId()));
         map.put(USER_ID, persistence.toStrAttr(reg.getUserId().getValue()));
@@ -63,11 +63,11 @@ public class RegistrationDAO {
             final boolean saved = persistence.putItem(b -> b.tableName(REGISTRATION_TABLE).item(map))
                     .sdkHttpResponse().isSuccessful();
             if (!saved) {
-                return CompletableFuture.completedFuture(false);
+                return false;
             }
-            return CompletableFuture.completedFuture(cache.put(reg.getTripId(), reg));
+            return cache.put(reg.getTripId(), reg);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.completedFuture(logSaveRegistrationFailure(ex));
+            return logSaveRegistrationFailure(ex);
         }
     }
 
@@ -76,19 +76,19 @@ public class RegistrationDAO {
         return false;
     }
 
-    protected CompletableFuture<List<Registration>> getRegistrations(final String tripId) {
+    protected List<Registration> getRegistrations(final String tripId) {
         try {
-            return CompletableFuture.completedFuture(cache.getAll(tripId, () -> loadTripRegData(tripId)));
+            return cache.getAll(tripId, () -> loadTripRegData(tripId));
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
-    protected CompletableFuture<Optional<Registration>> getRegistration(final String tripId, final Person.Id userId) {
+    protected Optional<Registration> getRegistration(final String tripId, final Person.Id userId) {
         try {
-            return CompletableFuture.completedFuture(cache.getOne(tripId, userId, () -> loadTripRegData(tripId)));
+            return cache.getOne(tripId, userId, () -> loadTripRegData(tripId));
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 

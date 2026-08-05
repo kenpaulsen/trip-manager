@@ -41,8 +41,8 @@ public class DAOParseTailsTest {
         plant("todo_items", Map.of("tripId", s(tripId), "dataId", s("bad")));
 
         final TodoDAO dao = new TodoDAO(mapper, persistence);
-        Assert.assertTrue(dao.getTodoItems(tripId).join().isEmpty());
-        Assert.assertTrue(dao.getTodoItem(tripId, DataId.from("bad")).join().isEmpty());
+        Assert.assertTrue(dao.getTodoItems(tripId).isEmpty());
+        Assert.assertTrue(dao.getTodoItem(tripId, DataId.from("bad")).isEmpty());
     }
 
     @Test
@@ -50,7 +50,7 @@ public class DAOParseTailsTest {
         final String tripId = "parse-reg-" + RandomData.genAlpha(6);
         plant("registrations", Map.of("tripId", s(tripId), "userId", s("bad")));
 
-        Assert.assertTrue(new RegistrationDAO(mapper, persistence).getRegistrations(tripId).join().isEmpty());
+        Assert.assertTrue(new RegistrationDAO(mapper, persistence).getRegistrations(tripId).isEmpty());
     }
 
     @Test
@@ -58,7 +58,7 @@ public class DAOParseTailsTest {
         final Person.Id user = Person.Id.from("parse-tx-" + RandomData.genAlpha(6));
         plant("transactions", Map.of("userId", s(user.getValue()), "txId", s("bad")));
 
-        Assert.assertTrue(new TransactionDAO(mapper, persistence).getTransactions(user).join().isEmpty());
+        Assert.assertTrue(new TransactionDAO(mapper, persistence).getTransactions(user).isEmpty());
     }
 
     @Test
@@ -67,7 +67,7 @@ public class DAOParseTailsTest {
         plant("person_data", Map.of("userId", s(user.getValue()), "dataId", s("bad")));
 
         Assert.assertTrue(new PersonDataValueDAO(mapper, persistence)
-                .getPersonDataValues(user).join().isEmpty());
+                .getPersonDataValues(user).isEmpty());
     }
 
     @Test
@@ -75,7 +75,7 @@ public class DAOParseTailsTest {
         final String id = "parse-evt-" + RandomData.genAlpha(6);
         plant("trip_events", Map.of("id", s(id)));
 
-        Assert.assertNull(new TripEventDAO(mapper, persistence).getTripEvent(id).join());
+        Assert.assertNull(new TripEventDAO(mapper, persistence).getTripEvent(id));
     }
 
     @Test
@@ -84,7 +84,7 @@ public class DAOParseTailsTest {
         plant("trips", Map.of("id", s(id)));
 
         final TripEventDAO events = new TripEventDAO(mapper, persistence);
-        Assert.assertTrue(new TripDAO(mapper, persistence, events).getTrip(id).join().isEmpty());
+        Assert.assertTrue(new TripDAO(mapper, persistence, events).getTrip(id).isEmpty());
     }
 
     @Test
@@ -92,7 +92,7 @@ public class DAOParseTailsTest {
         final String id = "parse-person-" + RandomData.genAlpha(6);
         plant("people", Map.of("id", s(id)));
 
-        Assert.assertTrue(new PersonDAO(mapper, persistence).getPerson(Person.Id.from(id)).join().isEmpty());
+        Assert.assertTrue(new PersonDAO(mapper, persistence).getPerson(Person.Id.from(id)).isEmpty());
     }
 
     @Test
@@ -100,7 +100,7 @@ public class DAOParseTailsTest {
         final String name = "parse-config-" + RandomData.genAlpha(6);
         plant("config", Map.of("name", s(name)));
 
-        Assert.assertTrue(new ConfigDAO(mapper, persistence).getConfig(name).join().isEmpty());
+        Assert.assertTrue(new ConfigDAO(mapper, persistence).getConfig(name).isEmpty());
     }
 
     @Test
@@ -108,7 +108,7 @@ public class DAOParseTailsTest {
         final String id = "parse-media-" + RandomData.genAlpha(6);
         plant("media", Map.of("id", s(id)));
 
-        Assert.assertTrue(new MediaDAO(mapper, persistence).getMedia(id).join().isEmpty());
+        Assert.assertTrue(new MediaDAO(mapper, persistence).getMedia(id).isEmpty());
     }
 
     @Test
@@ -116,6 +116,6 @@ public class DAOParseTailsTest {
         final String name = "parseBadPriv" + RandomData.genAlpha(6);
         plant("privs", Map.of("name", s(name)));
 
-        Assert.assertTrue(new PrivilegesDAO(mapper, persistence).getPrivilege(name).join().isEmpty());
+        Assert.assertTrue(new PrivilegesDAO(mapper, persistence).getPrivilege(name).isEmpty());
     }
 }

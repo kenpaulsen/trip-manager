@@ -104,12 +104,5 @@ public class PersistenceTest {
         final List<String> sorted = persistence.sortList(items, Comparator.<String>reverseOrder());
         assertEquals(sorted, List.of("cherry", "banana", "apple"));
     }
-
-    private <T> T get(final CompletableFuture<T> future) {
-        try {
-            return future.get(1_000, TimeUnit.MILLISECONDS);
-        } catch (final InterruptedException | ExecutionException | TimeoutException ex) {
-            throw new RuntimeException(ex);
-        }
     }
-}
+

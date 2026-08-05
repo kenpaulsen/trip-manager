@@ -23,10 +23,14 @@ public class BindingCommands {
     private final DAO dao = DAO.getInstance();
 
     public List<String> getBindings(final String id, final BindingType type, final BindingType destType) {
-        return dao.getBindings(id, type, destType)
-                .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-                .exceptionally(ex -> logAndReturn(ex, List.of()))
-                .join();
+        try {
+            return dao.getBindings(id, type, destType);
+        } catch (final IllegalArgumentException ex) {
+            // A caller bug (e.g. a bare id for a composite type) must surface, not read as "no bindings".
+            throw ex;
+        } catch (final RuntimeException ex) {
+            return logAndReturn(ex, List.of());
+        }
     }
 
     /**
@@ -71,10 +75,11 @@ public class BindingCommands {
 
     public boolean removeBinding(final String id, final BindingType type,
                                  final String destId, final BindingType destType, boolean removeInBothDirections) {
-        return dao.removeBinding(id, type, destId, destType, removeInBothDirections)
-                .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-                .exceptionally(ex -> logAndReturn(ex, false))
-                .join();
+        try {
+            return dao.removeBinding(id, type, destId, destType, removeInBothDirections);
+        } catch (final RuntimeException ex) {
+            return logAndReturn(ex, false);
+        }
     }
 
     // NOTE: While this is valid to do, setBindings is more comprehensive and what is desired in most use-cases
@@ -84,10 +89,11 @@ public class BindingCommands {
             final String destId,
             final BindingType destType,
             final boolean bindInBothDirections) {
-        return dao.saveBinding(id, type, destId, destType, bindInBothDirections)
-                .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-                .exceptionally(ex -> logAndReturn(ex, false))
-                .join();
+        try {
+            return dao.saveBinding(id, type, destId, destType, bindInBothDirections);
+        } catch (final RuntimeException ex) {
+            return logAndReturn(ex, false);
+        }
     }
 
     public String key(final String k1, final String k2) {

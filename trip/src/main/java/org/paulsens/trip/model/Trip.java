@@ -268,14 +268,17 @@ public final class Trip implements Serializable {
             if (ids == null) {
                 return Collections.emptyList();
             }
-            final CompletableFuture<?>[] tes = ids.stream()
-                    .map(DAO.getInstance()::getTripEvent)
-                    .toArray(CompletableFuture[]::new);
-            return CompletableFuture.allOf(tes).thenApply(v -> Arrays.stream(tes)
-                    .map(fut -> (TripEvent) fut.join())
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList()))
-                    .join();
+            // Sequential for now -- most reads are cache hits. The structured-concurrency pass (Phase 7)
+            // restores the per-event fan-out this replaced, without the nested joins that once forced the
+            // persistence pool to be unbounded.
+            final List<TripEvent> events = new ArrayList<>(ids.size());
+            for (final String id : ids) {
+                final TripEvent te = DAO.getInstance().getTripEvent(id);
+                if (te != null) {
+                    events.add(te);
+                }
+            }
+            return events;
         }
     }
 }

@@ -52,27 +52,27 @@ public class CredentialsDAOTest {
 
     @Test
     public void getCredsByEmailAndPassReturnsNullForNullEmail() {
-        assertNull(get(dao.getCredsByEmailAndPass(null, "pass")));
+        assertNull(dao.getCredsByEmailAndPass(null, "pass"));
     }
 
     @Test
     public void getCredsByEmailAndPassReturnsNullForEmptyEmail() {
-        assertNull(get(dao.getCredsByEmailAndPass("", "pass")));
+        assertNull(dao.getCredsByEmailAndPass("", "pass"));
     }
 
     @Test
     public void getCredsByEmailAndPassReturnsNullForNullPass() {
-        assertNull(get(dao.getCredsByEmailAndPass("user@test.com", null)));
+        assertNull(dao.getCredsByEmailAndPass("user@test.com", null));
     }
 
     @Test
     public void getCredsByEmailAndPassReturnsNullForEmptyPass() {
-        assertNull(get(dao.getCredsByEmailAndPass("user@test.com", "")));
+        assertNull(dao.getCredsByEmailAndPass("user@test.com", ""));
     }
 
     @Test
     public void getCredsByEmailAndPassReturnsNullForBothNull() {
-        assertNull(get(dao.getCredsByEmailAndPass(null, null)));
+        assertNull(dao.getCredsByEmailAndPass(null, null));
     }
 
     @Test
@@ -90,7 +90,7 @@ public class CredentialsDAOTest {
         final CredentialsDAO capturingDao = new CredentialsDAO(capturingPersistence, personDao, HASHER);
         final Person.Id userId = Person.Id.newInstance();
         final Creds creds = new Creds("test@example.com", userId, "user", "mypass", null);
-        assertTrue(get(capturingDao.saveCreds(creds)));
+        assertTrue(capturingDao.saveCreds(creds));
         assertEquals(captured.size(), 1);
         final Map<String, AttributeValue> saved = captured.get(0);
         assertEquals(saved.get("email").s(), "test@example.com");
@@ -119,7 +119,7 @@ public class CredentialsDAOTest {
         // store it verbatim -- hashing it again would make the stored value unverifiable.
         final String alreadyHashed = HASHER.hash("secret");
         final Creds creds = new Creds("rehash@example.com", Person.Id.newInstance(), "user", alreadyHashed, null);
-        assertTrue(get(capturingDao.saveCreds(creds)));
+        assertTrue(capturingDao.saveCreds(creds));
         assertEquals(captured.get(0).get("pass").s(), alreadyHashed, "an existing hash must be stored as-is");
     }
 
@@ -138,7 +138,7 @@ public class CredentialsDAOTest {
         final CredentialsDAO capturingDao = new CredentialsDAO(capturingPersistence, personDao, HASHER);
         final long lastLogin = Instant.now().getEpochSecond();
         final Creds creds = new Creds("login@example.com", Person.Id.newInstance(), "user", "pass", lastLogin);
-        assertTrue(get(capturingDao.saveCreds(creds)));
+        assertTrue(capturingDao.saveCreds(creds));
         assertEquals(captured.size(), 1);
         final Map<String, AttributeValue> saved = captured.get(0);
         assertEquals(saved.get("lastLogin").n(), "" + lastLogin);
@@ -158,7 +158,7 @@ public class CredentialsDAOTest {
         };
         final CredentialsDAO capturingDao = new CredentialsDAO(capturingPersistence, personDao, HASHER);
         final Creds creds = new Creds("nologin@example.com", Person.Id.newInstance(), "user", "pass", null);
-        assertTrue(get(capturingDao.saveCreds(creds)));
+        assertTrue(capturingDao.saveCreds(creds));
         assertEquals(captured.size(), 1);
         final Map<String, AttributeValue> saved = captured.get(0);
         assertFalse(saved.containsKey("lastLogin"), "Null lastLogin should not be stored");
@@ -207,12 +207,12 @@ public class CredentialsDAOTest {
 
     @Test
     public void getCredsByEmailAdminOnlyReturnsNullForNullEmail() {
-        assertNull(get(dao.getCredsByEmailAdminOnly(null, Person.Id.newInstance())));
+        assertNull(dao.getCredsByEmailAdminOnly(null, Person.Id.newInstance()));
     }
 
     @Test
     public void getCredsByEmailAdminOnlyReturnsNullForEmptyEmail() {
-        assertNull(get(dao.getCredsByEmailAdminOnly("", Person.Id.newInstance())));
+        assertNull(dao.getCredsByEmailAdminOnly("", Person.Id.newInstance()));
     }
 
     @Test
@@ -224,7 +224,7 @@ public class CredentialsDAOTest {
     public void createCredsSucceedsWhenPersonExists() throws Exception {
         final String email = RandomData.genAlpha(8) + "@test.com";
         final Person person = Person.builder().first("Cred").last("User").email(email).build();
-        get(personDao.savePerson(person));
+        personDao.savePerson(person);
         final var result = dao.createCreds(email);
         assertTrue(result.isPresent());
         final Creds creds = result.get();
@@ -236,26 +236,26 @@ public class CredentialsDAOTest {
     @Test
     public void adminGetCredsByEmailReturnsNullForNullEmail() {
         // FacesContext is null in tests, so this should return null
-        assertNull(get(dao.adminGetCredsByEmail(null)));
+        assertNull(dao.adminGetCredsByEmail(null));
     }
 
     @Test
     public void adminGetCredsByEmailReturnsNullForEmptyEmail() {
-        assertNull(get(dao.adminGetCredsByEmail("")));
+        assertNull(dao.adminGetCredsByEmail(""));
     }
 
     @Test
     public void adminGetCredsByEmailReturnsNullWithoutFacesContext() {
         // FacesContext.getCurrentInstance() returns null in unit tests
-        assertNull(get(dao.adminGetCredsByEmail("valid@test.com")));
+        assertNull(dao.adminGetCredsByEmail("valid@test.com"));
     }
 
     @Test
     public void getCredsByEmailAndPassVerifiesAStoredHash() {
         final List<Map<String, AttributeValue>> puts = new ArrayList<>();
         final CredentialsDAO stubDao = daoOverStoredPass(HASHER.hash("secret"), puts);
-        assertNotNull(get(stubDao.getCredsByEmailAndPass("who@test.com", "secret")), "correct password must pass");
-        assertNull(get(stubDao.getCredsByEmailAndPass("who@test.com", "wrong")), "wrong password must fail");
+        assertNotNull(stubDao.getCredsByEmailAndPass("who@test.com", "secret"), "correct password must pass");
+        assertNull(stubDao.getCredsByEmailAndPass("who@test.com", "wrong"), "wrong password must fail");
         assertTrue(puts.isEmpty(), "verifying a current hash must not rewrite the row");
     }
 
@@ -263,7 +263,7 @@ public class CredentialsDAOTest {
     public void getCredsByEmailAndPassUpgradesALegacyPlaintextRow() {
         final List<Map<String, AttributeValue>> puts = new ArrayList<>();
         final CredentialsDAO stubDao = daoOverStoredPass("legacyPlain", puts);
-        assertNotNull(get(stubDao.getCredsByEmailAndPass("who@test.com", "legacyPlain")),
+        assertNotNull(stubDao.getCredsByEmailAndPass("who@test.com", "legacyPlain"),
                 "a legacy plaintext row must still authenticate");
         assertEquals(puts.size(), 1, "a correct login against plaintext must upgrade the row exactly once");
         final String rewritten = puts.get(0).get("pass").s();
@@ -275,7 +275,7 @@ public class CredentialsDAOTest {
     public void getCredsByEmailAndPassDoesNotUpgradeOnAFailedLogin() {
         final List<Map<String, AttributeValue>> puts = new ArrayList<>();
         final CredentialsDAO stubDao = daoOverStoredPass("legacyPlain", puts);
-        assertNull(get(stubDao.getCredsByEmailAndPass("who@test.com", "wrong")));
+        assertNull(stubDao.getCredsByEmailAndPass("who@test.com", "wrong"));
         assertTrue(puts.isEmpty(), "a failed login must never rewrite the stored password");
     }
 
@@ -298,7 +298,7 @@ public class CredentialsDAOTest {
             }
         };
         final CredentialsDAO stubDao = new CredentialsDAO(stub, personDao, HASHER);
-        assertNull(get(stubDao.getCredsByEmailAndPass("stranger@test.com", "Smith")),
+        assertNull(stubDao.getCredsByEmailAndPass("stranger@test.com", "Smith"),
                 "a login for a person without credentials must fail rather than self-provision");
         assertTrue(puts.isEmpty(), "no credentials should be created on a failed login");
     }
@@ -326,12 +326,5 @@ public class CredentialsDAOTest {
         };
         return new CredentialsDAO(stub, personDao, HASHER);
     }
-
-    private <T> T get(final CompletableFuture<T> future) {
-        try {
-            return future.get(1_000, TimeUnit.MILLISECONDS);
-        } catch (final InterruptedException | ExecutionException | TimeoutException ex) {
-            throw new RuntimeException(ex);
-        }
     }
-}
+

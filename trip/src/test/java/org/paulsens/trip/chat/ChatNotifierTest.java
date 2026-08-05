@@ -208,7 +208,7 @@ public class ChatNotifierTest {
         recipient.setId(RECIPIENT);
         recipient.setEmail("r@example.org");
         try {
-            Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().savePerson(recipient).join());
+            Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().savePerson(recipient));
         } catch (final java.io.IOException ex) {
             throw new IllegalStateException(ex);
         }

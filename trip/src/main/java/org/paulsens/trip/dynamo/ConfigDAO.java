@@ -59,10 +59,10 @@ public class ConfigDAO {
                 .build();
     }
 
-    protected CompletableFuture<Boolean> saveConfig(final Config config) {
+    protected Boolean saveConfig(final Config config) {
         if (config == null || config.getName() == null || config.getName().isBlank()) {
             log.warn("Refusing to save a config row with no name");
-            return CompletableFuture.completedFuture(false);
+            return false;
         }
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(NAME, persistence.toStrAttr(config.getName()));
@@ -76,31 +76,31 @@ public class ConfigDAO {
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(CONFIG_TABLE).item(map))
                     .sdkHttpResponse().isSuccessful();
-            return CompletableFuture.completedFuture(saved && cache.put(config));
+            return saved && cache.put(config);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
     /** Every setting, for the admin page. */
-    protected CompletableFuture<List<Config>> getAllConfig() {
+    protected List<Config> getAllConfig() {
         try {
-            return CompletableFuture.completedFuture(cache.getPartition(CacheKeys.CONFIG_PARTITION));
+            return cache.getPartition(CacheKeys.CONFIG_PARTITION);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
     /** One setting by name; served from the cached hash, or a point read on a miss. Never a table scan. */
-    protected CompletableFuture<Optional<Config>> getConfig(final String name) {
+    protected Optional<Config> getConfig(final String name) {
         if (name == null) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Optional.empty();
         }
         try {
-            return CompletableFuture.completedFuture(
-                    cache.getOne(CacheKeys.CONFIG_PARTITION, name, () -> pointReadConfig(name)));
+            return 
+                    cache.getOne(CacheKeys.CONFIG_PARTITION, name, () -> pointReadConfig(name));
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 

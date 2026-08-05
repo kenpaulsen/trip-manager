@@ -78,25 +78,26 @@ public class TripDAO {
                 .build();
     }
 
-    protected CompletableFuture<Boolean> saveTrip(final Trip trip) throws IOException {
+    protected Boolean saveTrip(final Trip trip) throws IOException {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(ID, persistence.toStrAttr(trip.getId()));
         map.put(CONTENT, persistence.toStrAttr(mapper.writeValueAsString(trip)));
         // NOTE: trip + events are N independent putItems -- not atomic. Consciously unchanged by the cache port.
-        final CompletableFuture<Boolean> saveTripEvents = tripEventDao.saveAllTripEvents(trip);
-        // Fetch the prior version first so the index can diff the membership list (drop removed people).
-        final CompletableFuture<Boolean> saveTrip = getTrip(trip.getId())
-                .thenCompose(prev -> putTripItem(map, prev.orElse(null), trip));
-        return CompletableFuture.allOf(saveTrip, saveTripEvents)
-                .thenApply(ignore -> saveTrip.join() && saveTripEvents.join())
-                .exceptionally(this::logSaveTripFailure);
+        try {
+            final boolean savedEvents = tripEventDao.saveAllTripEvents(trip);
+            // Fetch the prior version first so the index can diff the membership list (drop removed people).
+            final Trip prev = getTrip(trip.getId()).orElse(null);
+            return putTripItem(map, prev, trip) && savedEvents;
+        } catch (final RuntimeException ex) {
+            return logSaveTripFailure(ex);
+        }
     }
 
-    private CompletableFuture<Boolean> putTripItem(
+    private boolean putTripItem(
             final Map<String, AttributeValue> map, final Trip prev, final Trip trip) {
         final boolean saved = persistence.putItem(b -> b.tableName(TRIP_TABLE).item(map))
                 .sdkHttpResponse().isSuccessful();
-        return CompletableFuture.completedFuture(saved && updateCaches(prev, trip));
+        return saved && updateCaches(prev, trip);
     }
 
     private Boolean logSaveTripFailure(final Throwable ex) {
@@ -104,56 +105,56 @@ public class TripDAO {
         return false;
     }
 
-    protected CompletableFuture<Optional<Trip>> getTrip(final String id) {
+    protected Optional<Trip> getTrip(final String id) {
         if (id == null) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Optional.empty();
         }
         try {
-            return CompletableFuture.completedFuture(cache.get(id, this::loadTripById));
+            return cache.get(id, this::loadTripById);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
     /** Active trips (endDate at/after {@code cutoff}), in display order. */
-    protected CompletableFuture<List<Trip>> getActiveTrips(final LocalDateTime cutoff) {
+    protected List<Trip> getActiveTrips(final LocalDateTime cutoff) {
         try {
-            return CompletableFuture.completedFuture(
-                    resolveTrips(index.activeTripIds(toEpochMillis(cutoff), 0), true));
+            return 
+                    resolveTrips(index.activeTripIds(toEpochMillis(cutoff), 0), true);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
     /** Up to {@code limit} most-recent inactive trips (endDate before {@code cutoff}), newest first. */
-    protected CompletableFuture<List<Trip>> getInactiveTrips(final LocalDateTime cutoff, final int limit) {
+    protected List<Trip> getInactiveTrips(final LocalDateTime cutoff, final int limit) {
         try {
-            return CompletableFuture.completedFuture(
-                    resolveTrips(index.inactiveTripIds(toEpochMillis(cutoff), limit), false));
+            return 
+                    resolveTrips(index.inactiveTripIds(toEpochMillis(cutoff), limit), false);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
     /** The {@code limit} most-recently-ending trips (admin pickers), in display order; non-positive = no cap. */
-    protected CompletableFuture<List<Trip>> getRecentTrips(final int limit) {
+    protected List<Trip> getRecentTrips(final int limit) {
         try {
-            return CompletableFuture.completedFuture(resolveTrips(index.allTripIds(limit), true));
+            return resolveTrips(index.allTripIds(limit), true);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
     /** Trips the user is a member of, in display order. */
-    protected CompletableFuture<List<Trip>> getTripsForUser(final Person.Id userId) {
+    protected List<Trip> getTripsForUser(final Person.Id userId) {
         if (userId == null) {
-            return CompletableFuture.completedFuture(List.of());
+            return List.of();
         }
         try {
-            return CompletableFuture.completedFuture(
-                    resolveTrips(index.tripIdsForUser(userId.getValue(), 0), true));
+            return 
+                    resolveTrips(index.tripIdsForUser(userId.getValue(), 0), true);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 

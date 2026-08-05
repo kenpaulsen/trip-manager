@@ -186,9 +186,8 @@ public class MediaCommandsS3Test {
             daoStatic.when(org.paulsens.trip.dynamo.DAO::getInstance).thenReturn(failing);
 
             Assert.assertFalse(media.delete(id, "admin"), "an unreadable row cannot be deleted");
-            Mockito.when(failing.getMedia(id)).thenReturn(java.util.concurrent.CompletableFuture
-                    .completedFuture(java.util.Optional.of(new MediaItem(id, key, "T", null,
-                            "application/pdf", 1L, "downloads", 0, null, null))));
+            Mockito.when(failing.getMedia(id)).thenReturn(java.util.Optional.of(new MediaItem(id, key, "T", null,
+                    "application/pdf", 1L, "downloads", 0, null, null)));
             Assert.assertFalse(media.delete(id, "admin"), "a failing row delete maps to false");
             Assert.assertFalse(media.update(id, null, "T", null, null, null, "admin"),
                     "a failing save maps to false");

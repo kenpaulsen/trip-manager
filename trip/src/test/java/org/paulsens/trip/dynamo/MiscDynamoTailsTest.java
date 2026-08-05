@@ -36,19 +36,19 @@ public class MiscDynamoTailsTest {
         final String tripId = "bind-parse-" + RandomData.genAlpha(6);
         final BindingDAO writer = new BindingDAO(DynamoLocal.persistence(), new InMemoryCacheClient());
         Assert.assertTrue(writer.saveBinding(tripId, BindingType.TRIP, "evt-1", BindingType.TRIP_EVENT, true)
-                .join());
+                );
 
         // A different DAO with a cold cache: its read must query the table and parse the combined keys.
         final BindingDAO reader = new BindingDAO(DynamoLocal.persistence(), new InMemoryCacheClient());
 
-        Assert.assertEquals(reader.getBindings(tripId, BindingType.TRIP, BindingType.TRIP_EVENT).join(),
+        Assert.assertEquals(reader.getBindings(tripId, BindingType.TRIP, BindingType.TRIP_EVENT),
                 List.of("evt-1"));
     }
 
     @Test
     public void anUnknownTripEventReadsAsNull() {
         Assert.assertNull(new TripEventDAO(mapper, DynamoLocal.persistence())
-                .getTripEvent("never-saved-" + RandomData.genAlpha(6)).join());
+                .getTripEvent("never-saved-" + RandomData.genAlpha(6)));
     }
 
     /** A failing point read maps to empty -- the page shows no privilege rather than a 500. */
@@ -60,7 +60,7 @@ public class MiscDynamoTailsTest {
                 .when(failing).getItem(ArgumentMatchers.any());
 
         Assert.assertTrue(new PrivilegesDAO(mapper, failing)
-                .getPrivilege("anyPrivName").join().isEmpty());
+                .getPrivilege("anyPrivName").isEmpty());
     }
 
     /** A store failure during the index sink's close-drain is contained per event, never thrown. */
@@ -113,19 +113,19 @@ public class MiscDynamoTailsTest {
     public void privilegeLookupsGuardTheirNullInputs() {
         final PrivilegesDAO dao = new PrivilegesDAO(mapper, DynamoLocal.persistence());
 
-        Assert.assertTrue(dao.getPrivilege(null).join().isEmpty());
-        Assert.assertNotNull(dao.getTripPrivileges(null).join(), "a null trip means the global partition");
+        Assert.assertTrue(dao.getPrivilege(null).isEmpty());
+        Assert.assertNotNull(dao.getTripPrivileges(null), "a null trip means the global partition");
     }
 
     @Test
     public void chatLookupsGuardTheirNullInputsAndFailingPointReads() {
         final ChatDAO dao = new ChatDAO(mapper, DynamoLocal.persistence(),
                 new org.paulsens.trip.cache.InMemoryCacheClient());
-        Assert.assertTrue(dao.getChannel(null).join().isEmpty());
+        Assert.assertTrue(dao.getChannel(null).isEmpty());
         Assert.assertTrue(dao.getMembership(null, org.paulsens.trip.model.Person.Id.from("p"))
-                .join().isEmpty());
+                .isEmpty());
         Assert.assertTrue(dao.getMembership(org.paulsens.trip.model.chat.ChatChannel.Id.forTrip("t"), null)
-                .join().isEmpty());
+                .isEmpty());
 
         // A failing point read logs and answers absent -- the chat page shows nothing, not a 500.
         final Persistence failing = Mockito.mock(Persistence.class,
@@ -136,10 +136,10 @@ public class MiscDynamoTailsTest {
                 new org.paulsens.trip.cache.InMemoryCacheClient());
         Assert.assertTrue(broken.getChannel(
                 org.paulsens.trip.model.chat.ChatChannel.Id.forTrip("fail-" + RandomData.genAlpha(6)))
-                .join().isEmpty());
+                .isEmpty());
         Assert.assertTrue(broken.getMembership(
                 org.paulsens.trip.model.chat.ChatChannel.Id.forTrip("fail-" + RandomData.genAlpha(6)),
-                org.paulsens.trip.model.Person.Id.from("p")).join().isEmpty());
+                org.paulsens.trip.model.Person.Id.from("p")).isEmpty());
     }
 
     /** The cache-facing toJson answers null on a serialization failure rather than poisoning the cache. */
@@ -160,7 +160,7 @@ public class MiscDynamoTailsTest {
                 "flaky-" + RandomData.genAlpha(6), org.paulsens.trip.model.TripEvent.Type.EVENT, "T", null,
                 java.time.LocalDateTime.now(), null, null, null);
 
-        Assert.assertTrue(dao.saveTripEvent(event).join(),
+        Assert.assertTrue(dao.saveTripEvent(event),
                 "the row landed; a cache-serializer failure must not fail the save");
     }
 

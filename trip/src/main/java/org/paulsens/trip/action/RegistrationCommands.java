@@ -27,14 +27,13 @@ public class RegistrationCommands {
     public boolean saveRegistration(final Registration reg) {
         boolean result;
         try {
-             result = DAO.getInstance().saveRegistration(reg)
-                     .exceptionally(ex -> {
-                             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                                     "Error saving registration for '" + reg.getUserId() + "': " + reg.getTripId(),
-                                     ex.getMessage());
-                             log.error("Error while saving registration: ", ex);
-                            return false;
-                        }).join();
+            result = DAO.getInstance().saveRegistration(reg);
+        } catch (final RuntimeException ex) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
+                    "Error saving registration for '" + reg.getUserId() + "': " + reg.getTripId(),
+                    ex.getMessage());
+            log.error("Error while saving registration: ", ex);
+            result = false;
         } catch (final IOException ex) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
                     "Unable to save registration '" + reg.getUserId() + "': " + reg.getTripId(), ex.getMessage());
@@ -45,12 +44,12 @@ public class RegistrationCommands {
     }
 
     public List<Registration> getRegistrations(final String tripId) {
-        return DAO.getInstance()
-                .getRegistrations(tripId)
-                .exceptionally(ex -> {
-                    log.error("Failed to get registrations for trip '" + tripId + "'!", ex);
-                    return Collections.emptyList();
-                }).join();
+        try {
+            return DAO.getInstance().getRegistrations(tripId);
+        } catch (final RuntimeException ex) {
+            log.error("Failed to get registrations for trip '" + tripId + "'!", ex);
+            return Collections.emptyList();
+        }
     }
 
     public int getNumPending(final String tripId) {
@@ -72,13 +71,14 @@ public class RegistrationCommands {
             log.error("getRegistration() called with null userId");
             return null;
         }
-        return DAO.getInstance()
-                .getRegistration(tripId, userId)
-                .exceptionally(ex -> {
-                    log.error("Failed to get registration for user '" + userId.getValue()
-                            + "' on trip '" + tripId + "'!", ex);
-                    return Optional.empty();
-                }).join().orElse(createRegistration(tripId, userId));
+        try {
+            return DAO.getInstance().getRegistration(tripId, userId)
+                    .orElse(createRegistration(tripId, userId));
+        } catch (final RuntimeException ex) {
+            log.error("Failed to get registration for user '" + userId.getValue()
+                    + "' on trip '" + tripId + "'!", ex);
+            return createRegistration(tripId, userId);
+        }
     }
 
     public PersonDataValue getRoomPDV(final String tripId, final Person.Id userId) {

@@ -99,7 +99,7 @@ public class ChatDigestSenderTest {
         final Person person = new Person();
         person.setId(MEMBER);
         person.setEmail("member@example.org");
-        Mockito.when(dao.getPerson(MEMBER)).thenReturn(CompletableFuture.completedFuture(Optional.of(person)));
+        Mockito.when(dao.getPerson(MEMBER)).thenReturn(Optional.of(person));
         Mockito.when(mail.formatEmail(ArgumentMatchers.any())).thenReturn("Member <member@example.org>");
     }
 
@@ -107,7 +107,7 @@ public class ChatDigestSenderTest {
         Mockito.when(mail.send(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(AuditActor.class)))
-                .thenReturn(CompletableFuture.completedFuture(response));
+                .thenReturn(java.util.concurrent.CompletableFuture.completedFuture(response));
     }
 
     // --- what counts as news ---
@@ -163,7 +163,7 @@ public class ChatDigestSenderTest {
     /** No usable address is not a retryable failure: report done so the run can finish. */
     @Test
     public void aRecipientWithNoAddressIsTreatedAsDoneNotFailed() {
-        Mockito.when(dao.getPerson(MEMBER)).thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+        Mockito.when(dao.getPerson(MEMBER)).thenReturn(Optional.empty());
 
         Assert.assertTrue(sender.send(candidate(pageOf(message("100", null)))));
 
@@ -201,7 +201,7 @@ public class ChatDigestSenderTest {
     @Test
     public void nobodyIsACandidateWhenThereAreNoTrips() {
         Mockito.when(dao.getActiveTrips(ArgumentMatchers.any()))
-                .thenReturn(CompletableFuture.completedFuture(List.of()));
+                .thenReturn(List.of());
 
         Assert.assertTrue(sender.candidates(Instant.now()).isEmpty());
     }
@@ -216,7 +216,7 @@ public class ChatDigestSenderTest {
     @Test
     public void theTripLookbackReachesWellPastTheEndOfATrip() {
         Mockito.when(dao.getActiveTrips(ArgumentMatchers.any()))
-                .thenReturn(CompletableFuture.completedFuture(List.of()));
+                .thenReturn(List.of());
 
         sender.candidates(Instant.now());
 
@@ -251,17 +251,17 @@ public class ChatDigestSenderTest {
 
     private void tripPipeline(final Trip trip, final ChatChannel chan, final ChatMembership member) {
         Mockito.when(dao.getActiveTrips(ArgumentMatchers.any()))
-                .thenReturn(CompletableFuture.completedFuture(List.of(trip)));
+                .thenReturn(List.of(trip));
         Mockito.when(dao.getChatChannel(ArgumentMatchers.any()))
-                .thenReturn(CompletableFuture.completedFuture(Optional.ofNullable(chan)));
+                .thenReturn(Optional.ofNullable(chan));
         Mockito.when(dao.listChatMembers(ArgumentMatchers.any()))
-                .thenReturn(CompletableFuture.completedFuture(List.of(member)));
+                .thenReturn(List.of(member));
         Mockito.when(dao.getChatCursor(ArgumentMatchers.any(), ArgumentMatchers.any()))
-                .thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+                .thenReturn(Optional.empty());
         Mockito.when(dao.getChatMessagesSince(ArgumentMatchers.any(), ArgumentMatchers.any(),
                         ArgumentMatchers.anyInt(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                         ArgumentMatchers.any(), ArgumentMatchers.any()))
-                .thenReturn(CompletableFuture.completedFuture(pageOf(message("100", null))));
+                .thenReturn(pageOf(message("100", null)));
     }
 
     @Test
@@ -300,7 +300,7 @@ public class ChatDigestSenderTest {
         noAddress.setId(MEMBER);
         noAddress.setEmail("just a name, not an address");
         Mockito.when(dao.getPerson(MEMBER))
-                .thenReturn(CompletableFuture.completedFuture(Optional.of(noAddress)));
+                .thenReturn(Optional.of(noAddress));
         tripPipeline(trip(), channel(null), membership(ChatMembership.MemberState.JOINED, true));
 
         Assert.assertTrue(sender.candidates(Instant.now()).isEmpty());
@@ -352,7 +352,7 @@ public class ChatDigestSenderTest {
         Mockito.when(dao.getChatMessagesSince(ArgumentMatchers.any(), ArgumentMatchers.any(),
                         ArgumentMatchers.anyInt(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                         ArgumentMatchers.any(), ArgumentMatchers.any()))
-                .thenReturn(CompletableFuture.completedFuture(pageOf(message("100", Instant.now()))));
+                .thenReturn(pageOf(message("100", Instant.now())));
 
         Assert.assertTrue(sender.candidates(Instant.now()).isEmpty());
     }
@@ -371,7 +371,7 @@ public class ChatDigestSenderTest {
         final ChatMessage.Id watermark = ChatMessage.Id.of(now.minusSeconds(60).toEpochMilli());
         tripPipeline(trip(), channel(null), membership(ChatMembership.MemberState.JOINED, true));
         Mockito.when(dao.getChatCursor(ArgumentMatchers.any(), ArgumentMatchers.any()))
-                .thenReturn(CompletableFuture.completedFuture(Optional.of(cursor)));
+                .thenReturn(Optional.of(cursor));
         Mockito.when(cache.getValue(ArgumentMatchers.contains("digest")))
                 .thenReturn(Optional.of(watermark.getValue()));
 

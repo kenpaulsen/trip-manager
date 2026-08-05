@@ -46,26 +46,26 @@ public class ChatReactionDAOTest {
                 ChatChannel.Id.forTrip(tripId), tripId, ChatChannel.Kind.TRIP, "Test",
                 null, null, ChatSettings.defaults(), Instant.parse("2026-01-01T00:00:00Z"),
                 "admin", null, null);
-        dao.saveChannel(channel).join();
+        dao.saveChannel(channel);
     }
 
     @Test
     public void reactTwiceIsIdempotent() {
         final ChatMessage msg = save("hi");
         final ChatReaction r = reaction(msg, "p1", "👍");
-        Assert.assertTrue(dao.putReaction(r).join());
-        Assert.assertTrue(dao.putReaction(r).join());
-        final List<ChatReaction> all = dao.getReactionsForRange(channel.getId(), msg.getId(), msg.getId()).join();
+        Assert.assertTrue(dao.putReaction(r));
+        Assert.assertTrue(dao.putReaction(r));
+        final List<ChatReaction> all = dao.getReactionsForRange(channel.getId(), msg.getId(), msg.getId());
         Assert.assertEquals(all.size(), 1);
     }
 
     @Test
     public void unReactDeletes() {
         final ChatMessage msg = save("hi");
-        dao.putReaction(reaction(msg, "p1", "👍")).join();
+        dao.putReaction(reaction(msg, "p1", "👍"));
         Assert.assertTrue(dao.deleteReaction(
-                channel.getId(), msg.getId(), Person.Id.from("p1"), "👍").join());
-        final List<ChatReaction> all = dao.getReactionsForRange(channel.getId(), msg.getId(), msg.getId()).join();
+                channel.getId(), msg.getId(), Person.Id.from("p1"), "👍"));
+        final List<ChatReaction> all = dao.getReactionsForRange(channel.getId(), msg.getId(), msg.getId());
         Assert.assertTrue(all.isEmpty());
     }
 
@@ -73,15 +73,15 @@ public class ChatReactionDAOTest {
     public void rangeQueryReturnsWholePageAndNoMessageRows() {
         final ChatMessage m1 = save("one");
         final ChatMessage m2 = save("two");
-        dao.putReaction(reaction(m1, "p1", "👍")).join();
-        dao.putReaction(reaction(m1, "p2", "❤️")).join();
-        dao.putReaction(reaction(m2, "p1", "👍")).join();
+        dao.putReaction(reaction(m1, "p1", "👍"));
+        dao.putReaction(reaction(m1, "p2", "❤️"));
+        dao.putReaction(reaction(m2, "p1", "👍"));
 
-        final List<ChatReaction> page = dao.getReactionsForRange(channel.getId(), m1.getId(), m2.getId()).join();
+        final List<ChatReaction> page = dao.getReactionsForRange(channel.getId(), m1.getId(), m2.getId());
         Assert.assertEquals(page.size(), 3);
 
         final Map<ChatMessage.Id, ChatReactionSummary> summaries =
-                dao.summariesForMessages(channel.getId(), List.of(m1, m2)).join();
+                dao.summariesForMessages(channel.getId(), List.of(m1, m2));
         Assert.assertEquals(summaries.get(m1.getId()).count("👍"), 1);
         Assert.assertEquals(summaries.get(m1.getId()).count("❤️"), 1);
         Assert.assertEquals(summaries.get(m2.getId()).totalCount(), 1);
@@ -92,10 +92,10 @@ public class ChatReactionDAOTest {
         // Regression for the co-mingled SK bug: more reactions than messages must not pollute message pages.
         final ChatMessage msg = save("only message");
         for (int i = 0; i < 50; i++) {
-            dao.putReaction(reaction(msg, "p" + i, "👍")).join();
+            dao.putReaction(reaction(msg, "p" + i, "👍"));
         }
         final ChatPage page = dao.getMessagesBefore(
-                channel.getId(), null, 50, null, channel, null, Instant.now()).join();
+                channel.getId(), null, 50, null, channel, null, Instant.now());
         Assert.assertEquals(page.getMessages().size(), 1);
         Assert.assertEquals(page.getMessages().get(0).getBody(), "only message");
         Assert.assertEquals(page.getMessages().get(0).getId(), msg.getId());
@@ -106,10 +106,10 @@ public class ChatReactionDAOTest {
     @Test
     public void thePageCarriesSummariesAndAVersion() {
         final ChatMessage msg = save("hi");
-        dao.putReaction(reaction(msg, "p1", "👍")).join();
+        dao.putReaction(reaction(msg, "p1", "👍"));
 
         final ChatPage page = dao.getMessagesSince(
-                channel.getId(), null, 50, null, channel, null, Instant.now()).join();
+                channel.getId(), null, 50, null, channel, null, Instant.now());
         Assert.assertEquals(page.getReactions().get(msg.getId()).count("👍"), 1,
                 "summaries must reach the page, or the client never renders a chip");
         Assert.assertTrue(page.getReactionsVersion() > 0, "the version is what tells a client to refetch");
@@ -118,11 +118,11 @@ public class ChatReactionDAOTest {
     @Test
     public void everyReactionWriteAdvancesTheVersion() {
         final ChatMessage msg = save("hi");
-        final long start = dao.currentReactionsVersion(channel.getId()).join();
-        dao.putReaction(reaction(msg, "p1", "👍")).join();
-        final long afterAdd = dao.currentReactionsVersion(channel.getId()).join();
-        dao.deleteReaction(channel.getId(), msg.getId(), Person.Id.from("p1"), "👍").join();
-        final long afterRemove = dao.currentReactionsVersion(channel.getId()).join();
+        final long start = dao.currentReactionsVersion(channel.getId());
+        dao.putReaction(reaction(msg, "p1", "👍"));
+        final long afterAdd = dao.currentReactionsVersion(channel.getId());
+        dao.deleteReaction(channel.getId(), msg.getId(), Person.Id.from("p1"), "👍");
+        final long afterRemove = dao.currentReactionsVersion(channel.getId());
 
         Assert.assertTrue(afterAdd > start, "adding must advance it");
         Assert.assertTrue(afterRemove > afterAdd, "removing must too -- a client has to unrender the chip");
@@ -136,13 +136,13 @@ public class ChatReactionDAOTest {
     @Test
     public void anEmptyPageStillCarriesTheVersion() {
         final ChatMessage msg = save("hi");
-        dao.putReaction(reaction(msg, "p1", "👍")).join();
+        dao.putReaction(reaction(msg, "p1", "👍"));
         final ChatPage first = dao.getMessagesSince(
-                channel.getId(), null, 50, null, channel, null, Instant.now()).join();
+                channel.getId(), null, 50, null, channel, null, Instant.now());
 
-        dao.putReaction(reaction(msg, "p2", "❤️")).join();
+        dao.putReaction(reaction(msg, "p2", "❤️"));
         final ChatPage empty = dao.getMessagesSince(
-                channel.getId(), first.getCursor(), 50, null, channel, null, Instant.now()).join();
+                channel.getId(), first.getCursor(), 50, null, channel, null, Instant.now());
 
         Assert.assertTrue(empty.getMessages().isEmpty());
         Assert.assertTrue(empty.getReactionsVersion() > first.getReactionsVersion(),
@@ -152,23 +152,23 @@ public class ChatReactionDAOTest {
     @Test
     public void aWriteInvalidatesTheCachedSummary() {
         final ChatMessage msg = save("hi");
-        dao.putReaction(reaction(msg, "p1", "👍")).join();
+        dao.putReaction(reaction(msg, "p1", "👍"));
         Assert.assertEquals(pageSummary(msg).count("👍"), 1);
 
-        dao.putReaction(reaction(msg, "p2", "👍")).join();
+        dao.putReaction(reaction(msg, "p2", "👍"));
         // A stale cached summary would show 1 forever: the row is in Dynamo but the chip never updates.
         Assert.assertEquals(pageSummary(msg).count("👍"), 2);
 
-        dao.deleteReaction(channel.getId(), msg.getId(), Person.Id.from("p1"), "👍").join();
+        dao.deleteReaction(channel.getId(), msg.getId(), Person.Id.from("p1"), "👍");
         Assert.assertEquals(pageSummary(msg).count("👍"), 1);
     }
 
     @Test
     public void theSummaryCacheRebuildsExactlyAfterAFlush() {
         final ChatMessage msg = save("hi");
-        dao.putReaction(reaction(msg, "p1", "👍")).join();
-        dao.putReaction(reaction(msg, "p2", "👍")).join();
-        dao.putReaction(reaction(msg, "p3", "❤️")).join();
+        dao.putReaction(reaction(msg, "p1", "👍"));
+        dao.putReaction(reaction(msg, "p2", "👍"));
+        dao.putReaction(reaction(msg, "p3", "❤️"));
         final ChatReactionSummary before = pageSummary(msg);
 
         // A derived view of an authoritative store: a flush must cost a rebuild, never correctness.
@@ -184,7 +184,7 @@ public class ChatReactionDAOTest {
     public void messagesWithNoReactionsAreCachedToo() {
         final ChatMessage withOne = save("a");
         final ChatMessage without = save("b");
-        dao.putReaction(reaction(withOne, "p1", "👍")).join();
+        dao.putReaction(reaction(withOne, "p1", "👍"));
         pageSummary(withOne);
 
         // Caching only messages that HAVE reactions means any page containing one reaction-free message misses on
@@ -200,10 +200,10 @@ public class ChatReactionDAOTest {
         final ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
         final ChatDAO noCache = new ChatDAO(mapper, persistence, new NoopCacheClient());
         final ChatMessage msg = save("hi");
-        Assert.assertTrue(noCache.putReaction(reaction(msg, "p1", "👍")).join());
+        Assert.assertTrue(noCache.putReaction(reaction(msg, "p1", "👍")));
 
         final ChatPage page = noCache.getMessagesSince(
-                channel.getId(), null, 50, null, channel, null, Instant.now()).join();
+                channel.getId(), null, 50, null, channel, null, Instant.now());
         Assert.assertEquals(page.getReactions().get(msg.getId()).count("👍"), 1,
                 "DynamoDB is the authority; the cache only makes it faster");
         Assert.assertEquals(page.getReactionsVersion(), 0L,
@@ -217,7 +217,7 @@ public class ChatReactionDAOTest {
         try (AutoCloseable sub = cache.subscribe(
                 List.of(CacheKeys.chatPubSubChannelFor(channel.getId().getValue())),
                 (name, payload) -> got.add(payload))) {
-            dao.putReaction(reaction(msg, "p1", "👍")).join();
+            dao.putReaction(reaction(msg, "p1", "👍"));
         } catch (final Exception ex) {
             Assert.fail("close must not throw: " + ex);
         }
@@ -233,7 +233,7 @@ public class ChatReactionDAOTest {
                 (name, payload) -> got.add(payload))) {
             // Rejected before the write: nothing changed, so nothing may be announced.
             Assert.assertFalse(dao.putReaction(new ChatReaction(
-                    channel.getId(), msg.getId(), null, "👍", Instant.now(), null)).join());
+                    channel.getId(), msg.getId(), null, "👍", Instant.now(), null)));
         } catch (final Exception ex) {
             Assert.fail("close must not throw: " + ex);
         }
@@ -244,18 +244,18 @@ public class ChatReactionDAOTest {
     public void aReactionInheritsItsTargetsExpiry() {
         final ChatChannel expiring = channel.withSettings(
                 ChatSettings.defaults().toBuilder().retentionSeconds(3600L).build());
-        Assert.assertTrue(dao.saveChannel(expiring).join());
+        Assert.assertTrue(dao.saveChannel(expiring));
         final ChatMessage draft = new ChatMessage(
                 null, expiring.getId(), Person.Id.from("author"), null,
                 ChatMessage.MessageKind.TEXT, "hi", null, null, null,
                 null, null, null, null, null, null);
-        final ChatMessage msg = dao.saveMessage(draft, expiring, null).join().orElseThrow();
+        final ChatMessage msg = dao.saveMessage(draft, expiring, null).orElseThrow();
         Assert.assertNotNull(msg.getExpiresAt(), "a TTL channel must stamp expiresAt on the message");
 
-        Assert.assertTrue(dao.putReaction(reaction(msg, "p1", "👍")).join());
+        Assert.assertTrue(dao.putReaction(reaction(msg, "p1", "👍")));
         // Reactions must never outlive their subject, or a reaped message leaves orphan chips behind.
         final ChatReaction stored = dao.getReactionsForRange(
-                expiring.getId(), msg.getId(), msg.getId()).join().get(0);
+                expiring.getId(), msg.getId(), msg.getId()).get(0);
         Assert.assertEquals(stored.getExpiresAt(), msg.getExpiresAt());
     }
 
@@ -266,16 +266,16 @@ public class ChatReactionDAOTest {
         final ChatMessage a = save("first");
         final ChatMessage b = save("teh second");
         final long before = versionOf(dao.getMessagesBefore(
-                channel.getId(), null, 50, null, channel, null, Instant.now()).join());
+                channel.getId(), null, 50, null, channel, null, Instant.now()));
 
-        final ChatMessage edited = dao.editMessage(channel.getId(), b.getId(), "the second").join().orElseThrow();
+        final ChatMessage edited = dao.editMessage(channel.getId(), b.getId(), "the second").orElseThrow();
         Assert.assertEquals(edited.getBody(), "the second");
         Assert.assertNotNull(edited.getEditedAt());
         Assert.assertEquals(edited.getId(), b.getId(), "an edit must not change the id");
         Assert.assertEquals(edited.getSentAt(), b.getSentAt(), "nor move the message in the conversation");
 
         final ChatPage page = dao.getMessagesBefore(
-                channel.getId(), null, 50, null, channel, null, Instant.now()).join();
+                channel.getId(), null, 50, null, channel, null, Instant.now());
         Assert.assertTrue(page.getMutationsVersion() > before,
                 "without this an edit is invisible to anyone already holding the message");
         Assert.assertEquals(page.getMessages().get(0).getBody(), "the second");
@@ -287,14 +287,14 @@ public class ChatReactionDAOTest {
     public void aTombstoneAdvancesTheMutationsVersionToo() {
         final ChatMessage msg = save("delete me");
         final long before = versionOf(dao.getMessagesBefore(
-                channel.getId(), null, 50, null, channel, null, Instant.now()).join());
+                channel.getId(), null, 50, null, channel, null, Instant.now()));
 
-        Assert.assertTrue(dao.tombstoneMessage(channel.getId(), msg.getId(), "admin").join().isPresent());
+        Assert.assertTrue(dao.tombstoneMessage(channel.getId(), msg.getId(), "admin").isPresent());
 
         // This is what was missing before: a delete changes a message the client already has, so nothing advanced
         // its cursor and the correction only ever appeared on a full page reload.
         final ChatPage page = dao.getMessagesBefore(
-                channel.getId(), null, 50, null, channel, null, Instant.now()).join();
+                channel.getId(), null, 50, null, channel, null, Instant.now());
         Assert.assertTrue(page.getMutationsVersion() > before);
         Assert.assertTrue(page.getMessages().get(0).isDeleted());
     }
@@ -306,7 +306,7 @@ public class ChatReactionDAOTest {
         try (AutoCloseable sub = cache.subscribe(
                 List.of(CacheKeys.chatPubSubChannelFor(channel.getId().getValue())),
                 (name, payload) -> got.add(payload))) {
-            dao.editMessage(channel.getId(), msg.getId(), "edited").join();
+            dao.editMessage(channel.getId(), msg.getId(), "edited");
         } catch (final Exception ex) {
             Assert.fail("close must not throw: " + ex);
         }
@@ -316,21 +316,21 @@ public class ChatReactionDAOTest {
     @Test
     public void aDeletedMessageCannotBeEditedAtTheStoreLevel() {
         final ChatMessage msg = save("will be removed");
-        dao.tombstoneMessage(channel.getId(), msg.getId(), "admin").join();
+        dao.tombstoneMessage(channel.getId(), msg.getId(), "admin");
 
         // Belt and braces with the action-layer check: editing a tombstone would resurrect a removed body.
-        Assert.assertTrue(dao.editMessage(channel.getId(), msg.getId(), "back again").join().isEmpty());
+        Assert.assertTrue(dao.editMessage(channel.getId(), msg.getId(), "back again").isEmpty());
     }
 
     @Test
     public void theReadCursorRoundTrips() {
         final ChatMessage msg = save("read me");
         final Person.Id me = Person.Id.from("p1");
-        Assert.assertTrue(dao.getCursor(channel.getId(), me).join().isEmpty(),
+        Assert.assertTrue(dao.getCursor(channel.getId(), me).isEmpty(),
                 "no cursor means never opened -- which must NOT read as caught up");
 
-        Assert.assertTrue(dao.saveCursor(channel.getId(), me, msg.getId()).join());
-        Assert.assertEquals(dao.getCursor(channel.getId(), me).join().orElseThrow(), msg.getId());
+        Assert.assertTrue(dao.saveCursor(channel.getId(), me, msg.getId()));
+        Assert.assertEquals(dao.getCursor(channel.getId(), me).orElseThrow(), msg.getId());
     }
 
     private static long versionOf(final ChatPage page) {
@@ -340,7 +340,7 @@ public class ChatReactionDAOTest {
     /** The summary as a page read produces it — i.e. through the rsum cache rather than straight from the rows. */
     private ChatReactionSummary pageSummary(final ChatMessage msg) {
         final ChatPage page = dao.getMessagesBefore(
-                channel.getId(), null, 50, null, channel, null, Instant.now()).join();
+                channel.getId(), null, 50, null, channel, null, Instant.now());
         return page.getReactions().getOrDefault(msg.getId(), ChatReactionSummary.empty(msg.getId()));
     }
 
@@ -349,7 +349,7 @@ public class ChatReactionDAOTest {
                 null, channel.getId(), Person.Id.from("author"), null,
                 ChatMessage.MessageKind.TEXT, body, null, null, null,
                 null, null, null, null, null, null);
-        return dao.saveMessage(draft, channel, null).join().orElseThrow();
+        return dao.saveMessage(draft, channel, null).orElseThrow();
     }
 
     private ChatReaction reaction(final ChatMessage msg, final String person, final String emoji) {

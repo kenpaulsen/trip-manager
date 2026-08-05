@@ -45,15 +45,16 @@ public class TripEventDAO {
                 .build();
     }
 
-    protected CompletableFuture<Boolean> saveAllTripEvents(final Trip trip) {
-        final CompletableFuture<?>[] saves = trip.getTripEvents().stream()
-                .map(this::saveTripEvent).toArray(CompletableFuture[]::new);
-        return CompletableFuture.allOf(saves)
-                // If any returned false, then fail
-                .thenApply((v) -> Arrays.stream(saves).allMatch(fut -> (Boolean) fut.join()));
+    protected Boolean saveAllTripEvents(final Trip trip) {
+        // Sequential on purpose for now; the Phase 7 structured-concurrency pass may re-fan-out.
+        boolean allSaved = true;
+        for (final TripEvent te : trip.getTripEvents()) {
+            allSaved &= saveTripEvent(te);
+        }
+        return allSaved;
     }
 
-    protected CompletableFuture<Boolean> saveTripEvent(final TripEvent te) {
+    protected Boolean saveTripEvent(final TripEvent te) {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(ID, persistence.toStrAttr(te.getId()));
         try {
@@ -64,19 +65,19 @@ public class TripEventDAO {
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(TRIP_EVENT_TABLE).item(map))
                     .sdkHttpResponse().isSuccessful();
-            return CompletableFuture.completedFuture(saved && cache.put(te.getId(), te));
+            return saved && cache.put(te.getId(), te);
         } catch (final RuntimeException ex) {
             // Shim until Phase 5: callers still consume a CompletableFuture, so a (now synchronous)
             // persistence failure must arrive as a failed future, not a throw at call time.
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
-    protected CompletableFuture<TripEvent> getTripEvent(final String id) {
+    protected TripEvent getTripEvent(final String id) {
         try {
-            return CompletableFuture.completedFuture(cache.get(id, this::loadTripEvent).orElse(null));
+            return cache.get(id, this::loadTripEvent).orElse(null);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 

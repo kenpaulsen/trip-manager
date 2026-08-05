@@ -68,7 +68,7 @@ public class ChatMembershipAndPrefsTest {
                 .endDate(LocalDateTime.now().plusDays(14))
                 .people(new ArrayList<>(List.of(member, adminId)))
                 .build();
-        Assert.assertTrue(DAO.getInstance().saveTrip(trip).join(), "test setup: save dedicated trip");
+        Assert.assertTrue(DAO.getInstance().saveTrip(trip), "test setup: save dedicated trip");
     }
 
     // --- read access ---

@@ -116,10 +116,12 @@ public class PrivilegeCommands {
         final List<Person.Id> before = getPrivilegeById(privilege.getId())
                 .map(Privilege::getPeople)
                 .orElse(List.of());
-        final boolean saved = dao.savePrivilege(privilege)
-                .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-                .exceptionally(ex -> logAndReturn(ex, false))
-                .join();
+        boolean saved;
+        try {
+            saved = dao.savePrivilege(privilege);
+        } catch (final RuntimeException ex) {
+            saved = logAndReturn(ex, false);
+        }
         // Audited here rather than at the pages, because there are three call sites and one of them (the trip
         // editor's manager checkboxes) grants privileges without ever mentioning the word.
         Audit.builder(AuditAction.PRIVILEGE, AuditOutcome.of(saved))
@@ -263,21 +265,20 @@ public class PrivilegeCommands {
                 bPerson.getLast() + ',' + bPerson.getPreferredName());
     }
 
-    private List<Privilege> sorted(final CompletableFuture<List<Privilege>> future) {
-        final List<Privilege> result = new ArrayList<>(future
-                .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-                .exceptionally(ex -> logAndReturn(ex, List.of()))
-                .join());
+    private List<Privilege> sorted(final List<Privilege> privileges) {
+        final List<Privilege> result = new ArrayList<>(privileges);
         result.sort((a, b) -> a.getName().compareToIgnoreCase(b.getName()));
         return result;
     }
 
     // Internal: lookup by the combined DynamoDB identity. The public API never exposes this id.
     private Optional<Privilege> getPrivilegeById(final String id) {
-        final Optional<Privilege> priv = dao.getPrivilege(id)
-                .orTimeout(TIMEOUT, TimeUnit.MILLISECONDS)
-                .exceptionally(ex -> logAndReturn(ex, Optional.empty()))
-                .join();
+        Optional<Privilege> priv;
+        try {
+            priv = dao.getPrivilege(id);
+        } catch (final RuntimeException ex) {
+            priv = logAndReturn(ex, Optional.empty());
+        }
         if (priv.isEmpty()) {
             log.debug("Unknown privilege '" + id + "'!");
         }

@@ -103,9 +103,11 @@ public final class Person implements Serializable, Comparable<Person> {
      */
     @JsonIgnore
     public List<Trip> getTrips() {
-        return DAO.getInstance().getTripsForUser(getId())
-                .exceptionally(ex -> new ArrayList<>())
-                .join();
+        try {
+            return DAO.getInstance().getTripsForUser(getId());
+        } catch (final RuntimeException ex) {
+            return new ArrayList<>();
+        }
     }
 
     @JsonIgnore

@@ -45,14 +45,14 @@ public class IndexLoaderDAOTest {
         person.setFirst("Cold");
         person.setLast(last);
         person.setEmail(last.toLowerCase() + "@example.org");
-        Assert.assertTrue(writer.savePerson(person).join());
+        Assert.assertTrue(writer.savePerson(person));
         // A row the console mangled must be skipped by the scan, not kill the whole index build.
         persistence.putItem(b -> b.tableName("people").item(Map.of(
                 "id", AttributeValue.builder().s("bad-" + last).build(),
                 "content", AttributeValue.builder().s("{ not json").build())));
 
         final PersonDAO reader = new PersonDAO(mapper, DynamoLocal.persistence(), valkeyLike());
-        final List<Person> found = reader.searchPeople(last.toLowerCase(), 10).join();
+        final List<Person> found = reader.searchPeople(last.toLowerCase(), 10);
 
         Assert.assertEquals(found.size(), 1, "the cold search must scan-build the index: " + found);
         Assert.assertEquals(found.get(0).getId(), person.getId());
@@ -66,11 +66,11 @@ public class IndexLoaderDAOTest {
         final Trip trip = Trip.builder().id(tripId).title("Idx")
                 .startDate(LocalDateTime.now()).endDate(LocalDateTime.now().plusDays(3))
                 .people(List.of(Person.Id.from("idx-member"))).build();
-        Assert.assertTrue(writer.saveTrip(trip).join());
+        Assert.assertTrue(writer.saveTrip(trip));
 
         final TripDAO reader = new TripDAO(mapper, DynamoLocal.persistence(), events, valkeyLike());
 
-        Assert.assertTrue(reader.getRecentTrips(1_000).join().stream()
+        Assert.assertTrue(reader.getRecentTrips(1_000).stream()
                         .anyMatch(t -> tripId.equals(t.getId())),
                 "the cold listing must scan-build the trip index");
     }
@@ -91,7 +91,7 @@ public class IndexLoaderDAOTest {
         final Person known = fakePeople.get(0);
 
         // The search triggers the cold build; the build's scan must have produced the fake people's tokens.
-        dao.searchPeople(known.getLast().toLowerCase(), 10).join();
+        dao.searchPeople(known.getLast().toLowerCase(), 10);
 
         final List<String> entries = store.getSortedSetByPrefix(
                 org.paulsens.trip.cache.CacheKeys.PEOPLE_SEARCH,

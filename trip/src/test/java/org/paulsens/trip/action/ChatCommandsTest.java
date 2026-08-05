@@ -64,7 +64,7 @@ public class ChatCommandsTest {
                 .endDate(LocalDateTime.now().plusDays(14))
                 .people(new ArrayList<>())
                 .build();
-        Assert.assertTrue(DAO.getInstance().saveTrip(trip).join(), "test setup: save dedicated trip");
+        Assert.assertTrue(DAO.getInstance().saveTrip(trip), "test setup: save dedicated trip");
     }
 
     @Test
@@ -79,7 +79,7 @@ public class ChatCommandsTest {
         Assert.assertFalse(chat.mute(TRIP, victim, Instant.now().plusSeconds(600), "nope", Caller.forActor(stranger)));
         Assert.assertFalse(chat.updateSettings(TRIP, ChatSettings.defaults(), Caller.forActor(stranger)));
         Assert.assertNull(DAO.getInstance()
-                        .getChatMembership(ChatChannel.Id.forTrip(TRIP), victim).join().orElse(null),
+                        .getChatMembership(ChatChannel.Id.forTrip(TRIP), victim).orElse(null),
                 "a denied removal must not have written a membership row");
     }
 
@@ -108,11 +108,11 @@ public class ChatCommandsTest {
         DAO.getInstance().saveChatMembership(new ChatMembership(
                 channel.getId(), leaver, ChatMembership.MemberState.LEFT,
                 ChatMembership.MemberRole.MEMBER, Instant.now(), Instant.now(), "self", null,
-                null, null, null, null, null, null, null, null, null)).join();
+                null, null, null, null, null, null, null, null, null));
         DAO.getInstance().saveChatMembership(new ChatMembership(
                 channel.getId(), removed, ChatMembership.MemberState.REMOVED,
                 ChatMembership.MemberRole.MEMBER, Instant.now(), Instant.now(), "spam", "an-admin",
-                null, null, null, null, null, null, null, null, null)).join();
+                null, null, null, null, null, null, null, null, null));
 
         Assert.assertEquals(chat.readDenial(channel, leaver), "LEFT_CHANNEL");
         Assert.assertEquals(chat.readDenial(channel, removed), "REMOVED_FROM_CHANNEL");
@@ -136,7 +136,7 @@ public class ChatCommandsTest {
         final Person.Id target = Person.Id.from("implicit-user-" + System.nanoTime());
         Assert.assertTrue(chat.removeMember(tripId, target, "test remove", Caller.forActor(actor)));
         final ChatMembership row = DAO.getInstance()
-                .getChatMembership(ChatChannel.Id.forTrip(tripId), target).join().orElse(null);
+                .getChatMembership(ChatChannel.Id.forTrip(tripId), target).orElse(null);
         Assert.assertNotNull(row, "REMOVE of implicit member must write a row");
         Assert.assertEquals(row.getState(), ChatMembership.MemberState.REMOVED);
     }
@@ -148,11 +148,11 @@ public class ChatCommandsTest {
         final Person.Id me = Person.Id.from("rejoin-user");
         final Instant firstJoin = Instant.parse("2026-01-01T00:00:00Z");
         final ChatMembership original = ChatMembership.joining(channel.getId(), me, firstJoin);
-        DAO.getInstance().saveChatMembership(original).join();
+        DAO.getInstance().saveChatMembership(original);
         chat.leave(tripId, me, actor);
         Assert.assertTrue(chat.rejoin(tripId, me, actor));
         final ChatMembership after = DAO.getInstance()
-                .getChatMembership(channel.getId(), me).join().orElseThrow();
+                .getChatMembership(channel.getId(), me).orElseThrow();
         Assert.assertEquals(after.getJoinedAt(), firstJoin);
         Assert.assertEquals(after.getState(), ChatMembership.MemberState.JOINED);
         Assert.assertNotNull(after.getAddedBackAt());

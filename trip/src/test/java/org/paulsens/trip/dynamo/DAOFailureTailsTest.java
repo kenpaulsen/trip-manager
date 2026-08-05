@@ -57,31 +57,31 @@ public class DAOFailureTailsTest {
         Assert.assertFalse(new TodoDAO(mapper, failing).saveTodo(
                 TodoItem.builder().tripId(tripId)
                         .dataId(org.paulsens.trip.model.DataId.from("fail-todo"))
-                        .description("t").build()).join());
+                        .description("t").build()));
         Assert.assertFalse(new RegistrationDAO(mapper, failing).saveRegistration(
-                new org.paulsens.trip.model.Registration(tripId, Person.Id.from("u"))).join());
+                new org.paulsens.trip.model.Registration(tripId, Person.Id.from("u"))));
         Assert.assertFalse(new PersonDataValueDAO(mapper, failing).savePersonDataValue(
                 org.paulsens.trip.model.PersonDataValue.builder()
                         .userId(Person.Id.from("u")).dataId(org.paulsens.trip.model.DataId.from("d"))
-                        .type("t").content("c").build()).join());
+                        .type("t").content("c").build()));
         // These DAOs have no exceptionally on the write: a transport failure propagates to the caller's
         // join. Pinned as-is -- their action beans are the layer that maps it to a FacesMessage.
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+        Assert.assertThrows(RuntimeException.class,
                 () -> new TripEventDAO(mapper, failing).saveTripEvent(
                         new org.paulsens.trip.model.TripEvent("e",
                                 org.paulsens.trip.model.TripEvent.Type.EVENT, "t", null,
-                                java.time.LocalDateTime.now(), null, null, null)).join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                                java.time.LocalDateTime.now(), null, null, null)));
+        Assert.assertThrows(RuntimeException.class,
                 () -> new ConfigDAO(mapper, failing).saveConfig(
-                        new org.paulsens.trip.model.Config("f", "v", null, null, null, null)).join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                        new org.paulsens.trip.model.Config("f", "v", null, null, null, null)));
+        Assert.assertThrows(RuntimeException.class,
                 () -> new MediaDAO(mapper, failing).saveMedia(
                         new org.paulsens.trip.model.MediaItem("m", "k", "t", null, "ct", 1, null, 0,
-                                null, null)).join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                                null, null)));
+        Assert.assertThrows(RuntimeException.class,
                 () -> new TransactionDAO(mapper, failing).saveTransaction(
                         new org.paulsens.trip.model.Transaction(Person.Id.from("u"), "g1",
-                                org.paulsens.trip.model.Transaction.Type.Tx)).join());
+                                org.paulsens.trip.model.Transaction.Type.Tx)));
     }
 
     /** Delegates to the real engine but fails every partition read. */
@@ -102,18 +102,18 @@ public class DAOFailureTailsTest {
         final Persistence failing = failingReads();
         final String tripId = "failread-" + RandomData.genAlpha(6);
 
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                () -> new RegistrationDAO(mapper, failing).getRegistrations(tripId).join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                () -> new TransactionDAO(mapper, failing).getTransactions(Person.Id.from("u")).join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                () -> new TodoDAO(mapper, failing).getTodoItems(tripId).join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                () -> new PersonDataValueDAO(mapper, failing).getPersonDataValues(Person.Id.from("u")).join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+        Assert.assertThrows(RuntimeException.class,
+                () -> new RegistrationDAO(mapper, failing).getRegistrations(tripId));
+        Assert.assertThrows(RuntimeException.class,
+                () -> new TransactionDAO(mapper, failing).getTransactions(Person.Id.from("u")));
+        Assert.assertThrows(RuntimeException.class,
+                () -> new TodoDAO(mapper, failing).getTodoItems(tripId));
+        Assert.assertThrows(RuntimeException.class,
+                () -> new PersonDataValueDAO(mapper, failing).getPersonDataValues(Person.Id.from("u")));
+        Assert.assertThrows(RuntimeException.class,
                 () -> new BindingDAO(failing, new InMemoryCacheClient())
                         .getBindings(tripId, org.paulsens.trip.model.BindingType.TRIP,
-                                org.paulsens.trip.model.BindingType.TRIP_EVENT).join());
+                                org.paulsens.trip.model.BindingType.TRIP_EVENT));
     }
 
     /** Same contract for the point-read and full-scan loaders, and for the binding write pair. */
@@ -127,23 +127,23 @@ public class DAOFailureTailsTest {
         Mockito.doThrow(new IllegalStateException("delete refused"))
                 .when(failing).deleteItem(ArgumentMatchers.any());
 
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                () -> new TripEventDAO(mapper, failing).getTripEvent("never-there").join());
+        Assert.assertThrows(RuntimeException.class,
+                () -> new TripEventDAO(mapper, failing).getTripEvent("never-there"));
         // A valkey-like (non-InMemory) client is required: with InMemoryCacheClient the scan loaders are
         // deliberately unreachable (soft revalidate off -- the cache IS the local datastore).
         final CacheClient valkeyLike = Mockito.mock(CacheClient.class,
                 AdditionalAnswers.delegatesTo(new InMemoryCacheClient()));
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                () -> new ConfigDAO(mapper, failing, valkeyLike).getAllConfig().join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                () -> new PrivilegesDAO(mapper, failing, valkeyLike).getGlobalPrivileges().join());
+        Assert.assertThrows(RuntimeException.class,
+                () -> new ConfigDAO(mapper, failing, valkeyLike).getAllConfig());
+        Assert.assertThrows(RuntimeException.class,
+                () -> new PrivilegesDAO(mapper, failing, valkeyLike).getGlobalPrivileges());
         final BindingDAO bindings = new BindingDAO(failing, new InMemoryCacheClient());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+        Assert.assertThrows(RuntimeException.class,
                 () -> bindings.saveBinding("a", org.paulsens.trip.model.BindingType.TRIP,
-                        "b", org.paulsens.trip.model.BindingType.TRIP_EVENT, false).join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                        "b", org.paulsens.trip.model.BindingType.TRIP_EVENT, false));
+        Assert.assertThrows(RuntimeException.class,
                 () -> bindings.removeBinding("a", org.paulsens.trip.model.BindingType.TRIP,
-                        "b", org.paulsens.trip.model.BindingType.TRIP_EVENT, false).join());
+                        "b", org.paulsens.trip.model.BindingType.TRIP_EVENT, false));
     }
 
     /** A cache CLIENT that throws (as opposed to a failing store) must also surface, not hang or invent. */
@@ -158,46 +158,46 @@ public class DAOFailureTailsTest {
         Mockito.doThrow(new IllegalStateException("cache refused"))
                 .when(broken).putHashField(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
 
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+        Assert.assertThrows(RuntimeException.class,
                 () -> new PrivilegesDAO(mapper, DynamoLocal.persistence(), broken)
-                        .getTripPrivileges("some-trip").join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                        .getTripPrivileges("some-trip"));
+        Assert.assertThrows(RuntimeException.class,
                 () -> new PrivilegesDAO(mapper, DynamoLocal.persistence(), broken)
-                        .getPrivilege("anyPrivName").join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                        .getPrivilege("anyPrivName"));
+        Assert.assertThrows(RuntimeException.class,
                 () -> new PrivilegesDAO(mapper, DynamoLocal.persistence(), broken)
-                        .savePrivilege(new Privilege("cacheTails", "d", java.util.List.of())).join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                        .savePrivilege(new Privilege("cacheTails", "d", java.util.List.of())));
+        Assert.assertThrows(RuntimeException.class,
                 () -> new ConfigDAO(mapper, DynamoLocal.persistence(), broken)
-                        .getConfig("anySetting").join());
+                        .getConfig("anySetting"));
         final ChatDAO chat = new ChatDAO(mapper, DynamoLocal.persistence(), broken);
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                () -> chat.getChannel(org.paulsens.trip.model.chat.ChatChannel.Id.from("trip:tails")).join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+        Assert.assertThrows(RuntimeException.class,
+                () -> chat.getChannel(org.paulsens.trip.model.chat.ChatChannel.Id.from("trip:tails")));
+        Assert.assertThrows(RuntimeException.class,
                 () -> chat.getMembership(org.paulsens.trip.model.chat.ChatChannel.Id.from("trip:tails"),
-                        Person.Id.from("p")).join());
+                        Person.Id.from("p")));
         final TripDAO trips = new TripDAO(mapper, DynamoLocal.persistence(),
                 new TripEventDAO(mapper, DynamoLocal.persistence()), broken);
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                () -> trips.getTrip("t-tails").join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                () -> trips.getActiveTrips(java.time.LocalDateTime.now()).join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                () -> trips.getInactiveTrips(java.time.LocalDateTime.now(), 5).join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                () -> trips.getRecentTrips(5).join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                () -> trips.getTripsForUser(Person.Id.from("u")).join());
+        Assert.assertThrows(RuntimeException.class,
+                () -> trips.getTrip("t-tails"));
+        Assert.assertThrows(RuntimeException.class,
+                () -> trips.getActiveTrips(java.time.LocalDateTime.now()));
+        Assert.assertThrows(RuntimeException.class,
+                () -> trips.getInactiveTrips(java.time.LocalDateTime.now(), 5));
+        Assert.assertThrows(RuntimeException.class,
+                () -> trips.getRecentTrips(5));
+        Assert.assertThrows(RuntimeException.class,
+                () -> trips.getTripsForUser(Person.Id.from("u")));
     }
 
     /** Null-input saves are refused with false, and a refused message write degrades to empty, not a 500. */
     @Test
     public void chatNullSavesAndRefusedMessageWritesDegrade() {
         final ChatDAO chat = new ChatDAO(mapper, DynamoLocal.persistence(), new InMemoryCacheClient());
-        Assert.assertFalse(chat.saveChannel(null).join());
-        Assert.assertFalse(chat.saveMembership(null).join());
-        Assert.assertTrue(chat.getMessage(null, null).join().isEmpty());
-        Assert.assertTrue(chat.saveMessage(null, null, null).join().isEmpty());
+        Assert.assertFalse(chat.saveChannel(null));
+        Assert.assertFalse(chat.saveMembership(null));
+        Assert.assertTrue(chat.getMessage(null, null).isEmpty());
+        Assert.assertTrue(chat.saveMessage(null, null, null).isEmpty());
 
         // A non-conditional write failure on the message path maps to empty (logged), never an exception:
         // the send is the one chat write a user is actively waiting on.
@@ -212,7 +212,7 @@ public class DAOFailureTailsTest {
                 null, channel.getId(), Person.Id.from("p"), null,
                 org.paulsens.trip.model.chat.ChatMessage.MessageKind.TEXT, "hi", null, null, null,
                 null, null, null, null, null, null);
-        Assert.assertTrue(refused.saveMessage(draft, channel, null).join().isEmpty());
+        Assert.assertTrue(refused.saveMessage(draft, channel, null).isEmpty());
     }
 
     /** The store-said-no branch (an unsuccessful HTTP status without an exception) maps to false. */
@@ -227,19 +227,19 @@ public class DAOFailureTailsTest {
                 .when(refusing).putItem(ArgumentMatchers.any());
 
         Assert.assertFalse(new RegistrationDAO(mapper, refusing).saveRegistration(
-                new org.paulsens.trip.model.Registration("t-500", Person.Id.from("u"))).join());
+                new org.paulsens.trip.model.Registration("t-500", Person.Id.from("u"))));
         Assert.assertFalse(new TodoDAO(mapper, refusing).saveTodo(
                 TodoItem.builder().tripId("t-500")
                         .dataId(org.paulsens.trip.model.DataId.from("todo-500"))
-                        .description("t").build()).join());
+                        .description("t").build()));
         // The singular read's failure path, for symmetry with the plural sweep above.
         final Persistence failingReads = failingReads();
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+        Assert.assertThrows(RuntimeException.class,
                 () -> new RegistrationDAO(mapper, failingReads)
-                        .getRegistration("t-500", Person.Id.from("u")).join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                        .getRegistration("t-500", Person.Id.from("u")));
+        Assert.assertThrows(RuntimeException.class,
                 () -> new TodoDAO(mapper, failingReads)
-                        .getTodoItem("t-500", org.paulsens.trip.model.DataId.from("todo-500")).join());
+                        .getTodoItem("t-500", org.paulsens.trip.model.DataId.from("todo-500")));
     }
 
     /** Credentials: reads propagate; the save maps to false (logged) -- login must not 500 on a flaky store. */
@@ -251,12 +251,12 @@ public class DAOFailureTailsTest {
         Mockito.doThrow(new IllegalStateException("write refused")).when(failing).putItem(ArgumentMatchers.any());
         final CredentialsDAO dao = new CredentialsDAO(failing, new PersonDAO(mapper, DynamoLocal.persistence()));
 
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                () -> dao.getCredsByEmailAndPass("who@test.com", "pw").join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                () -> dao.getCredsByEmailAdminOnly("who@test.com", Person.Id.from("u")).join());
+        Assert.assertThrows(RuntimeException.class,
+                () -> dao.getCredsByEmailAndPass("who@test.com", "pw"));
+        Assert.assertThrows(RuntimeException.class,
+                () -> dao.getCredsByEmailAdminOnly("who@test.com", Person.Id.from("u")));
         Assert.assertFalse(dao.saveCreds(new org.paulsens.trip.model.Creds(
-                        "who@test.com", Person.Id.from("u"), "user", "pw", null)).join(),
+                        "who@test.com", Person.Id.from("u"), "user", "pw", null)),
                 "a refused credential write maps to false, never an exception into the login flow");
     }
 
@@ -273,10 +273,10 @@ public class DAOFailureTailsTest {
                 AdditionalAnswers.delegatesTo(new InMemoryCacheClient()));
         final MediaDAO dao = new MediaDAO(mapper, failing, valkeyLike);
 
-        Assert.assertTrue(dao.getMedia("m-x").join().isEmpty(),
+        Assert.assertTrue(dao.getMedia("m-x").isEmpty(),
                 "a failing media point read must degrade to empty (the page renders without the tile)");
-        Assert.assertThrows(java.util.concurrent.CompletionException.class, () -> dao.getAllMedia().join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class, () -> dao.deleteMedia("m-x").join());
+        Assert.assertThrows(RuntimeException.class, () -> dao.getAllMedia());
+        Assert.assertThrows(RuntimeException.class, () -> dao.deleteMedia("m-x"));
     }
 
     /** Chat: point reads degrade to empty (logged); list/page/reaction paths propagate. */
@@ -293,23 +293,23 @@ public class DAOFailureTailsTest {
         final org.paulsens.trip.model.chat.ChatChannel.Id channel =
                 org.paulsens.trip.model.chat.ChatChannel.Id.from("trip:tails-" + RandomData.genAlpha(6));
 
-        Assert.assertTrue(dao.getChannel(channel).join().isEmpty(),
+        Assert.assertTrue(dao.getChannel(channel).isEmpty(),
                 "a failing channel point read must degrade to empty");
-        Assert.assertTrue(dao.getMembership(channel, Person.Id.from("p")).join().isEmpty(),
+        Assert.assertTrue(dao.getMembership(channel, Person.Id.from("p")).isEmpty(),
                 "a failing membership point read must degrade to empty");
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                () -> dao.listMembers(channel).join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+        Assert.assertThrows(RuntimeException.class,
+                () -> dao.listMembers(channel));
+        Assert.assertThrows(RuntimeException.class,
                 () -> dao.deleteReaction(channel,
                         org.paulsens.trip.model.chat.ChatMessage.Id.from("00000000000001-0000"),
-                        Person.Id.from("p"), ":+1:").join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                        Person.Id.from("p"), ":+1:"));
+        Assert.assertThrows(RuntimeException.class,
                 () -> dao.getMessage(channel,
-                        org.paulsens.trip.model.chat.ChatMessage.Id.from("00000000000001-0000")).join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                        org.paulsens.trip.model.chat.ChatMessage.Id.from("00000000000001-0000")));
+        Assert.assertThrows(RuntimeException.class,
                 () -> dao.getReactionsForRange(channel,
                         org.paulsens.trip.model.chat.ChatMessage.Id.from("00000000000001-0000"),
-                        org.paulsens.trip.model.chat.ChatMessage.Id.from("00000000000009-0000")).join());
+                        org.paulsens.trip.model.chat.ChatMessage.Id.from("00000000000009-0000")));
     }
 
     /** The chat WRITE shims: a refused row write surfaces at the join for every chat table. */
@@ -326,19 +326,19 @@ public class DAOFailureTailsTest {
                         org.paulsens.trip.model.chat.ChatChannel.Kind.TRIP, "Test", null, null, null,
                         java.time.Instant.now(), "admin", null, null);
 
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                () -> dao.saveChannel(channel).join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+        Assert.assertThrows(RuntimeException.class,
+                () -> dao.saveChannel(channel));
+        Assert.assertThrows(RuntimeException.class,
                 () -> dao.saveMembership(new org.paulsens.trip.model.chat.ChatMembership(
                         channel.getId(), Person.Id.from("p"),
                         org.paulsens.trip.model.chat.ChatMembership.MemberState.JOINED, null,
                         java.time.Instant.now(), null, null, null, null, null, null, null,
                         org.paulsens.trip.model.chat.ChatNotifyPref.defaults(), null, null, null,
-                        null)).join());
-        Assert.assertThrows(java.util.concurrent.CompletionException.class,
+                        null)));
+        Assert.assertThrows(RuntimeException.class,
                 () -> dao.putReaction(new org.paulsens.trip.model.chat.ChatReaction(
                         channel.getId(), org.paulsens.trip.model.chat.ChatMessage.Id.from("00000000000001-0000"),
-                        Person.Id.from("p"), ":+1:", java.time.Instant.now(), null)).join());
+                        Person.Id.from("p"), ":+1:", java.time.Instant.now(), null)));
     }
 
     @Test
@@ -347,12 +347,12 @@ public class DAOFailureTailsTest {
         final Persistence persistence = DynamoLocal.persistence();
 
         Assert.assertThrows(IllegalStateException.class, () -> new PrivilegesDAO(broken, persistence)
-                .savePrivilege(new Privilege("brokenPriv", "d", null)).join());
+                .savePrivilege(new Privilege("brokenPriv", "d", null)));
         Assert.assertThrows(IllegalStateException.class, () -> new ConfigDAO(broken, persistence)
-                .saveConfig(new org.paulsens.trip.model.Config("b", "v", null, null, null, null)).join());
+                .saveConfig(new org.paulsens.trip.model.Config("b", "v", null, null, null, null)));
         Assert.assertThrows(IllegalStateException.class, () -> new MediaDAO(broken, persistence)
                 .saveMedia(new org.paulsens.trip.model.MediaItem("m2", "k", "t", null, "ct", 1, null, 0,
-                        null, null)).join());
+                        null, null)));
     }
 
     /** A mangled audit row must be SKIPPED by the admin page's walk, never render it a 500. */
@@ -368,7 +368,7 @@ public class DAOFailureTailsTest {
                         .s("{ not json").build())));
 
         final org.paulsens.trip.model.AuditPage page = dao.getAuditEvents(
-                org.paulsens.trip.model.AuditQuery.builder().build()).join();
+                org.paulsens.trip.model.AuditQuery.builder().build());
 
         Assert.assertTrue(page.getEvents().stream().noneMatch(e -> e == null),
                 "a mangled row must vanish, not appear as a null event");
@@ -380,7 +380,7 @@ public class DAOFailureTailsTest {
         final CredentialsDAO dao = new CredentialsDAO(DynamoLocal.persistence(),
                 new PersonDAO(mapper, DynamoLocal.persistence()));
 
-        Assert.assertNull(dao.adminGetCredsByEmail("x@example.org").join(),
+        Assert.assertNull(dao.adminGetCredsByEmail("x@example.org"),
                 "no FacesContext at all: refused");
 
         final FacesContext ctx = Mockito.mock(FacesContext.class, Mockito.RETURNS_DEEP_STUBS);
@@ -389,12 +389,12 @@ public class DAOFailureTailsTest {
         try (MockedStatic<FacesContext> faces = Mockito.mockStatic(FacesContext.class)) {
             faces.when(FacesContext::getCurrentInstance).thenReturn(ctx);
 
-            Assert.assertNull(dao.adminGetCredsByEmail("x@example.org").join(),
+            Assert.assertNull(dao.adminGetCredsByEmail("x@example.org"),
                     "a non-admin view: refused");
 
             viewMap.put(CredentialsDAO.IS_ADMIN, "true");
             Assert.assertNull(dao.adminGetCredsByEmail("missing-" + RandomData.genAlpha(6) + "@x.org")
-                    .join(), "admin, but no such account: null rather than an invented Creds");
+                    , "admin, but no such account: null rather than an invented Creds");
         }
     }
 
@@ -414,8 +414,8 @@ public class DAOFailureTailsTest {
         try (MockedStatic<FacesContext> faces = Mockito.mockStatic(FacesContext.class)) {
             faces.when(FacesContext::getCurrentInstance).thenReturn(ctx);
 
-            Assert.assertThrows(java.util.concurrent.CompletionException.class,
-                    () -> dao.adminGetCredsByEmail("x@example.org").join());
+            Assert.assertThrows(RuntimeException.class,
+                    () -> dao.adminGetCredsByEmail("x@example.org"));
         }
     }
 }

@@ -33,49 +33,49 @@ public class PersonDataValueDAOTest {
                 .type("note")
                 .content("Hello World")
                 .build();
-        assertTrue(get(dao.savePersonDataValue(pdv)));
-        final Optional<PersonDataValue> found = get(dao.getPersonDataValue(pdv.getUserId(), pdv.getDataId()));
+        assertTrue(dao.savePersonDataValue(pdv));
+        final Optional<PersonDataValue> found = dao.getPersonDataValue(pdv.getUserId(), pdv.getDataId());
         assertTrue(found.isPresent());
         assertEquals(found.get(), pdv);
     }
 
     @Test
     public void getPersonDataValuesReturnsEmptyForUnknownPerson() {
-        final Map<DataId, PersonDataValue> result = get(dao.getPersonDataValues(Person.Id.newInstance()));
+        final Map<DataId, PersonDataValue> result = dao.getPersonDataValues(Person.Id.newInstance());
         assertTrue(result.isEmpty());
     }
 
     @Test
     public void getPersonDataValueReturnsEmptyForUnknownDataId() {
-        assertTrue(get(dao.getPersonDataValue(Person.Id.newInstance(), DataId.newInstance())).isEmpty());
+        assertTrue(dao.getPersonDataValue(Person.Id.newInstance(), DataId.newInstance()).isEmpty());
     }
 
     @Test
     public void multipleValuesForSamePerson() throws IOException {
         final Person.Id pid = Person.Id.newInstance();
         for (int i = 0; i < 4; i++) {
-            get(dao.savePersonDataValue(PersonDataValue.builder()
+            dao.savePersonDataValue(PersonDataValue.builder()
                     .userId(pid)
                     .dataId(DataId.newInstance())
                     .type("type" + i)
                     .content("content" + i)
-                    .build()));
+                    .build());
         }
-        assertEquals(get(dao.getPersonDataValues(pid)).size(), 4);
+        assertEquals(dao.getPersonDataValues(pid).size(), 4);
     }
 
     @Test
     public void valuesForDifferentPeopleAreIsolated() throws IOException {
         final Person.Id p1 = Person.Id.newInstance();
         final Person.Id p2 = Person.Id.newInstance();
-        get(dao.savePersonDataValue(PersonDataValue.builder()
-                .userId(p1).dataId(DataId.newInstance()).type("a").content("x").build()));
-        get(dao.savePersonDataValue(PersonDataValue.builder()
-                .userId(p1).dataId(DataId.newInstance()).type("b").content("y").build()));
-        get(dao.savePersonDataValue(PersonDataValue.builder()
-                .userId(p2).dataId(DataId.newInstance()).type("c").content("z").build()));
-        assertEquals(get(dao.getPersonDataValues(p1)).size(), 2);
-        assertEquals(get(dao.getPersonDataValues(p2)).size(), 1);
+        dao.savePersonDataValue(PersonDataValue.builder()
+                .userId(p1).dataId(DataId.newInstance()).type("a").content("x").build());
+        dao.savePersonDataValue(PersonDataValue.builder()
+                .userId(p1).dataId(DataId.newInstance()).type("b").content("y").build());
+        dao.savePersonDataValue(PersonDataValue.builder()
+                .userId(p2).dataId(DataId.newInstance()).type("c").content("z").build());
+        assertEquals(dao.getPersonDataValues(p1).size(), 2);
+        assertEquals(dao.getPersonDataValues(p2).size(), 1);
     }
 
     @Test
@@ -83,21 +83,21 @@ public class PersonDataValueDAOTest {
         final Person.Id pid = Person.Id.newInstance();
         final PersonDataValue pdv = PersonDataValue.builder()
                 .userId(pid).dataId(DataId.newInstance()).type("t").content("c").build();
-        get(dao.savePersonDataValue(pdv));
-        get(dao.savePersonDataValue(pdv));
-        assertEquals(get(dao.getPersonDataValues(pid)).size(), 1);
+        dao.savePersonDataValue(pdv);
+        dao.savePersonDataValue(pdv);
+        assertEquals(dao.getPersonDataValues(pid).size(), 1);
     }
 
     @Test
     public void updateReplacesInCache() throws IOException {
         final Person.Id pid = Person.Id.newInstance();
         final DataId did = DataId.newInstance();
-        get(dao.savePersonDataValue(PersonDataValue.builder()
-                .userId(pid).dataId(did).type("t").content("original").build()));
-        assertEquals(get(dao.getPersonDataValue(pid, did)).get().getContent(), "original");
-        get(dao.savePersonDataValue(PersonDataValue.builder()
-                .userId(pid).dataId(did).type("t").content("updated").build()));
-        assertEquals(get(dao.getPersonDataValue(pid, did)).get().getContent(), "updated");
+        dao.savePersonDataValue(PersonDataValue.builder()
+                .userId(pid).dataId(did).type("t").content("original").build());
+        assertEquals(dao.getPersonDataValue(pid, did).get().getContent(), "original");
+        dao.savePersonDataValue(PersonDataValue.builder()
+                .userId(pid).dataId(did).type("t").content("updated").build());
+        assertEquals(dao.getPersonDataValue(pid, did).get().getContent(), "updated");
     }
 
     /**
@@ -110,13 +110,13 @@ public class PersonDataValueDAOTest {
     @Test
     public void clearingTheCacheDoesNotLoseTheRow() throws IOException {
         final Person.Id pid = Person.Id.newInstance();
-        get(dao.savePersonDataValue(PersonDataValue.builder()
-                .userId(pid).dataId(DataId.newInstance()).type("t").content("c").build()));
-        assertEquals(get(dao.getPersonDataValues(pid)).size(), 1);
+        dao.savePersonDataValue(PersonDataValue.builder()
+                .userId(pid).dataId(DataId.newInstance()).type("t").content("c").build());
+        assertEquals(dao.getPersonDataValues(pid).size(), 1);
 
         dao.clearCache();
 
-        assertEquals(get(dao.getPersonDataValues(pid)).size(), 1);
+        assertEquals(dao.getPersonDataValues(pid).size(), 1);
     }
 
     @Test
@@ -128,17 +128,10 @@ public class PersonDataValueDAOTest {
                 .type("map")
                 .content(content)
                 .build();
-        get(dao.savePersonDataValue(pdv));
-        final PersonDataValue found = get(dao.getPersonDataValue(pdv.getUserId(), pdv.getDataId())).orElse(null);
+        dao.savePersonDataValue(pdv);
+        final PersonDataValue found = dao.getPersonDataValue(pdv.getUserId(), pdv.getDataId()).orElse(null);
         assertNotNull(found);
         assertEquals(found.getContent(), content);
     }
-
-    private <T> T get(final CompletableFuture<T> future) {
-        try {
-            return future.get(1_000, TimeUnit.MILLISECONDS);
-        } catch (final InterruptedException | ExecutionException | TimeoutException ex) {
-            throw new RuntimeException(ex);
-        }
     }
-}
+

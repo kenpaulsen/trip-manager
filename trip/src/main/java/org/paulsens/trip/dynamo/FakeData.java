@@ -223,7 +223,7 @@ public class FakeData {
         }
         final Map<String, AttributeValue> attrs = new HashMap<>();
         attrs.put(CredentialsDAO.EMAIL, lowEmail);
-        final AttributeValue userId = Optional.ofNullable(DAO.getInstance().getPersonByEmail(lowEmail.s()).join())
+        final AttributeValue userId = Optional.ofNullable(DAO.getInstance().getPersonByEmail(lowEmail.s()))
                 .map(Person::getId).map(id -> AttributeValue.builder().s(id.getValue()).build())
                 .orElse(lowEmail);
         attrs.put(CredentialsDAO.USER_ID, userId);

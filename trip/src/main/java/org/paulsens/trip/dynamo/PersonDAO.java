@@ -65,7 +65,7 @@ public class PersonDAO {
                 .build();
     }
 
-    protected CompletableFuture<Boolean> savePerson(final Person person) throws IOException {
+    protected Boolean savePerson(final Person person) throws IOException {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(ID, AttributeValue.builder().s(person.getId().getValue()).build());
         map.put(CONTENT, AttributeValue.builder().s(mapper.writeValueAsString(person)).build());
@@ -78,34 +78,34 @@ public class PersonDAO {
             final Person prev = cache.get(person.getId().getValue(), this::loadPersonById).orElse(null);
             final boolean saved = persistence.putItem(b -> b.tableName(PERSON_TABLE).item(map))
                     .sdkHttpResponse().isSuccessful();
-            return CompletableFuture.completedFuture(saved && updateCachesForPerson(prev, person));
+            return saved && updateCachesForPerson(prev, person);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
-    protected CompletableFuture<Optional<Person>> getPerson(final Person.Id id) {
+    protected Optional<Person> getPerson(final Person.Id id) {
         if (id == null) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Optional.empty();
         }
         try {
-            return CompletableFuture.completedFuture(cache.get(id.getValue(), this::loadPersonById));
+            return cache.get(id.getValue(), this::loadPersonById);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
-    protected CompletableFuture<Person> getPersonByEmail(final String email) {
+    protected Person getPersonByEmail(final String email) {
         final String lowEmail = (email == null) ? "" : email.trim().toLowerCase(Locale.ROOT);
         if (lowEmail.isEmpty()) {
-            return CompletableFuture.completedFuture(null);
+            return null;
         }
         try {
             final String cachedId = cacheClient.getHashFields(CacheKeys.EMAIL_IDX, List.of(lowEmail))
                     .get(lowEmail);
-            return CompletableFuture.completedFuture(resolveEmailMapping(lowEmail, cachedId).orElse(null));
+            return resolveEmailMapping(lowEmail, cachedId).orElse(null);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
@@ -113,21 +113,21 @@ public class PersonDAO {
      * Prefix search over name/nickname/email/cell. The first (longest) query word drives the index lookup; every
      * word must then match the resolved person, which also filters out entries stale since the last index rebuild.
      */
-    protected CompletableFuture<List<Person>> searchPeople(final String query, final int limit) {
+    protected List<Person> searchPeople(final String query, final int limit) {
         final List<String> words = queryWords(query);
         if (words.isEmpty() || limit <= 0) {
-            return CompletableFuture.completedFuture(List.of());
+            return List.of();
         }
         final String prefix = words.stream().reduce((a, b) -> b.length() > a.length() ? b : a).get();
         try {
-            return CompletableFuture.completedFuture(
+            return 
                     resolvePeople(searchIndex.searchIds(prefix, limit * 3)).stream()
                             .filter(person -> matchesAllWords(person, words))
                             .sorted()
                             .limit(limit)
-                            .toList());
+                            .toList();
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 

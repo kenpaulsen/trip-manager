@@ -244,7 +244,7 @@ public class MailCommands {
     }
 
     public Collection<String> addRecipients(final Collection<String> current, final Collection<Person.Id> newPeople) {
-        newPeople.forEach(pid -> dao.getPerson(pid).join()
+        newPeople.forEach(pid -> dao.getPerson(pid)
                 .map(this::formatEmail)
                 .map(current::add));
         return current;
@@ -279,7 +279,7 @@ public class MailCommands {
             return null;
         }
         // Accepts either a bare address or the "Pref Last <email>" form produced by formatEmail().
-        return Optional.ofNullable(dao.getPersonByEmail(bareEmail(email)).join())
+        return Optional.ofNullable(dao.getPersonByEmail(bareEmail(email)))
                 .orElseGet(() -> Person.builder().email(email).build());
     }
 

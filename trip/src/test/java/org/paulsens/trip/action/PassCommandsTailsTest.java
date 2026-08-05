@@ -29,7 +29,7 @@ public class PassCommandsTailsTest {
         final long deadline = System.currentTimeMillis() + 5_000;
         try {
             while (org.paulsens.trip.dynamo.DAO.getInstance()
-                    .getPersonByEmail(person.getEmail()).join() == null) {
+                    .getPersonByEmail(person.getEmail()) == null) {
                 Assert.assertTrue(System.currentTimeMillis() < deadline, "email mapping never appeared");
                 Thread.sleep(20);
             }
@@ -65,10 +65,9 @@ public class PassCommandsTailsTest {
         alice.setEmail("bob-owns-this@example.org");
         final org.paulsens.trip.dynamo.DAO dao = Mockito.mock(org.paulsens.trip.dynamo.DAO.class);
         Mockito.when(dao.adminGetCredsByEmail("bob-owns-this@example.org"))
-                .thenReturn(java.util.concurrent.CompletableFuture.completedFuture(
-                        new Creds("bob-owns-this@example.org", Person.Id.from("bob"), "pw")));
+                .thenReturn(new Creds("bob-owns-this@example.org", Person.Id.from("bob"), "pw"));
         Mockito.when(dao.savePerson(org.mockito.ArgumentMatchers.any()))
-                .thenReturn(java.util.concurrent.CompletableFuture.completedFuture(true));
+                .thenReturn(true);
         try (MockedStatic<org.paulsens.trip.dynamo.DAO> daoStatic =
                 Mockito.mockStatic(org.paulsens.trip.dynamo.DAO.class)) {
             daoStatic.when(org.paulsens.trip.dynamo.DAO::getInstance).thenReturn(dao);

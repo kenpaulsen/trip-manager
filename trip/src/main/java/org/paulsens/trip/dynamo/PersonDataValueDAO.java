@@ -56,7 +56,7 @@ public class PersonDataValueDAO {
                 .build();
     }
 
-    protected CompletableFuture<Boolean> savePersonDataValue(final PersonDataValue pdv) throws IOException {
+    protected Boolean savePersonDataValue(final PersonDataValue pdv) throws IOException {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(USER_ID, persistence.toStrAttr(pdv.getUserId().getValue()));
         map.put(DATA_ID, persistence.toStrAttr(pdv.getDataId().getValue()));
@@ -66,11 +66,11 @@ public class PersonDataValueDAO {
             final boolean saved = persistence.putItem(b -> b.tableName(PERSON_DATA_VALUE_TABLE).item(map))
                     .sdkHttpResponse().isSuccessful();
             if (!saved) {
-                return CompletableFuture.completedFuture(false);
+                return false;
             }
-            return CompletableFuture.completedFuture(cache.put(pdv.getUserId().getValue(), pdv));
+            return cache.put(pdv.getUserId().getValue(), pdv);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.completedFuture(logSavePdvFailure(pdv, ex));
+            return logSavePdvFailure(pdv, ex);
         }
     }
 
@@ -79,23 +79,23 @@ public class PersonDataValueDAO {
         return false;
     }
 
-    protected CompletableFuture<Map<DataId, PersonDataValue>> getPersonDataValues(final Person.Id pid) {
+    protected Map<DataId, PersonDataValue> getPersonDataValues(final Person.Id pid) {
         try {
             final Map<DataId, PersonDataValue> result = new LinkedHashMap<>();
             cache.getAll(pid.getValue(), () -> loadPersonDataValues(pid))
                     .forEach(pdv -> result.put(pdv.getDataId(), pdv));
-            return CompletableFuture.completedFuture(result);
+            return result;
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
-    protected CompletableFuture<Optional<PersonDataValue>> getPersonDataValue(final Person.Id pid, final DataId pdvId) {
+    protected Optional<PersonDataValue> getPersonDataValue(final Person.Id pid, final DataId pdvId) {
         try {
-            return CompletableFuture.completedFuture(
-                    cache.getOne(pid.getValue(), pdvId, () -> loadPersonDataValues(pid)));
+            return 
+                    cache.getOne(pid.getValue(), pdvId, () -> loadPersonDataValues(pid));
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 

@@ -72,18 +72,18 @@ public class BindingDAO {
      *
      * @return  The {@code List} of bound ids, empty List if none found.
      */
-    protected CompletableFuture<List<String>> getBindings(
+    protected List<String> getBindings(
             final String id, final BindingType type, final BindingType destType) {
         return getBindings(TypeAndId.builder().id(id).type(type).build(), destType);
     }
 
-    protected CompletableFuture<Boolean> saveBinding(final String id, final BindingType type,
+    protected Boolean saveBinding(final String id, final BindingType type,
             final String destId, final BindingType destType, final boolean both) {
         final TypeAndId key = TypeAndId.builder().id(id).type(type).build();
         final TypeAndId destKey = TypeAndId.builder().id(destId).type(destType).build();
         return saveBinding(key, destKey, both);
     }
-    protected CompletableFuture<Boolean> removeBinding(final String id, final BindingType type,
+    protected Boolean removeBinding(final String id, final BindingType type,
             final String destId, final BindingType destType, final boolean both) {
         final TypeAndId key = TypeAndId.builder().id(id).type(type).build();
         final TypeAndId destKey = TypeAndId.builder().id(destId).type(destType).build();
@@ -94,41 +94,36 @@ public class BindingDAO {
         cacheClient.clearNamespace(CacheKeys.BIND_PREFIX);
     }
 
-    private CompletableFuture<List<String>> getBindings(final TypeAndId key, final BindingType dest) {
+    private List<String> getBindings(final TypeAndId key, final BindingType dest) {
         try {
-            return CompletableFuture.completedFuture(
-                    cache.get(key.getValue(), destTypeId(dest), () -> loadBindings(key)));
+            return 
+                    cache.get(key.getValue(), destTypeId(dest), () -> loadBindings(key));
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
-    private CompletableFuture<Boolean> saveBinding(final TypeAndId key, final TypeAndId destKey, final boolean both) {
+    private Boolean saveBinding(final TypeAndId key, final TypeAndId destKey, final boolean both) {
         if (destKey.getId() == null || destKey.getId().equalsIgnoreCase("none")
                 || key.getId() == null || key.getId().equalsIgnoreCase("none")) {
             // Ignore
-            return CompletableFuture.completedFuture(true);
+            return true;
         }
         // If both flag is true, we will write 2 entries... one from id1 -> id2; the other id2 -> id1
-        final CompletableFuture<Boolean> reverse = both ?
-                saveBinding(destKey, key, false) : CompletableFuture.completedFuture(true);
-
-        return getBindings(key, destKey.getType())
-                // If not changed, do nothing
-                .thenCompose(l -> l.contains(destKey.getId()) ?
-                        CompletableFuture.completedFuture(true) : persistBinding(key, destKey))
-                .thenCombine(reverse, (forward, backward) -> forward && backward);
+        final boolean reverse = both ? saveBinding(destKey, key, false) : true;
+        // If not changed, do nothing
+        final boolean forward = getBindings(key, destKey.getType()).contains(destKey.getId())
+                || persistBinding(key, destKey);
+        return forward && reverse;
     }
 
-    private CompletableFuture<Boolean> removeBinding(final TypeAndId key, final TypeAndId destKey, final boolean both) {
+    private Boolean removeBinding(final TypeAndId key, final TypeAndId destKey, final boolean both) {
         // If both flag is true, we will delete 2 entries... one from id1 -> id2; the other id2 -> id1
-        final CompletableFuture<Boolean> reverse = both ?
-                removeBinding(destKey, key, false) : CompletableFuture.completedFuture(true);
-        return removeBinding(key, destKey)
-                .thenCombine(reverse, (forward, backward) -> forward && backward);
+        final boolean reverse = both ? removeBinding(destKey, key, false) : true;
+        return removeBinding(key, destKey) && reverse;
     }
 
-    private CompletableFuture<Boolean> persistBinding(final TypeAndId key, final TypeAndId destKey) {
+    private Boolean persistBinding(final TypeAndId key, final TypeAndId destKey) {
         // NOTE: only saveBinding(TypeAndId, TypeAndId, boolean) should call this method! It doesn't check for both
         // directions or skip updates to the db if there are no changes.
         final Map<String, AttributeValue> map = new HashMap<>();
@@ -139,14 +134,14 @@ public class BindingDAO {
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(BINDINGS_TABLE).item(map))
                     .sdkHttpResponse().isSuccessful();
-            return CompletableFuture.completedFuture(
-                    saved && cache.add(key.getValue(), destTypeId(destKey.getType()), destKey.getId()));
+            return 
+                    saved && cache.add(key.getValue(), destTypeId(destKey.getType()), destKey.getId());
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
-    private CompletableFuture<Boolean> removeBinding(final TypeAndId key, final TypeAndId destKey) {
+    private Boolean removeBinding(final TypeAndId key, final TypeAndId destKey) {
         log.info("Removing {} ({}) to {} ({}) binding.", key.getType().name(), key.getId(),
                 destKey.getType().name(), destKey.getId());
         // NOTE: only removeBinding(TypeAndId, TypeAndId, boolean) should call this method!
@@ -156,10 +151,10 @@ public class BindingDAO {
         try {
             final boolean deleted = persistence.deleteItem(b -> b.tableName(BINDINGS_TABLE).key(primaryKey))
                     .sdkHttpResponse().isSuccessful();
-            return CompletableFuture.completedFuture(
-                    deleted && cache.remove(key.getValue(), destTypeId(destKey.getType()), destKey.getId()));
+            return 
+                    deleted && cache.remove(key.getValue(), destTypeId(destKey.getType()), destKey.getId());
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 

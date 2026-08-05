@@ -107,7 +107,7 @@ public class BeanFacesTailsTest {
         final Trip trip = Trip.builder().id(tripId).title("Rollup")
                 .startDate(java.time.LocalDateTime.now()).endDate(java.time.LocalDateTime.now().plusDays(2))
                 .people(List.of(member.getId())).build();
-        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveTrip(trip).join());
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveTrip(trip));
         final TransactionsCommands txs = new TransactionsCommands();
         final Transaction tx = new Transaction(null, member.getId(), null, null, null,
                 java.time.LocalDateTime.now(), 25f, "cat", "note");

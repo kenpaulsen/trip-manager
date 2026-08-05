@@ -50,12 +50,12 @@ public class PersonCommands {
     public boolean savePerson(final Person person) {
         boolean result;
         try {
-             result = DAO.getInstance().savePerson(person).exceptionally(ex -> {
-                    TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Error saving: " + person.getFirst()
-                            + " " + person.getLast(), ex.getMessage());
-                 log.error("Error while saving user: ", ex);
-                 return false;
-                }).join();
+            result = DAO.getInstance().savePerson(person);
+        } catch (final RuntimeException ex) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Error saving: " + person.getFirst()
+                    + " " + person.getLast(), ex.getMessage());
+            log.error("Error while saving user: ", ex);
+            result = false;
         } catch (final IOException ex) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Unable to save: " + person.getFirst()
                     + " " + person.getLast(), ex.getMessage());
@@ -71,13 +71,12 @@ public class PersonCommands {
     }
 
     public List<Person> searchPeople(final String query, final int limit) {
-        return DAO.getInstance().searchPeople(query, limit)
-                .orTimeout(5_000, TimeUnit.MILLISECONDS)
-                .exceptionally(ex -> {
-                    log.error("Failed to search people for '{}'!", query, ex);
-                    return Collections.emptyList();
-                })
-                .join();
+        try {
+            return DAO.getInstance().searchPeople(query, limit);
+        } catch (final RuntimeException ex) {
+            log.error("Failed to search people for '{}'!", query, ex);
+            return Collections.emptyList();
+        }
     }
 
     /**
@@ -143,11 +142,12 @@ public class PersonCommands {
     }
 
     public Person getPersonByEmail(final String email) {
-        return DAO.getInstance().getPersonByEmail(email)
-                .exceptionally(ex -> {
-                    log.error("Exception while trying to find person with email: " + email);
-                    throw new IllegalStateException(ex);
-                }).join();
+        try {
+            return DAO.getInstance().getPersonByEmail(email);
+        } catch (final RuntimeException ex) {
+            log.error("Exception while trying to find person with email: " + email);
+            throw new IllegalStateException(ex);
+        }
     }
 
     /**
@@ -191,12 +191,11 @@ public class PersonCommands {
     }
 
     private Person getPersonInternal(final Person.Id id, final Supplier<Person> defaultPersonSupplier) {
-        return DAO.getInstance().getPerson(id)
-                .orTimeout(3_000, TimeUnit.MILLISECONDS)
-                .exceptionally(ex -> {
-                    log.error("Failed to get person '" + id + "'!", ex);
-                    return Optional.empty();
-                }).join()
-                .orElse(defaultPersonSupplier.get());
+        try {
+            return DAO.getInstance().getPerson(id).orElse(defaultPersonSupplier.get());
+        } catch (final RuntimeException ex) {
+            log.error("Failed to get person '" + id + "'!", ex);
+            return defaultPersonSupplier.get();
+        }
     }
 }

@@ -146,7 +146,7 @@ public final class ChatNotifications {
             return false;
         }
         final Optional<ChatMembership> row = DAO.getInstance()
-                .getChatMembership(channel.getId(), person).join();
+                .getChatMembership(channel.getId(), person);
         if (row.isPresent()) {
             final ChatMembership member = row.get();
             if (member.getState() == ChatMembership.MemberState.LEFT
@@ -164,7 +164,7 @@ public final class ChatNotifications {
 
     /** False when the person has no address, or the field holds something that is not one (e.g. {@code joe.smith}). */
     private static boolean hasUsableEmail(final Person.Id person) {
-        final boolean usable = DAO.getInstance().getPerson(person).join()
+        final boolean usable = DAO.getInstance().getPerson(person)
                 .map(Person::getEmail)
                 .filter(EmailAddresses::isValid)
                 .isPresent();

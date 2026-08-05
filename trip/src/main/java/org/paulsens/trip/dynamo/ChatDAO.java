@@ -89,36 +89,36 @@ public class ChatDAO {
 
     // --- channels ---
 
-    protected CompletableFuture<Boolean> saveChannel(final ChatChannel channel) {
+    protected Boolean saveChannel(final ChatChannel channel) {
         if (channel == null || channel.getId() == null) {
-            return CompletableFuture.completedFuture(false);
+            return false;
         }
         final Map<String, AttributeValue> item = new HashMap<>();
         item.put(ATTR_CHANNEL_ID, persistence.toStrAttr(channel.getId().getValue()));
         final String json = toJson(channel);
         if (json == null) {
-            return CompletableFuture.completedFuture(false);
+            return false;
         }
         item.put(ATTR_CONTENT, persistence.toStrAttr(json));
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(CHANNELS_TABLE).item(item))
                     .sdkHttpResponse().isSuccessful();
-            return CompletableFuture.completedFuture(
-                    saved && channelCache.put(channel.getId().getValue(), channel));
+            return 
+                    saved && channelCache.put(channel.getId().getValue(), channel);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
-    protected CompletableFuture<Optional<ChatChannel>> getChannel(final ChatChannel.Id id) {
+    protected Optional<ChatChannel> getChannel(final ChatChannel.Id id) {
         if (id == null) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Optional.empty();
         }
         try {
-            return CompletableFuture.completedFuture(
-                    channelCache.get(id.getValue(), missed -> pointReadChannel(missed).orElse(null)));
+            return 
+                    channelCache.get(id.getValue(), missed -> pointReadChannel(missed).orElse(null));
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
@@ -147,9 +147,9 @@ public class ChatDAO {
 
     // --- membership ---
 
-    protected CompletableFuture<Boolean> saveMembership(final ChatMembership member) {
+    protected Boolean saveMembership(final ChatMembership member) {
         if (member == null || member.getChannelId() == null || member.getPersonId() == null) {
-            return CompletableFuture.completedFuture(false);
+            return false;
         }
         final String channelId = member.getChannelId().getValue();
         final String personId = member.getPersonId().getValue();
@@ -158,15 +158,15 @@ public class ChatDAO {
         item.put(ATTR_PERSON_ID, persistence.toStrAttr(personId));
         final String json = toJson(member);
         if (json == null) {
-            return CompletableFuture.completedFuture(false);
+            return false;
         }
         item.put(ATTR_CONTENT, persistence.toStrAttr(json));
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(MEMBERS_TABLE).item(item))
                     .sdkHttpResponse().isSuccessful();
-            return CompletableFuture.completedFuture(saved && cacheMembership(channelId, personId, json));
+            return saved && cacheMembership(channelId, personId, json);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
@@ -176,20 +176,20 @@ public class ChatDAO {
         return true;
     }
 
-    protected CompletableFuture<Optional<ChatMembership>> getMembership(
+    protected Optional<ChatMembership> getMembership(
             final ChatChannel.Id channelId, final Person.Id personId) {
         if (channelId == null || personId == null) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Optional.empty();
         }
         final String cId = channelId.getValue();
         final String pId = personId.getValue();
         try {
             final String cached = cacheClient.getHashFields(CacheKeys.chatMembersKey(cId), List.of(pId)).get(pId);
             final ChatMembership hit = cached == null ? null : parseMembership(cached);
-            return CompletableFuture.completedFuture(
-                    hit == null ? pointReadMembership(cId, pId) : Optional.of(hit));
+            return 
+                    hit == null ? pointReadMembership(cId, pId) : Optional.of(hit);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
@@ -224,16 +224,16 @@ public class ChatDAO {
         return Optional.empty();
     }
 
-    protected CompletableFuture<List<ChatMembership>> listMembers(final ChatChannel.Id channelId) {
+    protected List<ChatMembership> listMembers(final ChatChannel.Id channelId) {
         if (channelId == null) {
-            return CompletableFuture.completedFuture(List.of());
+            return List.of();
         }
         final String cId = channelId.getValue();
         final Map<String, String> names = Map.of("#channelId", ATTR_CHANNEL_ID);
         final Map<String, AttributeValue> values =
                 Map.of(":c", AttributeValue.builder().s(cId).build());
         try {
-            return CompletableFuture.completedFuture(persistence.queryAll(b -> b.tableName(MEMBERS_TABLE)
+            return persistence.queryAll(b -> b.tableName(MEMBERS_TABLE)
                             .keyConditionExpression("#channelId = :c")
                             .expressionAttributeNames(names)
                             .expressionAttributeValues(values)
@@ -243,9 +243,9 @@ public class ChatDAO {
                     .filter(c -> c != null)
                     .map(c -> parseMembership(c.s()))
                     .filter(m -> m != null)
-                    .toList());
+                    .toList();
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
@@ -272,10 +272,10 @@ public class ChatDAO {
         idClock.set(millis);
     }
 
-    protected CompletableFuture<Optional<ChatMessage>> saveMessage(
+    protected Optional<ChatMessage> saveMessage(
             final ChatMessage draft, final ChatChannel channel, final Trip trip) {
         if (draft == null || draft.getChannelId() == null) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Optional.empty();
         }
         // Idempotency: same clientMessageId from the same author collapses before minting a new server id.
         if (draft.getClientMessageId() != null && !draft.getClientMessageId().isBlank()
@@ -292,7 +292,7 @@ public class ChatDAO {
         return mintAndSave(draft, channel, trip);
     }
 
-    private CompletableFuture<Optional<ChatMessage>> mintAndSave(
+    private Optional<ChatMessage> mintAndSave(
             final ChatMessage draft, final ChatChannel channel, final Trip trip) {
         final long millis = nextMillis();
         final ChatMessage.Id id = ChatMessage.Id.of(millis);
@@ -301,18 +301,18 @@ public class ChatDAO {
         return saveMessageWithRetry(withId, channel, 0);
     }
 
-    private CompletableFuture<Optional<ChatMessage>> saveMessageWithRetry(
+    private Optional<ChatMessage> saveMessageWithRetry(
             final ChatMessage message, final ChatChannel channel, final int attempt) {
         if (attempt >= MAX_WRITE_RETRIES) {
             log.error("Chat message could not find a free key after {} attempts: {}", MAX_WRITE_RETRIES, message);
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Optional.empty();
         }
         final Map<String, AttributeValue> item = new HashMap<>();
         item.put(ATTR_CHANNEL_ID, persistence.toStrAttr(message.getChannelId().getValue()));
         item.put(ATTR_MSG_ID, persistence.toStrAttr(message.getId().getValue()));
         final String json = toJson(message);
         if (json == null) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Optional.empty();
         }
         item.put(ATTR_CONTENT, persistence.toStrAttr(json));
         if (message.getExpiresAt() != null) {
@@ -324,29 +324,29 @@ public class ChatDAO {
                             .conditionExpression("attribute_not_exists(#msgId)")
                             .expressionAttributeNames(Map.of("#msgId", ATTR_MSG_ID)))
                     .sdkHttpResponse().isSuccessful();
-            return saved ? bufferAndReturn(message, channel) : CompletableFuture.completedFuture(Optional.empty());
+            return saved ? bufferAndReturn(message, channel) : Optional.empty();
         } catch (final RuntimeException ex) {
             return retryOrFail(message, channel, attempt, ex);
         }
     }
 
-    private CompletableFuture<Optional<ChatMessage>> bufferAndReturn(
+    private Optional<ChatMessage> bufferAndReturn(
             final ChatMessage message, final ChatChannel channel) {
         afterMessageWritten(message, channel);
-        return CompletableFuture.completedFuture(Optional.of(message));
+        return Optional.of(message);
     }
 
     /**
      * A conditional-check failure means another writer owns this millisecond, so walk forward one and try again.
      * Anything else is a real error and must surface as an empty result, never a silently dropped message.
      */
-    private CompletableFuture<Optional<ChatMessage>> retryOrFail(
+    private Optional<ChatMessage> retryOrFail(
             final ChatMessage message, final ChatChannel channel, final int attempt, final Throwable ex) {
         if (isConditionalFailure(ex)) {
             return saveMessageWithRetry(message.withId(message.getId().next()), channel, attempt + 1);
         }
         log.warn("Unable to store chat message: {}", message.getId(), ex);
-        return CompletableFuture.completedFuture(Optional.empty());
+        return Optional.empty();
     }
 
     private void afterMessageWritten(final ChatMessage message, final ChatChannel channel) {
@@ -408,10 +408,10 @@ public class ChatDAO {
      * moderation/plumbing read (tombstone a message, resolve an idempotent resend); anything that shows a message
      * to a person must use {@link #getVisibleMessage} instead, or retention stops meaning what the settings say.
      */
-    protected CompletableFuture<Optional<ChatMessage>> getMessage(
+    protected Optional<ChatMessage> getMessage(
             final ChatChannel.Id channelId, final ChatMessage.Id msgId) {
         if (channelId == null || msgId == null) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Optional.empty();
         }
         final String cId = channelId.getValue();
         final String mId = msgId.getValue();
@@ -419,24 +419,24 @@ public class ChatDAO {
             final String cached = cacheClient.getHashFields(CacheKeys.chatBodyKey(cId), List.of(mId)).get(mId);
             return cachedMessageOrRead(cId, mId, cached);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
-    private CompletableFuture<Optional<ChatMessage>> cachedMessageOrRead(
+    private Optional<ChatMessage> cachedMessageOrRead(
             final String cId, final String mId, final String cached) {
         final ChatMessage hit = cached == null ? null : parseMessage(cached);
         if (hit != null) {
-            return CompletableFuture.completedFuture(Optional.of(hit));
+            return Optional.of(hit);
         }
         final Map<String, AttributeValue> key = Map.of(
                 ATTR_CHANNEL_ID, AttributeValue.builder().s(cId).build(),
                 ATTR_MSG_ID, AttributeValue.builder().s(mId).build());
         try {
-            return CompletableFuture.completedFuture(
-                    messageFrom(persistence.getItem(b -> b.tableName(MESSAGES_TABLE).key(key).build())));
+            return 
+                    messageFrom(persistence.getItem(b -> b.tableName(MESSAGES_TABLE).key(key).build()));
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
@@ -452,7 +452,7 @@ public class ChatDAO {
      * One message as a given reader may see it — the same {@link ChatVisibility} rule the poll and the page use,
      * so a single-message read (a quote resolve, a deep link) cannot surface a body the feed would have hidden.
      */
-    protected CompletableFuture<Optional<ChatMessage>> getVisibleMessage(
+    protected Optional<ChatMessage> getVisibleMessage(
             final ChatChannel.Id channelId,
             final ChatMessage.Id msgId,
             final ChatMembership member,
@@ -460,23 +460,21 @@ public class ChatDAO {
             final Trip trip,
             final Instant now) {
         final Instant clock = now == null ? Instant.now() : now;
-        return getMessage(channelId, msgId).thenApply(opt -> opt
-                .filter(m -> ChatVisibility.isVisible(m, member, channel, trip, clock)));
+        return getMessage(channelId, msgId)
+                .filter(m -> ChatVisibility.isVisible(m, member, channel, trip, clock));
     }
 
     /**
      * Tombstone: clear body, set deletedAt/deletedBy. Never a Dynamo delete — already-polled clients need a
      * correction event.
      */
-    protected CompletableFuture<Optional<ChatMessage>> tombstoneMessage(
+    protected Optional<ChatMessage> tombstoneMessage(
             final ChatChannel.Id channelId, final ChatMessage.Id msgId, final String deletedBy) {
-        return getMessage(channelId, msgId)
-                .thenCompose(opt -> opt.isEmpty()
-                        ? CompletableFuture.completedFuture(Optional.empty())
-                        : writeTombstone(opt.get(), deletedBy));
+        final Optional<ChatMessage> existing = getMessage(channelId, msgId);
+        return existing.isEmpty() ? Optional.empty() : writeTombstone(existing.get(), deletedBy);
     }
 
-    private CompletableFuture<Optional<ChatMessage>> writeTombstone(
+    private Optional<ChatMessage> writeTombstone(
             final ChatMessage original, final String deletedBy) {
         final ChatMessage tombstoned = original.withDeleted(deletedBy);
         final String json = toJson(tombstoned);
@@ -491,13 +489,13 @@ public class ChatDAO {
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(MESSAGES_TABLE).item(item))
                     .sdkHttpResponse().isSuccessful();
-            return saved ? cacheTombstone(tombstoned, json) : CompletableFuture.completedFuture(Optional.empty());
+            return saved ? cacheTombstone(tombstoned, json) : Optional.empty();
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
-    private CompletableFuture<Optional<ChatMessage>> cacheTombstone(
+    private Optional<ChatMessage> cacheTombstone(
             final ChatMessage tombstoned, final String json) {
         cacheClient.putHashField(CacheKeys.chatBodyKey(tombstoned.getChannelId().getValue()),
                 tombstoned.getId().getValue(), json);
@@ -511,20 +509,19 @@ public class ChatDAO {
      * <p>The ZSET entry is untouched, so the message keeps its position in the log — an edit must not reorder a
      * conversation. Only the body hash and the Dynamo row change.
      */
-    protected CompletableFuture<Optional<ChatMessage>> editMessage(
+    protected Optional<ChatMessage> editMessage(
             final ChatChannel.Id channelId, final ChatMessage.Id msgId, final String newBody) {
-        return getMessage(channelId, msgId)
-                .thenCompose(opt -> opt.isEmpty() || opt.get().isDeleted()
-                        ? CompletableFuture.completedFuture(Optional.<ChatMessage>empty())
-                        : writeEdit(opt.get(), newBody));
+        final Optional<ChatMessage> existing = getMessage(channelId, msgId);
+        return existing.isEmpty() || existing.get().isDeleted()
+                ? Optional.empty() : writeEdit(existing.get(), newBody);
     }
 
-    private CompletableFuture<Optional<ChatMessage>> writeEdit(
+    private Optional<ChatMessage> writeEdit(
             final ChatMessage original, final String newBody) {
         final ChatMessage edited = original.withBody(newBody);
         final String json = toJson(edited);
         if (json == null) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Optional.empty();
         }
         final Map<String, AttributeValue> item = new HashMap<>();
         item.put(ATTR_CHANNEL_ID, persistence.toStrAttr(edited.getChannelId().getValue()));
@@ -537,13 +534,13 @@ public class ChatDAO {
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(MESSAGES_TABLE).item(item))
                     .sdkHttpResponse().isSuccessful();
-            return saved ? cacheEdit(edited, json) : CompletableFuture.completedFuture(Optional.empty());
+            return saved ? cacheEdit(edited, json) : Optional.empty();
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
-    private CompletableFuture<Optional<ChatMessage>> cacheEdit(final ChatMessage edited, final String json) {
+    private Optional<ChatMessage> cacheEdit(final ChatMessage edited, final String json) {
         cacheClient.putHashField(CacheKeys.chatBodyKey(edited.getChannelId().getValue()),
                 edited.getId().getValue(), json);
         return announceMutation(edited);
@@ -556,38 +553,38 @@ public class ChatDAO {
      * change, so the message never reappears on their cursor and their next poll returns nothing. Only a full page
      * reload showed the correction.
      */
-    private CompletableFuture<Optional<ChatMessage>> announceMutation(final ChatMessage changed) {
+    private Optional<ChatMessage> announceMutation(final ChatMessage changed) {
         final String cId = changed.getChannelId().getValue();
         cacheClient.increment(CacheKeys.chatMutationsVersionKey(cId), 1L, CacheKeys.GC_TTL);
         nudgeChannel(cId);
-        return CompletableFuture.completedFuture(Optional.of(changed));
+        return Optional.of(changed);
     }
 
     // --- read cursor (Valkey-authoritative; a lost cursor costs an unread dot, never a message) ---
 
-    protected CompletableFuture<Boolean> saveCursor(
+    protected Boolean saveCursor(
             final ChatChannel.Id channelId, final Person.Id personId, final ChatMessage.Id cursor) {
         if (channelId == null || personId == null || cursor == null) {
-            return CompletableFuture.completedFuture(false);
+            return false;
         }
-        return CompletableFuture.completedFuture(cacheClient.putValue(
+        return cacheClient.putValue(
                 CacheKeys.chatCursorKey(channelId.getValue(), personId.getValue()),
-                cursor.getValue(), CacheKeys.GC_TTL));
+                cursor.getValue(), CacheKeys.GC_TTL);
     }
 
-    protected CompletableFuture<Optional<ChatMessage.Id>> getCursor(
+    protected Optional<ChatMessage.Id> getCursor(
             final ChatChannel.Id channelId, final Person.Id personId) {
         if (channelId == null || personId == null) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Optional.empty();
         }
-        return CompletableFuture.completedFuture(
+        return 
                 cacheClient.getValue(CacheKeys.chatCursorKey(channelId.getValue(), personId.getValue()))
-                        .map(ChatMessage.Id::from));
+                        .map(ChatMessage.Id::from);
     }
 
     /** Last-activity millis per channel, for the unread indicator and the "My Chats" sort. */
-    protected CompletableFuture<Map<String, String>> lastActivity() {
-        return CompletableFuture.completedFuture(cacheClient.getHash(CacheKeys.CHAT_LAST_ACTIVITY));
+    protected Map<String, String> lastActivity() {
+        return cacheClient.getHash(CacheKeys.CHAT_LAST_ACTIVITY);
     }
 
     /**
@@ -598,7 +595,7 @@ public class ChatDAO {
      * after a day would otherwise be served the buffered tail, advance its cursor past the gap, and never see
      * the messages in between. See {@link #bufferCoversCursor}.
      */
-    protected CompletableFuture<ChatPage> getMessagesSince(
+    protected ChatPage getMessagesSince(
             final ChatChannel.Id channelId,
             final ChatMessage.Id since,
             final int limit,
@@ -608,13 +605,8 @@ public class ChatDAO {
             final Instant now) {
         final Read read = new Read(channelId.getValue(), since, limit <= 0 ? 200 : Math.min(limit, 200),
                 member, channel, trip, now);
-        try {
-            final boolean covered = bufferCoversCursor(read.channelId(), read.sinceMillis());
-            return (covered ? bufferedSince(read) : dynamoSince(read))
-                    .thenCompose(page -> withReactionMeta(channelId, page));
-        } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
-        }
+        final boolean covered = bufferCoversCursor(read.channelId(), read.sinceMillis());
+        return withReactionMeta(channelId, covered ? bufferedSince(read) : dynamoSince(read));
     }
 
     /**
@@ -640,7 +632,7 @@ public class ChatDAO {
     }
 
     /** The buffer has been proven complete for this cursor, so it may answer the read on its own. */
-    private CompletableFuture<ChatPage> bufferedSince(final Read read) {
+    private ChatPage bufferedSince(final Read read) {
         final List<String> ids = cacheClient.getRangeByScore(CacheKeys.chatLogKey(read.channelId()),
                 read.sinceMillis() + 1, Double.POSITIVE_INFINITY, false, read.limit());
         return ids.isEmpty() ? nothingNew(read) : bufferedBodies(read, ids);
@@ -650,14 +642,14 @@ public class ChatDAO {
      * The buffer is complete for this cursor and holds nothing newer, so "nothing new" is an authoritative
      * answer. This is what keeps an idle poll off DynamoDB entirely.
      */
-    private CompletableFuture<ChatPage> nothingNew(final Read read) {
-        return CompletableFuture.completedFuture(toPage(List.of(), List.of(), false, OLDEST_FIRST, read.now()));
+    private ChatPage nothingNew(final Read read) {
+        return toPage(List.of(), List.of(), false, OLDEST_FIRST, read.now());
     }
 
-    private CompletableFuture<ChatPage> bufferedBodies(final Read read, final List<String> ids) {
+    private ChatPage bufferedBodies(final Read read, final List<String> ids) {
         final List<ChatMessage> msgs = loadBodies(read.channelId(), ids);
         if (msgs.size() == ids.size()) {
-            return CompletableFuture.completedFuture(bufferPage(read, msgs, ids.size() >= read.limit()));
+            return bufferPage(read, msgs, ids.size() >= read.limit());
         }
         // A body went missing independently of its log entry (the hash and the ZSET have separate
         // lifetimes and only the ZSET is trimmed). Dropping it here would hide the message *and*
@@ -670,9 +662,8 @@ public class ChatDAO {
                 hasMore, OLDEST_FIRST, read.now());
     }
 
-    private CompletableFuture<ChatPage> dynamoSince(final Read read) {
-        return queryMessages(read.channelId(), read.sinceValue(), null, true, read.limit())
-                .thenApply(msgs -> dynamoPage(read, msgs));
+    private ChatPage dynamoSince(final Read read) {
+        return dynamoPage(read, queryMessages(read.channelId(), read.sinceValue(), null, true, read.limit()));
     }
 
     private ChatPage dynamoPage(final Read read, final List<ChatMessage> msgs) {
@@ -700,7 +691,7 @@ public class ChatDAO {
      * The returned {@link ChatPage#getCursor()} is the <em>oldest</em> id examined — pass it back as
      * {@code before} to page further back. It is not a poll cursor; {@code newestFirst} on the page says which.
      */
-    protected CompletableFuture<ChatPage> getMessagesBefore(
+    protected ChatPage getMessagesBefore(
             final ChatChannel.Id channelId,
             final ChatMessage.Id before,
             final int limit,
@@ -710,13 +701,14 @@ public class ChatDAO {
             final Instant now) {
         final int capped = limit <= 0 ? 50 : Math.min(limit, 50);
         final String cId = channelId.getValue();
-        return queryMessages(cId, null, before == null ? null : before.getValue(), false, capped)
-                .thenApply(msgs -> toPage(filterVisible(msgs, member, channel, trip, now), msgs,
-                        msgs.size() >= capped, NEWEST_FIRST, now))
-                .thenCompose(page -> withReactionMeta(channelId, page));
+        final List<ChatMessage> msgs =
+                queryMessages(cId, null, before == null ? null : before.getValue(), false, capped);
+        final ChatPage page = toPage(filterVisible(msgs, member, channel, trip, now), msgs,
+                msgs.size() >= capped, NEWEST_FIRST, now);
+        return withReactionMeta(channelId, page);
     }
 
-    private CompletableFuture<List<ChatMessage>> queryMessages(
+    private List<ChatMessage> queryMessages(
             final String channelId,
             final String afterExclusive,
             final String beforeExclusive,
@@ -741,16 +733,16 @@ public class ChatDAO {
         // partition and only then truncates in memory -- every page load would read the channel's entire
         // history. A message log grows without bound, so this read must stay one bounded page.
         try {
-            return CompletableFuture.completedFuture(toMessages(
+            return toMessages(
                     persistence.query(b -> b.tableName(MESSAGES_TABLE)
                             .keyConditionExpression(cond.toString())
                             .expressionAttributeNames(names)
                             .expressionAttributeValues(values)
                             .scanIndexForward(forward)
                             .limit(limit)).items(),
-                    limit));
+                    limit);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
@@ -850,18 +842,17 @@ public class ChatDAO {
      * carried no version, a reaction would never reach a client that already had the message it was attached to —
      * real-time reactions would silently not work while every individual piece looked correct.
      */
-    private CompletableFuture<ChatPage> withReactionMeta(final ChatChannel.Id channelId, final ChatPage page) {
+    private ChatPage withReactionMeta(final ChatChannel.Id channelId, final ChatPage page) {
         return withMutationsVersion(channelId, page, reactionsVersion(channelId.getValue()));
     }
 
-    private CompletableFuture<ChatPage> withMutationsVersion(
+    private ChatPage withMutationsVersion(
             final ChatChannel.Id channelId, final ChatPage page, final long reactionsVersion) {
         final Long mutations = mutationsVersion(channelId.getValue());
-        return summariesForPage(channelId, page)
-                .thenApply(summaries -> page.withReactions(summaries, reactionsVersion, mutations));
+        return page.withReactions(summariesForPage(channelId, page), reactionsVersion, mutations);
     }
 
-    private CompletableFuture<Map<ChatMessage.Id, ChatReactionSummary>> summariesForPage(
+    private Map<ChatMessage.Id, ChatReactionSummary> summariesForPage(
             final ChatChannel.Id channelId, final ChatPage page) {
         // Only the VISIBLE messages: reactions inherit their target's visibility, so summarising a message the
         // reader may not see would leak that it exists (and who engaged with it) through the reaction chips.
@@ -902,10 +893,10 @@ public class ChatDAO {
      * reactions would mean any page containing a single reaction-free message missed on every read and re-queried
      * the whole range forever — which is most pages, so the cache would do nothing.
      */
-    private CompletableFuture<Map<ChatMessage.Id, ChatReactionSummary>> cachedSummaries(
+    private Map<ChatMessage.Id, ChatReactionSummary> cachedSummaries(
             final ChatChannel.Id channelId, final List<ChatMessage> messages) {
         if (messages == null || messages.isEmpty()) {
-            return CompletableFuture.completedFuture(Map.of());
+            return Map.of();
         }
         final List<String> fields = new ArrayList<>(messages.size());
         for (final ChatMessage m : messages) {
@@ -915,18 +906,17 @@ public class ChatDAO {
                 cacheClient.getHashFields(CacheKeys.chatReactionSummaryKey(channelId.getValue()), fields));
     }
 
-    private CompletableFuture<Map<ChatMessage.Id, ChatReactionSummary>> summariesFromCacheOrStore(
+    private Map<ChatMessage.Id, ChatReactionSummary> summariesFromCacheOrStore(
             final ChatChannel.Id channelId,
             final List<ChatMessage> messages,
             final Map<String, String> cached) {
         final Map<ChatMessage.Id, ChatReactionSummary> hit = parseSummaries(messages, cached);
         if (hit != null) {
-            return CompletableFuture.completedFuture(hit);
+            return hit;
         }
         // Any miss rebuilds the whole page's range rather than the missing ids one at a time: the range is a single
         // Query either way, so one round trip is strictly cheaper than N and repopulates the neighbours as well.
-        return summariesForMessages(channelId, messages)
-                .thenApply(fresh -> cacheSummaries(channelId, fresh));
+        return cacheSummaries(channelId, summariesForMessages(channelId, messages));
     }
 
     /** Parsed summaries when every message was cached, or {@code null} when the page must be rebuilt. */
@@ -967,17 +957,17 @@ public class ChatDAO {
         return summaries;
     }
 
-    protected CompletableFuture<Boolean> putReaction(final ChatReaction reaction) {
+    protected Boolean putReaction(final ChatReaction reaction) {
         if (reaction == null || reaction.getChannelId() == null || reaction.getTargetMessageId() == null
                 || reaction.getPersonId() == null || reaction.getEmoji() == null) {
-            return CompletableFuture.completedFuture(false);
+            return false;
         }
         final Map<String, AttributeValue> item = new HashMap<>();
         item.put(ATTR_CHANNEL_ID, persistence.toStrAttr(reaction.getChannelId().getValue()));
         item.put(ATTR_SK, persistence.toStrAttr(reaction.sortKey()));
         final String json = toJson(reaction);
         if (json == null) {
-            return CompletableFuture.completedFuture(false);
+            return false;
         }
         item.put(ATTR_CONTENT, persistence.toStrAttr(json));
         if (reaction.getExpiresAt() != null) {
@@ -989,11 +979,11 @@ public class ChatDAO {
                     .sdkHttpResponse().isSuccessful();
             return afterReactionWritten(saved, reaction.getChannelId(), reaction.getTargetMessageId());
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
-    protected CompletableFuture<Boolean> deleteReaction(
+    protected Boolean deleteReaction(
             final ChatChannel.Id channelId,
             final ChatMessage.Id targetMessageId,
             final Person.Id personId,
@@ -1007,7 +997,7 @@ public class ChatDAO {
                     .sdkHttpResponse().isSuccessful();
             return afterReactionWritten(deleted, channelId, targetMessageId);
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
@@ -1019,16 +1009,16 @@ public class ChatDAO {
      * The nudge goes last, for the same reason it does on the message path: whoever it wakes must already be able
      * to read the change it is telling them about.
      */
-    private CompletableFuture<Boolean> afterReactionWritten(
+    private Boolean afterReactionWritten(
             final boolean ok, final ChatChannel.Id channelId, final ChatMessage.Id targetMessageId) {
         if (!ok) {
-            return CompletableFuture.completedFuture(false);
+            return false;
         }
         final String cId = channelId.getValue();
         cacheClient.removeHashField(CacheKeys.chatReactionSummaryKey(cId), targetMessageId.getValue());
         bumpReactionsVersion(cId);
         nudgeChannel(cId);
-        return CompletableFuture.completedFuture(true);
+        return true;
     }
 
     private Optional<Long> bumpReactionsVersion(final String channelId) {
@@ -1047,15 +1037,14 @@ public class ChatDAO {
     }
 
     /** Summaries for an explicit message-id window, for a client refetching after the version changed. */
-    protected CompletableFuture<Map<ChatMessage.Id, ChatReactionSummary>> summariesForWindow(
+    protected Map<ChatMessage.Id, ChatReactionSummary> summariesForWindow(
             final ChatChannel.Id channelId,
             final ChatMessage.Id oldest,
             final ChatMessage.Id newest) {
         if (channelId == null || oldest == null || newest == null || oldest.compareTo(newest) > 0) {
-            return CompletableFuture.completedFuture(Map.of());
+            return Map.of();
         }
-        return getReactionsForRange(channelId, oldest, newest)
-                .thenApply(ChatDAO::summarizeByTarget);
+        return summarizeByTarget(getReactionsForRange(channelId, oldest, newest));
     }
 
     /**
@@ -1076,8 +1065,8 @@ public class ChatDAO {
     }
 
     /** The current reaction version, for a client that wants it without reading a page. */
-    protected CompletableFuture<Long> currentReactionsVersion(final ChatChannel.Id channelId) {
-        return CompletableFuture.completedFuture(reactionsVersion(channelId.getValue()));
+    protected Long currentReactionsVersion(final ChatChannel.Id channelId) {
+        return reactionsVersion(channelId.getValue());
     }
 
     /**
@@ -1093,12 +1082,12 @@ public class ChatDAO {
      * lifetime. A bounded {@code query()} would be actively wrong: a truncated result silently undercounts, and a
      * reaction chip that reads "2" when three people reacted is indistinguishable from correct.
      */
-    protected CompletableFuture<List<ChatReaction>> getReactionsForRange(
+    protected List<ChatReaction> getReactionsForRange(
             final ChatChannel.Id channelId,
             final ChatMessage.Id oldest,
             final ChatMessage.Id newest) {
         if (channelId == null || oldest == null || newest == null) {
-            return CompletableFuture.completedFuture(List.of());
+            return List.of();
         }
         final Map<String, String> names = Map.of("#channelId", ATTR_CHANNEL_ID, "#sk", ATTR_SK);
         final Map<String, AttributeValue> values = Map.of(
@@ -1106,7 +1095,7 @@ public class ChatDAO {
                 ":lo", AttributeValue.builder().s(ChatReaction.rangeLower(oldest)).build(),
                 ":hi", AttributeValue.builder().s(ChatReaction.rangeUpper(newest)).build());
         try {
-            return CompletableFuture.completedFuture(persistence.queryAll(b -> b.tableName(REACTIONS_TABLE)
+            return persistence.queryAll(b -> b.tableName(REACTIONS_TABLE)
                             .keyConditionExpression("#channelId = :c AND #sk BETWEEN :lo AND :hi")
                             .expressionAttributeNames(names)
                             .expressionAttributeValues(values)
@@ -1116,16 +1105,16 @@ public class ChatDAO {
                     .filter(c -> c != null)
                     .map(c -> parseReaction(c.s()))
                     .filter(r -> r != null)
-                    .toList());
+                    .toList();
         } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+            throw ex;
         }
     }
 
-    protected CompletableFuture<Map<ChatMessage.Id, ChatReactionSummary>> summariesForMessages(
+    protected Map<ChatMessage.Id, ChatReactionSummary> summariesForMessages(
             final ChatChannel.Id channelId, final List<ChatMessage> messages) {
         if (messages == null || messages.isEmpty()) {
-            return CompletableFuture.completedFuture(Map.of());
+            return Map.of();
         }
         ChatMessage.Id oldest = messages.get(0).getId();
         ChatMessage.Id newest = messages.get(0).getId();
@@ -1137,8 +1126,7 @@ public class ChatDAO {
                 newest = m.getId();
             }
         }
-        return getReactionsForRange(channelId, oldest, newest)
-                .thenApply(reactions -> summarize(messages, reactions));
+        return summarize(messages, getReactionsForRange(channelId, oldest, newest));
     }
 
     /** Folds a page's reaction rows into one summary per message — every message gets an entry, even if empty. */

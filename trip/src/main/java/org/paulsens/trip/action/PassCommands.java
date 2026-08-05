@@ -28,7 +28,7 @@ import static org.paulsens.trip.dynamo.CredentialsDAO.IS_ADMIN;
 @ApplicationScoped
 public class PassCommands {
     public boolean userExistsWithEmail(final String email) {
-        return DAO.getInstance().getPersonByEmail(email).join() != null;
+        return DAO.getInstance().getPersonByEmail(email) != null;
     }
 
     public Creds login(final String email, final String pass) {
@@ -58,11 +58,12 @@ public class PassCommands {
         if (Util.isBlank(email) || Util.isBlank(pass)) {
             throw new IllegalArgumentException("Email or password is blank.");
         }
-        return DAO.getInstance().getCredsByEmailAndPass(email, pass)
-                .exceptionally(ex -> {
-                    log.error("Failed to get creds for: " + email, ex);
-                    return null;
-                }).join();
+        try {
+            return DAO.getInstance().getCredsByEmailAndPass(email, pass);
+        } catch (final RuntimeException ex) {
+            log.error("Failed to get creds for: " + email, ex);
+            return null;
+        }
     }
 
     public Creds adminGetCreds(final String email) {
@@ -70,8 +71,8 @@ public class PassCommands {
             throw new IllegalArgumentException("Email is blank.");
         }
         return DAO.getInstance().adminGetCredsByEmail(email)
-                .orTimeout(3_000, TimeUnit.MILLISECONDS)
-                .join();
+                
+                ;
     }
 
     public Boolean adminSetPass(final String email, final String pass) {
@@ -118,11 +119,12 @@ public class PassCommands {
         if (Util.isBlank(email) || id == null) {
             throw new IllegalArgumentException("Email or password is blank.");
         }
-        return DAO.getInstance().getCredsByEmailAdminOnly(email, id)
-                .exceptionally(ex -> {
-                    log.error("Failed to get creds for: " + email, ex);
-                    return null;
-                }).join();
+        try {
+            return DAO.getInstance().getCredsByEmailAdminOnly(email, id);
+        } catch (final RuntimeException ex) {
+            log.error("Failed to get creds for: " + email, ex);
+            return null;
+        }
     }
 
     /**
@@ -166,7 +168,7 @@ public class PassCommands {
             return false;
         }
         final DAO dao = DAO.getInstance();
-        final Person person = dao.getPersonByEmail(email).join();
+        final Person person = dao.getPersonByEmail(email);
         final Creds currCreds = getCreds(email, currPass);
         if ((currCreds == null) || (person == null)) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Person or credentials missing!", "");
@@ -181,7 +183,7 @@ public class PassCommands {
     }
 
     public Boolean deleteCreds(final String email) {
-        final Boolean result = DAO.getInstance().removeCreds(email).join();
+        final Boolean result = DAO.getInstance().removeCreds(email);
         if (!result) {
             log.warn("Unable to remove Creds for ({}). Perhaps no Creds exist or this user is an admin?", email);
         }
@@ -209,8 +211,8 @@ public class PassCommands {
             person.setEmail(oldEmail);
             try {
                 if (!DAO.getInstance().savePerson(person)
-                        .orTimeout(3_000, TimeUnit.MILLISECONDS)
-                        .join()) {
+                        
+                        ) {
                     throw new IOException("Failed to revert email!");
                 }
             } catch (final IOException ex) {
@@ -223,7 +225,7 @@ public class PassCommands {
                 result = false;
             } else {
                 oldCreds.setEmail(newEmail);
-                result = DAO.getInstance().saveCreds(oldCreds).join();
+                result = DAO.getInstance().saveCreds(oldCreds);
             }
         }
         return result;
@@ -239,14 +241,14 @@ public class PassCommands {
      */
     private Boolean setPass(final String email, final String pass) {
         final DAO dao = DAO.getInstance();
-        final Person person = dao.getPersonByEmail(email).join();
+        final Person person = dao.getPersonByEmail(email);
         if (person == null) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
                     "Check email address, and make sure you have registered.", "");
             return false;
         }
         final Creds creds = new Creds(email, person.getId(), pass);
-        final Boolean saved = dao.saveCreds(creds).join();
+        final Boolean saved = dao.saveCreds(creds);
         // Every password change funnels through here -- the owner changing their own, the forgot-password
         // reset, and an admin setting someone else's -- so this one record covers all of them. The actor is
         // whoever is signed in, which is what distinguishes "she changed her password" from "an admin did".
@@ -272,7 +274,7 @@ public class PassCommands {
             throw new IllegalArgumentException("Email or last name missing!");
         }
         // Get the person by email
-        final Person person = DAO.getInstance().getPersonByEmail(email).join();
+        final Person person = DAO.getInstance().getPersonByEmail(email);
         final String result;
         if ((person == null) || !person.getLast().equalsIgnoreCase(lastName)) {
             // If not exist, error
