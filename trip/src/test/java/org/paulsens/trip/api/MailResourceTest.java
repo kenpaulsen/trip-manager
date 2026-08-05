@@ -148,7 +148,9 @@ public class MailResourceTest extends ResourceTestSupport {
         final Map<String, Object> body = (Map<String, Object>) response.getEntity();
         Assert.assertEquals(body.get("accepted"), List.of("good@x.org"));
         Assert.assertEquals(body.get("rejected"), 1);
-        Mockito.verify(mail, Mockito.times(1)).send(ArgumentMatchers.any(), ArgumentMatchers.eq("good@x.org"),
+        // timeout(): the sends run on spawned virtual threads after the response is already built.
+        Mockito.verify(mail, Mockito.timeout(5000).times(1)).send(
+                ArgumentMatchers.any(), ArgumentMatchers.eq("good@x.org"),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(AuditActor.class));
     }
@@ -167,9 +169,9 @@ public class MailResourceTest extends ResourceTestSupport {
     /**
      * The actor is captured on the request thread and passed INTO the send.
      *
-     * <p>MailCommands writes its audit record inside the SES completion callback, where
-     * {@code AuditActor.current()} finds no FacesContext; every EMAIL record went out unattributed for a
-     * period because of exactly this.
+     * <p>The sends outlive the request on their own virtual threads, where nothing is bound and
+     * {@code AuditActor.current()} finds nobody; every EMAIL record went out unattributed for a period
+     * because attribution was left to the sending thread.
      */
     @Test
     public void theActorTravelsWithTheSendRatherThanBeingResolvedLater() {
@@ -179,7 +181,8 @@ public class MailResourceTest extends ResourceTestSupport {
 
         assertOk(resource.send(CSRF_OK, send(List.of("a@x.org"))));
 
-        Mockito.verify(mail).send(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+        Mockito.verify(mail, Mockito.timeout(5000)).send(
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.argThat((AuditActor actor) -> "admin@example.com".equals(actor.email())));
     }

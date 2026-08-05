@@ -1,19 +1,22 @@
 package org.paulsens.trip.action;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.dynamo.LocalMode;
 import org.paulsens.trip.model.Person;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
-import software.amazon.awssdk.services.ses.SesAsyncClient;
+import software.amazon.awssdk.services.ses.SesClient;
 import software.amazon.awssdk.services.ses.model.SendEmailRequest;
 import software.amazon.awssdk.services.ses.model.SendEmailResponse;
 
@@ -28,7 +31,7 @@ import software.amazon.awssdk.services.ses.model.SendEmailResponse;
 public class MailSendSesPathTest {
 
     private Object savedResolved;
-    private SesAsyncClient ses;
+    private SesClient ses;
     private MailCommands mail;
 
     @BeforeClass
@@ -37,7 +40,7 @@ public class MailSendSesPathTest {
         resolved.setAccessible(true);
         savedResolved = resolved.get(null);
         resolved.set(null, Boolean.FALSE);
-        ses = Mockito.mock(SesAsyncClient.class);
+        ses = Mockito.mock(SesClient.class);
         mail = new MailCommands(ses);
     }
 
@@ -48,17 +51,20 @@ public class MailSendSesPathTest {
         resolved.set(null, savedResolved);
     }
 
-    @Test
-    public void aSendBuildsTheRequestAndAnswersTheResponse() {
-        final SendEmailResponse ok = (SendEmailResponse) SendEmailResponse.builder().messageId("ses-99")
+    private static SendEmailResponse okResponse() {
+        return (SendEmailResponse) SendEmailResponse.builder().messageId("ses-99")
                 .sdkHttpResponse(software.amazon.awssdk.http.SdkHttpResponse.builder().statusCode(200).build())
                 .build();
-        Mockito.when(ses.sendEmail(ArgumentMatchers.any(SendEmailRequest.class)))
-                .thenReturn(CompletableFuture.completedFuture(ok));
+    }
+
+    @Test
+    public void aSendBuildsTheRequestAndAnswersTheResponse() {
+        Mockito.clearInvocations(ses);
+        Mockito.when(ses.sendEmail(ArgumentMatchers.any(SendEmailRequest.class))).thenReturn(okResponse());
 
         final SendEmailResponse response = mail.send("  Trips <no-reply@example.org>  ",
                 "a@example.org, b@example.org", "bcc@example.org", "reply@example.org",
-                "Subject", "<p>Body</p>", AuditActor.system()).join();
+                "Subject", "<p>Body</p>", AuditActor.system());
 
         Assert.assertEquals(response.messageId(), "ses-99");
         final ArgumentCaptor<SendEmailRequest> req = ArgumentCaptor.forClass(SendEmailRequest.class);
@@ -76,7 +82,7 @@ public class MailSendSesPathTest {
         Mockito.clearInvocations(ses);
 
         final SendEmailResponse response = mail.send("f@example.org", "   ", null, "r@example.org",
-                "S", "B", AuditActor.system()).join();
+                "S", "B", AuditActor.system());
 
         Assert.assertNotNull(response, "an empty (not null, not failed) response keeps callers simple");
         Mockito.verify(ses, Mockito.never()).sendEmail(ArgumentMatchers.any(SendEmailRequest.class));
@@ -86,10 +92,72 @@ public class MailSendSesPathTest {
     @Test
     public void anSesFailureAnswersNullRatherThanThrowing() {
         Mockito.when(ses.sendEmail(ArgumentMatchers.any(SendEmailRequest.class)))
-                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("SES rejected it")));
+                .thenThrow(new IllegalStateException("SES rejected it"));
 
         Assert.assertNull(mail.send("f@example.org", "to@example.org", null, "r@example.org",
-                "S", "B", AuditActor.system()).join());
+                "S", "B", AuditActor.system()));
+    }
+
+    /**
+     * The virtual-threads-era attribution semantics: the explicit parameter always wins, and a null actor
+     * resolves through the bound {@code RequestContext} -- the send blocks on the bound thread, so the audit
+     * is written where the identity is visible. (Unbound spawns still resolve nobody; that is why the
+     * explicit-actor overloads exist and why {@code TripThreads.startAs} does.)
+     */
+    @Test
+    public void aNullActorResolvesFromTheBoundRequestContext() throws Exception {
+        Mockito.when(ses.sendEmail(ArgumentMatchers.any(SendEmailRequest.class))).thenReturn(okResponse());
+        final RequestContext bound = RequestContext.of(new AuditActor("bound@example.org", "b-1"));
+
+        final String out = captureStdout(
+                () -> ScopedValue.where(RequestContext.SCOPE, bound).run(this::sendWithNullActor));
+
+        Assert.assertTrue(out.contains("bound@example.org"),
+                "A null actor must resolve from the bound RequestContext, not record nobody: " + out);
+    }
+
+    private void sendWithNullActor() {
+        mail.send("f@example.org", "to@example.org", null, "r@example.org", "S", "B", null);
+    }
+
+    private static String captureStdout(final Runnable action) {
+        final PrintStream original = System.out;
+        final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(buffer, true, StandardCharsets.UTF_8));
+        try {
+            action.run();
+        } finally {
+            System.setOut(original);
+        }
+        return buffer.toString(StandardCharsets.UTF_8);
+    }
+
+    /**
+     * The merge itself: rendering stays sequential (the EL slot is shared), the SES sends fan out one
+     * StructuredTaskScope fork per recipient, and the response list keeps recipient order.
+     */
+    @Test
+    public void sendTemplateRendersSequentiallyAndFansOutTheSends() {
+        Mockito.clearInvocations(ses);
+        Mockito.when(ses.sendEmail(ArgumentMatchers.any(SendEmailRequest.class))).thenReturn(okResponse());
+        final com.sun.jsft.util.ELUtil el = Mockito.mock(com.sun.jsft.util.ELUtil.class);
+        Mockito.when(el.eval("S")).thenReturn("S");
+        Mockito.when(el.eval("B")).thenReturn("B");
+        final Person one = new Person();
+        one.setEmail("one@example.org");
+        final Person two = new Person();
+        two.setEmail("two@example.org");
+
+        final List<SendEmailResponse> out;
+        try (var elStatic = Mockito.mockStatic(com.sun.jsft.util.ELUtil.class)) {
+            elStatic.when(com.sun.jsft.util.ELUtil::getInstance).thenReturn(el);
+            out = new MailCommands(ses).sendTemplate("f@example.org", List.of(one, two), null,
+                    "r@example.org", "S", "B", AuditActor.system());
+        }
+
+        Assert.assertEquals(out.size(), 2, "one response per usable recipient, in recipient order");
+        Assert.assertEquals(out.get(0).messageId(), "ses-99");
+        Mockito.verify(ses, Mockito.times(2)).sendEmail(ArgumentMatchers.any(SendEmailRequest.class));
     }
 
     /** Off a Faces thread the EL evaluates to null; sendTemplate must refuse loudly, not mail "null". */
@@ -98,8 +166,9 @@ public class MailSendSesPathTest {
         final Person person = new Person();
         person.setEmail("who@example.org");
 
-        Assert.assertThrows(() -> mail.sendTemplate("f@example.org", List.of(person), null,
-                "r@example.org", "#{requestScope.subject}", "template-text", AuditActor.system()).join());
+        Assert.assertThrows(IllegalStateException.class,
+                () -> mail.sendTemplate("f@example.org", List.of(person), null,
+                        "r@example.org", "#{requestScope.subject}", "template-text", AuditActor.system()));
     }
 
     @Test
@@ -109,7 +178,7 @@ public class MailSendSesPathTest {
         noAddress.setEmail("not an address");
 
         Assert.assertTrue(mail.sendTemplate("f@example.org", List.of(noAddress), null,
-                "r@example.org", "S", "B", AuditActor.system()).join().isEmpty());
+                "r@example.org", "S", "B", AuditActor.system()).isEmpty());
         Mockito.verify(ses, Mockito.never()).sendEmail(ArgumentMatchers.any(SendEmailRequest.class));
     }
 

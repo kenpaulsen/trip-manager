@@ -16,6 +16,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
@@ -140,6 +141,13 @@ public final class ChatDigestScheduler {
      * an escaping exception would silently kill the only thread that can ever send a digest again.
      */
     void attempt(final String runId, final Instant firstAttempt) {
+        // Bind the System identity for the whole attempt: this platform scheduler thread has no request and no
+        // ScopedValue binding, so anything below that fell back to AuditActor.current() would record nobody.
+        ScopedValue.where(RequestContext.SCOPE, RequestContext.system())
+                .run(() -> boundAttempt(runId, firstAttempt));
+    }
+
+    private void boundAttempt(final String runId, final Instant firstAttempt) {
         try {
             if (attemptOnce(runId, firstAttempt)) {
                 // Finished with THIS run -- so arm the next one. Without this the executor is left with nothing

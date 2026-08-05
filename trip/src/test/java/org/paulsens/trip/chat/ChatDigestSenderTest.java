@@ -107,7 +107,7 @@ public class ChatDigestSenderTest {
         Mockito.when(mail.send(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(AuditActor.class)))
-                .thenReturn(java.util.concurrent.CompletableFuture.completedFuture(response));
+                .thenReturn(response);
     }
 
     // --- what counts as news ---

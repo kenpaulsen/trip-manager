@@ -14,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.MailCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.util.TripThreads;
 
 /**
  * Sending email.
@@ -81,9 +82,9 @@ public class MailResource extends BaseResource {
     /**
      * Sends one message to an explicit recipient list.
      *
-     * <p>The actor is captured here, on the request thread, and passed in. {@code MailCommands.send} writes its
-     * audit record inside the SES client's completion callback, where {@code AuditActor.current()} finds
-     * nothing -- every EMAIL record went out unattributed for a period because of exactly that.
+     * <p>The actor is captured here, on the request thread, and passed in. The sends outlive this request on
+     * their own virtual threads, where {@code AuditActor.current()} finds nothing -- every EMAIL record went
+     * out unattributed for a period because attribution was left to the sending thread.
      */
     @POST
     @Consumes({V1, MediaType.APPLICATION_JSON})
@@ -109,11 +110,18 @@ public class MailResource extends BaseResource {
             return error(422, ApiErrors.VALIDATION_FAILED, "No usable recipient addresses.");
         }
         for (final String recipient : accepted) {
-            mail.send(body.from(), recipient, body.bcc(), body.replyTo(), body.subject(), body.body(), actor);
+            // startAs, not a bare spawn: send() is blocking now, and a plain spawn would not inherit the
+            // ScopedValue-bound identity -- the actor must ride along explicitly for the EMAIL audit record.
+            TripThreads.startAs(actor, () -> sendOne(mail, body, recipient, actor));
         }
-        // Reports what was ACCEPTED, not what was delivered. The sends are asynchronous and SES decides
-        // delivery later; claiming success here would be claiming something this call cannot know.
+        // Reports what was ACCEPTED, not what was delivered. The sends run on their own virtual threads and
+        // SES decides delivery later; claiming success here would be claiming something this call cannot know.
         return ok(Map.of("accepted", accepted, "rejected", body.to().size() - accepted.size()));
+    }
+
+    private static void sendOne(final MailCommands mail, final SendRequest body, final String recipient,
+            final AuditActor actor) {
+        mail.send(body.from(), recipient, body.bcc(), body.replyTo(), body.subject(), body.body(), actor);
     }
 
     private Response validate(final SendRequest body) {

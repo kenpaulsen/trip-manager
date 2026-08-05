@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.util.TripThreads;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
@@ -84,7 +85,10 @@ public final class ChatNotifications {
         if (notification.getRecipients().isEmpty()) {
             return;
         }
-        TripThreads.start(() -> dispatch(notification));
+        // startAs(system): the dispatch thread outlives the author's request, and the notification is the
+        // application's act, not the author's (see EmailChatNotifier). Binding System here means anything
+        // below that falls back to AuditActor.current() records System rather than nobody.
+        TripThreads.startAs(AuditActor.system(), () -> dispatch(notification));
     }
 
     /** Everyone on the trip except the author, who is never notified about their own message. */

@@ -1,5 +1,6 @@
 package org.paulsens.trip.audit;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -13,7 +14,7 @@ import java.util.concurrent.TimeUnit;
 import org.paulsens.trip.model.AuditEvent;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.cloudwatchlogs.CloudWatchLogsAsyncClient;
+import software.amazon.awssdk.services.cloudwatchlogs.CloudWatchLogsClient;
 import software.amazon.awssdk.services.cloudwatchlogs.model.CreateLogStreamRequest;
 import software.amazon.awssdk.services.cloudwatchlogs.model.InputLogEvent;
 import software.amazon.awssdk.services.cloudwatchlogs.model.PutLogEventsRequest;
@@ -40,11 +41,11 @@ public final class CloudWatchAuditSink implements AuditSink {
     private static final int MAX_BATCH = 1_000;
     private static final long FLUSH_INTERVAL_MS = 2_000L;
     /** Upper bound on one delivery attempt; a slower CloudWatch is treated as a failed delivery, not waited on. */
-    private static final long SEND_TIMEOUT_SECONDS = 30L;
+    private static final Duration SEND_TIMEOUT = Duration.ofSeconds(30);
     private static final DateTimeFormatter STREAM_DATE =
             DateTimeFormatter.ofPattern("yyyy/MM/dd").withZone(ZoneOffset.UTC);
 
-    private final CloudWatchLogsAsyncClient client;
+    private final CloudWatchLogsClient client;
     private final String logGroup;
     private final String logStream;
     private final BlockingQueue<InputLogEvent> queue = new ArrayBlockingQueue<>(QUEUE_CAPACITY);
@@ -59,10 +60,14 @@ public final class CloudWatchAuditSink implements AuditSink {
      *         the day someone asks what happened.
      */
     public CloudWatchAuditSink(final String logGroup) {
-        this(logGroup, CloudWatchLogsAsyncClient.builder()
+        this(logGroup, CloudWatchLogsClient.builder()
                 .region(resolveRegion())
                 // Default chain: the ECS task role in AWS, ~/.aws [default] on a laptop.
                 .credentialsProvider(DefaultCredentialsProvider.builder().build())
+                // The client-level bound replaces the CF-era per-call orTimeout: send() is reached from
+                // close() as well as the flusher, and an unresponsive endpoint must be a failed delivery
+                // (stdout fallback), never a wedged flusher or a blocked container shutdown.
+                .overrideConfiguration(o -> o.apiCallTimeout(SEND_TIMEOUT))
                 .build());
     }
 
@@ -71,7 +76,7 @@ public final class CloudWatchAuditSink implements AuditSink {
      *               the bounded queue and the stdout fallback are the parts worth verifying, and none of them
      *               are reachable through a constructor that builds its own AWS client.
      */
-    CloudWatchAuditSink(final String logGroup, final CloudWatchLogsAsyncClient client) {
+    CloudWatchAuditSink(final String logGroup, final CloudWatchLogsClient client) {
         this.logGroup = logGroup;
         // One stream per JVM. Two tasks writing the same stream is legal but pointlessly confusing, and the
         // container hostname alone repeats across restarts, so add a short random suffix.
@@ -145,17 +150,13 @@ public final class CloudWatchAuditSink implements AuditSink {
         // slightly out of order, so sort rather than assume.
         batch.sort(Comparator.comparingLong(InputLogEvent::timestamp));
         try {
+            // Blocking, and bounded by the client's apiCallTimeout (see the constructor): a delivery that
+            // cannot finish inside the bound takes the same fallback as any other failure.
             client.putLogEvents(PutLogEventsRequest.builder()
                     .logGroupName(logGroup)
                     .logStreamName(logStream)
                     .logEvents(batch)
-                    .build())
-                    // BOUNDED, because this join is reached from close() as well as the flusher: an
-                    // unresponsive endpoint whose future never completes would otherwise wedge the flusher
-                    // silently and block container shutdown. A timeout takes the same fallback as any other
-                    // delivery failure -- the records print to stdout, which the awslogs driver still captures.
-                    .orTimeout(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                    .join();
+                    .build());
         } catch (RuntimeException ex) {
             // Delivery failed: print the records so they still land in the application log group via stdout.
             System.out.println("AUDIT-DELIVERY-FAILED (" + ex + ") -- records follow:");
@@ -168,9 +169,9 @@ public final class CloudWatchAuditSink implements AuditSink {
             client.createLogStream(CreateLogStreamRequest.builder()
                     .logGroupName(logGroup)
                     .logStreamName(logStream)
-                    .build()).join();
+                    .build());
         } catch (RuntimeException ex) {
-            if (!(ex.getCause() instanceof ResourceAlreadyExistsException)) {
+            if (!(ex instanceof ResourceAlreadyExistsException)) {
                 client.close();
                 throw new IllegalStateException(
                         "Unable to create audit log stream '" + logStream + "' in group '" + logGroup + "'", ex);

@@ -21,12 +21,13 @@ import com.paypal.sdk.models.PhoneType;
 import com.paypal.sdk.models.PhoneWithType;
 import com.paypal.sdk.models.PurchaseUnitRequest;
 import com.paypal.sdk.models.SellerReceivableBreakdown;
+import com.paypal.sdk.exceptions.ApiException;
+import java.io.IOException;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
 import org.paulsens.trip.model.Person;
@@ -58,7 +59,13 @@ public class PayPalClient {
         return INSTANCE;
     }
 
-    public CompletableFuture<ApiResponse<Order>> createOrder(
+    /**
+     * Blocking, like every other client in this codebase since the virtual-threads migration. The SDK's own
+     * OkHttp timeouts bound the call (the CF era's per-call orTimeout is gone with the futures). A PayPal
+     * refusal or transport failure is logged here and rethrown unchecked; callers that must not fail their
+     * request on a payment error already catch (see {@code PayCommands.captureAndSave}).
+     */
+    public ApiResponse<Order> createOrder(
             final Person person,
             final Person.Id id,
             final Float amountDue,
@@ -69,29 +76,30 @@ public class PayPalClient {
             final String cancelUrl) {
         final List<PurchaseUnitRequest> purchases = toPurchaseUnitRequests(
                 List.of(amountDue), id, invoiceId, orgAbbr, description);
-        return sdkClient.getOrdersController().createOrderAsync(
-                new CreateOrderInput.Builder()
-                        .body(createOrderRequest(person, purchases, returnUrl, cancelUrl))
-                        .build())
-                .whenComplete((resp, ex) -> {
-                    if (ex == null) {
-                        log.info("Create order response: {}", resp.getStatusCode());
-                    } else {
-                        log.error("Error creating PayPal order", ex);
-                    }
-                });
+        try {
+            final ApiResponse<Order> response = sdkClient.getOrdersController().createOrder(
+                    new CreateOrderInput.Builder()
+                            .body(createOrderRequest(person, purchases, returnUrl, cancelUrl))
+                            .build());
+            log.info("Create order response: {}", response.getStatusCode());
+            return response;
+        } catch (final ApiException | IOException ex) {
+            log.error("Error creating PayPal order", ex);
+            throw new IllegalStateException("PayPal createOrder failed", ex);
+        }
     }
 
-    public CompletableFuture<ApiResponse<Order>> captureOrder(final String orderId) {
-        return sdkClient.getOrdersController().captureOrderAsync(
-                    new CaptureOrderInput.Builder().id(orderId).build())
-                .whenComplete((resp, ex) -> {
-                    if (ex == null) {
-                        log.info("Capture order ({}) response: {}", orderId, resp.getStatusCode());
-                    } else {
-                        log.error("Error capturing PayPal order: {}", orderId, ex);
-                    }
-                });
+    /** Blocking; see {@link #createOrder}. */
+    public ApiResponse<Order> captureOrder(final String orderId) {
+        try {
+            final ApiResponse<Order> response = sdkClient.getOrdersController().captureOrder(
+                    new CaptureOrderInput.Builder().id(orderId).build());
+            log.info("Capture order ({}) response: {}", orderId, response.getStatusCode());
+            return response;
+        } catch (final ApiException | IOException ex) {
+            log.error("Error capturing PayPal order: {}", orderId, ex);
+            throw new IllegalStateException("PayPal captureOrder failed for " + orderId, ex);
+        }
     }
 
     /**

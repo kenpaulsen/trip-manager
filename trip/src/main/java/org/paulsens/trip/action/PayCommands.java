@@ -19,7 +19,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
 import org.paulsens.trip.audit.AuditActor;
@@ -147,10 +146,7 @@ public class PayCommands {
         val person = (userId == null) ? null : people.getPerson(userId);
         val email = (person == null) ? orderId : person.getEmail();
         try {
-            final ApiResponse<Order> response = PayPalClient.getInstance()
-                    .captureOrder(orderId)
-                    .orTimeout(10_000, TimeUnit.MILLISECONDS)
-                    .join();
+            final ApiResponse<Order> response = PayPalClient.getInstance().captureOrder(orderId);
 
             if (response == null || response.getResult() == null) {
                 log.error("Null response from PayPal captureOrder for orderId={}", orderId);
@@ -175,8 +171,8 @@ public class PayCommands {
             }
 
             // Audit. The actor is the payer: they are the one who just completed this checkout.
-            // Built here, on the request thread, because the notification below crosses into SES's
-            // completion thread where AuditActor.current() would find nobody.
+            // Built explicitly rather than via AuditActor.current(): the payer may not even be the
+            // signed-in user (an admin can capture on someone's behalf), and the record must name the payer.
             final AuditActor actor = new AuditActor(email, userId == null ? null : userId.getValue());
             audit.log(email, "PAYMENT", note);
 
@@ -231,17 +227,12 @@ public class PayCommands {
             final String description) {
         val invoice = (invoiceId == null || invoiceId.isEmpty()) ? genInvoiceId() : invoiceId;
         return PayPalClient.getInstance()
-                .createOrder(payer, id, amount, invoiceId, orgAbbr, description, null, null)
-                .orTimeout(5_000, TimeUnit.MILLISECONDS)
-                .join();
+                .createOrder(payer, id, amount, invoiceId, orgAbbr, description, null, null);
     }
 
     // Not used
     public ApiResponse<Order> completeOrder(final String orderId) {
-        return PayPalClient.getInstance()
-                .captureOrder(orderId)
-                .orTimeout(5_000, TimeUnit.MILLISECONDS)
-                .join();
+        return PayPalClient.getInstance().captureOrder(orderId);
     }
 
     // -------------------------------------------------------------------------
@@ -288,9 +279,7 @@ public class PayCommands {
             final String returnUrl,
             final String cancelUrl) {
         final ApiResponse<Order> response = PayPalClient.getInstance()
-                .createOrder(payer, userId, amount, genInvoiceId(), "CFPW", description, returnUrl, cancelUrl)
-                .orTimeout(10_000, TimeUnit.MILLISECONDS)
-                .join();
+                .createOrder(payer, userId, amount, genInvoiceId(), "CFPW", description, returnUrl, cancelUrl);
         if (response == null || response.getResult() == null) {
             log.error("Null response from PayPal createOrder for userId={}", userId);
             return Optional.empty();

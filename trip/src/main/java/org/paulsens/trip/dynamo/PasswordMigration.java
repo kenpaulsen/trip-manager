@@ -1,12 +1,10 @@
 package org.paulsens.trip.dynamo;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.StructuredTaskScope;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.security.PasswordHasher;
@@ -53,7 +51,7 @@ public final class PasswordMigration {
         // getInstance() resolves (and reads) the pepper once; the sweep below reuses this single hasher.
         final PasswordMigration migration =
                 new PasswordMigration(new DynamoPersistence(), PasswordHasher.getInstance());
-        final Result result = migration.run(apply, parallelism).join();
+        final Result result = migration.run(apply, parallelism);
         log.info("Done. Scanned={}, alreadyHashed={}, plaintext={}, upgraded={}, failed={}.",
                 result.scanned.get(), result.alreadyHashed.get(), result.plaintext.get(),
                 result.upgraded.get(), result.failed.get());
@@ -81,80 +79,85 @@ public final class PasswordMigration {
     }
 
     /** Runs the sweep sequentially. When {@code apply} is false, counts what would change but performs no writes. */
-    CompletableFuture<Result> run(final boolean apply) {
+    Result run(final boolean apply) {
         return run(apply, 1);
     }
 
     /**
-     * Runs the sweep. When {@code apply} is false, counts what would change but performs no writes; otherwise hashes
-     * and rewrites plaintext rows up to {@code parallelism} at a time.
+     * Runs the sweep, blocking until it finishes. When {@code apply} is false, counts what would change but performs
+     * no writes; otherwise hashes and rewrites plaintext rows up to {@code parallelism} at a time.
      */
-    CompletableFuture<Result> run(final boolean apply, final int parallelism) {
-        try {
-            final List<Map<String, AttributeValue>> rows =
-                    persistence.scanAll(b -> b.tableName(CredentialsDAO.PASS_TABLE));
-            return upgradeAll(rows, apply, Math.max(1, parallelism));
-        } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
-        }
+    Result run(final boolean apply, final int parallelism) {
+        final List<Map<String, AttributeValue>> rows =
+                persistence.scanAll(b -> b.tableName(CredentialsDAO.PASS_TABLE));
+        return upgradeAll(rows, apply, Math.max(1, parallelism));
     }
 
-    private CompletableFuture<Result> upgradeAll(final List<Map<String, AttributeValue>> rows, final boolean apply,
+    private Result upgradeAll(final List<Map<String, AttributeValue>> rows, final boolean apply,
             final int parallelism) {
         final Result result = new Result();
-        // A bounded pool caps how many BCrypt hashes (CPU-bound) run at once; the DynamoDB writes it chains onto are
-        // async. Only created when we will actually write.
-        final ExecutorService pool = apply ? Executors.newFixedThreadPool(parallelism) : null;
-        final List<CompletableFuture<Void>> writes = new ArrayList<>();
-        for (final Map<String, AttributeValue> row : rows) {
-            result.scanned.incrementAndGet();
-            final AttributeValue pw = row.get(CredentialsDAO.PW);
-            final String email = row.containsKey(CredentialsDAO.EMAIL) ? row.get(CredentialsDAO.EMAIL).s() : "?";
-            if (pw == null || pw.s() == null || pw.s().isBlank()) {
-                log.warn("Row for '{}' has no password attribute; skipping.", email);
-                continue;
+        // One virtual thread per row, gated by a semaphore rather than a pool: the permit caps how many BCrypt
+        // hashes (CPU-bound) run at once, and the scope guarantees every write finished before run() returns.
+        final Semaphore permits = new Semaphore(parallelism);
+        try (var scope = StructuredTaskScope.open()) {
+            for (final Map<String, AttributeValue> row : rows) {
+                result.scanned.incrementAndGet();
+                final AttributeValue pw = row.get(CredentialsDAO.PW);
+                final String email = row.containsKey(CredentialsDAO.EMAIL) ? row.get(CredentialsDAO.EMAIL).s() : "?";
+                if (pw == null || pw.s() == null || pw.s().isBlank()) {
+                    log.warn("Row for '{}' has no password attribute; skipping.", email);
+                    continue;
+                }
+                if (hasher.isHashed(pw.s())) {
+                    result.alreadyHashed.incrementAndGet();
+                    continue;
+                }
+                result.plaintext.incrementAndGet();
+                if (!apply) {
+                    log.info("[dry run] would hash password for '{}'.", email);
+                    continue;
+                }
+                scope.fork(() -> upgradeOne(row, pw.s(), email, result, permits));
             }
-            if (hasher.isHashed(pw.s())) {
-                result.alreadyHashed.incrementAndGet();
-                continue;
-            }
-            result.plaintext.incrementAndGet();
-            if (!apply) {
-                log.info("[dry run] would hash password for '{}'.", email);
-                continue;
-            }
-            writes.add(upgradeOne(row, pw.s(), email, result, pool));
+            scope.join();
+        } catch (final InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while migrating passwords", ex);
         }
-        return CompletableFuture.allOf(writes.toArray(new CompletableFuture[0]))
-                .whenComplete((ignored, ex) -> {
-                    if (pool != null) {
-                        pool.shutdown();
-                    }
-                })
-                .thenApply(ignored -> result);
+        return result;
     }
 
-    private CompletableFuture<Void> upgradeOne(final Map<String, AttributeValue> row, final String plaintext,
-            final String email, final Result result, final ExecutorService pool) {
-        return CompletableFuture
-                .supplyAsync(() -> {
-                    final Map<String, AttributeValue> updated = new HashMap<>(row);
-                    updated.put(CredentialsDAO.PW, AttributeValue.builder().s(hasher.hash(plaintext)).build());
-                    return updated;
-                }, pool)
-                // The put itself is synchronous now; it simply runs on the same bounded worker as the hash.
-                .thenApply(updated -> persistence.putItem(
-                        b -> b.tableName(CredentialsDAO.PASS_TABLE).item(updated)))
-                .handle((resp, ex) -> {
-                    if (ex != null || resp == null || !resp.sdkHttpResponse().isSuccessful()) {
-                        result.failed.incrementAndGet();
-                        log.error("Failed to upgrade password for '{}'.", email, ex);
-                    } else {
-                        result.upgraded.incrementAndGet();
-                        log.info("Upgraded password for '{}'.", email);
-                    }
-                    return null;
-                });
+    /**
+     * Hashes and rewrites ONE row, counting the outcome. Never throws: one bad row must be a {@code failed}
+     * tally, not a cancelled sweep -- which is also what keeps the fail-fast default of the scope inert.
+     */
+    private Void upgradeOne(final Map<String, AttributeValue> row, final String plaintext,
+            final String email, final Result result, final Semaphore permits) {
+        try {
+            permits.acquire();
+            try {
+                final Map<String, AttributeValue> updated = new HashMap<>(row);
+                updated.put(CredentialsDAO.PW, AttributeValue.builder().s(hasher.hash(plaintext)).build());
+                final var resp = persistence.putItem(b -> b.tableName(CredentialsDAO.PASS_TABLE).item(updated));
+                if (resp == null || !resp.sdkHttpResponse().isSuccessful()) {
+                    result.failed.incrementAndGet();
+                    log.error("Failed to upgrade password for '{}'.", email);
+                } else {
+                    result.upgraded.incrementAndGet();
+                    log.info("Upgraded password for '{}'.", email);
+                }
+            } finally {
+                permits.release();
+            }
+        } catch (final InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            result.failed.incrementAndGet();
+            log.error("Interrupted while upgrading password for '{}'.", email, ex);
+        } catch (final RuntimeException ex) {
+            result.failed.incrementAndGet();
+            log.error("Failed to upgrade password for '{}'.", email, ex);
+        }
+        return null;
     }
 
     /** Thread-safe tallies from a sweep (updated from parallel workers). */

@@ -4,13 +4,15 @@ import com.sun.jsft.util.ELUtil;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
 import java.io.FileNotFoundException;
+import java.io.UncheckedIOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.StructuredTaskScope;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
@@ -22,7 +24,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.EmailAddresses;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.ses.SesAsyncClient;
+import software.amazon.awssdk.services.ses.SesClient;
 import software.amazon.awssdk.services.ses.model.Body;
 import software.amazon.awssdk.services.ses.model.Content;
 import software.amazon.awssdk.services.ses.model.Destination;
@@ -42,37 +44,43 @@ public class MailCommands {
     final ELUtil elUtil = ELUtil.getInstance();
     private static final String EMAIL_TPL_PREFIX = "mailTemplates/";
     private static final String EMAIL_TPL_SUFFIX = ".tpl";
+    /** Client-level timeouts replace the per-call orTimeout the CF era needed; a hung send fails, not hangs. */
+    private static final Duration ATTEMPT_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration CALL_TIMEOUT = Duration.ofSeconds(30);
 
-    final SesAsyncClient client;
+    final SesClient client;
 
     public MailCommands() {
-        this(SesAsyncClient.builder()
+        this(SesClient.builder()
                 .region(Region.US_WEST_2)
                 // Default chain: finds the ECS task role / instance role in AWS, and ~/.aws [default] on a laptop.
                 .credentialsProvider(DefaultCredentialsProvider.builder().build())
+                .overrideConfiguration(o -> o.apiCallAttemptTimeout(ATTEMPT_TIMEOUT).apiCallTimeout(CALL_TIMEOUT))
                 .build());
     }
 
     /** Test seam: the SES path (request shape, audit attribution, error mapping) is untestable without it. */
-    MailCommands(final SesAsyncClient client) {
+    MailCommands(final SesClient client) {
         this.client = client;
     }
 
     /**
-     * Sends one email, recording {@code who} asked for it.
+     * Sends one email — blocking, on the caller's (virtual) thread — recording {@code who} asked for it.
      *
-     * <p>There is deliberately no form without an actor. One resolving it through {@link AuditActor#current()}
-     * would read {@code FacesContext} -- a ThreadLocal -- and find nobody whenever the caller is a JAX-RS
-     * resource, a scheduler, or anything on a pool thread. The record still gets written; it just names no
-     * sender, which is indistinguishable from a correct record until somebody tries to read the trail. That
-     * exact bug already cost this application every EMAIL record between the Phase 10 rework and 2026-07-28.
+     * <p>There is deliberately no form without an actor, and the explicit parameter always wins. A null falls
+     * back to {@link AuditActor#current()}, which since the virtual-threads migration reads the bound
+     * {@code RequestContext} ScopedValue — correct on a request thread and inside {@code StructuredTaskScope}
+     * forks — but still finds nobody on a plain spawn or an unbound scheduler thread. That failure mode is why
+     * the parameter exists: an anonymous EMAIL record is indistinguishable from a correct one until somebody
+     * reads the trail, and exactly that cost this application every EMAIL record between the Phase 10 rework
+     * and 2026-07-28.
      *
      * <p>The caller always knows who is asking. When nobody is -- the daily digest, a scheduled job -- the
      * answer is {@link AuditActor#system()}, which says so, rather than an empty actor, which does not.
      *
      * <p>NOTE: see {@code sendTemplate}; that method is generally more useful.
      */
-    public CompletableFuture<SendEmailResponse> send(
+    public SendEmailResponse send(
             final String from,
             final String to,
             final String bcc,
@@ -101,14 +109,14 @@ public class MailCommands {
         // INFO with the recipients so local runs can still show what would have gone out.
         if (FakeData.isLocal()) {
             log.info("LOCAL MODE: not sending '{}' to '{}' (bcc '{}')", subjectStr, to, bcc);
-            return CompletableFuture.completedFuture(SendEmailResponse.builder().build());
+            return SendEmailResponse.builder().build();
         }
         final Collection<String> toAddresses = splitEmail(to);
         if (toAddresses.isEmpty()) {
             // Every recipient was unusable. Calling SES with an empty destination is an error, and there is
             // nothing to retry -- a missing address is a data problem, not a transient failure.
             log.warn("Not sending '{}': no usable recipient address in '{}'", subjectStr, to);
-            return CompletableFuture.completedFuture(SendEmailResponse.builder().build());
+            return SendEmailResponse.builder().build();
         }
         final Destination dest = Destination.builder()
                 .toAddresses(toAddresses)
@@ -121,17 +129,20 @@ public class MailCommands {
                 .replyToAddresses(replyTo)
                 .returnPath(replyTo)
                 .build();
-        // Resolve the actor HERE, on the request thread, and carry it across the async boundary.
-        // FacesContext is a ThreadLocal and the callbacks below run on the SDK's completion thread, where
-        // AuditActor.current() finds nothing -- so every EMAIL record was written with no actor at all. It
-        // looked fine in review: the call was AuditActor.current(), same as everywhere else. It just was not
-        // on the thread that has a request.
+        // The explicit parameter wins; current() is only the fallback. It resolves correctly here because the
+        // send now blocks on the calling thread -- the audit below is written on this same thread, so the
+        // capture-before-the-async-boundary dance the CF era needed (and once got wrong, anonymizing every
+        // EMAIL record) no longer has a boundary to get wrong.
         final AuditActor actor = (who == null) ? AuditActor.current() : who;
-
-        return client.sendEmail(req)
-                .thenApply(r -> logAndReturn(actor, r, to, "Email '" + subjectStr + "' sent. Response: "
-                                                + r.sdkHttpResponse().statusCode()))
-                .exceptionally(ex -> logException(actor, to, ex));
+        try {
+            final SendEmailResponse response = client.sendEmail(req);
+            return logAndReturn(actor, response, to, "Email '" + subjectStr + "' sent. Response: "
+                    + response.sdkHttpResponse().statusCode());
+        } catch (final RuntimeException ex) {
+            // Mapped to null, never rethrown: one refused recipient must not cost the rest of a merge theirs.
+            // The digest sender relies on the null to know a send is retry-worthy.
+            return logException(actor, to, ex);
+        }
     }
 
     /**
@@ -145,7 +156,7 @@ public class MailCommands {
      * @param subjectStr    The email subject.
      * @param template      Template to use. Note: {@link #EMAIL_TPL_PREFIX} and {@link #EMAIL_TPL_SUFFIX} are added.
      */
-    public CompletableFuture<List<SendEmailResponse>> sendTemplateFile(
+    public List<SendEmailResponse> sendTemplateFile(
             final String from,
             final Collection<Person> to,
             final String bcc,
@@ -154,7 +165,9 @@ public class MailCommands {
             final String templateName) {
         final String template = elUtil.readFile(EMAIL_TPL_PREFIX + templateName + EMAIL_TPL_SUFFIX);
         if (template == null) {
-            return CompletableFuture.failedFuture(new FileNotFoundException(templateName));
+            // Unchecked wrapper, checked cause: the missing-file signal survives (callers and tests key on
+            // FileNotFoundException) without forcing a throws clause onto every EL-driven call site.
+            throw new UncheckedIOException(new FileNotFoundException(templateName));
         }
         return sendTemplate(from, to, bcc, replyTo, subjectStr, template);
     }
@@ -171,9 +184,9 @@ public class MailCommands {
      * @param subjectStr    The email subject.
      * @param template      Template to use.
      *
-     * @return A CompletableFuture that completes w/ the status of all the email send attempts.
+     * @return The status of all the email send attempts, in recipient order (null = that send failed).
      */
-    public CompletableFuture<List<SendEmailResponse>> sendTemplate(
+    public List<SendEmailResponse> sendTemplate(
             final String from,
             final Collection<Person> to,
             final String bcc,
@@ -186,12 +199,16 @@ public class MailCommands {
     /**
      * The same merge, with the actor supplied.
      *
-     * <p>The form above resolves it with {@link AuditActor#current()}. That is correct where it is called
-     * from -- an XHTML page, on the request thread, before any of the sends below go asynchronous -- and it is
-     * the reason this one exists: a merge started from anywhere else must say who asked for it, because by the
-     * time each individual send completes there is no request left to ask.
+     * <p>The form above resolves it with {@link AuditActor#current()}, which is correct wherever the identity
+     * is bound -- an XHTML page on its request thread, or any {@code RequestContext}-scoped virtual thread. A
+     * merge started from an unbound spawn or a scheduler must say who asked for it through this parameter.
+     *
+     * <p>Rendering and sending are split on purpose. The EL evaluation mutates {@code requestScope.to} -- one
+     * shared slot -- so each recipient's subject and body are rendered sequentially on the calling thread; only
+     * the SES calls fan out, one {@code StructuredTaskScope} fork per recipient, which is the same concurrency
+     * the async-client era had. Forks inherit the caller's ScopedValues, so the actor also flows into each send.
      */
-    public CompletableFuture<List<SendEmailResponse>> sendTemplate(
+    public List<SendEmailResponse> sendTemplate(
             final String from,
             final Collection<Person> to,
             final String bcc,
@@ -199,7 +216,7 @@ public class MailCommands {
             final String subjectStr,
             final String template,
             final AuditActor actor) {
-        CompletableFuture<List<SendEmailResponse>> result = CompletableFuture.completedFuture(new ArrayList<>());
+        final List<Prepared> prepared = new ArrayList<>();
         for (final Person person : to) {
             final String toEmail = formatEmail(person);
             if (toEmail == null) {
@@ -210,13 +227,49 @@ public class MailCommands {
             final Object subject = elUtil.eval(subjectStr);
             final Object body = elUtil.eval(template);
             if (!(body instanceof String) || !(subject instanceof String)) {
-                return CompletableFuture.failedFuture(new IllegalStateException("Body and subject must be a String!"));
+                throw new IllegalStateException("Body and subject must be a String!");
             }
-            result = result.thenCombine(
-                    send(from, toEmail, bcc, replyTo, String.valueOf(subject), String.valueOf(body), actor),
-                    this::combineNewResp);
+            prepared.add(new Prepared(toEmail, String.valueOf(subject), String.valueOf(body)));
         }
-        return result;
+        return fanOutSends(from, bcc, replyTo, actor, prepared);
+    }
+
+    /** One rendered, ready-to-send email. */
+    private record Prepared(String to, String subject, String body) {
+    }
+
+    private List<SendEmailResponse> fanOutSends(
+            final String from,
+            final String bcc,
+            final String replyTo,
+            final AuditActor actor,
+            final List<Prepared> prepared) {
+        try (var scope = StructuredTaskScope.open()) {
+            final List<StructuredTaskScope.Subtask<SendEmailResponse>> sends = new ArrayList<>();
+            for (final Prepared mail : prepared) {
+                sends.add(scope.fork(() -> sendPrepared(from, bcc, replyTo, actor, mail)));
+            }
+            scope.join();
+            // send() maps its own failures to null, so subtasks never fail and get() is always answerable.
+            // The nulls are KEPT: the list stays in recipient order and a null marks whose send failed.
+            final List<SendEmailResponse> responses = new ArrayList<>();
+            for (final StructuredTaskScope.Subtask<SendEmailResponse> sent : sends) {
+                responses.add(sent.get());
+            }
+            return responses;
+        } catch (final InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while sending a mail merge", ex);
+        }
+    }
+
+    private SendEmailResponse sendPrepared(
+            final String from,
+            final String bcc,
+            final String replyTo,
+            final AuditActor actor,
+            final Prepared mail) {
+        return send(from, mail.to(), bcc, replyTo, mail.subject(), mail.body(), actor);
     }
 
     public String previewTemplate(final Person to, final String template) {
@@ -323,8 +376,8 @@ public class MailCommands {
     }
 
     /**
-     * @param actor who asked for the mail to be sent, captured on the request thread by the caller. It CANNOT
-     *              be resolved here: this runs on the SDK's completion thread, where there is no FacesContext.
+     * @param actor who asked for the mail to be sent -- always passed explicitly, never re-resolved here, so
+     *              the attribution cannot depend on which thread happens to run the logging.
      * @param to the RECIPIENT, which is the target of this action -- not the actor. The old record stored the
      *           recipient in the user field, so a mail merge appeared to have been sent by each of the hundreds
      *           of people who received it.
@@ -338,12 +391,7 @@ public class MailCommands {
         return response;
     }
 
-    private List<SendEmailResponse> combineNewResp(final List<SendEmailResponse> respList, SendEmailResponse newResp) {
-        respList.add(newResp);
-        return respList;
-    }
-
-    /** @param actor as for {@link #logAndReturn} -- captured by the caller, not resolvable on this thread. */
+    /** @param actor as for {@link #logAndReturn} -- passed explicitly, never re-resolved here. */
     <T> T logException(final AuditActor actor, final String to, final Throwable ex) {
         Audit.builder(AuditAction.EMAIL, AuditOutcome.FAILURE)
                 .actor(actor)

@@ -1,11 +1,9 @@
 package org.paulsens.trip.api;
 
-import jakarta.ws.rs.container.AsyncResponse;
 import jakarta.ws.rs.core.Response;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
 import org.mockito.ArgumentMatchers;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -57,29 +55,8 @@ public class ChatResourceTest extends ResourceTestSupport {
     }
 
     /** Collects the single response a suspended feed call resumes with. */
-    private static final class CapturedAsync {
-        private final AsyncResponse async = Mockito.mock(AsyncResponse.class);
-        private final AtomicReference<Response> resumed = new AtomicReference<>();
-
-        private CapturedAsync() {
-            Mockito.when(async.isSuspended()).thenReturn(true);
-            Mockito.when(async.resume(ArgumentMatchers.any(Response.class))).thenAnswer(call -> {
-                resumed.set(call.getArgument(0));
-                return true;
-            });
-        }
-
-        private Response response() {
-            final Response response = resumed.get();
-            Assert.assertNotNull(response, "The feed never resumed its AsyncResponse");
-            return response;
-        }
-    }
-
     private Response feed(final String channelId, final String since, final String before, final String order) {
-        final CapturedAsync captured = new CapturedAsync();
-        resource.feed(captured.async, channelId, since, before, order, 0, 200);
-        return captured.response();
+        return resource.feed(channelId, since, before, order, 0, 200);
     }
 
     private static ChatMessage message(final String id) {

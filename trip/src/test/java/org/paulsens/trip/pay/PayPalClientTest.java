@@ -14,7 +14,6 @@ import com.paypal.sdk.models.SellerReceivableBreakdown;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
@@ -27,11 +26,9 @@ public class PayPalClientTest {
     @Test(enabled = false)
     void canCreateOrder() {
         final String id = RandomData.genAlpha(5);
-        ApiResponse<Order> order = payPalClient
+        final ApiResponse<Order> order = payPalClient
                 .createOrder(null, Person.Id.from(id), 123.45f, "some trip", "CFPW", "blah blah blah",
-                        "https://example.com/return", "https://example.com/cancel")
-                .orTimeout(1000, TimeUnit.MILLISECONDS)
-                .join();
+                        "https://example.com/return", "https://example.com/cancel");
         Assert.assertNotNull(order);
     }
 

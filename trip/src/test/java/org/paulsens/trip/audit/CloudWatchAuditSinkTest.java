@@ -5,7 +5,6 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -16,7 +15,7 @@ import org.paulsens.trip.model.AuditEvent;
 import org.paulsens.trip.model.AuditOutcome;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-import software.amazon.awssdk.services.cloudwatchlogs.CloudWatchLogsAsyncClient;
+import software.amazon.awssdk.services.cloudwatchlogs.CloudWatchLogsClient;
 import software.amazon.awssdk.services.cloudwatchlogs.model.CreateLogStreamRequest;
 import software.amazon.awssdk.services.cloudwatchlogs.model.CreateLogStreamResponse;
 import software.amazon.awssdk.services.cloudwatchlogs.model.InputLogEvent;
@@ -40,13 +39,18 @@ public class CloudWatchAuditSinkTest {
                 null, null, null, message, null);
     }
 
-    private static CloudWatchLogsAsyncClient clientThatWorks() {
-        final CloudWatchLogsAsyncClient client = Mockito.mock(CloudWatchLogsAsyncClient.class);
+    private static CloudWatchLogsClient clientThatWorks() {
+        final CloudWatchLogsClient client = Mockito.mock(CloudWatchLogsClient.class);
         Mockito.when(client.createLogStream(ArgumentMatchers.any(CreateLogStreamRequest.class)))
-                .thenReturn(CompletableFuture.completedFuture(CreateLogStreamResponse.builder().build()));
+                .thenReturn(CreateLogStreamResponse.builder().build());
         Mockito.when(client.putLogEvents(ArgumentMatchers.any(PutLogEventsRequest.class)))
-                .thenReturn(CompletableFuture.completedFuture(PutLogEventsResponse.builder().build()));
+                .thenReturn(PutLogEventsResponse.builder().build());
         return client;
+    }
+
+    private static PutLogEventsResponse slowOk() throws InterruptedException {
+        Thread.sleep(TimeUnit.SECONDS.toMillis(2));
+        return PutLogEventsResponse.builder().build();
     }
 
     /** Captures stdout, which is where every fallback path writes. */
@@ -64,14 +68,14 @@ public class CloudWatchAuditSinkTest {
 
     @Test
     public void recordsAreBatchedAndDeliveredInChronologicalOrder() throws Exception {
-        final CloudWatchLogsAsyncClient client = clientThatWorks();
+        final CloudWatchLogsClient client = clientThatWorks();
         final CountDownLatch delivered = new CountDownLatch(1);
         final AtomicReference<PutLogEventsRequest> sent = new AtomicReference<>();
         Mockito.when(client.putLogEvents(ArgumentMatchers.any(PutLogEventsRequest.class)))
                 .thenAnswer(call -> {
                     sent.set(call.getArgument(0));
                     delivered.countDown();
-                    return CompletableFuture.completedFuture(PutLogEventsResponse.builder().build());
+                    return PutLogEventsResponse.builder().build();
                 });
 
         final CloudWatchAuditSink sink = new CloudWatchAuditSink("/trip/audit", client);
@@ -93,7 +97,7 @@ public class CloudWatchAuditSinkTest {
     /** A delivery failure must print the records, not drop them. */
     @Test
     public void aDeliveryFailurePrintsTheRecordsToStdout() throws Exception {
-        final CloudWatchLogsAsyncClient client = clientThatWorks();
+        final CloudWatchLogsClient client = clientThatWorks();
         Mockito.when(client.putLogEvents(ArgumentMatchers.any(PutLogEventsRequest.class)))
                 .thenThrow(new IllegalStateException("cloudwatch is down"));
 
@@ -116,14 +120,11 @@ public class CloudWatchAuditSinkTest {
      */
     @Test
     public void afullQueueSpillsToStdoutInsteadOfBlocking() throws Exception {
-        final CloudWatchLogsAsyncClient client = clientThatWorks();
-        // SLOW, not stalled: the flusher parks on the send long enough for the queue to fill, but the send does
-        // eventually complete. A never-completing future would hang close(), whose final drainAndSend() joins
-        // without a timeout -- worth knowing, but not what this test is about.
+        final CloudWatchLogsClient client = clientThatWorks();
+        // SLOW, not stalled: the flusher blocks in the send long enough for the queue to fill, but the send
+        // does eventually complete. (In production the client's apiCallTimeout bounds a send that never would.)
         Mockito.when(client.putLogEvents(ArgumentMatchers.any(PutLogEventsRequest.class)))
-                .thenAnswer(call -> CompletableFuture.supplyAsync(
-                        () -> PutLogEventsResponse.builder().build(),
-                        CompletableFuture.delayedExecutor(2, TimeUnit.SECONDS)));
+                .thenAnswer(call -> slowOk());
 
         final String out = captureStdout(() -> {
             final CloudWatchAuditSink sink = new CloudWatchAuditSink("/trip/audit", client);
@@ -144,10 +145,9 @@ public class CloudWatchAuditSinkTest {
     /** An existing stream is the normal case on a restart, and must not be treated as a failure. */
     @Test
     public void anAlreadyExistingStreamIsNotAFailure() throws Exception {
-        final CloudWatchLogsAsyncClient client = clientThatWorks();
+        final CloudWatchLogsClient client = clientThatWorks();
         Mockito.when(client.createLogStream(ArgumentMatchers.any(CreateLogStreamRequest.class)))
-                .thenReturn(CompletableFuture.failedFuture(
-                        ResourceAlreadyExistsException.builder().message("exists").build()));
+                .thenThrow(ResourceAlreadyExistsException.builder().message("exists").build());
 
         final CloudWatchAuditSink sink = new CloudWatchAuditSink("/trip/audit", client);
         sink.write(event("still works"));
@@ -162,9 +162,9 @@ public class CloudWatchAuditSinkTest {
      */
     @Test
     public void aStreamThatCannotBeCreatedFailsLoudlyAtStartup() {
-        final CloudWatchLogsAsyncClient client = clientThatWorks();
+        final CloudWatchLogsClient client = clientThatWorks();
         Mockito.when(client.createLogStream(ArgumentMatchers.any(CreateLogStreamRequest.class)))
-                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("access denied")));
+                .thenThrow(new IllegalStateException("access denied"));
 
         Assert.assertThrows(IllegalStateException.class,
                 () -> new CloudWatchAuditSink("/trip/audit", client));
@@ -173,12 +173,12 @@ public class CloudWatchAuditSinkTest {
 
     @Test
     public void closeDrainsWhatIsStillQueued() throws Exception {
-        final CloudWatchLogsAsyncClient client = clientThatWorks();
+        final CloudWatchLogsClient client = clientThatWorks();
         final AtomicReference<PutLogEventsRequest> sent = new AtomicReference<>();
         Mockito.when(client.putLogEvents(ArgumentMatchers.any(PutLogEventsRequest.class)))
                 .thenAnswer(call -> {
                     sent.compareAndSet(null, call.getArgument(0));
-                    return CompletableFuture.completedFuture(PutLogEventsResponse.builder().build());
+                    return PutLogEventsResponse.builder().build();
                 });
 
         final CloudWatchAuditSink sink = new CloudWatchAuditSink("/trip/audit", client);

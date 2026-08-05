@@ -1,9 +1,9 @@
 package org.paulsens.trip.action;
 
 import java.io.FileNotFoundException;
+import java.io.UncheckedIOException;
 import java.util.Collection;
 import java.util.List;
-import java.util.concurrent.CompletionException;
 import org.testng.annotations.Test;
 import software.amazon.awssdk.services.ses.model.Destination;
 import software.amazon.awssdk.services.ses.model.SendEmailResponse;
@@ -50,11 +50,11 @@ public class MailCommandsTest {
 
     @Test
     void allRecipientsUnusableMeansNoSendRatherThanAnError() {
-        // A missing address is a data problem, not a transient one, so this is a logged no-op: returning a failed
-        // future would break the thenCombine chain in sendTemplate and lose the recipients that DID work.
+        // A missing address is a data problem, not a transient one, so this is a logged no-op: throwing would
+        // fail a sendTemplate fan-out and lose the recipients that DID work.
         final SendEmailResponse response = new MailCommands()
-                .send("from@example.com", "joe.smith", null, "reply@example.com", "subj", "body", AuditActor.system())
-                .join();
+                .send("from@example.com", "joe.smith", null, "reply@example.com", "subj", "body",
+                        AuditActor.system());
         assertNotNull(response, "An unsendable request must complete, not fail");
     }
 
@@ -63,7 +63,7 @@ public class MailCommandsTest {
         // Passing an empty "to" list keeps the SES client from being invoked, so this exercises
         // only the template lookup path. Success here means the .tpl file was located on the classpath.
         final List<SendEmailResponse> result = new MailCommands().sendTemplateFile(
-                "from@example.com", List.of(), "", "reply@example.com", "Subject", "test").join();
+                "from@example.com", List.of(), "", "reply@example.com", "Subject", "test");
         assertNotNull(result);
         assertEquals(result, List.of());
     }
@@ -73,9 +73,9 @@ public class MailCommandsTest {
         try {
             new MailCommands().sendTemplateFile(
                     "from@example.com", List.of(), "", "reply@example.com", "Subject",
-                    "this-template-does-not-exist").join();
-            fail("Expected the future to complete exceptionally with FileNotFoundException");
-        } catch (final CompletionException ex) {
+                    "this-template-does-not-exist");
+            fail("Expected UncheckedIOException carrying FileNotFoundException");
+        } catch (final UncheckedIOException ex) {
             assertTrue(ex.getCause() instanceof FileNotFoundException,
                     "Expected FileNotFoundException, got: " + ex.getCause());
         }

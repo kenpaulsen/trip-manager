@@ -28,7 +28,7 @@ public class MailLocalModeTest {
         // A real-looking address on purpose: the bug was that fake test DATA carried real addresses.
         final var response = mail.send("Test <no-reply@visitqueenofpeace.com>", "someone@example.com", null,
                 "no-reply@visitqueenofpeace.com", "Local mode must not send this", "<p>body</p>",
-                AuditActor.system()).join();
+                AuditActor.system());
 
         // The empty response is the local-mode stand-in; a real send comes back with an SES message id.
         Assert.assertNull(response.messageId(),

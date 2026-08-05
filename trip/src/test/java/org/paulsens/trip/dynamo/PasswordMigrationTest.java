@@ -4,7 +4,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import org.paulsens.trip.security.PasswordHasher;
 import org.paulsens.trip.security.Pepper;
@@ -28,7 +27,7 @@ public class PasswordMigrationTest {
                 persistenceOver(List.of(row("a@x.com", "plain1"), row("b@x.com", HASHER.hash("already")),
                         row("c@x.com", "plain2")), puts), HASHER);
 
-        final PasswordMigration.Result result = migration.run(false).join();
+        final PasswordMigration.Result result = migration.run(false);
 
         assertEquals(result.scanned.get(), 3);
         assertEquals(result.alreadyHashed.get(), 1);
@@ -44,7 +43,7 @@ public class PasswordMigrationTest {
                 persistenceOver(List.of(row("a@x.com", "plain1"), row("b@x.com", HASHER.hash("already"))), puts),
                 HASHER);
 
-        final PasswordMigration.Result result = migration.run(true).join();
+        final PasswordMigration.Result result = migration.run(true);
 
         assertEquals(result.plaintext.get(), 1);
         assertEquals(result.upgraded.get(), 1);
@@ -65,7 +64,7 @@ public class PasswordMigrationTest {
         }
         final PasswordMigration migration = new PasswordMigration(persistenceOver(rows, puts), HASHER);
 
-        final PasswordMigration.Result result = migration.run(true, 8).join();
+        final PasswordMigration.Result result = migration.run(true, 8);
 
         assertEquals(result.scanned.get(), 50);
         assertEquals(result.alreadyHashed.get(), 10, "every 5th row was already hashed");

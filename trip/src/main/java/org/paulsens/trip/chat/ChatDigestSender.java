@@ -9,7 +9,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.config.KnownSettings;
@@ -42,8 +41,6 @@ import software.amazon.awssdk.services.ses.model.SendEmailResponse;
 public class ChatDigestSender {
 
     private static final int MAX_MESSAGES_PER_DIGEST = 50;
-    /** Bounded because every recipient shares one scheduler thread; a hung request must not hold it. */
-    private static final Duration SEND_TIMEOUT = Duration.ofSeconds(30);
     /**
      * Nothing older than this is ever summarised, whatever the cursor and watermark say (or fail to say).
      * Matches the cache TTL those two live under, so the worst case is a week of catch-up, never the archive.
@@ -241,19 +238,17 @@ public class ChatDigestSender {
         if (body == null) {
             return false;
         }
-        // AWAITED, deliberately. Fire-and-forget reported success the moment the request was handed to the SDK, so
-        // an SES rejection was recorded as a sent digest and that person simply never heard from us -- and worse,
-        // the watermark below advanced anyway, so the retry found nothing left to send and the day's summary was
-        // lost outright rather than retried. MailCommands maps a failed send to a null response.
-        //
-        // A timeout is part of the fix, not decoration: this runs on the single scheduler thread, so one hung
-        // request would stall every remaining recipient behind it.
+        // AWAITED, deliberately -- send() blocks until SES answers. Fire-and-forget reported success the moment
+        // the request was handed to the SDK, so an SES rejection was recorded as a sent digest and that person
+        // simply never heard from us -- and worse, the watermark below advanced anyway, so the retry found
+        // nothing left to send and the day's summary was lost outright rather than retried. MailCommands maps a
+        // failed send to a null response, and its client-level apiCallTimeout bounds a hung request, which
+        // matters here: this runs on the single scheduler thread, so one hang would stall every remaining
+        // recipient behind it.
         // System, not an empty actor: nobody asked for this send, the scheduler did. An unknown actor would
         // read as "we lost track of who did this"; System is an answer.
         final SendEmailResponse response = mail.send(from(), to, null, replyTo(),
-                        "New messages in the " + tripTitle(candidate) + " chat", body, AuditActor.system())
-                .orTimeout(SEND_TIMEOUT.toSeconds(), TimeUnit.SECONDS)
-                .join();
+                "New messages in the " + tripTitle(candidate) + " chat", body, AuditActor.system());
         if (response == null) {
             return false;
         }

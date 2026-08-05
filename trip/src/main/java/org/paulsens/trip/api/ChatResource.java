@@ -14,13 +14,10 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.NotAuthorizedException;
-import jakarta.ws.rs.container.AsyncResponse;
-import jakarta.ws.rs.container.Suspended;
 import jakarta.ws.rs.core.Response;
 import java.time.Instant;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,40 +49,37 @@ public class ChatResource extends BaseResource {
     }
 
     /**
-     * The feed. Returns immediately when there is anything to return; with {@code wait=N} an empty poll suspends for
-     * up to N seconds and completes early on a nudge, which is what turns this into sub-second delivery without a
-     * WebSocket.
+     * The feed. Returns immediately when there is anything to return; with {@code wait=N} an empty poll blocks its
+     * virtual thread for up to N seconds and completes early on a nudge, which is what turns this into sub-second
+     * delivery without a WebSocket.
      *
-     * <p>Declared {@code void} with {@code @Suspended}: every exit path goes through {@code async.resume}, including
-     * the immediate ones, so there is exactly one way a response leaves this method.
+     * <p>Plain blocking, now that every request runs on a virtual thread: a parked poller costs a few KB of heap,
+     * not a pool thread, so the {@code @Suspended}/{@code AsyncResponse} machinery — and the resume-exactly-once
+     * races between its three exit paths — is gone. There is one exit: fall through the await and read the cursor.
      */
     @GET
     @Path("messages")
     @Produces({V1, MediaType.APPLICATION_JSON})
-    public void feed(
-            @Suspended final AsyncResponse async,
+    public Response feed(
             @PathParam("channelId") final String channelId,
             @QueryParam("since") final String since,
             @QueryParam("before") final String before,
             @QueryParam("order") final String order,
             @QueryParam("wait") @DefaultValue("0") final int wait,
             @QueryParam("limit") @DefaultValue("200") final int limit) {
-        final OneShot reply = new OneShot(async);
         try {
-            feedOrSuspend(reply, async, channelId, since, before, order, wait, limit);
+            return feedNow(channelId, since, before, order, wait, limit);
         } catch (final NotAuthorizedException ex) {
-            // personId() throws this when the session vanished mid-request. Resume rather than let it escape: an
-            // exception out of a suspended method has no response to attach itself to.
-            reply.resume(error(401, ChatErrors.NOT_AUTHENTICATED, "Sign in required."));
+            // personId() throws this when the session vanished mid-request. Answered here rather than left to the
+            // default mapper so a long-polling client gets the versioned error body it knows how to stop on.
+            return error(401, ChatErrors.NOT_AUTHENTICATED, "Sign in required.");
         } catch (final RuntimeException ex) {
             log.error("Chat feed failed for channel {}", channelId, ex);
-            reply.resume(error(500, ChatErrors.INTERNAL, "Internal server error."));
+            return error(500, ChatErrors.INTERNAL, "Internal server error.");
         }
     }
 
-    private void feedOrSuspend(
-            final OneShot reply,
-            final AsyncResponse async,
+    private Response feedNow(
             final String channelId,
             final String since,
             final String before,
@@ -95,33 +89,27 @@ public class ChatResource extends BaseResource {
         final Person.Id me = personId();
         final String tripId = tripIdOf(channelId);
         if (tripId == null) {
-            reply.resume(error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id."));
-            return;
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
         }
         final ChatCommands chat = ChatCommands.getChatCommands();
         // Checked before the channel lookup so it holds even for a trip whose channel was never created: without
         // this, a disabled chat with no channel answers 200-empty and a long-polling client keeps asking forever
         // instead of stopping on a 403.
         if (!chat.chatEnabledForTrip(tripId)) {
-            reply.resume(error(403, ChatErrors.CHAT_DISABLED, "Chat is turned off for this trip."));
-            return;
+            return error(403, ChatErrors.CHAT_DISABLED, "Chat is turned off for this trip.");
         }
         final ChatChannel channel = chat.getChannel(tripId);
         if (channel == null) {
             // A GET must not create anything. Creating the channel here made an ordinary poll a write, and
             // emitted a "channel created" CHAT_ADMIN audit record attributed to whoever happened to poll first.
             // An empty feed is the honest answer; the channel is created by the first send, or by an admin.
-            if (!chat.isTripMember(tripId, me)) {
-                reply.resume(error(403, ChatErrors.NOT_A_TRIP_MEMBER, "Not a member of this trip."));
-            } else {
-                reply.resume(ok(ChatPage.empty()));
-            }
-            return;
+            return chat.isTripMember(tripId, me)
+                    ? ok(ChatPage.empty())
+                    : error(403, ChatErrors.NOT_A_TRIP_MEMBER, "Not a member of this trip.");
         }
         final String denial = chat.readDenial(channel, me);
         if (denial != null) {
-            reply.resume(error(403, denial, denialMessage(denial)));
-            return;
+            return error(403, denial, denialMessage(denial));
         }
 
         // Two directions, chosen explicitly. `order=newest` is the initial load and asks for the LATEST page;
@@ -132,29 +120,26 @@ public class ChatResource extends BaseResource {
         if (wantsHistory) {
             final ChatMessage.Id beforeId = (before == null || before.isBlank())
                     ? null : ChatMessage.Id.from(before);
-            reply.resume(ok(chat.history(tripId, me, beforeId, Math.min(limit, 50))));
-            return;
+            return ok(chat.history(tripId, me, beforeId, Math.min(limit, 50)));
         }
 
         final ChatMessage.Id sinceId = (since == null || since.isBlank()) ? null : ChatMessage.Id.from(since);
         final ChatPage page = chat.feed(tripId, me, sinceId, limit);
         if (!page.isEmpty() || wait <= 0) {
-            reply.resume(ok(page));
-            return;
+            return ok(page);
         }
-        suspendForNudge(reply, async, chat, tripId, me, sinceId, limit, wait);
+        return awaitNudge(chat, tripId, me, sinceId, limit, wait);
     }
 
     /**
-     * Parks the request until a nudge arrives for this channel or the wait elapses.
+     * Blocks this request's virtual thread until a nudge arrives for the channel or the wait elapses.
      *
-     * <p>Suspending releases the worker thread back to Tomcat's executor and parks the connection in the NIO poller,
-     * so held requests are bounded by connections (8192 by default) rather than by the 100-thread pool. The hold is
-     * capped well inside the ALB's 60s idle timeout.
+     * <p>Wake and timeout converge on one final cursor read, which is the actual source of truth — the nudge is
+     * only advisory. That single exit is also the lost-nudge fallback: a message whose nudge was dropped still
+     * comes back when the wait elapses, so a lost nudge costs latency, never a message and never a hang. An empty
+     * final read echoes the caller's cursor so an empty response cannot make a client lose its place.
      */
-    private void suspendForNudge(
-            final OneShot reply,
-            final AsyncResponse async,
+    private Response awaitNudge(
             final ChatCommands chat,
             final String tripId,
             final Person.Id me,
@@ -162,82 +147,40 @@ public class ChatResource extends BaseResource {
             final int limit,
             final int wait) {
         final String channelId = ChatChannel.Id.forTrip(tripId).getValue();
-        final ChatNudgeRegistry registry = ChatNudgeRegistry.getInstance();
-        final AtomicReference<AutoCloseable> parked = new AtomicReference<>();
-
-        async.setTimeout(Math.min(Math.max(wait, 1), MAX_WAIT_SECONDS), TimeUnit.SECONDS);
-        // A lost nudge must cost latency, never a hang: on timeout the client gets an empty page and falls back to
-        // its ordinary poll interval. The cursor is echoed so an empty response cannot make a client lose its place.
-        async.setTimeoutHandler(timedOut -> onWaitElapsed(reply, parked, sinceId));
-        parked.set(registry.park(channelId, upTo -> onNudged(reply, parked, chat, tripId, me, sinceId, limit)));
-
-        // Re-read after parking. A message written between the first read and the park would have published its
-        // nudge while nobody was listening, so without this check the request waits out the full timeout for a
-        // message that already exists.
-        final ChatPage afterPark = chat.feed(tripId, me, sinceId, limit);
-        if (!afterPark.isEmpty()) {
-            unpark(parked);
-            reply.resume(ok(afterPark));
-        }
-    }
-
-    private void onWaitElapsed(
-            final OneShot reply, final AtomicReference<AutoCloseable> parked, final ChatMessage.Id sinceId) {
-        unpark(parked);
-        reply.resume(ok(emptyPageAt(sinceId)));
-    }
-
-    /**
-     * Woken by a nudge. Runs on a worker pool, never a Netty event loop, which is what lets it do the blocking
-     * cursor read below -- reading from the event loop would deadlock the loop that has to complete it.
-     */
-    private void onNudged(
-            final OneShot reply,
-            final AtomicReference<AutoCloseable> parked,
-            final ChatCommands chat,
-            final String tripId,
-            final Person.Id me,
-            final ChatMessage.Id sinceId,
-            final int limit) {
-        unpark(parked);
-        reply.resume(ok(chat.feed(tripId, me, sinceId, limit)));
-    }
-
-    private static void unpark(final AtomicReference<AutoCloseable> parked) {
-        final AutoCloseable handle = parked.getAndSet(null);
-        if (handle == null) {
-            return;
-        }
+        final CountDownLatch nudged = new CountDownLatch(1);
+        final AutoCloseable parked = ChatNudgeRegistry.getInstance()
+                .park(channelId, upTo -> nudged.countDown());
         try {
-            handle.close();
+            // Re-read after parking. A message written between the first read and the park would have published
+            // its nudge while nobody was listening, so without this check the request waits out the full timeout
+            // for a message that already exists.
+            final ChatPage afterPark = chat.feed(tripId, me, sinceId, limit);
+            if (!afterPark.isEmpty()) {
+                return ok(afterPark);
+            }
+            nudged.await(cappedWaitSeconds(wait), TimeUnit.SECONDS);
+            final ChatPage woken = chat.feed(tripId, me, sinceId, limit);
+            return ok(woken.isEmpty() ? emptyPageAt(sinceId) : woken);
+        } catch (final InterruptedException ex) {
+            // The container interrupted the request thread -- the client is gone. Answer something valid for the
+            // dying connection and re-assert the flag for the container's own cleanup.
+            Thread.currentThread().interrupt();
+            return ok(emptyPageAt(sinceId));
+        } finally {
+            unpark(parked);
+        }
+    }
+
+    /** Caps the hold well inside the ALB's 60s idle timeout, whatever a client asks for. */
+    static int cappedWaitSeconds(final int wait) {
+        return Math.min(Math.max(wait, 1), MAX_WAIT_SECONDS);
+    }
+
+    private static void unpark(final AutoCloseable parked) {
+        try {
+            parked.close();
         } catch (final Exception ex) {
             log.warn("Unable to unpark a chat long-poll waiter", ex);
-        }
-    }
-
-    /**
-     * Resumes a suspended request at most once.
-     *
-     * <p>A nudge, the timeout handler and the post-park re-read can all fire for the same request, and only one may
-     * win. Checking {@code isSuspended()} is not enough: two threads can both observe it as true and the loser's
-     * {@code resume} throws {@code IllegalStateException} -- on a pub/sub callback thread, where nothing can catch
-     * it. So the decision is a compare-and-set, and the container state is only a secondary guard.
-     */
-    private static final class OneShot {
-        private final AsyncResponse async;
-        private final AtomicBoolean done = new AtomicBoolean();
-
-        private OneShot(final AsyncResponse async) {
-            this.async = async;
-        }
-
-        private void resume(final Response response) {
-            if (!done.compareAndSet(false, true)) {
-                return;
-            }
-            if (async.isSuspended()) {
-                async.resume(response);
-            }
         }
     }
 

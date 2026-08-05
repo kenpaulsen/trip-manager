@@ -30,16 +30,52 @@
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>dynamodb</artifactId>
+            <exclusions>
+                <!-- Sync-only http stack (virtual-threads migration): apache-client is the ONE http client,
+                     declared explicitly below. Excluding the SDK's default netty-nio-client (async) and
+                     apache5-client (a second sync impl) keeps client discovery deterministic and Netty out
+                     of the WAR except for Lettuce's. -->
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>netty-nio-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>apache5-client</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>ses</artifactId>
+            <exclusions>
+                <!-- See the dynamodb entry: one sync http client, no SDK Netty. -->
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>netty-nio-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>apache5-client</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
-        <!-- Secrets Manager: source of the password pepper at startup. Uses the async (Netty) client so it
-             reuses the http stack DynamoDB already pulls in, rather than adding the Apache sync client. -->
+        <!-- Secrets Manager: source of the password pepper at startup. Sync client on the shared
+             apache-client stack, like every AWS client since the virtual-threads migration. -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>secretsmanager</artifactId>
+            <exclusions>
+                <!-- See the dynamodb entry: one sync http client, no SDK Netty. -->
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>netty-nio-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>apache5-client</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <!-- CloudWatch Logs: the audit trail ships to its own log group. A container-local file is not durable
              (the task's disk dies with it), and the app log group's short retention is wrong for an audit
@@ -47,12 +83,34 @@
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>cloudwatchlogs</artifactId>
+            <exclusions>
+                <!-- See the dynamodb entry: one sync http client, no SDK Netty. -->
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>netty-nio-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>apache5-client</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <!-- S3: managed media uploads from the admin UI. The app only ever WRITES here; visitors are served
              by CloudFront, so this is never in the read path for serving a page. -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3</artifactId>
+            <exclusions>
+                <!-- See the dynamodb entry: one sync http client, no SDK Netty. -->
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>netty-nio-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>apache5-client</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <!-- CodePipeline: the admin Deploy page starts a release and shows its progress, so releasing does not
              need the AWS console. Read + start only; the task role grants nothing else. Synchronous client,
@@ -60,6 +118,17 @@
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>codepipeline</artifactId>
+            <exclusions>
+                <!-- See the dynamodb entry: one sync http client, no SDK Netty. -->
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>netty-nio-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>apache5-client</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>at.favre.lib</groupId>
@@ -100,8 +169,8 @@
             <!--
                 Sync HTTP client for every AWS SDK client (virtual-threads migration): blocking socket I/O
                 parks the calling virtual thread, and its bounded connection pool doubles as the DynamoDB
-                admission bound. netty-nio-client leaves the WAR once the last async client (SES, CW Logs)
-                converts in Phase 7.
+                admission bound. netty-nio-client is excluded from every SDK artifact above; the only
+                Netty left in the WAR is Lettuce's.
             -->
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>apache-client</artifactId>

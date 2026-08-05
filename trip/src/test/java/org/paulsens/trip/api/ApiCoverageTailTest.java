@@ -176,18 +176,9 @@ public class ApiCoverageTailTest extends ResourceTestSupport {
     }
 
     private String feedMessage() {
-        final java.util.concurrent.atomic.AtomicReference<Response> out =
-                new java.util.concurrent.atomic.AtomicReference<>();
-        final jakarta.ws.rs.container.AsyncResponse async =
-                Mockito.mock(jakarta.ws.rs.container.AsyncResponse.class);
-        Mockito.when(async.isSuspended()).thenReturn(true);
-        Mockito.when(async.resume(ArgumentMatchers.any(Response.class))).thenAnswer(call -> {
-            out.set(call.getArgument(0));
-            return true;
-        });
-        chatResource.feed(async, "trip:t1", null, null, null, 0, 200);
+        final Response out = chatResource.feed("trip:t1", null, null, null, 0, 200);
         @SuppressWarnings("unchecked")
-        final Map<String, Object> body = (Map<String, Object>) out.get().getEntity();
+        final Map<String, Object> body = (Map<String, Object>) out.getEntity();
         return String.valueOf(body.get("message"));
     }
 

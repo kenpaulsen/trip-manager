@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.StructuredTaskScope;
 import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -268,17 +268,27 @@ public final class Trip implements Serializable {
             if (ids == null) {
                 return Collections.emptyList();
             }
-            // Sequential for now -- most reads are cache hits. The structured-concurrency pass (Phase 7)
-            // restores the per-event fan-out this replaced, without the nested joins that once forced the
-            // persistence pool to be unbounded.
-            final List<TripEvent> events = new ArrayList<>(ids.size());
-            for (final String id : ids) {
-                final TripEvent te = DAO.getInstance().getTripEvent(id);
-                if (te != null) {
-                    events.add(te);
+            // Fork per event id: the fan-out the CF era had, minus the nested joins that once forced the
+            // persistence pool to be unbounded. Cache misses for a trip's events resolve concurrently (a
+            // 50-event trip is one round trip's latency, not 50), each on a virtual thread whose blocking is
+            // free, and the scope guarantees nothing outlives this deserialization.
+            try (var scope = StructuredTaskScope.open()) {
+                final List<StructuredTaskScope.Subtask<TripEvent>> tasks = new ArrayList<>(ids.size());
+                for (final String id : ids) {
+                    tasks.add(scope.fork(() -> DAO.getInstance().getTripEvent(id)));
                 }
+                scope.join();
+                final List<TripEvent> events = new ArrayList<>(ids.size());
+                for (final StructuredTaskScope.Subtask<TripEvent> task : tasks) {
+                    if (task.get() != null) {
+                        events.add(task.get());
+                    }
+                }
+                return events;
+            } catch (final InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while loading trip events", ex);
             }
-            return events;
         }
     }
 }

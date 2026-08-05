@@ -12,7 +12,6 @@ import jakarta.faces.context.FacesContext;
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 import org.mockito.ArgumentMatchers;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -97,7 +96,7 @@ public class PayCommandsCaptureTest {
 
     private void payPalAnswers(final Order order) {
         final ApiResponse<Order> response = apiResponse(order);
-        Mockito.when(payPal.captureOrder(ORDER_ID)).thenReturn(CompletableFuture.completedFuture(response));
+        Mockito.when(payPal.captureOrder(ORDER_ID)).thenReturn(response);
         Mockito.when(payPal.getCapturedAmount(order)).thenReturn(100f);
         Mockito.when(payPal.getPayPalFee(order)).thenReturn(Optional.of(3.98f));
     }
@@ -122,8 +121,7 @@ public class PayCommandsCaptureTest {
 
     @Test
     public void aNullPayPalResponseIsAFailureNotACrash() {
-        Mockito.when(payPal.captureOrder(ORDER_ID))
-                .thenReturn(CompletableFuture.completedFuture(null));
+        Mockito.when(payPal.captureOrder(ORDER_ID)).thenReturn(null);
 
         Assert.assertFalse(commands.captureAndSave(ORDER_ID, USER, null));
         Mockito.verify(transactions, Mockito.never()).saveTransaction(ArgumentMatchers.any());
@@ -131,8 +129,7 @@ public class PayCommandsCaptureTest {
 
     @Test
     public void aPayPalFailureIsCaughtAndReportedAsFalse() {
-        Mockito.when(payPal.captureOrder(ORDER_ID))
-                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("paypal down")));
+        Mockito.when(payPal.captureOrder(ORDER_ID)).thenThrow(new IllegalStateException("paypal down"));
 
         Assert.assertFalse(commands.captureAndSave(ORDER_ID, USER, null));
     }
@@ -192,7 +189,7 @@ public class PayCommandsCaptureTest {
     public void createApprovalUrlAnswersEmptyWhenPayPalDeclines() {
         Mockito.when(payPal.createOrder(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
-                ArgumentMatchers.any())).thenReturn(CompletableFuture.completedFuture(null));
+                ArgumentMatchers.any())).thenReturn(null);
 
         Assert.assertTrue(commands.createApprovalUrl(null, USER, 10f, "d", "https://r", "https://c").isEmpty());
     }
@@ -205,7 +202,7 @@ public class PayCommandsCaptureTest {
         Mockito.when(payPal.createOrder(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any()))
-                .thenReturn(CompletableFuture.completedFuture(apiResponse(order)));
+                .thenReturn(apiResponse(order));
         Mockito.when(payPal.getApprovalUrl(order)).thenReturn(Optional.of("https://paypal/approve"));
 
         Assert.assertEquals(commands.createApprovalUrl(null, USER, 10f, "d", "https://r", "https://c")
@@ -238,8 +235,7 @@ public class PayCommandsCaptureTest {
             Mockito.when(payPal.createOrder(ArgumentMatchers.any(), ArgumentMatchers.any(),
                     ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                     ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
-                    .thenReturn(CompletableFuture.completedFuture(
-                            apiResponse(order)));
+                    .thenReturn(apiResponse(order));
             Mockito.when(payPal.getApprovalUrl(order)).thenReturn(Optional.of("https://paypal/approve"));
 
             commands.initPayment(null, USER, 50f, "trip-1", "Payment");
@@ -269,7 +265,7 @@ public class PayCommandsCaptureTest {
             Mockito.when(payPal.createOrder(ArgumentMatchers.any(), ArgumentMatchers.any(),
                     ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                     ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
-                    .thenReturn(CompletableFuture.completedFuture(null));
+                    .thenReturn(null);
 
             commands.initPayment(null, USER, 50f, null, "Payment");
 
@@ -283,8 +279,8 @@ public class PayCommandsCaptureTest {
         final ApiResponse<Order> response = apiResponse(order);
         Mockito.when(payPal.createOrder(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.isNull(),
-                ArgumentMatchers.isNull())).thenReturn(CompletableFuture.completedFuture(response));
-        Mockito.when(payPal.captureOrder("o1")).thenReturn(CompletableFuture.completedFuture(response));
+                ArgumentMatchers.isNull())).thenReturn(response);
+        Mockito.when(payPal.captureOrder("o1")).thenReturn(response);
 
         Assert.assertSame(commands.startOrder(null, USER, 10f, null, "CFPW", "d"), response);
         Assert.assertSame(commands.completeOrder("o1"), response);

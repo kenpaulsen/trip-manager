@@ -19,15 +19,14 @@ import org.testng.annotations.Test;
  * <p>It did not, for every email the system sent between the Phase 10 rework and 2026-07-28 -- mail merges
  * included. Zero of the EMAIL records written in that window carried an actor.
  *
- * <p>The cause is invisible at the call site. {@code MailCommands.send()} returns the SES client's
- * {@link CompletableFuture} with the audit written in {@code thenApply}, so the record is built on the SDK's
- * completion thread. {@code AuditActor.current()} reads {@code FacesContext}, which is a ThreadLocal, so off
- * the request thread it truthfully reports that nobody is signed in. The line read exactly like the correct
- * line used everywhere else; only the thread it ran on was different.
- *
- * <p>So the property worth pinning is not "the audit names an actor" -- it is that the actor <b>survives a
- * thread hop</b>. These tests deliberately invoke the logging on another thread: capture on the request thread
- * or the record is anonymous, and no amount of reading the call site reveals which one is happening.
+ * <p>The cause was invisible at the call site. The CF-era {@code MailCommands.send()} wrote the audit on the
+ * SDK's completion thread, where {@code AuditActor.current()} (then FacesContext-backed) truthfully reported
+ * nobody. The virtual-threads migration removed that boundary -- the send blocks and audits on the calling
+ * thread, and {@code current()} now also reads the bound {@code RequestContext} ScopedValue (pinned in
+ * {@code MailSendSesPathTest.aNullActorResolvesFromTheBoundRequestContext}). But a plain spawned thread is
+ * still unbound, so the property worth pinning has not changed: the explicit actor parameter <b>wins over
+ * whatever the logging thread thinks</b>. These tests invoke the logging on a foreign platform thread -- no
+ * Faces, no binding -- where only the passed-in actor can name anyone.
  */
 public class MailAuditActorTest {
 

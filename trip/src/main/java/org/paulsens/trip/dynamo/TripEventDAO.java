@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
@@ -62,23 +61,13 @@ public class TripEventDAO {
         } catch (final IOException ex) {
             throw new RuntimeException(ex);
         }
-        try {
-            final boolean saved = persistence.putItem(b -> b.tableName(TRIP_EVENT_TABLE).item(map))
-                    .sdkHttpResponse().isSuccessful();
-            return saved && cache.put(te.getId(), te);
-        } catch (final RuntimeException ex) {
-            // Shim until Phase 5: callers still consume a CompletableFuture, so a (now synchronous)
-            // persistence failure must arrive as a failed future, not a throw at call time.
-            throw ex;
-        }
+        final boolean saved = persistence.putItem(b -> b.tableName(TRIP_EVENT_TABLE).item(map))
+                .sdkHttpResponse().isSuccessful();
+        return saved && cache.put(te.getId(), te);
     }
 
     protected TripEvent getTripEvent(final String id) {
-        try {
-            return cache.get(id, this::loadTripEvent).orElse(null);
-        } catch (final RuntimeException ex) {
-            throw ex;
-        }
+        return cache.get(id, this::loadTripEvent).orElse(null);
     }
 
     public void clearCache() {
