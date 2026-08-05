@@ -39,7 +39,6 @@ trip/src/main/webapp/WEB-INF/glassfish-web.xml
 backup
 
 # Local scratch -- never for the public repo (accidentally committed once; caught before any push)
-CLAUDE.md
 no-git/
 attic/
 *.notes

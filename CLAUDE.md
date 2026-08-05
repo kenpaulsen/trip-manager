@@ -1,0 +1,128 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+This is the **public** Trip Manager application repo. The deployable pages, the live `WEB-INF/web.xml`, the
+container image, and all infrastructure live in the private sibling repo (`../medjugorje/`) — keep anything
+account- or deployment-specific out of this repo.
+
+## Build & test
+
+```sh
+mvn clean install                                  # full build -> trip/target/ROOT (expanded WAR) + ROOT.war
+mvn test -pl trip                                  # all unit tests for the main module
+mvn test -pl trip -Dtest=PersonTest                # one test class
+mvn test -pl trip -Dtest=TripCommandsTest#method   # one method
+```
+
+- Coverage gate: JaCoCo runs with `test` — bundle ≥ 90% line AND ≥ 90% per class. It only halts the build in
+  CI (`-Djacoco.check.halt=true`); locally it just reports (`trip/target/site/jacoco/index.html`). Excluding a
+  class from the gate requires the owner's approval first.
+- Browser/integration tests are NOT here — they are in `../medjugorje/webtest/` (Playwright).
+
+## Modules & stack
+
+| Module | Purpose |
+|--------|---------|
+| `jsft/` | JSF Templating helper library (`com.sun.jsftemplating`, `com.sun.jsft.*`) |
+| `trip/` | Main WAR (finalName `ROOT`): models, DAOs, cache, CDI beans, REST API |
+
+Java 25 · Jakarta EE 10 (Servlet 6.1, Faces 4.1 / Mojarra, CDI 4.1 / Weld) · PrimeFaces 15 + extensions
+(`jakarta` classifier) · Jersey 3.1 (REST) · MapStruct · Lombok · Jackson · AWS SDK v2 async (DynamoDB, SES,
+Secrets Manager, CloudWatch Logs, S3, CodePipeline) · Lettuce (**must stay 6.x** — the build pins Netty 4.1;
+Lettuce 7 needs Netty 4.2) · BCrypt (`at.favre.lib`) · PayPal server SDK · Apache POI · TestNG.
+
+## Architecture
+
+### Persistence (`org.paulsens.trip.dynamo`)
+
+- `Persistence` interface — abstracts the store. `DynamoPersistence` is the real one (async client);
+  `InMemoryPersistence` is a real in-memory table store used in local mode and tests (`FakeData` seeds it).
+- `LocalMode` — the single authority on local vs production. Explicit-only, defaults to production; see the
+  workspace root CLAUDE.md. `TripBootstrapListener` (in `web/`) resolves it at startup and **must stay first**
+  in web.xml's listener order (`ChatLifecycleListener` touches the DAO in its own `contextInitialized`).
+- `DAO` — singleton composing the domain DAOs: Person, Trip, TripEvent, Registration, Transaction,
+  Credentials, Todo, PersonDataValue, Privileges, Binding, Config, Media, Audit, Chat.
+- **Caching** (`org.paulsens.trip.cache`): all caching goes through the `CacheClient` abstraction —
+  `ValkeyCacheClient` (production, shared across instances), `InMemoryCacheClient` (local), `NoopCacheClient`
+  (off). Each DAO uses a typed cache on top (`PointCache`, `PartitionCache`, `PartitionScanCache`,
+  `AdjacencyCache`, plus `SearchIndex`/`TripIndex`). `AuditDAO` and `CredentialsDAO` are deliberately
+  uncached. `DAO.clearAllCaches()` clears the data namespace only — never a Valkey FLUSH, never sessions.
+  NB: `NoopCacheClient.tryAcquireLock` grants every lock — never use a cache lock for exclusion without
+  probing the cache mode first.
+
+Persistence gotchas (each has caused a real bug):
+
+- DAO reads return **copies**: mutating an object you read earlier and saving its *parent* writes nothing.
+- A read immediately after a write can be stale in production (async invalidation) — pass along the object
+  you just saved instead of re-reading.
+- `queryAll` ignores `limit` (it paginates the whole partition); use `query()` for unbounded partitions.
+- Lombok `@Builder` zeroes primitive defaults — hand-write builders (see `TripBuilder`) and assert
+  `builder().build().equals(new Whatever())` in the model test.
+
+### Domain model (`org.paulsens.trip.model`)
+
+Lombok-annotated, Jackson-serialized to/from DynamoDB. Core types: `Person` (nested `Person.Id`), `Trip`,
+`TripEvent`, `Registration`, `RegistrationOption`, `Transaction`, `Creds`, `TodoItem`/`TodoStatus`,
+`PersonDataValue`, `Privilege`, `BindingType`, `Config`/`SettingDef`/`SettingSection`, `MediaItem`,
+`AuditEvent`/`AuditQuery`/`AuditPage`, plus `model/chat/*` (15 chat types) and `model/deploy/*`.
+**Every type that can land in viewScope must be `Serializable`** — a non-serializable one breaks the session
+save and 500s every later request (looks like a site-wide outage). `ModelSerializationTest` is the guard.
+
+### CDI action beans (`org.paulsens.trip.action`)
+
+`@Named @ApplicationScoped` beans exposed to JSF EL. Current names: `trip` (TripCommands), `people`
+(PersonCommands), `reg` (RegistrationCommands), `txCmds` (TransactionsCommands), `todo`, `bind`, `priv`,
+`pdv`, `pass`, `mail`, `chat`, `audit`, `auditView`, `config` (ConfigCommands — admin Settings page),
+`media`, `profilePhotos`, `pay` (PayCommands — PayPal), `deploy`, `json`, `tripUtil`.
+
+- Bean `get*` methods (e.g. `getPerson`, `getTrip`) **never return null** — they answer a blank object with a
+  fresh id, so null checks don't fire and a careless PUT saves a junk row. REST code must use the
+  `BaseResource.find*` helpers instead.
+- `AuditActor.current()` reads a ThreadLocal: inside any `CompletableFuture` callback it records NO actor.
+  Capture it on the request thread and pass it across async boundaries.
+
+### REST API (`org.paulsens.trip.api`, served at `/api/*`)
+
+Jersey servlet (declared in the live web.xml, sibling repo) running `TripApiApplication` — resources are
+registered **explicitly** in `getClasses()`, no package scanning; a new resource must be added there. 14
+resources (auth, people, trips, registrations, transactions, todos, privileges, chat, chat-admin, audit,
+config, mail, payments, deploy) + `TripAuthFilter`, `JsonExceptionMapper`, `ObjectMapperProvider`. DTOs in
+`api/dto`, MapStruct mappers in `api/mapper`. Versioning is via the `Accept` media type, not a URL segment.
+
+- Redaction is authorization: a DTO field the caller may not see is redacted by the mapper, not blocked by a
+  route. `AccessLevel` is unranked — do not compare its constants with ordinal logic.
+- `Beans.get` must select with the `Any` qualifier: `@FacesConfig` (on `PassCommands`) suppresses `@Default`,
+  so a bare `CDI.current().select(type)` 500s at runtime and no unit test catches it.
+
+### Other packages
+
+- `chat/` — per-trip chat runtime: digest scheduler (Valkey-coordinated so N tasks send once), notifier
+  chain, rate limiter, long-poll nudge registry. Design doc: `chat-design.md` at the workspace root. Several
+  chat decisions deliberately reverse the obvious approach — read the design doc before changing behavior.
+- `audit/` — `Audit` writes every event to CloudWatch Logs (`TRIP_AUDIT_LOG_GROUP`) AND the `audit` DynamoDB
+  table when deployed, stdout otherwise. Append-only in IAM *and* in code — no update/delete paths.
+- `config/KnownSettings` — every runtime setting is declared ONCE here (`SettingDef` constants); the admin
+  Settings page and the reading code both consume it. Never introduce a literal settings key + default.
+- `security/` — `PasswordHasher` (BCrypt over a peppered pre-hash) + `Pepper` (versioned key from Secrets
+  Manager; unset ⇒ logs a warning, hashes unpeppered). Local mode uses `Pepper.none()`.
+
+## Scripts & data migrations
+
+`scripts/`: `backfill-people-email.sh` (email-index GSI backfill), `migrate-group-tx-membership.sh`,
+`rotate-password-pepper.sh` (pepper rotation and plaintext-password migration). One-time migration docs are in
+`docs/migrations/`.
+
+## Testing notes
+
+- **TestNG only** (no JUnit). The surefire `surefire-testng` provider is explicitly pinned — auto-detection
+  once silently switched to the JUnit platform and reported "Tests run: 0 … SUCCESS". For the same reason,
+  never add `jersey-test-framework` (it drags in junit-jupiter).
+- The entire suite runs in local mode (surefire sets `trip.local.mode=true`): fake persistence, in-memory
+  cache, `Pepper.none()`. This means **no unit test can catch a production-only mode/wiring bug** — verify
+  those against the container image.
+- Valkey integration tests auto-skip unless `TRIP_VALKEY_URI` is set (see the Testing section of
+  `../medjugorje/setup-instructions.txt`). Pointing tests at a *configured* cache in local mode additionally
+  requires the sysprop-only `trip.cache.local.useConfigured` guard.
+- New tests go in `trip/src/test/java/`; useful harnesses: `dynamo/DynamoLocal` (real DynamoDB engine),
+  `cache/LocalRedisCluster`, `api/ResourceTestSupport`.
