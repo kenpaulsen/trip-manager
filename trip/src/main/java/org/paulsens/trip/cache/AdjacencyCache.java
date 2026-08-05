@@ -11,6 +11,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Supplier;
 import lombok.Builder;
 import lombok.Singular;
@@ -46,6 +47,9 @@ public class AdjacencyCache {
     private final boolean softRevalidate = true;
     @Builder.Default
     private final Supplier<Long> clock = System::currentTimeMillis;
+    /** Injectable jitter source in [0,1) for tests; production uses {@link ThreadLocalRandom}. */
+    @Builder.Default
+    private final Supplier<Double> ttlJitter = AdjacencyCache::randomJitter;
 
     private final ConcurrentHashMap<String, Boolean> refreshing = new ConcurrentHashMap<>();
 
@@ -113,6 +117,11 @@ public class AdjacencyCache {
         if (refreshing.putIfAbsent(sourceKey, Boolean.TRUE) != null) {
             return;
         }
+        if (!RefreshPermits.tryAcquire()) {
+            // At the global refresh cap: skip entirely -- a later read re-triggers (see RefreshPermits).
+            refreshing.remove(sourceKey);
+            return;
+        }
         final String lockKey = CacheKeys.refreshLockKey(keyPrefix + sourceKey);
         // Duplicate refreshes after lock TTL are safe by design.
         cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)
@@ -127,6 +136,7 @@ public class AdjacencyCache {
             final Supplier<CompletableFuture<Map<String, List<String>>>> loader) {
         if (!Boolean.TRUE.equals(acquired)) {
             refreshing.remove(sourceKey);
+            RefreshPermits.release();
             return CompletableFuture.completedFuture(null);
         }
         log.debug("Soft-revalidating bindings for '{}'", sourceKey);
@@ -140,6 +150,7 @@ public class AdjacencyCache {
         }
         cache.releaseLock(lockKey);
         refreshing.remove(sourceKey);
+        RefreshPermits.release();
         return null;
     }
 
@@ -152,10 +163,19 @@ public class AdjacencyCache {
         }
         try {
             final long loadedAt = Long.parseLong(loadedAtRaw.trim());
-            return clock.get() - loadedAt >= softTtl.toMillis();
+            return clock.get() - loadedAt >= jitteredSoftTtlMillis();
         } catch (final NumberFormatException ex) {
             return true;
         }
+    }
+
+    /** ±10% per check -- see {@code PointCache#jitteredSoftTtlMillis} for why the herd must be broken. */
+    private long jitteredSoftTtlMillis() {
+        return (long) (softTtl.toMillis() * (0.9 + 0.2 * ttlJitter.get()));
+    }
+
+    private static double randomJitter() {
+        return ThreadLocalRandom.current().nextDouble();
     }
 
     private CompletableFuture<List<String>> loadAndMerge(final String sourceKey, final String destTypeId,

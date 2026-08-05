@@ -237,6 +237,7 @@ public class PartitionCacheTest {
                 .deserializer(v -> v)
                 .order(Comparator.naturalOrder())
                 .clock(clock::get)
+                .ttlJitter(() -> 0.5) // pins the effective soft TTL to exactly softTtl (no test flake)
                 .build();
     }
 }

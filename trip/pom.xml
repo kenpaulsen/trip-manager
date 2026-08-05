@@ -87,6 +87,16 @@
             </exclusions>
         </dependency>
         <dependency>
+            <!--
+                The real okio classes, re-added explicitly: they normally arrive as a TRANSITIVE of the
+                empty okio artifact excluded above, so the exclusion above takes them too. Keep this version
+                in lockstep with whatever okhttp the PayPal SDK pulls.
+            -->
+            <groupId>com.squareup.okio</groupId>
+            <artifactId>okio-jvm</artifactId>
+            <version>3.6.0</version>
+        </dependency>
+        <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-annotations</artifactId>
         </dependency>

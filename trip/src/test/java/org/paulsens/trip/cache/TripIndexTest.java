@@ -38,6 +38,7 @@ public class TripIndexTest {
         return TripIndex.builder()
                 .cache(cache)
                 .clock(now::get)
+                .ttlJitter(() -> 0.5) // pins the effective soft TTL to exactly softTtl (no test flake)
                 .loader(() -> {
                     loads.incrementAndGet();
                     return CompletableFuture.completedFuture(entries);

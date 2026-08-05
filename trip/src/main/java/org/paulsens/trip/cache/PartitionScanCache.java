@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -54,6 +55,9 @@ public final class PartitionScanCache<V> {
     private final Function<String, V> deserializer;
     @Builder.Default
     private final Supplier<Long> clock = System::currentTimeMillis;
+    /** Injectable jitter source in [0,1) for tests; production uses {@link ThreadLocalRandom}. */
+    @Builder.Default
+    private final Supplier<Double> ttlJitter = PartitionScanCache::randomJitter;
 
     private final AtomicBoolean refreshing = new AtomicBoolean();
 
@@ -157,15 +161,23 @@ public final class PartitionScanCache<V> {
         if (!refreshing.compareAndSet(false, true)) {
             return;
         }
+        if (!RefreshPermits.tryAcquire()) {
+            // At the global refresh cap: skip entirely -- a later read re-triggers (see RefreshPermits).
+            refreshing.set(false);
+            return;
+        }
         final String lockKey = CacheKeys.refreshLockKey(loadedKey);
         cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)
                 .thenComposeAsync(this::runBackgroundRebuild, PersistenceExecutors.pool())
-                .handle((ignored, ex) -> {
-                    logIfFailed(ex);
-                    cache.releaseLock(lockKey);
-                    refreshing.set(false);
-                    return null;
-                });
+                .handle((ignored, ex) -> finishBackgroundRebuild(lockKey, ex));
+    }
+
+    private Void finishBackgroundRebuild(final String lockKey, final Throwable ex) {
+        logIfFailed(ex);
+        cache.releaseLock(lockKey);
+        refreshing.set(false);
+        RefreshPermits.release();
+        return null;
     }
 
     private CompletableFuture<Boolean> runBackgroundRebuild(final Boolean acquired) {
@@ -181,10 +193,19 @@ public final class PartitionScanCache<V> {
             return true;
         }
         try {
-            return clock.get() - Long.parseLong(loadedAtRaw.trim()) >= softTtl.toMillis();
+            return clock.get() - Long.parseLong(loadedAtRaw.trim()) >= jitteredSoftTtlMillis();
         } catch (final NumberFormatException ex) {
             return true;
         }
+    }
+
+    /** ±10% per check -- see {@code PointCache#jitteredSoftTtlMillis} for why the herd must be broken. */
+    private long jitteredSoftTtlMillis() {
+        return (long) (softTtl.toMillis() * (0.9 + 0.2 * ttlJitter.get()));
+    }
+
+    private static double randomJitter() {
+        return ThreadLocalRandom.current().nextDouble();
     }
 
     private void logIfFailed(final Throwable ex) {

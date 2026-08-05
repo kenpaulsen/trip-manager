@@ -32,6 +32,7 @@ public class CacheTemplateTailsTest {
                 .deserializer(v -> v)
                 .order(Comparator.naturalOrder())
                 .clock(clock::get)
+                .ttlJitter(() -> 0.5) // pins the effective soft TTL to exactly softTtl (no test flake)
                 .build();
     }
 
@@ -43,6 +44,7 @@ public class CacheTemplateTailsTest {
                 .serializer(v -> v)
                 .deserializer(v -> v)
                 .clock(clock::get)
+                .ttlJitter(() -> 0.5) // pins the effective soft TTL to exactly softTtl (no test flake)
                 .build();
     }
 

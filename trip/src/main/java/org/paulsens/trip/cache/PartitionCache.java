@@ -10,6 +10,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import lombok.Builder;
@@ -72,6 +73,9 @@ public class PartitionCache<K, V> {
     /** Injectable clock for tests (epoch millis). */
     @Builder.Default
     private final Supplier<Long> clock = System::currentTimeMillis;
+    /** Injectable jitter source in [0,1) for tests; production uses {@link ThreadLocalRandom}. */
+    @Builder.Default
+    private final Supplier<Double> ttlJitter = PartitionCache::randomJitter;
 
     /** In-process single-flight for background refresh (complements distributed locks). */
     private final ConcurrentHashMap<String, Boolean> refreshing = new ConcurrentHashMap<>();
@@ -179,6 +183,11 @@ public class PartitionCache<K, V> {
         if (refreshing.putIfAbsent(key, Boolean.TRUE) != null) {
             return;
         }
+        if (!RefreshPermits.tryAcquire()) {
+            // At the global refresh cap: skip entirely -- a later read re-triggers (see RefreshPermits).
+            refreshing.remove(key);
+            return;
+        }
         final String lockKey = CacheKeys.refreshLockKey(key);
         // Duplicate refreshes after lock TTL are safe: overlay + snapshot reconcile; LOADED_AT is LWW.
         cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)
@@ -193,6 +202,7 @@ public class PartitionCache<K, V> {
             final Supplier<CompletableFuture<List<V>>> loader) {
         if (!Boolean.TRUE.equals(acquired)) {
             refreshing.remove(key);
+            RefreshPermits.release();
             return CompletableFuture.completedFuture(null);
         }
         log.debug("Soft-revalidating cache key '{}'", key);
@@ -205,6 +215,7 @@ public class PartitionCache<K, V> {
         }
         cache.releaseLock(lockKey);
         refreshing.remove(key);
+        RefreshPermits.release();
         return null;
     }
 
@@ -214,10 +225,19 @@ public class PartitionCache<K, V> {
         }
         try {
             final long loadedAt = Long.parseLong(loadedAtRaw.trim());
-            return clock.get() - loadedAt >= softTtl.toMillis();
+            return clock.get() - loadedAt >= jitteredSoftTtlMillis();
         } catch (final NumberFormatException ex) {
             return true;
         }
+    }
+
+    /** ±10% per check -- see {@code PointCache#jitteredSoftTtlMillis} for why the herd must be broken. */
+    private long jitteredSoftTtlMillis() {
+        return (long) (softTtl.toMillis() * (0.9 + 0.2 * ttlJitter.get()));
+    }
+
+    private static double randomJitter() {
+        return ThreadLocalRandom.current().nextDouble();
     }
 
     private CompletableFuture<List<V>> loadAndMerge(

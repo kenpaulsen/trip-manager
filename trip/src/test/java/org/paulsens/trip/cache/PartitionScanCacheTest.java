@@ -48,6 +48,7 @@ public class PartitionScanCacheTest {
                 .loadedKey("scan-test-loaded")
                 .softTtl(Duration.ofMinutes(1))
                 .clock(clock::get)
+                .ttlJitter(() -> 0.5) // pins the effective soft TTL to exactly softTtl (no test flake)
                 .loader(() -> {
                     loads.incrementAndGet();
                     return CompletableFuture.completedFuture(table);

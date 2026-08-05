@@ -45,6 +45,7 @@ public class AdjacencyCacheTest {
                 .destTypeId("3")
                 .softTtl(Duration.ofMinutes(1))
                 .clock(clock::get)
+                .ttlJitter(() -> 0.5) // pins the effective soft TTL to exactly softTtl (no test flake)
                 .build();
     }
 

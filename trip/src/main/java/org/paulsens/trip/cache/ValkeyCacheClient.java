@@ -48,6 +48,13 @@ public final class ValkeyCacheClient implements CacheClient {
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(3);
     private static final long ADMIN_TIMEOUT_SECONDS = 30;
     private static final int SCAN_BATCH = 500;
+    /**
+     * Finite request queue (Lettuce's default is effectively unbounded). During the 2026-08-04 incident,
+     * thousands of commands piled up behind a slow cache, each burning its full 3s timeout and holding
+     * Netty buffer memory -- shed load fast instead: overflow fails the future immediately and
+     * {@code guard()} maps it to the usual fallback (miss / false), which DynamoDB absorbs.
+     */
+    private static final int REQUEST_QUEUE_SIZE = 5_000;
 
     private final AutoCloseable client;
     private final AutoCloseable connection;
@@ -65,6 +72,7 @@ public final class ValkeyCacheClient implements CacheClient {
             final RedisClusterClient clusterClient = RedisClusterClient.create(uri);
             clusterClient.setOptions(ClusterClientOptions.builder()
                     .timeoutOptions(TimeoutOptions.enabled(COMMAND_TIMEOUT))
+                    .requestQueueSize(REQUEST_QUEUE_SIZE)
                     .topologyRefreshOptions(ClusterTopologyRefreshOptions.builder()
                             .enablePeriodicRefresh(Duration.ofMinutes(15))
                             .enableAllAdaptiveRefreshTriggers()
@@ -79,6 +87,7 @@ public final class ValkeyCacheClient implements CacheClient {
             final RedisClient redisClient = RedisClient.create(uri);
             redisClient.setOptions(ClientOptions.builder()
                     .timeoutOptions(TimeoutOptions.enabled(COMMAND_TIMEOUT))
+                    .requestQueueSize(REQUEST_QUEUE_SIZE)
                     .build());
             final StatefulRedisConnection<String, String> conn = redisClient.connect();
             this.client = redisClient;
