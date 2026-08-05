@@ -2,18 +2,20 @@ package org.paulsens.trip.cache;
 
 import java.time.Duration;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.util.TripThreads;
 
 /**
  * Point-read template (trip events): string value + sibling {@code :at} epoch for soft revalidate.
- * Background reload with null removes the entry (out-of-band deletes heal). Soft revalidate is read-triggered.
- * {@link CacheKeys#GC_TTL} is hygiene only. Duplicate refreshes are safe by design.
+ * Blocking since the virtual-threads port; a hit still returns without waiting for the freshness check,
+ * which runs on a spawned virtual thread. Background reload with null removes the entry (out-of-band
+ * deletes heal). Soft revalidate is read-triggered. {@link CacheKeys#GC_TTL} is hygiene only. Duplicate
+ * refreshes are safe by design.
  *
  * @param <V> The entity type.
  */
@@ -38,86 +40,61 @@ public class PointCache<V> {
 
     private final ConcurrentHashMap<String, Boolean> refreshing = new ConcurrentHashMap<>();
 
-    public CompletableFuture<Optional<V>> get(final String id, final Function<String, CompletableFuture<V>> loader) {
+    public Optional<V> get(final String id, final Function<String, V> loader) {
         final String key = keyPrefix + id;
-        final String atKey = CacheKeys.pointAtKey(key);
-        return cache.getValue(key).thenCompose(cached -> resolveGet(id, key, atKey, cached, loader));
+        final Optional<String> cached = cache.getValue(key);
+        if (cached.isPresent()) {
+            final V value = deserializer.apply(cached.get());
+            if (value != null) {
+                // The freshness check costs a second cache read; a spawned thread pays it so the hit
+                // returns immediately -- and a degraded cache cannot double a reader's timeout exposure.
+                if (softRevalidate) {
+                    TripThreads.start(() -> checkFreshness(id, key, loader));
+                }
+                return Optional.of(value);
+            }
+        }
+        final V value = loader.apply(id);
+        if (value == null) {
+            return Optional.empty();
+        }
+        put(id, value);
+        return Optional.of(value);
     }
 
-    public CompletableFuture<Boolean> put(final String id, final V value) {
+    /**
+     * Always returns true: callers (DAO save paths) treat this as the operation result, and a cache
+     * failure must never fail an operation DynamoDB already accepted -- DynamoDB is the source of truth.
+     *
+     * <p>On a failed SET the existing entry is left alone: a failed put means the cache itself is
+     * unhealthy, and the old {@code remove(id)} here amplified exactly that state -- during the 2026-08-04
+     * brown-out every timed-out refresh SET issued an UNLINK against the same drowning cache, evicting
+     * healthy entries and turning "slow" into a DynamoDB miss-stampede. A stale-but-present entry heals
+     * via soft revalidate.</p>
+     */
+    public boolean put(final String id, final V value) {
         final String json = serializer.apply(value);
         if (json == null) {
             return remove(id);
         }
         final String key = keyPrefix + id;
-        final String atKey = CacheKeys.pointAtKey(key);
-        final String now = String.valueOf(clock.get());
-        // Always completes true: callers (DAO save paths) treat this as the operation result, and a cache
-        // failure must never fail an operation DynamoDB already accepted -- DynamoDB is the source of truth.
-        return cache.putValue(key, json, gcTtl)
-                .thenCompose(ok -> afterPutValue(atKey, now, ok))
-                .thenApply(ignored -> true);
+        if (cache.putValue(key, json, gcTtl)) {
+            cache.putValue(CacheKeys.pointAtKey(key), String.valueOf(clock.get()), gcTtl);
+        }
+        return true;
     }
 
-    public CompletableFuture<Boolean> remove(final String id) {
+    public boolean remove(final String id) {
         final String key = keyPrefix + id;
-        return cache.removeKey(key)
-                .thenCompose(ignored -> cache.removeKey(CacheKeys.pointAtKey(key)))
-                .thenApply(ignored -> true);
+        cache.removeKey(key);
+        cache.removeKey(CacheKeys.pointAtKey(key));
+        return true;
     }
 
-    private CompletableFuture<Optional<V>> resolveGet(
-            final String id,
-            final String key,
-            final String atKey,
-            final Optional<String> cached,
-            final Function<String, CompletableFuture<V>> loader) {
-        if (cached.isPresent()) {
-            final V value = deserializer.apply(cached.get());
-            if (value != null) {
-                cache.getValue(atKey).thenAccept(at -> scheduleRefreshFromAt(id, key, at, loader));
-                return CompletableFuture.completedFuture(Optional.of(value));
-            }
-        }
-        return loader.apply(id).thenCompose(value -> cacheMissLoad(id, value));
-    }
-
-    private void scheduleRefreshFromAt(
-            final String id,
-            final String key,
-            final Optional<String> at,
-            final Function<String, CompletableFuture<V>> loader) {
-        maybeScheduleRefresh(id, key, at.orElse(null), loader);
-    }
-
-    private CompletableFuture<Optional<V>> cacheMissLoad(final String id, final V value) {
-        if (value == null) {
-            return CompletableFuture.completedFuture(Optional.empty());
-        }
-        return put(id, value).thenApply(ignored -> Optional.of(value));
-    }
-
-    /**
-     * On success, stamps the freshness epoch. On failure, leaves any existing entry alone: a failed SET
-     * means the cache itself is unhealthy (the result mapper cannot fail on a healthy reply), and the old
-     * {@code remove(id)} here amplified exactly that state -- during the 2026-08-04 brown-out every
-     * timed-out refresh SET issued an UNLINK against the same drowning cache, evicting healthy entries and
-     * turning "slow" into a DynamoDB miss-stampede. A stale-but-present entry heals via soft revalidate,
-     * and DynamoDB stays the source of truth.
-     */
-    private CompletableFuture<Boolean> afterPutValue(final String atKey, final String now, final boolean ok) {
-        if (!ok) {
-            return CompletableFuture.completedFuture(false);
-        }
-        return cache.putValue(atKey, now, gcTtl).thenApply(ignored -> true);
-    }
-
-    private void maybeScheduleRefresh(
-            final String id,
-            final String key,
-            final String loadedAtRaw,
-            final Function<String, CompletableFuture<V>> loader) {
-        if (!softRevalidate || !isSoftStale(loadedAtRaw)) {
+    /** Runs on a spawned thread: reads the freshness epoch and, when soft-stale, refreshes in place. */
+    private void checkFreshness(final String id, final String key, final Function<String, V> loader) {
+        final String loadedAtRaw = cache.getValue(CacheKeys.pointAtKey(key)).orElse(null);
+        if (!isSoftStale(loadedAtRaw)) {
             return;
         }
         if (refreshing.putIfAbsent(id, Boolean.TRUE) != null) {
@@ -128,45 +105,36 @@ public class PointCache<V> {
             refreshing.remove(id);
             return;
         }
-        final String lockKey = CacheKeys.refreshLockKey(key);
-        cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)
-                .thenComposeAsync(acquired -> runBackgroundRefresh(id, key, lockKey, acquired, loader),
-                        PersistenceExecutors.pool());
+        runBackgroundRefresh(id, key, loader);
     }
 
-    private CompletableFuture<Void> runBackgroundRefresh(
-            final String id,
-            final String key,
-            final String lockKey,
-            final Boolean acquired,
-            final Function<String, CompletableFuture<V>> loader) {
-        if (!Boolean.TRUE.equals(acquired)) {
+    private void runBackgroundRefresh(final String id, final String key, final Function<String, V> loader) {
+        try {
+            final String lockKey = CacheKeys.refreshLockKey(key);
+            // Lock loss means another instance is refreshing; release of THEIR lock must not happen here.
+            if (!cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)) {
+                return;
+            }
+            try {
+                log.debug("Soft-revalidating point key '{}'", key);
+                applyBackgroundLoad(id, loader.apply(id));
+            } catch (final RuntimeException ex) {
+                log.error("Background point revalidate failed for '{}'", key, ex);
+            } finally {
+                cache.releaseLock(lockKey);
+            }
+        } finally {
             refreshing.remove(id);
             RefreshPermits.release();
-            return CompletableFuture.completedFuture(null);
         }
-        log.debug("Soft-revalidating point key '{}'", key);
-        return loader.apply(id)
-                .thenCompose(value -> applyBackgroundLoad(id, value))
-                .handle((ignored, ex) -> finishBackgroundRefresh(id, key, lockKey, ex));
     }
 
-    private CompletableFuture<Boolean> applyBackgroundLoad(final String id, final V value) {
+    private void applyBackgroundLoad(final String id, final V value) {
         if (value == null) {
-            return remove(id);
+            remove(id);
+        } else {
+            put(id, value);
         }
-        return put(id, value);
-    }
-
-    private Void finishBackgroundRefresh(
-            final String id, final String key, final String lockKey, final Throwable ex) {
-        if (ex != null) {
-            log.error("Background point revalidate failed for '{}'", key, ex);
-        }
-        cache.releaseLock(lockKey);
-        refreshing.remove(id);
-        RefreshPermits.release();
-        return null;
     }
 
     private boolean isSoftStale(final String loadedAtRaw) {

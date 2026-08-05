@@ -91,11 +91,16 @@ public class BindingDAO {
     }
 
     public void clearCache() {
-        cacheClient.clearNamespace(CacheKeys.BIND_PREFIX).join();
+        cacheClient.clearNamespace(CacheKeys.BIND_PREFIX);
     }
 
     private CompletableFuture<List<String>> getBindings(final TypeAndId key, final BindingType dest) {
-        return cache.get(key.getValue(), destTypeId(dest), () -> loadBindings(key));
+        try {
+            return CompletableFuture.completedFuture(
+                    cache.get(key.getValue(), destTypeId(dest), () -> loadBindings(key)));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private CompletableFuture<Boolean> saveBinding(final TypeAndId key, final TypeAndId destKey, final boolean both) {
@@ -134,9 +139,8 @@ public class BindingDAO {
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(BINDINGS_TABLE).item(map))
                     .sdkHttpResponse().isSuccessful();
-            return saved
-                    ? cache.add(key.getValue(), destTypeId(destKey.getType()), destKey.getId())
-                    : CompletableFuture.completedFuture(false);
+            return CompletableFuture.completedFuture(
+                    saved && cache.add(key.getValue(), destTypeId(destKey.getType()), destKey.getId()));
         } catch (final RuntimeException ex) {
             return CompletableFuture.failedFuture(ex);
         }
@@ -152,33 +156,28 @@ public class BindingDAO {
         try {
             final boolean deleted = persistence.deleteItem(b -> b.tableName(BINDINGS_TABLE).key(primaryKey))
                     .sdkHttpResponse().isSuccessful();
-            return deleted
-                    ? cache.remove(key.getValue(), destTypeId(destKey.getType()), destKey.getId())
-                    : CompletableFuture.completedFuture(false);
+            return CompletableFuture.completedFuture(
+                    deleted && cache.remove(key.getValue(), destTypeId(destKey.getType()), destKey.getId()));
         } catch (final RuntimeException ex) {
             return CompletableFuture.failedFuture(ex);
         }
     }
 
     /** Loads every direction of the source's partition: destination-type id -> bound destination ids. */
-    private CompletableFuture<Map<String, List<String>>> loadBindings(final TypeAndId key) {
+    private Map<String, List<String>> loadBindings(final TypeAndId key) {
         log.info("Cache Miss for {} ({}) bindings.", key.getType().name(), key.getId());
-        try {
-            final List<Map<String, AttributeValue>> items = persistence.queryAll(qb -> createQueryByID1(qb, key));
-            // Pre-seed every dest type (including empty) so cache reconcile can clear deleted edges.
-            final Map<String, List<String>> result = new HashMap<>();
-            for (final BindingType type : BindingType.values()) {
-                result.put(destTypeId(type), new ArrayList<>());
-            }
-            for (final Map<String, AttributeValue> row : items) {
-                final TypeAndId key2 = TypeAndId.from(row.get(ID2).s());
-                result.computeIfAbsent(destTypeId(key2.getType()), na -> new ArrayList<>())
-                        .add(key2.getId());
-            }
-            return CompletableFuture.completedFuture(result);
-        } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
+        final List<Map<String, AttributeValue>> items = persistence.queryAll(qb -> createQueryByID1(qb, key));
+        // Pre-seed every dest type (including empty) so cache reconcile can clear deleted edges.
+        final Map<String, List<String>> result = new HashMap<>();
+        for (final BindingType type : BindingType.values()) {
+            result.put(destTypeId(type), new ArrayList<>());
         }
+        for (final Map<String, AttributeValue> row : items) {
+            final TypeAndId key2 = TypeAndId.from(row.get(ID2).s());
+            result.computeIfAbsent(destTypeId(key2.getType()), na -> new ArrayList<>())
+                    .add(key2.getId());
+        }
+        return result;
     }
 
     private static String destTypeId(final BindingType type) {

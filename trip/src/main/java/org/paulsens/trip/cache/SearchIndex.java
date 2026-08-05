@@ -8,17 +8,18 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.util.TripThreads;
 
 /**
  * Prefix-search template: one lexicographic sorted set of {@code token|entityId} entries plus a sibling
  * {@code :loaded} marker (epoch millis of the last full build). Reads are ZRANGEBYLEX prefix queries; writers
- * diff-update their entity's entries so the index stays current without rebuilds.
+ * diff-update their entity's entries so the index stays current without rebuilds. Blocking since the
+ * virtual-threads port; background rebuilds run on spawned virtual threads.
  *
  * <p>The full build (a table scan) runs lazily: in the foreground on the first search after a cold cache
  * (answering that search straight from the loader results, so it works even when cache writes are discarded),
@@ -46,7 +47,7 @@ public final class SearchIndex {
     @Builder.Default
     private final Duration gcTtl = CacheKeys.GC_TTL;
     /** Full build: every live entity id mapped to its (already normalized) search tokens. */
-    private final Supplier<CompletableFuture<Map<String, Set<String>>>> loader;
+    private final Supplier<Map<String, Set<String>>> loader;
     @Builder.Default
     private final Supplier<Long> clock = System::currentTimeMillis;
     /** Injectable jitter source in [0,1) for tests; production uses {@link ThreadLocalRandom}. */
@@ -67,32 +68,40 @@ public final class SearchIndex {
      * Returns entity ids whose tokens start with {@code rawPrefix} (deduped, index order). May trigger a
      * foreground build on a cold index or a background rebuild on a soft-stale one.
      */
-    public CompletableFuture<List<String>> searchIds(final String rawPrefix, final int limit) {
+    public List<String> searchIds(final String rawPrefix, final int limit) {
         final String prefix = normalizeToken(rawPrefix);
         if (prefix.isEmpty()) {
-            return CompletableFuture.completedFuture(List.of());
+            return List.of();
         }
-        return cache.getValue(loadedKey())
-                .thenCompose(loadedAt -> resolveSearch(prefix, limit, loadedAt.orElse(null)));
+        final String loadedAt = cache.getValue(loadedKey()).orElse(null);
+        if (loadedAt == null && softRevalidate) {
+            return buildAndAnswer(prefix, limit);
+        }
+        if (softRevalidate && isSoftStale(loadedAt)) {
+            maybeScheduleRebuild();
+        }
+        return rangeIds(prefix, limit);
     }
 
     /**
      * Write-through diff: removes entries for tokens the entity no longer has, adds entries for its current
      * tokens (idempotent re-adds heal drift). Pass an empty {@code newTokens} to remove the entity entirely.
      */
-    public CompletableFuture<Boolean> update(final String id, final Set<String> oldTokens,
-            final Set<String> newTokens) {
+    public boolean update(final String id, final Set<String> oldTokens, final Set<String> newTokens) {
         final Set<String> stale = new HashSet<>(oldTokens);
         stale.removeAll(newTokens);
-        return cache.removeSortedSetEntries(key, toEntries(stale, id))
-                .thenCompose(ignored -> cache.addSortedSetEntries(key, toEntries(newTokens, id)))
-                .thenCompose(ok -> newTokens.isEmpty() ? CompletableFuture.completedFuture(ok)
-                        : cache.expire(key, gcTtl).thenApply(ignored -> ok));
+        cache.removeSortedSetEntries(key, toEntries(stale, id));
+        final boolean ok = cache.addSortedSetEntries(key, toEntries(newTokens, id));
+        if (!newTokens.isEmpty()) {
+            cache.expire(key, gcTtl);
+        }
+        return ok;
     }
 
     /** Drops the whole index (next search rebuilds). */
-    public CompletableFuture<Boolean> invalidate() {
-        return cache.removeKey(key).thenCompose(ignored -> cache.removeKey(loadedKey()));
+    public boolean invalidate() {
+        cache.removeKey(key);
+        return cache.removeKey(loadedKey());
     }
 
     private String loadedKey() {
@@ -120,20 +129,8 @@ public final class SearchIndex {
         return new ArrayList<>(ids);
     }
 
-    private CompletableFuture<List<String>> resolveSearch(
-            final String prefix, final int limit, final String loadedAtRaw) {
-        if (loadedAtRaw == null && softRevalidate) {
-            return buildAndAnswer(prefix, limit);
-        }
-        if (softRevalidate && isSoftStale(loadedAtRaw)) {
-            maybeScheduleRebuild();
-        }
-        return rangeIds(prefix, limit);
-    }
-
-    private CompletableFuture<List<String>> rangeIds(final String prefix, final int limit) {
-        return cache.getSortedSetByPrefix(key, prefix, RANGE_FETCH_LIMIT)
-                .thenApply(entries -> idsFromEntries(entries, limit));
+    private List<String> rangeIds(final String prefix, final int limit) {
+        return idsFromEntries(cache.getSortedSetByPrefix(key, prefix, RANGE_FETCH_LIMIT), limit);
     }
 
     /**
@@ -141,15 +138,19 @@ public final class SearchIndex {
      * from the loader results either way (losers just pay a redundant scan only if the winner has not finished
      * -- acceptable for the rare cold case, and both answers are correct).
      */
-    private CompletableFuture<List<String>> buildAndAnswer(final String prefix, final int limit) {
+    private List<String> buildAndAnswer(final String prefix, final int limit) {
         final String lockKey = CacheKeys.refreshLockKey(key);
-        return loader.get().thenCompose(all -> cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)
-                .thenCompose(acquired -> acquired ? populate(all).handle((ok, ex) -> {
-                    logIfFailed(ex);
-                    cache.releaseLock(lockKey);
-                    return ok;
-                }) : CompletableFuture.completedFuture(false))
-                .thenApply(ignored -> answerFromLoaded(all, prefix, limit)));
+        final Map<String, Set<String>> all = loader.get();
+        if (cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)) {
+            try {
+                populate(all);
+            } catch (final RuntimeException ex) {
+                logIfFailed(ex);
+            } finally {
+                cache.releaseLock(lockKey);
+            }
+        }
+        return answerFromLoaded(all, prefix, limit);
     }
 
     private List<String> answerFromLoaded(final Map<String, Set<String>> all, final String prefix, final int limit) {
@@ -161,16 +162,15 @@ public final class SearchIndex {
         return idsFromEntries(entries, limit);
     }
 
-    private CompletableFuture<Boolean> populate(final Map<String, Set<String>> all) {
+    private boolean populate(final Map<String, Set<String>> all) {
         final List<String> entries = new ArrayList<>();
         all.forEach((id, tokens) -> entries.addAll(toEntries(tokens, id)));
-        return cache.addSortedSetEntries(key, entries)
-                .thenCompose(ok -> ok ? markLoaded() : CompletableFuture.completedFuture(false));
+        return cache.addSortedSetEntries(key, entries) && markLoaded();
     }
 
-    private CompletableFuture<Boolean> markLoaded() {
-        return cache.expire(key, gcTtl)
-                .thenCompose(ignored -> cache.putValue(loadedKey(), String.valueOf(clock.get()), gcTtl));
+    private boolean markLoaded() {
+        cache.expire(key, gcTtl);
+        return cache.putValue(loadedKey(), String.valueOf(clock.get()), gcTtl);
     }
 
     private void maybeScheduleRebuild() {
@@ -182,35 +182,36 @@ public final class SearchIndex {
             refreshing.set(false);
             return;
         }
-        final String lockKey = CacheKeys.refreshLockKey(key);
-        cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)
-                .thenComposeAsync(this::runBackgroundRebuild, PersistenceExecutors.pool())
-                .handle((ignored, ex) -> finishBackgroundRebuild(lockKey, ex));
+        TripThreads.start(this::runBackgroundRebuild);
     }
 
-    private Void finishBackgroundRebuild(final String lockKey, final Throwable ex) {
-        logIfFailed(ex);
-        cache.releaseLock(lockKey);
-        refreshing.set(false);
-        RefreshPermits.release();
-        return null;
-    }
-
-    private CompletableFuture<Boolean> runBackgroundRebuild(final Boolean acquired) {
-        if (!Boolean.TRUE.equals(acquired)) {
-            return CompletableFuture.completedFuture(false);
+    private void runBackgroundRebuild() {
+        try {
+            final String lockKey = CacheKeys.refreshLockKey(key);
+            if (!cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)) {
+                return;
+            }
+            try {
+                log.debug("Soft-revalidating search index '{}'", key);
+                // Snapshot BEFORE the load: entries added concurrently by write-through are newer than the
+                // snapshot and therefore never deleted by reconcile.
+                final List<String> snapshot = cache.getSortedSetByPrefix(key, "", RECONCILE_FETCH_LIMIT);
+                final Map<String, Set<String>> all = loader.get();
+                populate(all);
+                reconcile(snapshot, all);
+            } catch (final RuntimeException ex) {
+                logIfFailed(ex);
+            } finally {
+                cache.releaseLock(lockKey);
+            }
+        } finally {
+            refreshing.set(false);
+            RefreshPermits.release();
         }
-        log.debug("Soft-revalidating search index '{}'", key);
-        // Snapshot BEFORE the load: entries added concurrently by write-through are newer than the snapshot and
-        // therefore never deleted by reconcile.
-        return cache.getSortedSetByPrefix(key, "", RECONCILE_FETCH_LIMIT)
-                .thenCompose(snapshot -> loader.get()
-                        .thenCompose(all -> populate(all)
-                                .thenCompose(ok -> reconcile(snapshot, all).thenApply(ignored -> ok))));
     }
 
     /** Removes snapshot entries the fresh load no longer produces (heals deletes and direct database edits). */
-    private CompletableFuture<Boolean> reconcile(final List<String> snapshot, final Map<String, Set<String>> all) {
+    private boolean reconcile(final List<String> snapshot, final Map<String, Set<String>> all) {
         final Set<String> fresh = new HashSet<>();
         all.forEach((id, tokens) -> fresh.addAll(toEntries(tokens, id)));
         final List<String> stale = snapshot.stream().filter(entry -> !fresh.contains(entry)).toList();

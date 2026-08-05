@@ -58,9 +58,9 @@ public class ChatDigestSenderTest {
         sender = new ChatDigestSender(dao, cache, mail, config);
 
         Mockito.when(cache.getValue(ArgumentMatchers.anyString()))
-                .thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+                .thenReturn(Optional.empty());
         Mockito.when(cache.putValue(ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
-                ArgumentMatchers.any())).thenReturn(CompletableFuture.completedFuture(true));
+                ArgumentMatchers.any())).thenReturn(true);
     }
 
     private static ChatChannel channel(final Long retentionSeconds) {
@@ -373,7 +373,7 @@ public class ChatDigestSenderTest {
         Mockito.when(dao.getChatCursor(ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(CompletableFuture.completedFuture(Optional.of(cursor)));
         Mockito.when(cache.getValue(ArgumentMatchers.contains("digest")))
-                .thenReturn(CompletableFuture.completedFuture(Optional.of(watermark.getValue())));
+                .thenReturn(Optional.of(watermark.getValue()));
 
         sender.candidates(now);
 

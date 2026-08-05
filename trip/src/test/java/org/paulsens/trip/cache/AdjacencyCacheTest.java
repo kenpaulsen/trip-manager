@@ -49,10 +49,10 @@ public class AdjacencyCacheTest {
                 .build();
     }
 
-    private Supplier<CompletableFuture<Map<String, List<String>>>> loader() {
+    private Supplier<Map<String, List<String>>> loader() {
         return () -> {
             loads.incrementAndGet();
-            return CompletableFuture.completedFuture(partition);
+            return partition;
         };
     }
 
@@ -60,10 +60,10 @@ public class AdjacencyCacheTest {
     public void aColdSourceLoadsItsWholePartitionAndAnswersSorted() {
         final AdjacencyCache adj = adjacency(cache);
 
-        Assert.assertEquals(adj.get(SRC, "2", loader()).join(), List.of("t1", "t2"), "sorted for determinism");
+        Assert.assertEquals(adj.get(SRC, "2", loader()), List.of("t1", "t2"), "sorted for determinism");
         Assert.assertEquals(loads.get(), 1);
 
-        Assert.assertEquals(adj.get(SRC, "3", loader()).join(), List.of(),
+        Assert.assertEquals(adj.get(SRC, "3", loader()), List.of(),
                 "the first load populated every direction");
         Assert.assertEquals(loads.get(), 1, "a warm source must not reload");
     }
@@ -71,23 +71,23 @@ public class AdjacencyCacheTest {
     @Test
     public void writeThroughAddAndRemoveKeepTheSetCurrentBetweenLoads() {
         final AdjacencyCache adj = adjacency(cache);
-        adj.get(SRC, "2", loader()).join();
+        adj.get(SRC, "2", loader());
 
-        Assert.assertTrue(adj.add(SRC, "2", "t9").join());
-        Assert.assertEquals(adj.get(SRC, "2", loader()).join(), List.of("t1", "t2", "t9"));
+        Assert.assertTrue(adj.add(SRC, "2", "t9"));
+        Assert.assertEquals(adj.get(SRC, "2", loader()), List.of("t1", "t2", "t9"));
 
-        Assert.assertTrue(adj.remove(SRC, "2", "t1").join());
-        Assert.assertEquals(adj.get(SRC, "2", loader()).join(), List.of("t2", "t9"));
+        Assert.assertTrue(adj.remove(SRC, "2", "t1"));
+        Assert.assertEquals(adj.get(SRC, "2", loader()), List.of("t2", "t9"));
         Assert.assertEquals(loads.get(), 1, "write-through must not force a reload");
     }
 
     @Test
     public void invalidateForcesTheNextReadBackToTheDatabase() {
         final AdjacencyCache adj = adjacency(cache);
-        adj.get(SRC, "2", loader()).join();
+        adj.get(SRC, "2", loader());
 
-        Assert.assertTrue(adj.invalidate(SRC).join());
-        adj.get(SRC, "2", loader()).join();
+        Assert.assertTrue(adj.invalidate(SRC));
+        adj.get(SRC, "2", loader());
 
         Assert.assertEquals(loads.get(), 2);
     }
@@ -96,14 +96,14 @@ public class AdjacencyCacheTest {
     @Test
     public void aLegacyLoadedMarkerCountsAsStale() throws Exception {
         final AdjacencyCache adj = adjacency(cache);
-        adj.get(SRC, "2", loader()).join();
+        adj.get(SRC, "2", loader());
         cache.putValue("adj-test:" + SRC + CacheKeys.BIND_LOADED_SUFFIX, CacheKeys.LOADED_VALUE,
-                Duration.ofMinutes(5)).join();
+                Duration.ofMinutes(5));
         partition = Map.of("2", List.of("t1", "t2", "fresh"), "3", List.of());
 
-        adj.get(SRC, "2", loader()).join();
+        adj.get(SRC, "2", loader());
 
-        awaitTrue(() -> adj.get(SRC, "2", loader()).join().contains("fresh"),
+        awaitTrue(() -> adj.get(SRC, "2", loader()).contains("fresh"),
                 "a legacy marker must trigger a background revalidate");
     }
 
@@ -111,27 +111,27 @@ public class AdjacencyCacheTest {
     @Test
     public void aSoftStaleRefreshReconcilesAwayAnOutOfBandDelete() throws Exception {
         final AdjacencyCache adj = adjacency(cache);
-        adj.get(SRC, "2", loader()).join();
+        adj.get(SRC, "2", loader());
         partition = Map.of("2", List.of("t2"), "3", List.of()); // t1 deleted behind the cache's back
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
 
-        Assert.assertEquals(adj.get(SRC, "2", loader()).join(), List.of("t1", "t2"),
+        Assert.assertEquals(adj.get(SRC, "2", loader()), List.of("t1", "t2"),
                 "the read that noticed staleness still answers from the cache");
 
         clock.addAndGet(-Duration.ofMinutes(2).toMillis());
-        awaitTrue(() -> adj.get(SRC, "2", loader()).join().equals(List.of("t2")),
+        awaitTrue(() -> adj.get(SRC, "2", loader()).equals(List.of("t2")),
                 "the refresh must reconcile the deleted member away");
     }
 
     @Test
     public void anUnparseableMarkerCountsAsStale() throws Exception {
         final AdjacencyCache adj = adjacency(cache);
-        adj.get(SRC, "2", loader()).join();
+        adj.get(SRC, "2", loader());
         cache.putValue("adj-test:" + SRC + CacheKeys.BIND_LOADED_SUFFIX, "garbage",
-                Duration.ofMinutes(5)).join();
+                Duration.ofMinutes(5));
         final int afterWarm = loads.get();
 
-        adj.get(SRC, "2", loader()).join();
+        adj.get(SRC, "2", loader());
 
         awaitTrue(() -> loads.get() > afterWarm, "a garbage marker must trigger a revalidate");
     }
@@ -139,10 +139,10 @@ public class AdjacencyCacheTest {
     @Test
     public void aFreshMarkerSchedulesNothing() throws Exception {
         final AdjacencyCache adj = adjacency(cache);
-        adj.get(SRC, "2", loader()).join();
+        adj.get(SRC, "2", loader());
         clock.addAndGet(Duration.ofSeconds(30).toMillis()); // half the soft TTL
 
-        adj.get(SRC, "2", loader()).join();
+        adj.get(SRC, "2", loader());
 
         Thread.sleep(100);
         Assert.assertEquals(loads.get(), 1);
@@ -152,12 +152,12 @@ public class AdjacencyCacheTest {
     @Test
     public void losingTheRefreshLockSkipsTheRefresh() throws Exception {
         final AdjacencyCache adj = adjacency(cache);
-        adj.get(SRC, "2", loader()).join();
+        adj.get(SRC, "2", loader());
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
         Assert.assertTrue(cache.tryAcquireLock(
-                CacheKeys.refreshLockKey("adj-test:" + SRC), Duration.ofMinutes(5)).join());
+                CacheKeys.refreshLockKey("adj-test:" + SRC), Duration.ofMinutes(5)));
 
-        Assert.assertEquals(adj.get(SRC, "2", loader()).join(), List.of("t1", "t2"));
+        Assert.assertEquals(adj.get(SRC, "2", loader()), List.of("t1", "t2"));
 
         Thread.sleep(200);
         Assert.assertEquals(loads.get(), 1, "the lock loser must not reload");
@@ -171,16 +171,16 @@ public class AdjacencyCacheTest {
     public void aFailedWriteThroughDropsTheMarkerSoTheNextReadReloads() {
         final InMemoryCacheClient real = cache;
         final CacheClient failing = Mockito.spy(real);
-        Mockito.doReturn(CompletableFuture.completedFuture(false))
+        Mockito.doReturn(false)
                 .when(failing).addSetMembers(Mockito.contains(":2"), Mockito.anyCollection());
         final AdjacencyCache adj = adjacency(failing);
-        adj.get(SRC, "3", loader()).join(); // cold load; the ":2" writes fail, the marker write is refused
+        adj.get(SRC, "3", loader()); // cold load; the ":2" writes fail, the marker write is refused
 
-        Assert.assertTrue(adj.add(SRC, "2", "t9").join(), "the caller is not failed for a cache problem");
+        Assert.assertTrue(adj.add(SRC, "2", "t9"), "the caller is not failed for a cache problem");
 
-        Assert.assertTrue(real.getValue("adj-test:" + SRC + CacheKeys.BIND_LOADED_SUFFIX).join().isEmpty(),
+        Assert.assertTrue(real.getValue("adj-test:" + SRC + CacheKeys.BIND_LOADED_SUFFIX).isEmpty(),
                 "the marker must be gone so the next read reloads");
-        adj.get(SRC, "3", loader()).join();
+        adj.get(SRC, "3", loader());
         Assert.assertEquals(loads.get(), 2, "the next read must go back to the database");
     }
 
@@ -188,10 +188,10 @@ public class AdjacencyCacheTest {
     @Test
     public void aColdLoadWithFailingCacheWritesStillAnswersFromTheLoader() {
         final CacheClient failing = Mockito.spy(cache);
-        Mockito.doReturn(CompletableFuture.completedFuture(false))
+        Mockito.doReturn(false)
                 .when(failing).addSetMembers(Mockito.anyString(), Mockito.anyCollection());
 
-        Assert.assertEquals(adjacency(failing).get(SRC, "2", loader()).join(), List.of("t1", "t2"),
+        Assert.assertEquals(adjacency(failing).get(SRC, "2", loader()), List.of("t1", "t2"),
                 "discarded cache writes must not change the answer");
     }
 

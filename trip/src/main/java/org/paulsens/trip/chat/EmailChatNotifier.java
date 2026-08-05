@@ -135,7 +135,7 @@ public final class EmailChatNotifier implements ChatNotifier {
 
     private boolean claim(final String dedupeKey) {
         return cacheClient.tryAcquireLock(
-                CacheKeys.chatNotifySentKey(dedupeKey), CacheKeys.CHAT_NOTIFY_SENT_TTL).join();
+                CacheKeys.chatNotifySentKey(dedupeKey), CacheKeys.CHAT_NOTIFY_SENT_TTL);
     }
 
     String chatUrl(final String tripId) {

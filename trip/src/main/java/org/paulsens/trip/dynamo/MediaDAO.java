@@ -77,7 +77,7 @@ public class MediaDAO {
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(MEDIA_TABLE).item(map))
                     .sdkHttpResponse().isSuccessful();
-            return saved ? cache.put(item) : CompletableFuture.completedFuture(false);
+            return CompletableFuture.completedFuture(saved && cache.put(item));
         } catch (final RuntimeException ex) {
             return CompletableFuture.failedFuture(ex);
         }
@@ -85,7 +85,11 @@ public class MediaDAO {
 
     /** Every media item, for the admin page. */
     protected CompletableFuture<List<MediaItem>> getAllMedia() {
-        return cache.getPartition(CacheKeys.MEDIA_PARTITION);
+        try {
+            return CompletableFuture.completedFuture(cache.getPartition(CacheKeys.MEDIA_PARTITION));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     /**
@@ -109,7 +113,12 @@ public class MediaDAO {
         if (id == null) {
             return CompletableFuture.completedFuture(Optional.empty());
         }
-        return cache.getOne(CacheKeys.MEDIA_PARTITION, id, () -> pointReadMedia(id));
+        try {
+            return CompletableFuture.completedFuture(
+                    cache.getOne(CacheKeys.MEDIA_PARTITION, id, () -> pointReadMedia(id)));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     protected CompletableFuture<Boolean> deleteMedia(final String id) {
@@ -122,43 +131,39 @@ public class MediaDAO {
                     .sdkHttpResponse().isSuccessful();
             // Invalidate rather than surgically removing the field: deletes are rare, and a rebuild
             // from the table is the one thing guaranteed to leave the cache consistent.
-            return deleted ? cache.invalidate().thenApply(ignored -> true)
-                    : CompletableFuture.completedFuture(false);
+            if (deleted) {
+                cache.invalidate();
+            }
+            return CompletableFuture.completedFuture(deleted);
         } catch (final RuntimeException ex) {
             return CompletableFuture.failedFuture(ex);
         }
     }
 
     public void clearCache() {
-        cache.invalidate().join();
+        cache.invalidate();
     }
 
-    private CompletableFuture<Optional<MediaItem>> pointReadMedia(final String id) {
+    private Optional<MediaItem> pointReadMedia(final String id) {
         final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id).build());
         try {
             final AttributeValue content =
                     persistence.getItem(b -> b.key(key).tableName(MEDIA_TABLE).build()).item().get(CONTENT);
-            return CompletableFuture.completedFuture(
-                    Optional.ofNullable(content == null ? null : parseMedia(content.s())));
+            return Optional.ofNullable(content == null ? null : parseMedia(content.s()));
         } catch (final RuntimeException ex) {
             log.debug("MediaDAO: unable to read media item ({})", id, ex);
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Optional.empty();
         }
     }
 
-    private CompletableFuture<List<MediaItem>> loadAllMedia() {
-        try {
-            return CompletableFuture.completedFuture(
-                    persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(MEDIA_TABLE).build())
-                            .stream()
-                            .map(it -> it.get(CONTENT))
-                            .filter(content -> content != null)
-                            .map(content -> parseMedia(content.s()))
-                            .filter(item -> item != null)
-                            .toList());
-        } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
-        }
+    private List<MediaItem> loadAllMedia() {
+        return persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(MEDIA_TABLE).build())
+                .stream()
+                .map(it -> it.get(CONTENT))
+                .filter(content -> content != null)
+                .map(content -> parseMedia(content.s()))
+                .filter(item -> item != null)
+                .toList();
     }
 
     private MediaItem parseMedia(final String json) {

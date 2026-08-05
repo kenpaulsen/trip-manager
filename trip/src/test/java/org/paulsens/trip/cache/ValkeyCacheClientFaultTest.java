@@ -68,21 +68,17 @@ public class ValkeyCacheClientFaultTest {
         }
     }
 
-    private static <T> T join(final CompletableFuture<T> future) {
-        return future.orTimeout(10, TimeUnit.SECONDS).join();
-    }
-
     /** An erroring read is a MISS, never an exception -- the caller falls back to DynamoDB. */
     @Test
     public void anErroringReadDegradesToAMiss() {
-        join(client.putValue("guarded", "v", null));
+        client.putValue("guarded", "v", null);
         FAIL_GET.set(true);
         try {
-            Assert.assertTrue(join(client.getValue("guarded")).isEmpty());
+            Assert.assertTrue(client.getValue("guarded").isEmpty());
         } finally {
             FAIL_GET.set(false);
         }
-        Assert.assertEquals(join(client.getValue("guarded")).orElse(null), "v", "recovery is immediate");
+        Assert.assertEquals(client.getValue("guarded").orElse(null), "v", "recovery is immediate");
     }
 
     /**
@@ -93,7 +89,7 @@ public class ValkeyCacheClientFaultTest {
     public void aFailedCounterTtlDoesNotFailTheIncrement() {
         FAIL_EXPIRE.set(true);
         try {
-            Assert.assertEquals(join(client.increment("fault-counter", 5, Duration.ofSeconds(30))).orElse(-1L),
+            Assert.assertEquals(client.increment("fault-counter", 5, Duration.ofSeconds(30)).orElse(-1L),
                     5L);
         } finally {
             FAIL_EXPIRE.set(false);
@@ -104,7 +100,7 @@ public class ValkeyCacheClientFaultTest {
     public void aFailedScanMakesClearNamespaceReportFalse() {
         FAIL_SCAN.set(true);
         try {
-            Assert.assertFalse(join(client.clearNamespace("fault-ns:")));
+            Assert.assertFalse(client.clearNamespace("fault-ns:"));
         } finally {
             FAIL_SCAN.set(false);
         }
@@ -129,10 +125,10 @@ public class ValkeyCacheClientFaultTest {
 
     @Test
     public void emptyCollectionsShortCircuitToSuccess() {
-        Assert.assertTrue(join(client.addSortedSetEntries("z", List.of())));
-        Assert.assertTrue(join(client.removeSortedSetEntries("z", List.of())));
-        Assert.assertTrue(join(client.addScoredEntries("z", java.util.Map.of())));
-        Assert.assertTrue(join(client.trimSortedSet("z", 0)));
+        Assert.assertTrue(client.addSortedSetEntries("z", List.of()));
+        Assert.assertTrue(client.removeSortedSetEntries("z", List.of()));
+        Assert.assertTrue(client.addScoredEntries("z", java.util.Map.of()));
+        Assert.assertTrue(client.trimSortedSet("z", 0));
     }
 
     @Test
@@ -150,13 +146,13 @@ public class ValkeyCacheClientFaultTest {
 
     @Test
     public void aNullLockTtlStillAcquiresWithTheDefaultExpiry() {
-        Assert.assertTrue(join(client.tryAcquireLock("fault-lock", null)));
-        Assert.assertFalse(join(client.tryAcquireLock("fault-lock", Duration.ofSeconds(5))));
+        Assert.assertTrue(client.tryAcquireLock("fault-lock", null));
+        Assert.assertFalse(client.tryAcquireLock("fault-lock", Duration.ofSeconds(5)));
     }
 
     @Test
     public void aZeroTtlWriteUsesPlainSet() {
-        Assert.assertTrue(join(client.putValue("zero-ttl", "v", Duration.ZERO)));
-        Assert.assertEquals(join(client.getValue("zero-ttl")).orElse(null), "v");
+        Assert.assertTrue(client.putValue("zero-ttl", "v", Duration.ZERO));
+        Assert.assertEquals(client.getValue("zero-ttl").orElse(null), "v");
     }
 }

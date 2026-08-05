@@ -53,12 +53,22 @@ public class TransactionDAO {
     }
 
     protected CompletableFuture<List<Transaction>> getTransactions(final Person.Id userId) {
-        return cache.getAll(userId.getValue(), () -> loadUserTxData(userId))
-                .thenApply(list -> persistence.sortList(list, Comparator.comparing(Transaction::getTxDate)));
+        try {
+            return CompletableFuture.completedFuture(persistence.sortList(
+                    cache.getAll(userId.getValue(), () -> loadUserTxData(userId)),
+                    Comparator.comparing(Transaction::getTxDate)));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     protected CompletableFuture<Optional<Transaction>> getTransaction(final Person.Id userId, final String txId) {
-        return cache.getOne(userId.getValue(), txId, () -> loadUserTxData(userId));
+        try {
+            return CompletableFuture.completedFuture(
+                    cache.getOne(userId.getValue(), txId, () -> loadUserTxData(userId)));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     protected CompletableFuture<Boolean> saveTransaction(final Transaction tx) throws IOException {
@@ -69,7 +79,7 @@ public class TransactionDAO {
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(TRANSACTION_TABLE).item(map))
                     .sdkHttpResponse().isSuccessful();
-            return saved ? updateCacheForTx(tx) : CompletableFuture.completedFuture(false);
+            return CompletableFuture.completedFuture(saved && updateCacheForTx(tx));
         } catch (final RuntimeException ex) {
             // Shim until Phase 5: persistence failures are synchronous now but callers expect a failed future.
             return CompletableFuture.failedFuture(ex);
@@ -77,26 +87,22 @@ public class TransactionDAO {
     }
 
     public void clearCache() {
-        cacheClient.clearNamespace(CacheKeys.TX_PREFIX).join();
+        cacheClient.clearNamespace(CacheKeys.TX_PREFIX);
     }
 
-    private CompletableFuture<Boolean> updateCacheForTx(final Transaction tx) {
+    private boolean updateCacheForTx(final Transaction tx) {
         final String partition = tx.getUserId().getValue();
         return (tx.getDeleted() == null)
                 ? cache.put(partition, tx)
                 : cache.remove(partition, tx.getTxId());
     }
 
-    private CompletableFuture<List<Transaction>> loadUserTxData(final Person.Id userId) {
+    private List<Transaction> loadUserTxData(final Person.Id userId) {
         log.info("Cache Miss for tx data for userId: {}", userId.getValue());
-        try {
-            return CompletableFuture.completedFuture(persistence.queryAll(qb -> txByUserId(qb, userId)).stream()
-                    .map(m -> toTransaction(m.get(CONTENT)))
-                    .filter(tx -> (tx != null) && (tx.getDeleted() == null))
-                    .toList());
-        } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
-        }
+        return persistence.queryAll(qb -> txByUserId(qb, userId)).stream()
+                .map(m -> toTransaction(m.get(CONTENT)))
+                .filter(tx -> (tx != null) && (tx.getDeleted() == null))
+                .toList();
     }
 
     private Transaction toTransaction(final AttributeValue content) {

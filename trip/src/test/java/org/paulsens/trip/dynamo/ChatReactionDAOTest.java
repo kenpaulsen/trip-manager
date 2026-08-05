@@ -172,7 +172,7 @@ public class ChatReactionDAOTest {
         final ChatReactionSummary before = pageSummary(msg);
 
         // A derived view of an authoritative store: a flush must cost a rebuild, never correctness.
-        cache.removeKey(CacheKeys.chatReactionSummaryKey(channel.getId().getValue())).join();
+        cache.removeKey(CacheKeys.chatReactionSummaryKey(channel.getId().getValue()));
         final ChatReactionSummary after = pageSummary(msg);
 
         Assert.assertEquals(after.getByEmoji(), before.getByEmoji());
@@ -190,7 +190,7 @@ public class ChatReactionDAOTest {
         // Caching only messages that HAVE reactions means any page containing one reaction-free message misses on
         // every read -- which is most pages, so the cache would never serve anything.
         final Map<String, String> cached = cache.getHash(
-                CacheKeys.chatReactionSummaryKey(channel.getId().getValue())).join();
+                CacheKeys.chatReactionSummaryKey(channel.getId().getValue()));
         Assert.assertTrue(cached.containsKey(without.getId().getValue()),
                 "an empty summary must be cached, or the cache is useless in the common case");
     }

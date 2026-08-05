@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
 
 /**
@@ -15,109 +14,108 @@ import java.util.function.BiConsumer;
  * scale, but it re-runs the full table scans per request.
  */
 public final class NoopCacheClient implements CacheClient {
-    private static final CompletableFuture<Boolean> TRUE = CompletableFuture.completedFuture(true);
 
     @Override
-    public CompletableFuture<Optional<String>> getValue(final String key) {
-        return CompletableFuture.completedFuture(Optional.empty());
+    public Optional<String> getValue(final String key) {
+        return Optional.empty();
     }
 
     @Override
-    public CompletableFuture<Boolean> putValue(final String key, final String value, final Duration ttl) {
-        return TRUE;
+    public boolean putValue(final String key, final String value, final Duration ttl) {
+        return true;
     }
 
     @Override
-    public CompletableFuture<Boolean> removeKey(final String key) {
-        return TRUE;
+    public boolean removeKey(final String key) {
+        return true;
     }
 
     @Override
-    public CompletableFuture<Map<String, String>> getHash(final String key) {
-        return CompletableFuture.completedFuture(Map.of());
+    public Map<String, String> getHash(final String key) {
+        return Map.of();
     }
 
     @Override
-    public CompletableFuture<Map<String, String>> getHashFields(final String key, final Collection<String> fields) {
-        return CompletableFuture.completedFuture(Map.of());
+    public Map<String, String> getHashFields(final String key, final Collection<String> fields) {
+        return Map.of();
     }
 
     @Override
-    public CompletableFuture<Boolean> putHashField(final String key, final String field, final String value) {
-        return TRUE;
+    public boolean putHashField(final String key, final String field, final String value) {
+        return true;
     }
 
     @Override
-    public CompletableFuture<Boolean> putHashFields(final String key, final Map<String, String> fields) {
-        return TRUE;
+    public boolean putHashFields(final String key, final Map<String, String> fields) {
+        return true;
     }
 
     @Override
-    public CompletableFuture<Boolean> removeHashField(final String key, final String field) {
-        return TRUE;
+    public boolean removeHashField(final String key, final String field) {
+        return true;
     }
 
     @Override
-    public CompletableFuture<Boolean> addSetMembers(final String key, final Collection<String> members) {
-        return TRUE;
+    public boolean addSetMembers(final String key, final Collection<String> members) {
+        return true;
     }
 
     @Override
-    public CompletableFuture<Boolean> removeSetMember(final String key, final String member) {
-        return TRUE;
+    public boolean removeSetMember(final String key, final String member) {
+        return true;
     }
 
     @Override
-    public CompletableFuture<Boolean> addSortedSetEntries(final String key, final Collection<String> entries) {
-        return TRUE;
+    public boolean addSortedSetEntries(final String key, final Collection<String> entries) {
+        return true;
     }
 
     @Override
-    public CompletableFuture<Boolean> removeSortedSetEntries(final String key, final Collection<String> entries) {
-        return TRUE;
+    public boolean removeSortedSetEntries(final String key, final Collection<String> entries) {
+        return true;
     }
 
     @Override
-    public CompletableFuture<List<String>> getSortedSetByPrefix(final String key, final String prefix, final int limit) {
-        return CompletableFuture.completedFuture(List.of());
+    public List<String> getSortedSetByPrefix(final String key, final String prefix, final int limit) {
+        return List.of();
     }
 
     @Override
-    public CompletableFuture<Boolean> addScoredEntries(final String key, final Map<String, Double> memberScores) {
-        return TRUE;
+    public boolean addScoredEntries(final String key, final Map<String, Double> memberScores) {
+        return true;
     }
 
     @Override
-    public CompletableFuture<List<String>> getRangeByScore(
+    public List<String> getRangeByScore(
             final String key, final double minScore, final double maxScore, final boolean reverse, final int limit) {
-        return CompletableFuture.completedFuture(List.of());
+        return List.of();
     }
 
     @Override
-    public CompletableFuture<Set<String>> getSetMembers(final String key) {
-        return CompletableFuture.completedFuture(Set.of());
+    public Set<String> getSetMembers(final String key) {
+        return Set.of();
     }
 
     @Override
-    public CompletableFuture<Boolean> expire(final String key, final Duration ttl) {
-        return TRUE;
+    public boolean expire(final String key, final Duration ttl) {
+        return true;
     }
 
     @Override
-    public CompletableFuture<Optional<Long>> increment(final String key, final long delta, final Duration ttl) {
+    public Optional<Long> increment(final String key, final long delta, final Duration ttl) {
         // Cache off: rate limiters treat empty as "cache down" and fall back to an in-JVM bucket.
-        return CompletableFuture.completedFuture(Optional.empty());
+        return Optional.empty();
     }
 
     @Override
-    public CompletableFuture<Boolean> trimSortedSet(final String key, final int maxSize) {
-        return TRUE;
+    public boolean trimSortedSet(final String key, final int maxSize) {
+        return true;
     }
 
     @Override
-    public CompletableFuture<Boolean> publish(final String channel, final String payload) {
+    public boolean publish(final String channel, final String payload) {
         // Nothing is cached and nothing is listening; a lost nudge costs latency, never a message.
-        return CompletableFuture.completedFuture(false);
+        return false;
     }
 
     @Override
@@ -126,18 +124,18 @@ public final class NoopCacheClient implements CacheClient {
     }
 
     @Override
-    public CompletableFuture<Boolean> tryAcquireLock(final String key, final Duration ttl) {
+    public boolean tryAcquireLock(final String key, final Duration ttl) {
         // Nothing is cached; acquiring is harmless and unused on the miss path.
-        return TRUE;
+        return true;
     }
 
     @Override
-    public CompletableFuture<Boolean> releaseLock(final String key) {
-        return TRUE;
+    public boolean releaseLock(final String key) {
+        return true;
     }
 
     @Override
-    public CompletableFuture<Boolean> clearNamespace(final String prefix) {
-        return TRUE;
+    public boolean clearNamespace(final String prefix) {
+        return true;
     }
 }

@@ -9,17 +9,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Supplier;
 import lombok.Builder;
 import lombok.Singular;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.util.TripThreads;
 
 /**
  * Read-through/write-through template for the bindings adjacency shape: one shared-cache set per
  * {@code (source, destination-type)} direction plus a per-source loaded marker (epoch millis for soft revalidate).
+ * Blocking since the virtual-threads port; background refreshes run on spawned virtual threads.
  *
  * <p>Soft revalidate is read-triggered (idle sources can stay soft-stale until next access). Full loads take a
  * <em>pre-load</em> snapshot of known dest-type sets, run the loader, then overlay and reconcile-delete members
@@ -62,38 +63,9 @@ public class AdjacencyCache {
      * @param loader     Runs the database query for the whole partition: destination-type id -&gt; bound ids.
      *                   Prefer including empty lists for known dest types so cache sets can be cleared.
      */
-    public CompletableFuture<List<String>> get(final String sourceKey, final String destTypeId,
-            final Supplier<CompletableFuture<Map<String, List<String>>>> loader) {
-        return cache.getValue(markerKey(sourceKey))
-                .thenCompose(marker -> serveBindingsOrLoad(sourceKey, destTypeId, marker, loader));
-    }
-
-    /** Mirrors one saved binding row into its direction's set (call only after the database write succeeded). */
-    public CompletableFuture<Boolean> add(final String sourceKey, final String destTypeId, final String destId) {
-        final String key = setKey(sourceKey, destTypeId);
-        return cache.addSetMembers(key, List.of(destId))
-                .thenCompose(ok -> afterWriteThrough(sourceKey, key, ok))
-                .thenApply(ignored -> true);
-    }
-
-    /** Mirrors one removed binding row (call only after the database delete succeeded). */
-    public CompletableFuture<Boolean> remove(final String sourceKey, final String destTypeId, final String destId) {
-        final String key = setKey(sourceKey, destTypeId);
-        return cache.removeSetMember(key, destId)
-                .thenCompose(ok -> afterWriteThrough(sourceKey, key, ok))
-                .thenApply(ignored -> true);
-    }
-
-    /** Forces the next read of this source to reload from the database. */
-    public CompletableFuture<Boolean> invalidate(final String sourceKey) {
-        return cache.removeKey(markerKey(sourceKey));
-    }
-
-    private CompletableFuture<List<String>> serveBindingsOrLoad(
-            final String sourceKey,
-            final String destTypeId,
-            final Optional<String> marker,
-            final Supplier<CompletableFuture<Map<String, List<String>>>> loader) {
+    public List<String> get(final String sourceKey, final String destTypeId,
+            final Supplier<Map<String, List<String>>> loader) {
+        final Optional<String> marker = cache.getValue(markerKey(sourceKey));
         if (marker.isEmpty()) {
             return loadAndMerge(sourceKey, destTypeId, loader);
         }
@@ -101,16 +73,35 @@ public class AdjacencyCache {
         return members(sourceKey, destTypeId);
     }
 
-    private CompletableFuture<Boolean> afterWriteThrough(
-            final String sourceKey, final String setKey, final boolean ok) {
+    /** Mirrors one saved binding row into its direction's set (call only after the database write succeeded). */
+    public boolean add(final String sourceKey, final String destTypeId, final String destId) {
+        final String key = setKey(sourceKey, destTypeId);
+        afterWriteThrough(sourceKey, key, cache.addSetMembers(key, List.of(destId)));
+        return true;
+    }
+
+    /** Mirrors one removed binding row (call only after the database delete succeeded). */
+    public boolean remove(final String sourceKey, final String destTypeId, final String destId) {
+        final String key = setKey(sourceKey, destTypeId);
+        afterWriteThrough(sourceKey, key, cache.removeSetMember(key, destId));
+        return true;
+    }
+
+    /** Forces the next read of this source to reload from the database. */
+    public boolean invalidate(final String sourceKey) {
+        return cache.removeKey(markerKey(sourceKey));
+    }
+
+    private void afterWriteThrough(final String sourceKey, final String setKey, final boolean ok) {
         if (!ok) {
-            return recover(sourceKey, setKey);
+            recover(sourceKey, setKey);
+            return;
         }
-        return cache.expire(setKey, gcTtl).thenApply(ignored -> true);
+        cache.expire(setKey, gcTtl);
     }
 
     private void maybeScheduleRefresh(final String sourceKey, final String loadedAtRaw,
-            final Supplier<CompletableFuture<Map<String, List<String>>>> loader) {
+            final Supplier<Map<String, List<String>>> loader) {
         if (!softRevalidate || !isSoftStale(loadedAtRaw)) {
             return;
         }
@@ -122,36 +113,28 @@ public class AdjacencyCache {
             refreshing.remove(sourceKey);
             return;
         }
-        final String lockKey = CacheKeys.refreshLockKey(keyPrefix + sourceKey);
-        // Duplicate refreshes after lock TTL are safe by design.
-        cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)
-                .thenComposeAsync(acquired -> runBackgroundRefresh(sourceKey, lockKey, acquired, loader),
-                        PersistenceExecutors.pool());
+        TripThreads.start(() -> runBackgroundRefresh(sourceKey, loader));
     }
 
-    private CompletableFuture<Void> runBackgroundRefresh(
-            final String sourceKey,
-            final String lockKey,
-            final Boolean acquired,
-            final Supplier<CompletableFuture<Map<String, List<String>>>> loader) {
-        if (!Boolean.TRUE.equals(acquired)) {
+    private void runBackgroundRefresh(final String sourceKey, final Supplier<Map<String, List<String>>> loader) {
+        try {
+            final String lockKey = CacheKeys.refreshLockKey(keyPrefix + sourceKey);
+            // Duplicate refreshes after lock TTL are safe by design; a lost lock belongs to another instance.
+            if (!cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)) {
+                return;
+            }
+            try {
+                log.debug("Soft-revalidating bindings for '{}'", sourceKey);
+                loadAndMerge(sourceKey, "", loader);
+            } catch (final RuntimeException ex) {
+                log.error("Background binding revalidate failed for '{}'", sourceKey, ex);
+            } finally {
+                cache.releaseLock(lockKey);
+            }
+        } finally {
             refreshing.remove(sourceKey);
             RefreshPermits.release();
-            return CompletableFuture.completedFuture(null);
         }
-        log.debug("Soft-revalidating bindings for '{}'", sourceKey);
-        return loadAndMerge(sourceKey, "", loader)
-                .handle((ignored, ex) -> finishBackgroundRefresh(sourceKey, lockKey, ex));
-    }
-
-    private Void finishBackgroundRefresh(final String sourceKey, final String lockKey, final Throwable ex) {
-        if (ex != null) {
-            log.error("Background binding revalidate failed for '{}'", sourceKey, ex);
-        }
-        cache.releaseLock(lockKey);
-        refreshing.remove(sourceKey);
-        RefreshPermits.release();
-        return null;
     }
 
     private boolean isSoftStale(final String loadedAtRaw) {
@@ -178,97 +161,77 @@ public class AdjacencyCache {
         return ThreadLocalRandom.current().nextDouble();
     }
 
-    private CompletableFuture<List<String>> loadAndMerge(final String sourceKey, final String destTypeId,
-            final Supplier<CompletableFuture<Map<String, List<String>>>> loader) {
+    private List<String> loadAndMerge(final String sourceKey, final String destTypeId,
+            final Supplier<Map<String, List<String>>> loader) {
         // Pre-load snapshot (before Dynamo) so write-through during the query is not SREM'd.
-        return snapshotDestTypes(sourceKey)
-                .thenCompose(preByDest -> loader.get()
-                        .thenCompose(byDestType -> mergeBindingPartition(
-                                sourceKey, destTypeId, byDestType, preByDest)));
+        final Map<String, Set<String>> preByDest = snapshotDestTypes(sourceKey);
+        final Map<String, List<String>> byDestType = loader.get();
+        return mergeBindingPartition(sourceKey, destTypeId, byDestType, preByDest);
     }
 
-    private CompletableFuture<Map<String, Set<String>>> snapshotDestTypes(final String sourceKey) {
+    private Map<String, Set<String>> snapshotDestTypes(final String sourceKey) {
         final List<String> destIds = destTypeIds == null ? List.of() : destTypeIds;
-        if (destIds.isEmpty()) {
-            return CompletableFuture.completedFuture(Map.of());
-        }
         final Map<String, Set<String>> preByDest = new HashMap<>();
-        final List<CompletableFuture<Void>> snaps = new ArrayList<>();
         for (final String dest : destIds) {
-            snaps.add(cache.getSetMembers(setKey(sourceKey, dest))
-                    .thenAccept(members -> preByDest.put(dest, new HashSet<>(members))));
+            preByDest.put(dest, new HashSet<>(cache.getSetMembers(setKey(sourceKey, dest))));
         }
-        return CompletableFuture.allOf(snaps.toArray(CompletableFuture[]::new))
-                .thenApply(ignored -> preByDest);
+        return preByDest;
     }
 
-    private CompletableFuture<List<String>> mergeBindingPartition(
+    private List<String> mergeBindingPartition(
             final String sourceKey,
             final String destTypeId,
             final Map<String, List<String>> byDestType,
             final Map<String, Set<String>> preByDest) {
-        final List<CompletableFuture<Boolean>> writes = new ArrayList<>();
         final Set<String> destKeys = new HashSet<>();
         destKeys.addAll(byDestType.keySet());
         destKeys.addAll(preByDest.keySet());
+        boolean allOk = true;
         for (final String dest : destKeys) {
             final List<String> loaderIds = byDestType.getOrDefault(dest, List.of());
-            queueBindingSetReconcile(sourceKey, dest, loaderIds,
-                    preByDest.getOrDefault(dest, Set.of()), writes);
+            allOk &= reconcileBindingSet(sourceKey, dest, loaderIds, preByDest.getOrDefault(dest, Set.of()));
         }
-        return CompletableFuture.allOf(writes.toArray(CompletableFuture[]::new))
-                .thenApply(ignored -> allWritesOk(writes))
-                .thenCompose(allOk -> afterBindingWrites(sourceKey, allOk))
-                .thenCompose(marked -> afterMarkerWritten(sourceKey, destTypeId, byDestType, marked));
+        final boolean marked = afterBindingWrites(sourceKey, allOk);
+        if (marked) {
+            return members(sourceKey, destTypeId);
+        }
+        return sorted(byDestType.getOrDefault(destTypeId, List.of()));
     }
 
-    private void queueBindingSetReconcile(
+    private boolean reconcileBindingSet(
             final String sourceKey,
             final String dest,
             final List<String> loaderIds,
-            final Set<String> preMembers,
-            final List<CompletableFuture<Boolean>> writes) {
+            final Set<String> preMembers) {
         final String key = setKey(sourceKey, dest);
         final Set<String> loaderSet = new HashSet<>(loaderIds);
+        boolean ok = true;
         if (!loaderIds.isEmpty()) {
-            writes.add(cache.addSetMembers(key, loaderIds));
+            ok &= cache.addSetMembers(key, loaderIds);
         }
         for (final String member : preMembers) {
             if (!loaderSet.contains(member)) {
                 // Snapshot member not in loader → out-of-band delete. Write-through during load is not in pre.
-                writes.add(cache.removeSetMember(key, member));
+                ok &= cache.removeSetMember(key, member);
             }
         }
-        writes.add(cache.expire(key, gcTtl));
+        ok &= cache.expire(key, gcTtl);
+        return ok;
     }
 
-    private boolean allWritesOk(final List<CompletableFuture<Boolean>> writes) {
-        return writes.isEmpty() || writes.stream().allMatch(CompletableFuture::join);
-    }
-
-    private CompletableFuture<Boolean> afterBindingWrites(final String sourceKey, final boolean allOk) {
+    private boolean afterBindingWrites(final String sourceKey, final boolean allOk) {
         if (allOk) {
             return cache.putValue(markerKey(sourceKey), String.valueOf(clock.get()), gcTtl);
         }
-        return cache.removeKey(markerKey(sourceKey)).thenApply(ignored -> false);
+        cache.removeKey(markerKey(sourceKey));
+        return false;
     }
 
-    private CompletableFuture<List<String>> afterMarkerWritten(
-            final String sourceKey,
-            final String destTypeId,
-            final Map<String, List<String>> byDestType,
-            final boolean marked) {
-        if (marked) {
-            return members(sourceKey, destTypeId);
-        }
-        return CompletableFuture.completedFuture(sorted(byDestType.getOrDefault(destTypeId, List.of())));
-    }
-
-    private CompletableFuture<List<String>> members(final String sourceKey, final String destTypeId) {
+    private List<String> members(final String sourceKey, final String destTypeId) {
         if (destTypeId == null || destTypeId.isEmpty()) {
-            return CompletableFuture.completedFuture(List.of());
+            return List.of();
         }
-        return cache.getSetMembers(setKey(sourceKey, destTypeId)).thenApply(this::sorted);
+        return sorted(cache.getSetMembers(setKey(sourceKey, destTypeId)));
     }
 
     private List<String> sorted(final Collection<String> ids) {
@@ -277,9 +240,9 @@ public class AdjacencyCache {
         return result;
     }
 
-    private CompletableFuture<Boolean> recover(final String sourceKey, final String setKey) {
+    private void recover(final String sourceKey, final String setKey) {
         log.error("Cache write-through failed for '{}'; dropping the loaded marker as a precaution.", setKey);
-        return cache.removeKey(markerKey(sourceKey)).thenApply(ignored -> true);
+        cache.removeKey(markerKey(sourceKey));
     }
 
     private String setKey(final String sourceKey, final String destTypeId) {

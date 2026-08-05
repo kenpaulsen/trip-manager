@@ -8,19 +8,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.util.TripThreads;
 
 /**
  * Read-through/write-through template for the "query by partition key" access shape (registrations by trip,
  * transactions by user, ...): one shared-cache hash per partition, field = entity id, value = entity JSON, plus a
  * {@link CacheKeys#LOADED_SENTINEL} field marking the hash as fully loaded from the database and
- * {@link CacheKeys#LOADED_AT} for soft stale-while-revalidate.
+ * {@link CacheKeys#LOADED_AT} for soft stale-while-revalidate. Blocking since the virtual-threads port;
+ * background refreshes run on spawned virtual threads.
  *
  * <p>Contract highlights:</p>
  * <ul>
@@ -86,66 +87,25 @@ public class PartitionCache<K, V> {
      * @param partition The partition id (appended to the key prefix).
      * @param loader    Runs the database query; its result list must already be filtered as callers expect.
      */
-    public CompletableFuture<List<V>> getAll(final String partition, final Supplier<CompletableFuture<List<V>>> loader) {
+    public List<V> getAll(final String partition, final Supplier<List<V>> loader) {
         final String key = keyPrefix + partition;
-        return cache.getHash(key).thenCompose(hash -> serveLoadedOrLoad(key, hash, loader));
+        final Map<String, String> hash = cache.getHash(key);
+        if (!hash.containsKey(CacheKeys.LOADED_SENTINEL)) {
+            return loadAndMerge(key, loader);
+        }
+        maybeScheduleRefresh(key, hash.get(CacheKeys.LOADED_AT), loader);
+        return toValues(hash);
     }
 
     /**
      * Returns one entity by id. A loaded hash answers both hits and authoritative "not found" without blocking on
      * the database; an unloaded hash can still answer a hit from a write-through entry.
      */
-    public CompletableFuture<Optional<V>> getOne(
-            final String partition, final K id, final Supplier<CompletableFuture<List<V>>> loader) {
+    public Optional<V> getOne(final String partition, final K id, final Supplier<List<V>> loader) {
         final String key = keyPrefix + partition;
         final String field = idFormatter.apply(id);
-        return cache.getHashFields(key, List.of(CacheKeys.LOADED_SENTINEL, CacheKeys.LOADED_AT, field))
-                .thenCompose(found -> resolveOne(partition, key, id, field, found, loader));
-    }
-
-    /** Writes one entity through to the cache (call only after the database write succeeded). */
-    public CompletableFuture<Boolean> put(final String partition, final V value) {
-        final String key = keyPrefix + partition;
-        final String json = serializer.apply(value);
-        if (json == null) {
-            return invalidate(partition);
-        }
-        final String field = idFormatter.apply(idGetter.apply(value));
-        return cache.putHashField(key, field, json)
-                .thenCompose(ok -> afterWriteThrough(key, ok))
-                .thenApply(ignored -> true);
-    }
-
-    /** Removes one entity from the cache (soft-deletes that callers filter out). */
-    public CompletableFuture<Boolean> remove(final String partition, final K id) {
-        final String key = keyPrefix + partition;
-        return cache.removeHashField(key, idFormatter.apply(id))
-                .thenCompose(ok -> afterWriteThrough(key, ok));
-    }
-
-    /** Drops the partition's hash entirely (next read reloads from the database). */
-    public CompletableFuture<Boolean> invalidate(final String partition) {
-        return cache.removeKey(keyPrefix + partition);
-    }
-
-    private CompletableFuture<List<V>> serveLoadedOrLoad(
-            final String key,
-            final Map<String, String> hash,
-            final Supplier<CompletableFuture<List<V>>> loader) {
-        if (!hash.containsKey(CacheKeys.LOADED_SENTINEL)) {
-            return loadAndMerge(key, loader);
-        }
-        maybeScheduleRefresh(key, hash.get(CacheKeys.LOADED_AT), loader);
-        return CompletableFuture.completedFuture(toValues(hash));
-    }
-
-    private CompletableFuture<Optional<V>> resolveOne(
-            final String partition,
-            final String key,
-            final K id,
-            final String field,
-            final Map<String, String> found,
-            final Supplier<CompletableFuture<List<V>>> loader) {
+        final Map<String, String> found =
+                cache.getHashFields(key, List.of(CacheKeys.LOADED_SENTINEL, CacheKeys.LOADED_AT, field));
         final boolean loaded = found.containsKey(CacheKeys.LOADED_SENTINEL);
         if (loaded) {
             maybeScheduleRefresh(key, found.get(CacheKeys.LOADED_AT), loader);
@@ -154,29 +114,52 @@ public class PartitionCache<K, V> {
         if (json != null) {
             final V value = deserializer.apply(json);
             if (value != null) {
-                return CompletableFuture.completedFuture(Optional.of(value));
+                return Optional.of(value);
             }
         }
         if (loaded) {
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Optional.empty();
         }
-        return getAll(partition, loader).thenApply(list -> findById(list, id));
+        return findById(getAll(partition, loader), id);
     }
 
     private Optional<V> findById(final List<V> list, final K id) {
         return list.stream().filter(value -> id.equals(idGetter.apply(value))).findAny();
     }
 
-    private CompletableFuture<Boolean> afterWriteThrough(final String key, final boolean ok) {
+    /** Writes one entity through to the cache (call only after the database write succeeded). */
+    public boolean put(final String partition, final V value) {
+        final String key = keyPrefix + partition;
+        final String json = serializer.apply(value);
+        if (json == null) {
+            return invalidate(partition);
+        }
+        final String field = idFormatter.apply(idGetter.apply(value));
+        afterWriteThrough(key, cache.putHashField(key, field, json));
+        return true;
+    }
+
+    /** Removes one entity from the cache (soft-deletes that callers filter out). */
+    public boolean remove(final String partition, final K id) {
+        final String key = keyPrefix + partition;
+        return afterWriteThrough(key, cache.removeHashField(key, idFormatter.apply(id)));
+    }
+
+    /** Drops the partition's hash entirely (next read reloads from the database). */
+    public boolean invalidate(final String partition) {
+        return cache.removeKey(keyPrefix + partition);
+    }
+
+    private boolean afterWriteThrough(final String key, final boolean ok) {
         if (!ok) {
             return recover(key);
         }
         // Slide GC idle clock only — does not update LOADED_AT (soft revalidate age).
-        return cache.expire(key, gcTtl).thenApply(ignored -> true);
+        cache.expire(key, gcTtl);
+        return true;
     }
 
-    private void maybeScheduleRefresh(
-            final String key, final String loadedAtRaw, final Supplier<CompletableFuture<List<V>>> loader) {
+    private void maybeScheduleRefresh(final String key, final String loadedAtRaw, final Supplier<List<V>> loader) {
         if (!softRevalidate || !isSoftStale(loadedAtRaw)) {
             return;
         }
@@ -188,35 +171,29 @@ public class PartitionCache<K, V> {
             refreshing.remove(key);
             return;
         }
-        final String lockKey = CacheKeys.refreshLockKey(key);
-        // Duplicate refreshes after lock TTL are safe: overlay + snapshot reconcile; LOADED_AT is LWW.
-        cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)
-                .thenComposeAsync(acquired -> runBackgroundRefresh(key, lockKey, acquired, loader),
-                        PersistenceExecutors.pool());
+        TripThreads.start(() -> runBackgroundRefresh(key, loader));
     }
 
-    private CompletableFuture<Void> runBackgroundRefresh(
-            final String key,
-            final String lockKey,
-            final Boolean acquired,
-            final Supplier<CompletableFuture<List<V>>> loader) {
-        if (!Boolean.TRUE.equals(acquired)) {
+    private void runBackgroundRefresh(final String key, final Supplier<List<V>> loader) {
+        try {
+            final String lockKey = CacheKeys.refreshLockKey(key);
+            // Duplicate refreshes after lock TTL are safe: overlay + snapshot reconcile; LOADED_AT is LWW.
+            // Lock loss means another instance is refreshing; their lock must not be released here.
+            if (!cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)) {
+                return;
+            }
+            try {
+                log.debug("Soft-revalidating cache key '{}'", key);
+                loadAndMerge(key, loader);
+            } catch (final RuntimeException ex) {
+                log.error("Background revalidate failed for '{}'", key, ex);
+            } finally {
+                cache.releaseLock(lockKey);
+            }
+        } finally {
             refreshing.remove(key);
             RefreshPermits.release();
-            return CompletableFuture.completedFuture(null);
         }
-        log.debug("Soft-revalidating cache key '{}'", key);
-        return loadAndMerge(key, loader).handle((ignored, ex) -> finishBackgroundRefresh(key, lockKey, ex));
-    }
-
-    private Void finishBackgroundRefresh(final String key, final String lockKey, final Throwable ex) {
-        if (ex != null) {
-            log.error("Background revalidate failed for '{}'", key, ex);
-        }
-        cache.releaseLock(lockKey);
-        refreshing.remove(key);
-        RefreshPermits.release();
-        return null;
     }
 
     private boolean isSoftStale(final String loadedAtRaw) {
@@ -240,14 +217,13 @@ public class PartitionCache<K, V> {
         return ThreadLocalRandom.current().nextDouble();
     }
 
-    private CompletableFuture<List<V>> loadAndMerge(
-            final String key, final Supplier<CompletableFuture<List<V>>> loader) {
+    private List<V> loadAndMerge(final String key, final Supplier<List<V>> loader) {
         // Snapshot before Dynamo so concurrent write-through of new fields is not reconcile-deleted.
         // Reconcile-delete only when the hash was already fully loaded (sentinel present); a first load over
         // write-through-only fields must overlay without HDEL (local FakeData / empty scan must not wipe cache).
-        return cache.getHash(key)
-                .thenCompose(preHash -> loader.get()
-                        .thenCompose(list -> mergeLoaderResult(key, list, preHash)));
+        final Map<String, String> preHash = cache.getHash(key);
+        final List<V> list = loader.get();
+        return mergeLoaderResult(key, list, preHash);
     }
 
     private Map<String, String> entitySnapshot(final Map<String, String> hash) {
@@ -264,8 +240,7 @@ public class PartitionCache<K, V> {
         return CacheKeys.LOADED_SENTINEL.equals(field) || CacheKeys.LOADED_AT.equals(field);
     }
 
-    private CompletableFuture<List<V>> mergeLoaderResult(
-            final String key, final List<V> list, final Map<String, String> preHash) {
+    private List<V> mergeLoaderResult(final String key, final List<V> list, final Map<String, String> preHash) {
         final boolean wasFullyLoaded = preHash.containsKey(CacheKeys.LOADED_SENTINEL);
         final Map<String, String> preSnapshot = wasFullyLoaded ? entitySnapshot(preHash) : Map.of();
         final Map<String, String> fields = new HashMap<>();
@@ -280,23 +255,27 @@ public class PartitionCache<K, V> {
                 loaderFields.put(field, json);
             }
         }
-        return cache.putHashFields(key, fields)
-                .thenCompose(ok -> ok
-                        ? maybeReconcileDeletes(key, wasFullyLoaded, preSnapshot, loaderFields)
-                        : cache.removeKey(key).thenApply(ignored -> false))
-                .thenCompose(ok -> ok
-                        ? cache.expire(key, gcTtl).thenCompose(ignored -> cache.getHash(key))
-                        : CompletableFuture.completedFuture(Map.of()))
-                .thenApply(hash -> resolveMergedValues(hash, list));
+        boolean ok = cache.putHashFields(key, fields);
+        if (ok) {
+            ok = maybeReconcileDeletes(key, wasFullyLoaded, preSnapshot, loaderFields);
+        } else {
+            cache.removeKey(key);
+        }
+        if (!ok) {
+            return sorted(list);
+        }
+        cache.expire(key, gcTtl);
+        final Map<String, String> merged = cache.getHash(key);
+        return merged.containsKey(CacheKeys.LOADED_SENTINEL) ? toValues(merged) : sorted(list);
     }
 
-    private CompletableFuture<Boolean> maybeReconcileDeletes(
+    private boolean maybeReconcileDeletes(
             final String key,
             final boolean wasFullyLoaded,
             final Map<String, String> preSnapshot,
             final Map<String, String> loaderFields) {
         if (!wasFullyLoaded) {
-            return CompletableFuture.completedFuture(true);
+            return true;
         }
         return reconcileDeletes(key, preSnapshot, loaderFields);
     }
@@ -305,7 +284,7 @@ public class PartitionCache<K, V> {
      * HDEL entity fields that were in the pre-load snapshot, are absent from the loader result, and still hold the
      * snapshot value (so concurrent write-through of the same id is not deleted).
      */
-    private CompletableFuture<Boolean> reconcileDeletes(
+    private boolean reconcileDeletes(
             final String key,
             final Map<String, String> preSnapshot,
             final Map<String, String> loaderFields) {
@@ -316,33 +295,16 @@ public class PartitionCache<K, V> {
             }
         }
         if (candidates.isEmpty()) {
-            return CompletableFuture.completedFuture(true);
+            return true;
         }
-        return cache.getHashFields(key, candidates)
-                .thenCompose(current -> deleteUnchangedAbsentFields(key, preSnapshot, candidates, current));
-    }
-
-    private CompletableFuture<Boolean> deleteUnchangedAbsentFields(
-            final String key,
-            final Map<String, String> preSnapshot,
-            final List<String> candidates,
-            final Map<String, String> current) {
-        final List<CompletableFuture<Boolean>> deletes = new ArrayList<>();
+        final Map<String, String> current = cache.getHashFields(key, candidates);
         for (final String field : candidates) {
             final String cur = current.get(field);
             if (cur != null && Objects.equals(preSnapshot.get(field), cur)) {
-                deletes.add(cache.removeHashField(key, field));
+                cache.removeHashField(key, field);
             }
         }
-        if (deletes.isEmpty()) {
-            return CompletableFuture.completedFuture(true);
-        }
-        return CompletableFuture.allOf(deletes.toArray(CompletableFuture[]::new))
-                .thenApply(ignored -> true);
-    }
-
-    private List<V> resolveMergedValues(final Map<String, String> hash, final List<V> list) {
-        return hash.containsKey(CacheKeys.LOADED_SENTINEL) ? toValues(hash) : sorted(list);
+        return true;
     }
 
     private List<V> toValues(final Map<String, String> hash) {
@@ -370,8 +332,10 @@ public class PartitionCache<K, V> {
         return result;
     }
 
-    private CompletableFuture<Boolean> recover(final String key) {
+    private boolean recover(final String key) {
         log.error("Cache write-through failed for '{}'; dropping the key as a precaution.", key);
-        return cache.removeKey(key).thenApply(ignored -> true);
+        cache.removeKey(key);
+        // Always true, faithfully: a cache-side failure never fails the operation (DynamoDB already has it).
+        return true;
     }
 }

@@ -64,7 +64,7 @@ public class TodoDAO {
             if (!saved) {
                 return CompletableFuture.completedFuture(false);
             }
-            return cache.put(todo.getTripId(), todo).exceptionally(ex -> logSaveTodoFailure(todo, ex));
+            return CompletableFuture.completedFuture(cache.put(todo.getTripId(), todo));
         } catch (final RuntimeException ex) {
             return CompletableFuture.completedFuture(logSaveTodoFailure(todo, ex));
         }
@@ -76,28 +76,31 @@ public class TodoDAO {
     }
 
     protected CompletableFuture<List<TodoItem>> getTodoItems(final String tripId) {
-        return cache.getAll(tripId, () -> loadTodoItems(tripId));
-    }
-
-    protected CompletableFuture<Optional<TodoItem>> getTodoItem(final String tripId, final DataId pdvId) {
-        return cache.getOne(tripId, pdvId, () -> loadTodoItems(tripId));
-    }
-
-    public void clearCache() {
-        cacheClient.clearNamespace(CacheKeys.TODO_PREFIX).join();
-    }
-
-    private CompletableFuture<List<TodoItem>> loadTodoItems(final String tripId) {
-        log.info("Cache miss for todo items for tripId: {}", tripId);
         try {
-            return CompletableFuture.completedFuture(
-                    persistence.queryAll(qb -> queryTodoItemsByTrip(qb, tripId)).stream()
-                            .map(m -> toTodoItem(m.get(CONTENT)))
-                            .filter(Objects::nonNull)
-                            .toList());
+            return CompletableFuture.completedFuture(cache.getAll(tripId, () -> loadTodoItems(tripId)));
         } catch (final RuntimeException ex) {
             return CompletableFuture.failedFuture(ex);
         }
+    }
+
+    protected CompletableFuture<Optional<TodoItem>> getTodoItem(final String tripId, final DataId pdvId) {
+        try {
+            return CompletableFuture.completedFuture(cache.getOne(tripId, pdvId, () -> loadTodoItems(tripId)));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
+    }
+
+    public void clearCache() {
+        cacheClient.clearNamespace(CacheKeys.TODO_PREFIX);
+    }
+
+    private List<TodoItem> loadTodoItems(final String tripId) {
+        log.info("Cache miss for todo items for tripId: {}", tripId);
+        return persistence.queryAll(qb -> queryTodoItemsByTrip(qb, tripId)).stream()
+                .map(m -> toTodoItem(m.get(CONTENT)))
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     private void queryTodoItemsByTrip(final QueryRequest.Builder qb, final String tripId) {

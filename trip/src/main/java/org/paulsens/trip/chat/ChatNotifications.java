@@ -5,7 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.cache.PersistenceExecutors;
+import org.paulsens.trip.util.TripThreads;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
@@ -84,7 +84,7 @@ public final class ChatNotifications {
         if (notification.getRecipients().isEmpty()) {
             return;
         }
-        PersistenceExecutors.pool().execute(() -> dispatch(notification));
+        TripThreads.start(() -> dispatch(notification));
     }
 
     /** Everyone on the trip except the author, who is never notified about their own message. */

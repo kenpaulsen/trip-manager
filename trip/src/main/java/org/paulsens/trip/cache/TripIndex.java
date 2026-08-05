@@ -8,16 +8,17 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.util.TripThreads;
 
 /**
  * Trip index: replaces the whole-table trip scan with two Valkey structures rebuilt from the trips themselves.
+ * Blocking since the virtual-threads port; background rebuilds run on spawned virtual threads.
  * <ul>
  *   <li><b>Date index</b> ({@link CacheKeys#TRIPS_BY_DATE}): sorted set, member = tripId, score = endDate epoch
  *       millis. Serves active (score &ge; cutoff), inactive (most recent below cutoff, capped), and "all" queries.</li>
@@ -48,7 +49,7 @@ public final class TripIndex {
     @Builder.Default
     private final Duration gcTtl = CacheKeys.GC_TTL;
     /** Full build: every live trip's id, endDate epoch millis, and member userIds. */
-    private final Supplier<CompletableFuture<List<Entry>>> loader;
+    private final Supplier<List<Entry>> loader;
     @Builder.Default
     private final Supplier<Long> clock = System::currentTimeMillis;
     /** Injectable jitter source in [0,1) for tests; production uses {@link ThreadLocalRandom}. */
@@ -62,28 +63,28 @@ public final class TripIndex {
     }
 
     /** Trip ids ending at or after {@code cutoffMillis} (active), soonest-ending first. */
-    public CompletableFuture<List<String>> activeTripIds(final long cutoffMillis, final int limit) {
+    public List<String> activeTripIds(final long cutoffMillis, final int limit) {
         return ensureAndQuery(
                 entries -> byScore(entries, cutoffMillis, POS_INF, false, limit),
                 () -> cache.getRangeByScore(CacheKeys.TRIPS_BY_DATE, cutoffMillis, POS_INF, false, limit));
     }
 
     /** Most-recent trip ids ending before {@code cutoffMillis} (inactive), newest first, capped at {@code limit}. */
-    public CompletableFuture<List<String>> inactiveTripIds(final long cutoffMillis, final int limit) {
+    public List<String> inactiveTripIds(final long cutoffMillis, final int limit) {
         return ensureAndQuery(
                 entries -> byScore(entries, NEG_INF, cutoffMillis - 1, true, limit),
                 () -> cache.getRangeByScore(CacheKeys.TRIPS_BY_DATE, NEG_INF, cutoffMillis - 1, true, limit));
     }
 
     /** All trip ids, newest-ending first, capped at {@code limit} (non-positive = no cap). */
-    public CompletableFuture<List<String>> allTripIds(final int limit) {
+    public List<String> allTripIds(final int limit) {
         return ensureAndQuery(
                 entries -> byScore(entries, NEG_INF, POS_INF, true, limit),
                 () -> cache.getRangeByScore(CacheKeys.TRIPS_BY_DATE, NEG_INF, POS_INF, true, limit));
     }
 
     /** Trip ids the given user is a member of. */
-    public CompletableFuture<List<String>> tripIdsForUser(final String userId, final int limit) {
+    public List<String> tripIdsForUser(final String userId, final int limit) {
         final String prefix = userId + CacheKeys.SEARCH_SEPARATOR;
         return ensureAndQuery(
                 entries -> entries.stream()
@@ -91,43 +92,40 @@ public final class TripIndex {
                         .map(Entry::tripId)
                         .limit(limit > 0 ? limit : Long.MAX_VALUE)
                         .toList(),
-                () -> cache.getSortedSetByPrefix(CacheKeys.TRIPS_BY_PERSON, prefix, limit)
-                        .thenApply(TripIndex::stripPrefixes));
+                () -> stripPrefixes(cache.getSortedSetByPrefix(CacheKeys.TRIPS_BY_PERSON, prefix, limit)));
     }
 
     /**
      * Write-through: reflects one trip's change. {@code old} may be null (new trip); when {@code updated} is null or
      * marked removed, the trip is dropped from both indexes.
      */
-    public CompletableFuture<Boolean> update(final Entry old, final Entry updated, final boolean removed) {
+    public boolean update(final Entry old, final Entry updated, final boolean removed) {
         final Set<String> oldUsers = (old == null) ? Set.of() : old.userIds();
         if (removed || updated == null) {
             final String tripId = (updated != null) ? updated.tripId() : (old != null ? old.tripId() : null);
             if (tripId == null) {
-                return CompletableFuture.completedFuture(true);
+                return true;
             }
-            return cache.removeSortedSetEntries(CacheKeys.TRIPS_BY_DATE, List.of(tripId))
-                    .thenCompose(ignored -> cache.removeSortedSetEntries(
-                            CacheKeys.TRIPS_BY_PERSON, personEntries(oldUsers, tripId)));
+            cache.removeSortedSetEntries(CacheKeys.TRIPS_BY_DATE, List.of(tripId));
+            return cache.removeSortedSetEntries(CacheKeys.TRIPS_BY_PERSON, personEntries(oldUsers, tripId));
         }
         final String tripId = updated.tripId();
         final Set<String> addedUsers = new HashSet<>(updated.userIds());
         addedUsers.removeAll(oldUsers);
         final Set<String> removedUsers = new HashSet<>(oldUsers);
         removedUsers.removeAll(updated.userIds());
-        return cache.addScoredEntries(CacheKeys.TRIPS_BY_DATE, Map.of(tripId, (double) updated.endEpochMillis()))
-                .thenCompose(ignored -> cache.removeSortedSetEntries(
-                        CacheKeys.TRIPS_BY_PERSON, personEntries(removedUsers, tripId)))
-                .thenCompose(ignored -> cache.addSortedSetEntries(
-                        CacheKeys.TRIPS_BY_PERSON, personEntries(addedUsers, tripId)))
-                .thenCompose(ok -> cache.expire(CacheKeys.TRIPS_BY_DATE, gcTtl).thenApply(ignored -> ok));
+        cache.addScoredEntries(CacheKeys.TRIPS_BY_DATE, Map.of(tripId, (double) updated.endEpochMillis()));
+        cache.removeSortedSetEntries(CacheKeys.TRIPS_BY_PERSON, personEntries(removedUsers, tripId));
+        final boolean ok = cache.addSortedSetEntries(CacheKeys.TRIPS_BY_PERSON, personEntries(addedUsers, tripId));
+        cache.expire(CacheKeys.TRIPS_BY_DATE, gcTtl);
+        return ok;
     }
 
     /** Drops both indexes (next query rebuilds). */
-    public CompletableFuture<Boolean> invalidate() {
-        return cache.removeKey(CacheKeys.TRIPS_BY_DATE)
-                .thenCompose(ignored -> cache.removeKey(CacheKeys.TRIPS_BY_PERSON))
-                .thenCompose(ignored -> cache.removeKey(loadedKey()));
+    public boolean invalidate() {
+        cache.removeKey(CacheKeys.TRIPS_BY_DATE);
+        cache.removeKey(CacheKeys.TRIPS_BY_PERSON);
+        return cache.removeKey(loadedKey());
     }
 
     private static String loadedKey() {
@@ -160,47 +158,50 @@ public final class TripIndex {
                 .toList();
     }
 
-    private CompletableFuture<List<String>> ensureAndQuery(
+    private List<String> ensureAndQuery(
             final Function<List<Entry>, List<String>> inMemoryAnswer,
-            final Supplier<CompletableFuture<List<String>>> cacheAnswer) {
-        return cache.getValue(loadedKey()).thenCompose(loadedAt -> {
-            if (loadedAt.isEmpty() && softRevalidate) {
-                return buildAndAnswer(inMemoryAnswer);
-            }
-            if (softRevalidate && isSoftStale(loadedAt.orElse(null))) {
-                maybeScheduleRebuild();
-            }
-            return cacheAnswer.get();
-        });
+            final Supplier<List<String>> cacheAnswer) {
+        final String loadedAt = cache.getValue(loadedKey()).orElse(null);
+        if (loadedAt == null && softRevalidate) {
+            return buildAndAnswer(inMemoryAnswer);
+        }
+        if (softRevalidate && isSoftStale(loadedAt)) {
+            maybeScheduleRebuild();
+        }
+        return cacheAnswer.get();
     }
 
-    private CompletableFuture<List<String>> buildAndAnswer(final Function<List<Entry>, List<String>> inMemoryAnswer) {
+    private List<String> buildAndAnswer(final Function<List<Entry>, List<String>> inMemoryAnswer) {
         final String lockKey = CacheKeys.refreshLockKey(CacheKeys.TRIPS_BY_DATE);
-        return loader.get().thenCompose(entries -> cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)
-                .thenCompose(acquired -> acquired ? populate(entries).handle((ok, ex) -> {
-                    logIfFailed(ex);
-                    cache.releaseLock(lockKey);
-                    return ok;
-                }) : CompletableFuture.completedFuture(false))
-                .thenApply(ignored -> inMemoryAnswer.apply(entries)));
+        final List<Entry> entries = loader.get();
+        if (cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)) {
+            try {
+                populate(entries);
+            } catch (final RuntimeException ex) {
+                logIfFailed(ex);
+            } finally {
+                cache.releaseLock(lockKey);
+            }
+        }
+        return inMemoryAnswer.apply(entries);
     }
 
-    private CompletableFuture<Boolean> populate(final List<Entry> entries) {
+    private boolean populate(final List<Entry> entries) {
         final Map<String, Double> dateScores = new HashMap<>();
         final List<String> personEntries = new ArrayList<>();
         for (final Entry e : entries) {
             dateScores.put(e.tripId(), (double) e.endEpochMillis());
             personEntries.addAll(personEntries(e.userIds(), e.tripId()));
         }
-        return cache.addScoredEntries(CacheKeys.TRIPS_BY_DATE, dateScores)
-                .thenCompose(ignored -> cache.addSortedSetEntries(CacheKeys.TRIPS_BY_PERSON, personEntries))
-                .thenCompose(ok -> ok ? markLoaded() : CompletableFuture.completedFuture(false));
+        cache.addScoredEntries(CacheKeys.TRIPS_BY_DATE, dateScores);
+        final boolean ok = cache.addSortedSetEntries(CacheKeys.TRIPS_BY_PERSON, personEntries);
+        return ok && markLoaded();
     }
 
-    private CompletableFuture<Boolean> markLoaded() {
-        return cache.expire(CacheKeys.TRIPS_BY_DATE, gcTtl)
-                .thenCompose(ignored -> cache.expire(CacheKeys.TRIPS_BY_PERSON, gcTtl))
-                .thenCompose(ignored -> cache.putValue(loadedKey(), String.valueOf(clock.get()), gcTtl));
+    private boolean markLoaded() {
+        cache.expire(CacheKeys.TRIPS_BY_DATE, gcTtl);
+        cache.expire(CacheKeys.TRIPS_BY_PERSON, gcTtl);
+        return cache.putValue(loadedKey(), String.valueOf(clock.get()), gcTtl);
     }
 
     private void maybeScheduleRebuild() {
@@ -212,35 +213,37 @@ public final class TripIndex {
             refreshing.set(false);
             return;
         }
-        final String lockKey = CacheKeys.refreshLockKey(CacheKeys.TRIPS_BY_DATE);
-        cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)
-                .thenComposeAsync(this::runBackgroundRebuild, PersistenceExecutors.pool())
-                .handle((ignored, ex) -> finishBackgroundRebuild(lockKey, ex));
+        TripThreads.start(this::runBackgroundRebuild);
     }
 
-    private Void finishBackgroundRebuild(final String lockKey, final Throwable ex) {
-        logIfFailed(ex);
-        cache.releaseLock(lockKey);
-        refreshing.set(false);
-        RefreshPermits.release();
-        return null;
-    }
-
-    private CompletableFuture<Boolean> runBackgroundRebuild(final Boolean acquired) {
-        if (!Boolean.TRUE.equals(acquired)) {
-            return CompletableFuture.completedFuture(false);
+    private void runBackgroundRebuild() {
+        try {
+            final String lockKey = CacheKeys.refreshLockKey(CacheKeys.TRIPS_BY_DATE);
+            if (!cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)) {
+                return;
+            }
+            try {
+                log.debug("Soft-revalidating trip index");
+                // Snapshot BEFORE the load so concurrent write-through additions are never reconciled away.
+                final List<String> dateSnapshot = cache.getRangeByScore(
+                        CacheKeys.TRIPS_BY_DATE, NEG_INF, POS_INF, false, RECONCILE_FETCH_LIMIT);
+                final List<String> personSnapshot = cache.getSortedSetByPrefix(
+                        CacheKeys.TRIPS_BY_PERSON, "", RECONCILE_FETCH_LIMIT);
+                final List<Entry> entries = loader.get();
+                populate(entries);
+                reconcile(dateSnapshot, personSnapshot, entries);
+            } catch (final RuntimeException ex) {
+                logIfFailed(ex);
+            } finally {
+                cache.releaseLock(lockKey);
+            }
+        } finally {
+            refreshing.set(false);
+            RefreshPermits.release();
         }
-        log.debug("Soft-revalidating trip index");
-        // Snapshot BEFORE the load so concurrent write-through additions are never reconciled away.
-        return cache.getRangeByScore(CacheKeys.TRIPS_BY_DATE, NEG_INF, POS_INF, false, RECONCILE_FETCH_LIMIT)
-                .thenCompose(dateSnapshot -> cache.getSortedSetByPrefix(
-                                CacheKeys.TRIPS_BY_PERSON, "", RECONCILE_FETCH_LIMIT)
-                        .thenCompose(personSnapshot -> loader.get().thenCompose(entries -> populate(entries)
-                                .thenCompose(ok -> reconcile(dateSnapshot, personSnapshot, entries)
-                                        .thenApply(ignored -> ok)))));
     }
 
-    private CompletableFuture<Boolean> reconcile(
+    private void reconcile(
             final List<String> dateSnapshot, final List<String> personSnapshot, final List<Entry> entries) {
         final Set<String> freshTripIds = new HashSet<>();
         final Set<String> freshPersonEntries = new HashSet<>();
@@ -251,8 +254,8 @@ public final class TripIndex {
         final List<String> staleTrips = dateSnapshot.stream().filter(id -> !freshTripIds.contains(id)).toList();
         final List<String> stalePersons = personSnapshot.stream()
                 .filter(entry -> !freshPersonEntries.contains(entry)).toList();
-        return cache.removeSortedSetEntries(CacheKeys.TRIPS_BY_DATE, staleTrips)
-                .thenCompose(ignored -> cache.removeSortedSetEntries(CacheKeys.TRIPS_BY_PERSON, stalePersons));
+        cache.removeSortedSetEntries(CacheKeys.TRIPS_BY_DATE, staleTrips);
+        cache.removeSortedSetEntries(CacheKeys.TRIPS_BY_PERSON, stalePersons);
     }
 
     private boolean isSoftStale(final String loadedAtRaw) {

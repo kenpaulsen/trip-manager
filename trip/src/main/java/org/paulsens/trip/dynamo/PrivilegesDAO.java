@@ -71,7 +71,7 @@ public class PrivilegesDAO {
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(PRIVILEGE_TABLE).item(map))
                     .sdkHttpResponse().isSuccessful();
-            return saved ? cache.put(priv) : CompletableFuture.completedFuture(false);
+            return CompletableFuture.completedFuture(saved && cache.put(priv));
         } catch (final RuntimeException ex) {
             return CompletableFuture.failedFuture(ex);
         }
@@ -79,7 +79,11 @@ public class PrivilegesDAO {
 
     /** Global (non-trip) privileges. */
     protected CompletableFuture<List<Privilege>> getGlobalPrivileges() {
-        return cache.getPartition(CacheKeys.PRIV_GLOBAL_PARTITION);
+        try {
+            return CompletableFuture.completedFuture(cache.getPartition(CacheKeys.PRIV_GLOBAL_PARTITION));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     /** Privileges scoped to the given trip. */
@@ -87,7 +91,11 @@ public class PrivilegesDAO {
         if (tripId == null) {
             return getGlobalPrivileges();
         }
-        return cache.getPartition(tripId);
+        try {
+            return CompletableFuture.completedFuture(cache.getPartition(tripId));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     /**
@@ -98,11 +106,16 @@ public class PrivilegesDAO {
         if (id == null) {
             return CompletableFuture.completedFuture(Optional.empty());
         }
-        return cache.getOne(partitionOf(id), baseNameOf(id), () -> pointReadPrivilege(id));
+        try {
+            return CompletableFuture.completedFuture(
+                    cache.getOne(partitionOf(id), baseNameOf(id), () -> pointReadPrivilege(id)));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     public void clearCache() {
-        cache.invalidate().join();
+        cache.invalidate();
     }
 
     private static String partitionOf(final Privilege priv) {
@@ -118,31 +131,25 @@ public class PrivilegesDAO {
         return new Privilege(id, null, null).getName();
     }
 
-    private CompletableFuture<Optional<Privilege>> pointReadPrivilege(final String id) {
+    private Optional<Privilege> pointReadPrivilege(final String id) {
         final Map<String, AttributeValue> key = Map.of(NAME, AttributeValue.builder().s(id).build());
         try {
             final AttributeValue content =
                     persistence.getItem(b -> b.key(key).tableName(PRIVILEGE_TABLE).build()).item().get(CONTENT);
-            return CompletableFuture.completedFuture(
-                    Optional.ofNullable(content == null ? null : parsePrivilege(content.s())));
+            return Optional.ofNullable(content == null ? null : parsePrivilege(content.s()));
         } catch (final RuntimeException ex) {
-            return CompletableFuture.completedFuture(logAndReturnEmpty(ex, id));
+            return logAndReturnEmpty(ex, id);
         }
     }
 
-    private CompletableFuture<List<Privilege>> loadAllPrivileges() {
-        try {
-            return CompletableFuture.completedFuture(
-                    persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(PRIVILEGE_TABLE).build())
-                            .stream()
-                            .map(it -> it.get(CONTENT))
-                            .filter(content -> content != null)
-                            .map(content -> parsePrivilege(content.s()))
-                            .filter(priv -> priv != null)
-                            .toList());
-        } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
-        }
+    private List<Privilege> loadAllPrivileges() {
+        return persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(PRIVILEGE_TABLE).build())
+                .stream()
+                .map(it -> it.get(CONTENT))
+                .filter(content -> content != null)
+                .map(content -> parsePrivilege(content.s()))
+                .filter(priv -> priv != null)
+                .toList();
     }
 
     private Privilege parsePrivilege(final String json) {

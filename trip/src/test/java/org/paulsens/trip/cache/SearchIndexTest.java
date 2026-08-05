@@ -44,7 +44,7 @@ public class SearchIndexTest {
                 .ttlJitter(() -> 0.5) // pins the effective soft TTL to exactly softTtl (no test flake)
                 .loader(() -> {
                     loads.incrementAndGet();
-                    return CompletableFuture.completedFuture(tokensById);
+                    return tokensById;
                 })
                 .build();
     }
@@ -59,7 +59,7 @@ public class SearchIndexTest {
 
     @Test
     public void aColdIndexIsBuiltFromTheLoader() {
-        final List<String> found = index().searchIds("ali", 10).join();
+        final List<String> found = index().searchIds("ali", 10);
 
         Assert.assertEquals(loads.get(), 1);
         Assert.assertEquals(found, List.of("p1"));
@@ -67,66 +67,66 @@ public class SearchIndexTest {
 
     @Test
     public void aPrefixMatchesEveryTokenThatStartsWithIt() {
-        Assert.assertEquals(Set.copyOf(index().searchIds("a", 10).join()), Set.of("p1", "p3"),
+        Assert.assertEquals(Set.copyOf(index().searchIds("a", 10)), Set.of("p1", "p3"),
                 "alice, anderson and albert/adams all start with 'a'");
-        Assert.assertEquals(index().searchIds("bro", 10).join(), List.of("p2"));
+        Assert.assertEquals(index().searchIds("bro", 10), List.of("p2"));
     }
 
     @Test
     public void anEmptyOrBlankPrefixMatchesNothingRatherThanEverything() {
-        Assert.assertEquals(index().searchIds("", 10).join(), List.of());
-        Assert.assertEquals(index().searchIds("   ", 10).join(), List.of());
-        Assert.assertEquals(index().searchIds(null, 10).join(), List.of());
+        Assert.assertEquals(index().searchIds("", 10), List.of());
+        Assert.assertEquals(index().searchIds("   ", 10), List.of());
+        Assert.assertEquals(index().searchIds(null, 10), List.of());
         Assert.assertEquals(loads.get(), 0, "a prefix that cannot match must not even build the index");
     }
 
     @Test
     public void searchIsCaseInsensitive() {
-        Assert.assertEquals(index().searchIds("ALI", 10).join(), List.of("p1"));
+        Assert.assertEquals(index().searchIds("ALI", 10), List.of("p1"));
     }
 
     @Test
     public void aPrefixThatMatchesNothingIsEmpty() {
-        Assert.assertEquals(index().searchIds("zzz", 10).join(), List.of());
+        Assert.assertEquals(index().searchIds("zzz", 10), List.of());
     }
 
     @Test
     public void updatingAddsNewTokensAndRemovesStaleOnes() {
         final SearchIndex index = index();
-        index.searchIds("a", 10).join(); // warm
+        index.searchIds("a", 10); // warm
 
-        Assert.assertTrue(index.update("p2", Set.of("bob", "brown"), Set.of("bob", "black")).join());
+        Assert.assertTrue(index.update("p2", Set.of("bob", "brown"), Set.of("bob", "black")));
 
-        Assert.assertEquals(index.searchIds("bla", 10).join(), List.of("p2"), "the new token is searchable");
-        Assert.assertEquals(index.searchIds("bro", 10).join(), List.of(),
+        Assert.assertEquals(index.searchIds("bla", 10), List.of("p2"), "the new token is searchable");
+        Assert.assertEquals(index.searchIds("bro", 10), List.of(),
                 "the stale token must stop matching, or a renamed person is findable under the old name");
     }
 
     @Test
     public void removingEveryTokenTakesTheIdOutOfSearch() {
         final SearchIndex index = index();
-        index.searchIds("a", 10).join();
+        index.searchIds("a", 10);
 
-        Assert.assertTrue(index.update("p3", Set.of("albert", "adams"), Set.of()).join());
+        Assert.assertTrue(index.update("p3", Set.of("albert", "adams"), Set.of()));
 
-        Assert.assertEquals(index.searchIds("alb", 10).join(), List.of());
+        Assert.assertEquals(index.searchIds("alb", 10), List.of());
     }
 
     @Test
     public void invalidateForcesTheNextSearchToRebuild() {
         final SearchIndex index = index();
-        index.searchIds("a", 10).join();
+        index.searchIds("a", 10);
         final int afterFirst = loads.get();
 
-        Assert.assertTrue(index.invalidate().join());
-        index.searchIds("a", 10).join();
+        Assert.assertTrue(index.invalidate());
+        index.searchIds("a", 10);
 
         Assert.assertTrue(loads.get() > afterFirst);
     }
 
     @Test
     public void theLimitCapsTheResult() {
-        Assert.assertEquals(index().searchIds("a", 1).join().size(), 1);
+        Assert.assertEquals(index().searchIds("a", 1).size(), 1);
     }
 
     // --- soft-stale background rebuild ---
@@ -139,32 +139,32 @@ public class SearchIndexTest {
     @Test
     public void aSoftStaleRebuildReconcilesAwayEntriesTheLoaderNoLongerProduces() throws Exception {
         final SearchIndex index = index();
-        index.searchIds("ali", 10).join(); // warm
+        index.searchIds("ali", 10); // warm
         tokensById = Map.of(
                 "p1", Set.of("alicia", "anderson"), // renamed behind the cache's back
                 "p2", Set.of("bob", "brown"),
                 "p3", Set.of("albert", "adams"));
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
 
-        Assert.assertEquals(index.searchIds("alice", 10).join(), List.of("p1"),
+        Assert.assertEquals(index.searchIds("alice", 10), List.of("p1"),
                 "the read that noticed staleness still answers from the (old) index");
 
         clock.addAndGet(-Duration.ofMinutes(2).toMillis());
-        awaitTrue(() -> index.searchIds("alice", 10).join().isEmpty(),
+        awaitTrue(() -> index.searchIds("alice", 10).isEmpty(),
                 "the old name must stop matching after the rebuild reconciles");
-        Assert.assertEquals(index.searchIds("alici", 10).join(), List.of("p1"), "the new name matches");
+        Assert.assertEquals(index.searchIds("alici", 10), List.of("p1"), "the new name matches");
     }
 
     /** A mangled marker reads as stale (rebuild) rather than fresh (serve stale data forever). */
     @Test
     public void anUnparseableLoadedMarkerCountsAsStale() throws Exception {
         final SearchIndex index = index();
-        index.searchIds("ali", 10).join();
+        index.searchIds("ali", 10);
         final int afterWarm = loads.get();
         cache.putValue("test-search-index" + CacheKeys.SEARCH_LOADED_SUFFIX, "garbage",
-                Duration.ofMinutes(5)).join();
+                Duration.ofMinutes(5));
 
-        index.searchIds("ali", 10).join();
+        index.searchIds("ali", 10);
 
         awaitTrue(() -> loads.get() > afterWarm, "a garbage marker must trigger a rebuild");
     }
@@ -173,13 +173,13 @@ public class SearchIndexTest {
     @Test
     public void losingTheRefreshLockSkipsTheRebuild() throws Exception {
         final SearchIndex index = index();
-        index.searchIds("ali", 10).join();
+        index.searchIds("ali", 10);
         final int afterWarm = loads.get();
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
         Assert.assertTrue(cache.tryAcquireLock(
-                CacheKeys.refreshLockKey("test-search-index"), Duration.ofMinutes(5)).join());
+                CacheKeys.refreshLockKey("test-search-index"), Duration.ofMinutes(5)));
 
-        Assert.assertEquals(index.searchIds("ali", 10).join(), List.of("p1"));
+        Assert.assertEquals(index.searchIds("ali", 10), List.of("p1"));
 
         Thread.sleep(200);
         Assert.assertEquals(loads.get(), afterWarm, "the lock loser must not rebuild");
@@ -189,15 +189,15 @@ public class SearchIndexTest {
     @Test
     public void aFailingBackgroundRebuildIsSwallowed() throws Exception {
         final SearchIndex index = index();
-        index.searchIds("ali", 10).join();
+        index.searchIds("ali", 10);
         tokensById = null; // the next load blows up inside populate
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
 
-        Assert.assertEquals(index.searchIds("ali", 10).join(), List.of("p1"));
+        Assert.assertEquals(index.searchIds("ali", 10), List.of("p1"));
 
         clock.addAndGet(-Duration.ofMinutes(2).toMillis());
         Thread.sleep(200);
-        Assert.assertEquals(index.searchIds("ali", 10).join(), List.of("p1"),
+        Assert.assertEquals(index.searchIds("ali", 10), List.of("p1"),
                 "a failed rebuild must leave the index serving");
     }
 

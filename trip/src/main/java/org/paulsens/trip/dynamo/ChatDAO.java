@@ -103,8 +103,8 @@ public class ChatDAO {
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(CHANNELS_TABLE).item(item))
                     .sdkHttpResponse().isSuccessful();
-            return saved ? channelCache.put(channel.getId().getValue(), channel)
-                    : CompletableFuture.completedFuture(false);
+            return CompletableFuture.completedFuture(
+                    saved && channelCache.put(channel.getId().getValue(), channel));
         } catch (final RuntimeException ex) {
             return CompletableFuture.failedFuture(ex);
         }
@@ -114,18 +114,21 @@ public class ChatDAO {
         if (id == null) {
             return CompletableFuture.completedFuture(Optional.empty());
         }
-        return channelCache.get(id.getValue(), missed -> pointReadChannel(missed)
-                .thenApply(opt -> opt.orElse(null)));
+        try {
+            return CompletableFuture.completedFuture(
+                    channelCache.get(id.getValue(), missed -> pointReadChannel(missed).orElse(null)));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
-    private CompletableFuture<Optional<ChatChannel>> pointReadChannel(final String channelId) {
+    private Optional<ChatChannel> pointReadChannel(final String channelId) {
         final Map<String, AttributeValue> key =
                 Map.of(ATTR_CHANNEL_ID, AttributeValue.builder().s(channelId).build());
         try {
-            return CompletableFuture.completedFuture(
-                    channelFrom(persistence.getItem(b -> b.tableName(CHANNELS_TABLE).key(key).build())));
+            return channelFrom(persistence.getItem(b -> b.tableName(CHANNELS_TABLE).key(key).build()));
         } catch (final RuntimeException ex) {
-            return CompletableFuture.completedFuture(logChannelReadFailure(channelId, ex));
+            return logChannelReadFailure(channelId, ex);
         }
     }
 
@@ -161,18 +164,16 @@ public class ChatDAO {
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(MEMBERS_TABLE).item(item))
                     .sdkHttpResponse().isSuccessful();
-            return saved ? cacheMembership(channelId, personId, json)
-                    : CompletableFuture.completedFuture(false);
+            return CompletableFuture.completedFuture(saved && cacheMembership(channelId, personId, json));
         } catch (final RuntimeException ex) {
             return CompletableFuture.failedFuture(ex);
         }
     }
 
     /** The row is already durable; the cache write is best effort, so its result never fails the save. */
-    private CompletableFuture<Boolean> cacheMembership(
-            final String channelId, final String personId, final String json) {
-        return cacheClient.putHashField(CacheKeys.chatMembersKey(channelId), personId, json)
-                .thenApply(ignored -> true);
+    private boolean cacheMembership(final String channelId, final String personId, final String json) {
+        cacheClient.putHashField(CacheKeys.chatMembersKey(channelId), personId, json);
+        return true;
     }
 
     protected CompletableFuture<Optional<ChatMembership>> getMembership(
@@ -182,26 +183,25 @@ public class ChatDAO {
         }
         final String cId = channelId.getValue();
         final String pId = personId.getValue();
-        return cacheClient.getHashFields(CacheKeys.chatMembersKey(cId), List.of(pId))
-                .thenCompose(map -> cachedMembershipOrRead(cId, pId, map.get(pId)));
+        try {
+            final String cached = cacheClient.getHashFields(CacheKeys.chatMembersKey(cId), List.of(pId)).get(pId);
+            final ChatMembership hit = cached == null ? null : parseMembership(cached);
+            return CompletableFuture.completedFuture(
+                    hit == null ? pointReadMembership(cId, pId) : Optional.of(hit));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
-    private CompletableFuture<Optional<ChatMembership>> cachedMembershipOrRead(
-            final String cId, final String pId, final String cached) {
-        final ChatMembership hit = cached == null ? null : parseMembership(cached);
-        return hit == null ? pointReadMembership(cId, pId) : CompletableFuture.completedFuture(Optional.of(hit));
-    }
-
-    private CompletableFuture<Optional<ChatMembership>> pointReadMembership(
-            final String channelId, final String personId) {
+    private Optional<ChatMembership> pointReadMembership(final String channelId, final String personId) {
         final Map<String, AttributeValue> key = Map.of(
                 ATTR_CHANNEL_ID, AttributeValue.builder().s(channelId).build(),
                 ATTR_PERSON_ID, AttributeValue.builder().s(personId).build());
         try {
-            return CompletableFuture.completedFuture(membershipFrom(channelId, personId,
-                    persistence.getItem(b -> b.tableName(MEMBERS_TABLE).key(key).build())));
+            return membershipFrom(channelId, personId,
+                    persistence.getItem(b -> b.tableName(MEMBERS_TABLE).key(key).build()));
         } catch (final RuntimeException ex) {
-            return CompletableFuture.completedFuture(logMembershipReadFailure(channelId, personId, ex));
+            return logMembershipReadFailure(channelId, personId, ex);
         }
     }
 
@@ -278,17 +278,16 @@ public class ChatDAO {
             return CompletableFuture.completedFuture(Optional.empty());
         }
         // Idempotency: same clientMessageId from the same author collapses before minting a new server id.
-        // Composed rather than joined: CacheClient futures complete on PersistenceExecutors.pool(), so a
-        // blocking join here would tie up a pool thread waiting on another one.
         if (draft.getClientMessageId() != null && !draft.getClientMessageId().isBlank()
                 && draft.getAuthorId() != null) {
             final String cmidKey = CacheKeys.chatClientMessageKey(
                     draft.getChannelId().getValue(),
                     draft.getAuthorId().getValue(),
                     draft.getClientMessageId());
-            return cacheClient.getValue(cmidKey).thenCompose(existing -> existing.isPresent()
-                    ? getMessage(draft.getChannelId(), ChatMessage.Id.from(existing.get()))
-                    : mintAndSave(draft, channel, trip));
+            final Optional<String> existing = cacheClient.getValue(cmidKey);
+            if (existing.isPresent()) {
+                return getMessage(draft.getChannelId(), ChatMessage.Id.from(existing.get()));
+            }
         }
         return mintAndSave(draft, channel, trip);
     }
@@ -333,7 +332,8 @@ public class ChatDAO {
 
     private CompletableFuture<Optional<ChatMessage>> bufferAndReturn(
             final ChatMessage message, final ChatChannel channel) {
-        return afterMessageWritten(message, channel).thenApply(ignored -> Optional.of(message));
+        afterMessageWritten(message, channel);
+        return CompletableFuture.completedFuture(Optional.of(message));
     }
 
     /**
@@ -349,7 +349,7 @@ public class ChatDAO {
         return CompletableFuture.completedFuture(Optional.empty());
     }
 
-    private CompletableFuture<Void> afterMessageWritten(final ChatMessage message, final ChatChannel channel) {
+    private void afterMessageWritten(final ChatMessage message, final ChatChannel channel) {
         final String channelId = message.getChannelId().getValue();
         final String msgId = message.getId().getValue();
         final double score = message.getId().getEpochMilli();
@@ -359,24 +359,19 @@ public class ChatDAO {
                 ? 60 : channel.getSettings().getBufferMinutes();
         final Duration bufferTtl = Duration.ofMinutes(Math.max(1, bufferMinutes));
 
-        final CompletableFuture<Boolean> zadd = cacheClient.addScoredEntries(
-                CacheKeys.chatLogKey(channelId), Map.of(msgId, score));
-        final CompletableFuture<Boolean> hset = cacheClient.putHashField(
-                CacheKeys.chatBodyKey(channelId), msgId, toJson(message));
-        return CompletableFuture.allOf(zadd, hset)
-                .thenCompose(ignored -> cacheClient.trimSortedSet(CacheKeys.chatLogKey(channelId), bufferMax))
-                .thenCompose(ignored -> cacheClient.expire(CacheKeys.chatLogKey(channelId), bufferTtl))
-                .thenCompose(ignored -> cacheClient.expire(CacheKeys.chatBodyKey(channelId), bufferTtl))
-                // The MESSAGE ID, not System.currentTimeMillis(). Unread is "cursor < lastActivity", and the
-                // cursor a client reports is a message id -- so a fresh clock reading here is a different, always
-                // later number, and the comparison could never come out equal. The unread dot stayed lit forever,
-                // for everyone, even immediately after reading. Same total order as the sort key and the ZSET
-                // score, which is the property the whole cursor design rests on.
-                .thenCompose(ignored -> cacheClient.putHashField(
-                        CacheKeys.CHAT_LAST_ACTIVITY, channelId, msgId))
-                .thenCompose(ignored -> markClientMessageId(message))
-                .thenCompose(ignored -> nudge(message))
-                .thenApply(ignored -> null);
+        cacheClient.addScoredEntries(CacheKeys.chatLogKey(channelId), Map.of(msgId, score));
+        cacheClient.putHashField(CacheKeys.chatBodyKey(channelId), msgId, toJson(message));
+        cacheClient.trimSortedSet(CacheKeys.chatLogKey(channelId), bufferMax);
+        cacheClient.expire(CacheKeys.chatLogKey(channelId), bufferTtl);
+        cacheClient.expire(CacheKeys.chatBodyKey(channelId), bufferTtl);
+        // The MESSAGE ID, not System.currentTimeMillis(). Unread is "cursor < lastActivity", and the
+        // cursor a client reports is a message id -- so a fresh clock reading here is a different, always
+        // later number, and the comparison could never come out equal. The unread dot stayed lit forever,
+        // for everyone, even immediately after reading. Same total order as the sort key and the ZSET
+        // score, which is the property the whole cursor design rests on.
+        cacheClient.putHashField(CacheKeys.CHAT_LAST_ACTIVITY, channelId, msgId);
+        markClientMessageId(message);
+        nudge(message);
     }
 
     /**
@@ -386,7 +381,7 @@ public class ChatDAO {
      * woken by this finds the message rather than racing the writes that make it visible. Best effort -- the send is
      * already durable in DynamoDB, so a failed publish costs real-time latency and nothing else.
      */
-    private CompletableFuture<Boolean> nudge(final ChatMessage message) {
+    private boolean nudge(final ChatMessage message) {
         final String channelId = message.getChannelId().getValue();
         return cacheClient.publish(
                 CacheKeys.chatPubSubChannelFor(channelId),
@@ -397,9 +392,9 @@ public class ChatDAO {
      * Records the sender's idempotency key so a retried send collapses onto this message instead of writing a
      * second one. No key (a SYSTEM message, or a client that sent none) means nothing to record.
      */
-    private CompletableFuture<Boolean> markClientMessageId(final ChatMessage message) {
+    private boolean markClientMessageId(final ChatMessage message) {
         if (message.getClientMessageId() == null || message.getAuthorId() == null) {
-            return CompletableFuture.completedFuture(true);
+            return true;
         }
         final String key = CacheKeys.chatClientMessageKey(
                 message.getChannelId().getValue(),
@@ -420,8 +415,12 @@ public class ChatDAO {
         }
         final String cId = channelId.getValue();
         final String mId = msgId.getValue();
-        return cacheClient.getHashFields(CacheKeys.chatBodyKey(cId), List.of(mId))
-                .thenCompose(map -> cachedMessageOrRead(cId, mId, map.get(mId)));
+        try {
+            final String cached = cacheClient.getHashFields(CacheKeys.chatBodyKey(cId), List.of(mId)).get(mId);
+            return cachedMessageOrRead(cId, mId, cached);
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     private CompletableFuture<Optional<ChatMessage>> cachedMessageOrRead(
@@ -500,9 +499,9 @@ public class ChatDAO {
 
     private CompletableFuture<Optional<ChatMessage>> cacheTombstone(
             final ChatMessage tombstoned, final String json) {
-        return cacheClient.putHashField(CacheKeys.chatBodyKey(tombstoned.getChannelId().getValue()),
-                        tombstoned.getId().getValue(), json)
-                .thenCompose(ignored -> announceMutation(tombstoned));
+        cacheClient.putHashField(CacheKeys.chatBodyKey(tombstoned.getChannelId().getValue()),
+                tombstoned.getId().getValue(), json);
+        return announceMutation(tombstoned);
     }
 
     /**
@@ -545,9 +544,9 @@ public class ChatDAO {
     }
 
     private CompletableFuture<Optional<ChatMessage>> cacheEdit(final ChatMessage edited, final String json) {
-        return cacheClient.putHashField(CacheKeys.chatBodyKey(edited.getChannelId().getValue()),
-                        edited.getId().getValue(), json)
-                .thenCompose(ignored -> announceMutation(edited));
+        cacheClient.putHashField(CacheKeys.chatBodyKey(edited.getChannelId().getValue()),
+                edited.getId().getValue(), json);
+        return announceMutation(edited);
     }
 
     /**
@@ -559,9 +558,9 @@ public class ChatDAO {
      */
     private CompletableFuture<Optional<ChatMessage>> announceMutation(final ChatMessage changed) {
         final String cId = changed.getChannelId().getValue();
-        return cacheClient.increment(CacheKeys.chatMutationsVersionKey(cId), 1L, CacheKeys.GC_TTL)
-                .thenCompose(version -> nudgeChannel(cId))
-                .thenApply(nudged -> Optional.of(changed));
+        cacheClient.increment(CacheKeys.chatMutationsVersionKey(cId), 1L, CacheKeys.GC_TTL);
+        nudgeChannel(cId);
+        return CompletableFuture.completedFuture(Optional.of(changed));
     }
 
     // --- read cursor (Valkey-authoritative; a lost cursor costs an unread dot, never a message) ---
@@ -571,9 +570,9 @@ public class ChatDAO {
         if (channelId == null || personId == null || cursor == null) {
             return CompletableFuture.completedFuture(false);
         }
-        return cacheClient.putValue(
+        return CompletableFuture.completedFuture(cacheClient.putValue(
                 CacheKeys.chatCursorKey(channelId.getValue(), personId.getValue()),
-                cursor.getValue(), CacheKeys.GC_TTL);
+                cursor.getValue(), CacheKeys.GC_TTL));
     }
 
     protected CompletableFuture<Optional<ChatMessage.Id>> getCursor(
@@ -581,13 +580,14 @@ public class ChatDAO {
         if (channelId == null || personId == null) {
             return CompletableFuture.completedFuture(Optional.empty());
         }
-        return cacheClient.getValue(CacheKeys.chatCursorKey(channelId.getValue(), personId.getValue()))
-                .thenApply(raw -> raw.map(ChatMessage.Id::from));
+        return CompletableFuture.completedFuture(
+                cacheClient.getValue(CacheKeys.chatCursorKey(channelId.getValue(), personId.getValue()))
+                        .map(ChatMessage.Id::from));
     }
 
     /** Last-activity millis per channel, for the unread indicator and the "My Chats" sort. */
     protected CompletableFuture<Map<String, String>> lastActivity() {
-        return cacheClient.getHash(CacheKeys.CHAT_LAST_ACTIVITY);
+        return CompletableFuture.completedFuture(cacheClient.getHash(CacheKeys.CHAT_LAST_ACTIVITY));
     }
 
     /**
@@ -608,9 +608,13 @@ public class ChatDAO {
             final Instant now) {
         final Read read = new Read(channelId.getValue(), since, limit <= 0 ? 200 : Math.min(limit, 200),
                 member, channel, trip, now);
-        return bufferCoversCursor(read.channelId(), read.sinceMillis())
-                .thenCompose(covered -> covered ? bufferedSince(read) : dynamoSince(read))
-                .thenCompose(page -> withReactionMeta(channelId, page));
+        try {
+            final boolean covered = bufferCoversCursor(read.channelId(), read.sinceMillis());
+            return (covered ? bufferedSince(read) : dynamoSince(read))
+                    .thenCompose(page -> withReactionMeta(channelId, page));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     /**
@@ -637,9 +641,9 @@ public class ChatDAO {
 
     /** The buffer has been proven complete for this cursor, so it may answer the read on its own. */
     private CompletableFuture<ChatPage> bufferedSince(final Read read) {
-        return cacheClient.getRangeByScore(CacheKeys.chatLogKey(read.channelId()),
-                        read.sinceMillis() + 1, Double.POSITIVE_INFINITY, false, read.limit())
-                .thenCompose(ids -> ids.isEmpty() ? nothingNew(read) : bufferedBodies(read, ids));
+        final List<String> ids = cacheClient.getRangeByScore(CacheKeys.chatLogKey(read.channelId()),
+                read.sinceMillis() + 1, Double.POSITIVE_INFINITY, false, read.limit());
+        return ids.isEmpty() ? nothingNew(read) : bufferedBodies(read, ids);
     }
 
     /**
@@ -651,13 +655,14 @@ public class ChatDAO {
     }
 
     private CompletableFuture<ChatPage> bufferedBodies(final Read read, final List<String> ids) {
-        return loadBodies(read.channelId(), ids)
-                .thenCompose(msgs -> msgs.size() == ids.size()
-                        ? CompletableFuture.completedFuture(bufferPage(read, msgs, ids.size() >= read.limit()))
-                        // A body went missing independently of its log entry (the hash and the ZSET have separate
-                        // lifetimes and only the ZSET is trimmed). Dropping it here would hide the message *and*
-                        // advance the cursor past it, losing it for good.
-                        : dynamoSince(read));
+        final List<ChatMessage> msgs = loadBodies(read.channelId(), ids);
+        if (msgs.size() == ids.size()) {
+            return CompletableFuture.completedFuture(bufferPage(read, msgs, ids.size() >= read.limit()));
+        }
+        // A body went missing independently of its log entry (the hash and the ZSET have separate
+        // lifetimes and only the ZSET is trimmed). Dropping it here would hide the message *and*
+        // advance the cursor past it, losing it for good.
+        return dynamoSince(read);
     }
 
     private ChatPage bufferPage(final Read read, final List<ChatMessage> msgs, final boolean hasMore) {
@@ -681,14 +686,13 @@ public class ChatDAO {
      * buffer is never covering, and neither is an initial load ({@code sinceMillis < 0}), which must come from
      * the durable store.
      */
-    private CompletableFuture<Boolean> bufferCoversCursor(final String cId, final long sinceMillis) {
+    private boolean bufferCoversCursor(final String cId, final long sinceMillis) {
         if (sinceMillis < 0) {
-            return CompletableFuture.completedFuture(false);
+            return false;
         }
-        return cacheClient.getRangeByScore(
-                        CacheKeys.chatLogKey(cId), Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, 1)
-                .thenApply(oldest -> !oldest.isEmpty()
-                        && ChatMessage.Id.from(oldest.get(0)).getEpochMilli() <= sinceMillis + 1);
+        final List<String> oldest = cacheClient.getRangeByScore(
+                CacheKeys.chatLogKey(cId), Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, 1);
+        return !oldest.isEmpty() && ChatMessage.Id.from(oldest.get(0)).getEpochMilli() <= sinceMillis + 1;
     }
 
     /**
@@ -767,9 +771,8 @@ public class ChatDAO {
         return out;
     }
 
-    private CompletableFuture<List<ChatMessage>> loadBodies(final String channelId, final List<String> ids) {
-        return cacheClient.getHashFields(CacheKeys.chatBodyKey(channelId), ids)
-                .thenApply(map -> parseBodies(ids, map));
+    private List<ChatMessage> loadBodies(final String channelId, final List<String> ids) {
+        return parseBodies(ids, cacheClient.getHashFields(CacheKeys.chatBodyKey(channelId), ids));
     }
 
     /**
@@ -848,15 +851,14 @@ public class ChatDAO {
      * real-time reactions would silently not work while every individual piece looked correct.
      */
     private CompletableFuture<ChatPage> withReactionMeta(final ChatChannel.Id channelId, final ChatPage page) {
-        return reactionsVersion(channelId.getValue())
-                .thenCompose(version -> withMutationsVersion(channelId, page, version));
+        return withMutationsVersion(channelId, page, reactionsVersion(channelId.getValue()));
     }
 
     private CompletableFuture<ChatPage> withMutationsVersion(
             final ChatChannel.Id channelId, final ChatPage page, final long reactionsVersion) {
-        return mutationsVersion(channelId.getValue())
-                .thenCompose(mutations -> summariesForPage(channelId, page)
-                        .thenApply(summaries -> page.withReactions(summaries, reactionsVersion, mutations)));
+        final Long mutations = mutationsVersion(channelId.getValue());
+        return summariesForPage(channelId, page)
+                .thenApply(summaries -> page.withReactions(summaries, reactionsVersion, mutations));
     }
 
     private CompletableFuture<Map<ChatMessage.Id, ChatReactionSummary>> summariesForPage(
@@ -870,14 +872,12 @@ public class ChatDAO {
      * The channel's reaction counter. Zero when the cache is cold or down — see {@link ChatPage#getReactionsVersion}
      * for why zero must mean "not reported" rather than "no reactions".
      */
-    private CompletableFuture<Long> reactionsVersion(final String channelId) {
-        return cacheClient.getValue(CacheKeys.chatReactionsVersionKey(channelId))
-                .thenApply(ChatDAO::toVersion);
+    private Long reactionsVersion(final String channelId) {
+        return toVersion(cacheClient.getValue(CacheKeys.chatReactionsVersionKey(channelId)));
     }
 
-    private CompletableFuture<Long> mutationsVersion(final String channelId) {
-        return cacheClient.getValue(CacheKeys.chatMutationsVersionKey(channelId))
-                .thenApply(ChatDAO::toVersion);
+    private Long mutationsVersion(final String channelId) {
+        return toVersion(cacheClient.getValue(CacheKeys.chatMutationsVersionKey(channelId)));
     }
 
     private static Long toVersion(final Optional<String> raw) {
@@ -911,8 +911,8 @@ public class ChatDAO {
         for (final ChatMessage m : messages) {
             fields.add(m.getId().getValue());
         }
-        return cacheClient.getHashFields(CacheKeys.chatReactionSummaryKey(channelId.getValue()), fields)
-                .thenCompose(cached -> summariesFromCacheOrStore(channelId, messages, cached));
+        return summariesFromCacheOrStore(channelId, messages,
+                cacheClient.getHashFields(CacheKeys.chatReactionSummaryKey(channelId.getValue()), fields));
     }
 
     private CompletableFuture<Map<ChatMessage.Id, ChatReactionSummary>> summariesFromCacheOrStore(
@@ -960,9 +960,10 @@ public class ChatDAO {
             return summaries;
         }
         final String key = CacheKeys.chatReactionSummaryKey(channelId.getValue());
-        // Best effort and deliberately not awaited: the summaries are already computed, so a cache write that fails
-        // or lags must not delay the page. GC_TTL bounds a hash for a channel nobody reads any more.
-        cacheClient.putHashFields(key, fields).thenCompose(ok -> cacheClient.expire(key, CacheKeys.GC_TTL));
+        // Best effort: a cache write that fails degrades to a rebuild on the next read. GC_TTL bounds a
+        // hash for a channel nobody reads any more.
+        cacheClient.putHashFields(key, fields);
+        cacheClient.expire(key, CacheKeys.GC_TTL);
         return summaries;
     }
 
@@ -1024,13 +1025,13 @@ public class ChatDAO {
             return CompletableFuture.completedFuture(false);
         }
         final String cId = channelId.getValue();
-        return cacheClient.removeHashField(CacheKeys.chatReactionSummaryKey(cId), targetMessageId.getValue())
-                .thenCompose(dropped -> bumpReactionsVersion(cId))
-                .thenCompose(version -> nudgeChannel(cId))
-                .thenApply(nudged -> true);
+        cacheClient.removeHashField(CacheKeys.chatReactionSummaryKey(cId), targetMessageId.getValue());
+        bumpReactionsVersion(cId);
+        nudgeChannel(cId);
+        return CompletableFuture.completedFuture(true);
     }
 
-    private CompletableFuture<Optional<Long>> bumpReactionsVersion(final String channelId) {
+    private Optional<Long> bumpReactionsVersion(final String channelId) {
         return cacheClient.increment(CacheKeys.chatReactionsVersionKey(channelId), 1L, CacheKeys.GC_TTL);
     }
 
@@ -1040,7 +1041,7 @@ public class ChatDAO {
      * <p>The watermark is 0 because none of these has a message id to advance a cursor to. That is harmless: the
      * nudge only means "look again", and a woken reader re-reads its cursor, its summaries and its versions anyway.
      */
-    private CompletableFuture<Boolean> nudgeChannel(final String channelId) {
+    private boolean nudgeChannel(final String channelId) {
         return cacheClient.publish(
                 CacheKeys.chatPubSubChannelFor(channelId), ChatNudge.encode(channelId, 0L));
     }
@@ -1076,7 +1077,7 @@ public class ChatDAO {
 
     /** The current reaction version, for a client that wants it without reading a page. */
     protected CompletableFuture<Long> currentReactionsVersion(final ChatChannel.Id channelId) {
-        return reactionsVersion(channelId.getValue());
+        return CompletableFuture.completedFuture(reactionsVersion(channelId.getValue()));
     }
 
     /**

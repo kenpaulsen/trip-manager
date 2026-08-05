@@ -95,7 +95,7 @@ public class IndexLoaderDAOTest {
 
         final List<String> entries = store.getSortedSetByPrefix(
                 org.paulsens.trip.cache.CacheKeys.PEOPLE_SEARCH,
-                known.getLast().toLowerCase(), 10).join();
+                known.getLast().toLowerCase(), 10);
         Assert.assertFalse(entries.isEmpty(),
                 "the index scan must serve the fake people, or every local search answers nothing");
     }

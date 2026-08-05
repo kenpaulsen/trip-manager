@@ -180,7 +180,7 @@ public final class ChatDigestScheduler {
             log.warn("Chat digest run {} skipped: no usable cache, so a send could not be coordinated", runId);
             return true;
         }
-        if (!cacheClient.tryAcquireLock(CacheKeys.chatDigestLockKey(runId), LOCK_TTL).join()) {
+        if (!cacheClient.tryAcquireLock(CacheKeys.chatDigestLockKey(runId), LOCK_TTL)) {
             return false;
         }
         return dispatch(runId);
@@ -194,7 +194,7 @@ public final class ChatDigestScheduler {
     private boolean dispatch(final String runId) {
         final List<ChatDigestSender.Candidate> candidates = sender.candidates(Instant.now());
         final Map<String, String> alreadyDone = cacheClient
-                .getHash(CacheKeys.chatDigestProgressKey(runId)).join();
+                .getHash(CacheKeys.chatDigestProgressKey(runId));
         int sent = 0;
         int failed = 0;
         for (final ChatDigestSender.Candidate candidate : candidates) {
@@ -230,19 +230,19 @@ public final class ChatDigestScheduler {
         // tasks dispatch at once -- which the run lock allows the moment its TTL lapses part-way through a long
         // run. Without this, both would consult their own stale snapshots and both would mail the same person.
         final String claimKey = CacheKeys.chatDigestClaimKey(runId, field);
-        if (!cacheClient.tryAcquireLock(claimKey, CacheKeys.CHAT_DIGEST_RUN_TTL).join()) {
+        if (!cacheClient.tryAcquireLock(claimKey, CacheKeys.CHAT_DIGEST_RUN_TTL)) {
             return 0;
         }
         // Recorded BEFORE sending. The window between claim and send is the one place a crash loses a digest, and
         // that is the intended trade: an unrecorded send would be a duplicate on the next attempt.
         cacheClient.putHashField(CacheKeys.chatDigestProgressKey(runId), field,
-                Long.toString(System.currentTimeMillis())).join();
+                Long.toString(System.currentTimeMillis()));
         cacheClient.expire(CacheKeys.chatDigestProgressKey(runId), CacheKeys.CHAT_DIGEST_RUN_TTL);
         if (sender.send(candidate)) {
             return 1;
         }
         // Roll both back so a retry picks this person up again.
-        cacheClient.removeHashField(CacheKeys.chatDigestProgressKey(runId), field).join();
+        cacheClient.removeHashField(CacheKeys.chatDigestProgressKey(runId), field);
         cacheClient.releaseLock(claimKey);
         return -1;
     }
@@ -264,18 +264,18 @@ public final class ChatDigestScheduler {
     private boolean coordinationAvailable(final String runId) {
         final String probeKey = CacheKeys.chatDigestLockKey(runId + ":probe");
         final String token = Long.toString(System.nanoTime());
-        if (!cacheClient.putValue(probeKey, token, Duration.ofMinutes(1)).join()) {
+        if (!cacheClient.putValue(probeKey, token, Duration.ofMinutes(1))) {
             return false;
         }
-        return cacheClient.getValue(probeKey).join().filter(token::equals).isPresent();
+        return cacheClient.getValue(probeKey).filter(token::equals).isPresent();
     }
 
     private boolean isComplete(final String runId) {
-        return cacheClient.getValue(CacheKeys.chatDigestCompleteKey(runId)).join().isPresent();
+        return cacheClient.getValue(CacheKeys.chatDigestCompleteKey(runId)).isPresent();
     }
 
     private void markComplete(final String runId) {
-        cacheClient.putValue(CacheKeys.chatDigestCompleteKey(runId), "1", CacheKeys.CHAT_DIGEST_RUN_TTL).join();
+        cacheClient.putValue(CacheKeys.chatDigestCompleteKey(runId), "1", CacheKeys.CHAT_DIGEST_RUN_TTL);
     }
 
     private void releaseLock(final String runId) {

@@ -68,7 +68,7 @@ public class PersonDataValueDAO {
             if (!saved) {
                 return CompletableFuture.completedFuture(false);
             }
-            return cache.put(pdv.getUserId().getValue(), pdv).exceptionally(ex -> logSavePdvFailure(pdv, ex));
+            return CompletableFuture.completedFuture(cache.put(pdv.getUserId().getValue(), pdv));
         } catch (final RuntimeException ex) {
             return CompletableFuture.completedFuture(logSavePdvFailure(pdv, ex));
         }
@@ -80,33 +80,35 @@ public class PersonDataValueDAO {
     }
 
     protected CompletableFuture<Map<DataId, PersonDataValue>> getPersonDataValues(final Person.Id pid) {
-        return cache.getAll(pid.getValue(), () -> loadPersonDataValues(pid))
-                .thenApply(list -> {
-                    final Map<DataId, PersonDataValue> result = new LinkedHashMap<>();
-                    list.forEach(pdv -> result.put(pdv.getDataId(), pdv));
-                    return result;
-                });
-    }
-
-    protected CompletableFuture<Optional<PersonDataValue>> getPersonDataValue(final Person.Id pid, final DataId pdvId) {
-        return cache.getOne(pid.getValue(), pdvId, () -> loadPersonDataValues(pid));
-    }
-
-    public void clearCache() {
-        cacheClient.clearNamespace(CacheKeys.PDV_PREFIX).join();
-    }
-
-    private CompletableFuture<List<PersonDataValue>> loadPersonDataValues(final Person.Id pid) {
-        log.info("Cache miss for person data values for person id: {}", pid);
         try {
-            return CompletableFuture.completedFuture(
-                    persistence.queryAll(qb -> queryPersonDataValuesByPerson(qb, pid)).stream()
-                            .map(m -> toPersonDataValue(m.get(CONTENT)))
-                            .filter(Objects::nonNull)
-                            .toList());
+            final Map<DataId, PersonDataValue> result = new LinkedHashMap<>();
+            cache.getAll(pid.getValue(), () -> loadPersonDataValues(pid))
+                    .forEach(pdv -> result.put(pdv.getDataId(), pdv));
+            return CompletableFuture.completedFuture(result);
         } catch (final RuntimeException ex) {
             return CompletableFuture.failedFuture(ex);
         }
+    }
+
+    protected CompletableFuture<Optional<PersonDataValue>> getPersonDataValue(final Person.Id pid, final DataId pdvId) {
+        try {
+            return CompletableFuture.completedFuture(
+                    cache.getOne(pid.getValue(), pdvId, () -> loadPersonDataValues(pid)));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
+    }
+
+    public void clearCache() {
+        cacheClient.clearNamespace(CacheKeys.PDV_PREFIX);
+    }
+
+    private List<PersonDataValue> loadPersonDataValues(final Person.Id pid) {
+        log.info("Cache miss for person data values for person id: {}", pid);
+        return persistence.queryAll(qb -> queryPersonDataValuesByPerson(qb, pid)).stream()
+                .map(m -> toPersonDataValue(m.get(CONTENT)))
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     private void queryPersonDataValuesByPerson(final QueryRequest.Builder qb, final Person.Id pid) {

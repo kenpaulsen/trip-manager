@@ -78,7 +78,7 @@ public class ChatDigestSchedulerTest {
         Assert.assertTrue(first.attemptOnce(RUN, Instant.now()));
         // Clear the completion flag and the run lock, leaving only the per-person claim: this is the state a
         // second task walks into when the run lock lapses mid-run.
-        cache.removeKey(CacheKeys.chatDigestCompleteKey(RUN)).join();
+        cache.removeKey(CacheKeys.chatDigestCompleteKey(RUN));
         cache.releaseLock(CacheKeys.chatDigestLockKey(RUN));
 
         second.attemptOnce(RUN, Instant.now());
@@ -101,7 +101,7 @@ public class ChatDigestSchedulerTest {
     @Test
     public void aSecondInstanceWithoutTheLockRetriesRatherThanSending() {
         // Take the lock behind the scheduler's back, as a peer mid-run would hold it.
-        cache.tryAcquireLock(CacheKeys.chatDigestLockKey(RUN), Duration.ofMinutes(10)).join();
+        cache.tryAcquireLock(CacheKeys.chatDigestLockKey(RUN), Duration.ofMinutes(10));
         sender.candidates.add(candidate("p1"));
 
         final ChatDigestScheduler loser = ChatDigestScheduler.forTest(cache, enabled, sender);
@@ -116,13 +116,13 @@ public class ChatDigestSchedulerTest {
         final ChatDigestScheduler scheduler = ChatDigestScheduler.forTest(cache, enabled, sender);
         scheduler.attemptOnce(RUN, Instant.now());
 
-        final Map<String, String> progress = cache.getHash(CacheKeys.chatDigestProgressKey(RUN)).join();
+        final Map<String, String> progress = cache.getHash(CacheKeys.chatDigestProgressKey(RUN));
         Assert.assertEquals(progress.size(), 2, "every person dealt with is recorded");
 
         // Now simulate a fresh run id being resumed: clear the completion flag but keep the progress. Nobody should
         // be mailed twice.
-        cache.removeKey(CacheKeys.chatDigestCompleteKey(RUN)).join();
-        cache.releaseLock(CacheKeys.chatDigestLockKey(RUN)).join();
+        cache.removeKey(CacheKeys.chatDigestCompleteKey(RUN));
+        cache.releaseLock(CacheKeys.chatDigestLockKey(RUN));
         sender.sent.clear();
         ChatDigestScheduler.forTest(cache, enabled, sender).attemptOnce(RUN, Instant.now());
         Assert.assertTrue(sender.sent.isEmpty(), "a resumed run must skip everyone already recorded");
@@ -138,15 +138,15 @@ public class ChatDigestSchedulerTest {
         Assert.assertFalse(scheduler.attemptOnce(RUN, Instant.now()),
                 "a run with a failure is not complete, so it must ask to be retried");
 
-        final Map<String, String> progress = cache.getHash(CacheKeys.chatDigestProgressKey(RUN)).join();
+        final Map<String, String> progress = cache.getHash(CacheKeys.chatDigestProgressKey(RUN));
         Assert.assertEquals(progress.size(), 1, "only the successful person stays recorded: " + progress);
-        Assert.assertFalse(cache.getValue(CacheKeys.chatDigestCompleteKey(RUN)).join().isPresent(),
+        Assert.assertFalse(cache.getValue(CacheKeys.chatDigestCompleteKey(RUN)).isPresent(),
                 "the completion flag must NOT be written while anyone still needs mail");
 
         // The retry must pick up exactly the failure -- not re-send to the person who already got theirs.
         sender.failFor.clear();
         sender.sent.clear();
-        cache.releaseLock(CacheKeys.chatDigestLockKey(RUN)).join();
+        cache.releaseLock(CacheKeys.chatDigestLockKey(RUN));
         Assert.assertTrue(scheduler.attemptOnce(RUN, Instant.now()));
         Assert.assertEquals(sender.sent, List.of("bad"), "retry sends only what failed: " + sender.sent);
     }
@@ -154,7 +154,7 @@ public class ChatDigestSchedulerTest {
     @Test
     public void aRunGivesUpAfterTwoHoursEvenWithNoCompletionFlag() {
         // Otherwise a permanently failing run retries until the process dies -- a slow leak that outlives its cause.
-        cache.tryAcquireLock(CacheKeys.chatDigestLockKey(RUN), Duration.ofHours(9)).join();
+        cache.tryAcquireLock(CacheKeys.chatDigestLockKey(RUN), Duration.ofHours(9));
         sender.candidates.add(candidate("p1"));
 
         final ChatDigestScheduler scheduler = ChatDigestScheduler.forTest(cache, enabled, sender);
@@ -255,7 +255,7 @@ public class ChatDigestSchedulerTest {
 
     @Test
     public void anAttemptWithoutTheLockReschedulesInsteadOfSending() {
-        cache.tryAcquireLock(CacheKeys.chatDigestLockKey(RUN), Duration.ofMinutes(10)).join();
+        cache.tryAcquireLock(CacheKeys.chatDigestLockKey(RUN), Duration.ofMinutes(10));
         sender.candidates.add(candidate("p1"));
         final ChatDigestScheduler scheduler = ChatDigestScheduler.forTest(cache, enabled, sender);
 

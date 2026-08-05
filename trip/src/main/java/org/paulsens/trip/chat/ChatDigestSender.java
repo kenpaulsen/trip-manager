@@ -211,7 +211,6 @@ public class ChatDigestSender {
     private ChatMessage.Id watermark(final ChatChannel channel, final Person.Id personId) {
         return cacheClient.getValue(CacheKeys.chatDigestWatermarkKey(
                         channel.getId().getValue(), personId.getValue()))
-                .join()
                 .map(ChatMessage.Id::from)
                 .orElse(null);
     }

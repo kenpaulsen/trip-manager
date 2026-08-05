@@ -54,14 +54,14 @@ public class CacheTemplateTailsTest {
         final AtomicLong clock = new AtomicLong(1_000_000L);
         final AtomicInteger loads = new AtomicInteger();
         final PartitionCache<String, String> cache = partition(client, clock);
-        final Supplier<CompletableFuture<List<String>>> loader = () -> {
+        final Supplier<List<String>> loader = () -> {
             loads.incrementAndGet();
-            return CompletableFuture.completedFuture(List.of("a-db"));
+            return List.of("a-db");
         };
-        cache.getAll("p1", loader).join();
-        client.putHashField("tails:p1", CacheKeys.LOADED_AT, "garbage").join();
+        cache.getAll("p1", loader);
+        client.putHashField("tails:p1", CacheKeys.LOADED_AT, "garbage");
 
-        cache.getAll("p1", loader).join();
+        cache.getAll("p1", loader);
 
         final long deadline = System.currentTimeMillis() + 5_000;
         while (loads.get() < 2 && System.currentTimeMillis() < deadline) {
@@ -77,16 +77,16 @@ public class CacheTemplateTailsTest {
         final AtomicLong clock = new AtomicLong(1_000_000L);
         final AtomicInteger loads = new AtomicInteger();
         final PartitionCache<String, String> cache = partition(client, clock);
-        final Supplier<CompletableFuture<List<String>>> loader = () -> {
+        final Supplier<List<String>> loader = () -> {
             loads.incrementAndGet();
-            return CompletableFuture.completedFuture(List.of("a-db"));
+            return List.of("a-db");
         };
-        cache.getAll("p1", loader).join();
+        cache.getAll("p1", loader);
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
         Assert.assertTrue(client.tryAcquireLock(
-                CacheKeys.refreshLockKey("tails:p1"), Duration.ofMinutes(5)).join());
+                CacheKeys.refreshLockKey("tails:p1"), Duration.ofMinutes(5)));
 
-        Assert.assertEquals(cache.getAll("p1", loader).join(), List.of("a-db"));
+        Assert.assertEquals(cache.getAll("p1", loader), List.of("a-db"));
 
         Thread.sleep(200);
         Assert.assertEquals(loads.get(), 1, "the lock loser must not reload");
@@ -97,23 +97,23 @@ public class CacheTemplateTailsTest {
     public void aFailedPartitionWriteThroughInvalidatesThePartition() {
         final InMemoryCacheClient real = new InMemoryCacheClient();
         final CacheClient failing = Mockito.mock(CacheClient.class, AdditionalAnswers.delegatesTo(real));
-        Mockito.doReturn(CompletableFuture.completedFuture(false))
+        Mockito.doReturn(false)
                 .when(failing).putHashField(ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
                         ArgumentMatchers.anyString());
         final AtomicLong clock = new AtomicLong(1_000_000L);
         final AtomicInteger loads = new AtomicInteger();
         final PartitionCache<String, String> cache = partition(failing, clock);
-        final Supplier<CompletableFuture<List<String>>> loader = () -> {
+        final Supplier<List<String>> loader = () -> {
             loads.incrementAndGet();
-            return CompletableFuture.completedFuture(List.of("a-db"));
+            return List.of("a-db");
         };
-        cache.getAll("p1", loader).join();
+        cache.getAll("p1", loader);
         final int afterWarm = loads.get();
 
-        Assert.assertTrue(cache.put("p1", "b-new").join(),
+        Assert.assertTrue(cache.put("p1", "b-new"),
                 "the caller is not failed over a cache problem");
 
-        cache.getAll("p1", loader).join();
+        cache.getAll("p1", loader);
         Assert.assertTrue(loads.get() > afterWarm,
                 "the partition must reload from the database after a failed write-through");
     }
@@ -124,14 +124,14 @@ public class CacheTemplateTailsTest {
         final AtomicLong clock = new AtomicLong(1_000_000L);
         final AtomicInteger loads = new AtomicInteger();
         final PointCache<String> cache = point(client, clock);
-        final Function<String, CompletableFuture<String>> loader = id -> {
+        final Function<String, String> loader = id -> {
             loads.incrementAndGet();
-            return CompletableFuture.completedFuture("v-" + id);
+            return "v-" + id;
         };
-        Assert.assertEquals(cache.get("x", loader).join(), Optional.of("v-x"));
-        client.putValue(CacheKeys.pointAtKey("pt-tails:x"), "garbage", Duration.ofMinutes(5)).join();
+        Assert.assertEquals(cache.get("x", loader), Optional.of("v-x"));
+        client.putValue(CacheKeys.pointAtKey("pt-tails:x"), "garbage", Duration.ofMinutes(5));
 
-        Assert.assertEquals(cache.get("x", loader).join(), Optional.of("v-x"));
+        Assert.assertEquals(cache.get("x", loader), Optional.of("v-x"));
 
         final long deadline = System.currentTimeMillis() + 5_000;
         while (loads.get() < 2 && System.currentTimeMillis() < deadline) {
@@ -146,16 +146,16 @@ public class CacheTemplateTailsTest {
         final AtomicLong clock = new AtomicLong(1_000_000L);
         final AtomicInteger loads = new AtomicInteger();
         final PointCache<String> cache = point(client, clock);
-        final Function<String, CompletableFuture<String>> loader = id -> {
+        final Function<String, String> loader = id -> {
             loads.incrementAndGet();
-            return CompletableFuture.completedFuture("v-" + id);
+            return "v-" + id;
         };
-        cache.get("y", loader).join();
+        cache.get("y", loader);
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
         Assert.assertTrue(client.tryAcquireLock(
-                CacheKeys.refreshLockKey("pt-tails:y"), Duration.ofMinutes(5)).join());
+                CacheKeys.refreshLockKey("pt-tails:y"), Duration.ofMinutes(5)));
 
-        Assert.assertEquals(cache.get("y", loader).join(), Optional.of("v-y"));
+        Assert.assertEquals(cache.get("y", loader), Optional.of("v-y"));
 
         Thread.sleep(200);
         Assert.assertEquals(loads.get(), 1, "the lock loser must not reload");
@@ -170,16 +170,20 @@ public class CacheTemplateTailsTest {
         final PointCache<String> cache = point(client, clock);
         cache.get("z", id -> {
             loads.incrementAndGet();
-            return CompletableFuture.completedFuture("v-z");
-        }).join();
+            return "v-z";
+        });
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
 
-        cache.get("z", id -> CompletableFuture.failedFuture(new IllegalStateException("db down"))).join();
+        cache.get("z", this::throwDbDown);
 
         clock.addAndGet(-Duration.ofMinutes(2).toMillis());
         Thread.sleep(200);
         Assert.assertEquals(cache.get("z", id -> {
             throw new AssertionError("cached value must still serve");
-        }).join(), Optional.of("v-z"));
+        }), Optional.of("v-z"));
+    }
+
+    private String throwDbDown(final String id) {
+        throw new IllegalStateException("db down");
     }
 }

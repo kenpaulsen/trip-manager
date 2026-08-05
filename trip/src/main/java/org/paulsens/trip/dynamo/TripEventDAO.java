@@ -64,7 +64,7 @@ public class TripEventDAO {
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(TRIP_EVENT_TABLE).item(map))
                     .sdkHttpResponse().isSuccessful();
-            return saved ? cache.put(te.getId(), te) : CompletableFuture.completedFuture(false);
+            return CompletableFuture.completedFuture(saved && cache.put(te.getId(), te));
         } catch (final RuntimeException ex) {
             // Shim until Phase 5: callers still consume a CompletableFuture, so a (now synchronous)
             // persistence failure must arrive as a failed future, not a throw at call time.
@@ -73,21 +73,20 @@ public class TripEventDAO {
     }
 
     protected CompletableFuture<TripEvent> getTripEvent(final String id) {
-        return cache.get(id, this::loadTripEvent).thenApply(opt -> opt.orElse(null));
-    }
-
-    public void clearCache() {
-        cacheClient.clearNamespace(CacheKeys.TRIP_EVENT_PREFIX).join();
-    }
-
-    private CompletableFuture<TripEvent> loadTripEvent(final String id) {
-        final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id).build());
         try {
-            return CompletableFuture.completedFuture(
-                    toTripEvent(persistence.getItem(b -> b.key(key).tableName(TRIP_EVENT_TABLE).build()), id));
+            return CompletableFuture.completedFuture(cache.get(id, this::loadTripEvent).orElse(null));
         } catch (final RuntimeException ex) {
             return CompletableFuture.failedFuture(ex);
         }
+    }
+
+    public void clearCache() {
+        cacheClient.clearNamespace(CacheKeys.TRIP_EVENT_PREFIX);
+    }
+
+    private TripEvent loadTripEvent(final String id) {
+        final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id).build());
+        return toTripEvent(persistence.getItem(b -> b.key(key).tableName(TRIP_EVENT_TABLE).build()), id);
     }
 
     private TripEvent toTripEvent(final GetItemResponse resp, final String teId) {

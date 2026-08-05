@@ -65,7 +65,7 @@ public class RegistrationDAO {
             if (!saved) {
                 return CompletableFuture.completedFuture(false);
             }
-            return cache.put(reg.getTripId(), reg).exceptionally(this::logSaveRegistrationFailure);
+            return CompletableFuture.completedFuture(cache.put(reg.getTripId(), reg));
         } catch (final RuntimeException ex) {
             return CompletableFuture.completedFuture(logSaveRegistrationFailure(ex));
         }
@@ -77,28 +77,31 @@ public class RegistrationDAO {
     }
 
     protected CompletableFuture<List<Registration>> getRegistrations(final String tripId) {
-        return cache.getAll(tripId, () -> loadTripRegData(tripId));
-    }
-
-    protected CompletableFuture<Optional<Registration>> getRegistration(final String tripId, final Person.Id userId) {
-        return cache.getOne(tripId, userId, () -> loadTripRegData(tripId));
-    }
-
-    public void clearCache() {
-        cacheClient.clearNamespace(CacheKeys.REG_PREFIX).join();
-    }
-
-    private CompletableFuture<List<Registration>> loadTripRegData(final String tripId) {
-        log.info("Cache miss for registration data for tripId: {}", tripId);
         try {
-            return CompletableFuture.completedFuture(
-                    persistence.queryAll(qb -> registrationsByTripId(qb, tripId)).stream()
-                            .map(m -> toRegistration(m.get(CONTENT)))
-                            .filter(reg -> (reg != null) && !DELETED.equals(reg.getStatus()))
-                            .toList());
+            return CompletableFuture.completedFuture(cache.getAll(tripId, () -> loadTripRegData(tripId)));
         } catch (final RuntimeException ex) {
             return CompletableFuture.failedFuture(ex);
         }
+    }
+
+    protected CompletableFuture<Optional<Registration>> getRegistration(final String tripId, final Person.Id userId) {
+        try {
+            return CompletableFuture.completedFuture(cache.getOne(tripId, userId, () -> loadTripRegData(tripId)));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
+    }
+
+    public void clearCache() {
+        cacheClient.clearNamespace(CacheKeys.REG_PREFIX);
+    }
+
+    private List<Registration> loadTripRegData(final String tripId) {
+        log.info("Cache miss for registration data for tripId: {}", tripId);
+        return persistence.queryAll(qb -> registrationsByTripId(qb, tripId)).stream()
+                .map(m -> toRegistration(m.get(CONTENT)))
+                .filter(reg -> (reg != null) && !DELETED.equals(reg.getStatus()))
+                .toList();
     }
 
     private void registrationsByTripId(final QueryRequest.Builder qb, final String tripId) {

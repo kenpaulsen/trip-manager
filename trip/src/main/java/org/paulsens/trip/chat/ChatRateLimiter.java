@@ -185,7 +185,7 @@ public class ChatRateLimiter {
     private boolean acquireSlowModeSlot(
             final String channelId, final String person, final ChatSettings settings) {
         return cacheClient.tryAcquireLock(CacheKeys.chatSlowModeKey(channelId, person),
-                Duration.ofSeconds(settings.getSlowModeSeconds())).join();
+                Duration.ofSeconds(settings.getSlowModeSeconds()));
     }
 
     /**
@@ -194,7 +194,7 @@ public class ChatRateLimiter {
      */
     private long count(final String key, final int windowSeconds) {
         final Duration ttl = Duration.ofSeconds(Math.max(1L, windowSeconds * 2L));
-        return cacheClient.increment(key, 1, ttl).join()
+        return cacheClient.increment(key, 1, ttl)
                 .orElseGet(() -> (long) FALLBACK_BUCKETS
                         .computeIfAbsent(key, k -> new AtomicInteger(0)).incrementAndGet());
     }
@@ -230,7 +230,7 @@ public class ChatRateLimiter {
         final int dedupeWindow = alarmDedupeWindowSeconds();
         final boolean first = cacheClient.tryAcquireLock(
                 CacheKeys.chatAlarmLockKey(channelId, person, now.getEpochSecond(), dedupeWindow),
-                Duration.ofSeconds(dedupeWindow)).join();
+                Duration.ofSeconds(dedupeWindow));
         if (!first) {
             return;
         }
@@ -262,7 +262,7 @@ public class ChatRateLimiter {
         // Reset the counter now that it has been spent. Without this, EVERY subsequent hit is still >= the
         // threshold, so each one escalates a tier and the ladder jumps to its maximum within a few messages
         // instead of requiring a fresh set of offences per step.
-        cacheClient.removeKey(hitsKey).join();
+        cacheClient.removeKey(hitsKey);
         FALLBACK_BUCKETS.remove(hitsKey);
         final int tier = nextTier(channelId, person);
         final int[] ladder = autoMuteLadder();
@@ -294,7 +294,6 @@ public class ChatRateLimiter {
                         CacheKeys.chatAutoMuteTierKey(channelId, person), 1,
                         Duration.ofHours(config.getInt(
                                 KnownSettings.CHAT_AUTO_MUTE_TIER_DECAY_HOURS, 1, Integer.MAX_VALUE)))
-                .join()
                 .map(Long::intValue)
                 .orElse(1);
     }

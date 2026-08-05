@@ -19,14 +19,14 @@ public class PointCacheTest {
         final AtomicInteger loads = new AtomicInteger();
         final AtomicLong clock = new AtomicLong(1_000_000L);
         final PointCache<String> cache = point(clock);
-        final Function<String, CompletableFuture<String>> loader = id -> {
+        final Function<String, String> loader = id -> {
             loads.incrementAndGet();
-            return CompletableFuture.completedFuture("val-" + id);
+            return "val-" + id;
         };
 
-        assertEquals(cache.get("e1", loader).join(), Optional.of("val-e1"));
+        assertEquals(cache.get("e1", loader), Optional.of("val-e1"));
         assertEquals(loads.get(), 1);
-        assertEquals(cache.get("e1", loader).join(), Optional.of("val-e1"));
+        assertEquals(cache.get("e1", loader), Optional.of("val-e1"));
         Thread.sleep(50);
         assertEquals(loads.get(), 1);
     }
@@ -37,22 +37,22 @@ public class PointCacheTest {
         final AtomicLong clock = new AtomicLong(1_000_000L);
         final CountDownLatch secondLoad = new CountDownLatch(1);
         final PointCache<String> cache = point(clock);
-        final Function<String, CompletableFuture<String>> loader = id -> {
+        final Function<String, String> loader = id -> {
             final int n = loads.incrementAndGet();
             if (n == 1) {
-                return CompletableFuture.completedFuture("v1");
+                return "v1";
             }
             secondLoad.countDown();
-            return CompletableFuture.completedFuture("v2");
+            return "v2";
         };
 
-        assertEquals(cache.get("e1", loader).join(), Optional.of("v1"));
+        assertEquals(cache.get("e1", loader), Optional.of("v1"));
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
 
-        assertEquals(cache.get("e1", loader).join(), Optional.of("v1"));
+        assertEquals(cache.get("e1", loader), Optional.of("v1"));
         assertTrue(secondLoad.await(3, TimeUnit.SECONDS));
         Thread.sleep(100);
-        assertEquals(cache.get("e1", loader).join(), Optional.of("v2"));
+        assertEquals(cache.get("e1", loader), Optional.of("v2"));
         Thread.sleep(50);
         assertEquals(loads.get(), 2);
     }
@@ -63,22 +63,22 @@ public class PointCacheTest {
         final AtomicLong clock = new AtomicLong(1_000_000L);
         final CountDownLatch secondLoad = new CountDownLatch(1);
         final PointCache<String> cache = point(clock);
-        final Function<String, CompletableFuture<String>> loader = id -> {
+        final Function<String, String> loader = id -> {
             final int n = loads.incrementAndGet();
             if (n == 1) {
-                return CompletableFuture.completedFuture("v1");
+                return "v1";
             }
             secondLoad.countDown();
-            return CompletableFuture.completedFuture(null);
+            return null;
         };
 
-        assertEquals(cache.get("e1", loader).join(), Optional.of("v1"));
+        assertEquals(cache.get("e1", loader), Optional.of("v1"));
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
-        assertEquals(cache.get("e1", loader).join(), Optional.of("v1"));
+        assertEquals(cache.get("e1", loader), Optional.of("v1"));
         assertTrue(secondLoad.await(3, TimeUnit.SECONDS));
         Thread.sleep(100);
         // Miss path reloads again after remove
-        assertEquals(cache.get("e1", loader).join(), Optional.empty());
+        assertEquals(cache.get("e1", loader), Optional.empty());
         assertTrue(loads.get() >= 3);
     }
 
@@ -93,21 +93,21 @@ public class PointCacheTest {
         final FailingPutClient client = new FailingPutClient();
         final PointCache<String> cache = point(clock, client);
         final CountDownLatch refreshTried = new CountDownLatch(1);
-        final Function<String, CompletableFuture<String>> loader = id -> {
+        final Function<String, String> loader = id -> {
             refreshTried.countDown();
-            return CompletableFuture.completedFuture("fresh");
+            return "fresh";
         };
 
-        assertEquals(cache.get("e1", id -> CompletableFuture.completedFuture("v1")).join(), Optional.of("v1"));
+        assertEquals(cache.get("e1", id -> "v1"), Optional.of("v1"));
         client.failPuts = true;
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
 
-        assertEquals(cache.get("e1", loader).join(), Optional.of("v1"));
+        assertEquals(cache.get("e1", loader), Optional.of("v1"));
         assertTrue(refreshTried.await(3, TimeUnit.SECONDS), "the background refresh must have run");
         Thread.sleep(100);
         assertEquals(client.dataKeyRemovals.get(), 0,
                 "a failed refresh put must never remove the entry it could not replace");
-        assertEquals(cache.get("e1", loader).join(), Optional.of("v1"),
+        assertEquals(cache.get("e1", loader), Optional.of("v1"),
                 "the stale-but-present entry must still serve");
     }
 
@@ -117,23 +117,23 @@ public class PointCacheTest {
         final AtomicInteger loads = new AtomicInteger();
         final AtomicLong clock = new AtomicLong(1_000_000L);
         final PointCache<String> cache = point(clock);
-        final Function<String, CompletableFuture<String>> loader = id -> {
+        final Function<String, String> loader = id -> {
             loads.incrementAndGet();
-            return CompletableFuture.completedFuture("v" + loads.get());
+            return "v" + loads.get();
         };
 
-        assertEquals(cache.get("e1", loader).join(), Optional.of("v1"));
+        assertEquals(cache.get("e1", loader), Optional.of("v1"));
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
         final int drained = drainAllPermits();
         try {
-            assertEquals(cache.get("e1", loader).join(), Optional.of("v1"));
+            assertEquals(cache.get("e1", loader), Optional.of("v1"));
             Thread.sleep(150);
             assertEquals(loads.get(), 1, "no refresh may run while the cap is exhausted");
         } finally {
             releasePermits(drained);
         }
         // With permits back, the next stale read refreshes normally.
-        assertEquals(cache.get("e1", loader).join(), Optional.of("v1"));
+        assertEquals(cache.get("e1", loader), Optional.of("v1"));
         awaitLoads(loads, 2);
     }
 
@@ -146,24 +146,24 @@ public class PointCacheTest {
         final PointCache<String> early = pointWithJitter(clock, 0.0, "early:");
         final PointCache<String> late = pointWithJitter(clock, 1.0, "late:");
 
-        assertEquals(early.get("e1", countingLoader(earlyLoads)).join(), Optional.of("v1"));
-        assertEquals(late.get("e1", countingLoader(lateLoads)).join(), Optional.of("v1"));
+        assertEquals(early.get("e1", countingLoader(earlyLoads)), Optional.of("v1"));
+        assertEquals(late.get("e1", countingLoader(lateLoads)), Optional.of("v1"));
         clock.addAndGet(Duration.ofSeconds(57).toMillis()); // 0.95x of the 60s softTtl
 
-        assertEquals(early.get("e1", countingLoader(earlyLoads)).join(), Optional.of("v1"));
-        assertEquals(late.get("e1", countingLoader(lateLoads)).join(), Optional.of("v1"));
+        assertEquals(early.get("e1", countingLoader(earlyLoads)), Optional.of("v1"));
+        assertEquals(late.get("e1", countingLoader(lateLoads)), Optional.of("v1"));
         awaitLoads(earlyLoads, 2); // 57s >= 54s effective: stale, refresh runs
         Thread.sleep(100);
         assertEquals(lateLoads.get(), 1, "57s < 66s effective TTL: still fresh, no refresh");
     }
 
-    private static Function<String, CompletableFuture<String>> countingLoader(final AtomicInteger loads) {
+    private static Function<String, String> countingLoader(final AtomicInteger loads) {
         return id -> countLoad(loads);
     }
 
-    private static CompletableFuture<String> countLoad(final AtomicInteger loads) {
+    private static String countLoad(final AtomicInteger loads) {
         loads.incrementAndGet();
-        return CompletableFuture.completedFuture("v1");
+        return "v1";
     }
 
     private static void awaitLoads(final AtomicInteger loads, final int expected) throws InterruptedException {
@@ -226,15 +226,15 @@ public class PointCacheTest {
         }
 
         @Override
-        public CompletableFuture<Boolean> putValue(final String key, final String value, final Duration ttl) {
+        public boolean putValue(final String key, final String value, final Duration ttl) {
             if (failPuts) {
-                return CompletableFuture.completedFuture(false);
+                return false;
             }
             return super.putValue(key, value, ttl);
         }
 
         @Override
-        public CompletableFuture<Boolean> removeKey(final String key) {
+        public boolean removeKey(final String key) {
             if (!key.contains("refresh:") && !key.endsWith(CacheKeys.POINT_AT_SUFFIX)) {
                 dataKeyRemovals.incrementAndGet();
             }

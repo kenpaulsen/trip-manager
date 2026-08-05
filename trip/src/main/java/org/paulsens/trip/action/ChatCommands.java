@@ -1812,7 +1812,7 @@ public class ChatCommands {
 
     public List<ChatSummary> myChats(final Person.Id personId) {
         final List<Trip> trips = dao().getTripsForUser(personId).join();
-        final Map<String, String> lastAct = dao().getCacheClient().getHash(CacheKeys.CHAT_LAST_ACTIVITY).join();
+        final Map<String, String> lastAct = dao().getCacheClient().getHash(CacheKeys.CHAT_LAST_ACTIVITY);
         final List<ChatSummary> out = new ArrayList<>();
         for (final Trip trip : trips) {
             final ChatChannel.Id cid = ChatChannel.Id.forTrip(trip.getId());

@@ -41,7 +41,7 @@ public class TripIndexTest {
                 .ttlJitter(() -> 0.5) // pins the effective soft TTL to exactly softTtl (no test flake)
                 .loader(() -> {
                     loads.incrementAndGet();
-                    return CompletableFuture.completedFuture(entries);
+                    return entries;
                 })
                 .build();
     }
@@ -49,7 +49,7 @@ public class TripIndexTest {
     /** A cold index rebuilds from the loader instead of answering "nothing". */
     @Test
     public void aColdIndexIsBuiltFromTheLoader() {
-        final List<String> active = index().activeTripIds(1_000_000L, 50).join();
+        final List<String> active = index().activeTripIds(1_000_000L, 50);
 
         Assert.assertEquals(loads.get(), 1, "the loader must run for a cold index");
         Assert.assertEquals(active, List.of("future", "further"), "soonest-ending first");
@@ -58,22 +58,22 @@ public class TripIndexTest {
     @Test
     public void aWarmIndexIsAnsweredFromTheCache() {
         final TripIndex index = index();
-        index.activeTripIds(1_000_000L, 50).join();
+        index.activeTripIds(1_000_000L, 50);
         final int afterFirst = loads.get();
 
-        index.activeTripIds(1_000_000L, 50).join();
+        index.activeTripIds(1_000_000L, 50);
 
         Assert.assertEquals(loads.get(), afterFirst, "a warm index must not reload");
     }
 
     @Test
     public void inactiveIsTheComplementOfActiveNewestFirst() {
-        Assert.assertEquals(index().inactiveTripIds(1_000_000L, 50).join(), List.of("past"));
+        Assert.assertEquals(index().inactiveTripIds(1_000_000L, 50), List.of("past"));
     }
 
     @Test
     public void allTripIdsSpanBothSidesOfTheCutoff() {
-        final List<String> all = index().allTripIds(50).join();
+        final List<String> all = index().allTripIds(50);
 
         Assert.assertEquals(all.size(), 3);
         Assert.assertEquals(all.get(0), "further", "newest-ending first");
@@ -81,70 +81,70 @@ public class TripIndexTest {
 
     @Test
     public void theLimitIsApplied() {
-        Assert.assertEquals(index().allTripIds(2).join().size(), 2);
-        Assert.assertEquals(index().activeTripIds(1_000_000L, 1).join(), List.of("future"));
+        Assert.assertEquals(index().allTripIds(2).size(), 2);
+        Assert.assertEquals(index().activeTripIds(1_000_000L, 1), List.of("future"));
     }
 
     @Test
     public void tripsForAUserComeFromTheReverseIndex() {
-        Assert.assertEquals(Set.copyOf(index().tripIdsForUser("alice", 50).join()),
+        Assert.assertEquals(Set.copyOf(index().tripIdsForUser("alice", 50)),
                 Set.of("past", "future"));
-        Assert.assertEquals(index().tripIdsForUser("nobody", 50).join(), List.of());
+        Assert.assertEquals(index().tripIdsForUser("nobody", 50), List.of());
     }
 
     @Test
     public void addingATripPutsItInBothTheDateAndPersonIndexes() {
         final TripIndex index = index();
-        index.allTripIds(50).join(); // warm it
+        index.allTripIds(50); // warm it
 
         final TripIndex.Entry added = new TripIndex.Entry("added", 4_000_000L, Set.of("carol"));
-        Assert.assertTrue(index.update(null, added, false).join());
+        Assert.assertTrue(index.update(null, added, false));
 
-        Assert.assertTrue(index.allTripIds(50).join().contains("added"));
-        Assert.assertEquals(index.tripIdsForUser("carol", 50).join(), List.of("added"));
+        Assert.assertTrue(index.allTripIds(50).contains("added"));
+        Assert.assertEquals(index.tripIdsForUser("carol", 50), List.of("added"));
     }
 
     /** Dropping somebody from a trip must remove the reverse-index entry, or their listing keeps the trip. */
     @Test
     public void droppingAMemberRemovesTheirReverseIndexEntry() {
         final TripIndex index = index();
-        index.allTripIds(50).join();
+        index.allTripIds(50);
         final TripIndex.Entry before = new TripIndex.Entry("future", 2_000_000L, Set.of("alice", "bob"));
         final TripIndex.Entry after = new TripIndex.Entry("future", 2_000_000L, Set.of("alice"));
 
-        Assert.assertTrue(index.update(before, after, false).join());
+        Assert.assertTrue(index.update(before, after, false));
 
-        Assert.assertFalse(index.tripIdsForUser("bob", 50).join().contains("future"),
+        Assert.assertFalse(index.tripIdsForUser("bob", 50).contains("future"),
                 "bob was dropped, so his listing must lose the trip");
-        Assert.assertTrue(index.tripIdsForUser("alice", 50).join().contains("future"));
+        Assert.assertTrue(index.tripIdsForUser("alice", 50).contains("future"));
     }
 
     @Test
     public void removingATripTakesItOutOfEveryIndex() {
         final TripIndex index = index();
-        index.allTripIds(50).join();
+        index.allTripIds(50);
         final TripIndex.Entry existing = new TripIndex.Entry("future", 2_000_000L, Set.of("alice", "bob"));
 
-        Assert.assertTrue(index.update(existing, existing, true).join());
+        Assert.assertTrue(index.update(existing, existing, true));
 
-        Assert.assertFalse(index.allTripIds(50).join().contains("future"));
-        Assert.assertFalse(index.tripIdsForUser("alice", 50).join().contains("future"));
+        Assert.assertFalse(index.allTripIds(50).contains("future"));
+        Assert.assertFalse(index.tripIdsForUser("alice", 50).contains("future"));
     }
 
     @Test
     public void anUpdateWithNothingToIdentifyIsANoop() {
-        Assert.assertTrue(index().update(null, null, true).join());
+        Assert.assertTrue(index().update(null, null, true));
     }
 
     /** Invalidating drops the index so the next read rebuilds -- for rows written behind the cache's back. */
     @Test
     public void invalidateForcesTheNextReadToReload() {
         final TripIndex index = index();
-        index.allTripIds(50).join();
+        index.allTripIds(50);
         final int afterFirst = loads.get();
 
-        Assert.assertTrue(index.invalidate().join());
-        index.allTripIds(50).join();
+        Assert.assertTrue(index.invalidate());
+        index.allTripIds(50);
 
         Assert.assertTrue(loads.get() > afterFirst, "an invalidated index must rebuild");
     }
@@ -153,8 +153,8 @@ public class TripIndexTest {
     public void aTripThatEndsExactlyOnTheCutoffCountsAsActive() {
         entries = List.of(new TripIndex.Entry("edge", 1_000_000L, Set.of("alice")));
 
-        Assert.assertEquals(index().activeTripIds(1_000_000L, 50).join(), List.of("edge"));
-        Assert.assertEquals(index().inactiveTripIds(1_000_000L, 50).join(), List.of());
+        Assert.assertEquals(index().activeTripIds(1_000_000L, 50), List.of("edge"));
+        Assert.assertEquals(index().inactiveTripIds(1_000_000L, 50), List.of());
     }
 
     // --- soft-stale background rebuild ---
@@ -166,31 +166,31 @@ public class TripIndexTest {
     @Test
     public void aSoftStaleRebuildReconcilesBothIndexes() throws Exception {
         final TripIndex index = index();
-        index.allTripIds(50).join(); // warm
+        index.allTripIds(50); // warm
         entries = List.of( // "past" deleted behind the cache's back
                 new TripIndex.Entry("future", 2_000_000L, Set.of("alice", "bob")),
                 new TripIndex.Entry("further", 3_000_000L, Set.of("bob")));
         now.addAndGet(java.time.Duration.ofHours(25).toMillis());
 
-        Assert.assertTrue(index.allTripIds(50).join().contains("past"),
+        Assert.assertTrue(index.allTripIds(50).contains("past"),
                 "the read that noticed staleness still answers from the (old) index");
 
         now.addAndGet(-java.time.Duration.ofHours(25).toMillis());
-        awaitTrue(() -> !index.allTripIds(50).join().contains("past"),
+        awaitTrue(() -> !index.allTripIds(50).contains("past"),
                 "the deleted trip must leave the date index");
-        Assert.assertFalse(index.tripIdsForUser("alice", 50).join().contains("past"),
+        Assert.assertFalse(index.tripIdsForUser("alice", 50).contains("past"),
                 "the reverse index must be reconciled too, or alice's listing keeps a deleted trip");
     }
 
     @Test
     public void anUnparseableLoadedMarkerCountsAsStale() throws Exception {
         final TripIndex index = index();
-        index.allTripIds(50).join();
+        index.allTripIds(50);
         final int afterWarm = loads.get();
         cache.putValue(CacheKeys.TRIPS_BY_DATE + CacheKeys.SEARCH_LOADED_SUFFIX, "garbage",
-                java.time.Duration.ofMinutes(5)).join();
+                java.time.Duration.ofMinutes(5));
 
-        index.allTripIds(50).join();
+        index.allTripIds(50);
 
         awaitTrue(() -> loads.get() > afterWarm, "a garbage marker must trigger a rebuild");
     }
@@ -199,13 +199,13 @@ public class TripIndexTest {
     @Test
     public void losingTheRefreshLockSkipsTheRebuild() throws Exception {
         final TripIndex index = index();
-        index.allTripIds(50).join();
+        index.allTripIds(50);
         final int afterWarm = loads.get();
         now.addAndGet(java.time.Duration.ofHours(25).toMillis());
         Assert.assertTrue(cache.tryAcquireLock(
-                CacheKeys.refreshLockKey(CacheKeys.TRIPS_BY_DATE), java.time.Duration.ofMinutes(5)).join());
+                CacheKeys.refreshLockKey(CacheKeys.TRIPS_BY_DATE), java.time.Duration.ofMinutes(5)));
 
-        Assert.assertEquals(index.allTripIds(50).join().size(), 3);
+        Assert.assertEquals(index.allTripIds(50).size(), 3);
 
         Thread.sleep(200);
         Assert.assertEquals(loads.get(), afterWarm, "the lock loser must not rebuild");
@@ -215,15 +215,15 @@ public class TripIndexTest {
     @Test
     public void aFailingBackgroundRebuildIsSwallowed() throws Exception {
         final TripIndex index = index();
-        index.allTripIds(50).join();
+        index.allTripIds(50);
         entries = null; // the next load blows up inside populate
         now.addAndGet(java.time.Duration.ofHours(25).toMillis());
 
-        Assert.assertEquals(index.allTripIds(50).join().size(), 3);
+        Assert.assertEquals(index.allTripIds(50).size(), 3);
 
         now.addAndGet(-java.time.Duration.ofHours(25).toMillis());
         Thread.sleep(200);
-        Assert.assertEquals(index.allTripIds(50).join().size(), 3,
+        Assert.assertEquals(index.allTripIds(50).size(), 3,
                 "a failed rebuild must leave the index serving");
     }
 
@@ -231,12 +231,12 @@ public class TripIndexTest {
     @Test
     public void aColdBuildLockLoserStillAnswersFromItsSnapshot() {
         Assert.assertTrue(cache.tryAcquireLock(
-                CacheKeys.refreshLockKey(CacheKeys.TRIPS_BY_DATE), java.time.Duration.ofMinutes(5)).join());
+                CacheKeys.refreshLockKey(CacheKeys.TRIPS_BY_DATE), java.time.Duration.ofMinutes(5)));
 
-        Assert.assertEquals(index().allTripIds(50).join().size(), 3);
+        Assert.assertEquals(index().allTripIds(50).size(), 3);
 
         Assert.assertTrue(cache.getValue(CacheKeys.TRIPS_BY_DATE + CacheKeys.SEARCH_LOADED_SUFFIX)
-                .join().isEmpty(), "the loser must not mark loaded: it did not populate");
+                .isEmpty(), "the loser must not mark loaded: it did not populate");
     }
 
     private static void awaitTrue(final java.util.function.BooleanSupplier condition, final String message)

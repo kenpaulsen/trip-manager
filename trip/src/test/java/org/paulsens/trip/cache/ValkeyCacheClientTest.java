@@ -47,95 +47,91 @@ public class ValkeyCacheClientTest {
         }
     }
 
-    private static <T> T join(final CompletableFuture<T> future) {
-        return future.orTimeout(10, TimeUnit.SECONDS).join();
-    }
-
     @Test
     public void stringsRoundTrip() {
-        Assert.assertTrue(join(client.putValue("k1", "v1", null)));
-        Assert.assertEquals(join(client.getValue("k1")).orElse(null), "v1");
-        Assert.assertTrue(join(client.removeKey("k1")));
-        Assert.assertTrue(join(client.getValue("k1")).isEmpty());
+        Assert.assertTrue(client.putValue("k1", "v1", null));
+        Assert.assertEquals(client.getValue("k1").orElse(null), "v1");
+        Assert.assertTrue(client.removeKey("k1"));
+        Assert.assertTrue(client.getValue("k1").isEmpty());
     }
 
     @Test
     public void stringsHonourTtl() {
-        Assert.assertTrue(join(client.putValue("k2", "v2", Duration.ofSeconds(30))));
-        Assert.assertEquals(join(client.getValue("k2")).orElse(null), "v2");
-        Assert.assertTrue(join(client.expire("k2", Duration.ofSeconds(60))));
+        Assert.assertTrue(client.putValue("k2", "v2", Duration.ofSeconds(30)));
+        Assert.assertEquals(client.getValue("k2").orElse(null), "v2");
+        Assert.assertTrue(client.expire("k2", Duration.ofSeconds(60)));
     }
 
     @Test
     public void hashesRoundTrip() {
-        Assert.assertTrue(join(client.putHashField("h1", "f1", "a")));
-        Assert.assertTrue(join(client.putHashFields("h1", Map.of("f2", "b", "f3", "c"))));
-        Assert.assertEquals(join(client.getHash("h1")), Map.of("f1", "a", "f2", "b", "f3", "c"));
-        Assert.assertEquals(join(client.getHashFields("h1", List.of("f1", "f3"))), Map.of("f1", "a", "f3", "c"));
-        Assert.assertTrue(join(client.removeHashField("h1", "f1")));
+        Assert.assertTrue(client.putHashField("h1", "f1", "a"));
+        Assert.assertTrue(client.putHashFields("h1", Map.of("f2", "b", "f3", "c")));
+        Assert.assertEquals(client.getHash("h1"), Map.of("f1", "a", "f2", "b", "f3", "c"));
+        Assert.assertEquals(client.getHashFields("h1", List.of("f1", "f3")), Map.of("f1", "a", "f3", "c"));
+        Assert.assertTrue(client.removeHashField("h1", "f1"));
     }
 
     @Test
     public void setsRoundTrip() {
-        Assert.assertTrue(join(client.addSetMembers("s1", List.of("m1", "m2"))));
-        Assert.assertEquals(join(client.getSetMembers("s1")), Set.of("m1", "m2"));
-        Assert.assertTrue(join(client.removeSetMember("s1", "m1")));
-        Assert.assertEquals(join(client.getSetMembers("s1")), Set.of("m2"));
+        Assert.assertTrue(client.addSetMembers("s1", List.of("m1", "m2")));
+        Assert.assertEquals(client.getSetMembers("s1"), Set.of("m1", "m2"));
+        Assert.assertTrue(client.removeSetMember("s1", "m1"));
+        Assert.assertEquals(client.getSetMembers("s1"), Set.of("m2"));
     }
 
     @Test
     public void lexSortedSetsRoundTrip() {
-        Assert.assertTrue(join(client.addSortedSetEntries("z1", List.of("apple", "apricot", "banana"))));
-        Assert.assertEquals(join(client.getSortedSetByPrefix("z1", "ap", 10)), List.of("apple", "apricot"));
-        Assert.assertTrue(join(client.removeSortedSetEntries("z1", List.of("apple"))));
+        Assert.assertTrue(client.addSortedSetEntries("z1", List.of("apple", "apricot", "banana")));
+        Assert.assertEquals(client.getSortedSetByPrefix("z1", "ap", 10), List.of("apple", "apricot"));
+        Assert.assertTrue(client.removeSortedSetEntries("z1", List.of("apple")));
     }
 
     @Test
     public void scoredSetsAndTrimming() {
-        Assert.assertTrue(join(client.addScoredEntries("z2", Map.of("a", 1.0, "b", 2.0, "c", 3.0))));
-        Assert.assertTrue(join(client.trimSortedSet("z2", 2)));
+        Assert.assertTrue(client.addScoredEntries("z2", Map.of("a", 1.0, "b", 2.0, "c", 3.0)));
+        Assert.assertTrue(client.trimSortedSet("z2", 2));
     }
 
     @Test
     public void countersIncrement() {
-        Assert.assertEquals(join(client.increment("c1", 5, Duration.ofSeconds(30))).orElse(-1L), 5L);
-        Assert.assertEquals(join(client.increment("c1", 3, Duration.ofSeconds(30))).orElse(-1L), 8L);
+        Assert.assertEquals(client.increment("c1", 5, Duration.ofSeconds(30)).orElse(-1L), 5L);
+        Assert.assertEquals(client.increment("c1", 3, Duration.ofSeconds(30)).orElse(-1L), 8L);
     }
 
     @Test
     public void locksAreExclusive() {
-        Assert.assertTrue(join(client.tryAcquireLock("lock1", Duration.ofSeconds(30))));
-        Assert.assertFalse(join(client.tryAcquireLock("lock1", Duration.ofSeconds(30))),
+        Assert.assertTrue(client.tryAcquireLock("lock1", Duration.ofSeconds(30)));
+        Assert.assertFalse(client.tryAcquireLock("lock1", Duration.ofSeconds(30)),
                 "A second acquire of a held lock must be refused -- this is what NoopCacheClient gets wrong.");
-        Assert.assertTrue(join(client.releaseLock("lock1")));
-        Assert.assertTrue(join(client.tryAcquireLock("lock1", Duration.ofSeconds(30))));
+        Assert.assertTrue(client.releaseLock("lock1"));
+        Assert.assertTrue(client.tryAcquireLock("lock1", Duration.ofSeconds(30)));
     }
 
     @Test
     public void namespaceClearScansAndDeletes() {
-        join(client.putValue("ns:a", "1", null));
-        join(client.putValue("ns:b", "2", null));
-        join(client.putValue("other:c", "3", null));
-        Assert.assertTrue(join(client.clearNamespace("ns:")));
-        Assert.assertTrue(join(client.getValue("ns:a")).isEmpty());
-        Assert.assertEquals(join(client.getValue("other:c")).orElse(null), "3");
+        client.putValue("ns:a", "1", null);
+        client.putValue("ns:b", "2", null);
+        client.putValue("other:c", "3", null);
+        Assert.assertTrue(client.clearNamespace("ns:"));
+        Assert.assertTrue(client.getValue("ns:a").isEmpty());
+        Assert.assertEquals(client.getValue("other:c").orElse(null), "3");
     }
 
     @Test
     public void scoredRangesQueryBothDirectionsAndHonourInfinities() {
-        join(client.addScoredEntries("z3", Map.of("old", 100.0, "mid", 200.0, "new", 300.0)));
+        client.addScoredEntries("z3", Map.of("old", 100.0, "mid", 200.0, "new", 300.0));
 
-        Assert.assertEquals(join(client.getRangeByScore("z3", 150.0, 250.0, false, 10)), List.of("mid"));
-        Assert.assertEquals(join(client.getRangeByScore(
-                        "z3", Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, 10)),
+        Assert.assertEquals(client.getRangeByScore("z3", 150.0, 250.0, false, 10), List.of("mid"));
+        Assert.assertEquals(client.getRangeByScore(
+                        "z3", Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, 10),
                 List.of("old", "mid", "new"), "infinities map to unbounded, not to a numeric literal");
-        Assert.assertEquals(join(client.getRangeByScore(
-                        "z3", Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, true, 10)),
+        Assert.assertEquals(client.getRangeByScore(
+                        "z3", Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, true, 10),
                 List.of("new", "mid", "old"), "reverse order for newest-first listings");
-        Assert.assertEquals(join(client.getRangeByScore(
-                "z3", Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, true, 2)).size(), 2);
-        Assert.assertEquals(join(client.getRangeByScore(
-                "z3", Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, 0)).size(), 3,
+        Assert.assertEquals(client.getRangeByScore(
+                "z3", Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, true, 2).size(), 2);
+        Assert.assertEquals(client.getRangeByScore(
+                "z3", Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, 0).size(), 3,
                 "a non-positive limit means unlimited");
     }
 
@@ -148,11 +144,11 @@ public class ValkeyCacheClientTest {
             throw new IllegalStateException("listener blew up");
         })) {
             Thread.sleep(300);
-            join(client.publish("chan2", "boom"));
+            client.publish("chan2", "boom");
             Assert.assertTrue(delivered.await(10, TimeUnit.SECONDS));
             Thread.sleep(100); // the throw happens after countDown; give it time to be (not) propagated
         }
-        Assert.assertTrue(join(client.putValue("still-alive", "yes", null)),
+        Assert.assertTrue(client.putValue("still-alive", "yes", null),
                 "the client must still serve after a listener failure");
     }
 
@@ -165,7 +161,7 @@ public class ValkeyCacheClientTest {
             latch.countDown();
         })) {
             Thread.sleep(300);
-            join(client.publish("chan1", "hello"));
+            client.publish("chan1", "hello");
             Assert.assertTrue(latch.await(10, TimeUnit.SECONDS), "No pub/sub message arrived");
             Assert.assertEquals(got.get(), "hello");
         }

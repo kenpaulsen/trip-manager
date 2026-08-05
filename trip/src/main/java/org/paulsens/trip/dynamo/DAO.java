@@ -435,7 +435,7 @@ public class DAO {
      * shared cache this now flushes for every running instance at once.
      */
     public void clearAllCaches() {
-        cacheClient.clearNamespace(CacheKeys.FORMAT_VERSION).join();
+        cacheClient.clearNamespace(CacheKeys.FORMAT_VERSION);
     }
 
     private ObjectMapper createObjectMapper() {

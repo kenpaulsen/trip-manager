@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -95,7 +96,7 @@ public class TripDAO {
             final Map<String, AttributeValue> map, final Trip prev, final Trip trip) {
         final boolean saved = persistence.putItem(b -> b.tableName(TRIP_TABLE).item(map))
                 .sdkHttpResponse().isSuccessful();
-        return saved ? updateCaches(prev, trip) : CompletableFuture.completedFuture(false);
+        return CompletableFuture.completedFuture(saved && updateCaches(prev, trip));
     }
 
     private Boolean logSaveTripFailure(final Throwable ex) {
@@ -107,22 +108,40 @@ public class TripDAO {
         if (id == null) {
             return CompletableFuture.completedFuture(Optional.empty());
         }
-        return cache.get(id, this::loadTripById);
+        try {
+            return CompletableFuture.completedFuture(cache.get(id, this::loadTripById));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     /** Active trips (endDate at/after {@code cutoff}), in display order. */
     protected CompletableFuture<List<Trip>> getActiveTrips(final LocalDateTime cutoff) {
-        return index.activeTripIds(toEpochMillis(cutoff), 0).thenCompose(ids -> resolveTrips(ids, true));
+        try {
+            return CompletableFuture.completedFuture(
+                    resolveTrips(index.activeTripIds(toEpochMillis(cutoff), 0), true));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     /** Up to {@code limit} most-recent inactive trips (endDate before {@code cutoff}), newest first. */
     protected CompletableFuture<List<Trip>> getInactiveTrips(final LocalDateTime cutoff, final int limit) {
-        return index.inactiveTripIds(toEpochMillis(cutoff), limit).thenCompose(ids -> resolveTrips(ids, false));
+        try {
+            return CompletableFuture.completedFuture(
+                    resolveTrips(index.inactiveTripIds(toEpochMillis(cutoff), limit), false));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     /** The {@code limit} most-recently-ending trips (admin pickers), in display order; non-positive = no cap. */
     protected CompletableFuture<List<Trip>> getRecentTrips(final int limit) {
-        return index.allTripIds(limit).thenCompose(ids -> resolveTrips(ids, true));
+        try {
+            return CompletableFuture.completedFuture(resolveTrips(index.allTripIds(limit), true));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     /** Trips the user is a member of, in display order. */
@@ -130,59 +149,51 @@ public class TripDAO {
         if (userId == null) {
             return CompletableFuture.completedFuture(List.of());
         }
-        return index.tripIdsForUser(userId.getValue(), 0).thenCompose(ids -> resolveTrips(ids, true));
+        try {
+            return CompletableFuture.completedFuture(
+                    resolveTrips(index.tripIdsForUser(userId.getValue(), 0), true));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     public void clearCache() {
-        cacheClient.clearNamespace(CacheKeys.TRIP_PREFIX).join();
-        index.invalidate().join();
+        cacheClient.clearNamespace(CacheKeys.TRIP_PREFIX);
+        index.invalidate();
     }
 
-    private CompletableFuture<Boolean> updateCaches(final Trip prev, final Trip trip) {
+    private boolean updateCaches(final Trip prev, final Trip trip) {
         final TripIndex.Entry prevEntry = (prev == null) ? null : entryOf(prev);
-        return cache.put(trip.getId(), trip)
-                .thenCompose(ignored -> index.update(prevEntry, entryOf(trip), false));
+        cache.put(trip.getId(), trip);
+        return index.update(prevEntry, entryOf(trip), false);
     }
 
-    private CompletableFuture<List<Trip>> resolveTrips(final List<String> ids, final boolean displayOrder) {
-        final List<CompletableFuture<Optional<Trip>>> futures = ids.stream()
-                .map(id -> cache.get(id, this::loadTripById))
-                .toList();
-        return CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
-                .thenApply(ignored -> {
-                    final List<Trip> trips = futures.stream()
-                            .map(CompletableFuture::join)
-                            .flatMap(Optional::stream)
-                            .collect(Collectors.toList());
-                    if (displayOrder) {
-                        trips.sort(TRIP_ORDER);
-                    }
-                    return trips;
-                });
+    // Sequential point reads: each is a cache hit in the common case, and page renders that need many
+    // trips resolve them from one request thread -- the Phase 7 structured-concurrency pass may re-fan-out.
+    private List<Trip> resolveTrips(final List<String> ids, final boolean displayOrder) {
+        final List<Trip> trips = new ArrayList<>();
+        for (final String id : ids) {
+            cache.get(id, this::loadTripById).ifPresent(trips::add);
+        }
+        if (displayOrder) {
+            trips.sort(TRIP_ORDER);
+        }
+        return trips;
     }
 
-    private CompletableFuture<Trip> loadTripById(final String id) {
+    private Trip loadTripById(final String id) {
         final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id).build());
-        try {
-            final GetItemResponse resp = persistence.getItem(b -> b.key(key).tableName(TRIP_TABLE).build());
-            return CompletableFuture.completedFuture(toTrip(resp.item().get(CONTENT)));
-        } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
-        }
+        final GetItemResponse resp = persistence.getItem(b -> b.key(key).tableName(TRIP_TABLE).build());
+        return toTrip(resp.item().get(CONTENT));
     }
 
-    private CompletableFuture<List<TripIndex.Entry>> loadAllEntries() {
-        try {
-            return CompletableFuture.completedFuture(
-                    persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(TRIP_TABLE).build())
-                            .stream()
-                            .map(it -> toTrip(it.get(CONTENT)))
-                            .filter(trip -> trip != null)
-                            .map(TripDAO::entryOf)
-                            .toList());
-        } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
-        }
+    private List<TripIndex.Entry> loadAllEntries() {
+        return persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(TRIP_TABLE).build())
+                .stream()
+                .map(it -> toTrip(it.get(CONTENT)))
+                .filter(trip -> trip != null)
+                .map(TripDAO::entryOf)
+                .toList();
     }
 
     private static TripIndex.Entry entryOf(final Trip trip) {

@@ -23,7 +23,7 @@ public class CachePubSubTest {
         final List<String> got = new CopyOnWriteArrayList<>();
         cache.subscribe(List.of("chat:trip:t1"), (channel, payload) -> got.add(channel + "|" + payload));
 
-        Assert.assertTrue(cache.publish("chat:trip:t1", "{\"upTo\":123}").join());
+        Assert.assertTrue(cache.publish("chat:trip:t1", "{\"upTo\":123}"));
 
         Assert.assertEquals(got, List.of("chat:trip:t1|{\"upTo\":123}"));
     }
@@ -36,8 +36,8 @@ public class CachePubSubTest {
         final List<String> t1 = new CopyOnWriteArrayList<>();
         cache.subscribe(List.of("chat:trip:t1"), (channel, payload) -> t1.add(payload));
 
-        cache.publish("chat:trip:t2", "not for t1").join();
-        cache.publish("chat:trip:t1", "for t1").join();
+        cache.publish("chat:trip:t2", "not for t1");
+        cache.publish("chat:trip:t1", "for t1");
 
         Assert.assertEquals(t1, List.of("for t1"));
     }
@@ -49,13 +49,13 @@ public class CachePubSubTest {
         final AutoCloseable handle =
                 cache.subscribe(List.of("chat:trip:t1"), (channel, payload) -> got.add(payload));
 
-        cache.publish("chat:trip:t1", "first").join();
+        cache.publish("chat:trip:t1", "first");
         try {
             handle.close();
         } catch (final Exception ex) {
             Assert.fail("closing a subscription must not throw: " + ex);
         }
-        cache.publish("chat:trip:t1", "second").join();
+        cache.publish("chat:trip:t1", "second");
 
         Assert.assertEquals(got, List.of("first"), "delivery must stop once the handle is closed");
     }
@@ -68,7 +68,7 @@ public class CachePubSubTest {
         cache.subscribe(List.of("chat:trip:t1"), (channel, payload) -> a.add(payload));
         cache.subscribe(List.of("chat:trip:t1"), (channel, payload) -> b.add(payload));
 
-        cache.publish("chat:trip:t1", "nudge").join();
+        cache.publish("chat:trip:t1", "nudge");
 
         Assert.assertEquals(a, List.of("nudge"));
         Assert.assertEquals(b, List.of("nudge"));
@@ -77,7 +77,7 @@ public class CachePubSubTest {
     @Test
     public void publishingWithNoSubscriberIsHarmless() {
         // The common case in production: one task, nobody parked on the long-poll for that channel right now.
-        Assert.assertTrue(new InMemoryCacheClient().publish("chat:trip:nobody", "nudge").join());
+        Assert.assertTrue(new InMemoryCacheClient().publish("chat:trip:nobody", "nudge"));
     }
 
     @Test
@@ -89,7 +89,7 @@ public class CachePubSubTest {
         // The in-memory client delivers inline, so a throwing listener surfaces here rather than being swallowed.
         // Documented deliberately: the Valkey path isolates listeners because it hands off per delivery, and this
         // asserts the fake does NOT silently pretend to.
-        Assert.assertThrows(IllegalStateException.class, () -> cache.publish("chat:trip:t1", "nudge").join());
+        Assert.assertThrows(IllegalStateException.class, () -> cache.publish("chat:trip:t1", "nudge"));
     }
 
     @Test
@@ -97,7 +97,7 @@ public class CachePubSubTest {
         // Cache off: a send must still succeed, so publish reports false rather than throwing, and subscribing
         // yields a handle that is safe to close. Real-time is what degrades; nothing is lost.
         final NoopCacheClient noop = new NoopCacheClient();
-        Assert.assertFalse(noop.publish("chat:trip:t1", "nudge").join());
+        Assert.assertFalse(noop.publish("chat:trip:t1", "nudge"));
         try {
             noop.subscribe(List.of("chat:trip:t1"), (channel, payload) -> Assert.fail("must not deliver")).close();
         } catch (final Exception ex) {
@@ -134,7 +134,7 @@ public class CachePubSubTest {
         // Guards against the subscribers map colliding with the ordinary store in the fake.
         final InMemoryCacheClient cache = new InMemoryCacheClient();
         cache.subscribe(List.of("chat:trip:t1"), (channel, payload) -> { });
-        Assert.assertTrue(cache.putHashField("chat:trip:t1", "f", "v").join());
-        Assert.assertEquals(cache.getHash("chat:trip:t1").join(), Map.of("f", "v"));
+        Assert.assertTrue(cache.putHashField("chat:trip:t1", "f", "v"));
+        Assert.assertEquals(cache.getHash("chat:trip:t1"), Map.of("f", "v"));
     }
 }

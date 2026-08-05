@@ -109,7 +109,7 @@ public class ValkeyClusterPubSubTest {
             // Give the subscription time to be established on every node before publishing.
             Thread.sleep(500);
             for (final String channel : channels) {
-                assertTrue(client.publish(channel, "nudge-" + channel).join(),
+                assertTrue(client.publish(channel, "nudge-" + channel),
                         "publish must report success for " + channel);
             }
             assertTrue(latch.await(15, TimeUnit.SECONDS),
@@ -155,7 +155,7 @@ public class ValkeyClusterPubSubTest {
 
             // The same channel via regular PUBLISH does arrive -- so the difference is the publish mode, not the
             // subscription, and not a broken test setup.
-            client.publish(subscribed, "regular-nudge").join();
+            client.publish(subscribed, "regular-nudge");
             Thread.sleep(1000);
             assertTrue(received.contains(subscribed), "regular PUBLISH must still deliver");
         }

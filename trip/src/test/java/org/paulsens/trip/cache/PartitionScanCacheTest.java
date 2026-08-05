@@ -51,7 +51,7 @@ public class PartitionScanCacheTest {
                 .ttlJitter(() -> 0.5) // pins the effective soft TTL to exactly softTtl (no test flake)
                 .loader(() -> {
                     loads.incrementAndGet();
-                    return CompletableFuture.completedFuture(table);
+                    return table;
                 })
                 .partitioner(v -> v.substring(0, v.indexOf(':')))
                 .fielder(v -> v.substring(v.indexOf(':') + 1))
@@ -62,7 +62,7 @@ public class PartitionScanCacheTest {
 
     @Test
     public void aColdCacheScansAndAnswersFromTheSnapshot() {
-        final List<String> pa = scanCache().getPartition("pa").join();
+        final List<String> pa = scanCache().getPartition("pa");
 
         Assert.assertEquals(loads.get(), 1);
         Assert.assertEquals(Set.copyOf(pa), Set.of(A1, A2), "answered from the loader snapshot");
@@ -71,11 +71,11 @@ public class PartitionScanCacheTest {
     @Test
     public void aWarmCacheAnswersWithoutRescanning() {
         final PartitionScanCache<String> scan = scanCache();
-        scan.getPartition("pa").join();
+        scan.getPartition("pa");
         final int afterFirst = loads.get();
 
-        Assert.assertEquals(Set.copyOf(scan.getPartition("pa").join()), Set.of(A1, A2));
-        Assert.assertEquals(scan.getPartition("pb").join(), List.of(B1),
+        Assert.assertEquals(Set.copyOf(scan.getPartition("pa")), Set.of(A1, A2));
+        Assert.assertEquals(scan.getPartition("pb"), List.of(B1),
                 "one scan populated every partition, not just the one asked for");
         Assert.assertEquals(loads.get(), afterFirst);
     }
@@ -83,10 +83,10 @@ public class PartitionScanCacheTest {
     @Test
     public void aValueTheDeserializerRejectsIsSkippedNotReturnedAsNull() {
         final PartitionScanCache<String> scan = scanCache();
-        scan.getPartition("pa").join(); // warm
-        cache.putHashField("scan-test:pa", "junk", "BAD").join();
+        scan.getPartition("pa"); // warm
+        cache.putHashField("scan-test:pa", "junk", "BAD");
 
-        Assert.assertEquals(Set.copyOf(scan.getPartition("pa").join()), Set.of(A1, A2),
+        Assert.assertEquals(Set.copyOf(scan.getPartition("pa")), Set.of(A1, A2),
                 "an undeserializable row must vanish from the list, not appear as a null element");
     }
 
@@ -95,10 +95,10 @@ public class PartitionScanCacheTest {
     @Test
     public void aPointLookupIsServedFromTheWarmPartitionHash() {
         final PartitionScanCache<String> scan = scanCache();
-        scan.getPartition("pa").join();
+        scan.getPartition("pa");
 
         final Optional<String> found = scan.getOne("pa", "one",
-                () -> { throw new AssertionError("a warm hit must not consult the point loader"); }).join();
+                () -> { throw new AssertionError("a warm hit must not consult the point loader"); });
 
         Assert.assertEquals(found, Optional.of(A1));
     }
@@ -107,10 +107,10 @@ public class PartitionScanCacheTest {
     @Test
     public void aMissWithTheMarkerPresentIsAuthoritativeNotFound() {
         final PartitionScanCache<String> scan = scanCache();
-        scan.getPartition("pa").join();
+        scan.getPartition("pa");
 
         final Optional<String> found = scan.getOne("pa", "no-such-field",
-                () -> { throw new AssertionError("marker present: the database must not be consulted"); }).join();
+                () -> { throw new AssertionError("marker present: the database must not be consulted"); });
 
         Assert.assertEquals(found, Optional.empty());
     }
@@ -120,18 +120,18 @@ public class PartitionScanCacheTest {
         final PartitionScanCache<String> scan = scanCache();
 
         final Optional<String> found = scan.getOne("pa", "one",
-                () -> CompletableFuture.completedFuture(Optional.of(A1))).join();
+                () -> Optional.of(A1));
 
         Assert.assertEquals(found, Optional.of(A1));
         // The point result was cached: a repeat lookup is a hash hit, no loader involved.
         Assert.assertEquals(scan.getOne("pa", "one",
-                () -> { throw new AssertionError("cached by the first lookup"); }).join(), Optional.of(A1));
+                () -> { throw new AssertionError("cached by the first lookup"); }), Optional.of(A1));
     }
 
     @Test
     public void aColdMissWhereTheDatabaseAlsoMissesStaysEmpty() {
         Assert.assertEquals(scanCache().getOne("pa", "one",
-                () -> CompletableFuture.completedFuture(Optional.empty())).join(), Optional.empty());
+                () -> Optional.empty()), Optional.empty());
     }
 
     // --- write-through, invalidate ---
@@ -139,21 +139,21 @@ public class PartitionScanCacheTest {
     @Test
     public void putWritesThroughToThePartitionHash() {
         final PartitionScanCache<String> scan = scanCache();
-        scan.getPartition("pa").join();
+        scan.getPartition("pa");
 
-        Assert.assertTrue(scan.put("pa:three").join());
+        Assert.assertTrue(scan.put("pa:three"));
 
-        Assert.assertTrue(scan.getPartition("pa").join().contains("pa:three"));
+        Assert.assertTrue(scan.getPartition("pa").contains("pa:three"));
     }
 
     @Test
     public void invalidateForcesTheNextReadToRescan() {
         final PartitionScanCache<String> scan = scanCache();
-        scan.getPartition("pa").join();
+        scan.getPartition("pa");
         final int afterFirst = loads.get();
 
-        Assert.assertTrue(scan.invalidate().join());
-        scan.getPartition("pa").join();
+        Assert.assertTrue(scan.invalidate());
+        scan.getPartition("pa");
 
         Assert.assertTrue(loads.get() > afterFirst);
     }
@@ -163,16 +163,16 @@ public class PartitionScanCacheTest {
     @Test
     public void aSoftStaleMarkerTriggersABackgroundRescanWithoutBlockingTheRead() throws Exception {
         final PartitionScanCache<String> scan = scanCache();
-        scan.getPartition("pa").join();
+        scan.getPartition("pa");
         table = List.of(A1, A2, B1, "pa:new");
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
 
         // The stale read answers from the (old) cache; the rescan happens behind it.
-        Assert.assertEquals(Set.copyOf(scan.getPartition("pa").join()), Set.of(A1, A2));
+        Assert.assertEquals(Set.copyOf(scan.getPartition("pa")), Set.of(A1, A2));
 
         // Rewind before polling so the poll reads do not themselves look stale and race the assert.
         clock.addAndGet(-Duration.ofMinutes(2).toMillis());
-        awaitTrue(() -> scan.getPartition("pa").join().contains("pa:new"),
+        awaitTrue(() -> scan.getPartition("pa").contains("pa:new"),
                 "the background rescan never landed");
     }
 
@@ -180,11 +180,11 @@ public class PartitionScanCacheTest {
     @Test
     public void anUnparseableMarkerCountsAsStale() throws Exception {
         final PartitionScanCache<String> scan = scanCache();
-        scan.getPartition("pa").join();
+        scan.getPartition("pa");
         final int afterFirst = loads.get();
-        cache.putValue("scan-test-loaded", "not-a-number", Duration.ofMinutes(5)).join();
+        cache.putValue("scan-test-loaded", "not-a-number", Duration.ofMinutes(5));
 
-        scan.getPartition("pa").join();
+        scan.getPartition("pa");
 
         awaitTrue(() -> loads.get() > afterFirst, "a garbage marker must trigger a rescan");
     }
@@ -193,13 +193,13 @@ public class PartitionScanCacheTest {
     @Test
     public void losingTheRefreshLockSkipsTheRebuildButStillAnswers() throws Exception {
         final PartitionScanCache<String> scan = scanCache();
-        scan.getPartition("pa").join();
+        scan.getPartition("pa");
         final int afterWarm = loads.get();
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
         Assert.assertTrue(cache.tryAcquireLock(
-                CacheKeys.refreshLockKey("scan-test-loaded"), Duration.ofMinutes(5)).join());
+                CacheKeys.refreshLockKey("scan-test-loaded"), Duration.ofMinutes(5)));
 
-        Assert.assertEquals(Set.copyOf(scan.getPartition("pa").join()), Set.of(A1, A2));
+        Assert.assertEquals(Set.copyOf(scan.getPartition("pa")), Set.of(A1, A2));
 
         // The loader may be consulted at most once more (the schedule path); the populate must not run.
         Thread.sleep(200);
@@ -210,11 +210,11 @@ public class PartitionScanCacheTest {
     @Test
     public void aColdBuildLockLoserStillAnswersFromItsSnapshot() {
         Assert.assertTrue(cache.tryAcquireLock(
-                CacheKeys.refreshLockKey("scan-test-loaded"), Duration.ofMinutes(5)).join());
+                CacheKeys.refreshLockKey("scan-test-loaded"), Duration.ofMinutes(5)));
 
-        Assert.assertEquals(Set.copyOf(scanCache().getPartition("pa").join()), Set.of(A1, A2));
+        Assert.assertEquals(Set.copyOf(scanCache().getPartition("pa")), Set.of(A1, A2));
 
-        Assert.assertTrue(cache.getValue("scan-test-loaded").join().isEmpty(),
+        Assert.assertTrue(cache.getValue("scan-test-loaded").isEmpty(),
                 "the loser must not mark loaded: it did not populate");
     }
 
@@ -222,16 +222,16 @@ public class PartitionScanCacheTest {
     @Test
     public void aFailingBackgroundRescanIsSwallowed() throws Exception {
         final PartitionScanCache<String> scan = scanCache();
-        scan.getPartition("pa").join();
+        scan.getPartition("pa");
         table = null; // makes the next loader call blow up inside populate
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
 
-        Assert.assertEquals(Set.copyOf(scan.getPartition("pa").join()), Set.of(A1, A2),
+        Assert.assertEquals(Set.copyOf(scan.getPartition("pa")), Set.of(A1, A2),
                 "the read that noticed staleness must still answer");
 
         clock.addAndGet(-Duration.ofMinutes(2).toMillis());
         Thread.sleep(200);
-        Assert.assertEquals(Set.copyOf(scan.getPartition("pa").join()), Set.of(A1, A2),
+        Assert.assertEquals(Set.copyOf(scan.getPartition("pa")), Set.of(A1, A2),
                 "a failed rescan must leave the cached data untouched");
     }
 

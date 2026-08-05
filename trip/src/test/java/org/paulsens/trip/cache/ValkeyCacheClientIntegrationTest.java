@@ -40,13 +40,13 @@ public class ValkeyCacheClientIntegrationTest {
             throw new SkipException("No TRIP_VALKEY_URI configured; skipping Valkey integration test.");
         }
         client = new ValkeyCacheClient(config);
-        client.clearNamespace(NS).join();
+        client.clearNamespace(NS);
     }
 
     @AfterClass
     public void teardown() {
         if (client != null) {
-            client.clearNamespace(NS).join();
+            client.clearNamespace(NS);
             client.close();
         }
     }
@@ -78,7 +78,7 @@ public class ValkeyCacheClientIntegrationTest {
             // SUBSCRIBE is issued asynchronously; a publish that races it is legitimately dropped, so retry until
             // the subscription is live rather than sleeping a magic number and hoping.
             for (int i = 0; i < 50 && arrived.getCount() > 0; i++) {
-                client.publish(channel, "{\"upTo\":" + i + "}").join();
+                client.publish(channel, "{\"upTo\":" + i + "}");
                 if (arrived.await(100, java.util.concurrent.TimeUnit.MILLISECONDS)) {
                     break;
                 }
@@ -104,90 +104,90 @@ public class ValkeyCacheClientIntegrationTest {
 
     @Test
     public void valueRoundTrip() {
-        assertTrue(client.putValue(NS + "v1", "hello", Duration.ofMinutes(5)).join());
-        assertEquals(client.getValue(NS + "v1").join(), Optional.of("hello"));
-        assertTrue(client.removeKey(NS + "v1").join());
-        assertEquals(client.getValue(NS + "v1").join(), Optional.empty());
+        assertTrue(client.putValue(NS + "v1", "hello", Duration.ofMinutes(5)));
+        assertEquals(client.getValue(NS + "v1"), Optional.of("hello"));
+        assertTrue(client.removeKey(NS + "v1"));
+        assertEquals(client.getValue(NS + "v1"), Optional.empty());
     }
 
     @Test
     public void hashRoundTripIncludingHmget() {
         final String key = NS + "h1";
-        assertTrue(client.putHashFields(key, Map.of("a", "1", "b", "2")).join());
-        assertTrue(client.putHashField(key, "c", "3").join());
-        assertEquals(client.getHash(key).join(), Map.of("a", "1", "b", "2", "c", "3"));
+        assertTrue(client.putHashFields(key, Map.of("a", "1", "b", "2")));
+        assertTrue(client.putHashField(key, "c", "3"));
+        assertEquals(client.getHash(key), Map.of("a", "1", "b", "2", "c", "3"));
         // HMGET semantics: only present fields come back
-        assertEquals(client.getHashFields(key, List.of("a", "nope", "c")).join(), Map.of("a", "1", "c", "3"));
-        assertTrue(client.removeHashField(key, "a").join());
-        assertEquals(client.getHash(key).join(), Map.of("b", "2", "c", "3"));
+        assertEquals(client.getHashFields(key, List.of("a", "nope", "c")), Map.of("a", "1", "c", "3"));
+        assertTrue(client.removeHashField(key, "a"));
+        assertEquals(client.getHash(key), Map.of("b", "2", "c", "3"));
     }
 
     @Test
     public void setRoundTrip() {
         final String key = NS + "s1";
-        assertTrue(client.addSetMembers(key, List.of("x", "y")).join());
-        assertEquals(client.getSetMembers(key).join(), Set.of("x", "y"));
-        assertTrue(client.removeSetMember(key, "x").join());
-        assertEquals(client.getSetMembers(key).join(), Set.of("y"));
+        assertTrue(client.addSetMembers(key, List.of("x", "y")));
+        assertEquals(client.getSetMembers(key), Set.of("x", "y"));
+        assertTrue(client.removeSetMember(key, "x"));
+        assertEquals(client.getSetMembers(key), Set.of("y"));
     }
 
     @Test
     public void sortedSetPrefixRoundTrip() {
         final String key = NS + "z1";
         assertTrue(client.addSortedSetEntries(key,
-                List.of("paulsen|id1", "paulsen|id2", "peterson|id3", "adams|id4")).join());
-        assertEquals(client.getSortedSetByPrefix(key, "paulsen", 10).join(),
+                List.of("paulsen|id1", "paulsen|id2", "peterson|id3", "adams|id4")));
+        assertEquals(client.getSortedSetByPrefix(key, "paulsen", 10),
                 List.of("paulsen|id1", "paulsen|id2"));
-        assertEquals(client.getSortedSetByPrefix(key, "p", 10).join(),
+        assertEquals(client.getSortedSetByPrefix(key, "p", 10),
                 List.of("paulsen|id1", "paulsen|id2", "peterson|id3"));
         // Limit respected, lexicographic order
-        assertEquals(client.getSortedSetByPrefix(key, "p", 1).join(), List.of("paulsen|id1"));
-        assertEquals(client.getSortedSetByPrefix(key, "zzz", 10).join(), List.of());
-        assertTrue(client.removeSortedSetEntries(key, List.of("paulsen|id1")).join());
-        assertEquals(client.getSortedSetByPrefix(key, "paulsen", 10).join(), List.of("paulsen|id2"));
+        assertEquals(client.getSortedSetByPrefix(key, "p", 1), List.of("paulsen|id1"));
+        assertEquals(client.getSortedSetByPrefix(key, "zzz", 10), List.of());
+        assertTrue(client.removeSortedSetEntries(key, List.of("paulsen|id1")));
+        assertEquals(client.getSortedSetByPrefix(key, "paulsen", 10), List.of("paulsen|id2"));
         // Empty collections are no-ops that still succeed
-        assertTrue(client.addSortedSetEntries(key, List.of()).join());
-        assertTrue(client.removeSortedSetEntries(key, List.of()).join());
+        assertTrue(client.addSortedSetEntries(key, List.of()));
+        assertTrue(client.removeSortedSetEntries(key, List.of()));
     }
 
     @Test
     public void expireAppliesGcTtl() {
         final String key = NS + "e1";
-        client.putHashField(key, "f", "v").join();
-        assertTrue(client.expire(key, Duration.ofSeconds(100)).join());
+        client.putHashField(key, "f", "v");
+        assertTrue(client.expire(key, Duration.ofSeconds(100)));
     }
 
     @Test
     public void clearNamespaceOnlyRemovesPrefix() {
-        client.putValue(NS + "gone", "x", Duration.ofMinutes(5)).join();
-        client.putValue(NS + "sub:gone2", "y", Duration.ofMinutes(5)).join();
-        client.putValue("ittest-keep", "z", Duration.ofMinutes(5)).join();
-        assertTrue(client.clearNamespace(NS).join());
-        assertEquals(client.getValue(NS + "gone").join(), Optional.empty());
-        assertEquals(client.getValue(NS + "sub:gone2").join(), Optional.empty());
-        assertEquals(client.getValue("ittest-keep").join(), Optional.of("z"));
-        client.removeKey("ittest-keep").join();
+        client.putValue(NS + "gone", "x", Duration.ofMinutes(5));
+        client.putValue(NS + "sub:gone2", "y", Duration.ofMinutes(5));
+        client.putValue("ittest-keep", "z", Duration.ofMinutes(5));
+        assertTrue(client.clearNamespace(NS));
+        assertEquals(client.getValue(NS + "gone"), Optional.empty());
+        assertEquals(client.getValue(NS + "sub:gone2"), Optional.empty());
+        assertEquals(client.getValue("ittest-keep"), Optional.of("z"));
+        client.removeKey("ittest-keep");
     }
 
     @Test
     public void scoredSortedSetRoundTrip() {
         final String key = NS + "z2";
-        assertTrue(client.addScoredEntries(key, Map.of("t1", 100.0d, "t2", 200.0d, "t3", 300.0d)).join());
+        assertTrue(client.addScoredEntries(key, Map.of("t1", 100.0d, "t2", 200.0d, "t3", 300.0d)));
         // Ascending by score, inclusive range
-        assertEquals(client.getRangeByScore(key, 150.0d, 300.0d, false, 0).join(), List.of("t2", "t3"));
+        assertEquals(client.getRangeByScore(key, 150.0d, 300.0d, false, 0), List.of("t2", "t3"));
         // Descending
-        assertEquals(client.getRangeByScore(key, 150.0d, 300.0d, true, 0).join(), List.of("t3", "t2"));
+        assertEquals(client.getRangeByScore(key, 150.0d, 300.0d, true, 0), List.of("t3", "t2"));
         // Limit
-        assertEquals(client.getRangeByScore(key, 0.0d, 1000.0d, false, 1).join(), List.of("t1"));
+        assertEquals(client.getRangeByScore(key, 0.0d, 1000.0d, false, 1), List.of("t1"));
         // Unbounded (infinity) bounds
-        assertEquals(client.getRangeByScore(key, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, 0).join(),
+        assertEquals(client.getRangeByScore(key, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, 0),
                 List.of("t1", "t2", "t3"));
         // Re-score moves a member; ZREM drops it
-        assertTrue(client.addScoredEntries(key, Map.of("t1", 999.0d)).join());
-        assertEquals(client.getRangeByScore(key, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, 0).join(),
+        assertTrue(client.addScoredEntries(key, Map.of("t1", 999.0d)));
+        assertEquals(client.getRangeByScore(key, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, 0),
                 List.of("t2", "t3", "t1"));
-        assertTrue(client.removeSortedSetEntries(key, List.of("t2")).join());
-        assertEquals(client.getRangeByScore(key, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, 0).join(),
+        assertTrue(client.removeSortedSetEntries(key, List.of("t2")));
+        assertEquals(client.getRangeByScore(key, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, 0),
                 List.of("t3", "t1"));
     }
 
@@ -205,24 +205,24 @@ public class ValkeyCacheClientIntegrationTest {
                 .softTtl(Duration.ofHours(24))
                 .loader(() -> {
                     scans.incrementAndGet();
-                    return CompletableFuture.completedFuture(List.copyOf(live));
+                    return List.copyOf(live);
                 })
                 .build();
         // Cold: first query builds from the "scan" and answers.
-        assertEquals(index.activeTripIds(now, 0).join(), List.of("future"));
+        assertEquals(index.activeTripIds(now, 0), List.of("future"));
         assertEquals(scans.get(), 1, "cold query builds once");
-        assertEquals(index.inactiveTripIds(now, 0).join(), List.of("past"));
-        assertEquals(index.allTripIds(0).join(), List.of("future", "past"));
+        assertEquals(index.inactiveTripIds(now, 0), List.of("past"));
+        assertEquals(index.allTripIds(0), List.of("future", "past"));
         assertEquals(scans.get(), 1, "subsequent queries served from the built index, no re-scan");
         // Reverse index
-        assertEquals(Set.copyOf(index.tripIdsForUser("u1", 0).join()), Set.of("future", "past"));
-        assertEquals(index.tripIdsForUser("u2", 0).join(), List.of("past"));
+        assertEquals(Set.copyOf(index.tripIdsForUser("u1", 0)), Set.of("future", "past"));
+        assertEquals(index.tripIdsForUser("u2", 0), List.of("past"));
         // Write-through: drop u2 from "past"; reverse index reflects it without a rebuild.
         index.update(new TripIndex.Entry("past", now - 10 * day, Set.of("u1", "u2")),
-                new TripIndex.Entry("past", now - 10 * day, Set.of("u1")), false).join();
-        assertEquals(index.tripIdsForUser("u2", 0).join(), List.of());
-        assertEquals(index.tripIdsForUser("u1", 0).join().size(), 2);
-        index.invalidate().join();
+                new TripIndex.Entry("past", now - 10 * day, Set.of("u1")), false);
+        assertEquals(index.tripIdsForUser("u2", 0), List.of());
+        assertEquals(index.tripIdsForUser("u1", 0).size(), 2);
+        index.invalidate();
     }
 
     @Test
@@ -241,38 +241,38 @@ public class ValkeyCacheClientIntegrationTest {
                 .softTtl(Duration.ofHours(24))
                 .loader(() -> {
                     scans.incrementAndGet();
-                    return CompletableFuture.completedFuture(List.copyOf(live));
+                    return List.copyOf(live);
                 })
                 .partitioner(p -> p.isGlobal() ? "__global__" : p.getTripId())
                 .fielder(Privilege::getName)
                 .serializer(this::privToJson)
                 .deserializer(this::privFromJson)
                 .build();
-        final java.util.function.Supplier<CompletableFuture<Optional<Privilege>>> failLoader = () -> {
+        final java.util.function.Supplier<Optional<Privilege>> failLoader = () -> {
             pointLoads.incrementAndGet();
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Optional.empty();
         };
 
         // Cold: one scan builds every partition; the trip partition is one HGETALL.
-        assertEquals(names(cache.getPartition(tripId).join()), Set.of("tripMgr", "tripView"));
+        assertEquals(names(cache.getPartition(tripId)), Set.of("tripMgr", "tripView"));
         assertEquals(scans.get(), 1);
-        assertEquals(names(cache.getPartition("__global__").join()), Set.of("peopleAdmin"));
+        assertEquals(names(cache.getPartition("__global__")), Set.of("peopleAdmin"));
         assertEquals(scans.get(), 1, "subsequent partition reads served from cache, no re-scan");
 
         // getOne: a hit needs no point load; a miss with the loaded marker set is authoritative (no point load).
-        assertTrue(cache.getOne("__global__", "peopleAdmin", failLoader).join().isPresent());
-        assertTrue(cache.getOne("__global__", "ghost", failLoader).join().isEmpty());
+        assertTrue(cache.getOne("__global__", "peopleAdmin", failLoader).isPresent());
+        assertTrue(cache.getOne("__global__", "ghost", failLoader).isEmpty());
         assertEquals(pointLoads.get(), 0, "loaded marker answers 'not found' without a point read");
 
         // After invalidate (marker + partitions gone), getOne falls back to the point loader.
-        cache.invalidate().join();
-        assertTrue(cache.getOne(tripId, "ghost", failLoader).join().isEmpty());
+        cache.invalidate();
+        assertTrue(cache.getOne(tripId, "ghost", failLoader).isEmpty());
         assertEquals(pointLoads.get(), 1, "with no marker, a miss falls back to the point read");
 
         // Write-through into an unloaded partition is readable via getOne.
-        cache.put(new Privilege("tripFinView" + tripId, "fv", List.of())).join();
-        assertTrue(cache.getOne(tripId, "tripFinView", failLoader).join().isPresent());
-        cache.invalidate().join();
+        cache.put(new Privilege("tripFinView" + tripId, "fv", List.of()));
+        assertTrue(cache.getOne(tripId, "tripFinView", failLoader).isPresent());
+        cache.invalidate();
     }
 
     private static Set<String> names(final List<Privilege> privs) {
@@ -295,15 +295,23 @@ public class ValkeyCacheClientIntegrationTest {
         }
     }
 
+    /**
+     * Since the virtual-threads port there is no completion hand-off to assert: the call blocks the CALLING
+     * thread and returns the value on it. What remains load-bearing is that a blocked call is interruptible
+     * -- a cancelled request must be able to reclaim a thread parked on a lost cache command.
+     */
     @Test
-    public void futuresCompleteOnWorkerPoolNeverOnEventLoop() {
+    public void blockingCallsRunOnTheCallingThreadAndStayInterruptible() throws Exception {
         final AtomicReference<String> thread = new AtomicReference<>();
-        client.getValue(NS + "whatever").thenApply(v -> {
+        final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        final Thread caller = Thread.ofVirtual().name("it-caller").start(() -> {
+            client.putValue(NS + "onThread", "x", Duration.ofMinutes(1));
             thread.set(Thread.currentThread().getName());
-            return v;
-        }).join();
-        assertTrue(thread.get().startsWith("trip-persist-"),
-                "Continuations must run on the persistence pool, was: " + thread.get());
+            done.countDown();
+        });
+        assertTrue(done.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        caller.join();
+        assertEquals(thread.get(), "it-caller", "the value must come back on the calling thread");
     }
 
     @Test
@@ -319,24 +327,24 @@ public class ValkeyCacheClientIntegrationTest {
                 .deserializer(v -> v)
                 .order(Comparator.naturalOrder())
                 .build();
-        final var loader = (java.util.function.Supplier<CompletableFuture<List<String>>>) () -> {
+        final var loader = (java.util.function.Supplier<List<String>>) () -> {
             loads.incrementAndGet();
-            return CompletableFuture.completedFuture(List.of("a-fromDb", "b-fromDb"));
+            return List.of("a-fromDb", "b-fromDb");
         };
         // Miss -> loads from "db" and caches with the sentinel
-        assertEquals(cache.getAll("p1", loader).join(), List.of("a-fromDb", "b-fromDb"));
+        assertEquals(cache.getAll("p1", loader), List.of("a-fromDb", "b-fromDb"));
         assertEquals(loads.get(), 1);
         // Loaded -> served from cache
-        assertEquals(cache.getAll("p1", loader).join(), List.of("a-fromDb", "b-fromDb"));
+        assertEquals(cache.getAll("p1", loader), List.of("a-fromDb", "b-fromDb"));
         assertEquals(loads.get(), 1);
         // Write-through visible without reload; authoritative "not found" without a db call
-        assertTrue(cache.put("p1", "c-written").join());
-        assertEquals(cache.getAll("p1", loader).join(), List.of("a-fromDb", "b-fromDb", "c-written"));
-        assertEquals(cache.getOne("p1", "z", loader).join(), Optional.empty());
+        assertTrue(cache.put("p1", "c-written"));
+        assertEquals(cache.getAll("p1", loader), List.of("a-fromDb", "b-fromDb", "c-written"));
+        assertEquals(cache.getOne("p1", "z", loader), Optional.empty());
         assertEquals(loads.get(), 1);
         // A different partition loads independently; write-through into an UNLOADED partition is readable
-        assertTrue(cache.put("p2", "x-written").join());
-        assertEquals(cache.getOne("p2", "x", loader).join(), Optional.of("x-written"));
+        assertTrue(cache.put("p2", "x-written"));
+        assertEquals(cache.getOne("p2", "x", loader), Optional.of("x-written"));
         assertFalse(loads.get() > 2, "getOne on a write-through hit must not force a load");
     }
 }

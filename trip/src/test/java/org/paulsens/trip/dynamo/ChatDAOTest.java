@@ -201,9 +201,9 @@ public class ChatDAOTest {
         final ChatMessage newest = dao.saveMessage(draft("day three"), channel, null).join().orElseThrow();
 
         // Evict the middle of the buffer, exactly as bufferMaxMessages trimming or a TTL would.
-        cache.removeKey(CacheKeys.chatLogKey(channel.getId().getValue())).join();
+        cache.removeKey(CacheKeys.chatLogKey(channel.getId().getValue()));
         cache.addScoredEntries(CacheKeys.chatLogKey(channel.getId().getValue()),
-                Map.of(newest.getId().getValue(), (double) newest.getId().getEpochMilli())).join();
+                Map.of(newest.getId().getValue(), (double) newest.getId().getEpochMilli()));
 
         final ChatPage page = dao.getMessagesSince(
                 channel.getId(), oldest.getId(), 50, null, channel, null, Instant.now()).join();
@@ -221,7 +221,7 @@ public class ChatDAOTest {
         final ChatMessage second = dao.saveMessage(draft("body evicted"), channel, null).join().orElseThrow();
 
         cache.removeHashField(CacheKeys.chatBodyKey(channel.getId().getValue()),
-                second.getId().getValue()).join();
+                second.getId().getValue());
 
         final ChatPage page = dao.getMessagesSince(
                 channel.getId(), first.getId(), 50, null, channel, null, Instant.now()).join();

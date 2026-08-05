@@ -44,7 +44,7 @@ public class ChatNotifierTest {
         notifier = new EmailChatNotifier(mail, cache, config);
         // Claimed by default; the dedupe test overrides it.
         Mockito.when(cache.tryAcquireLock(ArgumentMatchers.anyString(), ArgumentMatchers.any(Duration.class)))
-                .thenReturn(CompletableFuture.completedFuture(true));
+                .thenReturn(true);
     }
 
     private static ChatNotification notification(final ChatNotification.Reason reason, final String snippet) {
@@ -165,7 +165,7 @@ public class ChatNotifierTest {
     @Test
     public void anUnclaimedDedupeKeyMeansSomebodyElseAlreadySent() {
         Mockito.when(cache.tryAcquireLock(ArgumentMatchers.anyString(), ArgumentMatchers.any(Duration.class)))
-                .thenReturn(CompletableFuture.completedFuture(false));
+                .thenReturn(false);
 
         notifier.notify(notification(ChatNotification.Reason.MENTION, "hi"));
 

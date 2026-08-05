@@ -76,7 +76,7 @@ public class ConfigDAO {
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(CONFIG_TABLE).item(map))
                     .sdkHttpResponse().isSuccessful();
-            return saved ? cache.put(config) : CompletableFuture.completedFuture(false);
+            return CompletableFuture.completedFuture(saved && cache.put(config));
         } catch (final RuntimeException ex) {
             return CompletableFuture.failedFuture(ex);
         }
@@ -84,7 +84,11 @@ public class ConfigDAO {
 
     /** Every setting, for the admin page. */
     protected CompletableFuture<List<Config>> getAllConfig() {
-        return cache.getPartition(CacheKeys.CONFIG_PARTITION);
+        try {
+            return CompletableFuture.completedFuture(cache.getPartition(CacheKeys.CONFIG_PARTITION));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     /** One setting by name; served from the cached hash, or a point read on a miss. Never a table scan. */
@@ -92,40 +96,39 @@ public class ConfigDAO {
         if (name == null) {
             return CompletableFuture.completedFuture(Optional.empty());
         }
-        return cache.getOne(CacheKeys.CONFIG_PARTITION, name, () -> pointReadConfig(name));
+        try {
+            return CompletableFuture.completedFuture(
+                    cache.getOne(CacheKeys.CONFIG_PARTITION, name, () -> pointReadConfig(name)));
+        } catch (final RuntimeException ex) {
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
     public void clearCache() {
-        cache.invalidate().join();
+        cache.invalidate();
     }
 
-    private CompletableFuture<Optional<Config>> pointReadConfig(final String name) {
+    private Optional<Config> pointReadConfig(final String name) {
         final Map<String, AttributeValue> key = Map.of(NAME, AttributeValue.builder().s(name).build());
         try {
             final AttributeValue content =
                     persistence.getItem(b -> b.key(key).tableName(CONFIG_TABLE).build()).item().get(CONTENT);
-            return CompletableFuture.completedFuture(
-                    Optional.ofNullable(content == null ? null : parseConfig(content.s())));
+            return Optional.ofNullable(content == null ? null : parseConfig(content.s()));
         } catch (final RuntimeException ex) {
             // Deliberately not rethrown: the caller has a default and the site must keep serving.
             log.debug("ConfigDAO: unable to read config ({})", name, ex);
-            return CompletableFuture.completedFuture(Optional.empty());
+            return Optional.empty();
         }
     }
 
-    private CompletableFuture<List<Config>> loadAllConfig() {
-        try {
-            return CompletableFuture.completedFuture(
-                    persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(CONFIG_TABLE).build())
-                            .stream()
-                            .map(it -> it.get(CONTENT))
-                            .filter(content -> content != null)
-                            .map(content -> parseConfig(content.s()))
-                            .filter(config -> config != null)
-                            .toList());
-        } catch (final RuntimeException ex) {
-            return CompletableFuture.failedFuture(ex);
-        }
+    private List<Config> loadAllConfig() {
+        return persistence.scanAll(b -> b.consistentRead(false).limit(1000).tableName(CONFIG_TABLE).build())
+                .stream()
+                .map(it -> it.get(CONTENT))
+                .filter(content -> content != null)
+                .map(content -> parseConfig(content.s()))
+                .filter(config -> config != null)
+                .toList();
     }
 
     private Config parseConfig(final String json) {

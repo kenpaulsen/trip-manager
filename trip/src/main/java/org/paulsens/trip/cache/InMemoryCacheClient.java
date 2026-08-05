@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -21,8 +20,6 @@ import java.util.function.BiConsumer;
  * datastore, seeded by write-through saves from FakeData.
  */
 public final class InMemoryCacheClient implements CacheClient {
-    private static final CompletableFuture<Boolean> TRUE = CompletableFuture.completedFuture(true);
-    private static final CompletableFuture<Boolean> FALSE = CompletableFuture.completedFuture(false);
 
     // Values are String (point), ConcurrentMap<String, String> (hash), or Set<String> (set).
     private final ConcurrentMap<String, Object> store = new ConcurrentHashMap<>();
@@ -31,32 +28,31 @@ public final class InMemoryCacheClient implements CacheClient {
     private final ConcurrentMap<String, List<BiConsumer<String, String>>> subscribers = new ConcurrentHashMap<>();
 
     @Override
-    public CompletableFuture<Optional<String>> getValue(final String key) {
+    public Optional<String> getValue(final String key) {
         final Object value = store.get(key);
-        return CompletableFuture.completedFuture(
-                (value instanceof String str) ? Optional.of(str) : Optional.empty());
+        return (value instanceof String str) ? Optional.of(str) : Optional.empty();
     }
 
     @Override
-    public CompletableFuture<Boolean> putValue(final String key, final String value, final Duration ttl) {
+    public boolean putValue(final String key, final String value, final Duration ttl) {
         store.put(key, value);
-        return TRUE;
+        return true;
     }
 
     @Override
-    public CompletableFuture<Boolean> removeKey(final String key) {
+    public boolean removeKey(final String key) {
         store.remove(key);
-        return TRUE;
+        return true;
     }
 
     @Override
-    public CompletableFuture<Map<String, String>> getHash(final String key) {
-        return CompletableFuture.completedFuture(Map.copyOf(hash(key)));
+    public Map<String, String> getHash(final String key) {
+        return Map.copyOf(hash(key));
     }
 
     @Override
-    public CompletableFuture<Map<String, String>> getHashFields(final String key, final Collection<String> fields) {
-        return CompletableFuture.completedFuture(selectHashFields(hash(key), fields));
+    public Map<String, String> getHashFields(final String key, final Collection<String> fields) {
+        return selectHashFields(hash(key), fields);
     }
 
     private static Map<String, String> selectHashFields(
@@ -72,60 +68,60 @@ public final class InMemoryCacheClient implements CacheClient {
     }
 
     @Override
-    public CompletableFuture<Boolean> putHashField(final String key, final String field, final String value) {
+    public boolean putHashField(final String key, final String field, final String value) {
         hash(key).put(field, value);
-        return TRUE;
+        return true;
     }
 
     @Override
-    public CompletableFuture<Boolean> putHashFields(final String key, final Map<String, String> fields) {
+    public boolean putHashFields(final String key, final Map<String, String> fields) {
         hash(key).putAll(fields);
-        return TRUE;
+        return true;
     }
 
     @Override
-    public CompletableFuture<Boolean> removeHashField(final String key, final String field) {
+    public boolean removeHashField(final String key, final String field) {
         hash(key).remove(field);
-        return TRUE;
+        return true;
     }
 
     @Override
-    public CompletableFuture<Boolean> addSetMembers(final String key, final Collection<String> members) {
+    public boolean addSetMembers(final String key, final Collection<String> members) {
         set(key).addAll(members);
-        return TRUE;
+        return true;
     }
 
     @Override
-    public CompletableFuture<Boolean> addSortedSetEntries(final String key, final Collection<String> entries) {
+    public boolean addSortedSetEntries(final String key, final Collection<String> entries) {
         final ConcurrentMap<String, Double> zset = sortedSet(key);
         entries.forEach(e -> zset.put(e, 0.0d));
-        return TRUE;
+        return true;
     }
 
     @Override
-    public CompletableFuture<Boolean> removeSortedSetEntries(final String key, final Collection<String> entries) {
+    public boolean removeSortedSetEntries(final String key, final Collection<String> entries) {
         sortedSet(key).keySet().removeAll(entries);
-        return TRUE;
+        return true;
     }
 
     @Override
-    public CompletableFuture<List<String>> getSortedSetByPrefix(final String key, final String prefix, final int limit) {
+    public List<String> getSortedSetByPrefix(final String key, final String prefix, final int limit) {
         final List<String> result = sortedSet(key).keySet().stream()
                 .filter(member -> member.startsWith(prefix))
                 .sorted()
                 .limit(limit > 0 ? limit : Long.MAX_VALUE)
                 .toList();
-        return CompletableFuture.completedFuture(result);
+        return result;
     }
 
     @Override
-    public CompletableFuture<Boolean> addScoredEntries(final String key, final Map<String, Double> memberScores) {
+    public boolean addScoredEntries(final String key, final Map<String, Double> memberScores) {
         sortedSet(key).putAll(memberScores);
-        return TRUE;
+        return true;
     }
 
     @Override
-    public CompletableFuture<List<String>> getRangeByScore(
+    public List<String> getRangeByScore(
             final String key, final double minScore, final double maxScore, final boolean reverse, final int limit) {
         final Comparator<Map.Entry<String, Double>> byScore = Map.Entry.comparingByValue();
         final List<String> result = sortedSet(key).entrySet().stream()
@@ -134,27 +130,27 @@ public final class InMemoryCacheClient implements CacheClient {
                 .map(Map.Entry::getKey)
                 .limit(limit > 0 ? limit : Long.MAX_VALUE)
                 .toList();
-        return CompletableFuture.completedFuture(result);
+        return result;
     }
 
     @Override
-    public CompletableFuture<Boolean> removeSetMember(final String key, final String member) {
+    public boolean removeSetMember(final String key, final String member) {
         set(key).remove(member);
-        return TRUE;
+        return true;
     }
 
     @Override
-    public CompletableFuture<Set<String>> getSetMembers(final String key) {
-        return CompletableFuture.completedFuture(Set.copyOf(set(key)));
+    public Set<String> getSetMembers(final String key) {
+        return Set.copyOf(set(key));
     }
 
     @Override
-    public CompletableFuture<Boolean> expire(final String key, final Duration ttl) {
-        return TRUE;
+    public boolean expire(final String key, final Duration ttl) {
+        return true;
     }
 
     @Override
-    public CompletableFuture<Optional<Long>> increment(final String key, final long delta, final Duration ttl) {
+    public Optional<Long> increment(final String key, final long delta, final Duration ttl) {
         // TTLs are ignored here (same as every other write); counters live for the JVM lifetime. Rate-limit
         // keys put the window index in the key so this is still correct under tests.
         final Object prev = store.get(key);
@@ -168,17 +164,17 @@ public final class InMemoryCacheClient implements CacheClient {
         }
         final long next = current + delta;
         store.put(key, String.valueOf(next));
-        return CompletableFuture.completedFuture(Optional.of(next));
+        return Optional.of(next);
     }
 
     @Override
-    public CompletableFuture<Boolean> trimSortedSet(final String key, final int maxSize) {
+    public boolean trimSortedSet(final String key, final int maxSize) {
         if (maxSize <= 0) {
-            return TRUE;
+            return true;
         }
         final ConcurrentMap<String, Double> zset = sortedSet(key);
         if (zset.size() <= maxSize) {
-            return TRUE;
+            return true;
         }
         final List<String> ordered = zset.entrySet().stream()
                 .sorted(Map.Entry.comparingByValue())
@@ -188,7 +184,7 @@ public final class InMemoryCacheClient implements CacheClient {
         for (int i = 0; i < toRemove; i++) {
             zset.remove(ordered.get(i));
         }
-        return TRUE;
+        return true;
     }
 
     /**
@@ -200,14 +196,14 @@ public final class InMemoryCacheClient implements CacheClient {
      * break silently the moment there are two.
      */
     @Override
-    public CompletableFuture<Boolean> publish(final String channel, final String payload) {
+    public boolean publish(final String channel, final String payload) {
         final List<BiConsumer<String, String>> listeners = subscribers.get(channel);
         if (listeners != null) {
             for (final BiConsumer<String, String> listener : List.copyOf(listeners)) {
                 listener.accept(channel, payload);
             }
         }
-        return TRUE;
+        return true;
     }
 
     @Override
@@ -231,30 +227,30 @@ public final class InMemoryCacheClient implements CacheClient {
     }
 
     @Override
-    public CompletableFuture<Boolean> tryAcquireLock(final String key, final Duration ttl) {
+    public boolean tryAcquireLock(final String key, final Duration ttl) {
         final long now = System.currentTimeMillis();
         final long expireAt = now + Math.max(1L, ttl == null ? 5_000L : ttl.toMillis());
         if (locks.putIfAbsent(key, expireAt) == null) {
-            return TRUE;
+            return true;
         }
         final Long existing = locks.get(key);
         if (existing != null && existing <= now && locks.replace(key, existing, expireAt)) {
-            return TRUE;
+            return true;
         }
-        return FALSE;
+        return false;
     }
 
     @Override
-    public CompletableFuture<Boolean> releaseLock(final String key) {
+    public boolean releaseLock(final String key) {
         locks.remove(key);
-        return TRUE;
+        return true;
     }
 
     @Override
-    public CompletableFuture<Boolean> clearNamespace(final String prefix) {
+    public boolean clearNamespace(final String prefix) {
         store.keySet().removeIf(key -> key.startsWith(prefix));
         locks.keySet().removeIf(key -> key.startsWith(prefix));
-        return TRUE;
+        return true;
     }
 
     @SuppressWarnings("unchecked")

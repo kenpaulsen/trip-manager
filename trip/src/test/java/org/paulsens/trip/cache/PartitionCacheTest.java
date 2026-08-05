@@ -22,16 +22,16 @@ public class PartitionCacheTest {
         final AtomicInteger loads = new AtomicInteger();
         final AtomicLong clock = new AtomicLong(1_000_000L);
         final PartitionCache<String, String> cache = partition(clock);
-        final Supplier<CompletableFuture<List<String>>> loader = () -> {
+        final Supplier<List<String>> loader = () -> {
             loads.incrementAndGet();
-            return CompletableFuture.completedFuture(List.of("a-db", "b-db"));
+            return List.of("a-db", "b-db");
         };
 
-        assertEquals(cache.getAll("p1", loader).join(), List.of("a-db", "b-db"));
+        assertEquals(cache.getAll("p1", loader), List.of("a-db", "b-db"));
         assertEquals(loads.get(), 1);
-        assertEquals(cache.getAll("p1", loader).join(), List.of("a-db", "b-db"));
+        assertEquals(cache.getAll("p1", loader), List.of("a-db", "b-db"));
         assertEquals(loads.get(), 1);
-        assertEquals(cache.getOne("p1", "z", loader).join(), Optional.empty());
+        assertEquals(cache.getOne("p1", "z", loader), Optional.empty());
         assertEquals(loads.get(), 1);
     }
 
@@ -40,14 +40,14 @@ public class PartitionCacheTest {
         final AtomicInteger loads = new AtomicInteger();
         final AtomicLong clock = new AtomicLong(1_000_000L);
         final PartitionCache<String, String> cache = partition(clock);
-        final Supplier<CompletableFuture<List<String>>> loader = () -> {
+        final Supplier<List<String>> loader = () -> {
             loads.incrementAndGet();
-            return CompletableFuture.completedFuture(List.of("a-db"));
+            return List.of("a-db");
         };
 
-        cache.getAll("p1", loader).join();
-        assertTrue(cache.put("p1", "c-written").join());
-        assertEquals(cache.getAll("p1", loader).join(), List.of("a-db", "c-written"));
+        cache.getAll("p1", loader);
+        assertTrue(cache.put("p1", "c-written"));
+        assertEquals(cache.getAll("p1", loader), List.of("a-db", "c-written"));
         assertEquals(loads.get(), 1);
     }
 
@@ -57,19 +57,19 @@ public class PartitionCacheTest {
         final AtomicLong clock = new AtomicLong(1_000_000L);
         final CountDownLatch secondLoad = new CountDownLatch(1);
         final PartitionCache<String, String> cache = partition(clock);
-        final Supplier<CompletableFuture<List<String>>> loader = () -> {
+        final Supplier<List<String>> loader = () -> {
             final int n = loads.incrementAndGet();
             if (n == 1) {
-                return CompletableFuture.completedFuture(List.of("v1"));
+                return List.of("v1");
             }
             secondLoad.countDown();
-            return CompletableFuture.completedFuture(List.of("v2"));
+            return List.of("v2");
         };
 
-        assertEquals(cache.getAll("p1", loader).join(), List.of("v1"));
+        assertEquals(cache.getAll("p1", loader), List.of("v1"));
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
 
-        assertEquals(cache.getAll("p1", loader).join(), List.of("v1"));
+        assertEquals(cache.getAll("p1", loader), List.of("v1"));
         assertTrue(secondLoad.await(3, TimeUnit.SECONDS), "background revalidate should run");
 
         // Rewind the clock before polling. The loop below reads with the SAME call that triggers a background
@@ -81,7 +81,7 @@ public class PartitionCacheTest {
 
         List<String> latest = List.of("v1");
         for (int i = 0; i < 100; i++) {
-            latest = cache.getAll("p1", loader).join();
+            latest = cache.getAll("p1", loader);
             if (latest.equals(List.of("v2"))) {
                 break;
             }
@@ -98,10 +98,10 @@ public class PartitionCacheTest {
         final CountDownLatch enteredLoad = new CountDownLatch(1);
         final CountDownLatch releaseLoad = new CountDownLatch(1);
         final PartitionCache<String, String> cache = partition(clock);
-        final Supplier<CompletableFuture<List<String>>> loader = () -> {
+        final Supplier<List<String>> loader = () -> {
             final int n = loads.incrementAndGet();
             if (n == 1) {
-                return CompletableFuture.completedFuture(List.of("v1"));
+                return List.of("v1");
             }
             enteredLoad.countDown();
             try {
@@ -109,10 +109,10 @@ public class PartitionCacheTest {
             } catch (final InterruptedException ex) {
                 Thread.currentThread().interrupt();
             }
-            return CompletableFuture.completedFuture(List.of("v2"));
+            return List.of("v2");
         };
 
-        cache.getAll("p1", loader).join();
+        cache.getAll("p1", loader);
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
 
         final int threads = 8;
@@ -122,7 +122,7 @@ public class PartitionCacheTest {
             new Thread(() -> {
                 try {
                     start.await();
-                    cache.getAll("p1", loader).join();
+                    cache.getAll("p1", loader);
                 } catch (final InterruptedException ex) {
                     Thread.currentThread().interrupt();
                 } finally {
@@ -144,20 +144,20 @@ public class PartitionCacheTest {
         final AtomicLong clock = new AtomicLong(1_000_000L);
         final CountDownLatch secondLoad = new CountDownLatch(1);
         final PartitionCache<String, String> cache = partition(clock);
-        final Supplier<CompletableFuture<List<String>>> loader = () -> {
+        final Supplier<List<String>> loader = () -> {
             final int n = loads.incrementAndGet();
             if (n >= 2) {
                 secondLoad.countDown();
             }
-            return CompletableFuture.completedFuture(List.of("v1"));
+            return List.of("v1");
         };
 
-        cache.getAll("p1", loader).join();
+        cache.getAll("p1", loader);
         clock.addAndGet(Duration.ofSeconds(30).toMillis());
-        cache.put("p1", "v1b").join(); // must NOT freshen LOADED_AT
+        cache.put("p1", "v1b"); // must NOT freshen LOADED_AT
         clock.addAndGet(Duration.ofSeconds(40).toMillis()); // 70s from load > 1 min softTtl
 
-        cache.getAll("p1", loader).join();
+        cache.getAll("p1", loader);
         assertTrue(secondLoad.await(3, TimeUnit.SECONDS), "soft revalidate should still run after write-through");
         assertTrue(loads.get() >= 2);
     }
@@ -168,26 +168,26 @@ public class PartitionCacheTest {
         final AtomicReference<List<String>> db = new AtomicReference<>(List.of("a-db", "b-db"));
         final AtomicInteger loads = new AtomicInteger();
         final PartitionCache<String, String> cache = partition(clock);
-        final Supplier<CompletableFuture<List<String>>> loader = () -> {
+        final Supplier<List<String>> loader = () -> {
             loads.incrementAndGet();
-            return CompletableFuture.completedFuture(db.get());
+            return db.get();
         };
 
-        assertEquals(cache.getAll("p1", loader).join(), List.of("a-db", "b-db"));
+        assertEquals(cache.getAll("p1", loader), List.of("a-db", "b-db"));
         db.set(List.of("a-db")); // out-of-band delete of b
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
 
-        cache.getAll("p1", loader).join(); // schedules refresh
+        cache.getAll("p1", loader); // schedules refresh
         List<String> latest = List.of("a-db", "b-db");
         for (int i = 0; i < 100; i++) {
-            latest = cache.getAll("p1", loader).join();
+            latest = cache.getAll("p1", loader);
             if (latest.equals(List.of("a-db"))) {
                 break;
             }
             Thread.sleep(20);
         }
         assertEquals(latest, List.of("a-db"));
-        assertEquals(cache.getOne("p1", "b", loader).join(), Optional.empty());
+        assertEquals(cache.getOne("p1", "b", loader), Optional.empty());
         assertTrue(loads.get() >= 2);
     }
 
@@ -198,10 +198,10 @@ public class PartitionCacheTest {
         final CountDownLatch releaseSecondLoad = new CountDownLatch(1);
         final AtomicInteger loads = new AtomicInteger();
         final PartitionCache<String, String> cache = partition(clock);
-        final Supplier<CompletableFuture<List<String>>> loader = () -> {
+        final Supplier<List<String>> loader = () -> {
             final int n = loads.incrementAndGet();
             if (n == 1) {
-                return CompletableFuture.completedFuture(List.of("a-db"));
+                return List.of("a-db");
             }
             enteredSecondLoad.countDown();
             try {
@@ -210,20 +210,20 @@ public class PartitionCacheTest {
                 Thread.currentThread().interrupt();
             }
             // Stale loader: does not include concurrent write-through "c-written"
-            return CompletableFuture.completedFuture(List.of("a-db"));
+            return List.of("a-db");
         };
 
-        cache.getAll("p1", loader).join();
+        cache.getAll("p1", loader);
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
-        cache.getAll("p1", loader).join(); // start background refresh
+        cache.getAll("p1", loader); // start background refresh
         assertTrue(enteredSecondLoad.await(3, TimeUnit.SECONDS));
-        assertTrue(cache.put("p1", "c-written").join());
+        assertTrue(cache.put("p1", "c-written"));
         releaseSecondLoad.countDown();
         Thread.sleep(150);
 
-        assertTrue(cache.getAll("p1", loader).join().contains("c-written"),
+        assertTrue(cache.getAll("p1", loader).contains("c-written"),
                 "write-through during refresh must not be reconcile-deleted");
-        assertEquals(cache.getOne("p1", "c", loader).join(), Optional.of("c-written"));
+        assertEquals(cache.getOne("p1", "c", loader), Optional.of("c-written"));
     }
 
     private static PartitionCache<String, String> partition(final AtomicLong clock) {
