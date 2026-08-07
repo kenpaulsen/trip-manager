@@ -19,6 +19,37 @@ public class ChatSettingsBuilderTest {
                 "builder() and defaults() must agree, or which one a caller happens to use changes behaviour");
     }
 
+    /**
+     * Channel rows written by the pre-photo deploys froze the reserved media fields as false/0/0, which then
+     * beat the new defaults and hid the Photo button on every live trip (production, 2026-08-07). That exact
+     * triple can only be the old serialized default -- no admin UI has ever written these fields -- so it
+     * deserializes as "reserved, never chosen" and takes the new defaults.
+     */
+    @Test
+    public void v1ReservedMediaTripleUpgradesToTheNewDefaults() {
+        final ChatSettings v1Row = new ChatSettings(null, null, null, null, null, null,
+                0, 0L, null, null, null, false, null, null, null, null, null, null, null, null);
+        Assert.assertTrue(v1Row.isAllowMedia(), "a v1 row must not read as an admin's photos-off choice");
+        Assert.assertEquals(v1Row.getMaxAttachmentsPerMessage(),
+                ChatSettings.DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE);
+        Assert.assertEquals(v1Row.getMaxAttachmentBytes(), ChatSettings.DEFAULT_MAX_ATTACHMENT_BYTES);
+    }
+
+    /** A modern photos-off writes allowMedia=false WITH the new caps -- a different shape, honoured as is. */
+    @Test
+    public void aDeliberatePhotosOffIsNotMistakenForAV1Row() {
+        final ChatSettings off = new ChatSettings(null, null, null, null, null, null,
+                ChatSettings.DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE, ChatSettings.DEFAULT_MAX_ATTACHMENT_BYTES,
+                null, null, null, false, null, null, null, null, null, null, null, null);
+        Assert.assertFalse(off.isAllowMedia());
+
+        final ChatSettings textOnly = new ChatSettings(null, null, null, null, null, null,
+                0, ChatSettings.DEFAULT_MAX_ATTACHMENT_BYTES,
+                null, null, null, true, null, null, null, null, null, null, null, null);
+        Assert.assertEquals(textOnly.getMaxAttachmentsPerMessage(), 0,
+                "an explicit cap of 0 alongside modern fields is a real choice");
+    }
+
     @Test
     public void builderDoesNotZeroTheLimitsThatWouldBreakTheChannel() {
         final ChatSettings s = ChatSettings.builder().build();

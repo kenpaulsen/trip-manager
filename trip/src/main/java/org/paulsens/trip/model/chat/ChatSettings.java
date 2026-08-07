@@ -106,9 +106,18 @@ public class ChatSettings implements Serializable {
         this.bufferMaxMessages = bufferMaxMessages == null ? DEFAULT_BUFFER_MAX_MESSAGES : bufferMaxMessages;
         this.maxMessageChars = maxMessageChars == null ? DEFAULT_MAX_MESSAGE_CHARS : maxMessageChars;
         // Media landed (P4): unset means the defaults, and 0 attachments is a real admin choice ("text
-        // only") rather than the reserved-field marker it was in v1. No production channel rows predate
-        // this -- chat had not been deployed -- so there are no stored v1 zeros to misread.
-        this.maxAttachmentsPerMessage = maxAttachmentsPerMessage == null
+        // only") rather than the reserved-field marker it was in v1.
+        //
+        // The v1 FINGERPRINT below exists because production channel rows DID predate this (the 8/5-8/6
+        // deploys shipped chat, and every channel row froze the reserved fields as false/0/0 -- which then
+        // beat the new defaults and hid the Photo button on every live trip). That exact triple can only be
+        // the old serialized default: no admin UI has ever been able to write these three fields, and a
+        // modern "photos off" writes allowMedia=false WITH the new caps, a different shape. So the triple is
+        // read as "reserved, never chosen" and upgraded; everything else is honoured as stored.
+        final boolean v1ReservedMedia = Boolean.FALSE.equals(allowMedia)
+                && maxAttachmentsPerMessage != null && maxAttachmentsPerMessage == 0
+                && maxAttachmentBytes != null && maxAttachmentBytes == 0L;
+        this.maxAttachmentsPerMessage = (maxAttachmentsPerMessage == null || v1ReservedMedia)
                 ? DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE : Math.max(0, maxAttachmentsPerMessage);
         this.maxAttachmentBytes = (maxAttachmentBytes == null || maxAttachmentBytes <= 0)
                 ? DEFAULT_MAX_ATTACHMENT_BYTES : maxAttachmentBytes;
@@ -116,7 +125,7 @@ public class ChatSettings implements Serializable {
         this.archiveAfterTripEndDays = archiveAfterTripEndDays == null
                 ? DEFAULT_ARCHIVE_AFTER_TRIP_END_DAYS : archiveAfterTripEndDays;
         this.allowReactions = allowReactions == null || allowReactions;
-        this.allowMedia = allowMedia == null || allowMedia;
+        this.allowMedia = v1ReservedMedia || allowMedia == null || allowMedia;
         this.allowEdit = allowEdit == null || allowEdit;
         this.fullHistoryForNewMembers = fullHistoryForNewMembers == null || fullHistoryForNewMembers;
         this.burstLimit = burstLimit == null ? DEFAULT_BURST_LIMIT : burstLimit;
