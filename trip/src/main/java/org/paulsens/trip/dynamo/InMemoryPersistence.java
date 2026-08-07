@@ -57,7 +57,11 @@ public class InMemoryPersistence implements Persistence {
             ChatDAO.CHANNELS_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, null),
             ChatDAO.MEMBERS_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, ChatDAO.ATTR_PERSON_ID),
             ChatDAO.MESSAGES_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, ChatDAO.ATTR_MSG_ID),
-            ChatDAO.REACTIONS_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, ChatDAO.ATTR_SK));
+            ChatDAO.REACTIONS_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, ChatDAO.ATTR_SK),
+            // Chat photos made this table WRITTEN in local mode (album rows). Without a real fake behind
+            // it, the rows lived only in the media cache -- and the first cache invalidation (any media
+            // delete does one) silently emptied the whole trip album.
+            MediaDAO.MEDIA_TABLE, new TableKeys("id", null));
 
     /** table -> (pk -> (sk -> item)). sk is "" for PK-only tables. */
     private final Map<String, Map<String, Map<String, Map<String, AttributeValue>>>> store =
@@ -147,6 +151,16 @@ public class InMemoryPersistence implements Persistence {
         final software.amazon.awssdk.services.dynamodb.model.ScanRequest.Builder builder =
                 software.amazon.awssdk.services.dynamodb.model.ScanRequest.builder();
         request.accept(builder);
+        // The media table scans what was actually written: its cache reloads via scanAll after any
+        // invalidation, so an empty answer here would silently erase the trip photo albums (see TABLES).
+        if (MediaDAO.MEDIA_TABLE.equals(builder.build().tableName())) {
+            final List<Map<String, AttributeValue>> items = new ArrayList<>();
+            for (final Map<String, Map<String, AttributeValue>> partition
+                    : store.getOrDefault(MediaDAO.MEDIA_TABLE, Map.of()).values()) {
+                items.addAll(partition.values());
+            }
+            return items;
+        }
         if (!PersonDAO.PERSON_TABLE.equals(builder.build().tableName()) || FakeData.getFakePeople() == null) {
             return Persistence.super.scanAll(request);
         }

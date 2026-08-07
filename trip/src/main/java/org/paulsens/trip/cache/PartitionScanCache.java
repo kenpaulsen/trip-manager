@@ -102,6 +102,19 @@ public final class PartitionScanCache<V> {
         return cache.removeKey(loadedKey);
     }
 
+    /**
+     * Surgical removal of one entity from its partition hash — the delete-path counterpart of {@link #put}.
+     *
+     * <p>This exists because {@link #invalidate()} is NOT safe everywhere: in local mode the cache client is
+     * the in-memory datastore itself (soft revalidate is off precisely because a rebuild would read an empty
+     * loader and wipe it), so a delete that invalidates throws away every OTHER entity too. Removing exactly
+     * the deleted field is correct in both modes, and in production the shared hash propagates it to every
+     * instance at once.
+     */
+    public boolean removeOne(final String partition, final String field) {
+        return cache.removeHashField(keyPrefix + partition, field);
+    }
+
     private List<V> deserializeValues(final Map<String, String> hash) {
         final List<V> result = new ArrayList<>(hash.size());
         for (final String json : hash.values()) {

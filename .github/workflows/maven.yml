@@ -17,6 +17,13 @@ jobs:
       with:
         distribution: 'temurin'
         java-version: '25'
+    - name: Install libheif (chat-photo HEIC decode)
+      # The HEIC pipeline test runs its real-decode branch only where libheif is present (it degrades to
+      # asserting the graceful rejection elsewhere). CI is where the coverage gate blocks, so CI gets the
+      # library and genuinely exercises the decode path. The unversioned .so lives in libheif-dev, and the
+      # HEVC decoder is its own plugin package that --no-install-recommends would skip -- without it libheif
+      # loads, reports its version, and fails to decode every actual iPhone photo.
+      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libheif-dev libheif-plugin-libde265
     - name: Build with Maven
       # -Djacoco.check.halt=true arms the coverage gate (90% overall, 90% per class): GitHub is the ONE place
       # a coverage regression blocks. Locally and in the CodePipeline buildspec the same check only reports.

@@ -130,6 +130,24 @@
                 </exclusion>
             </exclusions>
         </dependency>
+        <!-- CloudFront: chat-photo moderation. Removing a photo deletes the S3 object AND invalidates the
+             CDN copy; without the invalidation, "removed" images stay served until the cache TTL runs out.
+             Sync client, same reasoning as S3: a user-initiated action whose outcome must be reported. -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>cloudfront</artifactId>
+            <exclusions>
+                <!-- See the dynamodb entry: one sync http client, no SDK Netty. -->
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>netty-nio-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>software.amazon.awssdk</groupId>
+                    <artifactId>apache5-client</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
         <dependency>
             <groupId>at.favre.lib</groupId>
             <artifactId>bcrypt</artifactId>
@@ -273,6 +291,31 @@
             <groupId>com.googlecode.libphonenumber</groupId>
             <artifactId>libphonenumber</artifactId>
             <version>9.0.24</version>
+        </dependency>
+        <!--
+            HEIC decode for chat photos (iPhones shoot HEIC by default). MIT-licensed ImageIO plugin over the
+            system's LGPL libheif via the FFM API; the ONE pure-Java HEIC decoder (Openize.HEIC) is not
+            free for commercial use, so a native codec underneath a plain ImageIO.read() is the closest a
+            JVM can get. Degrades cleanly: with no libheif on the host (bare local dev), the plugin simply
+            reports HEIC unreadable and uploads get a clear "convert it" message; JPEG/PNG/GIF are untouched.
+            The container installs libheif (see the medjugorje Dockerfile) and the JVM needs
+            enable-native-access (spelled out in surefire's argLine below). Multi-release jar: inert below
+            Java 21.
+        -->
+        <dependency>
+            <groupId>com.github.gotson.nightmonkeys</groupId>
+            <artifactId>imageio-heif</artifactId>
+            <version>1.1.0</version>
+        </dependency>
+        <!--
+            EXIF orientation for chat photos. The stored original keeps its bytes (and so its orientation
+            tag), but the 800px derivative is re-encoded; without reading the tag and baking the rotation
+            in, every portrait phone photo renders sideways in the chat. Apache-2.0.
+        -->
+        <dependency>
+            <groupId>com.drewnoakes</groupId>
+            <artifactId>metadata-extractor</artifactId>
+            <version>2.19.0</version>
         </dependency>
         <dependency>
            <groupId>org.apache.poi</groupId>
@@ -454,7 +497,19 @@
                         the JDK already warns about and will refuse in a future release. This suite leans on
                         mockStatic heavily (every api resource test), so that is not a warning to sit on.
                     -->
-                    <argLine>@{argLine} --enable-preview -javaagent:${org.mockito:mockito-core:jar}</argLine>
+                    <!--
+                        enable-native-access: the HEIF ImageIO plugin (chat photos) reaches libheif through
+                        the FFM API, which the JDK restricts by default. Also required in the deployed JVM's
+                        CATALINA_OPTS, same two places as enable-preview above.
+
+                        java.library.path: the plugin loads via System.loadLibrary, whose DEFAULT path
+                        includes neither Debian's multiarch dir (where GitHub CI's apt puts libheif, and
+                        where the coverage gate needs the real decode to run) nor Homebrew's lib dir (where
+                        a Mac's `brew install libheif` lands for local dev). Listing dirs that do not exist
+                        on the current machine is harmless. Without libheif the HEIC tests still pass by
+                        asserting the graceful rejection; WITH the gate armed, CI needs the real branch.
+                    -->
+                    <argLine>@{argLine} --enable-preview --enable-native-access=ALL-UNNAMED -Djava.library.path=/opt/homebrew/lib:/usr/local/lib:/usr/lib/x86_64-linux-gnu:/usr/lib/aarch64-linux-gnu:/usr/lib -javaagent:${org.mockito:mockito-core:jar}</argLine>
                     <!-- A run that finds no tests is a broken run, not a passing one. -->
                     <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                     <systemPropertyVariables>

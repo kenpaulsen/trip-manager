@@ -29,12 +29,14 @@ import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.chat.ChatNotifications;
 import org.paulsens.trip.chat.ChatRateLimiter;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.media.PhotoRejectedException;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatAppearance;
+import org.paulsens.trip.model.chat.ChatAttachment;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatEmoji;
 import org.paulsens.trip.model.chat.ChatMembership;
@@ -638,6 +640,22 @@ public class ChatCommands {
         return trip == null || trip.getChatEnabled();
     }
 
+    /**
+     * The per-message photo cap the composer should enforce, or 0 when photos are off for this channel —
+     * 0 is also what hides the Attach button, so "off" and "cap of none" deliberately look the same.
+     *
+     * <p>Null-safe because it is evaluated from a {@code rendered=} attribute: on a no-trip render (a
+     * bookmark with no parameter and no session trip) the page is mid-REDIRECT, but attribute EL still
+     * evaluates, and throwing here aborts the response half-written instead of letting the redirect land.
+     */
+    public int maxPhotosForTrip(final String tripId) {
+        if (tripId == null || tripId.isBlank()) {
+            return 0;
+        }
+        final ChatSettings settings = channelForPage(tripId).getSettings();
+        return settings.isAllowMedia() ? settings.getMaxAttachmentsPerMessage() : 0;
+    }
+
     // --- send / feed ---
 
     /**
@@ -654,6 +672,22 @@ public class ChatCommands {
             final String clientMessageId,
             final ChatMessage.Id replyToId,
             final AuditActor actor) {
+        return send(tripId, authorId, body, clientMessageId, replyToId, actor, List.of());
+    }
+
+    /**
+     * As above, with photos. {@code attachmentRefs} name staged uploads (see {@code ChatPhotos}); a reference
+     * that was not staged by THIS author for THIS trip fails the send — the staging registry is the only
+     * authority on what a message may attach.
+     */
+    public SendResult send(
+            final String tripId,
+            final Person.Id authorId,
+            final String body,
+            final String clientMessageId,
+            final ChatMessage.Id replyToId,
+            final AuditActor actor,
+            final List<ChatPhotos.AttachmentRef> attachmentRefs) {
         final AuditActor who = actor != null ? actor : AuditActor.current();
         final Instant now = Instant.now();
         final ChatChannel channel = ensureChannel(tripId, who);
@@ -664,10 +698,28 @@ public class ChatCommands {
         if (denial != null) {
             return denial;
         }
+        final List<ChatAttachment> attachments;
+        if (attachmentRefs == null || attachmentRefs.isEmpty()) {
+            attachments = List.of();
+        } else {
+            final ChatSettings settings = channel.getSettings();
+            if (!settings.isAllowMedia()) {
+                return SendResult.fail("attachment", "Photos are turned off for this chat.");
+            }
+            if (attachmentRefs.size() > settings.getMaxAttachmentsPerMessage()) {
+                return SendResult.fail("too_many_photos", "At most "
+                        + settings.getMaxAttachmentsPerMessage() + " photos per message.");
+            }
+            try {
+                attachments = ChatPhotos.getChatPhotos().resolveStaged(tripId, authorId, attachmentRefs);
+            } catch (final PhotoRejectedException ex) {
+                return SendResult.fail("attachment", ex.getMessage());
+            }
+        }
         final String text = body == null ? "" : body;
         final int cps = text.codePointCount(0, text.length());
         final int max = channel.getSettings().getMaxMessageChars();
-        if (cps == 0) {
+        if (cps == 0 && attachments.isEmpty()) {
             return SendResult.fail("empty", "Message cannot be empty.");
         }
         if (cps > max) {
@@ -702,7 +754,8 @@ public class ChatCommands {
 
         final ChatMessage draft = new ChatMessage(
                 null, channel.getId(), authorId, null,
-                ChatMessage.MessageKind.TEXT, text, quote, null, null,
+                attachments.isEmpty() ? ChatMessage.MessageKind.TEXT : ChatMessage.MessageKind.MEDIA,
+                text, quote, attachments, null,
                 null, null, null, null, clientMessageId, null);
         Optional<ChatMessage> saved;
         try {
@@ -717,6 +770,16 @@ public class ChatCommands {
         // AFTER the durable write, never before: a notification about a message that failed to save would point at
         // nothing. Everything past this point is fire-and-forget on a pool thread and cannot fail the send.
         final ChatMessage stored = saved.get();
+        if (!stored.getAttachments().isEmpty()) {
+            // Consumed and recorded only for a saved message: a failed send leaves the photos staged, so the
+            // composer's retry still owns them.
+            final ChatPhotos photos = ChatPhotos.getChatPhotos();
+            photos.consume(stored.getAttachments());
+            final Trip trip = tripOf(channel);
+            photos.recordAlbumRows(tripId,
+                    trip == null || trip.getTitle() == null ? "trip" : trip.getTitle(),
+                    authorId, authorDisplayName(authorId), stored.getAttachments(), who);
+        }
         if (allowanceSpentOnEveryone(channel, authorId, stored, now)) {
             // The message is posted and highlights for everyone in-app; only the mail fan-out is withheld. Told to
             // the sender rather than done quietly, because someone who thinks their @all reached inboxes and finds
@@ -791,6 +854,32 @@ public class ChatCommands {
             return SendResult.fail("forbidden", "Only administrators can post in this chat.");
         }
         return null;
+    }
+
+    /** The upload gate's answer: the channel consulted, and why not — or {@code null} when allowed. */
+    public record AttachGate(ChatChannel channel, String denial) {
+    }
+
+    /**
+     * Whether {@code me} may stage a photo for this trip's chat right now: exactly the checks a send would
+     * apply, plus the media switches. Consulted by the upload servlet BEFORE bytes are processed; the send
+     * re-runs its own checks anyway, so a race (muted between attach and send) fails safe at send time.
+     *
+     * <p>Uses {@link #channelForPage} rather than {@link #ensureChannel} on purpose: staging a photo is
+     * composing, not posting, and must not create the channel — the channel becomes real on the first send.
+     */
+    public AttachGate checkAttach(final String tripId, final Person.Id me) {
+        final ChatChannel channel = channelForPage(tripId);
+        final ChatMembership row = dao().getChatMembership(channel.getId(), me).orElse(null);
+        final SendResult denial = postDenial(channel, me, row, Instant.now());
+        if (denial != null) {
+            return new AttachGate(channel, denial.getMessage());
+        }
+        final ChatSettings settings = channel.getSettings();
+        if (!settings.isAllowMedia() || settings.getMaxAttachmentsPerMessage() <= 0) {
+            return new AttachGate(channel, "Photos are turned off for this chat.");
+        }
+        return new AttachGate(channel, null);
     }
 
     public ChatPage feed(
@@ -1388,8 +1477,14 @@ public class ChatCommands {
             final String snap = before.map(m -> snapshot(m.getBody(), 120)).orElse("");
             final String author = before.map(m -> m.getAuthorId() == null ? "?" : m.getAuthorId().getValue())
                     .orElse("?");
+            final List<ChatAttachment> photos = before.map(ChatMessage::getAttachments).orElse(List.of());
             audit(AuditAction.CHAT_ADMIN, who, AuditEventBuilder.TARGET_CHAT_MESSAGE, msgId.getValue(),
-                    "message deleted; author=" + author + "; body=" + snap);
+                    "message deleted; author=" + author + "; body=" + snap
+                            + (photos.isEmpty() ? "" : "; photos=" + photos.size()));
+            // Album semantics (user decision 2026-08-07): photos SURVIVE retention expiry but NOT removal.
+            // Removing a message removes its photos everywhere -- stored renditions, CDN cache, album rows --
+            // or an admin moderating an image would have to hunt down three more copies by hand.
+            ChatPhotos.getChatPhotos().deleteEverywhere(photos);
             return true;
         }
         return false;
@@ -1841,12 +1936,19 @@ public class ChatCommands {
         final Object reply = ScopeUtil.getInstance().getViewMap("chatReplyTo");
         final ChatMessage.Id replyId = reply instanceof String s && !s.isBlank()
                 ? ChatMessage.Id.from(s) : null;
-        final SendResult result = send(tripId, me, body, clientId, replyId, AuditActor.current());
+        // The staged-photo tray, serialised into a hidden input by the Send button's onclick (the same
+        // moment the mention tokens are swapped): [{key, title}, ...]. A string in viewScope, like
+        // everything else here -- see the classloader note on the page.
+        final Object attachRaw = ScopeUtil.getInstance().getViewMap("chatAttachments");
+        final List<ChatPhotos.AttachmentRef> refs =
+                ChatPhotos.parseRefs(attachRaw instanceof String json ? json : null);
+        final SendResult result = send(tripId, me, body, clientId, replyId, AuditActor.current(), refs);
         if (result.isOk()) {
             final FacesContext ctx = FacesContext.getCurrentInstance();
             if (ctx != null && ctx.getViewRoot() != null) {
                 ctx.getViewRoot().getViewMap().put("chatDraft", "");
                 ctx.getViewRoot().getViewMap().put("chatReplyTo", null);
+                ctx.getViewRoot().getViewMap().put("chatAttachments", "");
             }
         } else if (result.getMessage() != null) {
             growlWarn(result.getMessage());

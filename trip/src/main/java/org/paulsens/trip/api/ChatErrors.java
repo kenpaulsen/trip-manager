@@ -36,6 +36,12 @@ public final class ChatErrors {
     public static final String BAD_CHANNEL = "BAD_CHANNEL";
     public static final String MESSAGE_EMPTY = "MESSAGE_EMPTY";
     public static final String MESSAGE_TOO_LONG = "MESSAGE_TOO_LONG";
+    /**
+     * An attachment reference the send cannot honour: over the per-message cap, or a key that was never
+     * staged by this person for this trip (expired, tampered, or a restart emptied the staging registry).
+     * Not terminal: the composer keeps the text, tells the person, and they re-attach.
+     */
+    public static final String BAD_ATTACHMENT = "BAD_ATTACHMENT";
     public static final String CSRF = "CSRF_REQUIRED";
     public static final String UNSUPPORTED_MEDIA_TYPE = "UNSUPPORTED_MEDIA_TYPE";
     public static final String NOT_ACCEPTABLE = "NOT_ACCEPTABLE";
@@ -66,6 +72,7 @@ public final class ChatErrors {
             case "slow_mode" -> SLOW_MODE;
             case "empty" -> MESSAGE_EMPTY;
             case "too_long" -> MESSAGE_TOO_LONG;
+            case "attachment", "too_many_photos" -> BAD_ATTACHMENT;
             case "forbidden" -> FORBIDDEN;
             case "store" -> STORE_FAILED;
             default -> INTERNAL;

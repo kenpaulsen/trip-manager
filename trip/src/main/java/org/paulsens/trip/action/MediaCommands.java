@@ -23,6 +23,8 @@ import org.paulsens.trip.model.MediaItem;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.cloudfront.CloudFrontClient;
+import software.amazon.awssdk.services.cloudfront.model.CreateInvalidationRequest;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
@@ -53,10 +55,12 @@ public class MediaCommands {
 
     static final String BUCKET_VAR = "TRIP_MEDIA_BUCKET";
     static final String BASE_URL_VAR = "TRIP_MEDIA_BASE_URL";
+    static final String DISTRIBUTION_VAR = "TRIP_MEDIA_DISTRIBUTION";
     /** A day. Long enough to be worth caching; short enough that a same-key replacement rolls out on its own. */
     private static final long CACHE_SECONDS = 86_400L;
 
     private volatile S3Client s3;
+    private volatile CloudFrontClient cloudFront;
 
     /** @return every media item, newest first, for the admin page. */
     public List<MediaItem> getAll() {
@@ -69,6 +73,21 @@ public class MediaCommands {
             log.error("Unable to list media", ex);
             return List.of();
         }
+    }
+
+    /**
+     * The curated inventory: everything EXCEPT trip-chat photos. The admin page lists this by default —
+     * pilgrims sharing phone photos would otherwise swamp the travel guides and flyers an admin actually
+     * manages there (its toggle brings them back). Chat photos have their own page per trip.
+     */
+    public List<MediaItem> getCurated() {
+        final List<MediaItem> curated = new ArrayList<>();
+        for (final MediaItem item : getAll()) {
+            if (!ChatPhotos.isChatSlot(item.getSlot())) {
+                curated.add(item);
+            }
+        }
+        return curated;
     }
 
     /**
@@ -202,7 +221,7 @@ public class MediaCommands {
         final MediaItem updated = new MediaItem(existing.getId(), cleanKey, title, description,
                 existing.getContentType(), existing.getSize(), slot,
                 (position == null) ? existing.getPosition() : position,
-                existing.getUploaded(), existing.getUploadedBy());
+                existing.getUploaded(), existing.getUploadedBy(), existing.getSmallKey());
         try {
             if (!DAO.getInstance().saveMedia(updated)) {
                 TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", "The save failed.");
@@ -262,6 +281,100 @@ public class MediaCommands {
     /** @return the public URL for an arbitrary media key. */
     public String publicUrl(final String key) {
         return baseUrl() + "/" + key;
+    }
+
+    /**
+     * Stores raw bytes at a key with an explicit cache policy — the primitive under chat photos, which need a
+     * SHORTER cache than curated media (a moderated-away photo must actually disappear) and, for the
+     * full-size rendition, a download disposition (its URL exists only to be the "Download full size" link,
+     * and {@code img} tags ignore the disposition, so the one object serves both uses).
+     *
+     * <p>No faces message on failure: callers are XHR endpoints that report errors as JSON, not pages.
+     *
+     * @return true when stored; false when no bucket is configured or the put failed.
+     */
+    public boolean putObject(final String key, final byte[] bytes, final String contentType,
+            final long cacheSeconds, final boolean asDownload) {
+        final String bucket = bucket();
+        if (bucket == null) {
+            return false;
+        }
+        try {
+            final PutObjectRequest.Builder put = PutObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(key)
+                    .contentType(contentType)
+                    .contentLength((long) bytes.length)
+                    .cacheControl("public, max-age=" + cacheSeconds);
+            if (asDownload) {
+                put.contentDisposition("attachment");
+            }
+            s3().putObject(put.build(), RequestBody.fromBytes(bytes));
+            return true;
+        } catch (final RuntimeException ex) {
+            log.error("Unable to store object: " + key, ex);
+            return false;
+        }
+    }
+
+    /**
+     * Best-effort CloudFront invalidation of the given paths (each starting with {@code /}). Used by
+     * chat-photo moderation so a removed photo's cached copy dies with the object. No-op unless
+     * {@code TRIP_MEDIA_DISTRIBUTION} names the distribution; a failure is logged, not thrown — the objects
+     * are already gone from S3, and a CDN hiccup must not abort the moderation that removed them.
+     */
+    public void invalidateCdn(final List<String> paths) {
+        final String distribution = env(DISTRIBUTION_VAR);
+        if (distribution == null || paths == null || paths.isEmpty()) {
+            return;
+        }
+        try {
+            cloudFront().createInvalidation(CreateInvalidationRequest.builder()
+                    .distributionId(distribution)
+                    .invalidationBatch(b -> b
+                            .callerReference("chat-photo-" + System.currentTimeMillis())
+                            .paths(p -> p.items(paths).quantity(paths.size())))
+                    .build());
+        } catch (final RuntimeException ex) {
+            log.error("CloudFront invalidation failed for {} path(s); cached copies expire on their TTL",
+                    paths.size(), ex);
+        }
+    }
+
+    private CloudFrontClient cloudFront() {
+        CloudFrontClient client = cloudFront;
+        if (client == null) {
+            synchronized (this) {
+                client = cloudFront;
+                if (client == null) {
+                    client = CloudFrontClient.builder()
+                            .region(Region.AWS_GLOBAL)
+                            .credentialsProvider(DefaultCredentialsProvider.builder().build())
+                            .build();
+                    cloudFront = client;
+                }
+            }
+        }
+        return client;
+    }
+
+    /**
+     * Removes one object, without a media row in mind (chat-photo renditions and staged-upload cleanup).
+     *
+     * @return true when S3 accepted the delete; also true with no bucket configured (nothing to remove).
+     */
+    public boolean deleteObject(final String key) {
+        final String bucket = bucket();
+        if (bucket == null) {
+            return true;
+        }
+        try {
+            s3().deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(key).build());
+            return true;
+        } catch (final RuntimeException ex) {
+            log.error("Unable to delete object: " + key, ex);
+            return false;
+        }
     }
 
     /**
@@ -361,7 +474,7 @@ public class MediaCommands {
         return env(BUCKET_VAR);
     }
 
-    private static String env(final String name) {
+    static String env(final String name) {
         final String sysProp = System.getProperty(name.toLowerCase(Locale.ROOT).replace('_', '.'));
         final String value = (sysProp == null || sysProp.isBlank()) ? System.getenv(name) : sysProp;
         return (value == null || value.isBlank()) ? null : value.trim();

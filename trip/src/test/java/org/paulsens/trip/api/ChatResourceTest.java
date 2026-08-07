@@ -180,7 +180,8 @@ public class ChatResourceTest extends ResourceTestSupport {
     public void aSentMessageComesBackAsTheStoredObject() {
         final ChatMessage stored = message("m9");
         Mockito.when(chat.send(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME), ArgumentMatchers.eq("hi"),
-                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(AuditActor.class)))
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(AuditActor.class),
+                ArgumentMatchers.anyList()))
                 .thenReturn(ChatCommands.SendResult.ok(stored));
 
         final Response response = send("hi");
@@ -193,7 +194,8 @@ public class ChatResourceTest extends ResourceTestSupport {
     @Test
     public void aRateLimitedSendIs429WithRetryAfterNotATerminalError() {
         Mockito.when(chat.send(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
-                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(AuditActor.class)))
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(AuditActor.class),
+                ArgumentMatchers.anyList()))
                 .thenReturn(ChatCommands.SendResult.fail("rate_limit", "Slow down"));
 
         final Response response = send("spam");
@@ -205,7 +207,8 @@ public class ChatResourceTest extends ResourceTestSupport {
     @Test
     public void sendFailuresMapToTheStatusTheClientActsOn() {
         Mockito.when(chat.send(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
-                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(AuditActor.class)))
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(AuditActor.class),
+                ArgumentMatchers.anyList()))
                 .thenReturn(ChatCommands.SendResult.fail("muted", "You are muted"))
                 .thenReturn(ChatCommands.SendResult.fail("too_long", "Too long"))
                 .thenReturn(ChatCommands.SendResult.fail("store", "Store failed"));

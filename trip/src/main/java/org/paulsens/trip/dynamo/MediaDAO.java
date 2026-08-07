@@ -32,7 +32,8 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 public class MediaDAO {
     private static final String ID = "id";
     private static final String CONTENT = "content";
-    private static final String MEDIA_TABLE = "media";
+    /** Package-visible so {@link InMemoryPersistence} can register the table for local mode. */
+    static final String MEDIA_TABLE = "media";
 
     private final ObjectMapper mapper;
     private final Persistence persistence;
@@ -128,10 +129,11 @@ public class MediaDAO {
         try {
             final boolean deleted = persistence.deleteItem(b -> b.tableName(MEDIA_TABLE).key(key))
                     .sdkHttpResponse().isSuccessful();
-            // Invalidate rather than surgically removing the field: deletes are rare, and a rebuild
-            // from the table is the one thing guaranteed to leave the cache consistent.
+            // Surgical removal, NOT invalidate(): in local mode the cache client is the datastore (soft
+            // revalidate off), so a full invalidation deleted every OTHER media row too -- one removed chat
+            // photo emptied the whole trip album. Chat photos also made deletes routine rather than rare.
             if (deleted) {
-                cache.invalidate();
+                cache.removeOne(CacheKeys.MEDIA_PARTITION, id);
             }
             return deleted;
         } catch (final RuntimeException ex) {

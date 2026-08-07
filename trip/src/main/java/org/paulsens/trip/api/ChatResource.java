@@ -16,12 +16,14 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.NotAuthorizedException;
 import jakarta.ws.rs.core.Response;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.paulsens.trip.action.ChatCommands;
+import org.paulsens.trip.action.ChatPhotos;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.chat.ChatNudgeRegistry;
 import org.paulsens.trip.model.Person;
@@ -214,10 +216,12 @@ public class ChatResource extends BaseResource {
         final String replyTo = body == null ? null : string(body.get("replyTo"));
         final ChatMessage.Id replyId = replyTo == null || replyTo.isBlank()
                 ? null : ChatMessage.Id.from(replyTo);
+        final List<ChatPhotos.AttachmentRef> attachments =
+                parseAttachments(body == null ? null : body.get("attachments"));
 
         final ChatCommands chat = ChatCommands.getChatCommands();
         final ChatCommands.SendResult result = chat.send(
-                tripId, me, text, clientMessageId, replyId, actor());
+                tripId, me, text, clientMessageId, replyId, actor(), attachments);
         if (result.isOk()) {
             return ok(result.getMessageObj());
         }
@@ -237,10 +241,31 @@ public class ChatResource extends BaseResource {
                 || ChatErrors.CHANNEL_ARCHIVED.equals(code)) {
             return error(403, code, message);
         }
-        if (ChatErrors.MESSAGE_EMPTY.equals(code) || ChatErrors.MESSAGE_TOO_LONG.equals(code)) {
+        if (ChatErrors.MESSAGE_EMPTY.equals(code) || ChatErrors.MESSAGE_TOO_LONG.equals(code)
+                || ChatErrors.BAD_ATTACHMENT.equals(code)) {
             return error(400, code, message);
         }
         return error(500, code, message);
+    }
+
+    /**
+     * Attachment references from the wire: {@code [{key, title}, ...]}. Tolerant of shape garbage (an entry
+     * that is not an object, a missing key) by dropping it — the send then validates what remains against the
+     * staging registry, which is the check that actually matters.
+     */
+    private static List<ChatPhotos.AttachmentRef> parseAttachments(final Object raw) {
+        if (!(raw instanceof List<?> list) || list.isEmpty()) {
+            return List.of();
+        }
+        final List<ChatPhotos.AttachmentRef> refs = new ArrayList<>();
+        for (final Object entry : list) {
+            if (entry instanceof Map<?, ?> map && map.get("key") != null) {
+                final Object title = map.get("title");
+                refs.add(new ChatPhotos.AttachmentRef(
+                        map.get("key").toString(), title == null ? null : title.toString()));
+            }
+        }
+        return refs;
     }
 
     @DELETE

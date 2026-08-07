@@ -45,8 +45,9 @@ public class ChatSettingsBuilderTest {
         Assert.assertNull(s.getRetentionSeconds(), "null = keep forever");
         Assert.assertNull(s.getRetentionDaysAfterTripEnd(), "null = never auto-delete");
         Assert.assertEquals(s.getSlowModeSeconds(), 0, "slow mode off");
-        Assert.assertFalse(s.isAllowMedia(), "no media in v1");
-        Assert.assertEquals(s.getMaxAttachmentsPerMessage(), 0);
+        Assert.assertTrue(s.isAllowMedia(), "media landed (P4): on unless an admin turns it off");
+        Assert.assertEquals(s.getMaxAttachmentsPerMessage(), ChatSettings.DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE);
+        Assert.assertEquals(s.getMaxAttachmentBytes(), ChatSettings.DEFAULT_MAX_ATTACHMENT_BYTES);
         Assert.assertEquals(s.getPostPolicy(), ChatSettings.PostPolicy.ALL_MEMBERS);
     }
 

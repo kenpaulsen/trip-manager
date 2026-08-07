@@ -39,6 +39,12 @@ public class MediaItem implements Serializable {
     int position;
     LocalDateTime uploaded;
     String uploadedBy;
+    /**
+     * Object key of a reduced display rendition, when one exists (chat photos store an 800px-wide copy
+     * beside the original). Null -- every pre-existing row and most uploads -- means there is only the one
+     * object; use {@link #getDisplayKey()} to render without caring which.
+     */
+    String smallKey;
 
     @JsonCreator
     public MediaItem(
@@ -51,7 +57,8 @@ public class MediaItem implements Serializable {
             @JsonProperty("slot") final String slot,
             @JsonProperty("position") final int position,
             @JsonProperty("uploaded") final LocalDateTime uploaded,
-            @JsonProperty("uploadedBy") final String uploadedBy) {
+            @JsonProperty("uploadedBy") final String uploadedBy,
+            @JsonProperty("smallKey") final String smallKey) {
         this.id = id;
         this.s3Key = s3Key;
         this.title = title;
@@ -62,6 +69,20 @@ public class MediaItem implements Serializable {
         this.position = position;
         this.uploaded = uploaded;
         this.uploadedBy = uploadedBy;
+        this.smallKey = (smallKey == null || smallKey.isBlank() || smallKey.equals(s3Key)) ? null : smallKey;
+    }
+
+    /** Compatibility constructor for the common single-rendition case. */
+    public MediaItem(final String id, final String s3Key, final String title, final String description,
+            final String contentType, final long size, final String slot, final int position,
+            final LocalDateTime uploaded, final String uploadedBy) {
+        this(id, s3Key, title, description, contentType, size, slot, position, uploaded, uploadedBy, null);
+    }
+
+    /** @return the key a page should display: the reduced rendition when there is one, else the object. */
+    @JsonIgnore
+    public String getDisplayKey() {
+        return smallKey == null ? s3Key : smallKey;
     }
 
     /** @return a human-friendly size, for the admin list. */

@@ -30,6 +30,8 @@ public class ChatSettings implements Serializable {
     public static final int DEFAULT_BURST_WINDOW_SECONDS = 10;
     public static final int DEFAULT_SUSTAINED_LIMIT = 60;
     public static final int DEFAULT_SUSTAINED_WINDOW_SECONDS = 300;
+    public static final int DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE = 10;
+    public static final long DEFAULT_MAX_ATTACHMENT_BYTES = 10L * 1024 * 1024;
 
     public enum PostPolicy {
         ALL_MEMBERS,
@@ -103,13 +105,18 @@ public class ChatSettings implements Serializable {
         this.bufferMinutes = bufferMinutes == null ? DEFAULT_BUFFER_MINUTES : bufferMinutes;
         this.bufferMaxMessages = bufferMaxMessages == null ? DEFAULT_BUFFER_MAX_MESSAGES : bufferMaxMessages;
         this.maxMessageChars = maxMessageChars == null ? DEFAULT_MAX_MESSAGE_CHARS : maxMessageChars;
-        this.maxAttachmentsPerMessage = maxAttachmentsPerMessage == null ? 0 : maxAttachmentsPerMessage;
-        this.maxAttachmentBytes = maxAttachmentBytes == null ? 0L : maxAttachmentBytes;
+        // Media landed (P4): unset means the defaults, and 0 attachments is a real admin choice ("text
+        // only") rather than the reserved-field marker it was in v1. No production channel rows predate
+        // this -- chat had not been deployed -- so there are no stored v1 zeros to misread.
+        this.maxAttachmentsPerMessage = maxAttachmentsPerMessage == null
+                ? DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE : Math.max(0, maxAttachmentsPerMessage);
+        this.maxAttachmentBytes = (maxAttachmentBytes == null || maxAttachmentBytes <= 0)
+                ? DEFAULT_MAX_ATTACHMENT_BYTES : maxAttachmentBytes;
         this.slowModeSeconds = slowModeSeconds == null ? 0 : slowModeSeconds;
         this.archiveAfterTripEndDays = archiveAfterTripEndDays == null
                 ? DEFAULT_ARCHIVE_AFTER_TRIP_END_DAYS : archiveAfterTripEndDays;
         this.allowReactions = allowReactions == null || allowReactions;
-        this.allowMedia = allowMedia != null && allowMedia;
+        this.allowMedia = allowMedia == null || allowMedia;
         this.allowEdit = allowEdit == null || allowEdit;
         this.fullHistoryForNewMembers = fullHistoryForNewMembers == null || fullHistoryForNewMembers;
         this.burstLimit = burstLimit == null ? DEFAULT_BURST_LIMIT : burstLimit;
@@ -147,8 +154,10 @@ public class ChatSettings implements Serializable {
         private int sustainedWindowSeconds = DEFAULT_SUSTAINED_WINDOW_SECONDS;
         private boolean allowReactions = true;
         private boolean allowEdit = true;
+        private boolean allowMedia = true;
         private boolean fullHistoryForNewMembers = true;
-        // Deliberately left at the JVM default: maxAttachmentsPerMessage/maxAttachmentBytes (media reserved,
-        // v1 allows none), slowModeSeconds (0 = off), allowMedia (false in v1).
+        private int maxAttachmentsPerMessage = DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE;
+        private long maxAttachmentBytes = DEFAULT_MAX_ATTACHMENT_BYTES;
+        // Deliberately left at the JVM default: slowModeSeconds (0 = off).
     }
 }

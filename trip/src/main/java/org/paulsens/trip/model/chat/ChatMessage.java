@@ -130,7 +130,9 @@ public class ChatMessage implements Serializable {
     }
 
     public ChatMessage withDeleted(final String by) {
-        return new ChatMessage(id, channelId, authorId, sentAt, kind, "", quote, attachments,
+        // Attachments are cleared like the body: a delete is moderation, and the stored renditions are
+        // removed by the same cascade, so keys pointing at deleted objects must not linger on the wire.
+        return new ChatMessage(id, channelId, authorId, sentAt, kind, "", quote, List.of(),
                 forwardedFrom, editedAt, Instant.now().truncatedTo(ChronoUnit.MILLIS), by,
                 expiresAt, clientMessageId, schemaVersion);
     }

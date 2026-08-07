@@ -29,8 +29,11 @@ mvn test -pl trip -Dtest=TripCommandsTest#method   # one method
 
 Java 25 · Jakarta EE 10 (Servlet 6.1, Faces 4.1 / Mojarra, CDI 4.1 / Weld) · PrimeFaces 15 + extensions
 (`jakarta` classifier) · Jersey 3.1 (REST) · MapStruct · Lombok · Jackson · AWS SDK v2 async (DynamoDB, SES,
-Secrets Manager, CloudWatch Logs, S3, CodePipeline) · Lettuce (**must stay 6.x** — the build pins Netty 4.1;
-Lettuce 7 needs Netty 4.2) · BCrypt (`at.favre.lib`) · PayPal server SDK · Apache POI · TestNG.
+Secrets Manager, CloudWatch Logs, S3, CloudFront, CodePipeline) · Lettuce (**must stay 6.x** — the build pins
+Netty 4.1; Lettuce 7 needs Netty 4.2) · BCrypt (`at.favre.lib`) · PayPal server SDK · Apache POI · TestNG ·
+NightMonkeys `imageio-heif` (chat-photo HEIC decode over the SYSTEM libheif via FFM — needs
+`--enable-native-access` plus an unversioned `libheif.so` on `java.library.path`; without it HEIC uploads get
+a clean "convert to JPEG" rejection and everything else works) · metadata-extractor (EXIF orientation).
 
 ## Architecture
 
@@ -59,6 +62,9 @@ Persistence gotchas (each has caused a real bug):
 - `queryAll` ignores `limit` (it paginates the whole partition); use `query()` for unbounded partitions.
 - Lombok `@Builder` zeroes primitive defaults — hand-write builders (see `TripBuilder`) and assert
   `builder().build().equals(new Whatever())` in the model test.
+- A DAO on `PartitionScanCache` must delete rows via `removeOne`, never `invalidate()`: in local mode the
+  cache client IS the datastore (soft revalidate off), so a full invalidation silently deletes every OTHER
+  row too — one removed chat photo emptied the whole trip album before this rule existed.
 
 ### Domain model (`org.paulsens.trip.model`)
 
@@ -74,7 +80,13 @@ save and 500s every later request (looks like a site-wide outage). `ModelSeriali
 `@Named @ApplicationScoped` beans exposed to JSF EL. Current names: `trip` (TripCommands), `people`
 (PersonCommands), `reg` (RegistrationCommands), `txCmds` (TransactionsCommands), `todo`, `bind`, `priv`,
 `pdv`, `pass`, `mail`, `chat`, `audit`, `auditView`, `config` (ConfigCommands — admin Settings page),
-`media`, `profilePhotos`, `pay` (PayCommands — PayPal), `deploy`, `json`, `tripUtil`.
+`media`, `profilePhotos`, `chatPhotos` (ChatPhotos — chat photo storage/staging/album), `pay`
+(PayCommands — PayPal), `deploy`, `json`, `tripUtil`.
+
+- `ChatPhotos.getChatPhotos()` is ONE static instance on purpose — never give it ChatCommands'
+  FacesContext/application-map lookup: the upload servlet has no FacesContext and the JSF send does, so a
+  context-sensitive lookup splits the staging registry across two instances and every photo "is no longer
+  available" at send.
 
 - Bean `get*` methods (e.g. `getPerson`, `getTrip`) **never return null** — they answer a blank object with a
   fresh id, so null checks don't fire and a careless PUT saves a junk row. REST code must use the
@@ -100,6 +112,13 @@ config, mail, payments, deploy) + `TripAuthFilter`, `JsonExceptionMapper`, `Obje
 - `chat/` — per-trip chat runtime: digest scheduler (Valkey-coordinated so N tasks send once), notifier
   chain, rate limiter, long-poll nudge registry. Design doc: `chat-design.md` at the workspace root. Several
   chat decisions deliberately reverse the obvious approach — read the design doc before changing behavior.
+- `media/` — the chat-photo pipeline (P4 media, landed 2026-08-07): `PhotoProcessor` (two renditions per
+  upload — untouched original + ≤800px display copy; HEIC transcodes to full-res JPEG; animated GIF passes
+  through), `ImageFormat` (magic-byte sniffing), `ChatPhotoStaging` (upload→send authorization). Uploads go
+  through `web/ChatUploadServlet` (`/chat-photos/*`, own multipart-config in the live web.xml — the chat
+  page's JSF form must NEVER go multipart, Tomcat's `maxPartCount` counts ordinary fields). Album rows land
+  in the media table under slot `tripChat-{tripId}`; message removal deletes photos everywhere (album
+  semantics: retention expiry does NOT).
 - `audit/` — `Audit` writes every event to CloudWatch Logs (`TRIP_AUDIT_LOG_GROUP`) AND the `audit` DynamoDB
   table when deployed, stdout otherwise. Append-only in IAM *and* in code — no update/delete paths.
 - `config/KnownSettings` — every runtime setting is declared ONCE here (`SettingDef` constants); the admin
