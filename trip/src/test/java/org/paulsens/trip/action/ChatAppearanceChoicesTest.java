@@ -67,6 +67,13 @@ public class ChatAppearanceChoicesTest {
     }
 
     @Test
+    public void theSwatchesAreTheChoicesCommaJoined() {
+        // The color picker's swatches attribute takes one comma-separated string, not a list.
+        set(KnownSettings.CHAT_BACKGROUND_COLORS.getName(), "#ffffff,#000000");
+        Assert.assertEquals(chat.getBackgroundColorSwatches(), "#ffffff,#000000");
+    }
+
+    @Test
     public void anEntirelyBadListStillLeavesSomethingUsable() {
         set(KnownSettings.CHAT_BACKGROUND_COLORS.getName(), ",,,");
         Assert.assertTrue(chat.getBackgroundColorChoices().isEmpty(),

@@ -144,6 +144,36 @@ public class ChatMembershipAndPrefsTest {
     }
 
     @Test
+    public void settingsDialogSaveWorksBeforeAnyoneHasPosted() {
+        // The bug this guards against: a channel only becomes real on the first send, and requiring one to
+        // already exist made the Settings dialog's Save fail in every chat nobody had posted in yet.
+        Assert.assertNull(chat.getChannel(tripId), "test premise: no channel row exists yet");
+
+        Assert.assertTrue(chat.saveChatPrefs(tripId, member, true, true, "#123456", null),
+                "saving preferences must materialise the channel, not require it");
+        Assert.assertNotNull(chat.getChannel(tripId), "the save is what creates the channel");
+        Assert.assertTrue(chat.mentionEmailForTrip(tripId, member));
+        Assert.assertTrue(chat.dailyDigestForTrip(tripId, member));
+        Assert.assertEquals(chat.appearanceForTrip(tripId, member).getBackgroundColor(), "#123456");
+    }
+
+    @Test
+    public void settingsDialogSaveClearsAsWellAsSets() {
+        Assert.assertTrue(chat.saveChatPrefs(tripId, member, false, false, "#123456", null));
+        Assert.assertTrue(chat.saveChatPrefs(tripId, member, false, false, "", ""),
+                "blank values clear the override");
+        Assert.assertNull(chat.appearanceForTrip(tripId, member).getBackgroundColor());
+        Assert.assertNull(chat.appearanceForTrip(tripId, member).getBackgroundImageUrl());
+    }
+
+    @Test
+    public void settingsDialogSaveIsRefusedForSomeoneWhoCannotRead() {
+        Assert.assertFalse(chat.saveChatPrefs(tripId, person("Outsider"), true, true, "#123456", null));
+        Assert.assertFalse(chat.saveChatPrefs(tripId, null, true, true, "#123456", null));
+        Assert.assertFalse(chat.saveChatPrefs(null, member, true, true, "#123456", null));
+    }
+
+    @Test
     public void emailPrefsAreRefusedForSomeoneWhoCannotRead() {
         chat.ensureChannel(tripId, actor);
 

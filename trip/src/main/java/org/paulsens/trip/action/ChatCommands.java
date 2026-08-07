@@ -347,12 +347,12 @@ public class ChatCommands {
     // --- appearance choices and the mention roster ---
 
     /**
-     * The background colours people may choose from.
+     * The background colours suggested by the settings dialog's color picker.
      *
-     * <p>A list rather than a free text field because the value is interpolated into a {@code style} attribute:
-     * a chooser makes the safe set explicit instead of relying on {@link ChatAppearance}'s validator to catch
-     * whatever someone types. Entries that would not survive that validator are dropped here too, so a typo in
-     * the setting removes one swatch rather than offering a choice that silently does nothing.
+     * <p>Suggestions rather than the whole choice: the picker offers these as its swatch row but accepts any
+     * color, and {@link ChatAppearance}'s validator is what keeps a saved value safe for a {@code style}
+     * attribute. Entries that would not survive that validator are dropped here, so a typo in the setting
+     * removes one swatch rather than offering a suggestion that silently does nothing.
      */
     public List<String> getBackgroundColorChoices() {
         return Arrays.stream(config.getString(KnownSettings.CHAT_BACKGROUND_COLORS).split(","))
@@ -361,6 +361,11 @@ public class ChatCommands {
                 .filter(value -> new ChatAppearance(value, null).getBackgroundColor() != null)
                 .distinct()
                 .toList();
+    }
+
+    /** {@link #getBackgroundColorChoices} comma-joined the way the color picker's swatches attribute wants. */
+    public String getBackgroundColorSwatches() {
+        return String.join(",", getBackgroundColorChoices());
     }
 
     /** The image shown when neither the trip nor the person has chosen one. Blank means no image. */
@@ -551,24 +556,8 @@ public class ChatCommands {
     public boolean saveChatPrefsFromUi(
             final Boolean mentionEmail, final Boolean dailyDigest, final String color,
             final String imageUrl) {
-        final String tripId = currentTripId();
-        final Person.Id me = currentUserId();
-        if (tripId == null || me == null) {
-            growlError("Unable to save your chat settings.");
-            return false;
-        }
-        final ChatChannel channel = getChannel(tripId);
-        if (channel == null || !canRead(channel, me)) {
-            growlError("Unable to save your chat settings.");
-            return false;
-        }
-        final ChatMembership row = membershipRow(channel.getId(), me)
-                .orElseGet(() -> ChatMembership.joining(channel.getId(), me, channel.getCreated()));
-        final ChatMembership updated = row
-                .withNotify(row.getNotify().withEmail(
-                        mentionEmail != null && mentionEmail, dailyDigest != null && dailyDigest))
-                .withAppearance(new ChatAppearance(color, imageUrl));
-        final boolean saved = dao().saveChatMembership(updated);
+        final boolean saved = saveChatPrefs(currentTripId(), currentUserId(),
+                mentionEmail != null && mentionEmail, dailyDigest != null && dailyDigest, color, imageUrl);
         if (saved) {
             growlWarn("Chat settings saved.");
         } else {
@@ -577,30 +566,29 @@ public class ChatCommands {
         return saved;
     }
 
-    /** Saves this person's per-channel look. Blank values clear the override and fall back to the channel's. */
-    public boolean saveAppearanceFromUi(final String color, final String imageUrl) {
-        final String tripId = currentTripId();
-        final Person.Id me = currentUserId();
+    /**
+     * The scope-free half of {@link #saveChatPrefsFromUi}, split out so it is testable off a request thread.
+     *
+     * <p>Creates the channel if it does not exist yet — the same reasoning as {@link #setEmailPrefs}: a channel
+     * only becomes real on the first send, so requiring one to already exist here made Save fail in every chat
+     * nobody had posted in yet. Still gated on {@link #canRead}, because this writes a membership row and a row
+     * is what puts someone in the channel.
+     */
+    boolean saveChatPrefs(final String tripId, final Person.Id me, final boolean mentionEmail,
+            final boolean dailyDigest, final String color, final String imageUrl) {
         if (tripId == null || me == null) {
             return false;
         }
-        final ChatChannel channel = getChannel(tripId);
+        final ChatChannel channel = ensureChannel(tripId, AuditActor.current());
         if (channel == null || !canRead(channel, me)) {
-            growlError("Unable to save your chat settings.");
             return false;
         }
-        // Same materialisation as setEmailPrefs: an implicit member has no row yet, and storing a preference is
-        // exactly the first explicit action that should create one.
         final ChatMembership row = membershipRow(channel.getId(), me)
                 .orElseGet(() -> ChatMembership.joining(channel.getId(), me, channel.getCreated()));
-        final boolean saved = dao().saveChatMembership(
-                row.withAppearance(new ChatAppearance(color, imageUrl)));
-        if (saved) {
-            growlWarn("Chat settings saved.");
-        } else {
-            growlError("Unable to save your chat settings.");
-        }
-        return saved;
+        final ChatMembership updated = row
+                .withNotify(row.getNotify().withEmail(mentionEmail, dailyDigest))
+                .withAppearance(new ChatAppearance(color, imageUrl));
+        return dao().saveChatMembership(updated);
     }
 
     public boolean canRead(final ChatChannel channel, final Person.Id me) {
