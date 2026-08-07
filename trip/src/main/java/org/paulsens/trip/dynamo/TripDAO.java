@@ -105,7 +105,9 @@ public class TripDAO {
     }
 
     protected Optional<Trip> getTrip(final String id) {
-        if (id == null) {
+        // Blank check: DynamoDB rejects empty-string key values (400), and pages pass "" when a `trip` query
+        // parameter is present but empty.
+        if ((id == null) || id.isEmpty()) {
             return Optional.empty();
         }
         try {

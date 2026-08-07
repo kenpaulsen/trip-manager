@@ -55,6 +55,12 @@ public class TripDAOTest {
     }
 
     @Test
+    public void getTripWithEmptyIdReturnsEmpty() {
+        // An empty `trip` query parameter reaches the DAO as "" — DynamoDB 400s on an empty key value
+        assertEquals(dao.getTrip(""), Optional.empty());
+    }
+
+    @Test
     public void allTripsEmptyInitially() {
         assertTrue(dao.getRecentTrips(100).isEmpty());
     }
