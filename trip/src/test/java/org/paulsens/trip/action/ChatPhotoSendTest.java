@@ -149,6 +149,38 @@ public class ChatPhotoSendTest {
         Assert.assertEquals(chat.maxPhotosForTrip(tripId), 0, "0 is what hides the Attach button");
     }
 
+    /** The admin settings page's save path controls the photo switches (added 2026-08-07, user request). */
+    @Test
+    public void adminSettingsSaveControlsThePhotoSwitches() {
+        final ChatChannel channel = chat.ensureChannel(tripId, actor);
+        final Caller admin = Caller.forActor(actor);
+
+        final ChatSettings photosOff = ChatCommands.settingsFromForm(channel.getSettings(), null, null,
+                null, null, null, null, null, null, null, null, "forever", null, null, null,
+                false, 10, 10);
+        Assert.assertTrue(chat.updateSettings(tripId, photosOff, admin));
+        Assert.assertEquals(chat.maxPhotosForTrip(tripId), 0, "unchecking Allow photos hides the button");
+        // A photos-off save must never resemble the v1 reserved fingerprint the constructor upgrades.
+        Assert.assertFalse(photosOff.isAllowMedia());
+        Assert.assertEquals(photosOff.getMaxAttachmentBytes(), ChatSettings.DEFAULT_MAX_ATTACHMENT_BYTES,
+                "modern photos-off keeps the caps, so it cannot be mistaken for a v1 row");
+
+        final ChatSettings capped = ChatCommands.settingsFromForm(chat.getChannel(tripId).getSettings(),
+                null, null, null, null, null, null, null, null, null, null, "forever", null, null, null,
+                true, 5, 8);
+        Assert.assertTrue(chat.updateSettings(tripId, capped, admin));
+        Assert.assertEquals(chat.maxPhotosForTrip(tripId), 5);
+        Assert.assertEquals(chat.getChannel(tripId).getSettings().getMaxAttachmentBytes(),
+                8L * 1024 * 1024, "the page speaks MB; the setting stores bytes");
+
+        final ChatSettings blanks = ChatCommands.settingsFromForm(chat.getChannel(tripId).getSettings(),
+                null, null, null, null, null, null, null, null, null, null, "forever", null, null, null,
+                null, null, null);
+        Assert.assertTrue(blanks.isAllowMedia(), "blank form fields mean the defaults");
+        Assert.assertEquals(blanks.getMaxAttachmentsPerMessage(),
+                ChatSettings.DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE);
+    }
+
     @Test
     public void checkAttachMirrorsTheSendGates() {
         Assert.assertNull(chat.checkAttach(tripId, member).denial(), "a member may attach");

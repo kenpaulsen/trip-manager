@@ -1567,11 +1567,14 @@ public class ChatCommands {
             final String retentionPreset,
             final Integer archiveAfterTripEndDays,
             final String backgroundColor,
-            final String backgroundImageUrl) {
+            final String backgroundImageUrl,
+            final Boolean allowMedia,
+            final Integer maxPhotos,
+            final Integer maxPhotoMb) {
         final boolean saved = saveSettingsFromUi(tripId, fullHistory, postPolicy, retentionSeconds,
                 slowModeSeconds, burstLimit, burstWindowSeconds, sustainedLimit, sustainedWindowSeconds,
                 maxMessageChars, allowReactions, retentionPreset, archiveAfterTripEndDays,
-                backgroundColor, backgroundImageUrl);
+                backgroundColor, backgroundImageUrl, allowMedia, maxPhotos, maxPhotoMb);
         if (saved) {
             redirectToChat(tripId);
         }
@@ -1606,9 +1609,51 @@ public class ChatCommands {
             final String retentionPreset,
             final Integer archiveAfterTripEndDays,
             final String backgroundColor,
-            final String backgroundImageUrl) {
+            final String backgroundImageUrl,
+            final Boolean allowMedia,
+            final Integer maxPhotos,
+            final Integer maxPhotoMb) {
         final ChatChannel channel = ensureChannel(tripId, AuditActor.current());
-        final ChatSettings updated = channel.getSettings().toBuilder()
+        final ChatSettings updated = settingsFromForm(channel.getSettings(), fullHistory, postPolicy,
+                retentionSeconds, slowModeSeconds, burstLimit, burstWindowSeconds, sustainedLimit,
+                sustainedWindowSeconds, maxMessageChars, allowReactions, retentionPreset,
+                archiveAfterTripEndDays, backgroundColor, backgroundImageUrl,
+                allowMedia, maxPhotos, maxPhotoMb);
+        return updateSettings(tripId, updated, Caller.current());
+    }
+
+    /**
+     * The admin form's values applied over the stored settings. Separate from the save so the mapping — the
+     * null-means-default rules, MB-to-bytes, the appearance validation — is testable without a JSF session
+     * behind {@code Caller.current()}.
+     */
+    static ChatSettings settingsFromForm(
+            final ChatSettings current,
+            final Boolean fullHistory,
+            final String postPolicy,
+            final Long retentionSeconds,
+            final Integer slowModeSeconds,
+            final Integer burstLimit,
+            final Integer burstWindowSeconds,
+            final Integer sustainedLimit,
+            final Integer sustainedWindowSeconds,
+            final Integer maxMessageChars,
+            final Boolean allowReactions,
+            final String retentionPreset,
+            final Integer archiveAfterTripEndDays,
+            final String backgroundColor,
+            final String backgroundImageUrl,
+            final Boolean allowMedia,
+            final Integer maxPhotos,
+            final Integer maxPhotoMb) {
+        return current.toBuilder()
+                // The photo fields write MODERN shapes only: photos-off keeps the new caps, so it can never
+                // collide with the v1 reserved fingerprint (false/0/0) the constructor upgrades.
+                .allowMedia(allowMedia == null || allowMedia)
+                .maxAttachmentsPerMessage(maxPhotos == null
+                        ? ChatSettings.DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE : Math.max(0, maxPhotos))
+                .maxAttachmentBytes((maxPhotoMb == null || maxPhotoMb <= 0)
+                        ? ChatSettings.DEFAULT_MAX_ATTACHMENT_BYTES : maxPhotoMb * 1024L * 1024L)
                 .fullHistoryForNewMembers(fullHistory == null || fullHistory)
                 .postPolicy(postPolicy == null ? ChatSettings.PostPolicy.ALL_MEMBERS
                         : ChatSettings.PostPolicy.valueOf(postPolicy))
@@ -1632,7 +1677,6 @@ public class ChatCommands {
                 .backgroundColor(new ChatAppearance(backgroundColor, null).getBackgroundColor())
                 .backgroundImageUrl(new ChatAppearance(null, backgroundImageUrl).getBackgroundImageUrl())
                 .build();
-        return updateSettings(tripId, updated, Caller.current());
     }
 
     /**
