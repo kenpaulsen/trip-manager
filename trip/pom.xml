@@ -153,6 +153,10 @@
             <artifactId>bcrypt</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.yubico</groupId>
+            <artifactId>webauthn-server-core</artifactId>
+        </dependency>
+        <dependency>
             <groupId>io.lettuce</groupId>
             <artifactId>lettuce-core</artifactId>
         </dependency>

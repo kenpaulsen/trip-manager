@@ -43,6 +43,11 @@ public class PrivilegeCommands {
     public static final String CONFIG_ADMIN = "configAdmin";
     public static final String AUDIT_ADMIN = "auditAdmin";
     public static final String MEDIA_ADMIN = "mediaAdmin";
+    /** Edits content templates and ALL template-driven page sections. Template bodies are raw HTML rendered
+     *  unescaped on public pages, so grant this like you would grant script access. */
+    public static final String CONTENT_ADMIN = "contentAdmin";
+    /** Edits the home-page Events section (fills placeholder values only; cannot author templates). */
+    public static final String EVENT_ADMIN = "eventAdmin";
     public static final String EMAIL_ADMIN = "emailAdmin";
     public static final String SITE_DEPLOYER = "siteDeployer";
     public static final String TRIP_MGR = "tripMgr";

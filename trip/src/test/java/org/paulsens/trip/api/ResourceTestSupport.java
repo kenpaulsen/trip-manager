@@ -32,6 +32,7 @@ public abstract class ResourceTestSupport {
     protected static final String CSRF_OK = "1";
 
     protected HttpServletRequest request;
+    protected jakarta.servlet.http.HttpServletResponse response;
     protected HttpSession session;
 
     private MockedStatic<Beans> beans;
@@ -53,6 +54,7 @@ public abstract class ResourceTestSupport {
         Mockito.when(request.getSession(false)).thenReturn(session);
         Mockito.when(request.getAttribute(Mockito.anyString()))
                 .thenAnswer(call -> requestAttributes.get(call.<String>getArgument(0)));
+        response = Mockito.mock(jakarta.servlet.http.HttpServletResponse.class);
 
         beans = Mockito.mockStatic(Beans.class);
         beans.when(() -> Beans.get(Mockito.any())).thenAnswer(call -> resolve(call.getArgument(0)));
@@ -103,6 +105,7 @@ public abstract class ResourceTestSupport {
      */
     protected <T extends BaseResource> T resource(final T resource) {
         resource.request = request;
+        resource.response = response;
         return resource;
     }
 

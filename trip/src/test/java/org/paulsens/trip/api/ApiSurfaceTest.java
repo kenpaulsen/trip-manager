@@ -22,9 +22,9 @@ public class ApiSurfaceTest {
 
     private static final List<Class<?>> RESOURCES = List.of(
             AuditResource.class, AuthResource.class, ChatAdminResource.class, ChatResource.class,
-            ConfigResource.class, DeployResource.class, MailResource.class, PaymentsResource.class,
-            PeopleResource.class, PrivilegesResource.class, RegistrationsResource.class, TodosResource.class,
-            TransactionsResource.class, TripsResource.class);
+            ConfigResource.class, DeployResource.class, MailResource.class, PasskeyResource.class,
+            PaymentsResource.class, PeopleResource.class, PrivilegesResource.class, RegistrationsResource.class,
+            TodosResource.class, TransactionsResource.class, TripsResource.class);
 
     @Test
     public void theAuditTrailIsReadOnlyAndMustStayThatWay() {
@@ -55,10 +55,10 @@ public class ApiSurfaceTest {
     @Test
     public void everyResourceRequiresASessionUnlessItIsTheOneThatCannot() {
         // A resource with no @TripApi is not a broken resource, it is an OPEN one -- the auth filter is
-        // name-bound, so forgetting the annotation silently serves everybody. AuthResource is the single
-        // deliberate exception, because login has to work without a session; it binds per-method instead.
+        // name-bound, so forgetting the annotation silently serves everybody. The two auth resources are the
+        // deliberate exceptions, because ways IN have to work without a session; they bind per-method instead.
         for (final Class<?> resource : RESOURCES) {
-            if (resource == AuthResource.class) {
+            if (resource == AuthResource.class || resource == PasskeyResource.class) {
                 continue;
             }
             Assert.assertNotNull(resource.getAnnotation(TripApi.class),
@@ -75,8 +75,25 @@ public class ApiSurfaceTest {
                 .sorted()
                 .toList();
 
-        // logout is intentionally open: signing out when already signed out is a success, not a 401.
-        Assert.assertEquals(unbound, List.of("login", "logout"), "Unexpected open endpoints on AuthResource.");
+        // logout is intentionally open: signing out when already signed out is a success, not a 401. The two
+        // code endpoints are the email-code login -- like login, they only make sense WITHOUT a session.
+        Assert.assertEquals(unbound, List.of("login", "logout", "requestCode", "verifyCode"),
+                "Unexpected open endpoints on AuthResource.");
+    }
+
+    @Test
+    public void passkeyResourceBindsAuthPerMethodSoOnlyItsLoginIsOpen() {
+        final List<String> unbound = Arrays.stream(PasskeyResource.class.getDeclaredMethods())
+                .filter(method -> method.getAnnotation(Path.class) != null)
+                .filter(method -> method.getAnnotation(TripApi.class) == null)
+                .map(Method::getName)
+                .sorted()
+                .toList();
+
+        // The assertion ceremony IS a login: it must work sessionless, exactly like auth/login. Everything
+        // else (registration, listing, deletion) requires the session.
+        Assert.assertEquals(unbound, List.of("loginFinish", "loginStart"),
+                "Unexpected open endpoints on PasskeyResource.");
     }
 
     @Test

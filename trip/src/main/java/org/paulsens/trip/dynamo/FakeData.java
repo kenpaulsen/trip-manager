@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -12,6 +13,11 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import lombok.Getter;
+import org.paulsens.trip.action.ChatPhotos;
+import org.paulsens.trip.content.StarterTemplates;
+import org.paulsens.trip.model.ContentInstance;
+import org.paulsens.trip.model.Language;
+import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Person.Sex;
 import org.paulsens.trip.model.RegistrationOption;
@@ -91,6 +97,100 @@ public class FakeData {
                     throw new IllegalStateException("Should have worked...");
                 }
             });
+            addFakeMedia();
+            addFakeContent();
+        }
+    }
+
+    /**
+     * Media rows exercising every landing-page rule: the Documents section's age window and hidden flag, and
+     * the picture-album minimum count and per-photo visibility. Every photo row gets real (tiny) bytes
+     * seeded into the local photo store -- see {@link #TINY_JPEG} for why broken images are not benign.
+     */
+    private static void addFakeMedia() {
+        final LocalDateTime now = LocalDateTime.now();
+        // Documents slot: one current and visible, one hidden by flag, one aged out of the window.
+        saveMedia(new MediaItem("fake-doc-1", "downloads/FakeTravelGuide.pdf", "Fake Travel Guide",
+                "Current, visible", "application/pdf", 2_400_000L, "home-docs", 0,
+                now.minusDays(10), "fake-seed", null, null));
+        saveMedia(new MediaItem("fake-doc-2", "downloads/FakeHiddenDoc.pdf", "Hidden Doc",
+                "Hidden by flag", "application/pdf", 1_000_000L, "home-docs", 1,
+                now.minusDays(5), "fake-seed", null, Boolean.TRUE));
+        saveMedia(new MediaItem("fake-doc-3", "downloads/FakeOldSlides.pdf", "Old Meeting Slides",
+                "Aged out", "application/pdf", 9_000_000L, "home-docs", 2,
+                now.minusDays(130), "fake-seed", null, null));
+        // The galleria trip's album: 12 photos, one hidden -> 11 visible, above the min-count of 10.
+        for (int i = 1; i <= 12; i++) {
+            saveMedia(new MediaItem("fake-photo-past-" + i, "chat/pub-past-3d/fake-" + i + ".jpg",
+                    "Fake photo " + i, "Seeded album photo", "image/jpeg", 500_000L,
+                    "tripChat-pub-past-3d", 0, now.minusDays(13).plusHours(i), "fake-seed", null,
+                    i == 12 ? Boolean.TRUE : null));
+            seedPhotoBytes("chat/pub-past-3d/fake-" + i + ".jpg");
+        }
+        // Below the minimum: no album on the landing page.
+        for (int i = 1; i <= 4; i++) {
+            saveMedia(new MediaItem("fake-photo-f2-" + i, "chat/Fake2/fake-" + i + ".jpg",
+                    "Fake2 photo " + i, "Seeded album photo", "image/jpeg", 500_000L,
+                    "tripChat-Fake2", 0, now.minusDays(2).plusHours(i), "fake-seed", null, null));
+            seedPhotoBytes("chat/Fake2/fake-" + i + ".jpg");
+        }
+    }
+
+    /**
+     * An 8x8 JPEG, so every seeded album row has real bytes behind its key. Rows without servable bytes are
+     * not merely ugly locally: each broken img 404s into the app's error page, and error-page renders are
+     * JSF views -- a dozen of them evict the landing page's own view from Mojarra's logical-view LRU, and
+     * its first postback dies ViewExpiredException. See ChatPhotos.seedLocalObject.
+     */
+    private static final byte[] TINY_JPEG = Base64.getDecoder().decode(
+            "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAoHBwgHBgoICAgLCgoLDhgQDg0NDh0VFhEYIx8lJCIfIiEmKzcvJik0KSEiMEExNDk7"
+            + "Pj4+JS5ESUM8SDc9Pjv/2wBDAQoLCw4NDhwQEBw7KCIoOzs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7"
+            + "Ozs7Ozs7Ozv/wAARCAAIAAgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUF"
+            + "BAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVW"
+            + "V1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi"
+            + "4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAEC"
+            + "AxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVm"
+            + "Z2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq"
+            + "8vP09fb3+Pn6/9oADAMBAAIRAxEAPwC1RRRXtHGf/9k=");
+
+    private static void seedPhotoBytes(final String key) {
+        ChatPhotos.getChatPhotos().seedLocalObject(key, TINY_JPEG, "image/jpeg");
+    }
+
+    /** The starter templates plus one visible event, one expired event (proves auto-hide), and an intro. */
+    private static void addFakeContent() {
+        // Idempotent: addFakeData runs once per DAO instance, but tests re-run it against a shared local
+        // store, and a re-save of an existing versioned row trips the lost-update guard.
+        StarterTemplates.all().stream()
+                .filter(t -> DAO.getInstance().getTemplate(t.getId()).isEmpty())
+                .forEach(t -> DAO.getInstance().saveTemplate(t, 5));
+        final LocalDateTime now = LocalDateTime.now();
+        saveContent(new ContentInstance("fake-event-future", "home.events", "Monthly Prayer Group Meeting",
+                StarterTemplates.TEXT_ONLY_ID, 1,
+                new HashMap<>(Map.of("body", "<b>Monthly Prayer Group Meeting</b> — first Saturday, 10am.")),
+                now.plusDays(30), 0, 0, null, "fake-seed"));
+        saveContent(new ContentInstance("fake-event-past", "home.events", "Past Peace Mass",
+                StarterTemplates.TEXT_ONLY_ID, 1,
+                new HashMap<>(Map.of("body", "This event already happened and must not render.")),
+                now.minusDays(3), 1, 0, null, "fake-seed"));
+        saveContent(new ContentInstance("fake-intro", "home.intro", "Introduction",
+                StarterTemplates.TEXT_ONLY_ID, 1,
+                new HashMap<>(Map.of("body", "<p>Welcome to Visit Queen of Peace — fake local intro.</p>")),
+                null, 0, 0, null, "fake-seed"));
+    }
+
+    private static void saveMedia(final MediaItem item) {
+        if (!DAO.getInstance().saveMedia(item)) {
+            throw new IllegalStateException("Failed to seed fake media: " + item.getId());
+        }
+    }
+
+    private static void saveContent(final ContentInstance instance) {
+        if (DAO.getInstance().getContent(instance.getId()).isPresent()) {
+            return;     // already seeded (tests re-run addFakeData against a shared local store)
+        }
+        if (!DAO.getInstance().saveContent(instance, 5)) {
+            throw new IllegalStateException("Failed to seed fake content: " + instance.getId());
         }
     }
 
@@ -172,7 +272,99 @@ public class FakeData {
                 .tripEvents(events2)
                 .regOptions(getDefaultOptions())
                 .build());
+        // Landing-page seeds: one trip per public-listing rule, so the data-driven home page renders every
+        // branch locally (language sections, CFPW sidebar filter, countdown rules, 7-day removal, galleria).
+        trips.add(Trip.builder()
+                .id("pub-en-1")
+                .title("2026 Sep: Holy Angels Demo")     // prefixed title exercises getShortTitle
+                .openToPublic(true)
+                .provider("CFPW")
+                .language(Language.English)
+                .estimatedPrice("$3,000")
+                .director("Fr. Demo Director")
+                .startDate(LocalDateTime.now().plusDays(30))
+                .endDate(LocalDateTime.now().plusDays(40))
+                .people(new ArrayList<>(List.of(allPeople.get(2))))
+                .regLimit(40)
+                .regOptions(getDefaultOptions())
+                .tripEvents(seedEvents("pub-en-1", 30))
+                .build());
+        trips.add(Trip.builder()
+                .id("pub-en-2")
+                .title("2027 Jan: Winter Demo")
+                .openToPublic(true)
+                .provider("CFPW")
+                .language(Language.English)
+                .startDate(LocalDateTime.now().plusDays(120))     // beyond 60d and not next: no countdown
+                .endDate(LocalDateTime.now().plusDays(130))
+                .regLimit(40)
+                .regOptions(getDefaultOptions())
+                .tripEvents(seedEvents("pub-en-2", 120))
+                .build());
+        trips.add(Trip.builder()
+                .id("pub-es-1")
+                .title("2026 dic: Bajo el Manto Demo")
+                .openToPublic(true)
+                .provider("CFPW")
+                .language(Language.Spanish)
+                .startDate(LocalDateTime.now().plusDays(100))     // countdown ONLY as next-of-its-language
+                .endDate(LocalDateTime.now().plusDays(110))
+                .regLimit(40)
+                .regOptions(getDefaultOptions())
+                .tripEvents(seedEvents("pub-es-1", 100))
+                .build());
+        trips.add(Trip.builder()
+                .id("pub-ext-1")
+                .title("2026 Oct: External Demo")
+                .openToPublic(true)
+                .provider("Queen of Peace Medjugorje Centre, Toronto, Canada")
+                .language(Language.English)
+                .nonHostedTripUrl("https://example.com/external-pilgrimage")
+                .nonHostedRegNumber(35)
+                .startDate(LocalDateTime.now().plusDays(70))
+                .endDate(LocalDateTime.now().plusDays(80))
+                .regLimit(45)
+                .tripEvents(seedEvents("pub-ext-1", 70))
+                .build());
+        trips.add(Trip.builder()
+                .id("pub-past-3d")
+                .title("2026 Aug: Just Ended Demo")     // within the 7-day window; the galleria album trip
+                .openToPublic(true)
+                .provider("CFPW")
+                .language(Language.English)
+                .startDate(LocalDateTime.now().minusDays(13))
+                .endDate(LocalDateTime.now().minusDays(3))
+                .people(allPeople)
+                .regOptions(getDefaultOptions())
+                .tripEvents(seedEvents("pub-past-3d", -13))
+                .build());
+        trips.add(Trip.builder()
+                .id("pub-past-30d")
+                .title("2026 Jul: Long Gone Demo")     // past the 7-day window: must NOT be listed
+                .openToPublic(true)
+                .provider("CFPW")
+                .language(Language.English)
+                .startDate(LocalDateTime.now().minusDays(40))
+                .endDate(LocalDateTime.now().minusDays(30))
+                .tripEvents(seedEvents("pub-past-30d", -40))
+                .build());
+        trips.add(Trip.builder()
+                .id("pub-hidden")
+                .title("2026 Nov: Unlisted Demo")     // openToPublic=false: must NOT be listed
+                .openToPublic(false)
+                .provider("CFPW")
+                .language(Language.English)
+                .startDate(LocalDateTime.now().plusDays(90))
+                .endDate(LocalDateTime.now().plusDays(97))
+                .tripEvents(seedEvents("pub-hidden", 90))
+                .build());
         return trips;
+    }
+
+    /** One minimal event per seed trip (a FakeData invariant: every fake trip has at least one). */
+    private static List<TripEvent> seedEvents(final String tripId, final int startOffsetDays) {
+        return List.of(newTripEvent(tripId + "-e1", TripEvent.Type.LODGING, "Hotel", "Seeded lodging",
+                LocalDateTime.now().plusDays(startOffsetDays), null, null, null));
     }
 
     private static TripEvent newTripEvent(

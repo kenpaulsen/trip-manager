@@ -82,6 +82,30 @@ public final class CacheKeys {
     public static final String MEDIA_PARTITION = "__all__";
     public static final String MEDIA_LOADED = FORMAT_VERSION + "media_loaded";
 
+    // Content templates: one hash, but the FIELD is id + "#v" + version -- every retained version of a
+    // template is its own cache entry, so content pinned to an old version keeps rendering from cache after
+    // the template advances, and a cached blob can never be paired with values authored against a different
+    // version.
+    public static final String TEMPLATE_PREFIX = FORMAT_VERSION + "tmpl:";
+    public static final String TEMPLATE_PARTITION = "__all__";
+    public static final String TEMPLATE_LOADED = FORMAT_VERSION + "tmpl_loaded";
+
+    // Template-driven page content, partitioned by section key (field = instance id): rendering a page
+    // section is one HGETALL of that section.
+    public static final String CONTENT_PREFIX = FORMAT_VERSION + "content:";
+    public static final String CONTENT_LOADED = FORMAT_VERSION + "content_loaded";
+
+    /**
+     * Soft TTL for templates and content: public-page sections must pick up edits within five minutes.
+     * Stale reads still answer from cache; the refresh happens in the background (feature requirement).
+     */
+    public static final Duration CONTENT_SOFT_TTL = Duration.ofMinutes(5);
+
+    /** The versioned cache field for one template version. */
+    public static String templateField(final String id, final int version) {
+        return id + "#v" + version;
+    }
+
     // Binding adjacency sets: BIND_PREFIX + {typeAndId} + ":" + {destTypeId}; loaded marker uses BIND_LOADED_SUFFIX.
     public static final String BIND_PREFIX = FORMAT_VERSION + "bind:";
     public static final String BIND_LOADED_SUFFIX = ":loaded";
@@ -295,6 +319,48 @@ public final class CacheKeys {
             final String channelId, final String personId, final long epochSec, final int windowSeconds) {
         final long winIndex = windowSeconds <= 0 ? 0L : epochSec / windowSeconds;
         return CHAT_FORMAT_VERSION + "alarm:" + channelId + ":" + personId + ":" + windowSeconds + ":" + winIndex;
+    }
+
+    /**
+     * Authentication namespace — like chat, deliberately <em>not</em> under {@link #FORMAT_VERSION}:
+     * {@code DAO.clearAllCaches()} clears {@code t1:} and must never invalidate a login code someone is about
+     * to type, or reset the rate-limit counters that throttle guessing.
+     */
+    public static final String AUTH_FORMAT_VERSION = "auth:v1:";
+
+    /** Value is the base64 SHA-256 of the code, never the code: a cache dump must not contain live codes. */
+    public static String loginCodeKey(final String lowEmail) {
+        return AUTH_FORMAT_VERSION + "code:" + lowEmail;
+    }
+
+    /** Verify-attempt counter for the code under {@link #loginCodeKey}; deleted when a fresh code is issued. */
+    public static String loginCodeAttemptsKey(final String lowEmail) {
+        return AUTH_FORMAT_VERSION + "code_att:" + lowEmail;
+    }
+
+    /**
+     * Send-rate counter. Window length is in the key (chat rate-limit convention) so an admin changing the
+     * window cannot collide with a counter written under the previous length.
+     */
+    public static String loginCodeSendsKey(final String lowEmail, final int windowSeconds, final long epochSec) {
+        final long winIndex = windowSeconds <= 0 ? 0L : epochSec / windowSeconds;
+        return AUTH_FORMAT_VERSION + "code_sends:" + lowEmail + ":" + windowSeconds + ":" + winIndex;
+    }
+
+    /** Failed-password counter behind the login throttle; same windowed shape as {@link #loginCodeSendsKey}. */
+    public static String passwordFailsKey(final String lowEmail, final int windowSeconds, final long epochSec) {
+        final long winIndex = windowSeconds <= 0 ? 0L : epochSec / windowSeconds;
+        return AUTH_FORMAT_VERSION + "pw_fail:" + lowEmail + ":" + windowSeconds + ":" + winIndex;
+    }
+
+    /** A pending WebAuthn registration ceremony, keyed by the (hashed) session id that started it. */
+    public static String webauthnRegKey(final String sessionKey) {
+        return AUTH_FORMAT_VERSION + "webauthn_reg:" + sessionKey;
+    }
+
+    /** A pending WebAuthn assertion ceremony; sessionless, so keyed by a random challenge token instead. */
+    public static String webauthnAssertKey(final String challengeToken) {
+        return AUTH_FORMAT_VERSION + "webauthn_assert:" + challengeToken;
     }
 
     /**

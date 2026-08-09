@@ -61,7 +61,16 @@ public class InMemoryPersistence implements Persistence {
             // Chat photos made this table WRITTEN in local mode (album rows). Without a real fake behind
             // it, the rows lived only in the media cache -- and the first cache invalidation (any media
             // delete does one) silently emptied the whole trip album.
-            MediaDAO.MEDIA_TABLE, new TableKeys("id", null));
+            MediaDAO.MEDIA_TABLE, new TableKeys("id", null),
+            // Both content-template tables are written in local mode (admin dialogs + FakeData seeds); same
+            // lesson as media -- without a real fake, rows live only in the cache.
+            TemplateDAO.TEMPLATES_TABLE, new TableKeys("id", null),
+            ContentDAO.CONTENT_TABLE, new TableKeys("id", null),
+            // Remember-me works fully in local mode (the webtest deletes JSESSIONID and expects the cookie
+            // to restore the session), so the token rows need a real fake store. Same for passkeys: the
+            // webtest registers against a virtual authenticator and signs back in with it.
+            RememberMeDAO.REMEMBER_TABLE, new TableKeys(RememberMeDAO.SELECTOR, null),
+            PasskeyDAO.PASSKEY_TABLE, new TableKeys(PasskeyDAO.CREDENTIAL_ID, null));
 
     /** table -> (pk -> (sk -> item)). sk is "" for PK-only tables. */
     private final Map<String, Map<String, Map<String, Map<String, AttributeValue>>>> store =
@@ -151,12 +160,14 @@ public class InMemoryPersistence implements Persistence {
         final software.amazon.awssdk.services.dynamodb.model.ScanRequest.Builder builder =
                 software.amazon.awssdk.services.dynamodb.model.ScanRequest.builder();
         request.accept(builder);
-        // The media table scans what was actually written: its cache reloads via scanAll after any
-        // invalidation, so an empty answer here would silently erase the trip photo albums (see TABLES).
-        if (MediaDAO.MEDIA_TABLE.equals(builder.build().tableName())) {
+        // Registered tables scan what was actually written. Media needed this first (its cache reloads via
+        // scanAll after an invalidation, so an empty answer silently erased the trip photo albums); the
+        // template/content tables need it for the same loader shape plus their reference-check scan.
+        final String tableName = builder.build().tableName();
+        if (TABLES.containsKey(tableName)) {
             final List<Map<String, AttributeValue>> items = new ArrayList<>();
             for (final Map<String, Map<String, AttributeValue>> partition
-                    : store.getOrDefault(MediaDAO.MEDIA_TABLE, Map.of()).values()) {
+                    : store.getOrDefault(tableName, Map.of()).values()) {
                 items.addAll(partition.values());
             }
             return items;

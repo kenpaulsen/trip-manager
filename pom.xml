@@ -65,6 +65,15 @@
                 <artifactId>bcrypt</artifactId>
                 <version>0.10.2</version>
             </dependency>
+            <!-- Passkeys (WebAuthn relying-party verification). Dependency-light: SLF4J + Jackson (the
+                 jackson-bom above manages its cbor/jdk8 modules to our version). Deliberately NOT
+                 webauthn-server-attestation: attestation metadata is enterprise machinery this site does not
+                 want (AttestationConveyancePreference.NONE). Crypto comes from the JDK's own providers. -->
+            <dependency>
+                <groupId>com.yubico</groupId>
+                <artifactId>webauthn-server-core</artifactId>
+                <version>2.7.0</version>
+            </dependency>
             <dependency>
                 <groupId>ch.qos.logback</groupId>
                 <artifactId>logback-classic</artifactId>

@@ -1,10 +1,15 @@
 package org.paulsens.trip.util;
 
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class RandomData {
     private static final Random rand = new Random();
+    // Anything an attacker could profit from predicting (login codes, remember-me tokens) must come from
+    // here, never from the shared java.util.Random above.
+    private static final SecureRandom SECURE = new SecureRandom();
     public static final char[] ALPHA =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".toCharArray();
     public static final char[] ALPHA_NUM =
@@ -18,6 +23,31 @@ public class RandomData {
 
     public static String genPassChars(final int len) {
         return genString(len, PASS_CHARS);
+    }
+
+    /** A digits-only one-time code (leading zeros allowed) from the CSPRNG. */
+    public static String genSecureDigits(final int len) {
+        final StringBuilder buf = new StringBuilder(len);
+        for (int count = 0; count < len; count++) {
+            buf.append((char) ('0' + SECURE.nextInt(10)));
+        }
+        return buf.toString();
+    }
+
+    /** {@code numBytes} of CSPRNG entropy as unpadded base64url — cookie- and key-safe. */
+    public static String genSecureToken(final int numBytes) {
+        final byte[] bytes = new byte[numBytes];
+        SECURE.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    /** {@link #genPassChars} from the CSPRNG, for generated passwords rather than display data. */
+    public static String genSecurePassChars(final int len) {
+        final StringBuilder buf = new StringBuilder(len);
+        for (int count = 0; count < len; count++) {
+            buf.append(PASS_CHARS[SECURE.nextInt(PASS_CHARS.length)]);
+        }
+        return buf.toString();
     }
 
     public static String genString(final int len, final char[] chars) {

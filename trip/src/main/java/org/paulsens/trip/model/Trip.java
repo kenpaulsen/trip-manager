@@ -178,6 +178,53 @@ public final class Trip implements Serializable {
         return getTripEvents().stream().filter(te -> te.getParticipants().contains(userId)).toList();
     }
 
+    /**
+     * The title without its leading "sort prefix" -- editors date-prefix titles ({@code "2026 Sep: Holy
+     * Angels"}) so lists sort chronologically, but public pages want just the name. Strips one leading
+     * segment ending in a colon when that colon falls within the first 12 characters; any other title
+     * (no colon, or a colon later in a real name) is returned whole. Replaces the old
+     * {@code title.substring(10)} page hack, which threw on short titles.
+     */
+    @JsonIgnore
+    public String getShortTitle() {
+        if (title == null) {
+            return "";
+        }
+        return title.replaceFirst("^\\s*[^:]{1,12}:\\s*", "");
+    }
+
+    /** Whether CFPW hosts this trip (vs. an external provider's pilgrimage we merely list). */
+    @JsonIgnore
+    public boolean isCfpw() {
+        return "CFPW".equalsIgnoreCase(provider);
+    }
+
+    /** Whether this is an externally-hosted pilgrimage: registration happens at {@link #nonHostedTripUrl}. */
+    @JsonIgnore
+    public boolean isExternal() {
+        return nonHostedTripUrl != null && !nonHostedTripUrl.isBlank();
+    }
+
+    /** The registration count to display: the externally-reported number when set, else our roster size. */
+    @JsonIgnore
+    public int getShownRegCount() {
+        return nonHostedRegNumber != null ? nonHostedRegNumber : getPeople().size();
+    }
+
+    /**
+     * The start month's abbreviation in this trip's own language ("Sep" / "sep"), for compact sidebar
+     * labels. Unlike {@link #getTripDateRange()}, which renders in the <em>viewer's</em> locale, a Spanish
+     * pilgrimage's label should read Spanish for everyone.
+     */
+    @JsonIgnore
+    public String getStartMonthAbbrev() {
+        if (startDate == null) {
+            return "";
+        }
+        final Locale locale = (language == null ? Language.English : language).getLocale();
+        return startDate.getMonth().getDisplayName(TextStyle.SHORT, locale);
+    }
+
     @JsonIgnore
     public String getTripDateRange() {
         final Locale locale = Util.getLocale(FacesContext.getCurrentInstance());

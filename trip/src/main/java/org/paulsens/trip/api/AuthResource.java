@@ -12,12 +12,14 @@ import jakarta.ws.rs.core.Response;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.action.LoginCodeCommands;
 import org.paulsens.trip.action.PassCommands;
-import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.api.dto.PersonDto;
 import org.paulsens.trip.api.mapper.PersonMapper;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.security.RememberMeService;
+import org.paulsens.trip.web.Sessions;
 
 /**
  * Sign-in for API clients.
@@ -32,18 +34,6 @@ import org.paulsens.trip.model.Person;
 public class AuthResource extends BaseResource {
 
     private static final String V1 = ApiMediaTypes.AUTH_V1;
-
-    /**
-     * Set on the session at login and read by {@code AuditActor}.
-     *
-     * <p>Not exposed by {@code PersonCommands} the way {@code ACTIVE_USER_ID} is, because until now only the
-     * XHTML login set it, by assigning {@code sessionScope.loginEmail} directly. Leaving it unset here would
-     * cost every audited API write its actor EMAIL while still recording an id -- a half-known actor, which
-     * looks like a populated record until someone tries to read it.
-     */
-    private static final String LOGIN_EMAIL = "loginEmail";
-    /** The admin's own id, retained across "act as user" so the pages can tell who is really signed in. */
-    private static final String ADMIN_USER = "aUser";
 
     @Override
     protected String versionedType() {
@@ -72,34 +62,46 @@ public class AuthResource extends BaseResource {
             // this endpoint into an account-enumeration oracle, which is worse over an API than over a form.
             return error(401, ApiErrors.NOT_AUTHENTICATED, "Email or password is incorrect.");
         }
-        establishSession(email.trim(), creds);
+        Sessions.establish(request, email.trim(), creds);
+        RememberMeService.getInstance().issue(request, response, creds);
         return ok(identity(creds));
     }
 
     /**
-     * Populates a fresh session with what the rest of the application expects to find on it.
-     *
-     * <p>The old session is invalidated FIRST. Reusing whatever session id the caller arrived with lets an
-     * attacker who can plant a cookie fix the victim's session id before they sign in, and then ride the
-     * authenticated session afterwards. Invalidating means the id they planted is not the id that ends up
-     * authenticated.
-     *
-     * <p>All four attributes are set because all four are read somewhere: {@code userId} by the auth filter,
-     * {@code userRole} by {@code PersonCommands.hasRole}, {@code loginEmail} by {@code AuditActor}, and
-     * {@code aUser} by the admin pages. The browser login sets the same four across two of its steps; an API
-     * session that sets fewer is subtly different from a real one in ways that surface far from here.
+     * Emails a login code. Not {@link TripApi}-bound for the same reason {@code login} is not, and the answer
+     * is always the same "sent" regardless of whether the address has an account -- the enumeration argument
+     * from {@code login}, only stronger, because this endpoint costs nothing to call.
      */
-    private void establishSession(final String email, final Creds creds) {
-        final HttpSession existing = request.getSession(false);
-        if (existing != null) {
-            existing.invalidate();
+    @POST
+    @Path("code/request")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response requestCode(final Map<String, Object> body) {
+        final String email = string(body == null ? null : body.get("email"));
+        if (email == null || email.isBlank()) {
+            return error(400, ApiErrors.BAD_REQUEST, "Email is required.");
         }
-        final HttpSession session = request.getSession(true);
-        final String role = creds.getPriv();
-        session.setAttribute(PersonCommands.ACTIVE_USER_ID, creds.getUserId());
-        session.setAttribute(PersonCommands.ACTIVE_USER_ROLE, role);
-        session.setAttribute(LOGIN_EMAIL, email);
-        session.setAttribute(ADMIN_USER, role != null && role.contains("admin") ? creds.getUserId() : null);
+        Beans.get(LoginCodeCommands.class).requestCode(email);
+        return ok(Map.of("sent", true));
+    }
+
+    /** Signs in with an emailed code; the success payload is identical to {@code login}'s. */
+    @POST
+    @Path("code/verify")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response verifyCode(final Map<String, Object> body) {
+        final String email = string(body == null ? null : body.get("email"));
+        final String code = string(body == null ? null : body.get("code"));
+        if (email == null || email.isBlank() || code == null || code.isBlank()) {
+            return error(400, ApiErrors.BAD_REQUEST, "Email and code are required.");
+        }
+        final Creds creds = Beans.get(LoginCodeCommands.class).verifyAndLogin(email, code, request, response);
+        if (creds == null) {
+            // One message for every failure mode; see login's enumeration note.
+            return error(401, ApiErrors.NOT_AUTHENTICATED, "Code is invalid or expired.");
+        }
+        return ok(identity(creds));
     }
 
     /** Ends the session. Idempotent: signing out when already signed out is a success, not a 401. */
@@ -110,6 +112,7 @@ public class AuthResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
+        RememberMeService.getInstance().revoke(request, response);
         final HttpSession session = request.getSession(false);
         if (session != null) {
             session.invalidate();

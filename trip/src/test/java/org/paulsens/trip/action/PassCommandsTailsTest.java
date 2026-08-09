@@ -111,31 +111,4 @@ public class PassCommandsTailsTest {
                 () -> pass.adminSetPass(" ", "x", admin));
     }
 
-    @Test
-    public void resetPassRequiresTheMatchingLastName() {
-        final Person target = personWithCreds("Forgot");
-
-        Assert.assertNull(pass.resetPass(target.getEmail(), "WrongLast", "Title"));
-        Assert.assertNull(pass.resetPass("nobody-" + System.nanoTime() + "@x.org", "Last", "Title"));
-        Assert.assertThrows(IllegalArgumentException.class, () -> pass.resetPass(null, "Last", "T"));
-        Assert.assertThrows(IllegalArgumentException.class,
-                () -> pass.resetPass(target.getEmail(), null, "T"));
-    }
-
-    /** The happy reset: last name matches, the password is rotated, and the mail body carries it. */
-    @Test
-    public void aMatchingResetRotatesThePasswordAndBuildsTheMail() {
-        final Person target = personWithCreds("Match");
-        final FacesContext ctx = Mockito.mock(FacesContext.class, Mockito.RETURNS_DEEP_STUBS);
-        Mockito.when(ctx.getExternalContext().getRequest())
-                .thenReturn(Mockito.mock(HttpServletRequest.class));
-        try (MockedStatic<FacesContext> faces = Mockito.mockStatic(FacesContext.class)) {
-            faces.when(FacesContext::getCurrentInstance).thenReturn(ctx);
-
-            final String mail = pass.resetPass(target.getEmail(), target.getLast(), "Reset requested");
-
-            Assert.assertNotNull(mail, "a matching email+lastName must produce the mail body");
-            Assert.assertTrue(mail.contains("Reset requested"));
-        }
-    }
 }

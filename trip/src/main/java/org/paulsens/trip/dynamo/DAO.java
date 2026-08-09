@@ -23,13 +23,19 @@ import org.paulsens.trip.model.AuditPage;
 import org.paulsens.trip.model.AuditQuery;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Config;
+import org.paulsens.trip.model.ContentInstance;
+import org.paulsens.trip.model.ContentRecord;
+import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.Privilege;
+import org.paulsens.trip.model.PasskeyCredential;
 import org.paulsens.trip.model.Registration;
+import org.paulsens.trip.model.RememberToken;
+import org.paulsens.trip.model.TemplateRecord;
 import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
@@ -54,11 +60,15 @@ public class DAO {
     private final RegistrationDAO regDao;
     private final TransactionDAO txDao;
     private final CredentialsDAO credDao;
+    private final RememberMeDAO rememberMeDao;
+    private final PasskeyDAO passkeyDao;
     private final TodoDAO todoDao;
     private final PersonDataValueDAO pdvDao;
     private final PrivilegesDAO privDao;
     private final ConfigDAO configDao;
     private final MediaDAO mediaDao;
+    private final TemplateDAO templateDao;
+    private final ContentDAO contentDao;
     private final AuditDAO auditDao;
     private final BindingDAO bindingDao;
     private final ChatDAO chatDao;
@@ -79,11 +89,16 @@ public class DAO {
         this.regDao = new RegistrationDAO(mapper, persistence, cacheClient);
         this.txDao = new TransactionDAO(mapper, persistence, cacheClient);
         this.credDao = new CredentialsDAO(persistence, personDao, createPasswordHasher());
+        // No cacheClient: remember-me rows authenticate, so a stale read is a security bug (see the DAO).
+        this.rememberMeDao = new RememberMeDAO(persistence);
+        this.passkeyDao = new PasskeyDAO(persistence);
         this.todoDao = new TodoDAO(mapper, persistence, cacheClient);
         this.pdvDao = new PersonDataValueDAO(mapper, persistence, cacheClient);
         this.privDao = new PrivilegesDAO(mapper, persistence, cacheClient);
         this.configDao = new ConfigDAO(mapper, persistence, cacheClient);
         this.mediaDao = new MediaDAO(mapper, persistence, cacheClient);
+        this.templateDao = new TemplateDAO(mapper, persistence, cacheClient);
+        this.contentDao = new ContentDAO(mapper, persistence, cacheClient);
         // No cacheClient: the audit table is write-heavy and read rarely, so caching it would cost
         // invalidation traffic to speed up something nobody does -- and a stale audit view is worse than a slow one.
         this.auditDao = new AuditDAO(mapper, persistence);
@@ -232,6 +247,10 @@ public class DAO {
     public Creds getCredsByEmailAdminOnly(final String email, final Person.Id id) {
         return credDao.getCredsByEmailAdminOnly(email, id);
     }
+    /** No password check -- ONLY after the caller has verified identity via an email one-time code. */
+    public Creds getCredsForCodeLogin(final String email) {
+        return credDao.getCredsForCodeLogin(email);
+    }
     public Long updateLastLogin(final Creds creds) {
         return credDao.updateLastLogin(creds);
     }
@@ -243,6 +262,37 @@ public class DAO {
     }
     public Boolean removeCreds(final String email) {
         return credDao.removeCreds(email);
+    }
+
+    // Remember-me tokens
+    public Optional<RememberToken> getRememberToken(final String selector) {
+        return rememberMeDao.getToken(selector);
+    }
+    public Boolean saveRememberToken(final RememberToken token) {
+        return rememberMeDao.saveToken(token);
+    }
+    public Boolean deleteRememberToken(final String selector) {
+        return rememberMeDao.deleteToken(selector);
+    }
+    public int deleteRememberTokensForUser(final Person.Id userId) {
+        return rememberMeDao.deleteAllForUser(userId);
+    }
+
+    // Passkeys (WebAuthn credentials)
+    public Optional<PasskeyCredential> getPasskey(final String credentialId) {
+        return passkeyDao.getPasskey(credentialId);
+    }
+    public List<PasskeyCredential> getPasskeysForUser(final Person.Id userId) {
+        return passkeyDao.getPasskeysForUser(userId);
+    }
+    public List<PasskeyCredential> getPasskeysForEmailAndRp(final String email, final String rpId) {
+        return passkeyDao.getPasskeysForEmailAndRp(email, rpId);
+    }
+    public Boolean savePasskey(final PasskeyCredential passkey) {
+        return passkeyDao.savePasskey(passkey);
+    }
+    public Boolean deletePasskey(final String credentialId, final Person.Id owner) {
+        return passkeyDao.deletePasskey(credentialId, owner);
     }
 
     // Todos
@@ -298,6 +348,54 @@ public class DAO {
      */
     public void clearMediaCache() {
         mediaDao.clearCache();
+    }
+
+    // Content templates (see TemplateDAO). saveTemplate assigns the next version and trims history to retain.
+    public Boolean saveTemplate(final ContentTemplate template, final int retain) {
+        return templateDao.saveTemplate(template, retain);
+    }
+    public List<ContentTemplate> getAllTemplates() {
+        return templateDao.getAllTemplates();
+    }
+    public Optional<ContentTemplate> getTemplate(final String id) {
+        return templateDao.getTemplate(id);
+    }
+    public Optional<ContentTemplate> getTemplate(final String id, final int version) {
+        return templateDao.getTemplate(id, version);
+    }
+    public Optional<TemplateRecord> getTemplateRecord(final String id) {
+        return templateDao.getTemplateRecord(id);
+    }
+    public Boolean deleteTemplate(final String id) {
+        return templateDao.deleteTemplate(id);
+    }
+    /** Same escape hatch as {@link #clearMediaCache()}, for rows written behind the DAO's back. */
+    public void clearTemplateCache() {
+        templateDao.clearCache();
+    }
+
+    // Template-driven page content (see ContentDAO).
+    public Boolean saveContent(final ContentInstance instance, final int retain) {
+        return contentDao.saveContent(instance, retain);
+    }
+    public List<ContentInstance> getContentForSection(final String section) {
+        return contentDao.getContentForSection(section);
+    }
+    public Optional<ContentInstance> getContent(final String id) {
+        return contentDao.getContent(id);
+    }
+    public Optional<ContentRecord> getContentRecord(final String id) {
+        return contentDao.getContentRecord(id);
+    }
+    public List<ContentRecord> getAllContentRecords() {
+        return contentDao.getAllContentRecords();
+    }
+    public Boolean deleteContent(final String id) {
+        return contentDao.deleteContent(id);
+    }
+    /** Same escape hatch as {@link #clearMediaCache()}, for rows written behind the DAO's back. */
+    public void clearContentCache() {
+        contentDao.clearCache();
     }
 
     // Runtime settings (see ConfigDAO). Reads never throw; callers always supply a default.

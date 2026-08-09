@@ -8,10 +8,13 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -20,6 +23,7 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.BindingType;
+import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
@@ -33,6 +37,8 @@ public class TripCommands {
     private static final long TIMEOUT = 5_000L;
     /** Cap for the admin/joinable trip-resolution fallbacks (a user's own trips come from the reverse index). */
     private static final int RECENT_TRIP_LIMIT = 100;
+    /** How long a finished pilgrimage stays on the public landing page (user-set product rule). */
+    private static final int PUBLIC_PAST_DAYS = 7;
 
     @Inject
     private BindingCommands bind;
@@ -199,6 +205,95 @@ public class TripCommands {
         } catch (final RuntimeException ex) {
             log.error("Failed to get active trips!", ex);
             return Collections.emptyList();
+        }
+    }
+
+    /**
+     * The landing-page listing: publicly-listed trips ({@code openToPublic}), kept for
+     * {@link #PUBLIC_PAST_DAYS} days after they end, oldest start date first. Everything the public page and
+     * sidebar show derives from this one index-cached read.
+     */
+    public List<Trip> getPublicTrips() {
+        return getActiveTrips(PUBLIC_PAST_DAYS).stream()
+                .filter(trip -> Boolean.TRUE.equals(trip.getOpenToPublic()))
+                .sorted(Comparator.comparing(Trip::getStartDate,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
+    }
+
+    /**
+     * {@link #getPublicTrips()} for one language. Takes the enum constant's name as a string so EL can pass
+     * {@code lang.name()}; a trip with no stored language folds into English (the site default) rather than
+     * vanishing from every section.
+     */
+    public List<Trip> getPublicTrips(final String language) {
+        final Language wanted = parseLanguage(language);
+        return getPublicTrips().stream()
+                .filter(trip -> languageOf(trip) == wanted)
+                .toList();
+    }
+
+    /** The distinct languages present in {@link #getPublicTrips()}, in declaration (display) order --
+     *  drives which language sections the landing page renders, so a new language appears automatically. */
+    public List<Language> getPublicTripLanguages() {
+        final Set<Language> present = getPublicTrips().stream()
+                .map(TripCommands::languageOf)
+                .collect(Collectors.toSet());
+        return Arrays.stream(Language.values()).filter(present::contains).toList();
+    }
+
+    /** The sidebar's link list: {@link #getPublicTrips(String)} restricted to CFPW-hosted trips. */
+    public List<Trip> getPublicCfpwTrips(final String language) {
+        return getPublicTrips(language).stream().filter(Trip::isCfpw).toList();
+    }
+
+    /**
+     * The sidebar's countdown cards: for each language, the next CFPW trip that has not started, PLUS any
+     * public CFPW trip starting within {@code soonDays} -- deduped, soonest first. CFPW-only on purpose:
+     * countdown cards link to the hosted trip-details page, which external pilgrimages do not have.
+     */
+    public List<Trip> getCountdownTrips(final int soonDays) {
+        final LocalDateTime now = LocalDateTime.now();
+        final LocalDateTime soon = now.plusDays(soonDays);
+        final List<Trip> upcoming = getPublicTrips().stream()
+                .filter(Trip::isCfpw)
+                .filter(trip -> trip.getStartDate() != null && trip.getStartDate().isAfter(now))
+                .toList();
+        final Map<Language, Trip> nextPerLanguage = new LinkedHashMap<>();
+        for (final Trip trip : upcoming) {
+            nextPerLanguage.putIfAbsent(languageOf(trip), trip);
+        }
+        return upcoming.stream()
+                .filter(trip -> nextPerLanguage.containsValue(trip) || !trip.getStartDate().isAfter(soon))
+                .toList();
+    }
+
+    /** Whole days until the trip starts, floored at zero -- feeds the sidebar countdown cards. */
+    public long daysUntil(final Trip trip) {
+        if (trip == null || trip.getStartDate() == null) {
+            return 0;
+        }
+        final long days = DAYS.between(LocalDateTime.now(), trip.getStartDate());
+        return Math.max(0, days);
+    }
+
+    /** The languages a trip can be offered in, for the trip editor's menu (replaces a hardcoded list). */
+    public List<Language> getLanguages() {
+        return List.of(Language.values());
+    }
+
+    private static Language languageOf(final Trip trip) {
+        return trip.getLanguage() == null ? Language.English : trip.getLanguage();
+    }
+
+    private static Language parseLanguage(final String language) {
+        if (language == null || language.isBlank()) {
+            return Language.English;
+        }
+        try {
+            return Language.valueOf(language.trim());
+        } catch (final IllegalArgumentException ex) {
+            return Language.English;
         }
     }
 

@@ -46,7 +46,6 @@ public class PassCommandsTest {
         // The Caller form refuses a null caller rather than throwing: authorization failure, not bad input.
         Assert.assertFalse(commands.adminSetPass("a@b", "x", null));
         Assert.assertThrows(IllegalArgumentException.class, () -> commands.getCredsByAdmin(" ", null));
-        Assert.assertThrows(IllegalArgumentException.class, () -> commands.resetPass(null, "Last", "t"));
     }
 
     @Test
@@ -162,54 +161,46 @@ public class PassCommandsTest {
         Assert.assertFalse(commands.setEmail(person, "nobody@nowhere.example", "brand-new@nowhere.example"));
     }
 
+    /**
+     * The one-shot code-login flag is the ONLY thing that authorizes a password set without the current
+     * password, it names no account (the email rides the session), and it dies on use.
+     */
     @Test
-    public void resetPassNeedsTheMatchingLastName() {
-        Assert.assertNull(commands.resetPass("user2", "WrongName", "Title"));
-        Assert.assertNull(commands.resetPass("nobody@nowhere.example", "Last", "Title"));
-    }
+    public void setPassAfterCodeLoginHonoursOnlyTheOneShotFlag() {
+        final java.util.Map<String, Object> attrs = new java.util.HashMap<>();
+        final jakarta.servlet.http.HttpSession session = sessionOver(attrs);
+        final HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(request.getSession(false)).thenReturn(session);
 
-    @Test
-    public void resetPassAnswersTheEmailBodyWithTheLoginUrl() {
-        try (MockedStatic<FacesContext> faces = Mockito.mockStatic(FacesContext.class)) {
-            final FacesContext ctx = Mockito.mock(FacesContext.class);
-            final ExternalContext external = Mockito.mock(ExternalContext.class);
-            final HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
-            faces.when(FacesContext::getCurrentInstance).thenReturn(ctx);
-            Mockito.when(ctx.getExternalContext()).thenReturn(external);
-            Mockito.when(external.getRequest()).thenReturn(request);
-            Mockito.when(request.getServerPort()).thenReturn(443);
-            Mockito.when(request.getScheme()).thenReturn("https");
-            Mockito.when(request.getServerName()).thenReturn("trips.example.org");
-            Mockito.when(request.getContextPath()).thenReturn("");
+        try (MockedStatic<FacesContext> ignored = facesWithRequest(request)) {
+            // Mismatched retype: refused, and the flag (not yet set) is not consumed either way.
+            Assert.assertFalse(commands.setPassAfterCodeLogin("newpass", "different"));
 
-            // The fake admin person's last name is "user".
-            final String body = commands.resetPass("admin", "user", "Password Reset");
+            // No flag: refused.
+            attrs.put(org.paulsens.trip.web.Sessions.LOGIN_EMAIL, "user2");
+            Assert.assertFalse(commands.setPassAfterCodeLogin("newpass", "newpass"));
 
-            Assert.assertNotNull(body);
-            Assert.assertTrue(body.startsWith("Password Reset"));
-            Assert.assertTrue(body.contains("https://trips.example.org/account/login.jsf"),
-                    "The login URL must be derived from the request");
+            // Flag present: allowed, flag consumed, and a second try is refused.
+            attrs.put(org.paulsens.trip.web.Sessions.CODE_LOGIN, Boolean.TRUE);
+            Assert.assertTrue(commands.setPassAfterCodeLogin("newpass", "newpass"));
+            Assert.assertNull(attrs.get(org.paulsens.trip.web.Sessions.CODE_LOGIN));
+            Assert.assertFalse(commands.setPassAfterCodeLogin("again", "again"));
         }
     }
 
+    /** After the throttle's budget is spent, even the CORRECT password is refused for the window. */
     @Test
-    public void aNonStandardPortSurvivesIntoTheLoginUrl() {
-        try (MockedStatic<FacesContext> faces = Mockito.mockStatic(FacesContext.class)) {
-            final FacesContext ctx = Mockito.mock(FacesContext.class);
-            final ExternalContext external = Mockito.mock(ExternalContext.class);
-            final HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
-            faces.when(FacesContext::getCurrentInstance).thenReturn(ctx);
-            Mockito.when(ctx.getExternalContext()).thenReturn(external);
-            Mockito.when(external.getRequest()).thenReturn(request);
-            Mockito.when(request.getServerPort()).thenReturn(8080);
-            Mockito.when(request.getScheme()).thenReturn("http");
-            Mockito.when(request.getServerName()).thenReturn("localhost");
-            Mockito.when(request.getContextPath()).thenReturn("");
-
-            final String body = commands.resetPass("admin", "user", "Reset");
-
-            Assert.assertTrue(body.contains("http://localhost:8080/account/login.jsf"));
+    public void repeatedWrongPasswordsThrottleTheAddress() {
+        final int maxFails = new ConfigCommands()
+                .getInt(org.paulsens.trip.config.KnownSettings.LOGIN_PASSWORD_MAX_FAILS, 0, 1000);
+        // The throttled address is unique to this test: the counters live in the shared local cache, and
+        // throttling "admin" here would break every other login test in the JVM.
+        final String email = "user-throttle-" + System.nanoTime();
+        for (int fail = 0; fail < maxFails; fail++) {
+            Assert.assertNull(commands.login(email, "wrong-password"));
         }
+        Assert.assertNull(commands.login(email, "user"),
+                "the correct password must be refused while the address is throttled");
     }
 
     @Test
@@ -229,5 +220,76 @@ public class PassCommandsTest {
     public void wrongCredentialLookupsAnswerNullRatherThanThrowing() {
         Assert.assertNull(commands.getCreds("nobody@nowhere.example", "x"));
         Assert.assertNull(commands.adminGetCreds("nobody@nowhere.example"));
+    }
+
+    @Test
+    public void loginSessionRotatesTheSessionAndSetsTheAttributes() {
+        final jakarta.servlet.http.HttpSession oldSession = Mockito.mock(jakarta.servlet.http.HttpSession.class);
+        final java.util.Map<String, Object> attrs = new java.util.HashMap<>();
+        final jakarta.servlet.http.HttpSession newSession = sessionOver(attrs);
+        final HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(request.getSession(false)).thenReturn(oldSession);
+        Mockito.when(request.getSession(true)).thenReturn(newSession);
+
+        final Creds creds;
+        try (MockedStatic<FacesContext> ignored = facesWithRequest(request)) {
+            creds = commands.loginSession("admin", "admin");
+        }
+        Assert.assertNotNull(creds);
+        Mockito.verify(oldSession).invalidate();
+        Assert.assertEquals(attrs.get(PersonCommands.ACTIVE_USER_ID), creds.getUserId());
+        Assert.assertEquals(attrs.get(PersonCommands.ACTIVE_USER_ROLE), "admin");
+        Assert.assertEquals(attrs.get(org.paulsens.trip.web.Sessions.LOGIN_EMAIL), "admin");
+    }
+
+    @Test
+    public void aFailedLoginSessionTouchesNoSession() {
+        final HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        try (MockedStatic<FacesContext> ignored = facesWithRequest(request)) {
+            Assert.assertNull(commands.loginSession("admin", "wrong-password"));
+        }
+        Mockito.verify(request, Mockito.never()).getSession(ArgumentMatchers.anyBoolean());
+    }
+
+    @Test
+    public void logoutInvalidatesTheSessionForReal() {
+        final jakarta.servlet.http.HttpSession session = sessionOver(new java.util.HashMap<>());
+        Mockito.when(session.getAttribute(org.paulsens.trip.web.Sessions.LOGIN_EMAIL)).thenReturn("admin");
+        final HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(request.getSession(false)).thenReturn(session);
+
+        try (MockedStatic<FacesContext> ignored = facesWithRequest(request)) {
+            commands.logout();
+        }
+        Mockito.verify(session).invalidate();
+    }
+
+    @Test
+    public void logoutWithoutASessionIsANoOp() {
+        final HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(request.getSession(false)).thenReturn(null);
+        try (MockedStatic<FacesContext> ignored = facesWithRequest(request)) {
+            commands.logout();
+        }
+    }
+
+    /** A session whose attributes live in the given map, so tests can assert on the map directly. */
+    private static jakarta.servlet.http.HttpSession sessionOver(final java.util.Map<String, Object> attrs) {
+        final jakarta.servlet.http.HttpSession session = Mockito.mock(jakarta.servlet.http.HttpSession.class);
+        Mockito.when(session.getAttribute(ArgumentMatchers.anyString()))
+                .thenAnswer(call -> attrs.get(call.<String>getArgument(0)));
+        Mockito.doAnswer(call -> attrs.put(call.getArgument(0), call.getArgument(1)))
+                .when(session).setAttribute(ArgumentMatchers.anyString(), ArgumentMatchers.any());
+        return session;
+    }
+
+    private static MockedStatic<FacesContext> facesWithRequest(final HttpServletRequest request) {
+        final FacesContext ctx = Mockito.mock(FacesContext.class);
+        final ExternalContext ext = Mockito.mock(ExternalContext.class);
+        final MockedStatic<FacesContext> faces = Mockito.mockStatic(FacesContext.class);
+        faces.when(FacesContext::getCurrentInstance).thenReturn(ctx);
+        Mockito.when(ctx.getExternalContext()).thenReturn(ext);
+        Mockito.when(ext.getRequest()).thenReturn(request);
+        return faces;
     }
 }

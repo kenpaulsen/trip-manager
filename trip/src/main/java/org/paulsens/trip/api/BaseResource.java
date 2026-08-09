@@ -1,6 +1,7 @@
 package org.paulsens.trip.api;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import jakarta.ws.rs.NotAuthorizedException;
 import jakarta.ws.rs.WebApplicationException;
@@ -39,6 +40,9 @@ public abstract class BaseResource {
 
     @Context
     protected HttpServletRequest request;
+
+    @Context
+    protected HttpServletResponse response;
 
     /**
      * Memoized per request, which is safe because JAX-RS creates a resource instance per request.

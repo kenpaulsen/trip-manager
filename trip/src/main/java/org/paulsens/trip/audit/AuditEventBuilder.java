@@ -26,6 +26,8 @@ public final class AuditEventBuilder {
     public static final String TARGET_TRANSACTION = "transaction";
     public static final String TARGET_TODO = "todo";
     public static final String TARGET_MEDIA = "media";
+    public static final String TARGET_TEMPLATE = "template";
+    public static final String TARGET_CONTENT = "content";
     public static final String TARGET_CONFIG = "config";
     public static final String TARGET_PRIVILEGE = "privilege";
     public static final String TARGET_CHAT_CHANNEL = "chatChannel";

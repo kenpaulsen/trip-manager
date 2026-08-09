@@ -25,8 +25,14 @@ public enum AuditAction {
     LOGIN,
     /** Credentials created for an account. */
     CREATE_CREDS,
-    /** A password reset attempt (the forgot-my-password flow). */
+    /** A password reset attempt (the retired emailed-password flow; kept so old records still resolve). */
     PASSWORD_RESET("PWReset"),
+    /** A login code was requested; the outcome records whether one was actually sent. */
+    CODE_REQUEST,
+    /** A passkey (WebAuthn credential) was registered. */
+    PASSKEY_REGISTER,
+    /** A passkey was removed. */
+    PASSKEY_DELETE,
     /** A password was set: by the owner, or by an admin on someone else's account. */
     PASSWORD_CHANGE,
     /** Credentials were removed, so the account can no longer sign in. */
@@ -47,6 +53,10 @@ public enum AuditAction {
     CONFIG,
     /** Managed media uploaded or deleted. */
     MEDIA,
+    /** A content template was created, edited, restored or deleted. */
+    TEMPLATE,
+    /** Template-driven page content was created, edited, restored or deleted. */
+    CONTENT,
     /** A privilege was granted or revoked. */
     PRIVILEGE,
     /**

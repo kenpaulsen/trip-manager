@@ -135,6 +135,61 @@ public class AuthResourceTest extends ResourceTestSupport {
     }
 
     @Test
+    public void requestCodeNeedsAnEmailAndAlwaysSaysSent() {
+        final org.paulsens.trip.action.LoginCodeCommands codes =
+                bindMock(org.paulsens.trip.action.LoginCodeCommands.class);
+
+        assertError(resource.requestCode(null), 400, ApiErrors.BAD_REQUEST);
+        assertError(resource.requestCode(Map.of("email", " ")), 400, ApiErrors.BAD_REQUEST);
+
+        final Response known = resource.requestCode(Map.of("email", "me@example.com"));
+        final Response unknown = resource.requestCode(Map.of("email", "nobody@example.com"));
+        assertOk(known);
+        assertOk(unknown);
+        // The bodies must be identical whatever happened server-side: this endpoint is free to call, so any
+        // difference is a scriptable account-enumeration oracle.
+        Assert.assertEquals(entity(known), entity(unknown));
+        Mockito.verify(codes).requestCode("me@example.com");
+    }
+
+    @Test
+    public void verifyCodeFailuresAreIndistinguishable() {
+        final org.paulsens.trip.action.LoginCodeCommands codes =
+                bindMock(org.paulsens.trip.action.LoginCodeCommands.class);
+        Mockito.when(codes.verifyAndLogin(ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
+                ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(null);
+
+        assertError(resource.verifyCode(Map.of("email", "me@example.com")), 400, ApiErrors.BAD_REQUEST);
+        final Response wrong = resource.verifyCode(Map.of("email", "me@example.com", "code", "000000"));
+        final Response unknown = resource.verifyCode(Map.of("email", "nobody@example.com", "code", "123456"));
+        assertError(wrong, 401, ApiErrors.NOT_AUTHENTICATED);
+        assertError(unknown, 401, ApiErrors.NOT_AUTHENTICATED);
+        Assert.assertEquals(message(wrong), message(unknown),
+                "wrong code and unknown account must read the same");
+    }
+
+    @Test
+    public void verifyCodeSuccessLooksExactlyLikeALoginSuccess() {
+        final org.paulsens.trip.action.LoginCodeCommands codes =
+                bindMock(org.paulsens.trip.action.LoginCodeCommands.class);
+        Mockito.when(codes.verifyAndLogin(ArgumentMatchers.eq("me@example.com"), ArgumentMatchers.eq("123456"),
+                ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(creds("user"));
+
+        final Response response = resource.verifyCode(Map.of("email", "me@example.com", "code", "123456"));
+
+        assertOk(response);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> body = (Map<String, Object>) response.getEntity();
+        Assert.assertEquals(body.get("userId"), ME.getValue());
+        Assert.assertEquals(body.get("role"), "user");
+        Assert.assertEquals(body.get("csrfHeader"), BaseResource.CSRF_HEADER);
+    }
+
+    private static Object entity(final Response response) {
+        return response.getEntity();
+    }
+
+    @Test
     public void logoutRequiresTheCsrfHeader() {
         assertError(resource.logout(null), 403, ApiErrors.CSRF);
         Mockito.verify(session, Mockito.never()).invalidate();

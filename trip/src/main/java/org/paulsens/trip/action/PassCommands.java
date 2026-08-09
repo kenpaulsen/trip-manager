@@ -6,18 +6,25 @@ import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
+import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
-import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.security.RememberMeService;
 import org.paulsens.trip.util.Util;
+import org.paulsens.trip.web.Sessions;
 
 import static org.paulsens.trip.action.TripUtilCommands.addMessage;
 import static org.paulsens.trip.dynamo.CredentialsDAO.IS_ADMIN;
@@ -31,9 +38,71 @@ public class PassCommands {
         return DAO.getInstance().getPersonByEmail(email) != null;
     }
 
+    /**
+     * {@link #login} plus session establishment, for the JSF login page.
+     *
+     * <p>The page used to assign the session attributes itself in inline JSFT, which meant the browser login
+     * never rotated the session id the way the REST login always has. Funneling through
+     * {@link Sessions#establish} closes that gap and keeps the attribute set defined in one place.
+     */
+    public Creds loginSession(final String email, final String pass) {
+        final Creds creds = login(email, pass);
+        if (creds != null) {
+            Sessions.establish(currentRequest(), email.trim(), creds);
+            RememberMeService.getInstance().issue(currentRequest(), currentResponse(), creds);
+        }
+        return creds;
+    }
+
+    /**
+     * Signs the browser user out by invalidating the session, not by nulling attributes -- the old inline
+     * logout left the session id and all server-side state alive and reusable.
+     */
+    public void logout() {
+        final HttpServletRequest request = currentRequest();
+        final HttpSession session = request.getSession(false);
+        final Object email = session == null ? null : session.getAttribute(Sessions.LOGIN_EMAIL);
+        // Read the actor BEFORE invalidating; afterwards the session that knows who this was is gone.
+        Audit.builder(AuditAction.LOGIN, AuditOutcome.SUCCESS)
+                .actor(email == null ? null : email.toString(), null)
+                .message("Logged out")
+                .log();
+        // Logout means THIS browser stops being signed in -- the remember-me cookie must die with the
+        // session, or the next request would quietly sign the person straight back in.
+        RememberMeService.getInstance().revoke(request, currentResponse());
+        Sessions.logout(request);
+    }
+
+    /** {@link #createCreds} plus session establishment, for the create-account page (same gap as login). */
+    public Creds createCredsSession(final String email, final String newPass) {
+        final Creds creds = createCreds(email, newPass);
+        if (creds != null) {
+            Sessions.establish(currentRequest(), email.trim(), creds);
+            RememberMeService.getInstance().issue(currentRequest(), currentResponse(), creds);
+        }
+        return creds;
+    }
+
+    private static HttpServletRequest currentRequest() {
+        return (HttpServletRequest) FacesContext.getCurrentInstance().getExternalContext().getRequest();
+    }
+
+    private static HttpServletResponse currentResponse() {
+        return (HttpServletResponse) FacesContext.getCurrentInstance().getExternalContext().getResponse();
+    }
+
     public Creds login(final String email, final String pass) {
         if (Util.isBlank(email) || Util.isBlank(pass)) {
             throw new IllegalArgumentException("Email or password is blank.");
+        }
+        if (passwordThrottled(email)) {
+            // Same audit shape and same null as a wrong password: the throttle must not be distinguishable
+            // from failure at the form, or it becomes a signal of its own.
+            Audit.builder(AuditAction.LOGIN, AuditOutcome.FAILURE)
+                    .actor(email, null)
+                    .message("Login refused: too many wrong passwords in the window")
+                    .log();
+            return null;
         }
         final Creds creds = getCreds(email, pass);
         if (creds != null) {
@@ -44,6 +113,7 @@ public class PassCommands {
                     .message("Logged in, previous login was: " + prevUpdateTime)
                     .log();
         } else {
+            recordPasswordFailure(email);
             // No id to record: a failed login is exactly the case where we do not know who they are, and
             // guessing from the email typed at the form would attribute the attempt to whoever owns it.
             Audit.builder(AuditAction.LOGIN, AuditOutcome.FAILURE)
@@ -52,6 +122,44 @@ public class PassCommands {
                     .log();
         }
         return creds;
+    }
+
+    /**
+     * Whether this address has burned through its wrong-password budget. Checked BEFORE the hash: BCrypt work
+     * is exactly what an online-guessing throttle exists to deny. Fail-open on a cache error -- a broken
+     * cache must degrade to "no throttle", never to "nobody can sign in".
+     */
+    private boolean passwordThrottled(final String email) {
+        final ConfigCommands config = new ConfigCommands();
+        final int maxFails = config.getInt(KnownSettings.LOGIN_PASSWORD_MAX_FAILS, 0, 1000);
+        if (maxFails <= 0) {
+            return false;
+        }
+        final int windowSeconds = config.getInt(KnownSettings.LOGIN_PASSWORD_FAIL_WINDOW_SECONDS, 60, 86400);
+        final String key = CacheKeys.passwordFailsKey(email.trim().toLowerCase(Locale.ROOT), windowSeconds,
+                Instant.now().getEpochSecond());
+        final long fails = DAO.getInstance().getCacheClient().getValue(key)
+                .map(PassCommands::parseCount).orElse(0L);
+        return fails >= maxFails;
+    }
+
+    private void recordPasswordFailure(final String email) {
+        final ConfigCommands config = new ConfigCommands();
+        if (config.getInt(KnownSettings.LOGIN_PASSWORD_MAX_FAILS, 0, 1000) <= 0) {
+            return;
+        }
+        final int windowSeconds = config.getInt(KnownSettings.LOGIN_PASSWORD_FAIL_WINDOW_SECONDS, 60, 86400);
+        final String key = CacheKeys.passwordFailsKey(email.trim().toLowerCase(Locale.ROOT), windowSeconds,
+                Instant.now().getEpochSecond());
+        DAO.getInstance().getCacheClient().increment(key, 1, Duration.ofSeconds(windowSeconds));
+    }
+
+    private static long parseCount(final String value) {
+        try {
+            return Long.parseLong(value.trim());
+        } catch (final NumberFormatException ex) {
+            return 0L;
+        }
     }
 
     public Creds getCreds(final String email, final String pass) {
@@ -183,7 +291,13 @@ public class PassCommands {
     }
 
     public Boolean deleteCreds(final String email) {
+        // The plain (no-password, no-viewMap) read: this is not an authorization -- removeCreds carries its
+        // own gate -- just a lookup of whose remember-me tokens die if the removal succeeds.
+        final Creds doomed = DAO.getInstance().getCredsForCodeLogin(email);
         final Boolean result = DAO.getInstance().removeCreds(email);
+        if (Boolean.TRUE.equals(result) && doomed != null && doomed.getUserId() != null) {
+            RememberMeService.getInstance().revokeAllFor(doomed.getUserId());
+        }
         if (!result) {
             log.warn("Unable to remove Creds for ({}). Perhaps no Creds exist or this user is an admin?", email);
         }
@@ -249,6 +363,12 @@ public class PassCommands {
         }
         final Creds creds = new Creds(email, person.getId(), pass);
         final Boolean saved = dao.saveCreds(creds);
+        if (Boolean.TRUE.equals(saved)) {
+            // A changed password is the "I no longer trust the old state" signal: every browser holding a
+            // remember-me token stops being signed in. Covers self-change, the post-code reset, and an admin
+            // setting someone else's, because every change funnels through here.
+            RememberMeService.getInstance().revokeAllFor(person.getId());
+        }
         // Every password change funnels through here -- the owner changing their own, the forgot-password
         // reset, and an admin setting someone else's -- so this one record covers all of them. The actor is
         // whoever is signed in, which is what distinguishes "she changed her password" from "an admin did".
@@ -261,57 +381,29 @@ public class PassCommands {
     }
 
     /**
-     * If the given {@code email} and {@code lastName} match a valid user, an email will be sent to the given email
-     * with a new random password. The password database will be immediately changed to match the password in the
-     * email.
-     * @param email         The email to reset.
-     * @param lastName      The last name associated with the given email, it must match to reset the password.
-     * @param emailTitle    A title string to add as the first line of the email message.
-     * @return  A text-formatted email message.
+     * Sets a new password for the SIGNED-IN person, authorized by the one-shot {@link Sessions#CODE_LOGIN}
+     * flag rather than by knowing the current password -- somebody who just proved control of their inbox via
+     * a login code is exactly somebody who has forgotten it. The email comes off the session, never from a
+     * parameter, so the flag can only ever change the password of the account the code verified.
      */
-    public String resetPass(final String email, final String lastName, final String emailTitle) {
-        if (email == null || lastName == null) {
-            throw new IllegalArgumentException("Email or last name missing!");
+    public Boolean setPassAfterCodeLogin(final String pass, final String pass2) {
+        if (Util.isBlank(pass) || !pass.equals(pass2)) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Passwords do not match!", "");
+            return false;
         }
-        // Get the person by email
-        final Person person = DAO.getInstance().getPersonByEmail(email);
-        final String result;
-        if ((person == null) || !person.getLast().equalsIgnoreCase(lastName)) {
-            // If not exist, error
-            result = null;
-        } else {
-            // Exists, send email w/ new password
-            final String newPass = genNewPass();
-            // Save the new password
-            if (setPass(email, newPass)) {
-                // Return email content
-                result = newPassEmail(emailTitle, newPass);
-            } else {
-                TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                        "Error changing password! Please tell Ken.", "");
-                result = null;
-            }
+        final HttpSession session = currentRequest().getSession(false);
+        final Object flag = session == null ? null : session.getAttribute(Sessions.CODE_LOGIN);
+        final Object email = session == null ? null : session.getAttribute(Sessions.LOGIN_EMAIL);
+        if (!Boolean.TRUE.equals(flag) || email == null) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
+                    "You do not have permission to change this password!", "");
+            return false;
         }
-        return result;
+        // One shot: consumed before the attempt, so a failed save cannot leave the authorization behind.
+        session.setAttribute(Sessions.CODE_LOGIN, null);
+        return setPass(email.toString(), pass);
     }
 
-    private String newPassEmail(final String title, final String pass) {
-        if (title == null) {
-            throw new IllegalArgumentException("Title missing!");
-        }
-        final HttpServletRequest req = (HttpServletRequest) FacesContext.getCurrentInstance()
-                .getExternalContext().getRequest();
-        final int port = req.getServerPort();
-        final String portStr = ((port == 80) || (port == 443)) ? "" : (":" + port);
-        final String url = req.getScheme() + "://" + req.getServerName() + portStr
-                + req.getContextPath() + "/account/login.jsf";
-        return title + "\n\n A request was made to reset your password. Your new password is: \n\n\t\t"
-                + pass + "\n\nYou may now login at: " + url + " with your email address and this new password.\n\n";
-    }
-
-    private String genNewPass() {
-        return RandomData.genPassChars(8);
-    }
     /** The person id behind a set of credentials, when there is one. */
     private static String idOf(final Creds creds) {
         return (creds == null || creds.getUserId() == null) ? null : creds.getUserId().getValue();

@@ -77,6 +77,20 @@ public class CredentialsDAO {
     }
 
     /**
+     * The credentials row WITHOUT any password check -- only for a caller that has already proven the user's
+     * identity another way (a verified email one-time code). Kept separate from the admin form above because
+     * that one requires a Faces view map and an expected owner id, neither of which a code login has.
+     */
+    protected Creds getCredsForCodeLogin(final String email) {
+        if ((email == null) || email.isEmpty()) {
+            return null;
+        }
+        final GetItemResponse item =
+                persistence.getItem(b -> b.key(getCredQueryKey(email)).tableName(PASS_TABLE).build());
+        return item.hasItem() ? credsFromResponse(item) : null;
+    }
+
+    /**
      * Only use by Admin. Getting Creds is not cached, so be careful about overusing this!
      * @param email The email address for the {@link Creds} to retrieve.
      * @param id    The {@link Person.Id} that is expected to own the {@link Creds} -- null returned if does not match.
@@ -131,7 +145,7 @@ public class CredentialsDAO {
                 email.toLowerCase(Locale.ROOT),
                 user.getId(),
                 Creds.USER_PRIV,
-                RandomData.genPassChars(24),
+                RandomData.genSecurePassChars(24),
                 Instant.now().getEpochSecond());
         return Optional.ofNullable(saveCreds(creds) ? creds : null);
     }

@@ -1,0 +1,230 @@
+package org.paulsens.trip.security;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.charset.StandardCharsets;
+import org.mockito.Mockito;
+import org.paulsens.trip.action.ConfigCommands;
+import org.paulsens.trip.cache.InMemoryCacheClient;
+import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.Creds;
+import org.paulsens.trip.model.PasskeyCredential;
+import org.paulsens.trip.model.Person;
+import org.testng.Assert;
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Test;
+
+/**
+ * Full WebAuthn ceremonies against {@link PasskeyService}, with {@link WebAuthnTestFixture} playing the
+ * authenticator -- real P-256 keys, real signatures, so the Yubico verification actually runs. This is also
+ * the round-trip proof for the options JSON that travels through the cache (where a Jackson version skew
+ * would first show).
+ */
+public class PasskeyServiceTest {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final String HOST = "localhost";
+    private static final String ORIGIN = "http://localhost";
+
+    private InMemoryCacheClient cache;
+    private PasskeyService service;
+
+    @BeforeMethod
+    public void fresh() {
+        cache = new InMemoryCacheClient();
+        final ConfigCommands config = Mockito.mock(ConfigCommands.class);
+        Mockito.when(config.getBoolean(KnownSettings.LOGIN_PASSKEY_ENABLED)).thenReturn(true);
+        service = new PasskeyService(cache, config);
+    }
+
+    private PasskeyCredential register(final WebAuthnTestFixture authenticator, final Person.Id userId,
+            final String email, final String sessionKey) throws Exception {
+        final String options = service.startRegistration(userId, email, HOST, false, sessionKey);
+        final String challenge = MAPPER.readTree(options).path("publicKey").path("challenge").asText();
+        Assert.assertFalse(challenge.isEmpty(), "the create() options must carry the challenge");
+        return service.finishRegistration(userId, email, HOST, false, sessionKey,
+                authenticator.registrationResponseJson(challenge, ORIGIN, HOST), "Test device");
+    }
+
+    @Test
+    public void registerThenSignInRoundTrip() throws Exception {
+        final WebAuthnTestFixture authenticator = WebAuthnTestFixture.create();
+        final Person.Id userId = Person.Id.from("user2");
+
+        final PasskeyCredential registered = register(authenticator, userId, "user2", "sess-round-trip");
+        Assert.assertNotNull(registered, "registration should verify and store the credential");
+        Assert.assertEquals(registered.getRpId(), "localhost");
+        Assert.assertEquals(registered.getLabel(), "Test device");
+
+        final PasskeyService.StartedAssertion started = service.startAssertion(HOST, false);
+        final String challenge = MAPPER.readTree(started.publicKeyOptionsJson())
+                .path("publicKey").path("challenge").asText();
+        final Creds creds = service.finishAssertion(HOST, false, started.challengeToken(),
+                authenticator.assertionResponseJson(challenge, ORIGIN, HOST, 1,
+                        userId.getValue().getBytes(StandardCharsets.UTF_8)));
+
+        Assert.assertNotNull(creds, "a valid assertion should answer the account's creds");
+        Assert.assertEquals(creds.getEmail(), "user2");
+        // The stored row advanced its counter and lastUsed.
+        final PasskeyCredential used = DAO.getInstance().getPasskey(registered.getCredentialId()).orElseThrow();
+        Assert.assertEquals(used.getSignCount(), 1L);
+    }
+
+    @Test
+    public void aChallengeIsSingleUse() throws Exception {
+        final WebAuthnTestFixture authenticator = WebAuthnTestFixture.create();
+        final Person.Id userId = Person.Id.from("user3");
+        Assert.assertNotNull(register(authenticator, userId, "user3", "sess-single-use"));
+
+        final PasskeyService.StartedAssertion started = service.startAssertion(HOST, false);
+        final String challenge = MAPPER.readTree(started.publicKeyOptionsJson())
+                .path("publicKey").path("challenge").asText();
+        final String response = authenticator.assertionResponseJson(challenge, ORIGIN, HOST, 1,
+                userId.getValue().getBytes(StandardCharsets.UTF_8));
+
+        Assert.assertNotNull(service.finishAssertion(HOST, false, started.challengeToken(), response));
+        Assert.assertNull(service.finishAssertion(HOST, false, started.challengeToken(), response),
+                "replaying the same challenge token must be refused");
+    }
+
+    @Test
+    public void aRegistrationChallengeIsSingleUseToo() throws Exception {
+        final WebAuthnTestFixture authenticator = WebAuthnTestFixture.create();
+        final Person.Id userId = Person.Id.from("user4");
+        final String options = service.startRegistration(userId, "user4", HOST, false, "sess-reg-once");
+        final String challenge = MAPPER.readTree(options).path("publicKey").path("challenge").asText();
+        final String response = authenticator.registrationResponseJson(challenge, ORIGIN, HOST);
+
+        Assert.assertNotNull(service.finishRegistration(userId, "user4", HOST, false, "sess-reg-once",
+                response, null));
+        Assert.assertNull(service.finishRegistration(userId, "user4", HOST, false, "sess-reg-once",
+                response, null), "the stored ceremony state must be consumed by the first finish");
+    }
+
+    @Test
+    public void theWrongKeySignatureIsRefused() throws Exception {
+        final WebAuthnTestFixture registeredKey = WebAuthnTestFixture.create();
+        final WebAuthnTestFixture wrongKey = WebAuthnTestFixture.create();
+        final Person.Id userId = Person.Id.from("user5");
+        Assert.assertNotNull(register(registeredKey, userId, "user5", "sess-wrong-key"));
+
+        final PasskeyService.StartedAssertion started = service.startAssertion(HOST, false);
+        final String challenge = MAPPER.readTree(started.publicKeyOptionsJson())
+                .path("publicKey").path("challenge").asText();
+        // The response claims the registered credential's id but is signed by a DIFFERENT key: what a forged
+        // login attempt looks like. (wrongKey has registeredKey's id spoofed via unknown-credential path --
+        // its own id was never registered, so lookup fails; either way, refused.)
+        Assert.assertNull(service.finishAssertion(HOST, false, started.challengeToken(),
+                wrongKey.assertionResponseJson(challenge, ORIGIN, HOST, 1,
+                        userId.getValue().getBytes(StandardCharsets.UTF_8))),
+                "an assertion from an unregistered key must be refused");
+    }
+
+    @Test
+    public void aWrongOriginIsRefused() throws Exception {
+        final WebAuthnTestFixture authenticator = WebAuthnTestFixture.create();
+        final Person.Id userId = Person.Id.from("user6");
+        final String options = service.startRegistration(userId, "user6", HOST, false, "sess-origin");
+        final String challenge = MAPPER.readTree(options).path("publicKey").path("challenge").asText();
+
+        Assert.assertNull(service.finishRegistration(userId, "user6", HOST, false, "sess-origin",
+                authenticator.registrationResponseJson(challenge, "https://evil.example.com", HOST), null),
+                "a phishing origin must be refused -- this is the property passkeys exist for");
+    }
+
+    @Test
+    public void disabledMeansAssertionsFail() throws Exception {
+        final WebAuthnTestFixture authenticator = WebAuthnTestFixture.create();
+        final Person.Id userId = Person.Id.from("user2");
+        Assert.assertNotNull(register(authenticator, userId, "user2", "sess-disable"));
+        final PasskeyService.StartedAssertion started = service.startAssertion(HOST, false);
+        final String challenge = MAPPER.readTree(started.publicKeyOptionsJson())
+                .path("publicKey").path("challenge").asText();
+
+        final ConfigCommands off = Mockito.mock(ConfigCommands.class);
+        Mockito.when(off.getBoolean(KnownSettings.LOGIN_PASSKEY_ENABLED)).thenReturn(false);
+        final PasskeyService disabled = new PasskeyService(cache, off);
+
+        Assert.assertNull(disabled.finishAssertion(HOST, false, started.challengeToken(),
+                authenticator.assertionResponseJson(challenge, ORIGIN, HOST, 1,
+                        userId.getValue().getBytes(StandardCharsets.UTF_8))),
+                "the setting is the kill switch for signing in, whatever is registered");
+    }
+
+    /** A synced passkey reporting a LOWER counter must still sign in (logged, not locked). */
+    @Test
+    public void aCounterRegressionIsLoggedNotLockedOut() throws Exception {
+        final WebAuthnTestFixture authenticator = WebAuthnTestFixture.create();
+        final Person.Id userId = Person.Id.from("user4");
+        Assert.assertNotNull(register(authenticator, userId, "user4", "sess-counter"));
+
+        PasskeyService.StartedAssertion started = service.startAssertion(HOST, false);
+        String challenge = MAPPER.readTree(started.publicKeyOptionsJson())
+                .path("publicKey").path("challenge").asText();
+        Assert.assertNotNull(service.finishAssertion(HOST, false, started.challengeToken(),
+                authenticator.assertionResponseJson(challenge, ORIGIN, HOST, 5,
+                        userId.getValue().getBytes(StandardCharsets.UTF_8))));
+
+        // Another device of the synced passkey reports a lower counter.
+        started = service.startAssertion(HOST, false);
+        challenge = MAPPER.readTree(started.publicKeyOptionsJson())
+                .path("publicKey").path("challenge").asText();
+        Assert.assertNotNull(service.finishAssertion(HOST, false, started.challengeToken(),
+                authenticator.assertionResponseJson(challenge, ORIGIN, HOST, 2,
+                        userId.getValue().getBytes(StandardCharsets.UTF_8))),
+                "a counter regression must not lock out a cloud-synced passkey");
+    }
+
+    @Test
+    public void theRepositoryAnswersHandlesAndRefusesCorruptRows() throws Exception {
+        final WebAuthnTestFixture authenticator = WebAuthnTestFixture.create();
+        final Person.Id userId = Person.Id.from("repo-user-" + System.nanoTime());
+        final String email = "repo-" + System.nanoTime() + "@example.org";
+        final String options = service.startRegistration(userId, email, HOST, false, "sess-repo");
+        final String challenge = MAPPER.readTree(options).path("publicKey").path("challenge").asText();
+        Assert.assertNotNull(service.finishRegistration(userId, email, HOST, false, "sess-repo",
+                authenticator.registrationResponseJson(challenge, ORIGIN, HOST), null));
+
+        final PasskeyService.DynamoCredentialRepository repository =
+                new PasskeyService.DynamoCredentialRepository("localhost");
+        Assert.assertTrue(repository.getUserHandleForUsername(email).isPresent());
+        Assert.assertTrue(repository.getUserHandleForUsername("nobody-here@example.org").isEmpty());
+        Assert.assertEquals(repository.getCredentialIdsForUsername(email).size(), 1);
+
+        // A row whose stored userHandle is not base64url is corrupt: loudly refused, never limped past.
+        final String corruptEmail = "corrupt-" + System.nanoTime() + "@example.org";
+        DAO.getInstance().savePasskey(new PasskeyCredential("corrupt-id-" + System.nanoTime(),
+                Person.Id.from("corrupt"), corruptEmail, "not!!valid@@base64", "cose", 0, null, "x",
+                "localhost", 1L, 1L));
+        Assert.assertThrows(IllegalStateException.class,
+                () -> repository.getUserHandleForUsername(corruptEmail));
+    }
+
+    @Test
+    public void rpIdDerivationCoversTheEstate() {
+        Assert.assertEquals(PasskeyService.rpIdFor("localhost"), "localhost");
+        Assert.assertEquals(PasskeyService.rpIdFor("127.0.0.1"), "localhost");
+        Assert.assertEquals(PasskeyService.rpIdFor(null), "localhost");
+        Assert.assertEquals(PasskeyService.rpIdFor("visitqueenofpeace.com"), "visitqueenofpeace.com");
+        Assert.assertEquals(PasskeyService.rpIdFor("www.visitqueenofpeace.com"), "visitqueenofpeace.com");
+        Assert.assertEquals(PasskeyService.rpIdFor("my.centermirmedjugorje.com"), "centermirmedjugorje.com");
+        Assert.assertEquals(PasskeyService.rpIdFor("unitetrip.com"), "unitetrip.com");
+        Assert.assertEquals(PasskeyService.rpIdFor("WWW.UniteTrip.COM"), "unitetrip.com");
+    }
+
+    /** The JSON in the DB row is what a later assertion verifies against -- pin the whole persisted shape. */
+    @Test
+    public void theStoredCredentialCarriesEverythingVerificationNeeds() throws Exception {
+        final WebAuthnTestFixture authenticator = WebAuthnTestFixture.create();
+        final Person.Id userId = Person.Id.from("user3");
+        final PasskeyCredential stored = register(authenticator, userId, "user3", "sess-shape");
+
+        Assert.assertNotNull(stored);
+        Assert.assertEquals(stored.getCredentialId(), authenticator.credentialIdBase64Url());
+        Assert.assertEquals(stored.getUserId(), userId);
+        Assert.assertEquals(stored.getEmail(), "user3");
+        Assert.assertEquals(stored.getTransports(), "internal");
+        Assert.assertNotNull(stored.getPublicKeyCose());
+        Assert.assertNotNull(stored.getCreated());
+    }
+}

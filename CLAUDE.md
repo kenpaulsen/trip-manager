@@ -45,7 +45,7 @@ a clean "convert to JPEG" rejection and everything else works) · metadata-extra
   workspace root CLAUDE.md. `TripBootstrapListener` (in `web/`) resolves it at startup and **must stay first**
   in web.xml's listener order (`ChatLifecycleListener` touches the DAO in its own `contextInitialized`).
 - `DAO` — singleton composing the domain DAOs: Person, Trip, TripEvent, Registration, Transaction,
-  Credentials, Todo, PersonDataValue, Privileges, Binding, Config, Media, Audit, Chat.
+  Credentials, Todo, PersonDataValue, Privileges, Binding, Config, Media, Template, Content, Audit, Chat.
 - **Caching** (`org.paulsens.trip.cache`): all caching goes through the `CacheClient` abstraction —
   `ValkeyCacheClient` (production, shared across instances), `InMemoryCacheClient` (local), `NoopCacheClient`
   (off). Each DAO uses a typed cache on top (`PointCache`, `PartitionCache`, `PartitionScanCache`,
@@ -80,8 +80,10 @@ save and 500s every later request (looks like a site-wide outage). `ModelSeriali
 `@Named @ApplicationScoped` beans exposed to JSF EL. Current names: `trip` (TripCommands), `people`
 (PersonCommands), `reg` (RegistrationCommands), `txCmds` (TransactionsCommands), `todo`, `bind`, `priv`,
 `pdv`, `pass`, `mail`, `chat`, `audit`, `auditView`, `config` (ConfigCommands — admin Settings page),
-`media`, `profilePhotos`, `chatPhotos` (ChatPhotos — chat photo storage/staging/album), `pay`
-(PayCommands — PayPal), `deploy`, `json`, `tripUtil`.
+`media`, `profilePhotos`, `chatPhotos` (ChatPhotos — chat photo storage/staging/album), `content`
+(ContentCommands — template-driven page sections) and `contentTemplate` (TemplateCommands — the template
+manager; see `docs/content-templates.md` before touching either), `pay` (PayCommands — PayPal), `deploy`,
+`json`, `tripUtil`.
 
 - `ChatPhotos.getChatPhotos()` is ONE static instance on purpose — never give it ChatCommands'
   FacesContext/application-map lookup: the upload servlet has no FacesContext and the JSF send does, so a

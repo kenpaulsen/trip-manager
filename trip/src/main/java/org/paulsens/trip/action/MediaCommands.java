@@ -5,6 +5,7 @@ import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -20,6 +21,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.MediaItem;
+import org.paulsens.trip.model.Trip;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
@@ -104,6 +106,83 @@ public class MediaCommands {
         }
     }
 
+    /**
+     * The publicly-visible items in a slot: {@code hidden} rows are excluded, and when {@code maxAgeDays} is
+     * positive, so are rows uploaded longer ago than that (or with no upload date at all -- an age window
+     * only makes sense against a known age). Used by the landing page's Documents section, where files
+     * expire from view three months after upload.
+     */
+    public List<MediaItem> getVisibleInSlot(final String slot, final int maxAgeDays) {
+        final LocalDateTime cutoff = maxAgeDays > 0 ? LocalDateTime.now().minusDays(maxAgeDays) : null;
+        return getInSlot(slot).stream()
+                .filter(item -> !item.getHidden())
+                .filter(item -> cutoff == null
+                        || (item.getUploaded() != null && !item.getUploaded().isBefore(cutoff)))
+                .toList();
+    }
+
+    /** One landing-page album: a qualifying trip and its publicly-visible chat photos. */
+    public record TripAlbum(Trip trip, List<MediaItem> photos) implements Serializable {
+    }
+
+    /**
+     * The landing page's picture albums, newest trip first. A trip qualifies when it is publicly listed
+     * ({@code openToPublic} -- private trips are unlisted everywhere, including here), has started (in
+     * progress is fine, not-yet-started is not), ended within the window, and has at least {@code minPhotos}
+     * visible photos in its chat-photo slot. Everything reads from caches (trip index + media hash), so this
+     * is safe on a public page render.
+     */
+    public List<TripAlbum> getHomeAlbums(final int windowDays, final int minPhotos) {
+        final LocalDateTime now = LocalDateTime.now();
+        try {
+            return DAO.getInstance().getActiveTrips(now.minusDays(windowDays)).stream()
+                    .filter(trip -> Boolean.TRUE.equals(trip.getOpenToPublic()))
+                    .filter(trip -> trip.getStartDate() != null && !trip.getStartDate().isAfter(now))
+                    .map(this::toAlbum)
+                    .filter(album -> album.photos().size() >= minPhotos)
+                    .sorted(Comparator.comparing(album -> album.trip().getStartDate(),
+                            Comparator.reverseOrder()))
+                    .toList();
+        } catch (final RuntimeException ex) {
+            // The landing page must render without its picture section rather than fail with it.
+            log.error("Unable to build home-page albums", ex);
+            return List.of();
+        }
+    }
+
+    private TripAlbum toAlbum(final Trip trip) {
+        return new TripAlbum(trip, getVisibleInSlot(ChatPhotos.slotFor(trip.getId()), 0));
+    }
+
+    /**
+     * Flips one item's public visibility. A write-through save under the same row id, so the cache stays
+     * coherent; members-only pages keep showing the item either way (only public pages filter on it).
+     */
+    public boolean setHidden(final String id, final boolean hidden, final String actor) {
+        final MediaItem existing = get(id);
+        if (existing == null) {
+            return false;
+        }
+        if (existing.getHidden() == hidden) {
+            return true;
+        }
+        final MediaItem updated = existing.withHidden(hidden);
+        try {
+            if (!DAO.getInstance().saveMedia(updated)) {
+                return false;
+            }
+        } catch (final RuntimeException ex) {
+            log.error("Unable to save visibility change for media: " + id, ex);
+            return false;
+        }
+        Audit.builder(AuditAction.MEDIA, AuditOutcome.SUCCESS)
+                .currentActor(actor)
+                .target(AuditEventBuilder.TARGET_MEDIA, updated.getS3Key())
+                .message((hidden ? "Hid " : "Unhid ") + updated.getS3Key() + " on public pages")
+                .log();
+        return true;
+    }
+
     /** @return the public URL a visitor uses for this item. */
     public String getUrl(final MediaItem item) {
         return (item == null) ? null : baseUrl() + "/" + item.getS3Key();
@@ -123,6 +202,14 @@ public class MediaCommands {
     public boolean upload(final String key, final InputStream content, final long size, final String contentType,
             final String title, final String description, final String slot, final int position,
             final String uploadedBy) {
+        return upload(key, content, size, contentType, title, description, slot, position, uploadedBy, null);
+    }
+
+    /** As {@link #upload(String, InputStream, long, String, String, String, String, int, String)}, with the
+     *  uploader's public-visibility choice ({@code null} = visible). */
+    public boolean upload(final String key, final InputStream content, final long size, final String contentType,
+            final String title, final String description, final String slot, final int position,
+            final String uploadedBy, final Boolean hidden) {
         final String bucket = bucket();
         if (bucket == null) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Uploads unavailable",
@@ -154,7 +241,7 @@ public class MediaCommands {
 
         final MediaItem item = new MediaItem(UUID.randomUUID().toString(), cleanKey,
                 (title == null || title.isBlank()) ? cleanKey : title.trim(),
-                description, contentType, size, slot, position, LocalDateTime.now(), uploadedBy);
+                description, contentType, size, slot, position, LocalDateTime.now(), uploadedBy, null, hidden);
         try {
             if (!DAO.getInstance().saveMedia(item)) {
                 // The object is stored but unlisted: say so plainly rather than reporting success, because the
@@ -207,6 +294,14 @@ public class MediaCommands {
     public boolean update(final String id, final String newKey, final String title, final String description,
             final String slot, final Integer position, final String editedBy) {
         final MediaItem existing = get(id);
+        return update(id, newKey, title, description, slot, position,
+                existing != null && existing.getHidden(), editedBy);
+    }
+
+    /** As the shorter {@code update}, with the public-visibility flag (the admin editor's toggle). */
+    public boolean update(final String id, final String newKey, final String title, final String description,
+            final String slot, final Integer position, final boolean hidden, final String editedBy) {
+        final MediaItem existing = get(id);
         if (existing == null) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", "No such media item.");
             return false;
@@ -221,7 +316,7 @@ public class MediaCommands {
         final MediaItem updated = new MediaItem(existing.getId(), cleanKey, title, description,
                 existing.getContentType(), existing.getSize(), slot,
                 (position == null) ? existing.getPosition() : position,
-                existing.getUploaded(), existing.getUploadedBy(), existing.getSmallKey());
+                existing.getUploaded(), existing.getUploadedBy(), existing.getSmallKey(), hidden);
         try {
             if (!DAO.getInstance().saveMedia(updated)) {
                 TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", "The save failed.");

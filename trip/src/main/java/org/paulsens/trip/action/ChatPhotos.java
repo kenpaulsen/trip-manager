@@ -200,13 +200,22 @@ public class ChatPhotos {
                     .orElseThrow(() -> new PhotoRejectedException(
                             "An attached photo is no longer available. Remove it and attach it again."));
             attachments.add(new ChatAttachment("image", staged.key(), staged.contentType(), staged.size(),
-                    staged.width(), staged.height(), staged.smallKey(), blankToNull(ref.title())));
+                    staged.width(), staged.height(), staged.smallKey(), blankToNull(ref.title()),
+                    ref.hidden()));
         }
         return attachments;
     }
 
-    /** A send-time reference: the staged full-rendition key plus the title typed in the attach dialog. */
-    public record AttachmentRef(String key, String title) {
+    /**
+     * A send-time reference: the staged full-rendition key plus the title and public-visibility choice made
+     * in the attach dialog ({@code hidden} null = visible; like the title, it is send-time metadata, not
+     * upload-time state).
+     */
+    public record AttachmentRef(String key, String title, Boolean hidden) {
+        /** Compatibility constructor predating the {@code hidden} flag. */
+        public AttachmentRef(final String key, final String title) {
+            this(key, title, null);
+        }
     }
 
     /**
@@ -229,8 +238,10 @@ public class ChatPhotos {
                 final JsonNode key = node.get("key");
                 if (key != null && key.isTextual()) {
                     final JsonNode title = node.get("title");
+                    final JsonNode hidden = node.get("hidden");
                     refs.add(new AttachmentRef(key.asText(),
-                            title != null && title.isTextual() ? title.asText() : null));
+                            title != null && title.isTextual() ? title.asText() : null,
+                            hidden != null && hidden.isBoolean() ? hidden.asBoolean() : null));
                 }
             }
             return refs;
@@ -273,7 +284,8 @@ public class ChatPhotos {
                     attachment.getS3Key(), titleFor(attachment),
                     "Uploaded by " + authorName + " in the " + tripTitle + " chat",
                     attachment.getContentType(), attachment.getSize(), slotFor(tripId), 0,
-                    LocalDateTime.now(), author.getValue(), attachment.getThumbKey());
+                    LocalDateTime.now(), author.getValue(), attachment.getThumbKey(),
+                    attachment.isHidden());
             try {
                 if (DAO.getInstance().saveMedia(item)) {
                     MediaEvents.fire(MediaEvents.Change.ADDED, attachment.getS3Key());
@@ -352,6 +364,19 @@ public class ChatPhotos {
             }
         }
         invalidate(paths);
+    }
+
+    /**
+     * Seeds one object into the local store, bypassing the photo processor -- for {@code FakeData}'s album
+     * photos. Without servable bytes behind each seeded media row, every broken {@code img} on the local
+     * landing page 404s into the app's error page, and THOSE are JSF views: eleven broken thumbnails evict
+     * the page's own view from Mojarra's logical-view LRU and the first postback dies ViewExpired.
+     * (Production never sees this: photos are served by the CDN, a different origin.)
+     */
+    public void seedLocalObject(final String key, final byte[] bytes, final String contentType) {
+        if (!isRemoteStore()) {
+            store(key, bytes, contentType, false);
+        }
     }
 
     /** Local-mode read-back, for the upload servlet's GET. Empty when remote or unknown. */

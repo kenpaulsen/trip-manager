@@ -25,6 +25,8 @@ public final class ApiPrivileges {
     public static final String CONFIG_ADMIN = PrivilegeCommands.CONFIG_ADMIN;
     public static final String AUDIT_ADMIN = PrivilegeCommands.AUDIT_ADMIN;
     public static final String MEDIA_ADMIN = PrivilegeCommands.MEDIA_ADMIN;
+    public static final String CONTENT_ADMIN = PrivilegeCommands.CONTENT_ADMIN;
+    public static final String EVENT_ADMIN = PrivilegeCommands.EVENT_ADMIN;
     public static final String EMAIL_ADMIN = PrivilegeCommands.EMAIL_ADMIN;
     public static final String SITE_DEPLOYER = PrivilegeCommands.SITE_DEPLOYER;
     public static final String TRIP_MGR = PrivilegeCommands.TRIP_MGR;

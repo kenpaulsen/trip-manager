@@ -27,7 +27,40 @@ import org.paulsens.trip.model.SettingSection;
  */
 public final class KnownSettings {
 
+    // --- site identity ---
+
+    public static final SettingDef SITE_ORG_NAME = new SettingDef(
+            "site.org.name", Config.Type.STRING, "Center for Peace West", "Organization name",
+            "The organization's display name, used on public pages and in notices such as the photo-upload "
+                    + "license text.");
+
     // --- home page ---
+
+    public static final SettingDef HOME_DOCS_MAX_AGE_DAYS = new SettingDef(
+            "home.docs.maxAgeDays", Config.Type.INT, "92", "Documents shown for (days)",
+            "How long a document stays in the home page's Documents section after its upload. Re-uploading a "
+                    + "file restarts its clock; the file itself stays reachable at its URL either way.");
+
+    public static final SettingDef HOME_PHOTOS_WINDOW_DAYS = new SettingDef(
+            "home.photos.windowDays", Config.Type.INT, "365", "Pictures from the last (days)",
+            "A pilgrimage's photos appear on the home page until this long after the trip ends.");
+
+    public static final SettingDef HOME_PHOTOS_MIN_COUNT = new SettingDef(
+            "home.photos.minCount", Config.Type.INT, "10", "Minimum pictures per pilgrimage",
+            "A pilgrimage needs at least this many publicly-visible photos before its album shows on the "
+                    + "home page.");
+
+    public static final SettingDef HOME_COUNTDOWN_SOON_DAYS = new SettingDef(
+            "home.countdown.soonDays", Config.Type.INT, "60", "Extra countdowns within (days)",
+            "The sidebar always counts down to the next pilgrimage of each language; a pilgrimage starting "
+                    + "within this many days gets a countdown too, even behind one of the same language.");
+
+    // --- content templates ---
+
+    public static final SettingDef CONTENT_VERSIONS_RETAINED = new SettingDef(
+            "content.versions.retained", Config.Type.INT, "5", "Content versions kept",
+            "How many previous versions of each content template and each page-content item are kept for "
+                    + "undo. Lowering it trims history on the next save of each item.");
 
     public static final SettingDef HOME_BANNER_ENABLED = new SettingDef(
             "home.banner.enabled", Config.Type.BOOLEAN, "false", "Show the banner",
@@ -138,6 +171,74 @@ public final class KnownSettings {
                     + "variation selector is a different entry. Reactions already stored with a removed emoji "
                     + "stay in the data but stop being offered.");
 
+    // --- login & security ---
+
+    public static final SettingDef LOGIN_CODE_ENABLED = new SettingDef(
+            "login.code.enabled", Config.Type.BOOLEAN, "true", "Offer email login codes",
+            "Lets people sign in with a short code emailed to them instead of their password. This is also the "
+                    + "forgot-password path, so turning it off leaves \"ask for help\" as the only recovery.");
+
+    public static final SettingDef LOGIN_CODE_LENGTH = new SettingDef(
+            "login.code.length", Config.Type.INT, "6", "Code length (digits)",
+            "How many digits a login code has. Longer is harder to guess and harder to type; 6 matches what "
+                    + "people see everywhere else.");
+
+    public static final SettingDef LOGIN_CODE_TTL_SECONDS = new SettingDef(
+            "login.code.ttlSeconds", Config.Type.INT, "300", "Code lifetime (seconds)",
+            "How long a code works after it is sent. Slow email delivery eats into this, so setting it very "
+                    + "low mostly locks out people with slow mail providers.");
+
+    public static final SettingDef LOGIN_CODE_MAX_SENDS = new SettingDef(
+            "login.code.maxSends", Config.Type.INT, "3", "Codes sent per person",
+            "How many codes one email address can be sent within the window below. A cap on mail volume, and "
+                    + "on using the login page to pester somebody's inbox.");
+
+    public static final SettingDef LOGIN_CODE_SEND_WINDOW_SECONDS = new SettingDef(
+            "login.code.sendWindowSeconds", Config.Type.INT, "900", "...within this many seconds",
+            "The window the send cap is counted over. Changing it starts a fresh count.");
+
+    public static final SettingDef LOGIN_CODE_MAX_ATTEMPTS = new SettingDef(
+            "login.code.maxAttempts", Config.Type.INT, "5", "Guesses per code",
+            "How many wrong entries invalidate a code. With 6 digits and 5 guesses in 5 minutes, guessing is "
+                    + "not a realistic attack.");
+
+    public static final SettingDef LOGIN_MAIL_FROM = new SettingDef(
+            "login.mail.from", Config.Type.STRING, "Visit Queen of Peace <no-reply@visitqueenofpeace.com>",
+            "From address",
+            "Must be an address SES is verified to send from, or login-code email fails.");
+
+    public static final SettingDef LOGIN_MAIL_REPLY_TO = new SettingDef(
+            "login.mail.replyTo", Config.Type.STRING, "ken@visitqueenofpeace.com", "Reply-to address",
+            "Where a reply to a login-code email goes -- someone stuck at the login page tends to reply to "
+                    + "the mail in front of them, so this should be an address a human reads.");
+
+    public static final SettingDef LOGIN_PASSKEY_ENABLED = new SettingDef(
+            "login.passkey.enabled", Config.Type.BOOLEAN, "false", "Offer passkeys",
+            "Lets people add a passkey (Face ID, fingerprint, or device lock) after signing in, and sign in "
+                    + "with it afterwards. Nobody is required to set one up, and the login page looks the same "
+                    + "for anyone without one. Leave OFF until a full register-and-sign-in has been verified "
+                    + "against the deployed image; existing passkeys survive the switch being off.");
+
+    public static final SettingDef LOGIN_REMEMBER_ENABLED = new SettingDef(
+            "login.remember.enabled", Config.Type.BOOLEAN, "true", "Keep people signed in",
+            "Gives each (non-admin) sign-in a long-lived browser cookie that quietly signs them back in when "
+                    + "their session ends. Turning this off also stops honoring every cookie already out "
+                    + "there -- it is the kill switch.");
+
+    public static final SettingDef LOGIN_REMEMBER_DAYS = new SettingDef(
+            "login.remember.days", Config.Type.INT, "60", "...for this many days",
+            "How long the stay-signed-in cookie lasts, counted from sign-in (using it does not extend it). "
+                    + "Signing out or changing the password ends it early.");
+
+    public static final SettingDef LOGIN_PASSWORD_MAX_FAILS = new SettingDef(
+            "login.password.maxFails", Config.Type.INT, "10", "Wrong passwords per person",
+            "After this many wrong passwords for one email address within the window below, sign-in for that "
+                    + "address is refused until the window rolls over. 0 disables the throttle.");
+
+    public static final SettingDef LOGIN_PASSWORD_FAIL_WINDOW_SECONDS = new SettingDef(
+            "login.password.failWindowSeconds", Config.Type.INT, "900", "...within this many seconds",
+            "The window wrong passwords are counted over. Changing it starts a fresh count.");
+
     // --- payments ---
 
     public static final SettingDef PAYMENT_RETURN_URL_PREFIXES = new SettingDef(
@@ -151,8 +252,13 @@ public final class KnownSettings {
                     + "shipping it, not after.");
 
     private static final List<SettingSection> SECTIONS = List.of(
+            new SettingSection("Site", null,
+                    List.of(SITE_ORG_NAME)),
             new SettingSection("Home page", null,
-                    List.of(HOME_BANNER_ENABLED, HOME_BANNER_TEXT)),
+                    List.of(HOME_BANNER_ENABLED, HOME_BANNER_TEXT, HOME_DOCS_MAX_AGE_DAYS,
+                            HOME_PHOTOS_WINDOW_DAYS, HOME_PHOTOS_MIN_COUNT, HOME_COUNTDOWN_SOON_DAYS)),
+            new SettingSection("Content templates", null,
+                    List.of(CONTENT_VERSIONS_RETAINED)),
             new SettingSection("Chat email",
                     "Nothing here sends mail on its own. \"Send chat email\" is the master switch; with it off "
                             + "the rest is inert.",
@@ -169,6 +275,14 @@ public final class KnownSettings {
                             CHAT_ALARM_DEDUPE_WINDOW_SECONDS)),
             new SettingSection("Chat appearance", null,
                     List.of(CHAT_REACTIONS_PALETTE, CHAT_BACKGROUND_COLORS, CHAT_BACKGROUND_IMAGE)),
+            new SettingSection("Login & security",
+                    "Email login codes double as the forgot-password flow. The mail addresses here are used "
+                            + "for those codes.",
+                    List.of(LOGIN_CODE_ENABLED, LOGIN_CODE_LENGTH, LOGIN_CODE_TTL_SECONDS, LOGIN_CODE_MAX_SENDS,
+                            LOGIN_CODE_SEND_WINDOW_SECONDS, LOGIN_CODE_MAX_ATTEMPTS, LOGIN_MAIL_FROM,
+                            LOGIN_MAIL_REPLY_TO, LOGIN_REMEMBER_ENABLED, LOGIN_REMEMBER_DAYS,
+                            LOGIN_PASSKEY_ENABLED, LOGIN_PASSWORD_MAX_FAILS,
+                            LOGIN_PASSWORD_FAIL_WINDOW_SECONDS)),
             new SettingSection("Payments",
                     "Only applies to payments started through the API. The web checkout derives its return "
                             + "address from the page the payer was on and never consults this.",
