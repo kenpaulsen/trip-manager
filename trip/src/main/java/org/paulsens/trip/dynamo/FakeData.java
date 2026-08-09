@@ -119,6 +119,11 @@ public class FakeData {
         saveMedia(new MediaItem("fake-doc-3", "downloads/FakeOldSlides.pdf", "Old Meeting Slides",
                 "Aged out", "application/pdf", 9_000_000L, "home-docs", 2,
                 now.minusDays(130), "fake-seed", null, null));
+        // A curated row in no slot, older than the docs window: the "add an existing document" picker must
+        // offer it, and placing it must restart its upload clock or it would never appear on the page.
+        saveMedia(new MediaItem("fake-doc-4", "downloads/FakeRegistrationForm.pdf", "Fake Registration Form",
+                "Selectable, not yet placed", "application/pdf", 350_000L, null, 0,
+                now.minusDays(200), "fake-seed", null, null));
         // The galleria trip's album: 12 photos, one hidden -> 11 visible, above the min-count of 10.
         for (int i = 1; i <= 12; i++) {
             saveMedia(new MediaItem("fake-photo-past-" + i, "chat/pub-past-3d/fake-" + i + ".jpg",
@@ -165,9 +170,10 @@ public class FakeData {
                 .filter(t -> DAO.getInstance().getTemplate(t.getId()).isEmpty())
                 .forEach(t -> DAO.getInstance().saveTemplate(t, 5));
         final LocalDateTime now = LocalDateTime.now();
+        // The page renders the TITLE as the event's heading, so the body must not repeat it.
         saveContent(new ContentInstance("fake-event-future", "home.events", "Monthly Prayer Group Meeting",
                 StarterTemplates.TEXT_ONLY_ID, 1,
-                new HashMap<>(Map.of("body", "<b>Monthly Prayer Group Meeting</b> — first Saturday, 10am.")),
+                new HashMap<>(Map.of("body", "First Saturday of every month, 10am — all are welcome.")),
                 now.plusDays(30), 0, 0, null, "fake-seed"));
         saveContent(new ContentInstance("fake-event-past", "home.events", "Past Peace Mass",
                 StarterTemplates.TEXT_ONLY_ID, 1,
@@ -176,6 +182,12 @@ public class FakeData {
         saveContent(new ContentInstance("fake-intro", "home.intro", "Introduction",
                 StarterTemplates.TEXT_ONLY_ID, 1,
                 new HashMap<>(Map.of("body", "<p>Welcome to Visit Queen of Peace — fake local intro.</p>")),
+                null, 0, 0, null, "fake-seed"));
+        // The Reflection section: instance title = the page heading, video from the youtube starter.
+        saveContent(new ContentInstance("fake-reflection", "home.reflection", "Jan 25th, 2026 Reflection",
+                StarterTemplates.YOUTUBE_VIDEO_ID, 1,
+                new HashMap<>(Map.of("videoUrl", "https://www.youtube.com/watch?v=bW7s8YCJjoI",
+                        "caption", "A reflection on Our Lady's monthly message.")),
                 null, 0, 0, null, "fake-seed"));
     }
 

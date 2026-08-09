@@ -90,20 +90,6 @@ public class TripPublicListingTest {
     }
 
     @Test
-    public void daysUntilFloorsAtZero() {
-        final Trip past = DAO.getInstance().getTrip("pub-past-3d").orElseThrow();
-        Assert.assertEquals(trip.daysUntil(past), 0);
-        final Trip future = DAO.getInstance().getTrip("pub-en-1").orElseThrow();
-        final long days = trip.daysUntil(future);
-        Assert.assertTrue(days == 29 || days == 30, "seeded 30 days out, allow boundary truncation: " + days);
-        Assert.assertEquals(trip.daysUntil(null), 0);
-        // TripBuilder coerces a null start date to its +90d default, so null must be set post-build.
-        final Trip noStart = Trip.builder().build();
-        noStart.setStartDate(null);
-        Assert.assertEquals(trip.daysUntil(noStart), 0);
-    }
-
-    @Test
     public void languagesForTheEditorMenu() {
         Assert.assertEquals(trip.getLanguages(), List.of(Language.values()));
     }

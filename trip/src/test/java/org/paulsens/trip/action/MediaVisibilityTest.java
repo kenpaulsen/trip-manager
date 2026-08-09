@@ -55,6 +55,14 @@ public class MediaVisibilityTest {
                 "vis-docs", 2, LocalDateTime.now().minusDays(200), "seed", null, null));
         saveMedia(new MediaItem("vis-doc-undated", "downloads/vis-undated.pdf", "Undated", null,
                 "application/pdf", 9L, "vis-docs", 3, null, "seed", null, null));
+        // For the "add an existing document" picker: two selectable rows (titles chosen to prove the
+        // case-insensitive sort) and one hidden row the picker must not offer.
+        saveMedia(new MediaItem("vis-sel-a", "downloads/vis-sel-a.pdf", "B Doc", null, "application/pdf",
+                9L, null, 0, LocalDateTime.now().minusDays(3), "seed", null, null));
+        saveMedia(new MediaItem("vis-sel-b", "downloads/vis-sel-b.pdf", "a doc", null, "application/pdf",
+                9L, "vis-other", 0, LocalDateTime.now().minusDays(2), "seed", null, null));
+        saveMedia(new MediaItem("vis-sel-hidden", "downloads/vis-sel-hidden.pdf", "Hidden Sel", null,
+                "application/pdf", 9L, null, 0, LocalDateTime.now().minusDays(1), "seed", null, true));
     }
 
     private void saveTrip(final String id, final String title, final int startOffset, final int endOffset) {
@@ -110,6 +118,40 @@ public class MediaVisibilityTest {
         final List<MediaCommands.TripAlbum> before = media.getHomeAlbums(365, 3);
         Assert.assertTrue(before.stream().anyMatch(a -> a.trip().getId().equals("Fake2")),
                 "an in-progress public trip with enough photos shows (FakeData seeds 4)");
+    }
+
+    @Test
+    public void selectableForSlotOffersOnlyPlaceableItems() {
+        final List<String> ids = media.getSelectableForSlot("vis-docs").stream()
+                .map(MediaItem::getId).toList();
+        Assert.assertTrue(ids.contains("vis-sel-a"), "a slotless visible item is selectable");
+        Assert.assertTrue(ids.contains("vis-sel-b"), "an item in a DIFFERENT slot is selectable");
+        Assert.assertFalse(ids.contains("vis-doc-ok"), "already in the target slot");
+        Assert.assertFalse(ids.contains("vis-sel-hidden"), "hidden items would be a silent no-op");
+        Assert.assertFalse(ids.contains("vis-photo-1"), "chat photos are not curated documents");
+        Assert.assertTrue(ids.indexOf("vis-sel-b") < ids.indexOf("vis-sel-a"),
+                "sorted by title, case-insensitively ('a doc' before 'B Doc')");
+    }
+
+    @Test
+    public void assignToSlotMovesAppendsAndRestartsTheClock() {
+        // Uploaded 200 days ago: without the clock restart it could never pass a 92-day window.
+        saveMedia(new MediaItem("vis-assign", "downloads/vis-assign.pdf", "Assign Me", null,
+                "application/pdf", 9L, null, 0, LocalDateTime.now().minusDays(200), "seed", null, null));
+        saveMedia(new MediaItem("vis-assign-existing", "downloads/vis-assign-x.pdf", "Already Here", null,
+                "application/pdf", 9L, "vis-assign-slot", 5, LocalDateTime.now(), "seed", null, null));
+
+        Assert.assertTrue(media.assignToSlot("vis-assign", "vis-assign-slot", "mod@example.com"));
+        final MediaItem moved = media.get("vis-assign");
+        Assert.assertEquals(moved.getSlot(), "vis-assign-slot");
+        Assert.assertEquals(moved.getPosition(), 6, "placed after the slot's existing rows");
+        Assert.assertTrue(moved.getUploaded().isAfter(LocalDateTime.now().minusMinutes(1)),
+                "the upload clock restarts when the item enters the slot");
+        Assert.assertTrue(media.getVisibleInSlot("vis-assign-slot", 92).stream()
+                .anyMatch(item -> item.getId().equals("vis-assign")), "now inside the age window");
+
+        Assert.assertFalse(media.assignToSlot("vis-no-such-row", "vis-assign-slot", "mod@example.com"));
+        Assert.assertFalse(media.assignToSlot("vis-assign", "  ", "mod@example.com"), "blank slot refused");
     }
 
     @Test

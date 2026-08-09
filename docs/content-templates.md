@@ -16,10 +16,12 @@ protection, created by CDK in `AppStack`):
 - **`ContentTemplate`** — a reusable rich-HTML body containing `{{name}}` tokens, plus the `Placeholder`
   declarations (name, type, label, hint, required) that describe them. Versions are 1-based and only move
   forward.
-- **`ContentInstance`** — a filled template placed in a page *section* (`home.events`, `home.intro`, …):
-  `templateId` + **`templateVersion`** (pinned — a later template edit never reshapes published content),
-  a `values` map (placeholder name → raw value), an optional `eventDate` (the instance stops rendering
-  publicly the moment it passes; nothing is deleted), and a `position` for ordering.
+- **`ContentInstance`** — a filled template placed in a page *section* (`home.events`, `home.intro`,
+  `home.reflection`, …): `templateId` + **`templateVersion`** (pinned — a later template edit never reshapes
+  published content), a `values` map (placeholder name → raw value), an optional `eventDate` (the instance
+  stops rendering publicly the moment it passes; nothing is deleted), and a `position` for ordering. The
+  `title` doubles as the item's **on-page heading in sections that display one** (Events renders it bold,
+  Reflection as its `h3`); the hosting page decides, so a heading-less section (the intro) just ignores it.
 - **Versioning / undo** — every save bumps the version, pushes the old current into `previous`, and trims
   history to the `content.versions.retained` setting (default 5). *Restore* re-saves an old snapshot as a
   NEW version; history stays linear. A save whose version does not match the stored current is refused
@@ -71,7 +73,11 @@ added, add OWASP java-html-sanitizer to the RICH_TEXT path first.
 - Admin UI: `/admin/templates.jsf` (template manager, `contentAdmin`), `WEB-INF/templateDialog.xhtml`
   (WYSIWYG body editor with a raw-HTML toggle — Quill simplifies iframes/wrapper divs, which structural
   templates need), and the reusable `WEB-INF/contentDialog.xhtml` (template picker → placeholder-generated
-  form → preview) included by any page hosting sections.
+  form → preview) included by any page hosting sections. Picking a template advances the dialog immediately
+  (no confirm click); both dialogs are `fitViewport` so tall forms scroll inside them. Every `p:textEditor`
+  on these pages has Quill's toolbar image action re-handled to insert an image **by URL** — the stock
+  handler file-picks and inlines a base64 blob, which would bloat the stored row (DynamoDB's 400KB item cap)
+  and defeat CDN caching.
 
 ## Production bootstrap (one-time, by hand)
 

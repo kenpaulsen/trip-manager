@@ -268,14 +268,10 @@ public class TripCommands {
                 .toList();
     }
 
-    /** Whole days until the trip starts, floored at zero -- feeds the sidebar countdown cards. */
-    public long daysUntil(final Trip trip) {
-        if (trip == null || trip.getStartDate() == null) {
-            return 0;
-        }
-        final long days = DAYS.between(LocalDateTime.now(), trip.getStartDate());
-        return Math.max(0, days);
-    }
+    // No server-side daysUntil: "days until" is CALENDAR-day math in the VIEWER's timezone, which only the
+    // browser knows. The sidebar renders each trip's zone-naive start date (Trip.getStartDateIso) into a
+    // data- attribute and a small script computes the number client-side. A server-computed count was tried
+    // and read one day low for most of each day (elapsed-period truncation + the container's UTC clock).
 
     /** The languages a trip can be offered in, for the trip editor's menu (replaces a hardcoded list). */
     public List<Language> getLanguages() {

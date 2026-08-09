@@ -121,6 +121,58 @@ public class MediaCommands {
                 .toList();
     }
 
+    /**
+     * The curated items an editor could place into {@code slot}: everything managed on the admin media page
+     * (chat photos excluded with the rest of the curated filter) that is not already in the slot and not
+     * flagged {@code hidden} -- placing a hidden item on a public section would be a silent no-op, so the
+     * picker does not offer one. Sorted by title for the dropdown.
+     */
+    public List<MediaItem> getSelectableForSlot(final String slot) {
+        return getCurated().stream()
+                .filter(item -> !item.getHidden())
+                .filter(item -> slot == null || !slot.trim().equalsIgnoreCase(item.getSlot()))
+                .sorted(Comparator.comparing(MediaCommands::titleKey))
+                .toList();
+    }
+
+    private static String titleKey(final MediaItem item) {
+        return item.getTitle() == null ? "" : item.getTitle().toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * Moves an existing item into {@code slot}, after the slot's current rows, and restarts its upload
+     * clock. Bumping {@code uploaded} is deliberate and unique to this path: slot listings age items out a
+     * configured number of days after that date, so publishing a months-old file into a section must count
+     * from the moment it was placed there or it would never appear at all. (Metadata edits preserve
+     * {@code uploaded} for exactly the opposite reason -- see {@link #update}.)
+     */
+    public boolean assignToSlot(final String id, final String slot, final String actor) {
+        final MediaItem existing = get(id);
+        if (existing == null || slot == null || slot.isBlank()) {
+            return false;
+        }
+        final String cleanSlot = slot.trim();
+        final int position = getInSlot(cleanSlot).stream().mapToInt(MediaItem::getPosition).max().orElse(-1) + 1;
+        final MediaItem updated = new MediaItem(existing.getId(), existing.getS3Key(), existing.getTitle(),
+                existing.getDescription(), existing.getContentType(), existing.getSize(), cleanSlot, position,
+                LocalDateTime.now(), existing.getUploadedBy(), existing.getSmallKey(), existing.getHidden());
+        try {
+            if (!DAO.getInstance().saveMedia(updated)) {
+                return false;
+            }
+        } catch (final RuntimeException ex) {
+            log.error("Unable to move media " + id + " into slot " + cleanSlot, ex);
+            return false;
+        }
+        Audit.builder(AuditAction.MEDIA, AuditOutcome.SUCCESS)
+                .currentActor(actor)
+                .target(AuditEventBuilder.TARGET_MEDIA, updated.getS3Key())
+                .message("Placed " + updated.getS3Key() + " in slot " + cleanSlot
+                        + (cleanSlot.equalsIgnoreCase(existing.getSlot()) ? "" : " (was " + existing.getSlot() + ")"))
+                .log();
+        return true;
+    }
+
     /** One landing-page album: a qualifying trip and its publicly-visible chat photos. */
     public record TripAlbum(Trip trip, List<MediaItem> photos) implements Serializable {
     }

@@ -78,6 +78,17 @@ public class TripPublicHelpersTest {
     }
 
     @Test
+    public void startDateIsoFeedsTheBrowserCountdown() {
+        // The sidebar's countdown is computed in the BROWSER from this zone-naive ISO date; the time-of-day
+        // part of the stored LocalDateTime must not leak into it.
+        final Trip trip = titled("t");
+        trip.setStartDate(LocalDateTime.of(2026, 8, 10, 14, 30));
+        Assert.assertEquals(trip.getStartDateIso(), "2026-08-10");
+        trip.setStartDate(null);
+        Assert.assertEquals(trip.getStartDateIso(), "", "no date renders an empty data attribute");
+    }
+
+    @Test
     public void languageEnumCarriesDisplayNameAndLocale() {
         Assert.assertEquals(Language.English.getDisplayName(), "English");
         Assert.assertEquals(Language.Spanish.getDisplayName(), "Español");

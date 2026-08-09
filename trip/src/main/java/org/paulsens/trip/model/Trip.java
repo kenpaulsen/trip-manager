@@ -212,6 +212,16 @@ public final class Trip implements Serializable {
     }
 
     /**
+     * The start date as a plain ISO date ({@code 2026-08-10}), for {@code data-} attributes the sidebar's
+     * countdown script reads. Deliberately date-only and zone-naive: the BROWSER computes "days until" in
+     * its own timezone, so the server never has to know where the viewer is.
+     */
+    @JsonIgnore
+    public String getStartDateIso() {
+        return startDate == null ? "" : startDate.toLocalDate().toString();
+    }
+
+    /**
      * The start month's abbreviation in this trip's own language ("Sep" / "sep"), for compact sidebar
      * labels. Unlike {@link #getTripDateRange()}, which renders in the <em>viewer's</em> locale, a Spanish
      * pilgrimage's label should read Spanish for everyone.
