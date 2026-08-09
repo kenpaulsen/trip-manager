@@ -375,14 +375,14 @@
             <scope>test</scope>
         </dependency>
         <!--
-            DynamoDBLocal drags in log4j-core 2.17.1, while POI puts log4j-api 2.24.3 on the compile classpath.
+            DynamoDBLocal drags in log4j-core 2.17.1, while POI puts log4j-api on the compile classpath.
             The mismatch is not a warning: log4j-core dies with NoSuchMethodError LoaderUtil.getClassLoaders()
-            while DynamoDB Local is still starting, so every test using it fails in @BeforeClass.
+            while DynamoDB Local is still starting, so every test using it fails in @BeforeClass. The version
+            (and the api it must match) is held in the parent dependencyManagement.
         -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-core</artifactId>
-            <version>2.24.3</version>
             <scope>test</scope>
         </dependency>
         <!--

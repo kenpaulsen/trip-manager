@@ -45,6 +45,39 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- Jetty BOM: reaches the classpath only through DynamoDBLocal (test scope), which pins 12.0.14,
+                 a version with four Dependabot CVEs (request smuggling, gzip memory leak, trailer
+                 cross-request leakage, path traversal). Nothing here uses Jetty directly; this only lifts the
+                 test classpath onto the patched line. -->
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-bom</artifactId>
+                <version>12.0.36</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- POI's commons-compress asks for the (CVE-2025-48924-patched) 3.18.0, but Maven's
+                 nearest-wins mediation was answering 3.17.0 from a shorter path. Pinned so the RUNTIME
+                 classpath gets the patched version whatever the tree shape does next. -->
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-lang3</artifactId>
+                <version>3.18.0</version>
+            </dependency>
+            <!-- log4j-api rides in at compile scope via POI; log4j-core is a test dependency of the trip
+                 module (DynamoDBLocal needs a modern core). The two MUST move together (a core newer than
+                 the api dies with NoSuchMethodError in LoaderUtil while DynamoDB Local boots), so both are
+                 held here at the Dependabot-patched version. -->
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-api</artifactId>
+                <version>2.25.4</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-core</artifactId>
+                <version>2.25.4</version>
+            </dependency>
             <dependency>
                 <groupId>org.slf4j</groupId>
                 <artifactId>slf4j-api</artifactId>
