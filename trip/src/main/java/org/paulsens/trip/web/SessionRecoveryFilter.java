@@ -166,9 +166,7 @@ public class SessionRecoveryFilter implements Filter {
 
     /** Back to the same page for a GET; for anything else the path without its body, since that cannot be replayed. */
     private String redirectTarget(final HttpServletRequest req) {
-        final String query = req.getQueryString();
-        final boolean replayable = "GET".equalsIgnoreCase(req.getMethod());
-        return req.getRequestURI() + (replayable && query != null && !query.isBlank() ? "?" + query : "");
+        return LocalRedirect.samePathOrRoot(req);
     }
 
     /**

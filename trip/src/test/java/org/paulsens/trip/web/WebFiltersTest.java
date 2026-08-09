@@ -228,6 +228,23 @@ public class WebFiltersTest {
     }
 
     /**
+     * A protocol-relative request path must never redirect OFF this site: the recovery redirect derives its
+     * target from getRequestURI(), and "//evil.example" would otherwise send the browser to evil.example.
+     */
+    @Test
+    public void aProtocolRelativePathFallsBackToTheRoot() throws Exception {
+        for (final String hostile : new String[] {"//evil.example/x", "/\\evil.example/x"}) {
+            setUp();
+            arrangeFailingChain(sessionDecodeFailure());
+            Mockito.when(request.getRequestURI()).thenReturn(hostile);
+
+            new SessionRecoveryFilter().doFilter(request, response, chain);
+
+            Mockito.verify(response).sendRedirect("/");
+        }
+    }
+
+    /**
      * Invalidating touches the very object that failed to load, so it may fail again. Expiring the cookie is
      * what matters, and it must still happen.
      */

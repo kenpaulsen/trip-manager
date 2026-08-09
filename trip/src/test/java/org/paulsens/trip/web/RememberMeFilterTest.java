@@ -89,6 +89,25 @@ public class RememberMeFilterTest {
     }
 
     @Test
+    public void aRestoreNeverRedirectsOffSite() throws Exception {
+        final RememberMeService service = Mockito.mock(RememberMeService.class);
+        Mockito.when(service.validateAndRotate(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(new Creds("who@example.com", Person.Id.from("who"), "user", "x", null));
+        final RememberMeFilter filter = new RememberMeFilter(service);
+        final HttpServletRequest req = request(null, COOKIE);
+        final HttpSession fresh = sessionOver(new HashMap<>());
+        Mockito.when(req.getSession(true)).thenReturn(fresh);
+        // A protocol-relative path would otherwise bounce the just-restored session to evil.example.
+        Mockito.when(req.getRequestURI()).thenReturn("//evil.example/x");
+        Mockito.when(req.getMethod()).thenReturn("GET");
+        final HttpServletResponse res = Mockito.mock(HttpServletResponse.class);
+
+        filter.doFilter(req, res, chain(new AtomicBoolean()));
+
+        Mockito.verify(res).sendRedirect("/");
+    }
+
+    @Test
     public void anApiRestoreContinuesTheChain() throws Exception {
         final RememberMeService service = Mockito.mock(RememberMeService.class);
         Mockito.when(service.validateAndRotate(ArgumentMatchers.any(), ArgumentMatchers.any()))

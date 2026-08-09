@@ -91,8 +91,6 @@ public class RememberMeFilter implements Filter {
 
     /** Same convention as {@link SessionRecoveryFilter}: replay a GET exactly, anything else without its body. */
     private static String redirectTarget(final HttpServletRequest req) {
-        final String query = req.getQueryString();
-        final boolean replayable = "GET".equalsIgnoreCase(req.getMethod());
-        return req.getRequestURI() + (replayable && query != null && !query.isBlank() ? "?" + query : "");
+        return LocalRedirect.samePathOrRoot(req);
     }
 }
