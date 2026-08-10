@@ -68,9 +68,11 @@ public class ChatResource extends BaseResource {
             @QueryParam("before") final String before,
             @QueryParam("order") final String order,
             @QueryParam("wait") @DefaultValue("0") final int wait,
-            @QueryParam("limit") @DefaultValue("200") final int limit) {
+            @QueryParam("limit") @DefaultValue("200") final int limit,
+            @QueryParam("rver") final Long rver,
+            @QueryParam("mver") final Long mver) {
         try {
-            return feedNow(channelId, since, before, order, wait, limit);
+            return feedNow(channelId, since, before, order, wait, limit, rver, mver);
         } catch (final NotAuthorizedException ex) {
             // personId() throws this when the session vanished mid-request. Answered here rather than left to the
             // default mapper so a long-polling client gets the versioned error body it knows how to stop on.
@@ -87,7 +89,9 @@ public class ChatResource extends BaseResource {
             final String before,
             final String order,
             final int wait,
-            final int limit) {
+            final int limit,
+            final Long rver,
+            final Long mver) {
         final Person.Id me = personId();
         final String tripId = tripIdOf(channelId);
         if (tripId == null) {
@@ -130,7 +134,37 @@ public class ChatResource extends BaseResource {
         if (!page.isEmpty() || wait <= 0) {
             return ok(page);
         }
-        return awaitNudge(chat, tripId, me, sinceId, limit, wait);
+        // A reaction, edit or tombstone writes no message, so it moves only the version counters -- and the
+        // client polls with a gap between requests. Land in that gap and the nudge is published while nobody
+        // is parked, while this read (which already sees the new counter) has no message to return: without
+        // this check the client parks and learns nothing for a full timeout. Photo reactions made that
+        // routine, because the person reacting is looking straight at the chip that should change.
+        if (staleVersions(page, rver, mver)) {
+            return ok(emptyPageAt(sinceId, page));
+        }
+        return awaitNudge(chat, tripId, me, sinceId, limit, wait, rver, mver);
+    }
+
+    /**
+     * Whether the counters this read reports have moved past the ones the client says it holds.
+     *
+     * <p>ABSENT and zero are different answers, which is why these are boxed. Absent is an older client that
+     * sends no counters at all, and it keeps the previous behaviour. A sent zero is a current client saying "I
+     * have seen no reactions on this channel" — the ordinary state of a channel whose FIRST reaction is the one
+     * being waited for. Reading that zero as "not reported" is what left the first reaction on a quiet channel
+     * waiting out the entire timeout.
+     *
+     * <p>A zero from the SERVER does still mean "not reported" (a cold or unavailable cache) and never counts as
+     * a change, so a client with no number to catch up to cannot be spun. Counters only ever increase, but this
+     * compares for INEQUALITY: a cache rebuild restarts them, and a client left holding a larger number would
+     * otherwise never be told anything again.
+     */
+    static boolean staleVersions(final ChatPage page, final Long rver, final Long mver) {
+        if (page == null) {
+            return false;
+        }
+        return (rver != null && page.getReactionsVersion() > 0 && page.getReactionsVersion() != rver)
+                || (mver != null && page.getMutationsVersion() > 0 && page.getMutationsVersion() != mver);
     }
 
     /**
@@ -147,7 +181,9 @@ public class ChatResource extends BaseResource {
             final Person.Id me,
             final ChatMessage.Id sinceId,
             final int limit,
-            final int wait) {
+            final int wait,
+            final Long rver,
+            final Long mver) {
         final String channelId = ChatChannel.Id.forTrip(tripId).getValue();
         final CountDownLatch nudged = new CountDownLatch(1);
         final AutoCloseable parked = ChatNudgeRegistry.getInstance()
@@ -155,10 +191,14 @@ public class ChatResource extends BaseResource {
         try {
             // Re-read after parking. A message written between the first read and the park would have published
             // its nudge while nobody was listening, so without this check the request waits out the full timeout
-            // for a message that already exists.
+            // for a message that already exists. The counters carry the same race for changes that write no
+            // message at all.
             final ChatPage afterPark = chat.feed(tripId, me, sinceId, limit);
             if (!afterPark.isEmpty()) {
                 return ok(afterPark);
+            }
+            if (staleVersions(afterPark, rver, mver)) {
+                return ok(emptyPageAt(sinceId, afterPark));
             }
             nudged.await(cappedWaitSeconds(wait), TimeUnit.SECONDS);
             final ChatPage woken = chat.feed(tripId, me, sinceId, limit);

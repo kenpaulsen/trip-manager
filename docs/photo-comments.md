@@ -63,11 +63,25 @@ Mechanics (`ChatDAO`):
   change.
 - Comments do NOT roll up — only reactions.
 
-**Long-poll fix this exposed** (`ChatResource.awaitNudge`): a woken poll whose final read had no new
-messages returned an empty page with ZEROED version counters, so a reaction on a quiet channel never
-reached other parked clients — the exact failure chat-design.md warns about ("an empty page must still
-carry the version"). `emptyPageAt` now carries the woken read's `reactionsVersion`/`mutationsVersion`.
-This fixes real-time reactions/edits/tombstones for plain trip chat too.
+**Two long-poll fixes this exposed**, both of which fix real-time reactions/edits/tombstones for plain trip
+chat as well:
+
+1. `ChatResource.awaitNudge`: a woken poll whose final read had no new messages returned an empty page with
+   ZEROED version counters, so a reaction on a quiet channel never reached other parked clients — the exact
+   failure chat-design.md warns about ("an empty page must still carry the version"). `emptyPageAt` now
+   carries the woken read's `reactionsVersion`/`mutationsVersion`.
+2. **The client now sends the counters it holds** (`&rver=&mver=`), and a read whose counters have moved past
+   them answers at once instead of parking. Without this, a reaction landing in the ~1s gap between two polls
+   published its nudge while nobody was parked, and the next read — already holding the newer counter — had
+   no message to return, so the client sat parked for the full 25s timeout. Measured on the roll-up webtest:
+   **25.8s before, 0.7s after**. Photo reactions made this routine, because the person reacting is looking
+   straight at the chip that should change.
+
+   ABSENT and zero are different answers there, hence the boxed `Long` params: absent is an older client and
+   keeps the old behaviour, while a sent zero is a current client saying "I have seen no reactions here" —
+   the ordinary state of a channel whose FIRST reaction is the one being waited for. A zero from the SERVER
+   still means "not reported" and never counts as a change, so a client with nothing to catch up to cannot be
+   spun into a hot loop.
 
 ## Per-photo meta (badges)
 
@@ -120,10 +134,16 @@ photo comments. No digest for photo threads.
   chat.xhtml and tripMedia.xhtml). Pages call `init({contextPath, signedIn, meId, returnUrl, badgeRefresh,
   mentionRoster?})` and `open(photos, startAt)` with `[{s3Key, viewUrl, fullUrl, title}]`. Everything is
   `textContent`/`createTextNode` — this DOM bypasses JSF escaping.
-- Panel: image reaction chips + picker, comment list (server-resolved names; posting reloads the thread
-  rather than echoing locally, or authors render as raw ids on a first comment), composer with the
-  `@`-typeahead, delete for own comments. Hide toggle persists in localStorage (`tripPhotoComments`);
-  layout is the flex-wrap idiom, so the panel wraps under the image on phones with no media queries.
+- **Reactions live in the IMAGE column** (`.pv-reactions`, under the title, above the meta row), not in the
+  comments panel: the panel collapses, and while the row lived inside it, hiding comments took away the only
+  way to react to a photo. The row is chips for whatever has a count, then up to `QUICK_PICKS` (3) one-click
+  palette emoji, then a labelled `+ React` / `+ More` button opening the full picker. The label matters — as
+  a bare 28px "+" this was read as decoration and people did not find that photos could be reacted to at all.
+  The palette is fetched once per viewer open so the quick picks are there on first paint.
+- Panel: comment list (server-resolved names; posting reloads the thread rather than echoing locally, or
+  authors render as raw ids on a first comment), composer with the `@`-typeahead, delete for own comments.
+  Hide toggle persists in localStorage (`tripPhotoComments`); layout is the flex-wrap idiom, so the panel
+  wraps under the image on phones with no media queries.
 - Badges: one `POST meta` batch per page view; album grid top-right, chat thumbnail top-left (totals across
   the message's stack; the `+N` pill keeps bottom-right), galleria slide top-right.
 - Anonymous flow: the composer area shows "Log in to comment"; a plain-DOM modal offers the round-trip —

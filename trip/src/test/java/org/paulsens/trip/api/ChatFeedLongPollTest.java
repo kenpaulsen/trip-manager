@@ -110,7 +110,7 @@ public class ChatFeedLongPollTest extends ResourceTestSupport {
         Mockito.when(chat.feed(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME), ArgumentMatchers.any(),
                 ArgumentMatchers.anyInt())).thenReturn(empty());
 
-        final Response response = resource.feed(CHANNEL, null, null, null, 0, 200);
+        final Response response = resource.feed(CHANNEL, null, null, null, 0, 200, null, null);
 
         Assert.assertEquals(response.getStatus(), 200);
         Assert.assertEquals(ChatNudgeRegistry.getInstance().parkedCount(registryChannel()), 0,
@@ -128,7 +128,7 @@ public class ChatFeedLongPollTest extends ResourceTestSupport {
 
         // Blocks here (wait=10s) until the background nudge lands; finishing in far less than 10s IS the
         // wake-on-nudge assertion, enforced by the nudger future's own PATIENCE bound below.
-        final Response response = resource.feed(CHANNEL, null, null, null, 10, 200);
+        final Response response = resource.feed(CHANNEL, null, null, null, 10, 200, null, null);
 
         nudger.get(PATIENCE.toMillis(), TimeUnit.MILLISECONDS);
         Assert.assertFalse(((ChatPage) response.getEntity()).isEmpty(), "A nudge must complete the poll");
@@ -155,7 +155,7 @@ public class ChatFeedLongPollTest extends ResourceTestSupport {
                 .thenReturn(emptyWithVersions(7L, 3L)); // woken: no message, but the counters moved
         final CompletableFuture<Void> nudger = onceParked(ChatFeedLongPollTest::nudgeNow);
 
-        final ChatPage page = (ChatPage) resource.feed(CHANNEL, "m42", null, null, 10, 200).getEntity();
+        final ChatPage page = (ChatPage) resource.feed(CHANNEL, "m42", null, null, 10, 200, null, null).getEntity();
 
         nudger.get(PATIENCE.toMillis(), TimeUnit.MILLISECONDS);
         Assert.assertTrue(page.isEmpty(), "still an empty page — no message was fabricated");
@@ -164,6 +164,45 @@ public class ChatFeedLongPollTest extends ResourceTestSupport {
         Assert.assertEquals(page.getMutationsVersion(), 3L, "the mutations version rides along too");
         Assert.assertEquals(page.getCursor(), ChatMessage.Id.from("m42"),
                 "and the caller's cursor is still preserved");
+    }
+
+    /**
+     * The counter the client sends is what lets a reaction that landed BETWEEN two polls come back at once.
+     * The client polls with a gap; a reaction in that gap publishes its nudge while nobody is parked, and the
+     * next read has no message to return — so without comparing counters the client parked for the full wait
+     * while the server held the newer number the whole time. That is the 25-second lag a photo reaction showed
+     * on the carrying message's chip.
+     */
+    @Test
+    public void aCounterTheClientHasNotSeenAnswersImmediatelyInsteadOfParking() {
+        Mockito.when(chat.feed(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME), ArgumentMatchers.any(),
+                ArgumentMatchers.anyInt())).thenReturn(emptyWithVersions(9L, 0L));
+
+        // wait=25 would park for 25 seconds if the counters were ignored; this must return without waiting.
+        final long started = System.currentTimeMillis();
+        final ChatPage page = (ChatPage) resource.feed(CHANNEL, "m42", null, null, 25, 200, 4L, 0L).getEntity();
+
+        Assert.assertTrue(System.currentTimeMillis() - started < 2000, "it must not have parked at all");
+        Assert.assertEquals(page.getReactionsVersion(), 9L, "and it carries the counter the client lacked");
+        Assert.assertEquals(page.getCursor(), ChatMessage.Id.from("m42"), "cursor preserved");
+        Assert.assertEquals(ChatNudgeRegistry.getInstance().parkedCount(registryChannel()), 0);
+    }
+
+    /** Matching counters — and the unreported zeros on either side — must still park, or the poll is a hot loop. */
+    @Test
+    public void matchingOrUnreportedCountersStillPark() {
+        Assert.assertFalse(ChatResource.staleVersions(emptyWithVersions(4L, 2L), 4L, 2L), "same counters");
+        Assert.assertFalse(ChatResource.staleVersions(emptyWithVersions(0L, 0L), 4L, 2L),
+                "a cold cache reports 0 and must never look like a change");
+        Assert.assertFalse(ChatResource.staleVersions(emptyWithVersions(4L, 2L), null, null),
+                "an older client sends no counters at all and keeps the old behaviour");
+        Assert.assertFalse(ChatResource.staleVersions(null, 4L, 2L));
+        Assert.assertTrue(ChatResource.staleVersions(emptyWithVersions(1L, 0L), 0L, 0L),
+                "a SENT zero means 'I have seen none' — the state a channel is in for its first reaction");
+        Assert.assertTrue(ChatResource.staleVersions(emptyWithVersions(4L, 2L), 3L, 2L), "reactions moved");
+        Assert.assertTrue(ChatResource.staleVersions(emptyWithVersions(4L, 2L), 4L, 1L), "mutations moved");
+        Assert.assertTrue(ChatResource.staleVersions(emptyWithVersions(2L, 2L), 9L, 2L),
+                "a rebuilt cache restarts the count, and a client holding a bigger number must still be told");
     }
 
     private static ChatPage emptyWithVersions(final long reactions, final long mutations) {
@@ -179,7 +218,7 @@ public class ChatFeedLongPollTest extends ResourceTestSupport {
 
         // wait=1 rides the real clock: the cap floor is one second, and stubbing time inside await() would
         // test the stub. One second of one test is the honest price for exercising the actual timeout path.
-        final ChatPage page = (ChatPage) resource.feed(CHANNEL, "m42", null, null, 1, 200).getEntity();
+        final ChatPage page = (ChatPage) resource.feed(CHANNEL, "m42", null, null, 1, 200, null, null).getEntity();
 
         Assert.assertTrue(page.isEmpty());
         Assert.assertEquals(page.getCursor(), ChatMessage.Id.from("m42"),
@@ -196,7 +235,7 @@ public class ChatFeedLongPollTest extends ResourceTestSupport {
                 .thenReturn(empty())        // post-park re-read
                 .thenReturn(oneMessage());  // final read at the timeout: the message whose nudge was lost
 
-        final Response response = resource.feed(CHANNEL, null, null, null, 1, 200);
+        final Response response = resource.feed(CHANNEL, null, null, null, 1, 200, null, null);
 
         Assert.assertFalse(((ChatPage) response.getEntity()).isEmpty(),
                 "The wait elapsing must still deliver a message whose nudge was dropped");
@@ -210,7 +249,7 @@ public class ChatFeedLongPollTest extends ResourceTestSupport {
                 .thenReturn(empty())        // initial read
                 .thenReturn(oneMessage());  // post-park re-read finds the racer
 
-        final Response response = resource.feed(CHANNEL, null, null, null, 10, 200);
+        final Response response = resource.feed(CHANNEL, null, null, null, 10, 200, null, null);
 
         Assert.assertFalse(((ChatPage) response.getEntity()).isEmpty(), "The re-read must answer the request");
         Assert.assertEquals(ChatNudgeRegistry.getInstance().parkedCount(registryChannel()), 0,
@@ -227,7 +266,7 @@ public class ChatFeedLongPollTest extends ResourceTestSupport {
 
         final ChatPage page;
         try {
-            page = (ChatPage) resource.feed(CHANNEL, "m7", null, null, 25, 200).getEntity();
+            page = (ChatPage) resource.feed(CHANNEL, "m7", null, null, 25, 200, null, null).getEntity();
         } finally {
             // The feed re-asserts the flag by contract; clear it so it cannot poison the next test.
             Thread.interrupted();

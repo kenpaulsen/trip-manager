@@ -177,7 +177,7 @@ public class ApiCoverageTailTest extends ResourceTestSupport {
     }
 
     private String feedMessage() {
-        final Response out = chatResource.feed("trip:t1", null, null, null, 0, 200);
+        final Response out = chatResource.feed("trip:t1", null, null, null, 0, 200, null, null);
         @SuppressWarnings("unchecked")
         final Map<String, Object> body = (Map<String, Object>) out.getEntity();
         return String.valueOf(body.get("message"));

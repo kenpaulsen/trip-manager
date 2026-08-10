@@ -56,7 +56,7 @@ public class ChatResourceTest extends ResourceTestSupport {
 
     /** Collects the single response a suspended feed call resumes with. */
     private Response feed(final String channelId, final String since, final String before, final String order) {
-        return resource.feed(channelId, since, before, order, 0, 200);
+        return resource.feed(channelId, since, before, order, 0, 200, null, null);
     }
 
     private static ChatMessage message(final String id) {

@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.paulsens.trip.chat.ChatNudgeRegistry;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatAttachment;
@@ -164,6 +165,36 @@ public class ChatDAOPhotoTest {
         Assert.assertEquals(dao.getChatReactionSummaries(
                         tripChannel.getId(), List.of(carrier)).get(carrier.getId()).count("👍"), 1,
                 "the dropped summary rebuilds with the folded count");
+    }
+
+    /**
+     * The bump alone is not enough: a client parked in a long poll learns of it only when the roll-up also
+     * NUDGES the parent channel. Without this, a photo reaction reached the message chip a whole poll timeout
+     * later — which reads as "reactions don't work" and sent people reloading the page.
+     */
+    @Test
+    public void rollupWakesReadersParkedOnTheParentChannel() throws IOException {
+        final String tripId = seedTrip("nudge");
+        final String key = key("nudge");
+        final ChatChannel tripChannel = tripChannel(tripId);
+        final ChatMessage carrier = dao.saveChatMessage(
+                mediaMessage(tripChannel, ANN, key), tripChannel, null).orElseThrow();
+        final ChatChannel photo = photoChannelWithParent(key, tripChannel.getId(), carrier.getId());
+
+        final java.util.concurrent.CountDownLatch woken = new java.util.concurrent.CountDownLatch(1);
+        try (AutoCloseable parked = ChatNudgeRegistry.getInstance()
+                .park(tripChannel.getId().getValue(), upTo -> woken.countDown())) {
+            Assert.assertTrue(dao.putChatReaction(rootReaction(key, BOB, "👍")));
+            dao.invalidatePhotoChatMeta(key);
+            Assert.assertTrue(dao.rollupPhotoToParent(photo));
+            Assert.assertTrue(woken.await(5, java.util.concurrent.TimeUnit.SECONDS),
+                    "a reader parked on the carrying message's channel must be woken by the roll-up");
+        } catch (final InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(ex);
+        } catch (final Exception ex) {
+            throw new IllegalStateException(ex);
+        }
     }
 
     @Test
