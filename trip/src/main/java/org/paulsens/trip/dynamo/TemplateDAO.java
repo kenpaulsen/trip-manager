@@ -99,10 +99,12 @@ public class TemplateDAO {
     /** The latest version of every template, for pickers and the manager page. */
     protected List<ContentTemplate> getAllTemplates() {
         List<ContentTemplate> versions = cache.getPartition(CacheKeys.TEMPLATE_PARTITION);
-        if (versions.isEmpty()) {
-            // An empty partition on a table that HAS rows means the cache was cleared and (with soft
-            // revalidate off -- local mode) will never rebuild itself. The table is tiny; answer from a
-            // scan so the manager page and pickers survive an admin "clear all caches".
+        if (!cache.isAuthoritative()) {
+            // The partition answers this whole-table read only when a scan populated it. Where nothing ever
+            // rebuilds it (soft revalidate off -- local mode), a cleared cache plus any single save leaves a
+            // partition holding just that one template, and testing for an EMPTY partition would take that
+            // partial answer as the truth: the manager page and every Add picker would lose the rest. The
+            // table is tiny; scan it.
             versions = loadAllVersions();
         }
         final Map<String, ContentTemplate> newest = versions.stream()

@@ -96,6 +96,17 @@ public final class PartitionScanCache<V> {
         return ok;
     }
 
+    /**
+     * Whether the partitions are known to hold the WHOLE table, i.e. a scan populated them and left the loaded
+     * marker behind. Without the marker the hashes hold only whatever write-throughs happened to land in them,
+     * which is an incomplete answer for any caller that must see every row: with soft revalidate off (local
+     * mode) nothing ever rebuilds them, so one save after a cache clear leaves a partition holding exactly that
+     * one entity. Such a caller reads this and falls back to its own table scan.
+     */
+    public boolean isAuthoritative() {
+        return cache.getValue(loadedKey).isPresent();
+    }
+
     /** Drops every partition and the loaded marker (next read rebuilds). Admin/test path. */
     public boolean invalidate() {
         cache.clearNamespace(keyPrefix);

@@ -10,6 +10,7 @@ import java.util.function.Consumer;
 import org.mockito.AdditionalAnswers;
 import org.mockito.Mockito;
 import org.paulsens.trip.cache.CacheClient;
+import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentRecord;
@@ -111,6 +112,30 @@ public class TemplateContentDAOTest {
         Assert.assertEquals(all.size(), 2);
         Assert.assertEquals(all.stream().filter(t -> t.getId().equals("a1")).findFirst().orElseThrow()
                 .getVersion(), 2);
+    }
+
+    /**
+     * The partition answers the whole-table read only when a scan populated it. An admin "clear all caches"
+     * plus any single save leaves it holding exactly that one template — and where nothing rebuilds it (local
+     * mode) treating a non-empty partition as the truth hid every other template from the manager page and
+     * the Add pickers. It also made the unit suite order-dependent: whichever class cleared caches first
+     * decided what a later class could see.
+     */
+    @Test
+    public void aClearedCacheAndOneSaveStillListsEveryTemplate() {
+        final CacheClient client = new InMemoryCacheClient();
+        final TemplateDAO dao = new TemplateDAO(MAPPER, store, client);
+        for (final String id : List.of("c1", "c2", "c3")) {
+            Assert.assertTrue(dao.saveTemplate(template(id, id + " {{x}}"), 5));
+        }
+        client.clearNamespace(CacheKeys.FORMAT_VERSION);
+
+        final ContentTemplate one = dao.getTemplate("c2").orElseThrow();
+        one.setBody("edited {{x}}");
+        Assert.assertTrue(dao.saveTemplate(one, 5), "the write-through repopulates exactly one field");
+
+        Assert.assertEquals(dao.getAllTemplates().stream().map(ContentTemplate::getId).sorted().toList(),
+                List.of("c1", "c2", "c3"), "a partly repopulated partition is not the whole table");
     }
 
     @Test

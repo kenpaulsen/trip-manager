@@ -379,7 +379,12 @@ public class PhotoChatCommandsTest {
             refused |= !photoChat.mentionSearchAllowed(heavy);
         }
         Assert.assertTrue(refused, "31st lookup inside a minute must be refused");
-        Assert.assertTrue(photoChat.mentionSearch("ab", 0).isEmpty(), "a zero cap still behaves");
+        // A zero cap is clamped to one result, not rejected: it must not throw and must not hand back a
+        // page. Asserting emptiness instead would depend on nobody in the shared fake store matching "ab",
+        // which is a hostage to whichever suite seeded people first.
+        Assert.assertTrue(photoChat.mentionSearch("ab", 0).size() <= 1, "a zero cap still behaves");
+        Assert.assertTrue(photoChat.mentionSearch("zz-nobody-" + System.nanoTime(), 8).isEmpty(),
+                "a query matching no one is still empty");
     }
 
     @Test
