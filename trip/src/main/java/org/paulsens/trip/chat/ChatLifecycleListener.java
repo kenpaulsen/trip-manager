@@ -3,6 +3,9 @@ package org.paulsens.trip.chat;
 import jakarta.servlet.ServletContextEvent;
 import jakarta.servlet.ServletContextListener;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.action.ChatPhotos;
+import org.paulsens.trip.action.MediaEvents;
+import org.paulsens.trip.action.PhotoChatCommands;
 
 /**
  * Starts and stops the chat digest scheduler with the webapp.
@@ -25,6 +28,9 @@ public class ChatLifecycleListener implements ServletContextListener {
         } catch (final RuntimeException ex) {
             log.error("Unable to start the chat digest scheduler; digests will not be sent", ex);
         }
+        // A removed chat photo takes its comment thread with it, whichever path removed it (message
+        // moderation or the admin media page) — both fire the REMOVED media event.
+        MediaEvents.onPrefix(ChatPhotos.KEY_PREFIX, PhotoChatCommands::onMediaChange);
     }
 
     @Override

@@ -178,6 +178,21 @@ public final class CacheKeys {
     /** Global last-activity hash: field = channelId, value = epoch millis. */
     public static final String CHAT_LAST_ACTIVITY = CHAT_FORMAT_VERSION + "lastact";
 
+    /**
+     * Global per-photo meta hash: field = s3Key, value = {@code PhotoChatMeta} JSON. Rsum-like contract:
+     * the field is dropped on every write to that photo's thread and rebuilt on the next read, so staleness
+     * self-heals. In the chat namespace deliberately — badge counts must survive {@code clearAllCaches}
+     * no more than any other chat summary does.
+     */
+    public static String chatPhotoMetaKey() {
+        return CHAT_FORMAT_VERSION + "pmeta";
+    }
+
+    /** Per-person mention-search counter for one minute window {@code win} — the typeahead's harvest brake. */
+    public static String chatMentionSearchKey(final String personId, final long win) {
+        return CHAT_FORMAT_VERSION + "pms:" + personId + ":" + win;
+    }
+
     public static String chatReactionsVersionKey(final String channelId) {
         return CHAT_FORMAT_VERSION + "rver:" + channelId;
     }

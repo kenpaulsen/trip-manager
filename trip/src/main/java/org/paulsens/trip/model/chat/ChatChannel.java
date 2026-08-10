@@ -24,7 +24,9 @@ public class ChatChannel implements Serializable {
         /** Reserved. Id shape: {@code dm:{lowUserId}:{highUserId}}. */
         DM,
         /** Reserved. */
-        TOPIC
+        TOPIC,
+        /** One photo's comment thread. Id shape: {@code photo:{s3Key}}. */
+        PHOTO
     }
 
     @Value
@@ -43,10 +45,25 @@ public class ChatChannel implements Serializable {
             return new Id("trip:" + tripId);
         }
 
+        public static Id forPhoto(final String s3Key) {
+            if (s3Key == null || s3Key.isBlank()) {
+                throw new IllegalArgumentException("s3Key is required");
+            }
+            return new Id("photo:" + s3Key);
+        }
+
         @JsonIgnore
         public String tripIdOrNull() {
             if (value != null && value.startsWith("trip:")) {
                 return value.substring("trip:".length());
+            }
+            return null;
+        }
+
+        @JsonIgnore
+        public String photoKeyOrNull() {
+            if (value != null && value.startsWith("photo:")) {
+                return value.substring("photo:".length());
             }
             return null;
         }
@@ -68,6 +85,10 @@ public class ChatChannel implements Serializable {
     String createdBy;
     /** Stored value; may also be computed from trip end + archiveAfterTripEndDays on read. */
     Instant archivedAt;
+    /** PHOTO channels only: the trip channel holding the message this photo was attached to; else null. */
+    Id parentChannelId;
+    /** PHOTO channels only: the message the photo was attached to; null = no roll-up target. */
+    ChatMessage.Id parentMsgId;
     int schemaVersion;
 
     @JsonCreator
@@ -82,6 +103,8 @@ public class ChatChannel implements Serializable {
             @JsonProperty("created") final Instant created,
             @JsonProperty("createdBy") final String createdBy,
             @JsonProperty("archivedAt") final Instant archivedAt,
+            @JsonProperty("parentChannelId") final Id parentChannelId,
+            @JsonProperty("parentMsgId") final ChatMessage.Id parentMsgId,
             @JsonProperty("schemaVersion") final Integer schemaVersion) {
         this.id = id;
         this.tripId = tripId;
@@ -96,32 +119,43 @@ public class ChatChannel implements Serializable {
         this.created = created == null ? Instant.EPOCH : created;
         this.createdBy = createdBy;
         this.archivedAt = archivedAt;
+        this.parentChannelId = parentChannelId;
+        this.parentMsgId = parentMsgId;
         this.schemaVersion = schemaVersion == null ? CURRENT_SCHEMA : schemaVersion;
+    }
+
+    /** Pre-photo signature, kept so trip/DM channel call sites don't carry two always-null parent fields. */
+    public ChatChannel(final Id id, final String tripId, final Kind kind, final String title,
+            final String description, final List<TripLink> links, final ChatSettings settings,
+            final Instant created, final String createdBy, final Instant archivedAt,
+            final Integer schemaVersion) {
+        this(id, tripId, kind, title, description, links, settings, created, createdBy, archivedAt,
+                null, null, schemaVersion);
     }
 
     public ChatChannel withSettings(final ChatSettings newSettings) {
         return new ChatChannel(id, tripId, kind, title, description, links, newSettings,
-                created, createdBy, archivedAt, schemaVersion);
+                created, createdBy, archivedAt, parentChannelId, parentMsgId, schemaVersion);
     }
 
     public ChatChannel withTitle(final String newTitle) {
         return new ChatChannel(id, tripId, kind, newTitle, description, links, settings,
-                created, createdBy, archivedAt, schemaVersion);
+                created, createdBy, archivedAt, parentChannelId, parentMsgId, schemaVersion);
     }
 
     public ChatChannel withDescription(final String newDescription) {
         return new ChatChannel(id, tripId, kind, title, newDescription, links, settings,
-                created, createdBy, archivedAt, schemaVersion);
+                created, createdBy, archivedAt, parentChannelId, parentMsgId, schemaVersion);
     }
 
     public ChatChannel withLinks(final List<TripLink> newLinks) {
         return new ChatChannel(id, tripId, kind, title, description, newLinks, settings,
-                created, createdBy, archivedAt, schemaVersion);
+                created, createdBy, archivedAt, parentChannelId, parentMsgId, schemaVersion);
     }
 
     public ChatChannel withArchivedAt(final Instant newArchivedAt) {
         return new ChatChannel(id, tripId, kind, title, description, links, settings,
-                created, createdBy, newArchivedAt, schemaVersion);
+                created, createdBy, newArchivedAt, parentChannelId, parentMsgId, schemaVersion);
     }
 
     @JsonIgnore

@@ -6,8 +6,10 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.Value;
 import org.paulsens.trip.model.Person;
 
@@ -82,6 +84,60 @@ public class ChatReactionSummary implements Serializable {
             }
         }
         return new ChatReactionSummary(messageId, by, overflow, latest);
+    }
+
+    /**
+     * Folds other summaries' counts into {@code direct}'s overflow — the roll-up of photo reactions into the
+     * message that carried the photo. Counts only, never ids: {@link #mine} and the who-tooltip must keep
+     * answering for the direct target alone (a photo reaction must not light the message chip as "mine"), and
+     * SUM semantics are wanted — the same person reacting on two photos counts twice (user decision
+     * 2026-08-09). Every folded emoji is seeded into {@link #byEmoji} even with an empty id list, because
+     * clients decide which chips exist by iterating its keys; an overflow-only emoji would never render.
+     */
+    public static ChatReactionSummary foldCounts(
+            final ChatReactionSummary direct, final List<ChatReactionSummary> folded) {
+        if (direct == null || folded == null || folded.isEmpty()) {
+            return direct;
+        }
+        final Map<String, List<Person.Id>> by = new LinkedHashMap<>(direct.byEmoji);
+        final Map<String, Integer> overflow = new LinkedHashMap<>(direct.overflowCount);
+        final Map<String, Long> latest = new LinkedHashMap<>(direct.lastReactedAt);
+        boolean changed = false;
+        for (final ChatReactionSummary other : folded) {
+            changed |= foldOne(other, by, overflow, latest);
+        }
+        return changed ? new ChatReactionSummary(direct.messageId, by, overflow, latest) : direct;
+    }
+
+    private static boolean foldOne(
+            final ChatReactionSummary other,
+            final Map<String, List<Person.Id>> by,
+            final Map<String, Integer> overflow,
+            final Map<String, Long> latest) {
+        if (other == null) {
+            return false;
+        }
+        boolean changed = false;
+        for (final String emoji : emojiOf(other)) {
+            final int n = other.count(emoji);
+            if (n <= 0) {
+                continue;
+            }
+            by.putIfAbsent(emoji, List.of());
+            overflow.merge(emoji, n, Integer::sum);
+            final long at = other.lastReactedAtMillis(emoji);
+            if (at > 0) {
+                latest.merge(emoji, at, Math::max);
+            }
+            changed = true;
+        }
+        return changed;
+    }
+
+    private static Set<String> emojiOf(final ChatReactionSummary summary) {
+        final Set<String> out = new LinkedHashSet<>(summary.byEmoji.keySet());
+        out.addAll(summary.overflowCount.keySet());
+        return out;
     }
 
     /** When this emoji was most recently added, epoch millis, or 0 when unknown (rows written before this field). */

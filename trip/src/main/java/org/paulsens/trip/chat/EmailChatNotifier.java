@@ -1,5 +1,7 @@
 package org.paulsens.trip.chat;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -88,7 +90,7 @@ public final class EmailChatNotifier implements ChatNotifier {
             log.debug("Skipping chat notification for {}: no usable email address", recipient);
             return;
         }
-        final String body = MailTemplates.render("chat-mention", mentionValues(notification));
+        final String body = MailTemplates.render(templateFor(notification), mentionValues(notification));
         if (body == null) {
             // Template missing or unrenderable. Sending a half-built mail is worse than sending none.
             return;
@@ -102,9 +104,34 @@ public final class EmailChatNotifier implements ChatNotifier {
         final Map<String, Object> values = new LinkedHashMap<>();
         values.put("authorName", notification.getAuthorName() == null ? "Someone" : notification.getAuthorName());
         values.put("tripTitle", notification.getTripTitle() == null ? "trip" : notification.getTripTitle());
-        values.put("chatUrl", chatUrl(notification.getTripId()));
+        values.put("chatUrl", urlFor(notification));
         values.put("snippetBlock", snippetBlock(notification));
         return values;
+    }
+
+    /** Whether this notification is about a photo comment rather than the trip chat, read off the channel id. */
+    private static boolean isPhotoNotification(final ChatNotification notification) {
+        return notification.getChannelId() != null && notification.getChannelId().photoKeyOrNull() != null;
+    }
+
+    private static String templateFor(final ChatNotification notification) {
+        return isPhotoNotification(notification) ? "photo-mention" : "chat-mention";
+    }
+
+    /**
+     * Where the mail's link lands: the chat page, or — for a photo comment — the trip album deep-linked to the
+     * photo (`?photo=` auto-opens the viewer there).
+     */
+    private String urlFor(final ChatNotification notification) {
+        final String photoKey = notification.getChannelId() == null
+                ? null : notification.getChannelId().photoKeyOrNull();
+        if (photoKey == null) {
+            return chatUrl(notification.getTripId());
+        }
+        final String base = config.getString(KnownSettings.CHAT_MAIL_BASE_URL);
+        final String tripId = notification.getTripId() == null ? "" : notification.getTripId();
+        return base + "/trip/tripMedia.jsf?trip=" + tripId
+                + "&photo=" + URLEncoder.encode(photoKey, StandardCharsets.UTF_8);
     }
 
     /**
@@ -129,8 +156,11 @@ public final class EmailChatNotifier implements ChatNotifier {
         if (notification.getReason() == ChatNotification.Reason.ADMIN_ANNOUNCEMENT) {
             return "Announcement in the " + trip + " chat";
         }
-        return (notification.getAuthorName() == null ? "Someone" : notification.getAuthorName())
-                + " mentioned you in the " + trip + " chat";
+        final String author = notification.getAuthorName() == null ? "Someone" : notification.getAuthorName();
+        if (isPhotoNotification(notification)) {
+            return author + " mentioned you on a photo from the " + trip + " trip";
+        }
+        return author + " mentioned you in the " + trip + " chat";
     }
 
     private boolean claim(final String dedupeKey) {

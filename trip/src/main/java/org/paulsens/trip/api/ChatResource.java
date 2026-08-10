@@ -162,12 +162,12 @@ public class ChatResource extends BaseResource {
             }
             nudged.await(cappedWaitSeconds(wait), TimeUnit.SECONDS);
             final ChatPage woken = chat.feed(tripId, me, sinceId, limit);
-            return ok(woken.isEmpty() ? emptyPageAt(sinceId) : woken);
+            return ok(woken.isEmpty() ? emptyPageAt(sinceId, woken) : woken);
         } catch (final InterruptedException ex) {
             // The container interrupted the request thread -- the client is gone. Answer something valid for the
             // dying connection and re-assert the flag for the container's own cleanup.
             Thread.currentThread().interrupt();
-            return ok(emptyPageAt(sinceId));
+            return ok(emptyPageAt(sinceId, null));
         } finally {
             unpark(parked);
         }
@@ -186,9 +186,20 @@ public class ChatResource extends BaseResource {
         }
     }
 
-    /** An empty page that preserves the caller's cursor, so a timeout does not reset their position. */
-    private static ChatPage emptyPageAt(final ChatMessage.Id cursor) {
-        return new ChatPage(List.of(), Map.of(), cursor, 0L, 0L, false, false, Map.of(), Instant.now());
+    /**
+     * An empty page that preserves the caller's cursor, so a timeout does not reset their position — but
+     * carrying the {@code source} read's version counters, never zeroing them. A reaction, an edit or a
+     * photo-reaction roll-up creates NO message, so a parked poll on a quiet channel wakes to an empty read;
+     * the versions on that empty page are the ONLY path by which the change reaches a client that already
+     * holds the message (see chat-design: "an empty page must still carry the version"). Zeroing them here
+     * made a nudged wake indistinguishable from a timeout, and real-time reactions on a quiet channel
+     * silently did not work while every individual piece looked correct.
+     */
+    private static ChatPage emptyPageAt(final ChatMessage.Id cursor, final ChatPage source) {
+        return new ChatPage(List.of(), Map.of(), cursor,
+                source == null ? 0L : source.getReactionsVersion(),
+                source == null ? 0L : source.getMutationsVersion(),
+                false, false, Map.of(), Instant.now());
     }
 
     @POST

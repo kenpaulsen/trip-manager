@@ -30,6 +30,7 @@ public class TripApiApplication extends Application {
                 PrivilegesResource.class,
                 PaymentsResource.class,
                 PeopleResource.class,
+                PhotoChatResource.class,
                 RegistrationsResource.class,
                 TodosResource.class,
                 TransactionsResource.class,

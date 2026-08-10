@@ -46,6 +46,7 @@ import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatPage;
 import org.paulsens.trip.model.chat.ChatReaction;
 import org.paulsens.trip.model.chat.ChatReactionSummary;
+import org.paulsens.trip.model.chat.PhotoChatMeta;
 import org.paulsens.trip.security.PasswordHasher;
 import org.paulsens.trip.security.Pepper;
 
@@ -513,6 +514,23 @@ public class DAO {
     }
     public Map<String, String> getChatLastActivity() {
         return chatDao.lastActivity();
+    }
+    public Map<String, PhotoChatMeta> getPhotoChatMeta(final List<String> s3Keys) {
+        return chatDao.photoMeta(s3Keys);
+    }
+    /** Raw newest-first rows, unfiltered by visibility — plumbing for photo parent resolution, never display. */
+    public List<ChatMessage> getRawChatMessagesBefore(
+            final ChatChannel.Id channelId, final ChatMessage.Id before, final int limit) {
+        return chatDao.rawMessagesBefore(channelId, before, limit);
+    }
+    public Boolean invalidatePhotoChatMeta(final String s3Key) {
+        return chatDao.invalidatePhotoMeta(s3Key);
+    }
+    public Boolean rollupPhotoToParent(final ChatChannel photoChannel) {
+        return chatDao.rollupToParent(photoChannel);
+    }
+    public Optional<ChatChannel> purgeChatChannel(final ChatChannel.Id id) {
+        return chatDao.purgeChannel(id);
     }
 
     // Bindings

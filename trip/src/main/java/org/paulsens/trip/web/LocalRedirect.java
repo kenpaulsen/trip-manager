@@ -12,9 +12,24 @@ import jakarta.servlet.http.HttpServletRequest;
  * but an off-site redirect from our own URL is exactly the open-redirect shape a scanner flags, so any path
  * that is not a plain single-slash local path falls back to the root.
  */
-final class LocalRedirect {
+public final class LocalRedirect {
 
     private LocalRedirect() {
+    }
+
+    /**
+     * A CLIENT-SUPPLIED redirect target, admitted only when it is a plain same-origin path: must start with a
+     * single {@code /}, no protocol-relative {@code //} or {@code /\}, no CR/LF (header injection), and a sane
+     * length. Returns {@code null} for anything else — the caller refuses rather than falling back, because a
+     * client that sent garbage should hear about it, unlike the server-derived paths above.
+     */
+    public static String sanitizeLocalTarget(final String raw) {
+        if (raw == null || raw.length() > 2048 || !raw.startsWith("/")
+                || raw.startsWith("//") || raw.startsWith("/\\")
+                || raw.indexOf('\r') >= 0 || raw.indexOf('\n') >= 0) {
+            return null;
+        }
+        return raw;
     }
 
     static String samePathOrRoot(final HttpServletRequest req) {

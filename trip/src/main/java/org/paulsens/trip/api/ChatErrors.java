@@ -47,6 +47,7 @@ public final class ChatErrors {
     public static final String NOT_ACCEPTABLE = "NOT_ACCEPTABLE";
     public static final String NOT_FOUND = "NOT_FOUND";
     public static final String REACTIONS_DISABLED = "REACTIONS_DISABLED";
+    public static final String PHOTO_COMMENTS_DISABLED = "PHOTO_COMMENTS_DISABLED";
     public static final String BAD_EMOJI = "BAD_EMOJI";
     public static final String EDIT_DISABLED = "EDIT_DISABLED";
     /**

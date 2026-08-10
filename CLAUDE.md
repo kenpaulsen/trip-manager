@@ -80,10 +80,11 @@ save and 500s every later request (looks like a site-wide outage). `ModelSeriali
 `@Named @ApplicationScoped` beans exposed to JSF EL. Current names: `trip` (TripCommands), `people`
 (PersonCommands), `reg` (RegistrationCommands), `txCmds` (TransactionsCommands), `todo`, `bind`, `priv`,
 `pdv`, `pass`, `mail`, `chat`, `audit`, `auditView`, `config` (ConfigCommands — admin Settings page),
-`media`, `profilePhotos`, `chatPhotos` (ChatPhotos — chat photo storage/staging/album), `content`
-(ContentCommands — template-driven page sections) and `contentTemplate` (TemplateCommands — the template
-manager; see `docs/content-templates.md` before touching either), `pay` (PayCommands — PayPal), `deploy`,
-`json`, `tripUtil`.
+`media`, `profilePhotos`, `chatPhotos` (ChatPhotos — chat photo storage/staging/album), `photoChat`
+(PhotoChatCommands — per-photo comment threads/reactions; see `docs/photo-comments.md` before touching),
+`content` (ContentCommands — template-driven page sections) and `contentTemplate` (TemplateCommands — the
+template manager; see `docs/content-templates.md` before touching either), `pay` (PayCommands — PayPal),
+`deploy`, `json`, `tripUtil`.
 
 - `ChatPhotos.getChatPhotos()` is ONE static instance on purpose — never give it ChatCommands'
   FacesContext/application-map lookup: the upload servlet has no FacesContext and the JSF send does, so a
@@ -99,10 +100,15 @@ manager; see `docs/content-templates.md` before touching either), `pay` (PayComm
 ### REST API (`org.paulsens.trip.api`, served at `/api/*`)
 
 Jersey servlet (declared in the live web.xml, sibling repo) running `TripApiApplication` — resources are
-registered **explicitly** in `getClasses()`, no package scanning; a new resource must be added there. 14
-resources (auth, people, trips, registrations, transactions, todos, privileges, chat, chat-admin, audit,
-config, mail, payments, deploy) + `TripAuthFilter`, `JsonExceptionMapper`, `ObjectMapperProvider`. DTOs in
-`api/dto`, MapStruct mappers in `api/mapper`. Versioning is via the `Accept` media type, not a URL segment.
+registered **explicitly** in `getClasses()`, no package scanning; a new resource must be added there. 15
+resources (auth, people, trips, registrations, transactions, todos, privileges, chat, chat-admin,
+photo-chat, audit, config, mail, payments, deploy) + `TripAuthFilter`, `JsonExceptionMapper`,
+`ObjectMapperProvider`. DTOs in `api/dto`, MapStruct mappers in `api/mapper`. Versioning is via the
+`Accept` media type, not a URL segment.
+
+- `PhotoChatResource` is deliberately NOT `@TripApi`: the auth filter is name-bound, so its GETs serve
+  anonymous readers (comments follow the photo — `docs/photo-comments.md`); mutations enforce the session
+  themselves and answer 401 JSON.
 
 - Redaction is authorization: a DTO field the caller may not see is redacted by the mapper, not blocked by a
   route. `AccessLevel` is unranked — do not compare its constants with ordinal logic.
@@ -114,6 +120,9 @@ config, mail, payments, deploy) + `TripAuthFilter`, `JsonExceptionMapper`, `Obje
 - `chat/` — per-trip chat runtime: digest scheduler (Valkey-coordinated so N tasks send once), notifier
   chain, rate limiter, long-poll nudge registry. Design doc: `chat-design.md` at the workspace root. Several
   chat decisions deliberately reverse the obvious approach — read the design doc before changing behavior.
+  Channels are no longer only per-trip: each chat photo gets a `photo:{s3Key}` channel for its comment
+  thread and image reactions, which roll up (SUM) into the carrying message's chips — read
+  `docs/photo-comments.md` before touching photo threads, the summary fold, or `purgeChannel`.
 - `media/` — the chat-photo pipeline (P4 media, landed 2026-08-07): `PhotoProcessor` (two renditions per
   upload — untouched original + ≤800px display copy; HEIC transcodes to full-res JPEG; animated GIF passes
   through), `ImageFormat` (magic-byte sniffing), `ChatPhotoStaging` (upload→send authorization). Uploads go

@@ -329,6 +329,12 @@ public class ChatPhotos {
                 deleteAlbumRow(row);
             }
         }
+        // Belt-and-braces for a photo whose media row was never recorded: the REMOVED event above only fires
+        // per existing row, so its comment thread would survive the photo. The purge is idempotent, so
+        // double-purging alongside the MediaEvents listener is harmless.
+        for (final String key : keys) {
+            PhotoChatCommands.purgePhotoThread(key);
+        }
     }
 
     private void deleteAlbumRow(final MediaItem row) {

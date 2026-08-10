@@ -779,6 +779,9 @@ public class ChatCommands {
             photos.recordAlbumRows(tripId,
                     trip == null || trip.getTitle() == null ? "trip" : trip.getTitle(),
                     authorId, authorDisplayName(authorId), stored.getAttachments(), who);
+            // Eager per-photo comment channels, while the parent (this message) is simply known — a channel
+            // created later, from the album, would have to scan the trip's history to find it.
+            PhotoChatCommands.getPhotoChatCommands().ensureChannelsForMessage(stored, who);
         }
         if (allowanceSpentOnEveryone(channel, authorId, stored, now)) {
             // The message is posted and highlights for everyone in-app; only the mail fan-out is withheld. Told to

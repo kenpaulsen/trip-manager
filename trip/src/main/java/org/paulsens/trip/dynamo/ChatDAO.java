@@ -19,6 +19,7 @@ import org.paulsens.trip.cache.PointCache;
 import org.paulsens.trip.chat.ChatNudge;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.chat.ChatAttachment;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMessage;
@@ -26,6 +27,7 @@ import org.paulsens.trip.model.chat.ChatPage;
 import org.paulsens.trip.model.chat.ChatReaction;
 import org.paulsens.trip.model.chat.ChatReactionSummary;
 import org.paulsens.trip.model.chat.ChatVisibility;
+import org.paulsens.trip.model.chat.PhotoChatMeta;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
@@ -368,9 +370,17 @@ public class ChatDAO {
         // later number, and the comparison could never come out equal. The unread dot stayed lit forever,
         // for everyone, even immediately after reading. Same total order as the sort key and the ZSET
         // score, which is the property the whole cursor design rests on.
-        cacheClient.putHashField(CacheKeys.CHAT_LAST_ACTIVITY, channelId, msgId);
+        // Photo channels are excluded: "My Chats" reads this WHOLE hash per request, and a field per
+        // commented photo would grow it without bound for a page that never lists photo threads anyway.
+        if (!isPhotoChannel(channelId)) {
+            cacheClient.putHashField(CacheKeys.CHAT_LAST_ACTIVITY, channelId, msgId);
+        }
         markClientMessageId(message);
         nudge(message);
+    }
+
+    private static boolean isPhotoChannel(final String channelId) {
+        return channelId != null && channelId.startsWith("photo:");
     }
 
     /**
@@ -705,6 +715,20 @@ public class ChatDAO {
         final ChatPage page = toPage(filterVisible(msgs, member, channel, trip, now), msgs,
                 msgs.size() >= capped, NEWEST_FIRST, now);
         return withReactionMeta(channelId, page);
+    }
+
+    /**
+     * A newest-first page of raw rows, <b>unfiltered</b> by visibility — plumbing, not display. Exists for
+     * photo-channel parent resolution, which must find the message that carried a photo even when the trip
+     * channel's history settings would hide it from the resolving reader.
+     */
+    protected List<ChatMessage> rawMessagesBefore(
+            final ChatChannel.Id channelId, final ChatMessage.Id before, final int limit) {
+        if (channelId == null) {
+            return List.of();
+        }
+        return queryMessages(channelId.getValue(), null, before == null ? null : before.getValue(),
+                false, limit <= 0 ? 200 : Math.min(limit, 200));
     }
 
     private List<ChatMessage> queryMessages(
@@ -1043,7 +1067,61 @@ public class ChatDAO {
         if (channelId == null || oldest == null || newest == null || oldest.compareTo(newest) > 0) {
             return Map.of();
         }
-        return summarizeByTarget(getReactionsForRange(channelId, oldest, newest));
+        return foldWindow(channelId, oldest, newest,
+                summarizeByTarget(getReactionsForRange(channelId, oldest, newest)));
+    }
+
+    /**
+     * Folds photo reactions into a window refetch. The window read has no message list, but the fold needs
+     * the attachments, so the window's rows are read here (bounded pages — a window is what one client has
+     * on screen). Entries whose folded summary stays empty remain absent, preserving the window contract
+     * ("absent = no reactions").
+     */
+    private Map<ChatMessage.Id, ChatReactionSummary> foldWindow(
+            final ChatChannel.Id channelId,
+            final ChatMessage.Id oldest,
+            final ChatMessage.Id newest,
+            final Map<ChatMessage.Id, ChatReactionSummary> direct) {
+        if (channelId.tripIdOrNull() == null) {
+            return direct;
+        }
+        final Map<ChatMessage.Id, List<String>> keysByMsg =
+                attachmentKeysByMessage(windowMessages(channelId, oldest, newest));
+        if (keysByMsg.isEmpty()) {
+            return direct;
+        }
+        final Map<String, PhotoChatMeta> meta = photoMeta(distinctKeys(keysByMsg));
+        for (final Map.Entry<ChatMessage.Id, List<String>> e : keysByMsg.entrySet()) {
+            final ChatReactionSummary base =
+                    direct.getOrDefault(e.getKey(), ChatReactionSummary.empty(e.getKey()));
+            final ChatReactionSummary folded =
+                    ChatReactionSummary.foldCounts(base, rootSummaries(meta, e.getValue()));
+            if (folded.totalCount() > 0) {
+                direct.put(e.getKey(), folded);
+            }
+        }
+        return direct;
+    }
+
+    /** The window's message rows, inclusive on both ends, read in bounded pages. */
+    private List<ChatMessage> windowMessages(
+            final ChatChannel.Id channelId, final ChatMessage.Id oldest, final ChatMessage.Id newest) {
+        final List<ChatMessage> out = new ArrayList<>();
+        String after = ChatMessage.Id.of(Math.max(0L, oldest.getEpochMilli() - 1)).getValue();
+        final String before = newest.next().getValue();
+        for (int page = 0; page < 5; page++) {
+            final List<ChatMessage> batch = queryMessages(channelId.getValue(), after, before, true, 200);
+            out.addAll(batch);
+            if (batch.size() < 200) {
+                return out;
+            }
+            after = batch.get(batch.size() - 1).getId().getValue();
+        }
+        // A five-page window means the client asked about ~1000 on-screen messages; fold what was read
+        // rather than walking an arbitrarily wide range.
+        log.warn("Chat reaction window unusually large; photo fold truncated at {} messages for {}",
+                out.size(), channelId.getValue());
+        return out;
     }
 
     /**
@@ -1125,12 +1203,12 @@ public class ChatDAO {
                 newest = m.getId();
             }
         }
-        return summarize(messages, getReactionsForRange(channelId, oldest, newest));
+        return summarize(channelId, messages, getReactionsForRange(channelId, oldest, newest));
     }
 
     /** Folds a page's reaction rows into one summary per message — every message gets an entry, even if empty. */
     private Map<ChatMessage.Id, ChatReactionSummary> summarize(
-            final List<ChatMessage> messages, final List<ChatReaction> reactions) {
+            final ChatChannel.Id channelId, final List<ChatMessage> messages, final List<ChatReaction> reactions) {
         final Map<ChatMessage.Id, List<ChatReaction>> byMsg = new HashMap<>();
         for (final ChatReaction r : reactions) {
             byMsg.computeIfAbsent(r.getTargetMessageId(), k -> new ArrayList<>()).add(r);
@@ -1140,7 +1218,212 @@ public class ChatDAO {
             out.put(m.getId(), ChatReactionSummary.fromReactions(
                     m.getId(), byMsg.getOrDefault(m.getId(), List.of())));
         }
+        return foldPhotoReactions(channelId, attachmentKeysByMessage(messages), out);
+    }
+
+    /**
+     * Folds each photo's own reactions into the summary of the message that carried it — trip channels only
+     * (the {@code tripIdOrNull} guard also keeps a photo channel from folding recursively). Photo reactions
+     * live in the photo's channel, so without this fold a reaction on a photo never reaches the chip on the
+     * message. The counts land in {@code overflowCount} (SUM semantics; see
+     * {@link ChatReactionSummary#foldCounts}), and because the folded result is what
+     * {@link #cacheSummaries} stores, the existing drop-field/bump/nudge contract delivers photo-reaction
+     * updates to chat clients with no client protocol change.
+     */
+    private Map<ChatMessage.Id, ChatReactionSummary> foldPhotoReactions(
+            final ChatChannel.Id channelId,
+            final Map<ChatMessage.Id, List<String>> keysByMsg,
+            final Map<ChatMessage.Id, ChatReactionSummary> summaries) {
+        if (channelId == null || channelId.tripIdOrNull() == null || keysByMsg.isEmpty()) {
+            return summaries;
+        }
+        final Map<String, PhotoChatMeta> meta = photoMeta(distinctKeys(keysByMsg));
+        for (final Map.Entry<ChatMessage.Id, List<String>> e : keysByMsg.entrySet()) {
+            final ChatReactionSummary direct = summaries.get(e.getKey());
+            if (direct != null) {
+                summaries.put(e.getKey(),
+                        ChatReactionSummary.foldCounts(direct, rootSummaries(meta, e.getValue())));
+            }
+        }
+        return summaries;
+    }
+
+    private static Map<ChatMessage.Id, List<String>> attachmentKeysByMessage(final List<ChatMessage> messages) {
+        final Map<ChatMessage.Id, List<String>> out = new HashMap<>();
+        for (final ChatMessage m : messages) {
+            for (final ChatAttachment a : m.getAttachments()) {
+                if (a != null && a.getS3Key() != null) {
+                    out.computeIfAbsent(m.getId(), k -> new ArrayList<>()).add(a.getS3Key());
+                }
+            }
+        }
         return out;
+    }
+
+    private static List<String> distinctKeys(final Map<ChatMessage.Id, List<String>> keysByMsg) {
+        final List<String> out = new ArrayList<>();
+        for (final List<String> keys : keysByMsg.values()) {
+            for (final String key : keys) {
+                if (!out.contains(key)) {
+                    out.add(key);
+                }
+            }
+        }
+        return out;
+    }
+
+    private static List<ChatReactionSummary> rootSummaries(
+            final Map<String, PhotoChatMeta> meta, final List<String> keys) {
+        final List<ChatReactionSummary> out = new ArrayList<>();
+        for (final String key : keys) {
+            final PhotoChatMeta m = meta.get(key);
+            if (m != null) {
+                out.add(m.getRootReactions());
+            }
+        }
+        return out;
+    }
+
+    // --- photo channels (per-image comment threads; channel id shape photo:{s3Key}) ---
+
+    /**
+     * Batch per-photo meta (comment count + the photo's own reactions), cache-first with per-key rebuild.
+     * Same derived-view safety argument as the reaction summaries: DynamoDB is authoritative, so a racing
+     * rebuild costs at most a briefly stale count that the next write's field-drop heals.
+     */
+    protected Map<String, PhotoChatMeta> photoMeta(final List<String> s3Keys) {
+        if (s3Keys == null || s3Keys.isEmpty()) {
+            return Map.of();
+        }
+        final Map<String, String> cached = cacheClient.getHashFields(CacheKeys.chatPhotoMetaKey(), s3Keys);
+        final Map<String, PhotoChatMeta> out = new HashMap<>();
+        final Map<String, String> rebuilt = new HashMap<>();
+        for (final String key : s3Keys) {
+            final PhotoChatMeta hit = parse(cached.get(key), PhotoChatMeta.class);
+            out.put(key, hit == null ? rebuildPhotoMeta(key, rebuilt) : hit);
+        }
+        if (!rebuilt.isEmpty()) {
+            cacheClient.putHashFields(CacheKeys.chatPhotoMetaKey(), rebuilt);
+            cacheClient.expire(CacheKeys.chatPhotoMetaKey(), CacheKeys.GC_TTL);
+        }
+        return out;
+    }
+
+    private PhotoChatMeta rebuildPhotoMeta(final String s3Key, final Map<String, String> writeBack) {
+        final ChatChannel.Id photoId = ChatChannel.Id.forPhoto(s3Key);
+        final PhotoChatMeta meta = new PhotoChatMeta(
+                countComments(photoId),
+                ChatReactionSummary.fromReactions(PhotoChatMeta.PHOTO_ROOT,
+                        getReactionsForRange(photoId, PhotoChatMeta.PHOTO_ROOT, PhotoChatMeta.PHOTO_ROOT)));
+        final String json = toJson(meta);
+        if (json != null) {
+            writeBack.put(s3Key, json);
+        }
+        return meta;
+    }
+
+    /**
+     * Non-deleted comments in a photo thread. {@code queryAll} is safe here for the same reason it is on the
+     * reaction range: a single photo's thread is humanly bounded, not an unbounded-growth partition.
+     */
+    private int countComments(final ChatChannel.Id photoChannelId) {
+        final Map<String, String> names = Map.of("#channelId", ATTR_CHANNEL_ID);
+        final Map<String, AttributeValue> values =
+                Map.of(":c", AttributeValue.builder().s(photoChannelId.getValue()).build());
+        final List<Map<String, AttributeValue>> rows = persistence.queryAll(b -> b.tableName(MESSAGES_TABLE)
+                .keyConditionExpression("#channelId = :c")
+                .expressionAttributeNames(names)
+                .expressionAttributeValues(values)
+                .build());
+        int count = 0;
+        for (final Map<String, AttributeValue> row : rows) {
+            final AttributeValue content = row.get(ATTR_CONTENT);
+            final ChatMessage m = content == null ? null : parseMessage(content.s());
+            if (m != null && !m.isDeleted()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /** Drops one photo's cached meta so the next read rebuilds it. Best effort, like every field drop. */
+    protected Boolean invalidatePhotoMeta(final String s3Key) {
+        if (s3Key == null || s3Key.isBlank()) {
+            return false;
+        }
+        cacheClient.removeHashField(CacheKeys.chatPhotoMetaKey(), s3Key);
+        return true;
+    }
+
+    /**
+     * After a photo-thread write, invalidates the parent message's folded summary and tells the trip channel's
+     * clients to refetch — same drop-field / bump-version / nudge order as {@link #afterReactionWritten}, aimed
+     * at the parent. No parent recorded (pre-chat photo, or the message expired) means nothing to roll up.
+     */
+    protected Boolean rollupToParent(final ChatChannel photoChannel) {
+        if (photoChannel == null || photoChannel.getParentChannelId() == null
+                || photoChannel.getParentMsgId() == null) {
+            return false;
+        }
+        final String parentId = photoChannel.getParentChannelId().getValue();
+        cacheClient.removeHashField(
+                CacheKeys.chatReactionSummaryKey(parentId), photoChannel.getParentMsgId().getValue());
+        bumpReactionsVersion(parentId);
+        nudgeChannel(parentId);
+        return true;
+    }
+
+    /**
+     * Removes a channel and everything under it — rows in all four tables plus every cache key. Built for the
+     * photo delete cascade but channel-shape agnostic, and idempotent: deleting absent rows succeeds, so a
+     * replayed cascade is harmless. Returns the channel as it was, because the caller rolls up to its parent.
+     *
+     * <p>{@code cmid:} idempotency keys are per (channel, person, clientMessageId) and not enumerable, so they
+     * are left to their 24 h TTL — a resend collapsing onto a purged message id resolves to an empty read.
+     */
+    protected Optional<ChatChannel> purgeChannel(final ChatChannel.Id id) {
+        if (id == null) {
+            return Optional.empty();
+        }
+        final Optional<ChatChannel> channel = getChannel(id);
+        final String cId = id.getValue();
+        purgeRows(MESSAGES_TABLE, ATTR_MSG_ID, cId);
+        purgeRows(REACTIONS_TABLE, ATTR_SK, cId);
+        purgeRows(MEMBERS_TABLE, ATTR_PERSON_ID, cId);
+        persistence.deleteItem(b -> b.tableName(CHANNELS_TABLE)
+                .key(Map.of(ATTR_CHANNEL_ID, AttributeValue.builder().s(cId).build())));
+        channelCache.remove(cId);
+        cacheClient.removeKey(CacheKeys.chatLogKey(cId));
+        cacheClient.removeKey(CacheKeys.chatBodyKey(cId));
+        cacheClient.removeKey(CacheKeys.chatMembersKey(cId));
+        cacheClient.removeKey(CacheKeys.chatReactionSummaryKey(cId));
+        cacheClient.removeKey(CacheKeys.chatReactionsVersionKey(cId));
+        cacheClient.removeKey(CacheKeys.chatMutationsVersionKey(cId));
+        cacheClient.removeHashField(CacheKeys.CHAT_LAST_ACTIVITY, cId);
+        final String photoKey = id.photoKeyOrNull();
+        if (photoKey != null) {
+            invalidatePhotoMeta(photoKey);
+        }
+        return channel;
+    }
+
+    private void purgeRows(final String table, final String sortAttr, final String channelId) {
+        final Map<String, String> names = Map.of("#channelId", ATTR_CHANNEL_ID);
+        final Map<String, AttributeValue> values =
+                Map.of(":c", AttributeValue.builder().s(channelId).build());
+        final List<Map<String, AttributeValue>> rows = persistence.queryAll(b -> b.tableName(table)
+                .keyConditionExpression("#channelId = :c")
+                .expressionAttributeNames(names)
+                .expressionAttributeValues(values)
+                .build());
+        for (final Map<String, AttributeValue> row : rows) {
+            final AttributeValue sort = row.get(sortAttr);
+            if (sort != null) {
+                persistence.deleteItem(b -> b.tableName(table).key(Map.of(
+                        ATTR_CHANNEL_ID, AttributeValue.builder().s(channelId).build(),
+                        sortAttr, sort)));
+            }
+        }
     }
 
     // --- parse/serialize ---

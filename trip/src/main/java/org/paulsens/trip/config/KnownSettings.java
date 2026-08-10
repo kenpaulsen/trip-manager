@@ -171,6 +171,17 @@ public final class KnownSettings {
                     + "variation selector is a different entry. Reactions already stored with a removed emoji "
                     + "stay in the data but stop being offered.");
 
+    public static final SettingDef CHAT_PHOTO_COMMENTS_ENABLED = new SettingDef(
+            "chat.photoComments.enabled", Config.Type.BOOLEAN, "true", "Photo comments and reactions",
+            "Comment threads and emoji reactions on individual chat photos (album viewer, chat lightbox and "
+                    + "the public landing page). Turning this off hides the panel and refuses new posts; "
+                    + "existing comments are kept.");
+
+    public static final SettingDef CHAT_PHOTO_COMMENT_MAX_CHARS = new SettingDef(
+            "chat.photoComments.maxChars", Config.Type.INT, "1000", "Photo comment length",
+            "Longest allowed photo comment, in characters. Shorter than a chat message on purpose — the "
+                    + "panel beside a photo is a caption-sized space, not a second chat.");
+
     // --- login & security ---
 
     public static final SettingDef LOGIN_CODE_ENABLED = new SettingDef(
@@ -275,6 +286,10 @@ public final class KnownSettings {
                             CHAT_ALARM_DEDUPE_WINDOW_SECONDS)),
             new SettingSection("Chat appearance", null,
                     List.of(CHAT_REACTIONS_PALETTE, CHAT_BACKGROUND_COLORS, CHAT_BACKGROUND_IMAGE)),
+            new SettingSection("Photo comments",
+                    "Comment threads and reactions on individual chat photos. Mention email from photo "
+                            + "comments rides the chat-email master switch above.",
+                    List.of(CHAT_PHOTO_COMMENTS_ENABLED, CHAT_PHOTO_COMMENT_MAX_CHARS)),
             new SettingSection("Login & security",
                     "Email login codes double as the forgot-password flow. The mail addresses here are used "
                             + "for those codes.",

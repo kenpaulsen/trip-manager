@@ -91,6 +91,46 @@ public final class ChatNotifications {
         TripThreads.startAs(AuditActor.system(), () -> dispatch(notification));
     }
 
+    /**
+     * Notifies anyone mentioned in a photo comment. Photo threads differ from trip chat in three deliberate
+     * ways: {@code @all} is inert (a photo thread has no roster to broadcast to); nothing is mailed unless the
+     * COMMENTER has joined at least one trip — the sender-trust gate, because accounts are self-registered and
+     * must not be able to make the site email arbitrary members (user decision 2026-08-09); and the
+     * mention-email preference is read from the photo's TRIP channel, where people actually manage chat email.
+     */
+    public static void photoMentionsFor(
+            final ChatMessage comment, final ChatChannel photoChannel, final Trip trip,
+            final String authorName, final boolean senderTrusted) {
+        if (comment == null || photoChannel == null || photoChannel.getTripId() == null) {
+            return;
+        }
+        if (!senderTrusted) {
+            log.debug("Photo mention email suppressed: commenter {} has not joined any trip",
+                    comment.getAuthorId());
+            return;
+        }
+        final List<Person.Id> mentioned = ChatMentions.extract(comment.getBody());
+        if (mentioned.isEmpty()) {
+            return;
+        }
+        final ChatChannel.Id prefHome = ChatChannel.Id.forTrip(photoChannel.getTripId());
+        final List<Person.Id> recipients = new ArrayList<>();
+        for (final Person.Id person : mentioned) {
+            if (wantsMentionEmail(prefHome, comment.getAuthorId(), person)) {
+                recipients.add(person);
+            }
+        }
+        if (recipients.isEmpty()) {
+            return;
+        }
+        final ChatNotification notification = new ChatNotification(
+                photoChannel.getId(), comment.getId(), photoChannel.getTripId(),
+                trip == null ? null : trip.getTitle(), comment.getAuthorId(), authorName, recipients,
+                includeContent(photoChannel) ? snippet(comment.getBody()) : null,
+                ChatNotification.Reason.MENTION, null, comment.getSentAt());
+        TripThreads.startAs(AuditActor.system(), () -> dispatch(notification));
+    }
+
     /** Everyone on the trip except the author, who is never notified about their own message. */
     private static List<Person.Id> everyoneIn(final Trip trip, final Person.Id author) {
         if (trip == null) {
@@ -115,7 +155,7 @@ public final class ChatNotifications {
             final List<Person.Id> mentioned) {
         final List<Person.Id> recipients = new ArrayList<>();
         for (final Person.Id person : mentioned) {
-            if (wantsMentionEmail(channel, message.getAuthorId(), person)) {
+            if (wantsMentionEmail(channel.getId(), message.getAuthorId(), person)) {
                 recipients.add(person);
             }
         }
@@ -145,12 +185,12 @@ public final class ChatNotifications {
      * a mention is not worth a failed send per message.
      */
     private static boolean wantsMentionEmail(
-            final ChatChannel channel, final Person.Id author, final Person.Id person) {
+            final ChatChannel.Id channelId, final Person.Id author, final Person.Id person) {
         if (person == null || person.equals(author)) {
             return false;
         }
         final Optional<ChatMembership> row = DAO.getInstance()
-                .getChatMembership(channel.getId(), person);
+                .getChatMembership(channelId, person);
         if (row.isPresent()) {
             final ChatMembership member = row.get();
             if (member.getState() == ChatMembership.MemberState.LEFT

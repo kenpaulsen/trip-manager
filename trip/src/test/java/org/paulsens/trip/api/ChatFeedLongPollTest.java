@@ -140,6 +140,37 @@ public class ChatFeedLongPollTest extends ResourceTestSupport {
         ChatNudgeRegistry.getInstance().nudge(registryChannel(), 0L);
     }
 
+    /**
+     * A reaction — including a photo-reaction roll-up — creates NO message, so the woken read is
+     * message-empty, and the version counters on that empty page are the ONLY path by which the change
+     * reaches a parked client. Zeroing them made a nudged wake indistinguishable from a timeout, and
+     * real-time reactions on a quiet channel silently did not work (the P2d design's exact warning).
+     */
+    @Test
+    public void aWokenEmptyPageStillCarriesTheVersionCounters() throws Exception {
+        Mockito.when(chat.feed(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME), ArgumentMatchers.any(),
+                ArgumentMatchers.anyInt()))
+                .thenReturn(empty())                 // initial read: nothing yet
+                .thenReturn(empty())                 // post-park re-read: still nothing
+                .thenReturn(emptyWithVersions(7L, 3L)); // woken: no message, but the counters moved
+        final CompletableFuture<Void> nudger = onceParked(ChatFeedLongPollTest::nudgeNow);
+
+        final ChatPage page = (ChatPage) resource.feed(CHANNEL, "m42", null, null, 10, 200).getEntity();
+
+        nudger.get(PATIENCE.toMillis(), TimeUnit.MILLISECONDS);
+        Assert.assertTrue(page.isEmpty(), "still an empty page — no message was fabricated");
+        Assert.assertEquals(page.getReactionsVersion(), 7L,
+                "the reactions version must ride the empty page or the reaction never reaches the client");
+        Assert.assertEquals(page.getMutationsVersion(), 3L, "the mutations version rides along too");
+        Assert.assertEquals(page.getCursor(), ChatMessage.Id.from("m42"),
+                "and the caller's cursor is still preserved");
+    }
+
+    private static ChatPage emptyWithVersions(final long reactions, final long mutations) {
+        return new ChatPage(List.of(), Map.of(), null, reactions, mutations, false, false, Map.of(),
+                Instant.now());
+    }
+
     /** The timeout is the empty-channel fallback: an empty page carrying the caller's own cursor. */
     @Test
     public void theTimeoutAnswersAnEmptyPageAtTheCallersCursor() {
