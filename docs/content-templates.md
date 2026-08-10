@@ -113,8 +113,9 @@ datastore).
    script access), `eventAdmin`, `mediaAdmin`.
 2. `install-starter-templates.sh` — the SEVEN starters (JSON generated from `StarterTemplates`).
 3. `bootstrap-home-v2.sh` — the `page:trip-index` skeleton (JSON generated from `V2PageBootstrap`);
-   `--purge-v1` deletes the retired `home.*` rows. Then clear caches from admin Settings (the background
-   refresh merges, never removes).
+   `--purge-v1` deletes the retired `home.*` rows. New rows appear on their own within ~5 minutes (the
+   cache refresh merges); only DELETES need the Settings page's "Clear caches" button (the refresh never
+   removes).
 Everything else is edited in place: `/trip/index.jsf` → Edit page.
 
 ## Retired v1 behaviors

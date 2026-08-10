@@ -31,6 +31,14 @@ public class ConfigCommandsTest {
     }
 
     @Test
+    public void clearAllCachesSucceedsAndTheStoreSurvives() {
+        Assert.assertTrue(config.clearAllCaches("tester"));
+        // The clear drops only the cache namespace: a save right after must land and read back.
+        final String name = saveAndName("after-clear", Config.Type.STRING);
+        Assert.assertEquals(config.getString(name, null), "after-clear");
+    }
+
+    @Test
     public void unsetSettingsReturnTheDefault() {
         final String missing = "absent." + RandomData.genAlpha(10);
         Assert.assertEquals(config.getString(missing, "fallback"), "fallback");

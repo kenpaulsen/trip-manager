@@ -292,6 +292,32 @@ public class ConfigCommands {
         }
     }
 
+    /**
+     * Drops every entry in the shared cache's data namespace, on every running instance at once (sessions
+     * and logins are untouched -- see {@code DAO.clearAllCaches}). This is the ONLY way a row DELETED
+     * behind the application's back (bootstrap-home-v2.sh --purge-v1, cleanup-templates.sh --delete)
+     * leaves the cache before its GC TTL: the background refresh merges rows and never removes them.
+     * Plain additions never need this -- the refresh picks them up within the cache TTL.
+     */
+    public boolean clearAllCaches(final String requestedBy) {
+        try {
+            DAO.getInstance().clearAllCaches();
+        } catch (final RuntimeException ex) {
+            log.error("Unable to clear the shared caches", ex);
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Caches NOT cleared",
+                    "The cache could not be reached; see the server log.");
+            return false;
+        }
+        Audit.builder(AuditAction.CONFIG, AuditOutcome.SUCCESS)
+                .currentActor(requestedBy)
+                .target(AuditEventBuilder.TARGET_CONFIG, "caches")
+                .message("Cleared the shared data-cache namespace (all instances)")
+                .log();
+        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO, "Caches cleared",
+                "Pages now reload their data from DynamoDB as they are viewed.");
+        return true;
+    }
+
     /** @return whether the value parses as its declared type (a null/blank value is allowed: it means "unset"). */
     public boolean isValid(final Config config) {
         final String raw = (config.getValue() == null) ? null : config.getValue().trim();
