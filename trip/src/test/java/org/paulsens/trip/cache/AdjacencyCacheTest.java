@@ -1,9 +1,11 @@
 package org.paulsens.trip.cache;
 
 import java.time.Duration;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
@@ -28,6 +30,8 @@ public class AdjacencyCacheTest {
     private AtomicInteger loads;
     private AtomicLong clock;
     private Map<String, List<String>> partition;
+    /** Which threads ran the loader — how a stale read proves it did not reload inline. */
+    private Collection<Thread> loadThreads;
 
     @BeforeMethod
     public void setUp() {
@@ -35,6 +39,7 @@ public class AdjacencyCacheTest {
         loads = new AtomicInteger();
         clock = new AtomicLong(1_000_000L);
         partition = Map.of("2", List.of("t2", "t1"), "3", List.of());
+        loadThreads = new ConcurrentLinkedQueue<>();
     }
 
     private AdjacencyCache adjacency(final CacheClient client) {
@@ -52,6 +57,7 @@ public class AdjacencyCacheTest {
     private Supplier<Map<String, List<String>>> loader() {
         return () -> {
             loads.incrementAndGet();
+            loadThreads.add(Thread.currentThread());
             return partition;
         };
     }
@@ -112,11 +118,19 @@ public class AdjacencyCacheTest {
     public void aSoftStaleRefreshReconcilesAwayAnOutOfBandDelete() throws Exception {
         final AdjacencyCache adj = adjacency(cache);
         adj.get(SRC, "2", loader());
+        Assert.assertTrue(loadThreads.contains(Thread.currentThread()),
+                "the COLD read does load inline — which is what gives the stale-read assertion below teeth");
+        loadThreads.clear();
         partition = Map.of("2", List.of("t2"), "3", List.of()); // t1 deleted behind the cache's back
         clock.addAndGet(Duration.ofMinutes(2).toMillis());
 
-        Assert.assertEquals(adj.get(SRC, "2", loader()), List.of("t1", "t2"),
-                "the read that noticed staleness still answers from the cache");
+        // The stale read answers from the cache instead of reloading INLINE — that is the guarantee, and it
+        // is asserted on the loader's thread rather than on the value. get() schedules the refresh and then
+        // reads the set, so a refresh that finishes between those two steps legitimately returns the
+        // reconciled list; asserting the pre-refresh contents here was a race that CI eventually lost.
+        adj.get(SRC, "2", loader());
+        Assert.assertFalse(loadThreads.contains(Thread.currentThread()),
+                "a soft-stale read must never block its caller on the loader");
 
         clock.addAndGet(-Duration.ofMinutes(2).toMillis());
         awaitTrue(() -> adj.get(SRC, "2", loader()).equals(List.of("t2")),
