@@ -22,9 +22,12 @@ public final class Placeholder implements Serializable {
      * {@link #TEXT} is HTML-escaped, {@link #RICH_TEXT} renders verbatim (WYSIWYG-authored),
      * {@link #IMAGE_URL}/{@link #URL} must parse as http(s) and are attribute-escaped, and
      * {@link #VIDEO_URL} additionally normalizes YouTube links to their embed form.
+     * {@link #CHOICE} is a fixed pick-one prompt whose options come from a programmatic type's
+     * {@code choicesFor} provider (escaped like TEXT when rendered); it is meaningless on hand-authored
+     * templates and excluded from the template editor's type menu.
      */
     public enum Type {
-        TEXT, RICH_TEXT, IMAGE_URL, VIDEO_URL, URL
+        TEXT, RICH_TEXT, IMAGE_URL, VIDEO_URL, URL, CHOICE
     }
 
     /** Token name matched in the template body: {@code {{name}}}. */

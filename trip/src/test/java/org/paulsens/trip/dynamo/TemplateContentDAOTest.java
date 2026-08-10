@@ -317,6 +317,47 @@ public class TemplateContentDAOTest {
     }
 
     @Test
+    public void reorderRewritesPositionsSilentlyAndSkipsForeignRows() {
+        Assert.assertTrue(contents.saveContent(instance("ra", "sec-a"), 5));
+        Assert.assertTrue(contents.saveContent(instance("rb", "sec-a"), 5));
+        Assert.assertTrue(contents.saveContent(instance("other", "sec-b"), 5));
+
+        // Bad arguments are refused outright.
+        Assert.assertFalse(contents.reorderContent(null, List.of("ra")));
+        Assert.assertFalse(contents.reorderContent("  ", List.of("ra")));
+        Assert.assertFalse(contents.reorderContent("sec-a", null));
+
+        // A foreign-section id and an unknown id are skipped, not failed; positions follow list order.
+        Assert.assertTrue(contents.reorderContent("sec-a", List.of("rb", "ra", "other", "ghost")));
+        final List<String> ordered = contents.getContentForSection("sec-a").stream()
+                .map(ContentInstance::getId).toList();
+        Assert.assertEquals(ordered, List.of("rb", "ra"));
+        Assert.assertEquals(contents.getContent("other").orElseThrow().getSection(), "sec-b",
+                "a row from another section is untouched");
+
+        // Version-silent: no bump, no history growth -- and re-applying the same order writes nothing.
+        Assert.assertEquals(contents.getContent("ra").orElseThrow().getVersion(), 1);
+        Assert.assertEquals(contents.getContentRecord("ra").orElseThrow().getPrevious().size(), 0);
+        Assert.assertTrue(contents.reorderContent("sec-a", List.of("rb", "ra")),
+                "an already-ordered section is a clean no-op");
+    }
+
+    @Test
+    public void garbageRowsDegradeToEmptyNotErrors() {
+        // A row whose JSON does not parse must be skipped by every reader, never thrown to a page.
+        final Map<String, AttributeValue> junk = new HashMap<>();
+        junk.put("id", AttributeValue.builder().s("junk-row").build());
+        junk.put("content", AttributeValue.builder().s("{not json").build());
+        store.putItem(b -> b.tableName("content").item(junk));
+
+        Assert.assertTrue(contents.getContent("junk-row").isEmpty());
+        Assert.assertTrue(contents.getAllContentRecords().isEmpty());
+        Assert.assertTrue(contents.getContentForSection("anything").isEmpty());
+        Assert.assertTrue(contents.reorderContent("anything", List.of("junk-row")),
+                "reorder SKIPS the unparsable row (skips are not failures) and touches nothing");
+    }
+
+    @Test
     public void pointReadsSurviveAClearedCache() {
         // With the in-memory client, softRevalidate is off and a cleared partition never rebuilds (the
         // documented local-mode trade). What must still work is every path that point-reads the row.

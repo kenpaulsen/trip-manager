@@ -4,7 +4,9 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -27,7 +29,12 @@ public final class ContentInstance implements Serializable {
     /** The page-section key this renders in, e.g. {@code home.events} or {@code home.intro}. */
     @JsonProperty("section")
     private String section;
-    /** Admin-facing label ("Aug Peace Mass"); never rendered publicly. */
+    /**
+     * The instance's heading. Editor lists always show it; on the page, CONTAINER instances render it as
+     * their title (plain text gets the default heading style, markup renders verbatim -- see
+     * {@code ContentRenderer.renderContainerTitle}), and hosting markup may show it for other kinds too
+     * (the v1 Events section did).
+     */
     @JsonProperty("title")
     private String title;
     @JsonProperty("templateId")
@@ -50,8 +57,32 @@ public final class ContentInstance implements Serializable {
     private LocalDateTime modified;
     @JsonProperty("modifiedBy")
     private String modifiedBy;
+    /**
+     * CONTAINER instances only: additional privileges whose holders may add/edit/reorder/delete this
+     * container's CHILDREN (e.g. {@code eventAdmin} on the Events container) -- holding ANY listed
+     * privilege is enough. Null/empty elsewhere and by default. Settable only by a contentAdmin --
+     * {@code ContentCommands.saveContent} guards the field and silently drops names that match no stored
+     * privilege (the dialog's chips flag those red while editing).
+     */
+    @JsonProperty("editorPrivileges")
+    private List<String> editorPrivileges;
+    /**
+     * CONTAINER instances only: when non-empty, the ONLY template ids this container accepts as children
+     * -- a per-container tightening that takes precedence over the container TEMPLATE's own allow-list.
+     * Null/empty defers to the template. Settable only by a contentAdmin.
+     */
+    @JsonProperty("allowedChildTemplateIds")
+    private List<String> allowedChildTemplateIds;
 
     private ContentInstance() {
+    }
+
+    /** Compatibility constructor for pre-v2 call sites: no editor privileges, no child allow-list. */
+    public ContentInstance(final String id, final String section, final String title, final String templateId,
+            final int templateVersion, final Map<String, String> values, final LocalDateTime eventDate,
+            final int position, final int version, final LocalDateTime modified, final String modifiedBy) {
+        this(id, section, title, templateId, templateVersion, values, eventDate, position, version,
+                modified, modifiedBy, null, null);
     }
 
     public Map<String, String> getValues() {
@@ -74,6 +105,8 @@ public final class ContentInstance implements Serializable {
     /** @return a copy safe to hand to the edit dialog without aliasing the cached instance. */
     public ContentInstance copy() {
         return new ContentInstance(id, section, title, templateId, templateVersion,
-                new HashMap<>(getValues()), eventDate, position, version, modified, modifiedBy);
+                new HashMap<>(getValues()), eventDate, position, version, modified, modifiedBy,
+                editorPrivileges == null ? null : new ArrayList<>(editorPrivileges),
+                allowedChildTemplateIds == null ? null : new ArrayList<>(allowedChildTemplateIds));
     }
 }

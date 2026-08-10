@@ -41,8 +41,41 @@ public final class ContentTemplate implements Serializable {
     private LocalDateTime modified;
     @JsonProperty("modifiedBy")
     private String modifiedBy;
+    /** Null on rows written before v2; {@link #getKind()} folds that to {@link TemplateKind#STANDARD}. */
+    @JsonProperty("kind")
+    private TemplateKind kind;
+    /** CONTAINER only: template ids instances may add as children. Null/empty = any non-container. */
+    @JsonProperty("allowedChildTemplateIds")
+    private List<String> allowedChildTemplateIds;
+    /** CONTAINER only: most children an instance may hold. Null = unlimited. */
+    @JsonProperty("maxChildren")
+    private Integer maxChildren;
+    /** PROGRAMMATIC only: the registered {@code ProgrammaticContentTemplate} type id. */
+    @JsonProperty("programmaticTypeId")
+    private String programmaticTypeId;
 
     private ContentTemplate() {
+    }
+
+    /**
+     * Compatibility constructor for pre-v2 call sites and rows: a template without kind fields is a
+     * STANDARD body-and-placeholders template.
+     */
+    public ContentTemplate(final String id, final int version, final String name, final String description,
+            final String body, final List<Placeholder> placeholders, final LocalDateTime modified,
+            final String modifiedBy) {
+        this(id, version, name, description, body, placeholders, modified, modifiedBy,
+                null, null, null, null);
+    }
+
+    /** The template's kind; rows written before v2 have none and read as {@link TemplateKind#STANDARD}. */
+    public TemplateKind getKind() {
+        return kind == null ? TemplateKind.STANDARD : kind;
+    }
+
+    /** STANDARD is stored as null (the pre-v2 shape) so equality is stable across a JSON round trip. */
+    public void setKind(final TemplateKind kind) {
+        this.kind = kind == TemplateKind.STANDARD ? null : kind;
     }
 
     public List<Placeholder> getPlaceholders() {
@@ -60,6 +93,8 @@ public final class ContentTemplate implements Serializable {
     public ContentTemplate copy() {
         final List<Placeholder> copies = new ArrayList<>(getPlaceholders().size());
         getPlaceholders().forEach(ph -> copies.add(ph.copy()));
-        return new ContentTemplate(id, version, name, description, body, copies, modified, modifiedBy);
+        return new ContentTemplate(id, version, name, description, body, copies, modified, modifiedBy,
+                kind, allowedChildTemplateIds == null ? null : new ArrayList<>(allowedChildTemplateIds),
+                maxChildren, programmaticTypeId);
     }
 }

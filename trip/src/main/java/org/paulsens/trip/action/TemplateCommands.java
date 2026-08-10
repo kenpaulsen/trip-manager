@@ -4,6 +4,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -13,6 +14,9 @@ import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.ContentRenderer;
+import org.paulsens.trip.content.HtmlFragmentValidator;
+import org.paulsens.trip.content.ProgrammaticContentTemplate;
+import org.paulsens.trip.content.ProgrammaticTypes;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
@@ -21,6 +25,7 @@ import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentRecord;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Placeholder;
+import org.paulsens.trip.model.TemplateKind;
 import org.paulsens.trip.model.TemplateRecord;
 
 /**
@@ -75,7 +80,7 @@ public class TemplateCommands {
         }
     }
 
-    /** Saves (creating or updating); {@code contentAdmin} only. */
+    /** Saves (creating or updating); {@code contentAdmin} only. Kind-specific validation applies. */
     public boolean saveTemplate(final ContentTemplate template) {
         if (template == null || template.getId() == null || template.getId().isBlank()) {
             return false;
@@ -83,6 +88,12 @@ public class TemplateCommands {
         final Caller caller = callerSource.get();
         if (!caller.has(PrivilegeCommands.CONTENT_ADMIN)) {
             log.warn("Refusing template save of '{}': caller lacks contentAdmin", template.getId());
+            return false;
+        }
+        final String problem = validateForSave(template);
+        if (problem != null) {
+            log.warn("Refusing template save of '{}': {}", template.getId(), problem);
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", problem);
             return false;
         }
         normalizePlaceholders(template);
@@ -190,9 +201,91 @@ public class TemplateCommands {
         return created;
     }
 
-    /** The placeholder types, for the type menu (bound at render time, per the dialog rules). */
+    /**
+     * Kind-specific validation. Also normalizes the kind-dependent fields (a container carries no body; a
+     * programmatic template's placeholders come from its type on creation).
+     *
+     * @return a user-facing problem, or null when the template may be saved.
+     */
+    private String validateForSave(final ContentTemplate template) {
+        final ContentTemplate stored;
+        try {
+            stored = DAO.getInstance().getTemplate(template.getId()).orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to check the stored template for: " + template.getId(), ex);
+            return "The existing template could not be checked; try again.";
+        }
+        if (stored != null && stored.getKind() != template.getKind()) {
+            return "A template's kind cannot change after creation; create a new template instead.";
+        }
+        return switch (template.getKind()) {
+            case STANDARD -> HtmlFragmentValidator.validate(template.getBody());
+            case CONTAINER -> normalizeContainer(template);
+            case PROGRAMMATIC -> normalizeProgrammatic(template, stored == null);
+        };
+    }
+
+    private String normalizeContainer(final ContentTemplate template) {
+        if (template.getMaxChildren() != null && template.getMaxChildren() < 1) {
+            return "Max children must be blank (unlimited) or at least 1.";
+        }
+        for (final String childId : allowedIds(template)) {
+            final ContentTemplate child = DAO.getInstance().getTemplate(childId).orElse(null);
+            if (child != null && child.getKind() == TemplateKind.CONTAINER) {
+                return "A container may not allow another container ('" + childId + "') as a child.";
+            }
+        }
+        // Containers have no body or placeholders of their own -- they only hold children.
+        template.setBody("");
+        template.setPlaceholders(List.of());
+        return null;
+    }
+
+    private String normalizeProgrammatic(final ContentTemplate template, final boolean creating) {
+        final ProgrammaticContentTemplate type =
+                ProgrammaticTypes.byId(template.getProgrammaticTypeId()).orElse(null);
+        if (type == null) {
+            return "Unknown programmatic type: '" + template.getProgrammaticTypeId() + "'.";
+        }
+        // The type's property list IS the placeholder list; copy it in on creation (or if somehow empty)
+        // so the content dialog's form generation and version pinning work exactly as for STANDARD.
+        if (creating || template.getPlaceholders().isEmpty()) {
+            template.setPlaceholders(type.getProperties());
+        }
+        template.setBody("");
+        return null;
+    }
+
+    private static List<String> allowedIds(final ContentTemplate template) {
+        return template.getAllowedChildTemplateIds() == null
+                ? List.of() : template.getAllowedChildTemplateIds();
+    }
+
+    /** The template kinds, for the New Template dialog's chooser. */
+    public List<TemplateKind> getKinds() {
+        return List.of(TemplateKind.values());
+    }
+
+    /** The registered programmatic types, for the New Template dialog's type picker. */
+    public List<ProgrammaticContentTemplate> getProgrammaticTypes() {
+        return ProgrammaticTypes.ALL;
+    }
+
+    /** What a container may allow as children: every template that is not itself a container. */
+    public List<ContentTemplate> getChildTemplateChoices() {
+        return getTemplates().stream()
+                .filter(template -> template.getKind() != TemplateKind.CONTAINER)
+                .toList();
+    }
+
+    /**
+     * The placeholder types, for the type menu (bound at render time, per the dialog rules). CHOICE is
+     * excluded: it only means something with a programmatic type's options provider behind it.
+     */
     public List<Placeholder.Type> getPlaceholderTypes() {
-        return List.of(Placeholder.Type.values());
+        return Arrays.stream(Placeholder.Type.values())
+                .filter(type -> type != Placeholder.Type.CHOICE)
+                .toList();
     }
 
     /** Appends an empty placeholder row for the dialog's Add button (JSFT expressions cannot use new). */

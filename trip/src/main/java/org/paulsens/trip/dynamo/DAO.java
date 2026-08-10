@@ -393,6 +393,9 @@ public class DAO {
     public Boolean deleteContent(final String id) {
         return contentDao.deleteContent(id);
     }
+    public Boolean reorderContent(final String section, final List<String> orderedIds) {
+        return contentDao.reorderContent(section, orderedIds);
+    }
     /** Same escape hatch as {@link #clearMediaCache()}, for rows written behind the DAO's back. */
     public void clearContentCache() {
         contentDao.clearCache();

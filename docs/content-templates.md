@@ -1,98 +1,125 @@
-# Content templates — admin-editable page sections
+# Content templates v2 — fully template-driven pages
 
-The mechanism behind the data-driven landing page's Events and Introduction sections, built to be reused by
-any page that wants admin-editable content without a deploy.
+The mechanism behind the v2 landing page (`medjugorje/webapp/trip/index.xhtml`): EVERYTHING a page's
+`mainContent` shows is content instances, rendered in order by one reusable include. Future pages adopt the
+same structure with their own page key. Read this before touching `ContentCommands`, `TemplateCommands`,
+`ContentDAO`, `contentSections.xhtml`, or any `ptypes/` fragment.
 
-## Model
+## Kinds
 
-Two DynamoDB tables (both PK `id`, single `content` JSON column, PAY_PER_REQUEST, RETAIN + deletion
-protection, created by CDK in `AppStack`):
+A `ContentTemplate` has a `TemplateKind`, **immutable after creation** (a change would orphan children or
+strand instances; `saveTemplate` rejects it):
 
-| Table | Row type | Holds |
-|-------|----------|-------|
-| `templates` | `TemplateRecord` | the current `ContentTemplate` + up to *n* previous versions |
-| `content` | `ContentRecord` | the current `ContentInstance` + up to *n* previous versions |
+| Kind | What a template declares | What an instance holds | How it renders |
+|------|--------------------------|------------------------|----------------|
+| `STANDARD` | HTML body with `{{token}}` placeholders | placeholder values | `ContentRenderer` substitution, typed escaping |
+| `CONTAINER` | `allowedChildTemplateIds` (null/empty = any non-container), `maxChildren` (null = unlimited) | optional WYSIWYG title, optional `editorPrivileges`, optional per-instance `allowedChildTemplateIds` | title via `renderContainerTitle`, then its CHILDREN in order |
+| `PROGRAMMATIC` | `programmaticTypeId` naming a registered type | the type's NVP property values | the type's Facelets fragment (full PrimeFaces behavior) |
 
-- **`ContentTemplate`** — a reusable rich-HTML body containing `{{name}}` tokens, plus the `Placeholder`
-  declarations (name, type, label, hint, required) that describe them. Versions are 1-based and only move
-  forward.
-- **`ContentInstance`** — a filled template placed in a page *section* (`home.events`, `home.intro`,
-  `home.reflection`, …): `templateId` + **`templateVersion`** (pinned — a later template edit never reshapes
-  published content), a `values` map (placeholder name → raw value), an optional `eventDate` (the instance
-  stops rendering publicly the moment it passes; nothing is deleted), and a `position` for ordering. The
-  `title` doubles as the item's **on-page heading in sections that display one** (Events renders it bold,
-  Reflection as its `h3`); the hosting page decides, so a heading-less section (the intro) just ignores it.
-- **Versioning / undo** — every save bumps the version, pushes the old current into `previous`, and trims
-  history to the `content.versions.retained` setting (default 5). *Restore* re-saves an old snapshot as a
-  NEW version; history stays linear. A save whose version does not match the stored current is refused
-  (lost-update guard).
+Rows written before v2 carry no kind and read as STANDARD (`getKind()` folds null; `setKind` stores
+STANDARD as null so JSON round trips stay equal).
 
-## Caching
+## Section-key conventions
 
-Both DAOs sit on `PartitionScanCache` with a **5-minute soft TTL**: reads always answer from cache
-(stale-while-revalidate — an expired read still answers immediately and refreshes in the background), so a
-public page render never waits on DynamoDB.
+- **A page is a section key**: `page:trip-index` holds the landing page's ordered sections.
+- **A container's children live under the container INSTANCE's id** as their section key. Container ids
+  double as the page's anchors (`<a id="...">`): the landing page's containers are `events`, `reflection`,
+  `docs`, so `#events`/`#docs` deep links keep working.
+- Depth is capped at page → container → leaf: containers may not allow or contain containers (validated in
+  `saveTemplate` and `saveContent`, and excluded from every picker).
+- A STANDARD **child**'s title renders as its heading (the Events look). A page-level STANDARD section
+  deliberately does NOT render its title (the title block and intro would sprout headings) — a heading at
+  page level is either markup in the body or the reflection pattern: a titleless container whose child
+  carries the heading.
 
-- The **template cache field is `id + "#v" + version`** and the loader flattens every retained version into
-  its own entry: content pinned to v3 keeps finding v3 in cache after the template moves to v4, and a cached
-  body can never be paired with values authored against a different version.
-- The content cache is **partitioned by section** — rendering a section is one hash read.
-- Deletes are surgical (`removeOne`); rows deleted behind the app's back (the cleanup script) are NOT healed
-  by the background refresh, which merges and never removes — clear caches from the admin Settings page.
+## Programmatic types
 
-## Rendering and the security model
+`ProgrammaticContentTemplate` (in `org.paulsens.trip.content`, EL-friendly getter naming):
+`getTypeId()`, `getDisplayName()`, `getDescription()`, `getProperties()` (a `List<Placeholder>` — the NVP
+prompts the content dialog shows), `getFragmentPath()` (`/WEB-INF/ptypes/*.xhtml` in the medjugorje repo),
+and `choicesFor(prop)` feeding `Placeholder.Type.CHOICE` dropdowns (e.g. the File type's media picker, the
+pilgrimage language menu). Registry: `ProgrammaticTypes.ALL` (KnownSettings pattern). Shipped types:
+`pilgrimages`, `photo-albums`, `file` (one media item by id — title/size/URL read LIVE from the cached
+media table; hidden or deleted media renders nothing).
 
-`ContentRenderer` substitutes values into the body; **escaping is decided by the declared placeholder type**,
-because the page emits the result with `escape="false"`:
+Fragments are **pure render-time** (accordions/galleria/rows only — no build-time tags) and read the
+hosting instance as `#{instance}`. A template of kind PROGRAMMATIC copies its type's properties into
+`placeholders` at creation, so the dialog's form generation and version pinning work exactly as for
+STANDARD. On the page, `contentSections.xhtml` emits one statically-included fragment per registered type
+behind a `rendered=` guard — the ONE place build-time `c:forEach` is used, safe because the registry never
+changes at runtime.
 
-| Type | Editor widget | Rendering rule |
-|------|---------------|----------------|
-| `TEXT` | text field | HTML-escaped |
-| `RICH_TEXT` | `p:textEditor` (Quill) | verbatim |
-| `URL`, `IMAGE_URL` | text field | must parse as http(s) or renders empty; attribute-escaped |
-| `VIDEO_URL` | text field | YouTube forms normalized to `youtube.com/embed/{id}`; other http(s) pass through |
+## Rendering, editing, privileges
 
-Unknown tokens and missing values render as the empty string — a public page never leaks `{{token}}`.
+- `#{content}` helpers drive the include: `getForView`, `childrenFor`, `getKind`, `typeId`, `render`
+  (STANDARD only; "" otherwise), `renderTitle`, `isVisibleNow`, `getTemplateChoicesFor`,
+  `autoStartContent`, `getChoices`, `idsFor`, `titleOf`, `canEdit`, `canEditPage`, `applyOrder`,
+  `frameClass`, `completeEditorPriv`, `getEditorPrivNamesJson`.
+- **Privileges**: contentAdmin (or a site admin) edits everything. A container instance may name
+  `editorPrivileges` (only contentAdmin can set them — the save path guards the field): holders of ANY
+  listed privilege may add/edit/reorder/delete that container's CHILDREN (the landing page grants
+  `eventAdmin` on `events` and `mediaAdmin` on `docs`). The dialog renders them as autocomplete CHIPS
+  fed by the stored global privilege names; free-typed names matching no stored privilege turn red and
+  are silently DROPPED on save (`guardContainerConfig`/`sanitizeEditorPrivileges`). The old
+  SECTION_EDIT_PRIVS map is gone. `canEdit(section)` resolves the section as a container id; pages must
+  keep it BEHIND `viewScope.editMode and ...` so anonymous renders never reach its uncached lookup.
+- **Per-container child restriction**: a container INSTANCE may carry its own `allowedChildTemplateIds`
+  (contentAdmin-only, "Allowed items" in Edit-this-section); when non-empty it takes precedence over the
+  container template's list, in both the Add dialog's choices and the save-path validation. When the
+  effective choice is exactly ONE template, the Add flow skips the picker entirely
+  (`autoStartContent`) — the Documents container (Files only) opens straight on the media picker.
+- **Edit-mode visuals** (emitted by the include, not host pages): each section is wrapped — buttons
+  included — in a rotating dashed color frame (`content.frameClass(index)`), item-scoped buttons render
+  outlined (`contentItemBtn`) vs the filled section/page buttons, and the page toolbar is titled "Page
+  Operations".
+- **HTML validation**: `HtmlFragmentValidator` (structural: balance, nesting, quotes, comments; void and
+  raw-text elements understood) gates `saveTemplate` bodies and `saveContent` RICH_TEXT values and
+  markup-bearing titles. Failures surface as growl messages and keep the dialog open.
+- **Reordering**: the shared arrange dialog (`p:orderList`, drag or buttons) calls
+  `applyOrder(section, orderedIds)` → `ContentDAO.reorderContent`, a **version-silent** in-place position
+  rewrite (no version bump, no history churn; an editor dialog open across a reorder re-saves its stale
+  position — accepted).
+- **Structural edits reload the page** (`tripApplyDone`/`tripReloadIfSaved` + the `:form:reloadFlag`
+  contract in `contentSections.xhtml`): the include iterates viewScope-frozen lists, so in-place ajax
+  cannot reflect adds/deletes/reorders.
 
-There is deliberately **no HTML sanitizer**: template bodies and RICH_TEXT values are trusted-admin content,
-consistent with the rest of the codebase (`secure="false"` editors, `escape="false"` outputs). The privilege
-model is the containment: granting **`contentAdmin` is equivalent to granting script execution on public
-pages** — it authors raw-HTML templates. **`eventAdmin`** only fills placeholder values on the `home.events`
-section, and typed escaping limits it to what RICH_TEXT placeholders allow. If less-trusted editors are ever
-added, add OWASP java-html-sanitizer to the RICH_TEXT path first.
+## The include contract (`WEB-INF/contentSections.xhtml`)
 
-## Beans and pages
+Host page's `initPage` captures into viewScope BEFORE the include's tree builds: `pageKey` (a viewScope
+value, NOT a ui:param — jsft command scripts resolve at invoke time where Facelets aliases no longer
+exist), `editMode`, `pageSections = content.getForView(pageKey, editMode)`, `childLists =
+content.childrenFor(pageSections, editMode)`. The include renders sections + all edit affordances and
+pulls in `contentDialog.xhtml` and `arrangeDialog.xhtml` itself. See `trip/index.xhtml` for the reference
+host.
 
-- `#{content}` (`ContentCommands`) — `getForSection('home.events')` (visible only), `render(c)`,
-  `createContent(section, templateId)`, `saveContent`, `deleteContent`, `getHistory`, `restoreContent`,
-  `canEdit(section, userId)`. Mutations re-check privileges server-side; a page's `rendered=` only hides
-  buttons. Site admins pass `canEdit` outright (matching `Caller.has`'s short-circuit).
-- `#{contentTemplate}` (`TemplateCommands`) — template CRUD + history/restore, `installStarterTemplates()`
-  (idempotent), `detectPlaceholders`. Deleting a template is refused while ANY instance (current or history)
-  references it.
-- Admin UI: `/admin/templates.jsf` (template manager, `contentAdmin`), `WEB-INF/templateDialog.xhtml`
-  (WYSIWYG body editor with a raw-HTML toggle — Quill simplifies iframes/wrapper divs, which structural
-  templates need), and the reusable `WEB-INF/contentDialog.xhtml` (template picker → placeholder-generated
-  form → preview) included by any page hosting sections. Picking a template advances the dialog immediately
-  (no confirm click); both dialogs are `fitViewport` so tall forms scroll inside them. Every `p:textEditor`
-  on these pages has Quill's toolbar image action re-handled to insert an image **by URL** — the stock
-  handler file-picks and inlines a base64 blob, which would bloat the stored row (DynamoDB's 400KB item cap)
-  and defeat CDN caching.
+## Performance rule
 
-## Production bootstrap (one-time, by hand)
+**The public render path performs no live DynamoDB reads** (beyond first-request cache warming):
+section listings and child lists are cached partitions, template lookups hit the versioned template cache
+(`id#vN`), media/trips come from their own caches. `RenderPathCacheTest` enforces zero persistence reads
+against a warm cache — keep it passing. Uncached point reads (`getContent`, container resolution in
+`canEdit`, `titleOf`) are edit-mode/admin paths only.
 
-1. `cdk deploy TripApp` (user-run) — creates the `templates` and `content` tables and task-role grants.
-2. Enable PITR on both tables (the monthly AWS Backup plan picks them up automatically; PITR does not).
-3. In `/admin/editPrivs.jsf`, create two GLOBAL privilege rows: `contentAdmin` and `eventAdmin`, and add the
-   right people. (An unreferenced privilege name silently answers false — the rows must exist.)
-4. Run `medjugorje/scripts/install-starter-templates.sh` (youtube-video, image, text-only) — idempotent
-   conditional puts that never overwrite an edited starter; the row JSON is generated from
-   `StarterTemplates.java`, so regenerate rather than hand-editing if the starters change. The admin page's
-   **Install starter templates** button does the same thing from the UI, but the script is the canonical
-   from-scratch path (`medjugorje/setup-instructions.txt` walks the whole bootstrap).
+## Versioning / undo (unchanged from v1)
 
-## Housekeeping
+Row = current + up to `content.versions.retained` previous versions; saves bump the version with a
+lost-update guard; restore re-saves a snapshot as a NEW version. Deleting a container cascades to its
+children — each via the DAO's surgical `removeOne` (NEVER `invalidate()`: local mode's cache is the
+datastore).
 
-`medjugorje/scripts/cleanup-templates.sh` deletes templates nothing references (dry-run by default,
-`--delete` to act, starters kept unless `--include-starters`). See the cache note above before expecting the
-manager page to reflect a scripted delete.
+## Bootstrap (production, one-time — scripts in `medjugorje/scripts/`)
+
+1. Privilege rows (hand-created in `/admin/editPrivs.jsf`): `contentAdmin` (raw-HTML power — grant like
+   script access), `eventAdmin`, `mediaAdmin`.
+2. `install-starter-templates.sh` — the SEVEN starters (JSON generated from `StarterTemplates`).
+3. `bootstrap-home-v2.sh` — the `page:trip-index` skeleton (JSON generated from `V2PageBootstrap`);
+   `--purge-v1` deletes the retired `home.*` rows. Then clear caches from admin Settings (the background
+   refresh merges, never removes).
+Everything else is edited in place: `/trip/index.jsf` → Edit page.
+
+## Retired v1 behaviors
+
+Documents' 92-day auto-age (a doc's visibility = media `hidden` + the child's own "Show until"),
+`home.banner.*` and `home.docs.maxAgeDays` on this page (still used by the OLD `medjugorje/index.xhtml`
+until promotion), the select-existing/`assignToSlot` dialog flow (superseded by the File picker), and the
+`home.intro`/`home.events`/`home.reflection` section keys.

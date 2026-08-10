@@ -121,6 +121,38 @@ public class ContentDAO {
     }
 
     /**
+     * Rewrites the section's display order: each listed id gets position = its list index. Deliberately
+     * VERSION-SILENT -- the current version's position changes in place with no version bump and no history
+     * push, so undo history stays about content edits and an open editor's lost-update guard still matches.
+     * (Caveat: that same open editor re-saves its stale position on Apply; admin-path, accepted.)
+     * Ids that are missing or belong to another section are skipped, not failed -- the caller's list can be
+     * a moment stale.
+     */
+    protected Boolean reorderContent(final String section, final List<String> orderedIds) {
+        if (section == null || section.isBlank() || orderedIds == null) {
+            return false;
+        }
+        boolean allOk = true;
+        for (int i = 0; i < orderedIds.size(); i++) {
+            final ContentRecord existing = pointReadRecord(orderedIds.get(i)).orElse(null);
+            final ContentInstance current = existing == null ? null : existing.getCurrent();
+            if (current == null || !section.trim().equals(current.getSection())) {
+                continue;
+            }
+            if (current.getPosition() == i) {
+                continue;
+            }
+            current.setPosition(i);
+            if (!putRecord(new ContentRecord(current.getId(), current, existing.getPrevious()))) {
+                allOk = false;
+                continue;
+            }
+            cache.put(current);
+        }
+        return allOk;
+    }
+
+    /**
      * Every row, current plus history -- the reference check behind refusing to delete a template that
      * content still points at. A raw scan on purpose: it runs on an admin click, never on a page render.
      */

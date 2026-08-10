@@ -23,6 +23,7 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.BindingType;
+import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
@@ -245,6 +246,35 @@ public class TripCommands {
     /** The sidebar's link list: {@link #getPublicTrips(String)} restricted to CFPW-hosted trips. */
     public List<Trip> getPublicCfpwTrips(final String language) {
         return getPublicTrips(language).stream().filter(Trip::isCfpw).toList();
+    }
+
+    /**
+     * The pilgrimages a "Pilgrimage Listings" programmatic content instance shows: its admin-provided
+     * properties (language, CFPW-only, max count) applied to the same index-cached public listing. Blank or
+     * unparsable properties fall back to everything -- a public page renders permissively, never errors.
+     */
+    public List<Trip> getPublicTripsFor(final ContentInstance instance) {
+        if (instance == null) {
+            return List.of();
+        }
+        final Map<String, String> values = instance.getValues();
+        final List<Trip> listed = Boolean.parseBoolean(values.get("cfpwOnly"))
+                ? getPublicCfpwTrips(values.get("language"))
+                : getPublicTrips(values.get("language"));
+        final int max = parsePositive(values.get("maxCount"), Integer.MAX_VALUE);
+        return listed.stream().limit(max).toList();
+    }
+
+    private static int parsePositive(final String raw, final int fallback) {
+        if (raw == null || raw.isBlank()) {
+            return fallback;
+        }
+        try {
+            final int parsed = Integer.parseInt(raw.trim());
+            return parsed > 0 ? parsed : fallback;
+        } catch (final NumberFormatException ignored) {
+            return fallback;
+        }
     }
 
     /**

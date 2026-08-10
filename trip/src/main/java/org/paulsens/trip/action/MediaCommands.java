@@ -17,9 +17,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.AuditEventBuilder;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
+import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Trip;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
@@ -63,6 +65,7 @@ public class MediaCommands {
 
     private volatile S3Client s3;
     private volatile CloudFrontClient cloudFront;
+    private final ConfigCommands config = new ConfigCommands();
 
     /** @return every media item, newest first, for the admin page. */
     public List<MediaItem> getAll() {
@@ -204,6 +207,43 @@ public class MediaCommands {
 
     private TripAlbum toAlbum(final Trip trip) {
         return new TripAlbum(trip, getVisibleInSlot(ChatPhotos.slotFor(trip.getId()), 0));
+    }
+
+    /**
+     * {@link #getHomeAlbums(int, int)} driven by a "Photo Albums" programmatic content instance: blank or
+     * unparsable properties fall back to the site-wide settings, so an empty instance behaves like v1 did.
+     */
+    public List<TripAlbum> getHomeAlbumsFor(final ContentInstance instance) {
+        if (instance == null) {
+            return List.of();
+        }
+        final int window = parsePositive(instance.getValues().get("windowDays"),
+                config.getInt(KnownSettings.HOME_PHOTOS_WINDOW_DAYS));
+        final int minPhotos = parsePositive(instance.getValues().get("minPhotos"),
+                config.getInt(KnownSettings.HOME_PHOTOS_MIN_COUNT));
+        return getHomeAlbums(window, minPhotos);
+    }
+
+    /**
+     * One media item IF it publicly exists: null when unknown or hidden. For the "File" programmatic
+     * fragment, which must render nothing (not a broken row) for a hidden or deleted document. Reads the
+     * media cache -- safe on a public page render.
+     */
+    public MediaItem getVisible(final String id) {
+        final MediaItem item = get(id);
+        return item == null || item.getHidden() ? null : item;
+    }
+
+    private static int parsePositive(final String raw, final int fallback) {
+        if (raw == null || raw.isBlank()) {
+            return fallback;
+        }
+        try {
+            final int parsed = Integer.parseInt(raw.trim());
+            return parsed > 0 ? parsed : fallback;
+        } catch (final NumberFormatException ignored) {
+            return fallback;
+        }
     }
 
     /**

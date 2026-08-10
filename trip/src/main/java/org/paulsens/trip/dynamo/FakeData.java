@@ -20,6 +20,7 @@ import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Person.Sex;
+import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
@@ -98,7 +99,28 @@ public class FakeData {
                 }
             });
             addFakeMedia();
+            addFakePrivileges();
             addFakeContent();
+        }
+    }
+
+    /**
+     * The privilege ROWS the landing page's containers reference. Membership stays empty -- the fake
+     * admin passes every check by site-admin role -- but the rows must EXIST: the editors chips only
+     * autocomplete stored names, and the save path drops names matching no stored row, so without these a
+     * local-mode container save would silently strip the seeded editorPrivileges.
+     */
+    private static void addFakePrivileges() {
+        savePrivilege(new Privilege("contentAdmin", "Authors templates + edits every section", List.of()));
+        savePrivilege(new Privilege("eventAdmin", "Edits the home-page Events section", List.of()));
+        savePrivilege(new Privilege("mediaAdmin", "Edits Documents + the media library", List.of()));
+    }
+
+    private static void savePrivilege(final Privilege privilege) {
+        // Conditional like saveContent: suite tests re-run addFakeData against a shared store, and a
+        // re-save would wipe any membership a test granted in the meantime.
+        if (DAO.getInstance().getPrivilege(privilege.getId()).isEmpty()) {
+            DAO.getInstance().savePrivilege(privilege);
         }
     }
 
@@ -162,7 +184,15 @@ public class FakeData {
         ChatPhotos.getChatPhotos().seedLocalObject(key, TINY_JPEG, "image/jpeg");
     }
 
-    /** The starter templates plus one visible event, one expired event (proves auto-hide), and an intro. */
+    /** The v2 landing page: every section under {@link #PAGE_KEY}, containers with children, the works. */
+    public static final String PAGE_KEY = "page:trip-index";
+
+    /**
+     * Seeds the starter templates and a complete v2 page: STANDARD sections (title, intro, reflection),
+     * two CONTAINER instances with deliberately guessable ids ({@code events}, {@code docs} -- they double
+     * as the page's anchor targets) holding children that prove auto-hide and hidden-media filtering, and
+     * PROGRAMMATIC sections for the pilgrimage listings and photo albums.
+     */
     private static void addFakeContent() {
         // Idempotent: addFakeData runs once per DAO instance, but tests re-run it against a shared local
         // store, and a re-save of an existing versioned row trips the lost-update guard.
@@ -170,25 +200,65 @@ public class FakeData {
                 .filter(t -> DAO.getInstance().getTemplate(t.getId()).isEmpty())
                 .forEach(t -> DAO.getInstance().saveTemplate(t, 5));
         final LocalDateTime now = LocalDateTime.now();
-        // The page renders the TITLE as the event's heading, so the body must not repeat it.
-        saveContent(new ContentInstance("fake-event-future", "home.events", "Monthly Prayer Group Meeting",
+        saveContent(new ContentInstance("fake-title", PAGE_KEY, "Title block",
+                StarterTemplates.TEXT_ONLY_ID, 1,
+                new HashMap<>(Map.of("body", "<div style=\"text-align:center\">"
+                        + "<h1 style=\"margin-bottom:0px;\">Visit Queen of Peace</h1>"
+                        + "<span style=\"font-size:1.3em\">by Center for Peace West</span></div>")),
+                null, 0, 0, null, "fake-seed"));
+        saveContent(new ContentInstance("fake-intro", PAGE_KEY, "Introduction",
+                StarterTemplates.TEXT_ONLY_ID, 1,
+                new HashMap<>(Map.of("body", "<p>Welcome to Visit Queen of Peace — fake local intro.</p>")),
+                null, 1, 0, null, "fake-seed"));
+        // The Events container: eventAdmin may manage its CHILDREN; the container row itself lives under
+        // the page key, so retitling or deleting the container stays contentAdmin-only.
+        saveContent(new ContentInstance("events", PAGE_KEY, "Events",
+                StarterTemplates.CONTAINER_ID, 1, new HashMap<>(),
+                null, 2, 0, null, "fake-seed", List.of("eventAdmin"), null));
+        saveContent(new ContentInstance("fake-event-future", "events", "Monthly Prayer Group Meeting",
                 StarterTemplates.TEXT_ONLY_ID, 1,
                 new HashMap<>(Map.of("body", "First Saturday of every month, 10am — all are welcome.")),
                 now.plusDays(30), 0, 0, null, "fake-seed"));
-        saveContent(new ContentInstance("fake-event-past", "home.events", "Past Peace Mass",
+        saveContent(new ContentInstance("fake-event-past", "events", "Past Peace Mass",
                 StarterTemplates.TEXT_ONLY_ID, 1,
                 new HashMap<>(Map.of("body", "This event already happened and must not render.")),
                 now.minusDays(3), 1, 0, null, "fake-seed"));
-        saveContent(new ContentInstance("fake-intro", "home.intro", "Introduction",
-                StarterTemplates.TEXT_ONLY_ID, 1,
-                new HashMap<>(Map.of("body", "<p>Welcome to Visit Queen of Peace — fake local intro.</p>")),
-                null, 0, 0, null, "fake-seed"));
-        // The Reflection section: instance title = the page heading, video from the youtube starter.
-        saveContent(new ContentInstance("fake-reflection", "home.reflection", "Jan 25th, 2026 Reflection",
+        saveContent(new ContentInstance("fake-pilgrimages-en", PAGE_KEY, "English Medjugorje Pilgrimages",
+                StarterTemplates.PILGRIMAGES_ID, 1,
+                new HashMap<>(Map.of("language", "English", "cfpwOnly", "false")),
+                null, 3, 0, null, "fake-seed"));
+        saveContent(new ContentInstance("fake-pilgrimages-es", PAGE_KEY,
+                "Peregrinaciones españolas a Medjugorje",
+                StarterTemplates.PILGRIMAGES_ID, 1,
+                new HashMap<>(Map.of("language", "Spanish", "cfpwOnly", "false")),
+                null, 4, 0, null, "fake-seed"));
+        // Reflection is a titleless container so its CHILD's title renders as the heading (a page-level
+        // STANDARD section deliberately shows no title -- the title block and intro would sprout ones).
+        saveContent(new ContentInstance("reflection", PAGE_KEY, "",
+                StarterTemplates.CONTAINER_ID, 1, new HashMap<>(),
+                null, 5, 0, null, "fake-seed"));
+        saveContent(new ContentInstance("fake-reflection", "reflection", "Jan 25th, 2026 Reflection",
                 StarterTemplates.YOUTUBE_VIDEO_ID, 1,
                 new HashMap<>(Map.of("videoUrl", "https://www.youtube.com/watch?v=bW7s8YCJjoI",
                         "caption", "A reflection on Our Lady's monthly message.")),
                 null, 0, 0, null, "fake-seed"));
+        saveContent(new ContentInstance("fake-albums", PAGE_KEY, "Pilgrimage Pictures",
+                StarterTemplates.PHOTO_ALBUMS_ID, 1, new HashMap<>(),
+                null, 6, 0, null, "fake-seed"));
+        // The Documents container: File children reference media rows; fake-doc-2 is hidden media, so its
+        // child must render nothing on the public page (live filtering, not duplicated state). Its
+        // per-instance allow-list admits only File items, so its Add button skips the template picker.
+        saveContent(new ContentInstance("docs", PAGE_KEY, "Documents",
+                StarterTemplates.CONTAINER_ID, 1, new HashMap<>(),
+                null, 7, 0, null, "fake-seed", List.of("mediaAdmin"), List.of(StarterTemplates.FILE_ID)));
+        saveContent(new ContentInstance("fake-file-1", "docs", "Travel Guide",
+                StarterTemplates.FILE_ID, 1,
+                new HashMap<>(Map.of("mediaId", "fake-doc-1")),
+                null, 0, 0, null, "fake-seed"));
+        saveContent(new ContentInstance("fake-file-hidden", "docs", "Hidden Doc Link",
+                StarterTemplates.FILE_ID, 1,
+                new HashMap<>(Map.of("mediaId", "fake-doc-2")),
+                null, 1, 0, null, "fake-seed"));
     }
 
     private static void saveMedia(final MediaItem item) {

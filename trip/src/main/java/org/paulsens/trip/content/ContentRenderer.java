@@ -73,11 +73,26 @@ public final class ContentRenderer {
             return "";
         }
         return switch (declared.getType()) {
-            case TEXT -> escapeHtml(raw);
+            case TEXT, CHOICE -> escapeHtml(raw);
             case RICH_TEXT -> raw;
             case IMAGE_URL, URL -> escapeHtml(requireHttpUrl(raw));
             case VIDEO_URL -> escapeHtml(normalizeVideoUrl(raw));
         };
+    }
+
+    /**
+     * A container instance's on-page title. Plain text gets the site's default heading treatment; a title
+     * containing markup renders verbatim (the WYSIWYG/raw escape hatch, validated at save). Blank renders
+     * nothing -- an untitled container is legal.
+     */
+    public static String renderContainerTitle(final String title) {
+        if (title == null || title.isBlank()) {
+            return "";
+        }
+        if (title.indexOf('<') >= 0) {
+            return title;
+        }
+        return "<h3 class=\"contentTitle\">" + escapeHtml(title.trim()) + "</h3>";
     }
 
     /** @return the URL when it parses as absolute http(s), else the empty string. */

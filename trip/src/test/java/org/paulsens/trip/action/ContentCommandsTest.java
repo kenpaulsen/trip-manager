@@ -3,11 +3,15 @@ package org.paulsens.trip.action;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.ContentInstance;
+import org.paulsens.trip.model.ContentRecord;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Placeholder;
+import org.paulsens.trip.model.TemplateKind;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -27,6 +31,15 @@ public class ContentCommandsTest {
     @BeforeClass
     public void seedPrivileges() {
         DAO.getInstance();
+        // Other suite tests clear caches, and locally a cleared partition never rebuilds -- while the fake
+        // ROWS survive in the store, so re-running addFakeData skips them and the cache stays empty. The
+        // documented remedy (see TemplateCommandsTest.warmUp): re-save every stored current, a
+        // version-matching save that puts each row back into its partition.
+        FakeData.addFakeData();
+        DAO.getInstance().getAllContentRecords().stream()
+                .map(ContentRecord::getCurrent)
+                .filter(current -> current != null)
+                .forEach(current -> DAO.getInstance().saveContent(current, 5));
         priv.savePrivilege(priv.createPrivilege(PrivilegeCommands.CONTENT_ADMIN, "content admins", null,
                 List.of(ADMIN)));
         priv.savePrivilege(priv.createPrivilege(PrivilegeCommands.EVENT_ADMIN, "event admins", null,
@@ -84,17 +97,20 @@ public class ContentCommandsTest {
 
     @Test
     public void privilegeChecksGateEveryMutation() {
+        // 'events' is the seeded CONTAINER instance whose editorPrivilege is eventAdmin: its id is the
+        // section key of its children, and holding the privilege grants exactly that scope.
         final ContentCommands nobody = as(NOBODY, false);
-        final ContentInstance denied = nobody.createContent("home.events", "cc-test-tpl");
+        final ContentInstance denied = nobody.createContent("events", "cc-test-tpl");
         denied.setTitle("denied");
         Assert.assertFalse(nobody.saveContent(denied), "no privilege, no save");
 
         final ContentCommands eventsOnly = as(EVENTS_ONLY, false);
-        final ContentInstance event = eventsOnly.createContent("home.events", "cc-test-tpl");
+        final ContentInstance event = eventsOnly.createContent("events", "cc-test-tpl");
         event.setTitle("cc-event-admin-save");
-        Assert.assertTrue(eventsOnly.saveContent(event), "eventAdmin may edit home.events");
-        final ContentInstance intro = eventsOnly.createContent("home.intro", "cc-test-tpl");
-        Assert.assertFalse(eventsOnly.saveContent(intro), "eventAdmin may NOT edit other sections");
+        event.getValues().put("msg", "an event");
+        Assert.assertTrue(eventsOnly.saveContent(event), "eventAdmin may edit the events container");
+        final ContentInstance pageRow = eventsOnly.createContent(FakeData.PAGE_KEY, "cc-test-tpl");
+        Assert.assertFalse(eventsOnly.saveContent(pageRow), "eventAdmin may NOT edit page-level sections");
         Assert.assertFalse(eventsOnly.deleteContent("fake-intro"), "nor delete them");
 
         final ContentCommands admin = as(ADMIN, false);
@@ -108,15 +124,264 @@ public class ContentCommandsTest {
     @Test
     public void canEditAnswersThePageGate() {
         final ContentCommands content = as(ADMIN, false);
-        Assert.assertTrue(content.canEdit("home.events", ADMIN));
-        Assert.assertTrue(content.canEdit("home.intro", ADMIN));
-        Assert.assertTrue(content.canEdit("home.events", EVENTS_ONLY));
-        Assert.assertFalse(content.canEdit("home.intro", EVENTS_ONLY));
-        Assert.assertFalse(content.canEdit("home.events", NOBODY));
+        Assert.assertTrue(content.canEdit("events", ADMIN));
+        Assert.assertTrue(content.canEdit(FakeData.PAGE_KEY, ADMIN));
+        Assert.assertTrue(content.canEdit("events", EVENTS_ONLY), "container editorPrivilege grants edit");
+        Assert.assertFalse(content.canEdit(FakeData.PAGE_KEY, EVENTS_ONLY));
+        Assert.assertFalse(content.canEdit("docs", EVENTS_ONLY), "another container's privilege differs");
+        Assert.assertFalse(content.canEdit("events", NOBODY));
         Assert.assertFalse(content.canEdit(null, ADMIN));
-        Assert.assertFalse(content.canEdit("home.events", null));
+        Assert.assertFalse(content.canEdit("events", null));
         // A site administrator passes without any privilege row, matching the save path's short-circuit.
-        Assert.assertTrue(as(NOBODY, true).canEdit("home.intro", NOBODY));
+        Assert.assertTrue(as(NOBODY, true).canEdit(FakeData.PAGE_KEY, NOBODY));
+    }
+
+    @Test
+    public void canEditPageIncludesContainerEditors() {
+        final ContentCommands content = as(ADMIN, false);
+        Assert.assertTrue(content.canEditPage(FakeData.PAGE_KEY, ADMIN));
+        Assert.assertTrue(content.canEditPage(FakeData.PAGE_KEY, EVENTS_ONLY),
+                "a container editor gets the Edit-page button even without contentAdmin");
+        Assert.assertFalse(content.canEditPage(FakeData.PAGE_KEY, NOBODY));
+        Assert.assertFalse(content.canEditPage(FakeData.PAGE_KEY, null));
+        Assert.assertFalse(content.canEditPage(null, EVENTS_ONLY));
+    }
+
+    @Test
+    public void containerConfigFieldsAreContentAdminOnly() {
+        final ContentCommands eventsOnly = as(EVENTS_ONLY, false);
+        final ContentInstance sneak = eventsOnly.createContent("events", "cc-test-tpl");
+        sneak.setTitle("sneaky");
+        sneak.getValues().put("msg", "x");
+        sneak.setEditorPrivileges(List.of("eventAdmin"));   // an editor may not mint privileges
+        sneak.setAllowedChildTemplateIds(List.of("cc-test-tpl"));
+        Assert.assertTrue(eventsOnly.saveContent(sneak));
+        final ContentInstance stored = as(ADMIN, false).getContent(sneak.getId());
+        Assert.assertNull(stored.getEditorPrivileges(),
+                "a non-contentAdmin save must not establish editor privileges");
+        Assert.assertNull(stored.getAllowedChildTemplateIds(),
+                "nor a child allow-list");
+        Assert.assertTrue(as(ADMIN, false).deleteContent(sneak.getId()));
+    }
+
+    @Test
+    public void invalidEditorPrivilegeChipsAreDroppedOnSave() {
+        final ContentCommands admin = as(ADMIN, false);
+        final ContentInstance holder = admin.createContent("cc.section-chips",
+                StarterTemplates.CONTAINER_ID);
+        holder.setTitle("Chips holder");
+        // Chips are free-typed: names with no stored privilege row (and blanks/dupes) are IGNORED.
+        holder.setEditorPrivileges(List.of("eventAdmin", "noSuchPrivilege", " ", "eventAdmin"));
+        Assert.assertTrue(admin.saveContent(holder));
+        Assert.assertEquals(admin.getContent(holder.getId()).getEditorPrivileges(),
+                List.of("eventAdmin"), "unknown, blank, and duplicate names are dropped");
+
+        final ContentInstance cleared = admin.getContent(holder.getId());
+        cleared.setEditorPrivileges(List.of("noSuchPrivilege"));
+        Assert.assertTrue(admin.saveContent(cleared));
+        Assert.assertNull(admin.getContent(holder.getId()).getEditorPrivileges(),
+                "only-invalid chips collapse to none, not to a junk list");
+        Assert.assertTrue(admin.deleteContent(holder.getId()));
+    }
+
+    @Test
+    public void instanceAllowListTightensTheContainer() {
+        final ContentCommands admin = as(ADMIN, false);
+        // The seeded docs container allows ONLY File children via its per-instance list, even though its
+        // template (the generic container starter) declares no restriction.
+        Assert.assertEquals(admin.getTemplateChoicesFor("docs").stream()
+                        .map(ContentTemplate::getId).toList(),
+                List.of(StarterTemplates.FILE_ID), "the instance allow-list filters the Add choices");
+        final ContentInstance wrong = admin.createContent("docs", "cc-test-tpl");
+        wrong.setTitle("not a file");
+        wrong.getValues().put("msg", "x");
+        Assert.assertFalse(admin.saveContent(wrong), "the instance allow-list gates the save path too");
+
+        // Exactly one effective choice: the Add flow skips the picker and starts the instance directly.
+        final ContentInstance started = admin.autoStartContent("docs");
+        Assert.assertNotNull(started, "a single-choice section starts without the picker");
+        Assert.assertEquals(started.getTemplateId(), StarterTemplates.FILE_ID);
+        Assert.assertNull(admin.autoStartContent(FakeData.PAGE_KEY),
+                "many choices keep the picker");
+    }
+
+    @Test
+    public void editorChipHelpersAnswerPrivilegeNames() {
+        final ContentCommands admin = as(ADMIN, false);
+        Assert.assertTrue(admin.completeEditorPriv("event").contains("eventAdmin"));
+        Assert.assertTrue(admin.completeEditorPriv("EVENT").contains("eventAdmin"), "match ignores case");
+        Assert.assertTrue(admin.completeEditorPriv(null).contains("contentAdmin"), "empty query lists all");
+        Assert.assertTrue(admin.completeEditorPriv("zzz-no-such").isEmpty());
+        final String json = admin.getEditorPrivNamesJson();
+        Assert.assertTrue(json.startsWith("[") && json.endsWith("]"), json);
+        Assert.assertTrue(json.contains("\"eventAdmin\""), json);
+    }
+
+    @Test
+    public void frameClassRotatesThePalette() {
+        final ContentCommands content = as(ADMIN, false);
+        Assert.assertEquals(content.frameClass(0), "tripEditFrame tripEditFrame0");
+        Assert.assertEquals(content.frameClass(7), "tripEditFrame tripEditFrame2");
+        Assert.assertEquals(content.frameClass(-1), "tripEditFrame tripEditFrame4",
+                "defensive: never a negative suffix");
+    }
+
+    @Test
+    public void containerRulesGateChildren() {
+        final ContentCommands admin = as(ADMIN, false);
+        // A dedicated restrictive container: only text-only children, at most one.
+        final ContentTemplate strict = new ContentTemplate("cc-strict-container", 0, "Strict", null, "",
+                List.of(), null, null, TemplateKind.CONTAINER,
+                List.of(StarterTemplates.TEXT_ONLY_ID), 1, null);
+        Assert.assertTrue(DAO.getInstance().saveTemplate(strict, 5));
+        final ContentInstance holder = admin.createContent("cc.section-container", "cc-strict-container");
+        holder.setTitle("Strict holder");
+        Assert.assertTrue(admin.saveContent(holder));
+
+        final ContentInstance wrongKind = admin.createContent(holder.getId(), "cc-test-tpl");
+        wrongKind.setTitle("not allowed");
+        wrongKind.getValues().put("msg", "x");
+        Assert.assertFalse(admin.saveContent(wrongKind), "outside the allow-list");
+
+        final ContentInstance first = admin.createContent(holder.getId(), StarterTemplates.TEXT_ONLY_ID);
+        first.setTitle("first child");
+        first.getValues().put("body", "<p>one</p>");
+        Assert.assertTrue(admin.saveContent(first), "an allowed child under the limit saves");
+        Assert.assertTrue(admin.saveContent(admin.getContent(first.getId())),
+                "re-saving an existing child never counts against the limit");
+
+        final ContentInstance second = admin.createContent(holder.getId(), StarterTemplates.TEXT_ONLY_ID);
+        second.setTitle("second child");
+        second.getValues().put("body", "<p>two</p>");
+        Assert.assertFalse(admin.saveContent(second), "the container is full");
+
+        final ContentInstance nested = admin.createContent(holder.getId(), StarterTemplates.CONTAINER_ID);
+        nested.setTitle("nested container");
+        Assert.assertFalse(admin.saveContent(nested), "containers cannot nest");
+
+        final ContentInstance selfHosting = admin.getContent(holder.getId());
+        selfHosting.setSection(holder.getId());
+        Assert.assertFalse(admin.saveContent(selfHosting), "an item cannot live inside itself");
+
+        Assert.assertTrue(admin.deleteContent(holder.getId()));
+    }
+
+    @Test
+    public void deletingAContainerCascadesToItsChildren() {
+        final ContentCommands admin = as(ADMIN, false);
+        final ContentInstance holder = admin.createContent("cc.section-cascade",
+                StarterTemplates.CONTAINER_ID);
+        holder.setTitle("Doomed");
+        Assert.assertTrue(admin.saveContent(holder));
+        final ContentInstance child = admin.createContent(holder.getId(), StarterTemplates.TEXT_ONLY_ID);
+        child.setTitle("child");
+        child.getValues().put("body", "<p>going too</p>");
+        Assert.assertTrue(admin.saveContent(child));
+
+        Assert.assertTrue(admin.deleteContent(holder.getId()));
+        Assert.assertNull(admin.getContent(child.getId()).getSection(),
+                "the child row is gone (a blank answers unknown ids)");
+        Assert.assertTrue(admin.getAllForSection(holder.getId()).isEmpty());
+    }
+
+    @Test
+    public void applyOrderRewritesPositionsWithoutVersions() {
+        final ContentCommands admin = as(ADMIN, false);
+        final String section = "cc.section-order";
+        final ContentInstance a = admin.createContent(section, "cc-test-tpl");
+        a.setTitle("a");
+        a.getValues().put("msg", "a");
+        final ContentInstance b = admin.createContent(section, "cc-test-tpl");
+        b.setTitle("b");
+        b.getValues().put("msg", "b");
+        Assert.assertTrue(admin.saveContent(a));
+        Assert.assertTrue(admin.saveContent(b));
+
+        Assert.assertTrue(admin.applyOrder(section, List.of(b.getId(), a.getId(), "no-such-id")));
+        final List<String> ordered = admin.getAllForSection(section).stream()
+                .map(ContentInstance::getTitle).toList();
+        Assert.assertEquals(ordered, List.of("b", "a"));
+        Assert.assertEquals(admin.getContent(a.getId()).getVersion(), 1,
+                "reordering is version-silent: no history churn");
+        Assert.assertTrue(admin.getHistory(a.getId()).size() <= 1, "no snapshot was pushed");
+
+        Assert.assertFalse(as(NOBODY, false).applyOrder(section, List.of(a.getId())), "privilege-gated");
+        Assert.assertFalse(admin.applyOrder(" ", List.of(a.getId())));
+        Assert.assertFalse(admin.applyOrder(section, List.of()));
+    }
+
+    @Test
+    public void brokenAuthoredHtmlIsRejected() {
+        final ContentCommands admin = as(ADMIN, false);
+        // cc-test-tpl's 'msg' is TEXT (escaped -- broken markup there is harmless and allowed); rich text
+        // and markup titles are the injection points that must parse.
+        final ContentTemplate richTpl = new ContentTemplate("cc-rich-tpl", 0, "Rich", null, "{{body}}",
+                List.of(new Placeholder("body", Placeholder.Type.RICH_TEXT, "Body", null, true)),
+                null, null);
+        Assert.assertTrue(DAO.getInstance().saveTemplate(richTpl, 5));
+
+        final ContentInstance broken = admin.createContent("cc.section-html", "cc-rich-tpl");
+        broken.setTitle("ok title");
+        broken.getValues().put("body", "<div><p>never closed</div>");
+        Assert.assertFalse(admin.saveContent(broken), "misnested rich text must not reach the page");
+
+        broken.getValues().put("body", "<div><p>fine</p></div>");
+        Assert.assertTrue(admin.saveContent(broken), "well-formed rich text saves");
+
+        final ContentInstance badTitle = admin.createContent("cc.section-html", "cc-rich-tpl");
+        badTitle.setTitle("<b>never closed");
+        badTitle.getValues().put("body", "<p>fine</p>");
+        Assert.assertFalse(admin.saveContent(badTitle), "a markup title must parse too");
+    }
+
+    @Test
+    public void includeHelpersDescribeInstances() {
+        final ContentCommands admin = as(ADMIN, false);
+        final ContentInstance events = admin.getContent("events");
+        Assert.assertEquals(admin.getKind(events), "CONTAINER");
+        Assert.assertEquals(admin.typeId(events), "");
+        Assert.assertEquals(admin.renderTitle(events), "<h3 class=\"contentTitle\">Events</h3>");
+
+        final ContentInstance albums = admin.getContent("fake-albums");
+        Assert.assertEquals(admin.getKind(albums), "PROGRAMMATIC");
+        Assert.assertEquals(admin.typeId(albums), "photo-albums");
+
+        final ContentInstance intro = admin.getContent("fake-intro");
+        Assert.assertEquals(admin.getKind(intro), "STANDARD");
+        Assert.assertTrue(admin.isVisibleNow(intro));
+        Assert.assertFalse(admin.isVisibleNow(admin.getContent("fake-event-past")));
+        Assert.assertEquals(admin.getKind(null), "STANDARD");
+        Assert.assertEquals(admin.typeId(null), "");
+        Assert.assertEquals(admin.renderTitle(null), "");
+
+        // getForView: the editor sees expired children, the public does not.
+        Assert.assertTrue(admin.getForView("events", true).stream()
+                .anyMatch(c -> c.getId().equals("fake-event-past")));
+        Assert.assertTrue(admin.getForView("events", false).stream()
+                .noneMatch(c -> c.getId().equals("fake-event-past")));
+
+        final var children = admin.childrenFor(admin.getForView(FakeData.PAGE_KEY, false), false);
+        Assert.assertTrue(children.containsKey("events"));
+        Assert.assertTrue(children.containsKey("docs"));
+        Assert.assertFalse(children.containsKey("fake-intro"), "only containers get child lists");
+        Assert.assertTrue(admin.childrenFor(null, false).isEmpty());
+
+        // Template choices: page level offers everything; a container excludes containers.
+        Assert.assertTrue(admin.getTemplateChoicesFor(FakeData.PAGE_KEY).stream()
+                .anyMatch(t -> t.getId().equals(StarterTemplates.CONTAINER_ID)));
+        Assert.assertTrue(admin.getTemplateChoicesFor("events").stream()
+                .noneMatch(t -> t.getId().equals(StarterTemplates.CONTAINER_ID)));
+
+        // Choices: the pilgrimage language dropdown comes from the registry; STANDARD instances have none.
+        Assert.assertFalse(admin.getChoices(admin.getContent("fake-pilgrimages-en"), "language").isEmpty());
+        Assert.assertTrue(admin.getChoices(intro, "language").isEmpty());
+
+        // The arrange dialog's inputs: a mutable id list in display order, and per-row title labels.
+        final List<String> ids = admin.idsFor("events", true);
+        Assert.assertTrue(ids.contains("fake-event-future"));
+        Assert.assertEquals(admin.titleOf("events"), "Events");
+        Assert.assertEquals(admin.titleOf("never-heard-of-it"), "never-heard-of-it",
+                "an unknown id labels as itself rather than blank");
     }
 
     @Test

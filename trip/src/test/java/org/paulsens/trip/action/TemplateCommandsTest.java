@@ -8,6 +8,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Placeholder;
+import org.paulsens.trip.model.TemplateKind;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -132,7 +133,74 @@ public class TemplateCommandsTest {
 
     @Test
     public void placeholderTypesForTheMenu() {
-        Assert.assertEquals(as(true).getPlaceholderTypes(), List.of(Placeholder.Type.values()));
+        // CHOICE is dialog-meaningless without a programmatic options provider, so the menu excludes it.
+        final List<Placeholder.Type> types = as(true).getPlaceholderTypes();
+        Assert.assertFalse(types.contains(Placeholder.Type.CHOICE));
+        Assert.assertEquals(types.size(), Placeholder.Type.values().length - 1);
+    }
+
+    @Test
+    public void kindIsImmutableAfterCreation() {
+        final TemplateCommands admin = as(true);
+        final ContentTemplate created = new ContentTemplate("tpl-kind-lock", 0, "Kind Lock", null, "",
+                List.of(), null, null, TemplateKind.CONTAINER, null, null, null);
+        Assert.assertTrue(admin.saveTemplate(created));
+
+        final ContentTemplate flipped = admin.getTemplate("tpl-kind-lock");
+        flipped.setKind(TemplateKind.STANDARD);
+        flipped.setBody("<p>now standard?</p>");
+        Assert.assertFalse(admin.saveTemplate(flipped), "kind may not change after creation");
+        Assert.assertTrue(admin.deleteTemplate("tpl-kind-lock"));
+    }
+
+    @Test
+    public void containerConfigIsValidated() {
+        final TemplateCommands admin = as(true);
+        final ContentTemplate zeroMax = new ContentTemplate("tpl-bad-max", 0, "Bad Max", null, "",
+                List.of(), null, null, TemplateKind.CONTAINER, null, 0, null);
+        Assert.assertFalse(admin.saveTemplate(zeroMax), "a zero child limit is nonsense");
+
+        final ContentTemplate nested = new ContentTemplate("tpl-nested", 0, "Nested", null, "",
+                List.of(), null, null, TemplateKind.CONTAINER,
+                List.of(StarterTemplates.CONTAINER_ID), null, null);
+        Assert.assertFalse(admin.saveTemplate(nested), "containers may not allow containers");
+
+        final ContentTemplate sound = new ContentTemplate("tpl-good-container", 0, "Good", null,
+                "<p>ignored</p>", List.of(), null, null, TemplateKind.CONTAINER,
+                List.of(StarterTemplates.TEXT_ONLY_ID), 3, null);
+        Assert.assertTrue(admin.saveTemplate(sound));
+        Assert.assertEquals(admin.getTemplate("tpl-good-container").getBody(), "",
+                "containers carry no body");
+        Assert.assertTrue(admin.getChildTemplateChoices().stream()
+                .noneMatch(t -> t.getKind() == TemplateKind.CONTAINER),
+                "the allowed-children picker never offers containers");
+        Assert.assertTrue(admin.deleteTemplate("tpl-good-container"));
+    }
+
+    @Test
+    public void programmaticTemplatesCopyTheirTypeProperties() {
+        final TemplateCommands admin = as(true);
+        final ContentTemplate unknown = new ContentTemplate("tpl-bad-type", 0, "Bad Type", null, "",
+                List.of(), null, null, TemplateKind.PROGRAMMATIC, null, null, "no-such-type");
+        Assert.assertFalse(admin.saveTemplate(unknown), "the type must be registered");
+
+        final ContentTemplate created = new ContentTemplate("tpl-pilg-copy", 0, "Pilg Copy", null, "",
+                List.of(), null, null, TemplateKind.PROGRAMMATIC, null, null, "pilgrimages");
+        Assert.assertTrue(admin.saveTemplate(created));
+        Assert.assertFalse(admin.getTemplate("tpl-pilg-copy").getPlaceholders().isEmpty(),
+                "the type's properties become the placeholders on create");
+        Assert.assertTrue(admin.deleteTemplate("tpl-pilg-copy"));
+    }
+
+    @Test
+    public void brokenTemplateBodiesAreRejected() {
+        final TemplateCommands admin = as(true);
+        final ContentTemplate broken = new ContentTemplate("tpl-broken-body", 0, "Broken", null,
+                "<div><p>never closed</div>", List.of(), null, null);
+        Assert.assertFalse(admin.saveTemplate(broken), "a structurally broken body must not save");
+        broken.setBody("<div><p>fine</p></div>");
+        Assert.assertTrue(admin.saveTemplate(broken));
+        Assert.assertTrue(admin.deleteTemplate("tpl-broken-body"));
     }
 
     @Test
