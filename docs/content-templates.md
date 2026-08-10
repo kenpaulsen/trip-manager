@@ -75,6 +75,14 @@ changes at runtime.
 - **HTML validation**: `HtmlFragmentValidator` (structural: balance, nesting, quotes, comments; void and
   raw-text elements understood) gates `saveTemplate` bodies and `saveContent` RICH_TEXT values and
   markup-bearing titles. Failures surface as growl messages and keep the dialog open.
+- **Raw HTML in the WYSIWYG editors**: every `p:textEditor` on the site carries an "HTML" toolbar button
+  that swaps Quill for a textarea (`WEB-INF/quillEditor.xhtml`, patched onto the widget prototype, so
+  editors created later by ajax get it too). While in Source mode the textarea writes straight into the
+  widget's hidden input, so markup Quill has no format for (wrapper divs, iframes, inline styles,
+  data-attributes) reaches the server VERBATIM. Switching back to visual re-parses through Quill and
+  therefore simplifies such markup, so that pass runs only when the text actually changed. A template
+  BODY additionally has the model-bound "Edit raw HTML" mode in `templateDialog` (no Quill parse at all
+  in either direction) -- the right choice for structural template bodies.
 - **Reordering**: the shared arrange dialog (`p:orderList`, drag or buttons) calls
   `applyOrder(section, orderedIds)` → `ContentDAO.reorderContent`, a **version-silent** in-place position
   rewrite (no version bump, no history churn; an editor dialog open across a reorder re-saves its stale
