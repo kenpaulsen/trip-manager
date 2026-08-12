@@ -13,8 +13,11 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import lombok.Getter;
+import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.ChatPhotos;
+import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.content.StarterTemplates;
+import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.MediaItem;
@@ -102,6 +105,35 @@ public class FakeData {
             addFakePrivileges();
             addFakeContent();
             addFakeFamily();
+            relaxChatLimitsForFakeTrips();
+        }
+    }
+
+    /**
+     * Gives the demo trips' chat channels limits no test run can trip.
+     *
+     * <p>The shipped burst limit is 5 messages per 10 SECONDS per person per channel, which is right for people
+     * and wrong for a test suite: half a dozen classes drive the same {@code faketrip} channel as the same
+     * admin, some through the REST client and some by clicking Send on the page, and the server counts them all
+     * against one bucket. The API client paces itself, but it cannot see the page-driven sends, so whether a
+     * class overruns depends purely on how the classes interleave -- which is why this passed locally for
+     * months and then failed a deploy's integ stage, where the suite runs slower and lands differently. The
+     * limiter's own behaviour is covered by {@code ChatRateLimiterTest} against explicit settings; nothing is
+     * lost by keeping it out of the way here.
+     *
+     * <p>LOCAL MODE ONLY, like every other seed in this class: production channels keep the shipped defaults.
+     */
+    private static void relaxChatLimitsForFakeTrips() {
+        final ChatCommands chat = new ChatCommands();
+        for (final String tripId : List.of("faketrip", "Fake2")) {
+            final ChatChannel channel = chat.ensureChannel(tripId, AuditActor.system());
+            if (channel == null) {
+                continue;   // chat disabled for this trip; nothing to relax
+            }
+            DAO.getInstance().saveChatChannel(channel.withSettings(channel.getSettings().toBuilder()
+                    .burstLimit(10_000)
+                    .sustainedLimit(100_000)
+                    .build()));
         }
     }
 
