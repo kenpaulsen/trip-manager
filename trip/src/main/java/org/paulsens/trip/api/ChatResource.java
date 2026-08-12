@@ -109,7 +109,7 @@ public class ChatResource extends BaseResource {
             // A GET must not create anything. Creating the channel here made an ordinary poll a write, and
             // emitted a "channel created" CHAT_ADMIN audit record attributed to whoever happened to poll first.
             // An empty feed is the honest answer; the channel is created by the first send, or by an admin.
-            return chat.isTripMember(tripId, me)
+            return chat.canParticipate(tripId, me)
                     ? ok(ChatPage.empty())
                     : error(403, ChatErrors.NOT_A_TRIP_MEMBER, "Not a member of this trip.");
         }
@@ -621,7 +621,7 @@ public class ChatResource extends BaseResource {
             return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
         }
         final ChatCommands chat = ChatCommands.getChatCommands();
-        if (!chat.isTripMember(tripId, personId())) {
+        if (!chat.canParticipate(tripId, personId())) {
             return error(403, ChatErrors.NOT_A_TRIP_MEMBER, "Not a member of this trip.");
         }
         return ok(chat.roster(tripId));

@@ -126,6 +126,9 @@ photo-chat, audit, config, mail, payments, deploy) + `TripAuthFilter`, `JsonExce
 - `chat/` — per-trip chat runtime: digest scheduler (Valkey-coordinated so N tasks send once), notifier
   chain, rate limiter, long-poll nudge registry. Design doc: `chat-design.md` at the workspace root. Several
   chat decisions deliberately reverse the obvious approach — read the design doc before changing behavior.
+  Non-members participate via whole-family access or invite links (QR code + `chat_invites` table; guests
+  are explicit guest-marked membership rows) — read `docs/chat-invites.md` before touching chat
+  authorization (`canParticipate`/`readDenial`/`rejoin`) or `ChatMembership` copy methods.
   Channels are no longer only per-trip: each chat photo gets a `photo:{s3Key}` channel for its comment
   thread and image reactions, which roll up (SUM) into the carrying message's chips — read
   `docs/photo-comments.md` before touching photo threads, the summary fold, or `purgeChannel`.

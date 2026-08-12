@@ -182,6 +182,24 @@ public final class KnownSettings {
             "Longest allowed photo comment, in characters. Shorter than a chat message on purpose — the "
                     + "panel beside a photo is a caption-sized space, not a second chat.");
 
+    // --- chat invites ---
+
+    public static final SettingDef CHAT_INVITES_ENABLED = new SettingDef(
+            "chat.invites.enabled", Config.Type.BOOLEAN, "true", "Allow invite links",
+            "Lets chat participants invite people who are not on the trip — family and friends — by link or "
+                    + "QR code. Turning this off refuses new links AND stops existing ones from being redeemed; "
+                    + "guests already in a chat stay.");
+
+    public static final SettingDef CHAT_INVITE_EXPIRY_DAYS = new SettingDef(
+            "chat.invites.expiryDays", Config.Type.INT, "30", "Invite link lifetime (days)",
+            "How long a new invite link works. Whatever this says, a link never outlives the chat itself: "
+                    + "expiry is capped at the chat's own archive time.");
+
+    public static final SettingDef CHAT_INVITE_MAX_OUTSTANDING = new SettingDef(
+            "chat.invites.maxPerChannel", Config.Type.INT, "10", "Outstanding links per chat",
+            "How many unexpired invite links one chat may have at once. Expired and revoked links stop "
+                    + "counting on their own.");
+
     // --- login & security ---
 
     public static final SettingDef LOGIN_CODE_ENABLED = new SettingDef(
@@ -339,6 +357,10 @@ public final class KnownSettings {
                             CHAT_ALARM_DEDUPE_WINDOW_SECONDS)),
             new SettingSection("Chat appearance", null,
                     List.of(CHAT_REACTIONS_PALETTE, CHAT_BACKGROUND_COLORS, CHAT_BACKGROUND_IMAGE)),
+            new SettingSection("Chat invites",
+                    "Invite links admit people with an account who are not on the trip (family, friends) as "
+                            + "chat guests. Guests can be removed like anyone else.",
+                    List.of(CHAT_INVITES_ENABLED, CHAT_INVITE_EXPIRY_DAYS, CHAT_INVITE_MAX_OUTSTANDING)),
             new SettingSection("Photo comments",
                     "Comment threads and reactions on individual chat photos. Mention email from photo "
                             + "comments rides the chat-email master switch above.",

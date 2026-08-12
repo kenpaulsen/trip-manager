@@ -59,6 +59,15 @@ public class ChatMembership implements Serializable {
      * "use the channel's". Per channel on purpose, so someone can style each trip differently.
      */
     ChatAppearance appearance;
+    /**
+     * Provenance, not a role: whether this row was created by redeeming an invite link rather than by trip
+     * membership. Load-bearing for authorization — only a guest-marked JOINED row grants channel access to
+     * someone {@code isTripMember} refuses, so a plain JOINED row (rejoin, roster backfill) can never become
+     * a back door. Deliberately not a {@link MemberRole}: a guest could later be made MODERATOR.
+     */
+    boolean guest;
+    /** The invite selector that admitted this guest, for the audit trail and the admin UI; null for members. */
+    String invitedVia;
 
     @JsonCreator
     public ChatMembership(
@@ -78,7 +87,9 @@ public class ChatMembership implements Serializable {
             @JsonProperty("addedBackAt") final Instant addedBackAt,
             @JsonProperty("addedBackBy") final String addedBackBy,
             @JsonProperty("schemaVersion") final Integer schemaVersion,
-            @JsonProperty("appearance") final ChatAppearance appearance) {
+            @JsonProperty("appearance") final ChatAppearance appearance,
+            @JsonProperty("guest") final Boolean guest,
+            @JsonProperty("invitedVia") final String invitedVia) {
         this.channelId = channelId;
         this.personId = personId;
         this.state = state == null ? MemberState.JOINED : state;
@@ -96,6 +107,20 @@ public class ChatMembership implements Serializable {
         this.addedBackBy = addedBackBy;
         this.schemaVersion = schemaVersion == null ? CURRENT_SCHEMA : schemaVersion;
         this.appearance = appearance == null ? ChatAppearance.NONE : appearance;
+        this.guest = guest != null && guest;
+        this.invitedVia = invitedVia;
+    }
+
+    /** Pre-guest signature, kept so the many existing call sites don't carry two always-null parameters. */
+    public ChatMembership(
+            final ChatChannel.Id channelId, final Person.Id personId, final MemberState state,
+            final MemberRole role, final Instant joinedAt, final Instant leftAt, final String leftReason,
+            final String removedBy, final Instant mutedUntil, final String mutedBy, final String muteReason,
+            final ChatMessage.Id lastReadMessageId, final ChatNotifyPref notify, final Instant addedBackAt,
+            final String addedBackBy, final Integer schemaVersion, final ChatAppearance appearance) {
+        this(channelId, personId, state, role, joinedAt, leftAt, leftReason, removedBy, mutedUntil, mutedBy,
+                muteReason, lastReadMessageId, notify, addedBackAt, addedBackBy, schemaVersion, appearance,
+                null, null);
     }
 
     /**
@@ -109,56 +134,76 @@ public class ChatMembership implements Serializable {
                 null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
+    /** A guest admitted by an invite link: JOINED, guest-marked, carrying the admitting selector. */
+    public static ChatMembership guestJoining(
+            final ChatChannel.Id channelId, final Person.Id personId, final Instant joinedAt,
+            final String inviteSelector) {
+        return new ChatMembership(channelId, personId, MemberState.JOINED, MemberRole.MEMBER, joinedAt,
+                null, null, null, null, null, null, null, null, null, null, null, null,
+                Boolean.TRUE, inviteSelector);
+    }
+
+    // Every copy method funnels through the all-args constructor so the guest marker and invite provenance
+    // survive each state change -- a with* that dropped them would silently lock a guest out on their next
+    // mute, unmute, pref save or read-cursor write.
     public ChatMembership withState(final MemberState newState) {
         return new ChatMembership(channelId, personId, newState, role, joinedAt, leftAt, leftReason, removedBy,
-                mutedUntil, mutedBy, muteReason, lastReadMessageId, notify, addedBackAt, addedBackBy, schemaVersion, appearance);
+                mutedUntil, mutedBy, muteReason, lastReadMessageId, notify, addedBackAt, addedBackBy,
+                schemaVersion, appearance, guest, invitedVia);
     }
 
     public ChatMembership withLeft(final Instant when, final String reason) {
         return new ChatMembership(channelId, personId, MemberState.LEFT, role, joinedAt, when, reason, removedBy,
-                mutedUntil, mutedBy, muteReason, lastReadMessageId, notify, addedBackAt, addedBackBy, schemaVersion, appearance);
+                mutedUntil, mutedBy, muteReason, lastReadMessageId, notify, addedBackAt, addedBackBy,
+                schemaVersion, appearance, guest, invitedVia);
     }
 
     public ChatMembership withRemoved(final Instant when, final String reason, final String by) {
         return new ChatMembership(channelId, personId, MemberState.REMOVED, role, joinedAt, when, reason, by,
-                mutedUntil, mutedBy, muteReason, lastReadMessageId, notify, addedBackAt, addedBackBy, schemaVersion, appearance);
+                mutedUntil, mutedBy, muteReason, lastReadMessageId, notify, addedBackAt, addedBackBy,
+                schemaVersion, appearance, guest, invitedVia);
     }
 
     public ChatMembership withRejoined(final Instant when, final String by) {
         return new ChatMembership(channelId, personId, MemberState.JOINED, role, joinedAt, null, null, null,
-                mutedUntil, mutedBy, muteReason, lastReadMessageId, notify, when, by, schemaVersion, appearance);
+                mutedUntil, mutedBy, muteReason, lastReadMessageId, notify, when, by,
+                schemaVersion, appearance, guest, invitedVia);
     }
 
     public ChatMembership withMute(final Instant until, final String by, final String reason) {
         return new ChatMembership(channelId, personId, state, role, joinedAt, leftAt, leftReason, removedBy,
-                until, by, reason, lastReadMessageId, notify, addedBackAt, addedBackBy, schemaVersion, appearance);
+                until, by, reason, lastReadMessageId, notify, addedBackAt, addedBackBy,
+                schemaVersion, appearance, guest, invitedVia);
     }
 
     public ChatMembership withUnmuted() {
         return new ChatMembership(channelId, personId, state, role, joinedAt, leftAt, leftReason, removedBy,
-                null, null, null, lastReadMessageId, notify, addedBackAt, addedBackBy, schemaVersion, appearance);
+                null, null, null, lastReadMessageId, notify, addedBackAt, addedBackBy,
+                schemaVersion, appearance, guest, invitedVia);
     }
 
     public ChatMembership withAppearance(final ChatAppearance newAppearance) {
         return new ChatMembership(channelId, personId, state, role, joinedAt, leftAt, leftReason, removedBy,
                 mutedUntil, mutedBy, muteReason, lastReadMessageId, notify, addedBackAt, addedBackBy,
-                schemaVersion, newAppearance);
+                schemaVersion, newAppearance, guest, invitedVia);
     }
 
     public ChatMembership withNotify(final ChatNotifyPref newNotify) {
         return new ChatMembership(channelId, personId, state, role, joinedAt, leftAt, leftReason, removedBy,
                 mutedUntil, mutedBy, muteReason, lastReadMessageId, newNotify, addedBackAt, addedBackBy,
-                schemaVersion, appearance);
+                schemaVersion, appearance, guest, invitedVia);
     }
 
     public ChatMembership withLastRead(final ChatMessage.Id msgId) {
         return new ChatMembership(channelId, personId, state, role, joinedAt, leftAt, leftReason, removedBy,
-                mutedUntil, mutedBy, muteReason, msgId, notify, addedBackAt, addedBackBy, schemaVersion, appearance);
+                mutedUntil, mutedBy, muteReason, msgId, notify, addedBackAt, addedBackBy,
+                schemaVersion, appearance, guest, invitedVia);
     }
 
     public ChatMembership withRole(final MemberRole newRole) {
         return new ChatMembership(channelId, personId, state, newRole, joinedAt, leftAt, leftReason, removedBy,
-                mutedUntil, mutedBy, muteReason, lastReadMessageId, notify, addedBackAt, addedBackBy, schemaVersion, appearance);
+                mutedUntil, mutedBy, muteReason, lastReadMessageId, notify, addedBackAt, addedBackBy,
+                schemaVersion, appearance, guest, invitedVia);
     }
 
     @JsonIgnore

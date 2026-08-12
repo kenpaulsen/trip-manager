@@ -32,6 +32,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.media.PhotoRejectedException;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
+import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.Trip;
@@ -39,6 +40,7 @@ import org.paulsens.trip.model.chat.ChatAppearance;
 import org.paulsens.trip.model.chat.ChatAttachment;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatEmoji;
+import org.paulsens.trip.model.chat.ChatInvite;
 import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMentions;
 import org.paulsens.trip.model.chat.ChatMessage;
@@ -49,6 +51,8 @@ import org.paulsens.trip.model.chat.ChatReaction;
 import org.paulsens.trip.model.chat.ChatReactionSummary;
 import org.paulsens.trip.model.chat.ChatSettings;
 import org.paulsens.trip.model.chat.ChatVisibility;
+import org.paulsens.trip.security.Digests;
+import org.paulsens.trip.util.RandomData;
 import org.paulsens.trip.util.ScopeUtil;
 
 /**
@@ -263,14 +267,82 @@ public class ChatCommands {
         if (people.hasRole("admin") || priv.check("tripView", tripId, personId)) {
             return true;
         }
-        // Full family membership: a parent whose managed member is on the trip participates in its chat as
-        // themselves (author stays the signed-in user -- the send contract is untouched).
-        for (final Person.Id managedId : people.getPerson(personId).getManagedUsers()) {
+        // Full family membership: ANYONE in a family with someone on the trip participates in its chat as
+        // themselves (author stays the signed-in user -- the send contract is untouched). The family row is
+        // the source of truth; the managedUsers loop below stays only for legacy persons not yet migrated
+        // into a family.
+        final Person person = people.getPerson(personId);
+        if (familyMemberOnTrip(person, trip)) {
+            return true;
+        }
+        for (final Person.Id managedId : person.getManagedUsers()) {
             if (trip.getPeople().contains(managedId)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** Whether anyone in this person's family (themselves included) is on the trip's roster. */
+    private boolean familyMemberOnTrip(final Person person, final Trip trip) {
+        if (person == null || person.getFamilyId() == null) {
+            return false;
+        }
+        final Family family = dao().getFamily(person.getFamilyId()).orElse(null);
+        return family != null && family.getMemberIds().stream().anyMatch(trip.getPeople()::contains);
+    }
+
+    /**
+     * Everyone whose trips this person's chat list must include besides their own: the whole family, plus
+     * legacy {@code managedUsers} for persons not yet migrated into a family. Never contains the person.
+     */
+    private Set<Person.Id> householdOf(final Person.Id personId) {
+        final Person person = PersonCommands.getPersonCommands().getPerson(personId);
+        final Set<Person.Id> out = new LinkedHashSet<>(person.getManagedUsers());
+        if (person.getFamilyId() != null) {
+            dao().getFamily(person.getFamilyId()).ifPresent(family -> out.addAll(family.getMemberIds()));
+        }
+        out.remove(personId);
+        return out;
+    }
+
+    /**
+     * The chat page's trip resolution, layered over {@code TripCommands.getTripForUser}: that method serves
+     * page-level trip visibility, so for someone with chat access but no page access — an invite-link guest,
+     * or a family member who manages nobody — it answers null, or worse, silently falls back to a DIFFERENT
+     * trip the person can see (the URL said one trip and the page showed another). When {@code me} may
+     * participate in the REQUESTED trip's chat, the requested trip wins. In Java rather than the page's init
+     * script because the jsft parser cannot safely combine {@code ==} with a method call in one condition.
+     */
+    public Trip tripForChatPage(final Trip resolved, final String tripId, final Person.Id me) {
+        if (resolved != null && tripId != null && tripId.equals(resolved.getId())) {
+            return resolved;
+        }
+        if (canParticipate(tripId, me)) {
+            return dao().getTrip(tripId).orElse(resolved);
+        }
+        return resolved;
+    }
+
+    /**
+     * The one definition of "may participate in this trip's chat": a trip member in the {@link #isTripMember}
+     * sense, or a guest whose invite-created membership row is still JOINED.
+     *
+     * <p>Only a <em>guest-marked</em> row grants access. A plain JOINED row (written by {@code rejoin} or the
+     * roster backfill) never does, so no code path that materialises ordinary rows can become a back door.
+     */
+    public boolean canParticipate(final String tripId, final Person.Id personId) {
+        if (isTripMember(tripId, personId)) {
+            return true;
+        }
+        if (tripId == null || personId == null) {
+            return false;
+        }
+        return guestJoined(dao().getChatMembership(ChatChannel.Id.forTrip(tripId), personId).orElse(null));
+    }
+
+    private static boolean guestJoined(final ChatMembership row) {
+        return row != null && row.isJoined() && row.isGuest();
     }
 
     /**
@@ -632,18 +704,21 @@ public class ChatCommands {
         if (!chatEnabledFor(channel)) {
             return "CHAT_DISABLED";
         }
-        if (!isTripMember(channel.getTripId(), me)) {
-            return "NOT_A_TRIP_MEMBER";
+        // The membership row is read BEFORE any grant, and LEFT/REMOVED refuse before isTripMember allows:
+        // an admin REMOVE must oust a trip member and a guest alike, and a guest-marked JOINED row is itself
+        // a grant -- so the row can no longer be an afterthought consulted only for members. Exactly one
+        // membership read either way.
+        final ChatMembership row = dao().getChatMembership(channel.getId(), me).orElse(null);
+        if (row != null && row.getState() == ChatMembership.MemberState.LEFT) {
+            return "LEFT_CHANNEL";
         }
-        final Optional<ChatMembership> row = dao().getChatMembership(channel.getId(), me);
-        if (row.isEmpty()) {
-            return null; // implicit JOINED -- the default opt-in
+        if (row != null && row.getState() == ChatMembership.MemberState.REMOVED) {
+            return "REMOVED_FROM_CHANNEL";
         }
-        return switch (row.get().getState()) {
-            case LEFT -> "LEFT_CHANNEL";
-            case REMOVED -> "REMOVED_FROM_CHANNEL";
-            default -> null;
-        };
+        if (isTripMember(channel.getTripId(), me) || guestJoined(row)) {
+            return null; // an absent row is implicit JOINED for trip members -- the default opt-in
+        }
+        return "NOT_A_TRIP_MEMBER";
     }
 
     /** Whether the trip behind this channel still has chat turned on. A missing trip is not a reason to refuse. */
@@ -860,7 +935,7 @@ public class ChatCommands {
         if (row != null && row.isMuted(now)) {
             return SendResult.fail("muted", "You are muted and cannot post right now.");
         }
-        if (!isTripMember(channel.getTripId(), me)) {
+        if (!isTripMember(channel.getTripId(), me) && !guestJoined(row)) {
             return SendResult.fail("forbidden", "You cannot post in this chat.");
         }
         if (row != null && (row.getState() == ChatMembership.MemberState.LEFT
@@ -1471,6 +1546,18 @@ public class ChatCommands {
         if (existing.isPresent() && existing.get().getState() == ChatMembership.MemberState.REMOVED) {
             return false; // admin must re-add
         }
+        // A JOINED row is about to mean something (a guest-marked one grants access), so nobody may write
+        // themselves one without standing: trip members always may, and a departed guest keeps the guest
+        // marker on their LEFT row, which is their ticket back in. Everyone else is refused and audited --
+        // before this check, any authenticated session could join any trip's channel.
+        if (!isTripMember(tripId, personId) && !existing.map(ChatMembership::isGuest).orElse(false)) {
+            Audit.log(Audit.builder(AuditAction.CHAT_JOIN, AuditOutcome.FAILURE)
+                    .actor(who)
+                    .target(AuditEventBuilder.TARGET_CHAT_CHANNEL, channel.getId().getValue())
+                    .message("denied: not a trip member and not an invited guest")
+                    .build());
+            return false;
+        }
         final ChatMembership base = existing.orElseGet(() -> new ChatMembership(
                 channel.getId(), personId, ChatMembership.MemberState.JOINED,
                 ChatMembership.MemberRole.MEMBER, now, null, null, null,
@@ -1486,6 +1573,248 @@ public class ChatCommands {
                     : "joined";
             audit(AuditAction.CHAT_JOIN, who, AuditEventBuilder.TARGET_CHAT_CHANNEL,
                     channel.getId().getValue(), msg);
+        }
+        return ok;
+    }
+
+    // --- invite links ---
+
+    /** Session key prefix caching the caller's own most recently minted invite URL, per trip. */
+    static final String INVITE_URL_SESSION_PREFIX = "chatInviteUrl:";
+
+    public boolean invitesEnabled() {
+        return config.getBoolean(KnownSettings.CHAT_INVITES_ENABLED);
+    }
+
+    /** Whether the signed-in user may mint an invite for this trip: anyone who can post, plus chat admins. */
+    public boolean canInvite(final String tripId, final Person.Id me) {
+        if (!invitesEnabled() || tripId == null || me == null) {
+            return false;
+        }
+        final ChatChannel channel = channelForPage(tripId);
+        final ChatMembership row = dao().getChatMembership(channel.getId(), me).orElse(null);
+        return postDenial(channel, me, row, Instant.now()) == null || canAdminister(tripId);
+    }
+
+    /**
+     * The Invite button's action: resolves the invite URL and stashes it in viewScope for the dialog (a plain
+     * String — the Redisson session-replication rule). Separate from {@link #createInviteFromUi} so the JSF
+     * side stays scope-plumbing only.
+     */
+    public void prepareInviteFromUi() {
+        final String url = createInviteFromUi(currentTripId());
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (ctx != null) {
+            ctx.getViewRoot().getViewMap().put("inviteUrl", url == null ? "" : url);
+        }
+    }
+
+    /**
+     * The invite URL for the JSF dialog. Reuses the URL this session already minted for this trip — the row
+     * stores only SHA-256(validator), so a link is only ever known in full to the session that minted it, and
+     * re-minting on every dialog open would burn the outstanding-links cap for nothing.
+     */
+    public String createInviteFromUi(final String tripId) {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        final String sessionKey = INVITE_URL_SESSION_PREFIX + tripId;
+        if (ctx != null) {
+            final Object cached = ctx.getExternalContext().getSessionMap().get(sessionKey);
+            if (cached instanceof String url && !url.isBlank()) {
+                return url;
+            }
+        }
+        final String url = createInvite(tripId, currentUserId(), AuditActor.current());
+        if (url == null) {
+            growlError("Unable to create an invite link for this chat.");
+            return null;
+        }
+        if (ctx != null) {
+            ctx.getExternalContext().getSessionMap().put(sessionKey, url);
+        }
+        return url;
+    }
+
+    /**
+     * Mints a multi-use invite link and returns the full URL, or {@code null} when refused. The stored row
+     * keeps only the validator's hash, so this return value is the only copy of the working link.
+     */
+    String createInvite(final String tripId, final Person.Id me, final AuditActor actor) {
+        if (tripId == null || me == null || !canInvite(tripId, me)) {
+            return null;
+        }
+        final ChatChannel channel = ensureChannel(tripId, actor);
+        final Instant now = Instant.now();
+        if (ChatVisibility.isArchived(channel, tripOf(channel), now)) {
+            return null;
+        }
+        if (countOutstanding(channel.getId(), now) >= config.getInt(KnownSettings.CHAT_INVITE_MAX_OUTSTANDING)) {
+            return null;
+        }
+        final String selector = RandomData.genSecureToken(9);
+        final String validator = RandomData.genSecureToken(32);
+        final ChatInvite invite = new ChatInvite(channel.getId(), selector,
+                Digests.sha256Base64(validator), me, now, inviteExpiry(channel, now), 0L);
+        if (!dao().saveChatInvite(invite)) {
+            return null;
+        }
+        audit(AuditAction.CHAT_INVITE, actor, AuditEventBuilder.TARGET_CHAT_CHANNEL,
+                channel.getId().getValue(), "minted invite " + selector);
+        return inviteUrl(tripId, selector, validator);
+    }
+
+    /**
+     * Unexpired links in this channel, pruning expired rows on the way past — DynamoDB TTL will get them
+     * eventually, but "eventually" must not hold seats against the outstanding-links cap for two days.
+     */
+    private long countOutstanding(final ChatChannel.Id channelId, final Instant now) {
+        long live = 0;
+        for (final ChatInvite invite : dao().listChatInvites(channelId)) {
+            if (invite.isExpired(now)) {
+                dao().deleteChatInvite(channelId, invite.getSelector());
+            } else {
+                live++;
+            }
+        }
+        return live;
+    }
+
+    /** Expiry: the configured lifetime, capped so a link never outlives the writable chat. */
+    private long inviteExpiry(final ChatChannel channel, final Instant now) {
+        final int days = config.getInt(KnownSettings.CHAT_INVITE_EXPIRY_DAYS);
+        long expiry = now.plus(Math.max(1, days), ChronoUnit.DAYS).getEpochSecond();
+        final Instant archive = archiveInstant(channel, tripOf(channel));
+        if (archive != null && archive.getEpochSecond() < expiry) {
+            expiry = archive.getEpochSecond();
+        }
+        return expiry;
+    }
+
+    /** When this channel freezes: stored {@code archivedAt}, else trip end + archiveAfterTripEndDays, else never. */
+    private static Instant archiveInstant(final ChatChannel channel, final Trip trip) {
+        if (channel.getArchivedAt() != null) {
+            return channel.getArchivedAt();
+        }
+        if (trip == null || trip.getEndDate() == null) {
+            return null;
+        }
+        return trip.getEndDate()
+                .plusDays(channel.getSettings().getArchiveAfterTripEndDays())
+                .toInstant(java.time.ZoneOffset.UTC);
+    }
+
+    private String inviteUrl(final String tripId, final String selector, final String validator) {
+        final String base = config.getString(KnownSettings.CHAT_MAIL_BASE_URL);
+        final String prefix = (base == null || base.isBlank()) ? "" : base.replaceAll("/+$", "");
+        return prefix + "/trip/chatInvite.jsf?trip="
+                + java.net.URLEncoder.encode(tripId, java.nio.charset.StandardCharsets.UTF_8)
+                + "&token=" + selector + "." + validator;
+    }
+
+    /**
+     * Redeems an invite link for the signed-in user, from the {@code chatInvite.jsf} landing page. Returns a
+     * status token the page branches on: {@code ok} means joined (or already in), anything else names the
+     * refusal for a friendly message. All branching is here, not in jsft, on purpose.
+     */
+    public String redeemInvite(final String tripId, final String token) {
+        return redeemInvite(tripId, token, currentUserId(), AuditActor.current());
+    }
+
+    String redeemInvite(final String tripId, final String token, final Person.Id me, final AuditActor actor) {
+        if (me == null) {
+            return "not-signed-in";
+        }
+        if (!invitesEnabled()) {
+            return "disabled";
+        }
+        if (tripId == null || tripId.isBlank() || token == null) {
+            return "invalid";
+        }
+        final int dot = token.indexOf('.');
+        if (dot <= 0 || dot >= token.length() - 1) {
+            return "invalid";
+        }
+        final ChatChannel.Id channelId = ChatChannel.Id.forTrip(tripId);
+        final ChatInvite invite = dao().getChatInvite(channelId, token.substring(0, dot)).orElse(null);
+        if (invite == null || !Digests.matches(invite.getValidatorHash(),
+                Digests.sha256Base64(token.substring(dot + 1)))) {
+            return auditRedeemFailure(actor, channelId, "invalid or revoked invite token");
+        }
+        final Instant now = Instant.now();
+        if (invite.isExpired(now)) {
+            return auditRedeemFailure(actor, channelId, "expired invite " + invite.getSelector());
+        }
+        if (!chatEnabledForTrip(tripId) || dao().getTrip(tripId).isEmpty()) {
+            return "disabled";
+        }
+        final ChatChannel channel = ensureChannel(tripId, actor);
+        if (ChatVisibility.isArchived(channel, tripOf(channel), now)) {
+            return "archived";
+        }
+        final ChatMembership existing = dao().getChatMembership(channel.getId(), me).orElse(null);
+        if (existing != null && existing.getState() == ChatMembership.MemberState.REMOVED) {
+            // An invite must not bypass moderation: whoever an admin removed stays removed, whatever links
+            // they collect afterwards.
+            auditRedeemFailure(actor, channel.getId(), "removed member presented invite " + invite.getSelector());
+            return "removed";
+        }
+        if (canParticipate(tripId, me)) {
+            // Idempotent success; the reverse-row rewrite is the self-heal for a lost second write below.
+            dao().addGuestChatChannel(me, channel.getId());
+            return "ok";
+        }
+        // Membership row first, reverse row second: losing the second write only hides the chat from the
+        // person's own list, and re-clicking the invite lands in the branch above and heals it.
+        if (!dao().saveChatMembership(ChatMembership.guestJoining(
+                channel.getId(), me, now, invite.getSelector()))) {
+            return "error";
+        }
+        dao().addGuestChatChannel(me, channel.getId());
+        dao().recordChatInviteUse(invite);
+        audit(AuditAction.CHAT_JOIN, actor, AuditEventBuilder.TARGET_CHAT_CHANNEL,
+                channel.getId().getValue(), "joined as guest via invite " + invite.getSelector());
+        return "ok";
+    }
+
+    private String auditRedeemFailure(
+            final AuditActor actor, final ChatChannel.Id channelId, final String message) {
+        Audit.log(Audit.builder(AuditAction.CHAT_JOIN, AuditOutcome.FAILURE)
+                .actor(actor == null ? AuditActor.current() : actor)
+                .target(AuditEventBuilder.TARGET_CHAT_CHANNEL, channelId.getValue())
+                .message("denied: " + message)
+                .build());
+        return "invalid";
+    }
+
+    /** The channel's outstanding invites for the admin table (the JSF/EL entry), unexpired only, newest first. */
+    public List<ChatInvite> listInvites(final String tripId) {
+        return listInvites(tripId, Caller.current());
+    }
+
+    List<ChatInvite> listInvites(final String tripId, final Caller caller) {
+        if (!canAdminister(tripId, caller)) {
+            return List.of();
+        }
+        final Instant now = Instant.now();
+        return dao().listChatInvites(ChatChannel.Id.forTrip(tripId)).stream()
+                .filter(invite -> !invite.isExpired(now))
+                .sorted(Comparator.comparing(ChatInvite::getCreated).reversed())
+                .toList();
+    }
+
+    /** The admin table's Revoke button (the JSF/EL entry). */
+    public boolean revokeInvite(final String tripId, final String selector) {
+        return revokeInvite(tripId, selector, Caller.current());
+    }
+
+    boolean revokeInvite(final String tripId, final String selector, final Caller caller) {
+        if (denyUnlessAdmin(tripId, "revoke invite " + selector, caller)) {
+            return false;
+        }
+        final ChatChannel.Id channelId = ChatChannel.Id.forTrip(tripId);
+        final boolean ok = dao().deleteChatInvite(channelId, selector);
+        if (ok) {
+            audit(AuditAction.CHAT_INVITE, actorOf(caller), AuditEventBuilder.TARGET_CHAT_CHANNEL,
+                    channelId.getValue(), "revoked invite " + selector);
         }
         return ok;
     }
@@ -1985,16 +2314,23 @@ public class ChatCommands {
     // --- my chats ---
 
     public List<ChatSummary> myChats(final Person.Id personId) {
-        // Union of my own trips and my managed members' trips (deduped): the parent of an on-trip kid has
-        // full chat membership (isTripMember), so their My Chats must list the kid's trip too.
+        // Union of my own trips, my whole family's trips, and my invite-guest channels (deduped): anyone in
+        // a family with an on-trip member has full chat membership (isTripMember), so their My Chats must
+        // list that trip too -- and a guest's channel is reachable through no trip of theirs at all, only
+        // through the person:{id} reverse rows. The canRead filter below is what drops a removed guest.
         final Map<String, Trip> byId = new java.util.LinkedHashMap<>();
         for (final Trip trip : dao().getTripsForUser(personId)) {
             byId.put(trip.getId(), trip);
         }
-        for (final Person.Id managedId : PersonCommands.getPersonCommands()
-                .getPerson(personId).getManagedUsers()) {
-            for (final Trip trip : dao().getTripsForUser(managedId)) {
+        for (final Person.Id relativeId : householdOf(personId)) {
+            for (final Trip trip : dao().getTripsForUser(relativeId)) {
                 byId.putIfAbsent(trip.getId(), trip);
+            }
+        }
+        for (final ChatChannel.Id guestChannelId : dao().getGuestChatChannelIds(personId)) {
+            final String tripId = guestChannelId.tripIdOrNull();
+            if (tripId != null && !byId.containsKey(tripId)) {
+                dao().getTrip(tripId).ifPresent(trip -> byId.put(trip.getId(), trip));
             }
         }
         final List<Trip> trips = new ArrayList<>(byId.values());

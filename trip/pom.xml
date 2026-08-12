@@ -296,6 +296,12 @@
             <artifactId>libphonenumber</artifactId>
             <version>9.0.24</version>
         </dependency>
+        <!-- PrimeFaces p:barcode's rendering engine; QR codes for chat invite links. -->
+        <dependency>
+            <groupId>uk.org.okapibarcode</groupId>
+            <artifactId>okapibarcode</artifactId>
+            <version>0.4.9</version>
+        </dependency>
         <!--
             HEIC decode for chat photos (iPhones shoot HEIC by default). MIT-licensed ImageIO plugin over the
             system's LGPL libheif via the FFM API; the ONE pure-Java HEIC decoder (Openize.HEIC) is not

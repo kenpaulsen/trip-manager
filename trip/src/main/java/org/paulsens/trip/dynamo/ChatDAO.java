@@ -225,6 +225,58 @@ public class ChatDAO {
         return Optional.empty();
     }
 
+    /**
+     * Guest reverse lookup: which channels did this person join by invite? Stored as synthetic rows in
+     * {@code chat_members} under PK {@code person:{personId}} with the channel id string in the sort-key
+     * attribute — disjoint from real channel partitions because every real channel id is prefixed
+     * {@code trip:}/{@code photo:}/{@code support:}. This answers "list my guest chats" with one partition
+     * query, keeping the locked no-GSI/no-scan design.
+     *
+     * <p>These rows are NOT {@link ChatMembership} JSON and must never be parsed as such; only these two
+     * methods touch the {@code person:} partitions. Known inert wart: {@code purgeChannel} purges by channel
+     * partition and orphans reverse rows — harmless because {@code myChats} skips channels that no longer
+     * exist.
+     */
+    protected Boolean addGuestChannel(final Person.Id personId, final ChatChannel.Id channelId) {
+        if (personId == null || channelId == null) {
+            return false;
+        }
+        final Map<String, AttributeValue> item = new HashMap<>();
+        item.put(ATTR_CHANNEL_ID, persistence.toStrAttr(guestPartition(personId)));
+        item.put(ATTR_PERSON_ID, persistence.toStrAttr(channelId.getValue()));
+        try {
+            return persistence.putItem(b -> b.tableName(MEMBERS_TABLE).item(item))
+                    .sdkHttpResponse().isSuccessful();
+        } catch (final RuntimeException ex) {
+            log.error("Unable to record guest channel {} for {}", channelId.getValue(), personId.getValue(), ex);
+            return false;
+        }
+    }
+
+    /** The channel ids this person joined as a guest. See {@link #addGuestChannel}. */
+    protected List<ChatChannel.Id> listGuestChannelIds(final Person.Id personId) {
+        if (personId == null) {
+            return List.of();
+        }
+        final Map<String, String> names = Map.of("#channelId", ATTR_CHANNEL_ID);
+        final Map<String, AttributeValue> values =
+                Map.of(":c", AttributeValue.builder().s(guestPartition(personId)).build());
+        return persistence.queryAll(b -> b.tableName(MEMBERS_TABLE)
+                        .keyConditionExpression("#channelId = :c")
+                        .expressionAttributeNames(names)
+                        .expressionAttributeValues(values)
+                        .build())
+                .stream()
+                .map(item -> item.get(ATTR_PERSON_ID))
+                .filter(v -> v != null)
+                .map(v -> ChatChannel.Id.from(v.s()))
+                .toList();
+    }
+
+    private static String guestPartition(final Person.Id personId) {
+        return "person:" + personId.getValue();
+    }
+
     protected List<ChatMembership> listMembers(final ChatChannel.Id channelId) {
         if (channelId == null) {
             return List.of();

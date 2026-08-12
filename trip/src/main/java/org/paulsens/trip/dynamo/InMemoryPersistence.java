@@ -58,6 +58,9 @@ public class InMemoryPersistence implements Persistence {
             Map.entry(ChatDAO.MEMBERS_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, ChatDAO.ATTR_PERSON_ID)),
             Map.entry(ChatDAO.MESSAGES_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, ChatDAO.ATTR_MSG_ID)),
             Map.entry(ChatDAO.REACTIONS_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, ChatDAO.ATTR_SK)),
+            // Invite links must round-trip in local mode: the webtest mints, redeems and revokes them.
+            Map.entry(ChatInviteDAO.INVITES_TABLE,
+                    new TableKeys(ChatInviteDAO.CHANNEL_ID, ChatInviteDAO.SELECTOR)),
             // Chat photos made this table WRITTEN in local mode (album rows). Without a real fake behind
             // it, the rows lived only in the media cache -- and the first cache invalidation (any media
             // delete does one) silently emptied the whole trip album.

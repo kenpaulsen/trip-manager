@@ -146,6 +146,9 @@ public class ChatCommandsTest {
         final String tripId = TRIP;
         final ChatChannel channel = chat.ensureChannel(tripId, actor);
         final Person.Id me = Person.Id.from("rejoin-user");
+        // Rejoin now refuses non-members (a JOINED row grants access to guests, so writing one needs
+        // standing); the person under test must actually be a trip member for the joinedAt rule to run.
+        grantTripView(List.of(me));
         final Instant firstJoin = Instant.parse("2026-01-01T00:00:00Z");
         final ChatMembership original = ChatMembership.joining(channel.getId(), me, firstJoin);
         DAO.getInstance().saveChatMembership(original);

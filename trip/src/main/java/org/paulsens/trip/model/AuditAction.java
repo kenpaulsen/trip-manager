@@ -76,6 +76,8 @@ public enum AuditAction {
     CHAT_JOIN,
     /** A person left a trip chat channel. */
     CHAT_LEAVE,
+    /** A chat invite link was minted or revoked (redemption records {@link #CHAT_JOIN}). */
+    CHAT_INVITE,
     /** Chat moderation or settings change (mute, remove message, roster, etc.). */
     CHAT_ADMIN,
     /**

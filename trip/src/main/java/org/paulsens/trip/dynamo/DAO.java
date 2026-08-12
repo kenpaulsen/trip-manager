@@ -42,6 +42,7 @@ import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.model.chat.ChatChannel;
+import org.paulsens.trip.model.chat.ChatInvite;
 import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatPage;
@@ -75,6 +76,7 @@ public class DAO {
     private final AuditDAO auditDao;
     private final BindingDAO bindingDao;
     private final ChatDAO chatDao;
+    private final ChatInviteDAO chatInviteDao;
 
     // This flag is set in the web.xml
     private static DAO inst;
@@ -108,6 +110,8 @@ public class DAO {
         this.auditDao = new AuditDAO(mapper, persistence);
         this.bindingDao = new BindingDAO(persistence, cacheClient);
         this.chatDao = new ChatDAO(mapper, persistence, cacheClient);
+        // No cacheClient: invite rows authorize, so a stale read is a security bug (a revoked link must die now).
+        this.chatInviteDao = new ChatInviteDAO(persistence);
     }
 
     public static DAO getInstance() {
@@ -550,6 +554,29 @@ public class DAO {
     }
     public Optional<ChatChannel> purgeChatChannel(final ChatChannel.Id id) {
         return chatDao.purgeChannel(id);
+    }
+    public Boolean addGuestChatChannel(final Person.Id personId, final ChatChannel.Id channelId) {
+        return chatDao.addGuestChannel(personId, channelId);
+    }
+    public List<ChatChannel.Id> getGuestChatChannelIds(final Person.Id personId) {
+        return chatDao.listGuestChannelIds(personId);
+    }
+
+    // Chat invites (see ChatInviteDAO)
+    public Boolean saveChatInvite(final ChatInvite invite) {
+        return chatInviteDao.saveInvite(invite);
+    }
+    public Optional<ChatInvite> getChatInvite(final ChatChannel.Id channelId, final String selector) {
+        return chatInviteDao.getInvite(channelId, selector);
+    }
+    public List<ChatInvite> listChatInvites(final ChatChannel.Id channelId) {
+        return chatInviteDao.listInvites(channelId);
+    }
+    public Boolean deleteChatInvite(final ChatChannel.Id channelId, final String selector) {
+        return chatInviteDao.deleteInvite(channelId, selector);
+    }
+    public void recordChatInviteUse(final ChatInvite invite) {
+        chatInviteDao.recordUse(invite);
     }
 
     // Bindings

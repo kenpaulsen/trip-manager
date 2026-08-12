@@ -98,7 +98,7 @@ public class ChatResourceTest extends ResourceTestSupport {
     public void aMissingChannelIsAnEmptyFeedForAMemberNotACreation() {
         Mockito.when(chat.chatEnabledForTrip(TRIP_ID)).thenReturn(true);
         Mockito.when(chat.getChannel(TRIP_ID)).thenReturn(null);
-        Mockito.when(chat.isTripMember(TRIP_ID, ME)).thenReturn(true);
+        Mockito.when(chat.canParticipate(TRIP_ID, ME)).thenReturn(true);
 
         final Response response = feed(CHANNEL, null, null, null);
 
@@ -110,7 +110,7 @@ public class ChatResourceTest extends ResourceTestSupport {
     public void aMissingChannelIs403ForANonMember() {
         Mockito.when(chat.chatEnabledForTrip(TRIP_ID)).thenReturn(true);
         Mockito.when(chat.getChannel(TRIP_ID)).thenReturn(null);
-        Mockito.when(chat.isTripMember(TRIP_ID, ME)).thenReturn(false);
+        Mockito.when(chat.canParticipate(TRIP_ID, ME)).thenReturn(false);
 
         assertError(feed(CHANNEL, null, null, null), 403, ChatErrors.NOT_A_TRIP_MEMBER);
     }
@@ -361,10 +361,10 @@ public class ChatResourceTest extends ResourceTestSupport {
 
     @Test
     public void theRosterIsForMembersOnly() {
-        Mockito.when(chat.isTripMember(TRIP_ID, ME)).thenReturn(false);
+        Mockito.when(chat.canParticipate(TRIP_ID, ME)).thenReturn(false);
         assertError(resource.roster(CHANNEL), 403, ChatErrors.NOT_A_TRIP_MEMBER);
 
-        Mockito.when(chat.isTripMember(TRIP_ID, ME)).thenReturn(true);
+        Mockito.when(chat.canParticipate(TRIP_ID, ME)).thenReturn(true);
         Mockito.when(chat.roster(TRIP_ID)).thenReturn(List.of());
         assertOk(resource.roster(CHANNEL));
     }
