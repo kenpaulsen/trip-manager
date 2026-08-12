@@ -524,6 +524,58 @@ public class FamilyCommandsTest {
                 "A ghost member is reported, not fatal");
     }
 
+    // ------------------------------------------------------------------ subject-aware page support
+
+    @Test
+    public void canManageCoversManagersAndSiteAdminsOnly() throws IOException {
+        final Person owner = savedOwner();
+        final Person member = commandsFor(owner).createFamilyMember(
+                "Plain", "Member", LocalDate.of(2012, 2, 2), Person.Sex.Male, null, false);
+        assertNotNull(member);
+        final Family family = dao.getFamily(reload(owner).getFamilyId()).orElseThrow();
+
+        assertTrue(commandsFor(owner).canManage(family), "a manager manages");
+        assertFalse(commandsFor(reload(member)).canManage(family), "a plain member does not");
+        final Person admin = savedOwner();
+        assertTrue(new FamilyCommands(new ConfigCommands(), new AuditCommands(), callerOf(admin, true))
+                .canManage(family), "a site admin manages any family");
+        assertFalse(commandsFor(owner).canManage(null));
+        assertFalse(commandsFor(owner).isFamilyAtLimit(null));
+        assertFalse(commandsFor(owner).isFamilyAtLimit(family), "two of many is not at the limit");
+    }
+
+    @Test
+    public void addFamilyMemberForAnchorsOnTheSubjectsFamily() throws IOException {
+        final Person owner = savedOwner();
+        final Person kid = commandsFor(owner).createFamilyMember(
+                "First", "Kid", LocalDate.of(2014, 4, 4), Person.Sex.Female, null, false);
+        assertNotNull(kid);
+        final Person admin = savedOwner();
+        final FamilyCommands asAdmin =
+                new FamilyCommands(new ConfigCommands(), new AuditCommands(), callerOf(admin, true));
+
+        final Person added = asAdmin.addFamilyMemberFor(owner.getId().getValue(),
+                "Added", "ByAdmin", LocalDate.of(2016, 6, 6), "Female", null, false);
+        assertNotNull(added, "a site admin grows the SUBJECT's family");
+        assertEquals(reload(added).getFamilyId(), reload(owner).getFamilyId());
+        assertNull(reload(admin).getFamilyId(), "the admin's own (non-)family is untouched");
+
+        // A manager reaching the page via a member deep link anchors on that member's family: theirs.
+        final Person viaKid = commandsFor(reload(owner)).addFamilyMemberFor(kid.getId().getValue(),
+                "Added", "ByManager", LocalDate.of(2017, 7, 7), "Male", null, false);
+        assertNotNull(viaKid);
+        assertEquals(reload(viaKid).getFamilyId(), reload(owner).getFamilyId());
+
+        // A stranger may not anchor on someone else; blank subject behaves like addFamilyMember.
+        final Person stranger = savedOwner();
+        assertNull(commandsFor(stranger).addFamilyMemberFor(owner.getId().getValue(),
+                "No", "Way", LocalDate.of(2000, 1, 1), "Male", null, false));
+        final Person mine = commandsFor(stranger).addFamilyMemberFor(null,
+                "My", "Own", LocalDate.of(2001, 1, 1), "Male", null, false);
+        assertNotNull(mine);
+        assertEquals(reload(mine).getFamilyId(), reload(stranger).getFamilyId());
+    }
+
     // ------------------------------------------------------------------ helpers
 
     /** A fresh saved person with a unique email, acting as a family owner. */

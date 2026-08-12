@@ -85,6 +85,23 @@ public class FamilyCommands {
         return family != null && me != null && family.isManager(me.getId());
     }
 
+    /**
+     * Whether the signed-in user may manage THIS family's page affordances: one of its managers, or a site
+     * admin (the write paths below already accept site admins; this lets the page render the same reach).
+     */
+    public boolean canManage(final Family family) {
+        final Person me = currentPerson();
+        if (family == null || me == null) {
+            return false;
+        }
+        return family.isManager(me.getId()) || caller().isSiteAdmin();
+    }
+
+    /** {@link #isAtLimit()} for an explicit family (the subject-aware family page). Distinct name for EL. */
+    public boolean isFamilyAtLimit(final Family family) {
+        return family != null && family.getSize() >= getMaxMembers();
+    }
+
     /** Resolved members of this family, the signed-in person first, then the family row's order. */
     public List<Person> getMembers(final Family family) {
         final List<Person> result = new ArrayList<>();
@@ -167,14 +184,52 @@ public class FamilyCommands {
     }
 
     /**
+     * {@link #addFamilyMember} anchored on another person's family -- the subject-aware family page: admins
+     * (and managers acting for a member) arrive with {@code ?id=} and must grow THAT family, not their own.
+     * A blank or self subjectId behaves exactly like {@link #addFamilyMember}.
+     */
+    public Person addFamilyMemberFor(final String subjectId, final String first, final String last,
+            final LocalDate birthdate, final String sex, final String email, final boolean manager) {
+        final Person me = currentPerson();
+        if (me == null) {
+            return failPerson("Not signed in", "Sign in to manage your family.");
+        }
+        final Person anchor = resolveAnchor(me, subjectId);
+        if (anchor == null) {
+            return failPerson("Not allowed", "You cannot manage that person's family.");
+        }
+        final Person.Sex parsed = isBlank(sex) ? null : Person.Sex.valueOf(sex);
+        return createFamilyMemberFor(anchor, first, last, birthdate, parsed, email, manager);
+    }
+
+    /** The family anchor a subjectId resolves to: me for blank/self; otherwise access-checked, null if denied. */
+    private Person resolveAnchor(final Person me, final String subjectId) {
+        if (isBlank(subjectId) || me.getId().getValue().equals(subjectId)) {
+            return me;
+        }
+        final Person subject = DAO.getInstance().getPerson(Person.Id.from(subjectId)).orElse(null);
+        if (subject == null) {
+            return null;
+        }
+        final boolean allowed = caller().isSiteAdmin()
+                || PersonCommands.getPersonCommands().canAccessUserId(me, subject.getId());
+        return allowed ? subject : null;
+    }
+
+    /**
      * Create-and-link: the one self-service way a person enters a family. The new Person is created HERE, so a
      * non-admin can never link an id they did not just create. Returns the new member, or null with a faces
      * message explaining the refusal.
      */
     public Person createFamilyMember(final String first, final String last, final LocalDate birthdate,
             final Person.Sex sex, final String email, final boolean manager) {
+        return createFamilyMemberFor(currentPerson(), first, last, birthdate, sex, email, manager);
+    }
+
+    private Person createFamilyMemberFor(final Person anchor, final String first, final String last,
+            final LocalDate birthdate, final Person.Sex sex, final String email, final boolean manager) {
         final Person me = currentPerson();
-        if (me == null) {
+        if (me == null || anchor == null) {
             return failPerson("Not signed in", "Sign in to manage your family.");
         }
         if (isBlank(first) || isBlank(last)) {
@@ -200,12 +255,12 @@ public class FamilyCommands {
                     + first + " to be a family manager. Add them with their own email, or add them now and"
                     + " grant manager once they have one.");
         }
-        Family family = familyOf(me);
+        Family family = familyOf(anchor);
         if (family != null && !family.isManager(me.getId()) && !caller().isSiteAdmin()) {
             return failPerson("Not a family manager", "Only a family manager can add family members.");
         }
         if (family == null) {
-            family = ensureFamilyFor(me);
+            family = ensureFamilyFor(anchor);
             if (family == null) {
                 return null;
             }
@@ -245,9 +300,12 @@ public class FamilyCommands {
      */
     public boolean deleteFamilyMember(final Person.Id memberId) {
         final Person me = currentPerson();
-        final Family family = familyOf(me);
+        final Person member = memberId == null ? null : DAO.getInstance().getPerson(memberId).orElse(null);
+        // The MEMBER's family, not the caller's: for a manager they are the same, and anchoring here is
+        // what lets a site admin work the subject-aware family page (?id=) for someone else's household.
+        final Family family = familyOf(member);
         if (me == null || family == null) {
-            return fail("No family", "You do not have a family to manage.");
+            return fail("No family", "That person is not in a family you can manage.");
         }
         if (!family.isManager(me.getId()) && !caller().isSiteAdmin()) {
             return fail("Not a family manager", "Only a family manager can remove family members.");
@@ -255,14 +313,10 @@ public class FamilyCommands {
         if (me.getId().equals(memberId)) {
             return fail("Cannot delete yourself", "You cannot delete your own profile.");
         }
-        if (!family.isMember(memberId)) {
-            return fail("Not in your family", "That person is not in your family.");
-        }
         final String blocked = deleteBlockReason(memberId);
         if (blocked != null) {
             return fail("Cannot delete", blocked);
         }
-        final Person member = DAO.getInstance().getPerson(memberId).orElse(null);
         final boolean wasManager = family.isManager(memberId);
         family.getMemberIds().remove(memberId);
         family.getManagerIds().remove(memberId);
@@ -283,15 +337,15 @@ public class FamilyCommands {
      */
     public boolean setManager(final Person.Id memberId, final boolean grant) {
         final Person me = currentPerson();
-        final Family family = familyOf(me);
+        final Person member = memberId == null ? null : DAO.getInstance().getPerson(memberId).orElse(null);
+        // The MEMBER's family (same reasoning as deleteFamilyMember): identical for a manager, and it lets
+        // a site admin manage another household from the subject-aware family page.
+        final Family family = familyOf(member);
         if (me == null || family == null) {
-            return fail("No family", "You do not have a family to manage.");
+            return fail("No family", "That person is not in a family you can manage.");
         }
         if (!family.isManager(me.getId()) && !caller().isSiteAdmin()) {
             return fail("Not a family manager", "Only a family manager can change who manages the family.");
-        }
-        if (!family.isMember(memberId)) {
-            return fail("Not in your family", "That person is not in your family.");
         }
         if (grant == family.isManager(memberId)) {
             return true;
@@ -299,7 +353,6 @@ public class FamilyCommands {
         if (!grant && family.getManagerIds().size() == 1 && family.getSize() >= 2) {
             return fail("A manager must remain", "A family with more than one person needs at least one manager.");
         }
-        final Person member = DAO.getInstance().getPerson(memberId).orElse(null);
         if (grant && (member == null || !EmailAddresses.isValid(member.getEmail()))) {
             // A manager signs in and acts for the family; without their own WORKING address they cannot.
             return fail("Manager needs an email", "A valid separate email address is required for them to be"

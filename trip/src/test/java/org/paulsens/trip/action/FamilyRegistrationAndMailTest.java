@@ -103,6 +103,27 @@ public class FamilyRegistrationAndMailTest {
         assertTrue(regCommandsFor(owner).registerParty(started, selected2, regs2).isEmpty());
     }
 
+    @Test
+    public void siteAdminsMayRegisterAnyoneAndTheUiGateAgrees() throws IOException {
+        final Person admin = savedPerson("adm");
+        final Person stranger = savedPerson("str2");
+        final Trip trip = savedTrip();
+        final RegistrationCommands asAdmin = new RegistrationCommands(() -> adminCallerFor(admin));
+
+        assertTrue(asAdmin.canRegister(stranger), "the page's checkbox gate must match the write gate");
+        final Map<String, Registration> regs = new HashMap<>();
+        final Map<String, Object> selected = new HashMap<>();
+        regs.put(stranger.getId().getValue(), new Registration(trip.getId(), stranger.getId()));
+        selected.put(stranger.getId().getValue(), Boolean.TRUE);
+        assertEquals(asAdmin.registerParty(trip, selected, regs).size(), 1,
+                "a site admin registers someone outside their own managedUsers");
+
+        final Person plain = savedPerson("pl");
+        assertFalse(regCommandsFor(plain).canRegister(stranger), "plain users keep the old reach");
+        assertTrue(regCommandsFor(plain).canRegister(plain), "self is always registrable");
+        assertFalse(regCommandsFor(plain).canRegister(null));
+    }
+
     // ------------------------------------------------------------------ recipients + mail values
 
     @Test
@@ -228,6 +249,12 @@ public class FamilyRegistrationAndMailTest {
 
     private RegistrationCommands regCommandsFor(final Person person) {
         return new RegistrationCommands(() -> callerFor(person));
+    }
+
+    private Caller adminCallerFor(final Person person) {
+        return new Caller(person.getId(), true,
+                new org.paulsens.trip.audit.AuditActor(person.getEmail(), person.getId().getValue()),
+                new PrivilegeCommands());
     }
 
     private Caller callerFor(final Person person) {

@@ -65,11 +65,14 @@ public class MediaEventsTest {
     @Test
     public void profilePhotoKeysRoundTripToPersonIds() {
         final String id = "c411fff9-4bb2-4957-8e85-aa194e66a399";
-        Assert.assertEquals(ProfilePhotos.personIdFromKey(ProfilePhotos.keyFor(id)), id);
+        Assert.assertEquals(ProfilePhotos.parse(ProfilePhotos.keyFor(id, 2, 123)),
+                new ProfilePhotos.SlotKey(id, 2, 123));
+        Assert.assertEquals(ProfilePhotos.parse(ProfilePhotos.legacyKeyFor(id)),
+                new ProfilePhotos.SlotKey(id, 1, -1L));
         // Keys outside the prefix, or of another type, must not be mistaken for a person.
-        Assert.assertNull(ProfilePhotos.personIdFromKey("downloads/guide.pdf"));
-        Assert.assertNull(ProfilePhotos.personIdFromKey("profilePics/notajpg.png"));
-        Assert.assertNull(ProfilePhotos.personIdFromKey("profilePics/.jpg"));
-        Assert.assertNull(ProfilePhotos.personIdFromKey(null));
+        Assert.assertNull(ProfilePhotos.parse("downloads/guide.pdf"));
+        Assert.assertNull(ProfilePhotos.parse("profilePics/notajpg.png"));
+        Assert.assertNull(ProfilePhotos.parse("profilePics/.jpg"));
+        Assert.assertNull(ProfilePhotos.parse(null));
     }
 }

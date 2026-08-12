@@ -54,6 +54,21 @@ public class TemplateCommandsTest {
     }
 
     @Test
+    public void kindFilteredListingNarrowsAndFailsOpen() {
+        final TemplateCommands admin = as(true);
+        final List<ContentTemplate> mailOnly = admin.getTemplates("MAIL");
+        Assert.assertFalse(mailOnly.isEmpty(), "the three MAIL starters exist");
+        Assert.assertTrue(mailOnly.stream().allMatch(t -> t.getKind() == TemplateKind.MAIL));
+        Assert.assertTrue(mailOnly.size() < admin.getTemplates().size(), "a real narrowing, not the full list");
+        // Lower case works (the menu link passes MAIL, but hand-typed URLs happen).
+        Assert.assertEquals(admin.getTemplates("mail"), mailOnly);
+        // Blank, null, and bogus all fail OPEN to the full list -- an empty ?kind= arrives as "".
+        Assert.assertEquals(admin.getTemplates(""), admin.getTemplates());
+        Assert.assertEquals(admin.getTemplates(null), admin.getTemplates());
+        Assert.assertEquals(admin.getTemplates("NOT_A_KIND"), admin.getTemplates());
+    }
+
+    @Test
     public void referencedTemplatesRefuseToDelete() {
         // FakeData's intro/event instances reference text-only -- deleting it would break published pages.
         final TemplateCommands admin = as(true);

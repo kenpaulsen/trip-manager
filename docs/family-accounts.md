@@ -99,7 +99,37 @@ family of 2+, showing the current subject (your own name when unswitched), and c
 the member list (the Freya `topbar-item` menu behavior). **Identity never changes** — `userId`, the
 audit actor, chat authorship and payments stay the signed-in user, which is what separates this from
 the admin View As swap. `payByCard` stashes the chosen subject in `sessionScope.payFor` because the
-PayPal return URL carries no query string.
+PayPal return URL carries no query string. Switching the acting-for subject clears the in-flight flow
+keys (`payFor`, the pending-upload and bg-cutout tokens) so an abandoned payment target or staged
+upload can never attach to the next member.
+
+## Admin View As (2026-08-11: snapshot push/pop)
+
+View As no longer mutates `userId`/`userRole` in place (which leaked every session key — resume
+banners, `regDraft:*`, `payFor`, even the one-shot `codeLogin` grant — between identities).
+`Sessions.pushViewAs` snapshots ALL session attributes onto a `viewAsStack`, clears the session, and
+seeds the target identity; Back-to-Admin runs `Sessions.popViewAs`, which wipes whatever the
+viewed-as browsing accumulated and restores the snapshot. Three things deliberately survive the push:
+`aUser` (renders Back-to-Admin), `loginEmail` (audit rows during View As read admin-email acting as
+target-id — attribution stays with the real human), and `dark`. The page hooks are
+`#{people.viewAs(id)}` / `#{people.endViewAs()}` (template.xhtml `viewAs` event, topbar
+`back2Admin`); the audit `impersonation` record is written BEFORE the push, while the actor is still
+the admin. `SessionsTest`/`PersonViewAsTest` pin the contract.
+
+## Subject-aware family page (2026-08-11)
+
+`account/family.jsf` accepts `?id=` (the subject whose family to show) and `?trip=` (where a "Done —
+back to registration" button returns to). No params keeps the old my-family behavior. Authorization:
+a subject inside the caller's own reach (`canAccessUserId`) passes as before; anything else sets
+`reqId` to the subject so `defaultAuth` admits only admins. Edit affordances render on
+`family.canManage(family)` (a manager of THAT family, or a site admin — `deleteFamilyMember` /
+`setManager` now anchor on the MEMBER's family so the admin path really works); the support-request
+buttons stay on `amRealManager` (a support request files against the REQUESTER's family — an admin
+gets an "Unlink (admin)" link to adminManagePerson instead). Member creation goes through
+`FamilyCommands.addFamilyMemberFor(subjectId, ...)`, which anchors `ensureFamilyFor` on the SUBJECT
+(access-checked) so an admin's add lands in the viewed family, never their own. joinTrip's
+"Add New Family Member(s)" button carries `?trip=` and (when the visit was `?id=`-scoped) `?id=`;
+all of family.jsf's self-redirects preserve both.
 
 ## Family visibility closures
 
@@ -119,9 +149,16 @@ daily-digest answers are parked on the registration before saving (approval appl
 Per-person approval is the only status — no party-level status, by decision.
 
 **One merged view (2026-08-11).** The old single-traveler page (dynamic option components, its own
-Register/Save button) is GONE: `joinTrip` always renders the "Who's going?" party view — a family
-manager without `?id=` gets the whole family, everyone else (including every `?id=` deep link) a
-party of one with themselves preselected. A traveler already ON the trip roster bypasses `canJoin`
+Register/Save button) is GONE: `joinTrip` always renders the "Who's going?" party view — ANY member
+of a 2+ family without `?id=` sees the whole household listed (2026-08-11: the old manager-only
+listing gate hid a member's own family from them); every `?id=` deep link stays a party of one. WHO
+may actually be registered is gated per row: the checkbox is enabled only when
+`RegistrationCommands.canRegister(traveler)` — self, a managed user, or a site admin — the SAME
+method `registerParty`/`saveResponseEdits` enforce on save, so the UI can never enable what the
+write refuses (site admins were added to both sides together). Non-registrable rows show a
+"(a family manager can register them)" hint. The option questions render as the app-wide
+property-sheet (hand-written `td.propSheetLabel`/`td.propSheetValue` rows — a `ui:repeat` is one
+child to `p:panelGrid`, so the grid cannot pair label/value cells across repeated rows). A traveler already ON the trip roster bypasses `canJoin`
 in `registerParty` (people are added to rosters by hand; filing their row afterwards must keep
 working — the old single page never checked `canJoin`). An already-registered traveler keeps their
 row: a checked-but-disabled checkbox for visual consistency (nobody unregisters themselves here),

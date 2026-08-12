@@ -50,6 +50,14 @@ public final class Person implements Serializable, Comparable<Person> {
      * the source of truth — this field only answers "which family?", never "who is in it?".
      */
     private Family.Id familyId;
+    /**
+     * Which of this person's profile-picture slots (1-4) is THE profile picture; null when never chosen, in
+     * which case the lowest occupied slot wins (the deterministic default). The slot NUMBER is stored rather
+     * than the object key so replacing a photo — which mints a new versioned key — never has to write this
+     * row. Like {@link #familyId}, deliberately NOT a constructor parameter: Jackson populates it through the
+     * setter, keeping the 17-arg creator's callers untouched.
+     */
+    private Integer profilePhotoSlot;
 
     // @Builder sits on this constructor, not the class: the builder covers exactly these parameters, so fields
     // added later (familyId) don't force an 18-arg constructor on every existing caller. Setter-populated

@@ -48,6 +48,9 @@ public final class PhotoProcessor {
     /** Display rendition cap. Width only, per the feature spec — a tall portrait may exceed 800 high. */
     public static final int MAX_SMALL_WIDTH = 800;
 
+    /** Every stored profile picture is exactly this many pixels square (the feature spec's 512x512). */
+    public static final int PROFILE_SIZE = 512;
+
     /**
      * Decode-bomb guard, checked from the header BEFORE allocating pixel buffers: a 10 MB upload cap does
      * not bound decoded size (a tiny PNG can claim absurd dimensions and the decoder will faithfully
@@ -72,6 +75,156 @@ public final class PhotoProcessor {
             case GIF -> processGif(original);
             case HEIC -> processHeic(original);
         };
+    }
+
+    /**
+     * A crop selection, expressed in the pixel space of the ORIENTED full-resolution image — the same space
+     * whose dimensions {@link #preview} reports as {@code fullWidth}/{@code fullHeight}. Client-supplied and
+     * therefore untrusted: every consumer clamps before cropping.
+     */
+    public record CropRect(int x, int y, int width, int height) {
+    }
+
+    /**
+     * What a crop dialog works from: a display-sized JPEG (the original may be HEIC, which most browsers
+     * cannot render) plus both the preview's and the oriented full image's dimensions, so crop coordinates
+     * chosen against the preview can be scaled back to the full-resolution space they will be applied in.
+     */
+    public record PreviewImage(byte[] previewJpeg, int previewWidth, int previewHeight,
+            int fullWidth, int fullHeight) {
+    }
+
+    /**
+     * @throws PhotoRejectedException as {@link #process(byte[])} — same validation, no storage side effects.
+     */
+    public PreviewImage preview(final byte[] original) {
+        final ImageFormat format = ImageFormat.detect(original).orElseThrow(PhotoProcessor::notAnImage);
+        final BufferedImage oriented = decodeOriented(original, format);
+        final BufferedImage display = (oriented.getWidth() <= MAX_SMALL_WIDTH)
+                ? oriented : resizeToWidth(oriented, MAX_SMALL_WIDTH);
+        return new PreviewImage(encodeJpeg(display, SMALL_JPEG_QUALITY), display.getWidth(),
+                display.getHeight(), oriented.getWidth(), oriented.getHeight());
+    }
+
+    /**
+     * Produces one profile picture: the requested region (forced square, clamped into bounds; null = the
+     * largest centered square) scaled to exactly {@link #PROFILE_SIZE} on both sides, as JPEG. An animated
+     * GIF contributes only its first frame — profile pictures are stills by definition.
+     */
+    public byte[] processProfile(final byte[] original, final CropRect rect) {
+        final ImageFormat format = ImageFormat.detect(original).orElseThrow(PhotoProcessor::notAnImage);
+        final BufferedImage oriented = decodeOriented(original, format);
+        final CropRect square = squareRect(rect, oriented.getWidth(), oriented.getHeight());
+        return encodeJpeg(scaleToExact(crop(oriented, square), PROFILE_SIZE, PROFILE_SIZE),
+                FULL_JPEG_QUALITY);
+    }
+
+    /**
+     * The chat variant: renditions of the CROPPED image. A null rect is exactly {@link #process(byte[])}; so
+     * is an animated GIF, whose crop would silently discard the animation (the caller offers "use full
+     * photo", and this makes that the only possible outcome). A cropped image is a re-encode by definition,
+     * so the keep-original-bytes rule of the uncropped path does not apply; PNG/static-GIF sources re-encode
+     * as PNG (alpha survives), everything else as JPEG.
+     */
+    public ProcessedPhoto process(final byte[] original, final CropRect rect) {
+        if (rect == null) {
+            return process(original);
+        }
+        final ImageFormat format = ImageFormat.detect(original).orElseThrow(PhotoProcessor::notAnImage);
+        if (format == ImageFormat.GIF && isAnimatedGif(original)) {
+            return process(original);
+        }
+        final BufferedImage oriented = decodeOriented(original, format);
+        final BufferedImage cropped = crop(oriented, clamp(rect, oriented.getWidth(), oriented.getHeight()));
+        return (format == ImageFormat.PNG || format == ImageFormat.GIF)
+                ? croppedPngRenditions(cropped) : croppedJpegRenditions(cropped);
+    }
+
+    private static ProcessedPhoto croppedJpegRenditions(final BufferedImage cropped) {
+        final byte[] full = encodeJpeg(cropped, FULL_JPEG_QUALITY);
+        if (cropped.getWidth() <= MAX_SMALL_WIDTH) {
+            return new ProcessedPhoto(full, ImageFormat.JPEG.getContentType(), ImageFormat.JPEG.getExtension(),
+                    full, ImageFormat.JPEG.getContentType(), ImageFormat.JPEG.getExtension(),
+                    cropped.getWidth(), cropped.getHeight());
+        }
+        final byte[] small = encodeJpeg(resizeToWidth(cropped, MAX_SMALL_WIDTH), SMALL_JPEG_QUALITY);
+        return new ProcessedPhoto(full, ImageFormat.JPEG.getContentType(), ImageFormat.JPEG.getExtension(),
+                small, ImageFormat.JPEG.getContentType(), ImageFormat.JPEG.getExtension(),
+                cropped.getWidth(), cropped.getHeight());
+    }
+
+    private static ProcessedPhoto croppedPngRenditions(final BufferedImage cropped) {
+        final byte[] full = encodePng(cropped);
+        if (cropped.getWidth() <= MAX_SMALL_WIDTH) {
+            return new ProcessedPhoto(full, ImageFormat.PNG.getContentType(), ImageFormat.PNG.getExtension(),
+                    full, ImageFormat.PNG.getContentType(), ImageFormat.PNG.getExtension(),
+                    cropped.getWidth(), cropped.getHeight());
+        }
+        final byte[] small = encodePng(resizeToWidth(cropped, MAX_SMALL_WIDTH));
+        return new ProcessedPhoto(full, ImageFormat.PNG.getContentType(), ImageFormat.PNG.getExtension(),
+                small, ImageFormat.PNG.getContentType(), ImageFormat.PNG.getExtension(),
+                cropped.getWidth(), cropped.getHeight());
+    }
+
+    /** Decode + orientation in one step; the space every crop coordinate refers to. */
+    private static BufferedImage decodeOriented(final byte[] bytes, final ImageFormat format) {
+        return switch (format) {
+            case JPEG -> applyOrientation(decode(bytes, ImageFormat.JPEG), readExifOrientation(bytes));
+            // libheif applies the container's rotation during decode; EXIF on top would rotate twice.
+            case HEIC -> decodeHeic(bytes);
+            case PNG -> decode(bytes, ImageFormat.PNG);
+            case GIF -> decode(bytes, ImageFormat.GIF);
+        };
+    }
+
+    private static BufferedImage decodeHeic(final byte[] bytes) {
+        try {
+            return decode(bytes, ImageFormat.HEIC);
+        } catch (final PhotoRejectedException ex) {
+            throw ex;
+        } catch (final RuntimeException | Error ex) {
+            // The plugin's native layer can fail in ways plain ImageIO never does (UnsatisfiedLinkError and
+            // friends). Every one of them means the same thing to the person uploading.
+            log.warn("HEIC decode failed", ex);
+            throw heicUnavailable();
+        }
+    }
+
+    /** Clamps a client-supplied rect into the image; the result is at least 1x1 and fully inside. */
+    static CropRect clamp(final CropRect rect, final int imgWidth, final int imgHeight) {
+        final int x = Math.clamp(rect.x(), 0, imgWidth - 1);
+        final int y = Math.clamp(rect.y(), 0, imgHeight - 1);
+        return new CropRect(x, y, Math.clamp(rect.width(), 1, imgWidth - x),
+                Math.clamp(rect.height(), 1, imgHeight - y));
+    }
+
+    /** The profile crop is square by force — {@code min(w, h)} of the clamped rect, never a stretch. */
+    static CropRect squareRect(final CropRect rect, final int imgWidth, final int imgHeight) {
+        if (rect == null) {
+            final int side = Math.min(imgWidth, imgHeight);
+            return new CropRect((imgWidth - side) / 2, (imgHeight - side) / 2, side, side);
+        }
+        final CropRect clamped = clamp(rect, imgWidth, imgHeight);
+        final int side = Math.min(clamped.width(), clamped.height());
+        return new CropRect(clamped.x(), clamped.y(), side, side);
+    }
+
+    static BufferedImage crop(final BufferedImage src, final CropRect rect) {
+        return src.getSubimage(rect.x(), rect.y(), rect.width(), rect.height());
+    }
+
+    /**
+     * Exact-size scale, up or down, with {@link #resizeToWidth}'s halving strategy on the way down. Callers
+     * hand this a square region for the square profile rendition; nothing here enforces aspect, so a
+     * non-square source WOULD distort — which is why {@link #squareRect} runs first.
+     */
+    static BufferedImage scaleToExact(final BufferedImage src, final int targetWidth, final int targetHeight) {
+        BufferedImage current = src;
+        while (current.getWidth() / 2 > targetWidth && current.getHeight() / 2 > targetHeight) {
+            current = scale(current, Math.max(1, current.getWidth() / 2),
+                    Math.max(1, current.getHeight() / 2), pixelType(src));
+        }
+        return scale(current, targetWidth, targetHeight, pixelType(src));
     }
 
     private ProcessedPhoto processJpeg(final byte[] original) {
@@ -114,17 +267,7 @@ public final class PhotoProcessor {
     }
 
     private ProcessedPhoto processHeic(final byte[] original) {
-        final BufferedImage decoded;
-        try {
-            decoded = decode(original, ImageFormat.HEIC);
-        } catch (final PhotoRejectedException ex) {
-            throw ex;
-        } catch (final RuntimeException | Error ex) {
-            // The plugin's native layer can fail in ways plain ImageIO never does (UnsatisfiedLinkError and
-            // friends). Every one of them means the same thing to the person uploading.
-            log.warn("HEIC decode failed", ex);
-            throw heicUnavailable();
-        }
+        final BufferedImage decoded = decodeHeic(original);
         final byte[] full = encodeJpeg(decoded, FULL_JPEG_QUALITY);
         if (decoded.getWidth() <= MAX_SMALL_WIDTH) {
             return new ProcessedPhoto(full, ImageFormat.JPEG.getContentType(), ImageFormat.JPEG.getExtension(),
@@ -149,7 +292,7 @@ public final class PhotoProcessor {
      * Decodes with the dimension guard applied from the header first. Returns the first image; throws the
      * appropriate user-facing rejection when no reader volunteers (for HEIC that means "no libheif here").
      */
-    private static BufferedImage decode(final byte[] bytes, final ImageFormat format) {
+    static BufferedImage decode(final byte[] bytes, final ImageFormat format) {
         try (ImageInputStream in = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
             final Iterator<ImageReader> readers = ImageIO.getImageReaders(in);
             if (!readers.hasNext()) {
@@ -310,6 +453,33 @@ public final class PhotoProcessor {
 
     private static int pixelType(final BufferedImage src) {
         return src.getColorModel().hasAlpha() ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB;
+    }
+
+    /**
+     * A background-removal result made storable: the RGBA cutout drawn over a solid color, as a
+     * {@link #PROFILE_SIZE}-square JPEG. The cutout's alpha does the blending; nothing else is touched.
+     */
+    public static byte[] compositeOnColor(final byte[] rgbaPng, final int rgb) {
+        final BufferedImage cutout;
+        try {
+            cutout = ImageIO.read(new ByteArrayInputStream(rgbaPng));
+        } catch (final IOException ex) {
+            throw new PhotoRejectedException("The cutout could not be read.", ex);
+        }
+        if (cutout == null) {
+            throw new PhotoRejectedException("The cutout could not be read.");
+        }
+        final BufferedImage out = new BufferedImage(PROFILE_SIZE, PROFILE_SIZE, BufferedImage.TYPE_INT_RGB);
+        final Graphics2D g = out.createGraphics();
+        try {
+            g.setColor(new Color(rgb));
+            g.fillRect(0, 0, PROFILE_SIZE, PROFILE_SIZE);
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.drawImage(cutout, 0, 0, PROFILE_SIZE, PROFILE_SIZE, null);
+        } finally {
+            g.dispose();
+        }
+        return encodeJpeg(out, FULL_JPEG_QUALITY);
     }
 
     /** JPEG has no alpha: transparent sources are composited onto white first, not left to the encoder. */

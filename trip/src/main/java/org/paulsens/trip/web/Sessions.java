@@ -2,9 +2,15 @@ package org.paulsens.trip.web;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.model.Creds;
+import org.paulsens.trip.model.Person;
 
 /**
  * The single place a signed-in session is created or destroyed.
@@ -40,7 +46,97 @@ public final class Sessions {
      */
     public static final String JUST_LOGGED_IN = "justLoggedIn";
 
+    /**
+     * The stack of admin session snapshots behind "View As" ({@link #pushViewAs}/{@link #popViewAs}).
+     * A list (not one map) because the View As affordance renders on user-visible pages too, so a second
+     * push before the first pop is reachable; each pop unwinds exactly one level.
+     */
+    public static final String VIEW_AS_STACK = "viewAsStack";
+
     private Sessions() {
+    }
+
+    /**
+     * Admin "View As": snapshots EVERY session attribute onto the stack, clears the session, and seeds the
+     * target identity -- so nothing of the admin's browsing state (registration drafts, resume banners,
+     * payment targets, one-shot grants, staged uploads, acting-for) can leak into what the viewed user
+     * "has". Mirrors {@link #establish}'s wipe without rotating the id (no privilege is gained here).
+     *
+     * <p>Three attributes deliberately survive: {@code aUser} (what renders the Back-to-Admin affordance),
+     * {@code loginEmail} (audit attribution stays with the real human -- an audit row during View As reads
+     * admin-email acting as target-id, which is exactly what happened), and {@code dark} (cosmetic).
+     *
+     * @return false (and does nothing) unless the session really belongs to an admin ({@code aUser} set).
+     */
+    public static boolean pushViewAs(final HttpSession session, final Person.Id targetId) {
+        if (session == null || targetId == null || session.getAttribute(ADMIN_USER) == null) {
+            return false;
+        }
+        final List<HashMap<String, Object>> stack = stackOf(session);
+        final HashMap<String, Object> saved = new HashMap<>();
+        for (final String name : attributeNames(session)) {
+            if (!VIEW_AS_STACK.equals(name)) {
+                saved.put(name, session.getAttribute(name));
+                session.removeAttribute(name);
+            }
+        }
+        stack.add(saved);
+        session.setAttribute(VIEW_AS_STACK, stack);
+        session.setAttribute(PersonCommands.ACTIVE_USER_ID, targetId);
+        session.setAttribute(PersonCommands.ACTIVE_USER_ROLE, "user");
+        session.setAttribute(ADMIN_USER, saved.get(ADMIN_USER));
+        session.setAttribute(LOGIN_EMAIL, saved.get(LOGIN_EMAIL));
+        if (saved.get(DARK) != null) {
+            session.setAttribute(DARK, saved.get(DARK));
+        }
+        return true;
+    }
+
+    /**
+     * Back to admin: clears everything the viewed-as user accumulated and restores the most recent
+     * snapshot. Restoring is best-effort comfort; the CLEARING is the point -- state picked up while
+     * impersonating must not follow the admin back either.
+     *
+     * @return false (and does nothing) when there is no snapshot to pop.
+     */
+    public static boolean popViewAs(final HttpSession session) {
+        if (session == null) {
+            return false;
+        }
+        final List<HashMap<String, Object>> stack = stackOf(session);
+        if (stack.isEmpty()) {
+            return false;
+        }
+        final HashMap<String, Object> saved = stack.remove(stack.size() - 1);
+        for (final String name : attributeNames(session)) {
+            session.removeAttribute(name);
+        }
+        for (final HashMap.Entry<String, Object> entry : saved.entrySet()) {
+            if (entry.getValue() != null) {
+                session.setAttribute(entry.getKey(), entry.getValue());
+            }
+        }
+        if (!stack.isEmpty()) {
+            session.setAttribute(VIEW_AS_STACK, stack);
+        }
+        return true;
+    }
+
+    /** The current snapshot stack, always mutable and never null. */
+    @SuppressWarnings("unchecked")
+    private static List<HashMap<String, Object>> stackOf(final HttpSession session) {
+        final Object raw = session.getAttribute(VIEW_AS_STACK);
+        return (raw instanceof List<?>) ? (List<HashMap<String, Object>>) raw : new ArrayList<>();
+    }
+
+    /** Attribute names materialized first: removing while enumerating is undefined. */
+    private static List<String> attributeNames(final HttpSession session) {
+        final List<String> names = new ArrayList<>();
+        final Enumeration<String> raw = session.getAttributeNames();
+        if (raw != null) {
+            names.addAll(Collections.list(raw));
+        }
+        return names;
     }
 
     /**

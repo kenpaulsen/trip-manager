@@ -166,8 +166,17 @@ public class ChatPhotos {
      *         distinct from a rejected photo.
      */
     public StagedPhoto stage(final String tripId, final Person.Id uploader, final byte[] bytes) {
+        return stage(tripId, uploader, bytes, null);
+    }
+
+    /**
+     * As {@link #stage(String, Person.Id, byte[])}, with an optional crop applied before the renditions are
+     * built. Null crops nothing; an animated GIF ignores the rect (a cropped frame would drop the animation).
+     */
+    public StagedPhoto stage(final String tripId, final Person.Id uploader, final byte[] bytes,
+            final PhotoProcessor.CropRect rect) {
         sweepExpired();
-        final ProcessedPhoto photo = processor.process(bytes);
+        final ProcessedPhoto photo = processor.process(bytes, rect);
         final String base = KEY_PREFIX + tripId + "/" + STAMP.format(Instant.now()) + "-" + randomSuffix();
         final String fullKey = base + "." + photo.fullExtension();
         final String smallKey = photo.smallIsFull() ? fullKey : base + "-small." + photo.smallExtension();

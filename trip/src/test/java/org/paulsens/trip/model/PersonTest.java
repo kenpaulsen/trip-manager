@@ -40,6 +40,20 @@ public class PersonTest {
         Assert.assertEquals(after, before, "To/from json failed!");
     }
 
+    /** The setter-populated field must ride JSON both ways without joining the builder (familyId's rule). */
+    @Test
+    public void profilePhotoSlotRoundTripsOutsideTheBuilder() throws Exception {
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
+        final Person before = new Person();
+        before.setProfilePhotoSlot(3);
+        final Person after = mapper.readValue(mapper.writeValueAsString(before), Person.class);
+        Assert.assertEquals(after.getProfilePhotoSlot(), Integer.valueOf(3));
+        Assert.assertEquals(after, before, "profilePhotoSlot to/from json failed!");
+
+        final Person absent = mapper.readValue(oldSerializedPerson, Person.class);
+        Assert.assertNull(absent.getProfilePhotoSlot(), "Old rows must read as no-choice");
+    }
+
     @Test
     public void canReadOldStuff() throws Exception {
         final ObjectMapper mapper = DAO.getInstance().getMapper();

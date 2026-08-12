@@ -170,17 +170,22 @@ public class UtilAndPhotosTest {
 
     @Test
     public void keyParsingRejectsForeignKeys() {
-        Assert.assertEquals(ProfilePhotos.keyFor("p1"), "profilePics/p1.jpg");
-        Assert.assertEquals(ProfilePhotos.personIdFromKey("profilePics/p1.jpg"), "p1");
-        Assert.assertNull(ProfilePhotos.personIdFromKey("downloads/x.jpg"));
-        Assert.assertNull(ProfilePhotos.personIdFromKey("profilePics/x.png"));
-        Assert.assertNull(ProfilePhotos.personIdFromKey("profilePics/.jpg"));
-        Assert.assertNull(ProfilePhotos.personIdFromKey(null));
+        // Both key forms parse; everything else under the prefix is not a profile photo. The full parsing
+        // matrix (slots, versions, malformed names) lives in ProfilePhotosSlotsTest.
+        Assert.assertEquals(ProfilePhotos.legacyKeyFor("p1"), "profilePics/p1.jpg");
+        Assert.assertNotNull(ProfilePhotos.parse("profilePics/p1.jpg"));
+        Assert.assertNotNull(ProfilePhotos.parse(ProfilePhotos.keyFor("p1", 1, 123)));
+        Assert.assertNull(ProfilePhotos.parse("downloads/x.jpg"));
+        Assert.assertNull(ProfilePhotos.parse("profilePics/x.png"));
+        Assert.assertNull(ProfilePhotos.parse("profilePics/.jpg"));
+        Assert.assertNull(ProfilePhotos.parse(null));
     }
 
     @Test
     public void theUrlComesFromTheMediaLayer() throws Exception {
         final MediaCommands media = Mockito.mock(MediaCommands.class);
+        Mockito.when(media.isUploadEnabled()).thenReturn(true);
+        Mockito.when(media.listKeys(ProfilePhotos.PREFIX)).thenReturn(List.of("profilePics/p1.jpg"));
         Mockito.when(media.publicUrl(ArgumentMatchers.anyString()))
                 .thenAnswer(call -> "https://cdn.example/" + call.getArgument(0));
         final ProfilePhotos photos = photosWith(media);

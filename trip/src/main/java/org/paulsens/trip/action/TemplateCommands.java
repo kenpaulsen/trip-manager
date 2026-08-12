@@ -6,6 +6,7 @@ import jakarta.inject.Named;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.function.Supplier;
 import lombok.Setter;
@@ -52,6 +53,30 @@ public class TemplateCommands {
         } catch (final RuntimeException ex) {
             log.error("Unable to list templates", ex);
             return List.of();
+        }
+    }
+
+    /**
+     * The manager table narrowed to one kind (the "Email Templates" menu entry passes {@code ?kind=MAIL}).
+     * A null, blank, or unrecognized kind answers the full list -- the empty-query-param trap means the
+     * page can hand this "" verbatim.
+     */
+    public List<ContentTemplate> getTemplates(final String kind) {
+        final TemplateKind wanted = parseKind(kind);
+        if (wanted == null) {
+            return getTemplates();
+        }
+        return getTemplates().stream().filter(template -> template.getKind() == wanted).toList();
+    }
+
+    private static TemplateKind parseKind(final String kind) {
+        if (kind == null || kind.isBlank()) {
+            return null;
+        }
+        try {
+            return TemplateKind.valueOf(kind.trim().toUpperCase(Locale.ROOT));
+        } catch (final IllegalArgumentException ex) {
+            return null;
         }
     }
 

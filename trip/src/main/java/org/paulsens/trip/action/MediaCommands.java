@@ -32,6 +32,7 @@ import software.amazon.awssdk.services.cloudfront.model.CreateInvalidationReques
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
@@ -561,6 +562,25 @@ public class MediaCommands {
         } catch (final RuntimeException ex) {
             log.error("Unable to delete object: " + key, ex);
             return false;
+        }
+    }
+
+    /**
+     * @return one object's bytes; empty when no bucket is configured or the read failed. Exists for the rare
+     *         write path that must READ a stored object back (profile-photo background removal edits the
+     *         current rendition) — serving traffic never comes through here, that is the CDN's job.
+     */
+    public Optional<byte[]> getObject(final String key) {
+        final String bucket = bucket();
+        if (bucket == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(s3().getObjectAsBytes(
+                    GetObjectRequest.builder().bucket(bucket).key(key).build()).asByteArray());
+        } catch (final RuntimeException ex) {
+            log.error("Unable to read object: " + key, ex);
+            return Optional.empty();
         }
     }
 

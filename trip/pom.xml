@@ -321,6 +321,18 @@
             <artifactId>metadata-extractor</artifactId>
             <version>2.19.0</version>
         </dependency>
+        <!--
+            Profile-picture background removal (U^2-Net-small via ONNX Runtime; flag-gated by
+            profile.bgRemoval.enabled). The jar bundles its natives for linux-aarch64 and macOS, so the
+            container image needs NOTHING extra. The model itself (src/main/resources/models/u2netp.onnx,
+            Apache-2.0, ~4.7 MB) is checked in beside the code; without it the feature reports itself
+            unavailable and everything else works.
+        -->
+        <dependency>
+            <groupId>com.microsoft.onnxruntime</groupId>
+            <artifactId>onnxruntime</artifactId>
+            <version>1.20.0</version>
+        </dependency>
         <dependency>
            <groupId>org.apache.poi</groupId>
            <artifactId>poi</artifactId>

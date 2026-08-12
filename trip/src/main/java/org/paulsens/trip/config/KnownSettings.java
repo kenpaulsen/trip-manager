@@ -304,9 +304,20 @@ public final class KnownSettings {
                     + "look like part of this site. Add an app's custom scheme (e.g. trip://) here before "
                     + "shipping it, not after.");
 
+    // --- profile pictures ---
+
+    public static final SettingDef PROFILE_BG_REMOVAL_ENABLED = new SettingDef(
+            "profile.bgRemoval.enabled", Config.Type.BOOLEAN, "false", "Offer background removal",
+            "Adds a \"replace background\" option to profile pictures: an on-server ML model (U^2-Net-small "
+                    + "via ONNX Runtime) cuts out the person and the chosen color fills in behind them. Off "
+                    + "by default: inference costs a few hundred MB of transient memory on the task, so turn "
+                    + "it on only after the memory headroom has been verified for the current task size.");
+
     private static final List<SettingSection> SECTIONS = List.of(
             new SettingSection("Site", null,
                     List.of(SITE_ORG_NAME)),
+            new SettingSection("Profile pictures", null,
+                    List.of(PROFILE_BG_REMOVAL_ENABLED)),
             new SettingSection("Home page", null,
                     List.of(HOME_BANNER_ENABLED, HOME_BANNER_TEXT, HOME_DOCS_MAX_AGE_DAYS,
                             HOME_PHOTOS_WINDOW_DAYS, HOME_PHOTOS_MIN_COUNT, HOME_COUNTDOWN_SOON_DAYS)),

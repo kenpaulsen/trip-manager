@@ -94,7 +94,7 @@ public class RegistrationCommands {
             }
             final Person.Id travelerId = Person.Id.from(entry.getKey());
             final Person traveler = people.getPerson(travelerId);
-            if (!people.canAccessUserId(me, travelerId)) {
+            if (!canRegisterFor(me, travelerId)) {
                 TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not registered",
                         "You cannot register " + traveler.getPreferredName() + ".");
                 continue;
@@ -157,7 +157,7 @@ public class RegistrationCommands {
                 continue;
             }
             final Person.Id who = Person.Id.from(entry.getKey());
-            if (!people.canAccessUserId(me, who)) {
+            if (!canRegisterFor(me, who)) {
                 continue;
             }
             final Registration stored = DAO.getInstance().getRegistration(trip.getId(), who).orElse(null);
@@ -353,6 +353,23 @@ public class RegistrationCommands {
 
     private String regBaseUrl() {
         return new ConfigCommands().getString(org.paulsens.trip.config.KnownSettings.REG_MAIL_BASE_URL);
+    }
+
+    /**
+     * Whether the signed-in user may register (or edit answers for) this traveler on the party view: self,
+     * a managed user, or a site admin. The page's checkbox gating and the write path share this method so
+     * the UI can never enable what the save refuses.
+     */
+    public boolean canRegister(final Person traveler) {
+        return traveler != null && canRegisterFor(currentPerson(), traveler.getId());
+    }
+
+    private boolean canRegisterFor(final Person me, final Person.Id travelerId) {
+        if (me == null || travelerId == null) {
+            return false;
+        }
+        return PersonCommands.getPersonCommands().canAccessUserId(me, travelerId)
+                || callerSource.get().isSiteAdmin();
     }
 
     private Person currentPerson() {

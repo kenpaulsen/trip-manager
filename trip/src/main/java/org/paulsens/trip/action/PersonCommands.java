@@ -5,6 +5,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
+import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -19,10 +20,12 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.EmailAddresses;
 import org.paulsens.trip.util.ScopeUtil;
+import org.paulsens.trip.web.Sessions;
 
 @Slf4j
 @Named("people")
@@ -39,6 +42,11 @@ public class PersonCommands {
      * the signed-in user, which is what separates this from the admin View As swap.
      */
     public static final String ACTING_FOR = "actingFor";
+    /**
+     * Session key: who a captured card payment is credited to (set by the payByCard pages, which lose their
+     * query string across the PayPal round trip). Declared here so the acting-for switch can clear it.
+     */
+    public static final String PAY_FOR = "payFor";
 
     public static PersonCommands getPersonCommands() {
         final FacesContext ctx = FacesContext.getCurrentInstance();
@@ -290,8 +298,53 @@ public class PersonCommands {
         return null;
     }
 
+    /**
+     * Admin "View As": audit happens in the page BEFORE this call (the actor must still be the admin);
+     * this snapshots-and-clears the session via {@link Sessions#pushViewAs} and reports what happened.
+     */
+    public boolean viewAs(final Person.Id targetId) {
+        return viewAs(currentSession(), targetId);
+    }
+
+    /** Test seam: the servlet session is not reachable without a FacesContext. */
+    boolean viewAs(final HttpSession session, final Person.Id targetId) {
+        if (!Sessions.pushViewAs(session, targetId)) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN, "Cannot view as user",
+                    "Only a signed-in admin can do that.");
+            return false;
+        }
+        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO,
+                "Viewing as user " + getPerson(targetId).getPreferredName(), "");
+        return true;
+    }
+
+    /** Back to admin: clears the viewed-as user's accumulated state and restores the pushed snapshot. */
+    public boolean endViewAs() {
+        return endViewAs(currentSession());
+    }
+
+    /** Test seam: the servlet session is not reachable without a FacesContext. */
+    boolean endViewAs(final HttpSession session) {
+        if (!Sessions.popViewAs(session)) {
+            return false;
+        }
+        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO, "Back to admin!",
+                getCurrentPerson().getPreferredName());
+        return true;
+    }
+
+    private static HttpSession currentSession() {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        return ctx == null ? null : (HttpSession) ctx.getExternalContext().getSession(false);
+    }
+
     /** Sets (or, for self/invalid ids, clears) the sticky selection. Refuses anyone outside the caller's reach. */
     public void actFor(final String idStr) {
+        // Flow state must not leap between subjects: an abandoned payment target or a staged upload
+        // belongs to the moment it was created, not to whichever member is selected next.
+        setSessionValue(PAY_FOR, null);
+        setSessionValue(PendingUploads.SESSION_TOKEN_KEY, null);
+        setSessionValue(ProfilePhotoCommands.BG_TOKEN_KEY, null);
         if (idStr == null || idStr.isBlank()) {
             setSessionValue(ACTING_FOR, null);
             return;
@@ -338,6 +391,29 @@ public class PersonCommands {
             return false;
         }
         return person.getId().equals(reqId) || person.getManagedUsers().contains(reqId);
+    }
+
+    /**
+     * Persists which slot is THE profile picture. The write goes to a FRESH copy loaded by id -- the view's
+     * copy may hold half-edited fields the person never chose to save -- and the value is then mirrored onto
+     * the view's copy so its later full Save writes the same choice rather than clobbering it with whatever
+     * the view loaded (the read-after-write rule: pass along what was saved, never re-read).
+     */
+    public boolean selectProfilePhoto(final Person viewPerson, final int slot) {
+        if (viewPerson == null || viewPerson.getId() == null || slot < 1 || slot > ProfilePhotos.MAX_SLOTS) {
+            return false;
+        }
+        final Person fresh = getPerson(viewPerson.getId());
+        if (!fresh.getId().equals(viewPerson.getId())) {
+            // getPerson never returns null; a blank answer carries a FRESH id, which is how "not found" shows.
+            return false;
+        }
+        fresh.setProfilePhotoSlot(slot);
+        if (!savePerson(fresh)) {
+            return false;
+        }
+        viewPerson.setProfilePhotoSlot(slot);
+        return true;
     }
 
     public boolean hasRole(final String role) {
