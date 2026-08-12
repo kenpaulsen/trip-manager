@@ -123,6 +123,9 @@ public class FakeData {
      *
      * <p>LOCAL MODE ONLY, like every other seed in this class: production channels keep the shipped defaults.
      */
+    /** The ceiling {@code ChatCommands.validate} enforces on a channel's burst/sustained limits. */
+    private static final int MAX_CHAT_RATE_LIMIT = 10_000;
+
     private static void relaxChatLimitsForFakeTrips() {
         final ChatCommands chat = new ChatCommands();
         for (final String tripId : List.of("faketrip", "Fake2")) {
@@ -130,9 +133,12 @@ public class FakeData {
             if (channel == null) {
                 continue;   // chat disabled for this trip; nothing to relax
             }
+            // Exactly the ceiling ChatCommands.validate allows ("Rate limits cannot exceed 10,000"), not a
+            // number past it: the admin chat-settings page re-saves whatever it loaded, so a seeded value the
+            // form would reject makes every Save on that page fail validation and go nowhere.
             DAO.getInstance().saveChatChannel(channel.withSettings(channel.getSettings().toBuilder()
-                    .burstLimit(10_000)
-                    .sustainedLimit(100_000)
+                    .burstLimit(MAX_CHAT_RATE_LIMIT)
+                    .sustainedLimit(MAX_CHAT_RATE_LIMIT)
                     .build()));
         }
     }

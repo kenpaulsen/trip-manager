@@ -11,6 +11,9 @@ import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Trip;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
+import org.paulsens.trip.action.ChatCommands;
+import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.model.chat.ChatChannel;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.PutItemResponse;
@@ -181,5 +184,25 @@ public class FakeDataTest {
         assertNotNull(creds);
         assertNotNull(creds.get(CredentialsDAO.LAST_LOGIN));
     }
-    }
 
+    /**
+     * The seeded demo channels must satisfy the app's OWN settings validator. They are deliberately at the
+     * rate-limit ceiling so the suite can never trip the limiter, and the admin chat-settings page re-saves
+     * whatever it loads -- so a seed one notch past the ceiling makes every Save on that page fail validation
+     * and silently go nowhere, which is exactly how it broke a webtest.
+     */
+    @Test
+    public void seededChatChannelsPassTheSettingsValidator() {
+        FakeData.addFakeData();
+        final ChatCommands chat = new ChatCommands();
+        for (final String tripId : new String[] {"faketrip", "Fake2"}) {
+            final ChatChannel channel = chat.ensureChannel(tripId, AuditActor.system());
+            assertNotNull(channel, tripId + " should have a chat channel");
+            assertNull(ChatCommands.validateSettings(channel.getSettings()),
+                    tripId + "'s seeded settings must be savable from the admin page");
+            assertTrue(channel.getSettings().getBurstLimit() >= 1000,
+                    "the seed exists to keep the suite clear of the limiter: "
+                            + channel.getSettings().getBurstLimit());
+        }
+    }
+}
