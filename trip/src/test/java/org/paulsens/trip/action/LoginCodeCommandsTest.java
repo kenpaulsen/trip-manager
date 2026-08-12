@@ -13,6 +13,7 @@ import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.web.Sessions;
 import org.testng.Assert;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
@@ -29,6 +30,15 @@ public class LoginCodeCommandsTest {
     private InMemoryCacheClient cache;
     private MailCommands mail;
     private LoginCodeCommands commands;
+
+    @BeforeClass
+    public void reseed() {
+        // In local mode the shared cache IS the people store, and several suite classes call
+        // clearAllCaches() without reseeding -- whichever class follows inherits a world where user2
+        // does not exist and requestCode silently sends nothing (the CI-order failures of 2026-08-12;
+        // new test files shifted the class order). The suite convention: need seeds, re-seed yourself.
+        org.paulsens.trip.dynamo.FakeData.addFakeData();
+    }
 
     @BeforeMethod
     public void fresh() {
