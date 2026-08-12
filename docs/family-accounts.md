@@ -94,9 +94,11 @@ Guard rails:
 
 `PersonCommands.getSubject(idParam)`: explicit `?id=` (page auth still gates it) → the sticky session
 selection `actingFor` (validated on every read; stale entries self-clear) → the signed-in user. The
-topbar "Viewing: X" chip is both the indicator and the switcher: always rendered for anyone in a
-family of 2+, showing the current subject (your own name when unswitched), and clicking it drops down
-the member list (the Freya `topbar-item` menu behavior). **Identity never changes** — `userId`, the
+topbar "Viewing: X" chip is both the indicator and the switcher: rendered for family MANAGERS in a
+family of 2+ (2026-08-12: non-managers get no chip — acting-for is a manager power, `actFor` refuses
+non-managed targets, and a switcher that never switches reads as broken; refusals also growl now),
+showing the current subject (your own name when unswitched), and clicking it drops down the member
+list (the Freya `topbar-item` menu behavior), filtered to members the viewer can act for. **Identity never changes** — `userId`, the
 audit actor, chat authorship and payments stay the signed-in user, which is what separates this from
 the admin View As swap. `payByCard` stashes the chosen subject in `sessionScope.payFor` because the
 PayPal return URL carries no query string. Switching the acting-for subject clears the in-flight flow
