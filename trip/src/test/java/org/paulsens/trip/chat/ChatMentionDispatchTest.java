@@ -12,6 +12,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMessage;
+import org.paulsens.trip.model.chat.ChatQuote;
 import org.paulsens.trip.model.chat.ChatSettings;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
@@ -185,6 +186,149 @@ public class ChatMentionDispatchTest {
         ChatNotifications.mentionsFor(
                 message(mention(unreachable.getId()), tripId),
                 channel(tripId), trip(tripId, author, unreachable.getId()), "Author Notified");
+
+        assertNothingDispatched();
+    }
+
+    // --- replies (a reply addresses the quoted author like a mention; user decision 2026-08-12) ---
+
+    private ChatMessage reply(final String body, final String tripId, final Person.Id quotedAuthor) {
+        final ChatQuote quote = new ChatQuote(ChatMessage.Id.from("0"), quotedAuthor, "Quoted Person",
+                "the original message", false, null);
+        return new ChatMessage(ChatMessage.Id.from("2"), ChatChannel.Id.forTrip(tripId), author,
+                Instant.now(), null, body, quote, null, null, null, null, null, null, null, null);
+    }
+
+    @Test
+    public void aReplyNotifiesTheQuotedAuthorLikeAMention() throws Exception {
+        final String tripId = "reply-" + System.nanoTime();
+        ChatNotifications.mentionsFor(reply("good point!", tripId, mentioned),
+                channel(tripId), trip(tripId, author, mentioned), "Author Notified");
+
+        final ChatNotification notification = awaitDispatch();
+
+        Assert.assertEquals(notification.getRecipients(), List.of(mentioned));
+        Assert.assertEquals(notification.getReason(), ChatNotification.Reason.REPLY);
+        Assert.assertEquals(notification.getAuthorName(), "Author Notified");
+    }
+
+    /** Replying to yourself is not a conversation with anyone else. */
+    @Test
+    public void aSelfReplyNotifiesNobody() throws Exception {
+        final String tripId = "reply-" + System.nanoTime();
+        ChatNotifications.mentionsFor(reply("adding to my own point", tripId, author),
+                channel(tripId), trip(tripId, author, mentioned), "Author Notified");
+
+        assertNothingDispatched();
+    }
+
+    /** Named AND quoted is one address, not two: the mention notification carries them, nothing else fires. */
+    @Test
+    public void aReplyToSomeoneAlsoMentionedSendsOnlyTheMentionNotification() throws Exception {
+        final String tripId = "reply-" + System.nanoTime();
+        ChatNotifications.mentionsFor(
+                reply("agreed " + mention(mentioned), tripId, mentioned),
+                channel(tripId), trip(tripId, author, mentioned), "Author Notified");
+
+        final ChatNotification notification = awaitDispatch();
+        Assert.assertEquals(notification.getReason(), ChatNotification.Reason.MENTION);
+        Thread.sleep(500);
+        Assert.assertEquals(captured.size(), 1, "the quoted author must not be notified twice");
+    }
+
+    /** A reply that also names a third person produces both notifications, each with its own reason. */
+    @Test
+    public void aReplyPlusADistinctMentionSendsBoth() throws Exception {
+        final String tripId = "reply-" + System.nanoTime();
+        final Person.Id quoted = person("Quoted");
+        dispatched = new CountDownLatch(2);
+        ChatNotifications.mentionsFor(
+                reply("what do you think " + mention(mentioned) + "?", tripId, quoted),
+                channel(tripId), trip(tripId, author, mentioned, quoted), "Author Notified");
+
+        Assert.assertTrue(dispatched.await(10, TimeUnit.SECONDS), "both notifications must dispatch");
+        final var byReason = new java.util.HashMap<ChatNotification.Reason, ChatNotification>();
+        for (final ChatNotification n : captured) {
+            byReason.put(n.getReason(), n);
+        }
+        Assert.assertEquals(byReason.get(ChatNotification.Reason.MENTION).getRecipients(), List.of(mentioned));
+        Assert.assertEquals(byReason.get(ChatNotification.Reason.REPLY).getRecipients(), List.of(quoted));
+    }
+
+    /** {@code @all} already sweeps the quoted author into the mention mail; no second mail for them. */
+    @Test
+    public void aReplyInsideAnAllMessageDoesNotDoubleNotify() throws Exception {
+        final String tripId = "reply-" + System.nanoTime();
+        ChatNotifications.mentionsFor(reply("@all agreed", tripId, mentioned),
+                channel(tripId), trip(tripId, author, mentioned), "Author Notified");
+
+        final ChatNotification notification = awaitDispatch();
+        Assert.assertEquals(notification.getReason(), ChatNotification.Reason.MENTION);
+        Thread.sleep(500);
+        Assert.assertEquals(captured.size(), 1);
+    }
+
+    // --- photo comments (commenting on a picture replies to its uploader) ---
+
+    private static ChatChannel photoChannel(final String tripId, final String s3Key) {
+        return new ChatChannel(ChatChannel.Id.forPhoto(s3Key), tripId, ChatChannel.Kind.PHOTO, "Photo",
+                null, null, ChatSettings.defaults(), Instant.now(), "admin", null, null);
+    }
+
+    private ChatMessage comment(final String body, final String s3Key) {
+        return new ChatMessage(ChatMessage.Id.from("3"), ChatChannel.Id.forPhoto(s3Key), author,
+                Instant.now(), null, body, null, null, null, null, null, null, null, null, null);
+    }
+
+    @Test
+    public void aPhotoCommentNotifiesTheUploader() throws Exception {
+        final String tripId = "photo-" + System.nanoTime();
+        final String s3Key = "chat/" + tripId + "/x.jpg";
+        trip(tripId, author, mentioned);
+        ChatNotifications.photoMentionsFor(comment("lovely shot", s3Key),
+                photoChannel(tripId, s3Key), null, "Author Notified", true, mentioned);
+
+        final ChatNotification notification = awaitDispatch();
+
+        Assert.assertEquals(notification.getRecipients(), List.of(mentioned));
+        Assert.assertEquals(notification.getReason(), ChatNotification.Reason.PHOTO_COMMENT);
+    }
+
+    @Test
+    public void commentingOnYourOwnPhotoNotifiesNobody() throws Exception {
+        final String tripId = "photo-" + System.nanoTime();
+        final String s3Key = "chat/" + tripId + "/x.jpg";
+        trip(tripId, author, mentioned);
+        ChatNotifications.photoMentionsFor(comment("my favorite", s3Key),
+                photoChannel(tripId, s3Key), null, "Author Notified", true, author);
+
+        assertNothingDispatched();
+    }
+
+    /** An uploader who is also @named gets the mention mail only. */
+    @Test
+    public void anUploaderAlsoMentionedIsNotifiedOnce() throws Exception {
+        final String tripId = "photo-" + System.nanoTime();
+        final String s3Key = "chat/" + tripId + "/x.jpg";
+        trip(tripId, author, mentioned);
+        ChatNotifications.photoMentionsFor(
+                comment("nice one " + mention(mentioned), s3Key),
+                photoChannel(tripId, s3Key), null, "Author Notified", true, mentioned);
+
+        final ChatNotification notification = awaitDispatch();
+        Assert.assertEquals(notification.getReason(), ChatNotification.Reason.MENTION);
+        Thread.sleep(500);
+        Assert.assertEquals(captured.size(), 1);
+    }
+
+    /** The sender-trust gate covers the uploader mail too: an untrusted commenter mails nobody. */
+    @Test
+    public void anUntrustedCommenterCannotMailTheUploaderEither() throws Exception {
+        final String tripId = "photo-" + System.nanoTime();
+        final String s3Key = "chat/" + tripId + "/x.jpg";
+        trip(tripId, author, mentioned);
+        ChatNotifications.photoMentionsFor(comment("hello", s3Key),
+                photoChannel(tripId, s3Key), null, "Author Notified", false, mentioned);
 
         assertNothingDispatched();
     }

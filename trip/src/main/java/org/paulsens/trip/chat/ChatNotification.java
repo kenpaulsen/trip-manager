@@ -17,6 +17,10 @@ public class ChatNotification implements Serializable {
 
     public enum Reason {
         MENTION,
+        /** The recipient authored the message this one quotes — a reply addresses them like a mention. */
+        REPLY,
+        /** The recipient uploaded the photo this comment is on — commenting replies to the photo. */
+        PHOTO_COMMENT,
         ALL_MESSAGES,
         DIGEST,
         ADMIN_ANNOUNCEMENT

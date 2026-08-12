@@ -15,6 +15,7 @@ import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMentions;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatNotifyPref;
+import org.paulsens.trip.model.chat.ChatQuote;
 import org.paulsens.trip.util.EmailAddresses;
 
 /**
@@ -78,29 +79,62 @@ public final class ChatNotifications {
             // so it is a wider audience, not an override of anyone's choice.
             mentioned.addAll(everyoneIn(trip, message.getAuthorId()));
         }
-        if (mentioned.isEmpty()) {
+        if (!mentioned.isEmpty()) {
+            final ChatNotification notification = build(message, channel, trip, authorName, mentioned);
+            if (!notification.getRecipients().isEmpty()) {
+                // startAs(system): the dispatch thread outlives the author's request, and the notification is the
+                // application's act, not the author's (see EmailChatNotifier). Binding System here means anything
+                // below that falls back to AuditActor.current() records System rather than nobody.
+                TripThreads.startAs(AuditActor.system(), () -> dispatch(notification));
+            }
+        }
+        replyFor(message, channel, trip, authorName, mentioned);
+    }
+
+    /**
+     * A reply addresses the person it quotes as surely as typing their name (user decision 2026-08-12), so
+     * the quoted author is notified under exactly the mention rules — same membership/preference/address
+     * gates via {@code wantsMentionEmail} — with reply wording rather than mention wording. Skipped when
+     * they are ALSO named (or swept in by {@code @all}): they are already on the mention notification, and
+     * the per-recipient dedupe key would drop a second mail for the same message anyway.
+     */
+    private static void replyFor(final ChatMessage message, final ChatChannel channel, final Trip trip,
+            final String authorName, final List<Person.Id> alreadyMentioned) {
+        final ChatQuote quote = message.getQuote();
+        if (quote == null || quote.getAuthorId() == null) {
             return;
         }
-        final ChatNotification notification = build(message, channel, trip, authorName, mentioned);
-        if (notification.getRecipients().isEmpty()) {
+        final Person.Id repliedTo = quote.getAuthorId();
+        if (repliedTo.equals(message.getAuthorId()) || alreadyMentioned.contains(repliedTo)) {
             return;
         }
-        // startAs(system): the dispatch thread outlives the author's request, and the notification is the
-        // application's act, not the author's (see EmailChatNotifier). Binding System here means anything
-        // below that falls back to AuditActor.current() records System rather than nobody.
+        if (!wantsMentionEmail(channel.getId(), message.getAuthorId(), repliedTo)) {
+            return;
+        }
+        final ChatNotification notification = new ChatNotification(
+                channel.getId(), message.getId(), channel.getTripId(),
+                trip == null ? null : trip.getTitle(), message.getAuthorId(), authorName,
+                List.of(repliedTo), includeContent(channel) ? snippet(message.getBody()) : null,
+                ChatNotification.Reason.REPLY, null, message.getSentAt());
         TripThreads.startAs(AuditActor.system(), () -> dispatch(notification));
     }
 
     /**
-     * Notifies anyone mentioned in a photo comment. Photo threads differ from trip chat in three deliberate
-     * ways: {@code @all} is inert (a photo thread has no roster to broadcast to); nothing is mailed unless the
-     * COMMENTER has joined at least one trip — the sender-trust gate, because accounts are self-registered and
-     * must not be able to make the site email arbitrary members (user decision 2026-08-09); and the
-     * mention-email preference is read from the photo's TRIP channel, where people actually manage chat email.
+     * Notifies anyone mentioned in a photo comment — and the PHOTO'S UPLOADER, because commenting on a
+     * picture replies to it (user decision 2026-08-12): the owner is notified under the same mention rules,
+     * with comment wording. Photo threads differ from trip chat in three deliberate ways: {@code @all} is
+     * inert (a photo thread has no roster to broadcast to); nothing is mailed unless the COMMENTER has joined
+     * at least one trip — the sender-trust gate, because accounts are self-registered and must not be able to
+     * make the site email arbitrary members (user decision 2026-08-09), and it covers the owner mail too; and
+     * the mention-email preference is read from the photo's TRIP channel, where people actually manage chat
+     * email.
+     *
+     * @param photoOwner who uploaded the photo, or null when unknown (a reconciled row whose uploadedBy is
+     *        not a person id resolves to nobody downstream and is simply never mailed)
      */
     public static void photoMentionsFor(
             final ChatMessage comment, final ChatChannel photoChannel, final Trip trip,
-            final String authorName, final boolean senderTrusted) {
+            final String authorName, final boolean senderTrusted, final Person.Id photoOwner) {
         if (comment == null || photoChannel == null || photoChannel.getTripId() == null) {
             return;
         }
@@ -109,26 +143,33 @@ public final class ChatNotifications {
                     comment.getAuthorId());
             return;
         }
-        final List<Person.Id> mentioned = ChatMentions.extract(comment.getBody());
-        if (mentioned.isEmpty()) {
-            return;
-        }
         final ChatChannel.Id prefHome = ChatChannel.Id.forTrip(photoChannel.getTripId());
+        final List<Person.Id> mentioned = ChatMentions.extract(comment.getBody());
         final List<Person.Id> recipients = new ArrayList<>();
         for (final Person.Id person : mentioned) {
             if (wantsMentionEmail(prefHome, comment.getAuthorId(), person)) {
                 recipients.add(person);
             }
         }
-        if (recipients.isEmpty()) {
+        if (!recipients.isEmpty()) {
+            final ChatNotification notification = new ChatNotification(
+                    photoChannel.getId(), comment.getId(), photoChannel.getTripId(),
+                    trip == null ? null : trip.getTitle(), comment.getAuthorId(), authorName, recipients,
+                    includeContent(photoChannel) ? snippet(comment.getBody()) : null,
+                    ChatNotification.Reason.MENTION, null, comment.getSentAt());
+            TripThreads.startAs(AuditActor.system(), () -> dispatch(notification));
+        }
+        if (photoOwner == null || photoOwner.equals(comment.getAuthorId())
+                || mentioned.contains(photoOwner)
+                || !wantsMentionEmail(prefHome, comment.getAuthorId(), photoOwner)) {
             return;
         }
-        final ChatNotification notification = new ChatNotification(
+        final ChatNotification ownerNote = new ChatNotification(
                 photoChannel.getId(), comment.getId(), photoChannel.getTripId(),
-                trip == null ? null : trip.getTitle(), comment.getAuthorId(), authorName, recipients,
-                includeContent(photoChannel) ? snippet(comment.getBody()) : null,
-                ChatNotification.Reason.MENTION, null, comment.getSentAt());
-        TripThreads.startAs(AuditActor.system(), () -> dispatch(notification));
+                trip == null ? null : trip.getTitle(), comment.getAuthorId(), authorName,
+                List.of(photoOwner), includeContent(photoChannel) ? snippet(comment.getBody()) : null,
+                ChatNotification.Reason.PHOTO_COMMENT, null, comment.getSentAt());
+        TripThreads.startAs(AuditActor.system(), () -> dispatch(ownerNote));
     }
 
     /**

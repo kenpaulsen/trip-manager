@@ -115,6 +115,12 @@ public final class EmailChatNotifier implements ChatNotifier {
     }
 
     private static String templateFor(final ChatNotification notification) {
+        if (notification.getReason() == ChatNotification.Reason.REPLY) {
+            return "chat-reply";
+        }
+        if (notification.getReason() == ChatNotification.Reason.PHOTO_COMMENT) {
+            return "photo-comment";
+        }
         return isPhotoNotification(notification) ? "photo-mention" : "chat-mention";
     }
 
@@ -157,6 +163,12 @@ public final class EmailChatNotifier implements ChatNotifier {
             return "Announcement in the " + trip + " chat";
         }
         final String author = notification.getAuthorName() == null ? "Someone" : notification.getAuthorName();
+        if (notification.getReason() == ChatNotification.Reason.REPLY) {
+            return author + " replied to you in the " + trip + " chat";
+        }
+        if (notification.getReason() == ChatNotification.Reason.PHOTO_COMMENT) {
+            return author + " commented on your photo from the " + trip + " trip";
+        }
         if (isPhotoNotification(notification)) {
             return author + " mentioned you on a photo from the " + trip + " trip";
         }

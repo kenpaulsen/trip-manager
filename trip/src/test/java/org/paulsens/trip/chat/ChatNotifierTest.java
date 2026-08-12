@@ -245,6 +245,39 @@ public class ChatNotifierTest {
                 "the mail must deep-link back to the chat");
     }
 
+    /** A reply notification says "replied", never "mentioned": the recipient typed no @name and knows it. */
+    @Test
+    public void aReplyIsRenderedWithReplyWording() {
+        mailIsConfigured();
+        final org.mockito.ArgumentCaptor<String> subject = org.mockito.ArgumentCaptor.forClass(String.class);
+
+        final String body = sendAndCaptureBody(
+                notification(ChatNotification.Reason.REPLY, "good point"), subject).getValue();
+
+        Assert.assertEquals(subject.getValue(), "Author Name replied to you in the Rome 2027 chat");
+        Assert.assertTrue(body.contains("replied to your message"), "the chat-reply template renders");
+        Assert.assertTrue(body.contains("https://example.org/trip/chat.jsf?trip=trip-1"));
+    }
+
+    /** A comment on your photo says so — and deep-links to the photo, not the chat. */
+    @Test
+    public void aPhotoCommentIsRenderedWithCommentWordingAndAPhotoLink() {
+        mailIsConfigured();
+        final ChatNotification note = new ChatNotification(
+                ChatChannel.Id.forPhoto("chat/trip-1/x.jpg"), ChatMessage.Id.from("1"), "trip-1",
+                "Rome 2027", Person.Id.from("author"), "Author Name", List.of(RECIPIENT), "lovely",
+                ChatNotification.Reason.PHOTO_COMMENT, null, Instant.now());
+        final org.mockito.ArgumentCaptor<String> subject = org.mockito.ArgumentCaptor.forClass(String.class);
+
+        final String body = sendAndCaptureBody(note, subject).getValue();
+
+        Assert.assertEquals(subject.getValue(), "Author Name commented on your photo from the Rome 2027 trip");
+        Assert.assertTrue(body.contains("commented on"), "the photo-comment template renders");
+        // The URL rides through the template's HTML escaping, so the ampersand arrives as an entity.
+        Assert.assertTrue(body.contains("/trip/tripMedia.jsf?trip=trip-1&amp;photo="),
+                "the mail must deep-link to the photo, not the chat");
+    }
+
     @Test
     public void anAdminAnnouncementGetsItsOwnSubject() {
         mailIsConfigured();

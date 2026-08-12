@@ -65,11 +65,13 @@ public class ChatNotificationsTest {
         final ChatMessage comment = comment("@all look at this");
 
         // None of these may throw, and none may reach the notifier.
-        ChatNotifications.photoMentionsFor(null, photoChannel, null, "Someone", true);
-        ChatNotifications.photoMentionsFor(comment, null, null, "Someone", true);
-        ChatNotifications.photoMentionsFor(comment, photoChannel, null, "Someone", false);
-        ChatNotifications.photoMentionsFor(comment, orphanPhotoChannel(), null, "Someone", true);
-        ChatNotifications.photoMentionsFor(comment("no mentions here"), photoChannel, null, "Someone", true);
+        ChatNotifications.photoMentionsFor(null, photoChannel, null, "Someone", true, null);
+        ChatNotifications.photoMentionsFor(comment, null, null, "Someone", true, null);
+        ChatNotifications.photoMentionsFor(comment, photoChannel, null, "Someone", false,
+                Person.Id.from("owner"));
+        ChatNotifications.photoMentionsFor(comment, orphanPhotoChannel(), null, "Someone", true,
+                Person.Id.from("owner"));
+        ChatNotifications.photoMentionsFor(comment("no mentions here"), photoChannel, null, "Someone", true, null);
     }
 
     private static ChatMessage comment(final String body) {

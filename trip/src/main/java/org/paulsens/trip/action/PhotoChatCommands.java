@@ -400,8 +400,18 @@ public class PhotoChatCommands {
         final ChatMessage stored = saved.get();
         dao().invalidatePhotoChatMeta(s3Key);
         ChatNotifications.photoMentionsFor(stored, channel, tripOf(channel), authorDisplayName(me),
-                isKnownTraveler(me));
+                isKnownTraveler(me), ownerOf(mediaFor(s3Key)));
         return ChatCommands.SendResult.ok(stored);
+    }
+
+    /**
+     * The photo's uploader as a person id, or null. Chat-photo album rows store the author's id in
+     * {@code uploadedBy}; anything else there (a reconciled or admin-uploaded row holds an email or a label)
+     * resolves to no known person downstream and is therefore never mailed.
+     */
+    private static Person.Id ownerOf(final MediaItem photo) {
+        final String uploadedBy = photo == null ? null : photo.getUploadedBy();
+        return (uploadedBy == null || uploadedBy.isBlank()) ? null : Person.Id.from(uploadedBy);
     }
 
     /** Adds or removes this person's emoji on the photo itself (the image-root target). Idempotent by key. */
