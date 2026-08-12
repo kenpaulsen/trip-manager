@@ -184,6 +184,52 @@ public class SupportChatCommands {
         return result;
     }
 
+    /**
+     * Links a message body may embed and have rendered clickable: site-relative {@code /....jsf?...} paths
+     * (what the system-generated requests contain) and absolute http(s) URLs.
+     */
+    private static final java.util.regex.Pattern LINK_TOKEN = java.util.regex.Pattern
+            .compile("https?://\\S+|/[A-Za-z0-9_\\-./]+\\.jsf(?:\\?[A-Za-z0-9_\\-.=&%:]*)?");
+
+    /**
+     * The message body as escape-safe HTML with recognized links wrapped in anchors, so the support page
+     * can render it with {@code escape="false"}. Everything outside a link is HTML-escaped -- bodies are
+     * member-authored text (removal-request details), so raw rendering would be an XSS hole. Trailing
+     * sentence punctuation stays outside the anchor ("open /admin/x.jsf." must not link the dot).
+     */
+    public String renderBody(final String body) {
+        if (body == null) {
+            return "";
+        }
+        final StringBuilder out = new StringBuilder(body.length() + 64);
+        final java.util.regex.Matcher links = LINK_TOKEN.matcher(body);
+        int copied = 0;
+        while (links.find()) {
+            String url = links.group();
+            while (!url.isEmpty() && ".,;:!?)'\"".indexOf(url.charAt(url.length() - 1)) >= 0) {
+                url = url.substring(0, url.length() - 1);
+            }
+            if (url.isEmpty()) {
+                continue;
+            }
+            out.append(escapeHtml(body.substring(copied, links.start())));
+            final String href = escapeHtml(url);
+            out.append("<a href=\"").append(href).append('"');
+            if (url.startsWith("http")) {
+                out.append(" target=\"_blank\" rel=\"noopener\"");
+            }
+            out.append('>').append(href).append("</a>");
+            copied = links.start() + url.length();
+        }
+        out.append(escapeHtml(body.substring(copied)));
+        return out.toString();
+    }
+
+    private static String escapeHtml(final String text) {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                .replace("\"", "&quot;").replace("'", "&#39;");
+    }
+
     /** A reply by a support reader (channel admin or chatAdmin). Not a request: no marker, no email fan-out. */
     public boolean postReply(final String body) {
         final Caller caller = callerSource.get();

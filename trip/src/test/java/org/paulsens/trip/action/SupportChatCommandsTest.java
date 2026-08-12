@@ -32,6 +32,35 @@ public class SupportChatCommandsTest {
         dao = DAO.getInstance();
     }
 
+    // ------------------------------------------------------------------ body rendering
+
+    @Test
+    public void renderBodyEscapesTextAndAnchorsOnlyRecognizedLinks() {
+        final SupportChatCommands support = new SupportChatCommands();
+
+        org.testng.Assert.assertEquals(support.renderBody(null), "");
+        org.testng.Assert.assertEquals(support.renderBody("plain words"), "plain words");
+        org.testng.Assert.assertEquals(support.renderBody("<script>x&y</script>"),
+                "&lt;script&gt;x&amp;y&lt;/script&gt;", "member-authored text is escaped, never raw");
+
+        // The system-generated shape: a site-relative .jsf link, trailing period outside the anchor.
+        org.testng.Assert.assertEquals(
+                support.renderBody("open /admin/adminManagePerson.jsf?id=abc-123 now."),
+                "open <a href=\"/admin/adminManagePerson.jsf?id=abc-123\">"
+                        + "/admin/adminManagePerson.jsf?id=abc-123</a> now.");
+        org.testng.Assert.assertEquals(support.renderBody("see /admin/support.jsf."),
+                "see <a href=\"/admin/support.jsf\">/admin/support.jsf</a>.");
+
+        // Absolute URLs open in a new tab; a hostile body cannot smuggle attributes past the escape.
+        org.testng.Assert.assertEquals(support.renderBody("https://example.com/x?a=1"),
+                "<a href=\"https://example.com/x?a=1\" target=\"_blank\" rel=\"noopener\">"
+                        + "https://example.com/x?a=1</a>");
+        org.testng.Assert.assertEquals(support.renderBody("https://e.com/\"onmouseover=\"x"),
+                "<a href=\"https://e.com/&quot;onmouseover=&quot;x\" target=\"_blank\" rel=\"noopener\">"
+                        + "https://e.com/&quot;onmouseover=&quot;x</a>",
+                "quotes inside a URL are escaped so they cannot break out of the href attribute");
+    }
+
     // ------------------------------------------------------------------ read authorization
 
     @Test
