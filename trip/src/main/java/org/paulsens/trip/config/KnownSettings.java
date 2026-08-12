@@ -309,9 +309,9 @@ public final class KnownSettings {
     public static final SettingDef PROFILE_BG_REMOVAL_ENABLED = new SettingDef(
             "profile.bgRemoval.enabled", Config.Type.BOOLEAN, "false", "Offer background removal",
             "Adds a \"replace background\" option to profile pictures: an on-server ML model (U^2-Net-small "
-                    + "via ONNX Runtime) cuts out the person and the chosen color fills in behind them. Off "
-                    + "by default: inference costs a few hundred MB of transient memory on the task, so turn "
-                    + "it on only after the memory headroom has been verified for the current task size.");
+                    + "via ONNX Runtime) cuts out the person and the chosen color fills in behind them. While "
+                    + "in use the model holds a few hundred MB of task memory; it is released again after 10 "
+                    + "idle minutes (the next use re-pays a ~1s model load).");
 
     private static final List<SettingSection> SECTIONS = List.of(
             new SettingSection("Site", null,

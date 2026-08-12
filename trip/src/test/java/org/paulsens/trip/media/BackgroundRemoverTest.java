@@ -91,6 +91,44 @@ public class BackgroundRemoverTest {
         }
     }
 
+    /** The idle reaper gives the session's memory back — but never mid-inference, and never early. */
+    @Test
+    public void idleCloseReclaimsTheSessionButNeverEarlyOrBusy() {
+        BackgroundRemover.resetForTest();
+        if (!BackgroundRemover.isAvailable()) {
+            throw new SkipException("u2netp.onnx not on the classpath");
+        }
+        try {
+            Assert.assertTrue(BackgroundRemover.cutout(PhotoFixtures.jpeg(64, 64)).isPresent());
+            Assert.assertTrue(BackgroundRemover.isSessionLoaded());
+
+            BackgroundRemover.closeIfIdle();
+            Assert.assertTrue(BackgroundRemover.isSessionLoaded(),
+                    "Freshly used means not idle; the session must survive");
+
+            BackgroundRemover.idleCloseMillisForTest(0);
+            BackgroundRemover.GATE.acquireUninterruptibly();
+            try {
+                BackgroundRemover.closeIfIdle();
+            } finally {
+                BackgroundRemover.GATE.release();
+            }
+            Assert.assertTrue(BackgroundRemover.isSessionLoaded(),
+                    "A held permit means in use; the session must never close mid-run");
+
+            BackgroundRemover.closeIfIdle();
+            Assert.assertFalse(BackgroundRemover.isSessionLoaded(),
+                    "Past the idle window the session closes and its memory returns");
+
+            BackgroundRemover.idleCloseMillisForTest(BackgroundRemover.IDLE_CLOSE_MILLIS);
+            Assert.assertTrue(BackgroundRemover.cutout(PhotoFixtures.jpeg(64, 64)).isPresent(),
+                    "The next use reloads the model transparently");
+            Assert.assertTrue(BackgroundRemover.isSessionLoaded());
+        } finally {
+            BackgroundRemover.resetForTest();
+        }
+    }
+
     /** The mask math is model-independent and testable without inference. */
     @Test
     public void maskNormalizationAndApplicationAreExact() {

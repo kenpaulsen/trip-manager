@@ -10,6 +10,8 @@ import java.io.InputStream;
 import java.nio.FloatBuffer;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
@@ -23,8 +25,10 @@ import lombok.extern.slf4j.Slf4j;
  * hard: ONE permit ({@link #GATE}) — a second request while one runs waits briefly and then reports "busy"
  * rather than queueing work — and the input is downscaled to {@link #MODEL_SIZE} before the tensor is built,
  * so peak transient cost is one 320x320 float tensor plus the session's own workspace. The session itself is
- * created lazily on FIRST use, never at boot: the feature ships flag-off, and a disabled feature must cost
- * zero.
+ * created lazily on FIRST use, never at boot (the feature ships flag-off, and a disabled feature must cost
+ * zero), and is CLOSED again after {@link #IDLE_CLOSE_MILLIS} without use: the loaded session retains
+ * ~440 MB of native arena, and on a 2 GB task whose heap ceiling is 1.5 GB that residency would be a
+ * permanent over-commit. Occasional use pays a ~1s reload instead.
  *
  * <p>The model file lives on the classpath ({@value #MODEL_RESOURCE}). Absent — a build that chose not to
  * carry it — the feature reports {@link #isAvailable()} false and callers degrade to a friendly message.
@@ -45,8 +49,21 @@ public final class BackgroundRemover {
     static final Semaphore GATE = new Semaphore(1);
     private static final long GATE_WAIT_SECONDS = 5;
 
+    /**
+     * How long the loaded session may sit unused before the reaper closes it. The session retains ~440 MB of
+     * native memory (measured, 2026-08-12) — permanent residency on the 2 GB task over-commits it against the
+     * heap's own ceiling, so an occasional-use feature gives the memory back and re-pays the ~1s model load
+     * on the next use instead.
+     */
+    static final long IDLE_CLOSE_MILLIS = TimeUnit.MINUTES.toMillis(10);
+    private static final long REAPER_PERIOD_SECONDS = 60;
+
     private static volatile OrtSession session;
     private static volatile boolean sessionFailed;
+    private static volatile long lastUsedAt;
+    private static volatile long idleCloseMillis = IDLE_CLOSE_MILLIS;
+    /** Created with the first session and kept for the process's life; one thread, daemon, mostly asleep. */
+    private static volatile ScheduledExecutorService reaper;
     /** The classpath location actually consulted; a test points it at garbage to exercise failure paths. */
     private static volatile String modelResource = MODEL_RESOURCE;
 
@@ -82,8 +99,11 @@ public final class BackgroundRemover {
             return Optional.empty();
         }
         try {
+            lastUsedAt = System.currentTimeMillis();
             return Optional.ofNullable(runCutout(jpeg512));
         } finally {
+            // Stamped again on the way out so a long inference doesn't eat into its own idle window.
+            lastUsedAt = System.currentTimeMillis();
             GATE.release();
         }
     }
@@ -126,6 +146,7 @@ public final class BackgroundRemover {
                 final byte[] model = in.readAllBytes();
                 session = OrtEnvironment.getEnvironment().createSession(model);
                 log.info("Background-removal model loaded ({} KB)", model.length / 1024);
+                startReaper();
             } catch (final OrtException | IOException | RuntimeException | Error ex) {
                 log.error("Background-removal model could not be loaded; the feature reports unavailable", ex);
                 sessionFailed = true;
@@ -193,6 +214,62 @@ public final class BackgroundRemover {
         return out;
     }
 
+    /** Started once, with the first session; kept across idle closes (re-creating schedulers churns). */
+    private static void startReaper() {
+        if (reaper != null) {
+            return;
+        }
+        reaper = Executors.newSingleThreadScheduledExecutor(BackgroundRemover::reaperThread);
+        reaper.scheduleWithFixedDelay(BackgroundRemover::closeIfIdle,
+                REAPER_PERIOD_SECONDS, REAPER_PERIOD_SECONDS, TimeUnit.SECONDS);
+    }
+
+    private static Thread reaperThread(final Runnable task) {
+        final Thread thread = new Thread(task, "bg-remover-idle-reaper");
+        thread.setDaemon(true);
+        return thread;
+    }
+
+    /**
+     * Closes the session once it has sat idle past the window, giving its ~440 MB back; the next use simply
+     * reloads. Takes the SAME permit inference holds, so a session is never closed mid-run — and a held
+     * permit means "in use", which is its own reason not to close.
+     */
+    static void closeIfIdle() {
+        if (session == null || System.currentTimeMillis() - lastUsedAt < idleCloseMillis) {
+            return;
+        }
+        if (!GATE.tryAcquire()) {
+            return;
+        }
+        try {
+            synchronized (BackgroundRemover.class) {
+                if (session != null && System.currentTimeMillis() - lastUsedAt >= idleCloseMillis) {
+                    session.close();
+                    session = null;
+                    log.info("Background-removal session closed after {} min idle; memory reclaimed",
+                            TimeUnit.MILLISECONDS.toMinutes(idleCloseMillis));
+                }
+            }
+        } catch (final OrtException ex) {
+            // The reference is dropped regardless; a close failure leaks at worst what was already resident.
+            session = null;
+            log.warn("Background-removal session close failed; reference dropped", ex);
+        } finally {
+            GATE.release();
+        }
+    }
+
+    /** Whether a session is currently loaded (and holding its native memory). */
+    static boolean isSessionLoaded() {
+        return session != null;
+    }
+
+    /** Test seam: shrinks the idle window so reclamation is testable without waiting minutes. */
+    static void idleCloseMillisForTest(final long millis) {
+        idleCloseMillis = millis;
+    }
+
     /** Test seam: back to a pristine state — real model location, no remembered failure, no live session. */
     static void resetForTest() {
         synchronized (BackgroundRemover.class) {
@@ -206,6 +283,7 @@ public final class BackgroundRemover {
             }
             sessionFailed = false;
             modelResource = MODEL_RESOURCE;
+            idleCloseMillis = IDLE_CLOSE_MILLIS;
         }
     }
 
