@@ -351,8 +351,15 @@ public class PersonCommands {
         }
         final Person.Id target = Person.Id.from(idStr);
         final Object self = ScopeUtil.getInstance().getSessionMap(ACTIVE_USER_ID);
-        if (target.equals(self) || !canAccessUserId(getCurrentPerson(), target)) {
+        if (target.equals(self)) {
             setSessionValue(ACTING_FOR, null);
+        } else if (!canAccessUserId(getCurrentPerson(), target)) {
+            // Never refuse silently: the pre-fix topbar offered every family member, and a refused
+            // click navigated away still "Viewing: self" with no explanation.
+            setSessionValue(ACTING_FOR, null);
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN, "Cannot view as "
+                    + getPerson(target).getPreferredName(),
+                    "Only a family manager can act for another family member.");
         } else {
             setSessionValue(ACTING_FOR, target);
         }
