@@ -28,6 +28,7 @@ import org.paulsens.trip.model.ContentRecord;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.DataId;
+import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
@@ -56,6 +57,7 @@ public class DAO {
     private final ObjectMapper mapper;
     private final CacheClient cacheClient;
     private final PersonDAO personDao;
+    private final FamilyDAO familyDao;
     private final TripEventDAO tripEventDao;
     private final TripDAO tripDao;
     private final RegistrationDAO regDao;
@@ -85,6 +87,7 @@ public class DAO {
         this.mapper = createObjectMapper();
         this.cacheClient = cacheClient;
         this.personDao = new PersonDAO(mapper, persistence, cacheClient);
+        this.familyDao = new FamilyDAO(mapper, persistence, cacheClient);
         this.tripEventDao = new TripEventDAO(mapper, persistence, cacheClient);
         this.tripDao = new TripDAO(mapper, persistence, tripEventDao, cacheClient);
         this.regDao = new RegistrationDAO(mapper, persistence, cacheClient);
@@ -183,6 +186,22 @@ public class DAO {
     }
     public Person getPersonByEmail(final String email) {
         return personDao.getPersonByEmail(email);
+    }
+
+    // Families
+    /**
+     * Conditionally saves this family (optimistic version guard). Throws
+     * {@link software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException} on a lost race --
+     * the caller must re-read the family and recompute its change against the winning row.
+     */
+    public Boolean saveFamily(final Family family) throws IOException {
+        return familyDao.saveFamily(family);
+    }
+    public Optional<Family> getFamily(final Family.Id id) {
+        return familyDao.getFamily(id);
+    }
+    public Boolean deleteFamily(final Family.Id id) {
+        return familyDao.deleteFamily(id);
     }
 
     // Trips

@@ -303,9 +303,14 @@ public class TripsResource extends BaseResource {
                 || privileges().has(ApiPrivileges.TRIP_MGR, trip.getId());
     }
 
-    /** Acting for yourself is always allowed; acting for somebody else needs tripMgr on that trip. */
+    /**
+     * Acting for yourself is always allowed; acting for somebody else needs tripMgr on that trip, or the
+     * managed-users relationship -- the same {@code canActFor} the other person-scoped resources honor (this
+     * one predated family accounts and was the odd one out).
+     */
     private boolean canActFor(final Person.Id subject, final String tripId) {
-        return subject.equals(personId()) || privileges().has(ApiPrivileges.TRIP_MGR, tripId);
+        return subject.equals(personId()) || privileges().has(ApiPrivileges.TRIP_MGR, tripId)
+                || privileges().canActFor(findPerson(personId()), subject);
     }
 
     private Person.Id subjectOf(final String personIdParam) {

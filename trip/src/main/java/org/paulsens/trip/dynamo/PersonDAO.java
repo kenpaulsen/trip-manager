@@ -99,13 +99,33 @@ public class PersonDAO {
         if (lowEmail.isEmpty()) {
             return null;
         }
-        try {
-            final String cachedId = cacheClient.getHashFields(CacheKeys.EMAIL_IDX, List.of(lowEmail))
-                    .get(lowEmail);
-            return resolveEmailMapping(lowEmail, cachedId).orElse(null);
-        } catch (final RuntimeException ex) {
-            throw ex;
+        final Person found = lookupByEmail(lowEmail);
+        return (found == null) ? localPersonaFallback(lowEmail) : found;
+    }
+
+    private Person lookupByEmail(final String lowEmail) {
+        final String cachedId = cacheClient.getHashFields(CacheKeys.EMAIL_IDX, List.of(lowEmail))
+                .get(lowEmail);
+        return resolveEmailMapping(lowEmail, cachedId).orElse(null);
+    }
+
+    /**
+     * LOCAL MODE ONLY: resolves the bare persona ({@code user2}) to the seeded person whose real address is
+     * {@code user2@example.com}.
+     *
+     * <p>Local logins are typed as personas, not addresses -- the quickstart, every webtest, and years of
+     * muscle memory all use {@code user2} / {@code admin}. The seeded family managers, though, must hold
+     * MAILABLE addresses, because a family manager without one is refused. That leaves the persona and the
+     * person's email deliberately different, and every path that resolves a typed login to a person
+     * ({@code setPass}, {@code createCreds}, the fake credential store) goes through here -- so this is the
+     * one place the two are reconciled. Production never reaches it: real logins are real addresses, and a
+     * miss is a miss.
+     */
+    private Person localPersonaFallback(final String lowEmail) {
+        if (!LocalMode.isLocal() || lowEmail.contains("@")) {
+            return null;
         }
+        return lookupByEmail(FakeData.localEmail(lowEmail));
     }
 
     /**

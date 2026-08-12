@@ -2,8 +2,11 @@ package org.paulsens.trip.action;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.paulsens.trip.dynamo.FakeData;
+import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
@@ -64,6 +67,48 @@ public class TripCommandsTest {
         assertEquals(p3Depart, lodging.getEnd());
         assertNotEquals(p2Depart.getDayOfMonth(), p3Depart.getDayOfMonth());
         assertEquals(p3Depart.getDayOfMonth(), lodging.getEnd().getDayOfMonth());
+    }
+
+    /**
+     * The "Pilgrimage Listings" content instance: its admin-typed properties drive the listing, and a blank
+     * or nonsense property must fall back to "everything" rather than error -- this renders on the PUBLIC
+     * landing page, where a typo in an admin field must never take the page down.
+     */
+    @Test
+    public void aListingInstanceAppliesItsPropertiesAndForgivesBadOnes() {
+        assertEquals(tripCommands.getPublicTripsFor(null), List.of(), "No instance, nothing to list");
+
+        final int all = tripCommands.getPublicTripsFor(listingInstance(null, null)).size();
+        assertEquals(tripCommands.getPublicTripsFor(listingInstance("", null)).size(), all,
+                "A blank max count lists everything");
+        assertEquals(tripCommands.getPublicTripsFor(listingInstance("not-a-number", null)).size(), all,
+                "An unparsable max count falls back to everything");
+        assertEquals(tripCommands.getPublicTripsFor(listingInstance("0", null)).size(), all,
+                "Zero means unset, not 'show nothing'");
+        assertEquals(tripCommands.getPublicTripsFor(listingInstance("-3", null)).size(), all,
+                "A negative max count is nonsense; fall back");
+        if (all > 1) {
+            assertEquals(tripCommands.getPublicTripsFor(listingInstance("1", null)).size(), 1,
+                    "A real max count caps the list");
+        }
+
+        // cfpwOnly is a plain Boolean.parseBoolean: anything that is not "true" means "all providers".
+        final List<Trip> cfpwOnly = tripCommands.getPublicTripsFor(listingInstance(null, "true"));
+        assertTrue(cfpwOnly.stream().allMatch(Trip::isCfpw), "cfpwOnly restricts to CFPW-hosted trips");
+        assertEquals(tripCommands.getPublicTripsFor(listingInstance(null, "banana")).size(), all,
+                "A non-boolean reads as false: every provider");
+    }
+
+    private ContentInstance listingInstance(final String maxCount, final String cfpwOnly) {
+        final Map<String, String> values = new HashMap<>();
+        if (maxCount != null) {
+            values.put("maxCount", maxCount);
+        }
+        if (cfpwOnly != null) {
+            values.put("cfpwOnly", cfpwOnly);
+        }
+        return new ContentInstance("ci-1", "page:trip-index", "Pilgrimages", "tpl-1", 1, values,
+                null, 0, 1, null, null);
     }
 
     @Test

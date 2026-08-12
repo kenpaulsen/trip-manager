@@ -219,7 +219,7 @@ public class TemplateCommands {
             return "A template's kind cannot change after creation; create a new template instead.";
         }
         return switch (template.getKind()) {
-            case STANDARD -> HtmlFragmentValidator.validate(template.getBody());
+            case STANDARD, MAIL -> HtmlFragmentValidator.validate(template.getBody());
             case CONTAINER -> normalizeContainer(template);
             case PROGRAMMATIC -> normalizeProgrammatic(template, stored == null);
         };

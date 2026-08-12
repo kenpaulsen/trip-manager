@@ -1,7 +1,9 @@
 package org.paulsens.trip.chat;
 
 import java.time.Instant;
+import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.chat.ChatChannel;
+import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatSettings;
 import org.testng.Assert;
 import org.testng.annotations.Test;
@@ -50,6 +52,43 @@ public class ChatNotificationsTest {
     public void aShortBodyIsUntouched() {
         Assert.assertEquals(ChatNotifications.snippet("the bus leaves at 7"), "the bus leaves at 7");
         Assert.assertNull(ChatNotifications.snippet(null));
+    }
+
+    /**
+     * The photo-comment mention gate. Anonymous readers can comment on a photo, so an untrusted commenter
+     * must not be able to make the site email anyone by typing an @mention -- the suppression happens before
+     * the mention list is even read, and every malformed input answers quietly rather than throwing.
+     */
+    @Test
+    public void aPhotoMentionFromAnUntrustedCommenterEmailsNobody() {
+        final ChatChannel photoChannel = photoChannel();
+        final ChatMessage comment = comment("@all look at this");
+
+        // None of these may throw, and none may reach the notifier.
+        ChatNotifications.photoMentionsFor(null, photoChannel, null, "Someone", true);
+        ChatNotifications.photoMentionsFor(comment, null, null, "Someone", true);
+        ChatNotifications.photoMentionsFor(comment, photoChannel, null, "Someone", false);
+        ChatNotifications.photoMentionsFor(comment, orphanPhotoChannel(), null, "Someone", true);
+        ChatNotifications.photoMentionsFor(comment("no mentions here"), photoChannel, null, "Someone", true);
+    }
+
+    private static ChatMessage comment(final String body) {
+        return new ChatMessage(null, ChatChannel.Id.forPhoto("photos/x.jpg"), Person.Id.from("p1"),
+                Instant.parse("2026-01-01T00:00:00Z"), ChatMessage.MessageKind.TEXT, body, null,
+                java.util.List.of(), null, null, null, null, null, null, null);
+    }
+
+    private static ChatChannel photoChannel() {
+        return new ChatChannel(ChatChannel.Id.forPhoto("photos/x.jpg"), "t1", ChatChannel.Kind.PHOTO,
+                "Photo", null, null, ChatSettings.defaults(), Instant.parse("2026-01-01T00:00:00Z"),
+                "admin", null, null);
+    }
+
+    /** A photo channel with no trip behind it: nothing to notify about, and no NPE either. */
+    private static ChatChannel orphanPhotoChannel() {
+        return new ChatChannel(ChatChannel.Id.forPhoto("photos/y.jpg"), null, ChatChannel.Kind.PHOTO,
+                "Photo", null, null, ChatSettings.defaults(), Instant.parse("2026-01-01T00:00:00Z"),
+                "admin", null, null);
     }
 
     private static ChatChannel channelKeeping(final Long retentionSeconds) {

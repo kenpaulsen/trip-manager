@@ -123,8 +123,8 @@ public class PersonDtoRedactionTest {
                         LocalDate.of(2020, 1, 1), "Portland"))
                 .notes("Prefers an aisle seat.")
                 .managedUsers(List.of(Person.Id.from("managed-1")))
-                .emergencyContactName("Jane Paulsen")
-                .emergencyContactPhone("555-3434")
+                .emergencyName("Jane Paulsen")
+                .emergencyPhone("555-3434")
                 .build();
     }
 }

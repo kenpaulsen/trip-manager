@@ -102,6 +102,21 @@ public class AuditCommands {
         return record(AuditAction.PERSON, AuditOutcome.SUCCESS, target, msg, who);
     }
 
+    /**
+     * A family-account membership change. The message is fully formed by the caller ({@code FamilyCommands}
+     * builds it from the specific mutation: created/linked/unlinked/manager granted/...), because the verbs
+     * vary too much for a prefix helper; the target is the person the change is ABOUT (the member), while the
+     * actor identifies who did it.
+     */
+    public String family(final Person target, final String msg) {
+        return family(target, msg, AuditActor.current());
+    }
+
+    /** @see #family(Person, String) */
+    public String family(final Person target, final String msg, final AuditActor who) {
+        return record(AuditAction.FAMILY, AuditOutcome.SUCCESS, target, msg, who);
+    }
+
     /** An account's login address changed, which is the event that makes older records look misattributed. */
     public String loginChanged(final Person target, final String oldEmail) {
         return loginChanged(target, oldEmail, AuditActor.current());
@@ -133,6 +148,18 @@ public class AuditCommands {
     /** @see #registered(Person, Trip) */
     public String registered(final Person target, final Trip trip, final AuditActor who) {
         final String msg = describe(target) + " just registered for the '" + titleOf(trip) + "' trip.";
+        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who);
+    }
+
+    /** A registration was approved -- an event that previously left NO record at all. */
+    public String registrationApproved(final Person target, final Trip trip) {
+        return registrationApproved(target, trip, AuditActor.current());
+    }
+
+    /** @see #registrationApproved(Person, Trip) */
+    public String registrationApproved(final Person target, final Trip trip, final AuditActor who) {
+        final String msg = actorEmail(who) + " approved " + describe(target)
+                + " for '" + titleOf(trip) + "'.";
         return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who);
     }
 

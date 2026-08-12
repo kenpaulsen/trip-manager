@@ -52,25 +52,28 @@ public class InMemoryPersistence implements Persistence {
      * Per-table key attribute names. Tables not listed fall through to the default no-op Persistence (empty
      * reads) so unrelated code paths keep working.
      */
-    private static final Map<String, TableKeys> TABLES = Map.of(
-            AuditDAO.AUDIT_TABLE, new TableKeys(AuditDAO.PARTITION, AuditDAO.SORT),
-            ChatDAO.CHANNELS_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, null),
-            ChatDAO.MEMBERS_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, ChatDAO.ATTR_PERSON_ID),
-            ChatDAO.MESSAGES_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, ChatDAO.ATTR_MSG_ID),
-            ChatDAO.REACTIONS_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, ChatDAO.ATTR_SK),
+    private static final Map<String, TableKeys> TABLES = Map.ofEntries(
+            Map.entry(AuditDAO.AUDIT_TABLE, new TableKeys(AuditDAO.PARTITION, AuditDAO.SORT)),
+            Map.entry(ChatDAO.CHANNELS_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, null)),
+            Map.entry(ChatDAO.MEMBERS_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, ChatDAO.ATTR_PERSON_ID)),
+            Map.entry(ChatDAO.MESSAGES_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, ChatDAO.ATTR_MSG_ID)),
+            Map.entry(ChatDAO.REACTIONS_TABLE, new TableKeys(ChatDAO.ATTR_CHANNEL_ID, ChatDAO.ATTR_SK)),
             // Chat photos made this table WRITTEN in local mode (album rows). Without a real fake behind
             // it, the rows lived only in the media cache -- and the first cache invalidation (any media
             // delete does one) silently emptied the whole trip album.
-            MediaDAO.MEDIA_TABLE, new TableKeys("id", null),
+            Map.entry(MediaDAO.MEDIA_TABLE, new TableKeys("id", null)),
             // Both content-template tables are written in local mode (admin dialogs + FakeData seeds); same
             // lesson as media -- without a real fake, rows live only in the cache.
-            TemplateDAO.TEMPLATES_TABLE, new TableKeys("id", null),
-            ContentDAO.CONTENT_TABLE, new TableKeys("id", null),
+            Map.entry(TemplateDAO.TEMPLATES_TABLE, new TableKeys("id", null)),
+            Map.entry(ContentDAO.CONTENT_TABLE, new TableKeys("id", null)),
             // Remember-me works fully in local mode (the webtest deletes JSESSIONID and expects the cookie
             // to restore the session), so the token rows need a real fake store. Same for passkeys: the
             // webtest registers against a virtual authenticator and signs back in with it.
-            RememberMeDAO.REMEMBER_TABLE, new TableKeys(RememberMeDAO.SELECTOR, null),
-            PasskeyDAO.PASSKEY_TABLE, new TableKeys(PasskeyDAO.CREDENTIAL_ID, null));
+            Map.entry(RememberMeDAO.REMEMBER_TABLE, new TableKeys(RememberMeDAO.SELECTOR, null)),
+            Map.entry(PasskeyDAO.PASSKEY_TABLE, new TableKeys(PasskeyDAO.CREDENTIAL_ID, null)),
+            // Families are written in local mode (FakeData seeds one, the family page edits them), and
+            // their optimistic-version puts must be honestly rejectable here or the race is untestable.
+            Map.entry(FamilyDAO.FAMILY_TABLE, new TableKeys("id", null)));
 
     /** table -> (pk -> (sk -> item)). sk is "" for PK-only tables. */
     private final Map<String, Map<String, Map<String, Map<String, AttributeValue>>>> store =
@@ -96,11 +99,15 @@ public class InMemoryPersistence implements Persistence {
                 store.computeIfAbsent(put.tableName(), t -> new ConcurrentHashMap<>())
                         .computeIfAbsent(pk, k -> new ConcurrentHashMap<>());
 
-        final boolean conditional = put.conditionExpression() != null
-                && put.conditionExpression().contains("attribute_not_exists");
-        if (conditional && partition.containsKey(sk)) {
+        final String condition = put.conditionExpression();
+        final boolean notExists = condition != null && condition.contains("attribute_not_exists");
+        if (notExists && partition.containsKey(sk)) {
             rejections.incrementAndGet();
             throw ConditionalCheckFailedException.builder().message("key exists: " + sk).build();
+        }
+        if (condition != null && !notExists && !equalityConditionHolds(put, partition.get(sk))) {
+            rejections.incrementAndGet();
+            throw ConditionalCheckFailedException.builder().message("condition failed: " + condition).build();
         }
         partition.put(sk, new HashMap<>(item));
         final PutItemResponse.Builder response = PutItemResponse.builder();
@@ -250,6 +257,32 @@ public class InMemoryPersistence implements Persistence {
                     .build();
         }
         return QueryResponse.builder().items(result).build();
+    }
+
+    /**
+     * Evaluates a single {@code #attr = :value} equality condition (the optimistic-version guard shape) the way
+     * DynamoDB would: the item must exist and the aliased attribute must equal the supplied value. Anything this
+     * fake cannot parse fails loudly rather than silently passing -- a test asserting on a condition it does not
+     * actually enforce would be worse than no test.
+     */
+    private static boolean equalityConditionHolds(
+            final PutItemRequest put, final Map<String, AttributeValue> existing) {
+        final java.util.regex.Matcher matcher =
+                java.util.regex.Pattern.compile("^\\s*(#\\w+)\\s*=\\s*(:\\w+)\\s*$").matcher(put.conditionExpression());
+        if (!matcher.matches()) {
+            throw new IllegalArgumentException(
+                    "InMemoryPersistence cannot evaluate condition: " + put.conditionExpression());
+        }
+        final String attr = put.expressionAttributeNames() == null
+                ? null : put.expressionAttributeNames().get(matcher.group(1));
+        final AttributeValue expected = put.expressionAttributeValues() == null
+                ? null : put.expressionAttributeValues().get(matcher.group(2));
+        if (attr == null || expected == null) {
+            throw new IllegalArgumentException("ValidationException: unresolved alias in condition: "
+                    + put.conditionExpression());
+        }
+        final AttributeValue actual = existing == null ? null : existing.get(attr);
+        return actual != null && actual.equals(expected);
     }
 
     /** The sort key as a comparable string; a table without one, or a missing value, sorts as empty. */

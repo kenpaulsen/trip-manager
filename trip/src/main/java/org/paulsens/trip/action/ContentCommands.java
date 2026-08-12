@@ -531,7 +531,11 @@ public class ContentCommands {
     public List<ContentTemplate> getTemplateChoicesFor(final String section) {
         final List<ContentTemplate> all;
         try {
-            all = DAO.getInstance().getAllTemplates();
+            // MAIL templates are email bodies: they have no instances and never render on a page, so no
+            // Add dialog anywhere may offer one.
+            all = DAO.getInstance().getAllTemplates().stream()
+                    .filter(t -> t.getKind() != TemplateKind.MAIL)
+                    .toList();
         } catch (final RuntimeException ex) {
             log.error("Unable to list templates for section: " + section, ex);
             return List.of();

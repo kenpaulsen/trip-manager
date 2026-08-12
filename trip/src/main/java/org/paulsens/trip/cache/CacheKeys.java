@@ -40,6 +40,10 @@ public final class CacheKeys {
     // People are point entries (no whole-table hash): PERSON_PREFIX + {personId}.
     public static final String PERSON_PREFIX = FORMAT_VERSION + "person:";
 
+    // Families are point entries: FAMILY_PREFIX + {familyId}. Reverse lookup is Person.familyId, so there is
+    // no scan path and no index.
+    public static final String FAMILY_PREFIX = FORMAT_VERSION + "family:";
+
     // Email lookup hash: field = lowercased email, value = personId. Lazy cache in front of the email-index GSI
     // (and the authoritative store in local mode, where every save goes through write-through).
     public static final String EMAIL_IDX = FORMAT_VERSION + "email";

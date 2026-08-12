@@ -250,6 +250,48 @@ public final class KnownSettings {
             "login.password.failWindowSeconds", Config.Type.INT, "900", "...within this many seconds",
             "The window wrong passwords are counted over. Changing it starts a fresh count.");
 
+    // --- registration ---
+
+    public static final SettingDef REG_ALLOW_EDITS = new SettingDef(
+            "reg.allowEdits", Config.Type.BOOLEAN, "true", "Registrants may edit their responses",
+            "Whether a traveler who has already registered (pending or confirmed) can still change their "
+                    + "registration-option answers from the registration page. Off makes the expanded view "
+                    + "read-only; registering itself is unaffected.");
+
+    // --- registration email ---
+
+    public static final SettingDef REG_MAIL_FROM = new SettingDef(
+            "reg.mail.from", Config.Type.STRING, "Visit Queen of Peace <no-reply@visitqueenofpeace.com>",
+            "From address",
+            "Registrant-facing registration emails (received/approved). Must be an address SES is verified "
+                    + "to send from, or every registration email fails.");
+
+    public static final SettingDef REG_MAIL_REPLY_TO = new SettingDef(
+            "reg.mail.replyTo", Config.Type.STRING, "ken@visitqueenofpeace.com", "Reply-To address",
+            "Where a registrant's reply lands. The emails invite questions, so this should be a mailbox "
+                    + "somebody reads.");
+
+    public static final SettingDef REG_MAIL_BASE_URL = new SettingDef(
+            "reg.mail.baseUrl", Config.Type.STRING, "https://www.visitqueenofpeace.com", "Link base URL",
+            "Prefixes the trip/profile links inside registration emails.");
+
+    // --- support requests ---
+
+    public static final SettingDef SUPPORT_MAIL_ENABLED = new SettingDef(
+            "support.mail.enabled", Config.Type.BOOLEAN, "true", "Email support requests to channel admins",
+            "A support request (family removal, size-limit increase) posts into the support channel either "
+                    + "way; this controls whether the channel's admins are also emailed. Deliberately NOT "
+                    + "behind the chat-email master switch: a support request must not be silently swallowed "
+                    + "because chat mail is off.");
+
+    // --- family accounts ---
+
+    public static final SettingDef FAMILY_MAX_MEMBERS = new SettingDef(
+            "family.maxMembers", Config.Type.INT, "10", "Family size limit",
+            "Maximum people in one family account, counting the owner. At the limit the family page stops "
+                    + "offering Add and lets the user send a support request instead; raise this here when one "
+                    + "arrives. An abuse guard, not a business rule.");
+
     // --- payments ---
 
     public static final SettingDef PAYMENT_RETURN_URL_PREFIXES = new SettingDef(
@@ -298,6 +340,17 @@ public final class KnownSettings {
                             LOGIN_MAIL_REPLY_TO, LOGIN_REMEMBER_ENABLED, LOGIN_REMEMBER_DAYS,
                             LOGIN_PASSKEY_ENABLED, LOGIN_PASSWORD_MAX_FAILS,
                             LOGIN_PASSWORD_FAIL_WINDOW_SECONDS)),
+            new SettingSection("Family accounts", null,
+                    List.of(FAMILY_MAX_MEMBERS)),
+            new SettingSection("Registration", null,
+                    List.of(REG_ALLOW_EDITS)),
+            new SettingSection("Registration email",
+                    "The registrant-facing emails themselves are runtime-editable MAIL templates on the "
+                            + "Templates page (registration-received / registration-approved).",
+                    List.of(REG_MAIL_FROM, REG_MAIL_REPLY_TO, REG_MAIL_BASE_URL)),
+            new SettingSection("Support requests",
+                    "Who receives them is managed in the \"Support channel admins\" panel below the settings.",
+                    List.of(SUPPORT_MAIL_ENABLED)),
             new SettingSection("Payments",
                     "Only applies to payments started through the API. The web checkout derives its return "
                             + "address from the page the payer was on and never consults this.",

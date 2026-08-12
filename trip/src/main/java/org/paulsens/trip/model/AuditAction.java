@@ -49,6 +49,8 @@ public enum AuditAction {
     TODO,
     /** A person record was created, edited or deleted by an admin. */
     PERSON,
+    /** Family-account membership changed: member created/linked/unlinked/deleted, manager granted/revoked. */
+    FAMILY,
     /** A runtime setting changed. */
     CONFIG,
     /** Managed media uploaded or deleted. */

@@ -22,7 +22,6 @@ import lombok.Value;
 import org.paulsens.trip.dynamo.DAO;
 
 @Data
-@Builder
 public final class Person implements Serializable, Comparable<Person> {
     public static final Comparator<Person> peopleSorter = (a, b) ->
             getPersonSortStr(a).compareToIgnoreCase(getPersonSortStr(b));
@@ -44,7 +43,18 @@ public final class Person implements Serializable, Comparable<Person> {
     private String emergencyContactPhone;
     @Setter(AccessLevel.NONE)
     private LocalDateTime deleted;
+    /**
+     * Back-pointer to the {@link Family} this person belongs to; null for the (common) person in no family.
+     * Deliberately NOT a constructor parameter: Jackson populates it through the setter (like the emergency
+     * fields' aliases), which keeps the 17-arg creator's many existing callers untouched. The family row is
+     * the source of truth — this field only answers "which family?", never "who is in it?".
+     */
+    private Family.Id familyId;
 
+    // @Builder sits on this constructor, not the class: the builder covers exactly these parameters, so fields
+    // added later (familyId) don't force an 18-arg constructor on every existing caller. Setter-populated
+    // fields are simply absent from the builder.
+    @Builder
     @JsonCreator
     public Person(
             @JsonProperty("id") final Id id,

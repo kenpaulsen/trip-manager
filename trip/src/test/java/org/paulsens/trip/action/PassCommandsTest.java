@@ -162,6 +162,24 @@ public class PassCommandsTest {
     }
 
     /**
+     * The family-member transition: a person who never had an email (so never had creds) is given one. Before
+     * the blank guard, {@code adminGetCreds(null)} threw AFTER the person row was already saved -- the classic
+     * half-committed failure. There are no creds to re-key, so this must simply answer false, quietly.
+     */
+    @Test
+    public void givingAnEmailToAPersonWhoNeverHadOneDoesNotThrow() {
+        final PassCommands spied = Mockito.spy(new PassCommands());
+        Mockito.doReturn(null).when(spied).adminGetCreds("first-ever@example.org");
+        final Person person = new Person();
+        person.setId(Person.Id.from("family-member"));
+
+        Assert.assertFalse(spied.setEmail(person, null, "first-ever@example.org"),
+                "No creds existed, so nothing was re-keyed -- but no exception either");
+        Assert.assertFalse(spied.setEmail(person, "  ", "first-ever@example.org"),
+                "Blank behaves like null");
+    }
+
+    /**
      * The one-shot code-login flag is the ONLY thing that authorizes a password set without the current
      * password, it names no account (the email rides the session), and it dies on use.
      */

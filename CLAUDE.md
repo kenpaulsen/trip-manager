@@ -44,8 +44,11 @@ a clean "convert to JPEG" rejection and everything else works) · metadata-extra
 - `LocalMode` — the single authority on local vs production. Explicit-only, defaults to production; see the
   workspace root CLAUDE.md. `TripBootstrapListener` (in `web/`) resolves it at startup and **must stay first**
   in web.xml's listener order (`ChatLifecycleListener` touches the DAO in its own `contextInitialized`).
-- `DAO` — singleton composing the domain DAOs: Person, Trip, TripEvent, Registration, Transaction,
+- `DAO` — singleton composing the domain DAOs: Person, Family, Trip, TripEvent, Registration, Transaction,
   Credentials, Todo, PersonDataValue, Privileges, Binding, Config, Media, Template, Content, Audit, Chat.
+  The `family` row is the source of truth for household membership (optimistic-version conditional puts);
+  managers' `Person.managedUsers` lists are DERIVED from it — see `docs/family-accounts.md` before touching
+  anything family-related.
 - **Caching** (`org.paulsens.trip.cache`): all caching goes through the `CacheClient` abstraction —
   `ValkeyCacheClient` (production, shared across instances), `InMemoryCacheClient` (local), `NoopCacheClient`
   (off). Each DAO uses a typed cache on top (`PointCache`, `PartitionCache`, `PartitionScanCache`,
@@ -68,7 +71,7 @@ Persistence gotchas (each has caused a real bug):
 
 ### Domain model (`org.paulsens.trip.model`)
 
-Lombok-annotated, Jackson-serialized to/from DynamoDB. Core types: `Person` (nested `Person.Id`), `Trip`,
+Lombok-annotated, Jackson-serialized to/from DynamoDB. Core types: `Person` (nested `Person.Id`), `Family`, `Trip`,
 `TripEvent`, `Registration`, `RegistrationOption`, `Transaction`, `Creds`, `TodoItem`/`TodoStatus`,
 `PersonDataValue`, `Privilege`, `BindingType`, `Config`/`SettingDef`/`SettingSection`, `MediaItem`,
 `AuditEvent`/`AuditQuery`/`AuditPage`, plus `model/chat/*` (15 chat types) and `model/deploy/*`.
@@ -83,8 +86,11 @@ save and 500s every later request (looks like a site-wide outage). `ModelSeriali
 `media`, `profilePhotos`, `chatPhotos` (ChatPhotos — chat photo storage/staging/album), `photoChat`
 (PhotoChatCommands — per-photo comment threads/reactions; see `docs/photo-comments.md` before touching),
 `content` (ContentCommands — template-driven page sections) and `contentTemplate` (TemplateCommands — the
-template manager; see `docs/content-templates.md` before touching either), `pay` (PayCommands — PayPal),
-`deploy`, `json`, `tripUtil`.
+template manager; see `docs/content-templates.md` before touching either — MAIL-kind templates are
+runtime-editable email copy rendered by `MailCommands.sendManagedTemplate`, tokens filled by Java only),
+`family` (FamilyCommands — family accounts; the create-and-link security boundary, see
+`docs/family-accounts.md`), `support` (SupportChatCommands — the support:main channel; requests post
+without membership), `pay` (PayCommands — PayPal), `deploy`, `json`, `tripUtil`.
 
 - `ChatPhotos.getChatPhotos()` is ONE static instance on purpose — never give it ChatCommands'
   FacesContext/application-map lookup: the upload servlet has no FacesContext and the JSF send does, so a
@@ -141,7 +147,8 @@ photo-chat, audit, config, mail, payments, deploy) + `TripAuthFilter`, `JsonExce
 
 `scripts/`: `backfill-people-email.sh` (email-index GSI backfill), `migrate-group-tx-membership.sh`,
 `rotate-password-pepper.sh` (pepper rotation and plaintext-password migration). One-time migration docs are in
-`docs/migrations/`.
+`docs/migrations/`. The family-accounts migration scripts (report/migrate/consistency) live in the private
+repo's `scripts/` — see `docs/family-accounts.md`.
 
 ## Testing notes
 

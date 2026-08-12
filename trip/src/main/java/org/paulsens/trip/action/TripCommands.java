@@ -418,6 +418,20 @@ public class TripCommands {
         }
     }
 
+    /**
+     * This person's {@code limit} most recent trips (by start date, newest first) -- the profile page's
+     * family section shows each member's recent travel at a glance. Roster membership only; upcoming trips
+     * sort first because they have the latest start dates, which is the order a "recent trips" list reads
+     * naturally in.
+     */
+    public List<Trip> recentTripsFor(final Person.Id userId, final int limit) {
+        return getTripsForUser(userId).stream()
+                .filter(trip -> trip.getStartDate() != null)
+                .sorted(Comparator.comparing(Trip::getStartDate).reversed())
+                .limit(limit > 0 ? limit : 5)
+                .toList();
+    }
+
     public List<Trip> getTripsForUser(final Person.Id userId) {
         try {
             return DAO.getInstance().getTripsForUser(userId);
@@ -543,12 +557,26 @@ public class TripCommands {
      * @return  True if the user is allowed to see this Trip.
      */
     private boolean canSeeTrip(final Trip trip, final Person.Id userId, final Boolean priv) {
-        // FIXME: we should load the Person and look at the user's `managedUsers` property if they aren't directly in
-        // FIXME: the trip. (i.e. parent has kid in trip, but not themselves). For now, we won't support that usecase.
         if ((trip == null) || (userId == null)) {
             return false;
         }
-        return trip.getPeople().contains(userId) || ((priv != null) && priv);
+        return trip.getPeople().contains(userId) || ((priv != null) && priv)
+                || managesSomeoneOn(trip, userId);
+    }
+
+    /**
+     * The family case the old FIXME declined: a parent whose kid is on the trip -- but not themselves -- may
+     * see the trip. Resolved through {@code managedUsers} (kept in sync from the family row), so admin-granted
+     * visibility rides along identically.
+     */
+    private boolean managesSomeoneOn(final Trip trip, final Person.Id userId) {
+        final Person person = PersonCommands.getPersonCommands().getPerson(userId);
+        for (final Person.Id managedId : person.getManagedUsers()) {
+            if (trip.getPeople().contains(managedId)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public BindingCommands getBind() {

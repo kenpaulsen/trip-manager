@@ -106,6 +106,9 @@ public class PeopleResource extends BaseResource {
         final PersonCommands people = Beans.get(PersonCommands.class);
         final Person person = people.createPerson();
         apply(body, person, AccessLevel.SITE_ADMIN);
+        if (people.emailTakenByAnother(person)) {
+            return error(409, ApiErrors.CONFLICT, "That email already belongs to another person.");
+        }
         if (!people.savePerson(person)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the person.");
         }
@@ -148,6 +151,10 @@ public class PeopleResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN, "Not permitted to edit this person.");
         }
         apply(body, person, level);
+        // The savePerson funnel would refuse this anyway; checking here turns an opaque 500 into a clear 409.
+        if (people.emailTakenByAnother(person)) {
+            return error(409, ApiErrors.CONFLICT, "That email already belongs to another person.");
+        }
         if (!people.savePerson(person)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the person.");
         }

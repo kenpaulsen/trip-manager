@@ -26,7 +26,12 @@ public class ChatChannel implements Serializable {
         /** Reserved. */
         TOPIC,
         /** One photo's comment thread. Id shape: {@code photo:{s3Key}}. */
-        PHOTO
+        PHOTO,
+        /**
+         * The site-wide technical-support channel ({@code support:main}). No trip, no implicit roster:
+         * explicit JOINED membership rows ARE the admin list. Requesters post into it without joining.
+         */
+        SUPPORT
     }
 
     @Value
@@ -50,6 +55,16 @@ public class ChatChannel implements Serializable {
                 throw new IllegalArgumentException("s3Key is required");
             }
             return new Id("photo:" + s3Key);
+        }
+
+        /** The one site-wide support channel. */
+        public static Id forSupport() {
+            return new Id("support:main");
+        }
+
+        @JsonIgnore
+        public boolean isSupport() {
+            return value != null && value.startsWith("support:");
         }
 
         @JsonIgnore

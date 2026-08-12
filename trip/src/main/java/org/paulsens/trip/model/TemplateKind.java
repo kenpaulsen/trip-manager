@@ -20,5 +20,13 @@ package org.paulsens.trip.model;
 public enum TemplateKind {
     STANDARD,
     CONTAINER,
-    PROGRAMMATIC
+    PROGRAMMATIC,
+    /**
+     * An email body: HTML with {@code {{token}}} placeholders filled by JAVA at send time (never by a
+     * content author, and never EL -- runtime-editable EL would be code execution). Mail templates have no
+     * {@code ContentInstance}s and never render on a page; the template's NAME doubles as the subject line,
+     * substituted with the same tokens. Runtime-editable so registration/support email copy is an admin
+     * edit, not a deploy.
+     */
+    MAIL
 }

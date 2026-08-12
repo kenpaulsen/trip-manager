@@ -15,8 +15,11 @@ strand instances; `saveTemplate` rejects it):
 | `STANDARD` | HTML body with `{{token}}` placeholders | placeholder values | `ContentRenderer` substitution, typed escaping |
 | `CONTAINER` | `allowedChildTemplateIds` (null/empty = any non-container), `maxChildren` (null = unlimited) | optional WYSIWYG title, optional `editorPrivileges`, optional per-instance `allowedChildTemplateIds` | title via `renderContainerTitle`, then its CHILDREN in order |
 | `PROGRAMMATIC` | `programmaticTypeId` naming a registered type | the type's NVP property values | the type's Facelets fragment (full PrimeFaces behavior) |
+| `MAIL` | an EMAIL body with `{{token}}` placeholders; the template NAME doubles as the subject line | none — mail templates have no instances | never on a page; rendered by `MailCommands.sendManagedTemplate`, tokens filled by JAVA only (no EL — runtime-editable EL would be code execution) |
 
-Rows written before v2 carry no kind and read as STANDARD (`getKind()` folds null; `setKind` stores
+MAIL templates are excluded from every content picker; the shipped ones are `registration-received`,
+`registration-approved` and `support-request` (see `docs/family-accounts.md`). Rows written before v2 carry
+no kind and read as STANDARD (`getKind()` folds null; `setKind` stores
 STANDARD as null so JSON round trips stay equal).
 
 ## Section-key conventions

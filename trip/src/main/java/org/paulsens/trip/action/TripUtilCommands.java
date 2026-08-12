@@ -7,7 +7,10 @@ import jakarta.faces.application.FacesMessage.Severity;
 import jakarta.faces.context.FacesContext;
 import jakarta.faces.model.SelectItem;
 import jakarta.inject.Named;
+import jakarta.servlet.http.HttpServletRequest;
 import java.lang.reflect.Array;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -23,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.LocalMode;
+import org.paulsens.trip.util.ScopeUtil;
+import org.paulsens.trip.web.Sessions;
 import org.primefaces.model.SortMeta;
 import org.primefaces.model.SortOrder;
 
@@ -99,6 +104,94 @@ public class TripUtilCommands {
             log.warn("ClientId '" + clientId + "' had message: '" + msg.getSummary()
                     + "', level: " + msg.getSeverity());
         }
+    }
+
+    /** Path + query of the current request (no scheme/host), the format {@code afterLoginURL} is stashed in. */
+    public String currentPathAndQuery() {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (ctx == null || !(ctx.getExternalContext().getRequest() instanceof HttpServletRequest req)) {
+            return "/";
+        }
+        final String query = req.getQueryString();
+        return req.getRequestURI() + ((query == null) ? "" : "?" + query);
+    }
+
+    /**
+     * The login URL for an auth redirect, carrying the return target as {@code ?to=} rather than trusting the
+     * session alone: the stash-only flow lost the deep link whenever the session died between the gated page
+     * and the end of login (a redeploy, or a user parked on the login screen past the session timeout) -- they
+     * signed in fine and landed on the home page instead of where they were going.
+     */
+    public String loginUrl() {
+        return "/account/login.jsf?to=" + URLEncoder.encode(currentPathAndQuery(), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * {@code afterLoginURL} exposed as a form value so the STATELESS login pages carry it through their own
+     * POSTs (an {@code h:inputHidden} re-stashes it into whatever session the POST lands on). The setter is
+     * fed by a user-controlled field, so it accepts only same-site absolute paths -- anything else (foreign
+     * hosts, protocol-relative {@code //}, backslash tricks) is dropped rather than becoming an open redirect.
+     * An empty submitted value is a no-op: it must not wipe a stash some other page just set.
+     */
+    public String getReturnPath() {
+        final Object stash = ScopeUtil.getInstance().getSessionMap(Sessions.AFTER_LOGIN_URL);
+        return (stash == null) ? null : normalizeReturnPath(stash.toString());
+    }
+
+    public void setReturnPath(final String value) {
+        final String clean = normalizeReturnPath(value);
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (clean != null && ctx != null) {
+            ctx.getExternalContext().getSessionMap().put(Sessions.AFTER_LOGIN_URL, clean);
+        }
+    }
+
+    /**
+     * Where the browser says it came FROM, as a same-site path -- or null when that is unknown, foreign, or
+     * useless as a return target (a login page, or this very page). Lets a form's Save send people back to
+     * whatever page linked here instead of a hardcoded landing page. Null means "use your fallback": the
+     * Referer header is optional and privacy settings routinely strip it, so callers must always have one.
+     */
+    public String refererPath() {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (ctx == null || !(ctx.getExternalContext().getRequest() instanceof HttpServletRequest req)) {
+            return null;
+        }
+        final String referer = normalizeReturnPath(req.getHeader("Referer"));
+        if (referer == null
+                || referer.startsWith("/account/login")
+                || referer.startsWith("/account/createAccount")
+                || referer.startsWith(req.getRequestURI())) {
+            return null;
+        }
+        return referer;
+    }
+
+    /** {@code path} with an {@code info=} banner message appended (encoded), joining ? or &amp; correctly. */
+    public String withInfo(final String path, final String message) {
+        return path + (path.contains("?") ? "&" : "?") + "info="
+                + URLEncoder.encode(message, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Same-site path+query from a stash or form value, or null when it cannot be trusted. Absolute URLs (the
+     * legacy stash format every gated page writes) are reduced to their path; everything else must already be
+     * an absolute path.
+     */
+    static String normalizeReturnPath(final String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String path = raw.trim();
+        if (path.startsWith("http://") || path.startsWith("https://")) {
+            final int hostStart = path.indexOf("//") + 2;
+            final int firstSlash = path.indexOf('/', hostStart);
+            path = (firstSlash < 0) ? "/" : path.substring(firstSlash);
+        }
+        if (!path.startsWith("/") || path.startsWith("//") || path.contains("\\")) {
+            return null;
+        }
+        return path;
     }
 
     public SortMeta sortBy(final String sortBy) {

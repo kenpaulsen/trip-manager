@@ -313,6 +313,79 @@ public class MailCommands {
         return Optional.ofNullable(formatEmail(person));
     }
 
+    /** A rendered managed mail: subject from the template's NAME, body from its body, same tokens. */
+    public record ManagedMail(String subject, String body) {
+    }
+
+    /**
+     * Renders a runtime-editable MAIL template ({@link org.paulsens.trip.model.TemplateKind#MAIL}) by
+     * {@code {{token}}} substitution. Values follow the {@code MailTemplates} contract: {@code String}
+     * (escaped), {@link org.paulsens.trip.chat.MailTemplates.Raw} (verbatim), {@code Number}/{@code Boolean}.
+     * No EL and no Faces-thread coupling -- callable from any thread. Returns null when the template is
+     * missing or the wrong kind; callers treat null as "do not send", never as an error that blocks the
+     * flow that wanted to send it.
+     */
+    public ManagedMail renderManagedTemplate(final String templateId, final Map<String, Object> values) {
+        final org.paulsens.trip.model.ContentTemplate template =
+                dao.getTemplate(templateId).orElse(null);
+        if (template == null || template.getKind() != org.paulsens.trip.model.TemplateKind.MAIL) {
+            log.error("No MAIL template '{}' (missing, or not MAIL kind); mail skipped. Run "
+                    + "install-starter-templates.sh or create it on the Templates page.", templateId);
+            return null;
+        }
+        return new ManagedMail(substituteTokens(template.getName(), values),
+                substituteTokens(template.getBody(), values));
+    }
+
+    /**
+     * Renders and sends a managed MAIL template to one recipient. A missing template or unusable recipient
+     * logs and answers false -- registration/approval/support flows must never fail because their mail did.
+     */
+    public boolean sendManagedTemplate(final String templateId, final Map<String, Object> values,
+            final String to, final String from, final String replyTo, final AuditActor actor) {
+        final ManagedMail rendered = renderManagedTemplate(templateId, values);
+        if (rendered == null || to == null || to.isBlank()) {
+            return false;
+        }
+        try {
+            send(from, to, null, replyTo, rendered.subject(), rendered.body(), actor);
+            return true;
+        } catch (final RuntimeException ex) {
+            log.error("Managed mail '{}' to '{}' failed", templateId, to, ex);
+            return false;
+        }
+    }
+
+    /** {@code {{token}}} substitution with the MailTemplates value semantics (escape unless Raw). */
+    private static String substituteTokens(final String template, final Map<String, Object> values) {
+        if (template == null) {
+            return "";
+        }
+        String result = template;
+        if (values != null) {
+            for (final Map.Entry<String, Object> entry : values.entrySet()) {
+                result = result.replace("{{" + entry.getKey() + "}}", renderValue(entry.getValue()));
+            }
+        }
+        return result;
+    }
+
+    private static String renderValue(final Object value) {
+        if (value == null) {
+            return "";
+        }
+        if (value instanceof org.paulsens.trip.chat.MailTemplates.Raw
+                || value instanceof Number || value instanceof Boolean) {
+            return value.toString();
+        }
+        if (value instanceof String text) {
+            return org.paulsens.trip.chat.MailTemplates.escape(text);
+        }
+        // The MailTemplates rule: binding a domain object is a programming error and must be loud.
+        throw new IllegalArgumentException("Mail token values must be String/Raw/Number/Boolean, got: "
+                + value.getClass().getName());
+    }
+
     public String formatEmail(final Person person) {
         final String email = validateEmail(person.getEmail());
         if (email == null) {

@@ -131,12 +131,27 @@ public final class ChatNotifications {
         TripThreads.startAs(AuditActor.system(), () -> dispatch(notification));
     }
 
-    /** Everyone on the trip except the author, who is never notified about their own message. */
+    /**
+     * Everyone on the trip PLUS everyone with an explicit JOINED membership row, minus the author. The union
+     * is what gives family managers (full members via {@code isTripMember}, never on the roster) their
+     * {@code @all} mail once they have interacted with the chat -- and it deliberately requires that row: a
+     * parent who never opened the channel is not broadcast to, and no reverse who-manages-whom lookup is
+     * needed at fan-out time. Downstream {@code wantsMentionEmail} still applies its own row-state and
+     * preference filters per recipient.
+     */
     private static List<Person.Id> everyoneIn(final Trip trip, final Person.Id author) {
         if (trip == null) {
             return List.of();
         }
-        return trip.getPeople().stream().filter(id -> id != null && !id.equals(author)).toList();
+        final java.util.LinkedHashSet<Person.Id> all = new java.util.LinkedHashSet<>(trip.getPeople());
+        for (final org.paulsens.trip.model.chat.ChatMembership row
+                : DAO.getInstance().listChatMembers(
+                        org.paulsens.trip.model.chat.ChatChannel.Id.forTrip(trip.getId()))) {
+            if (row.getState() == org.paulsens.trip.model.chat.ChatMembership.MemberState.JOINED) {
+                all.add(row.getPersonId());
+            }
+        }
+        return all.stream().filter(id -> id != null && !id.equals(author)).toList();
     }
 
     private static void dispatch(final ChatNotification notification) {

@@ -101,6 +101,36 @@ public class FakeData {
             addFakeMedia();
             addFakePrivileges();
             addFakeContent();
+            addFakeFamily();
+        }
+    }
+
+    /**
+     * Seeds Ken's (user2) family through the REAL {@code FamilyCommands} path -- Trinity (user4) linked as a
+     * second manager, plus "Lucy", a created member with no email and no login -- so every boot exercises the
+     * create/link/sync machinery and the family page has data to show. Guarded like {@link #savePrivilege}:
+     * suite tests re-run addFakeData against a shared store, and a re-seed would duplicate members.
+     */
+    private static void addFakeFamily() {
+        final Person ken = DAO.getInstance().getPersonByEmail(localEmail("user2"));
+        final Person trinity = DAO.getInstance().getPersonByEmail(localEmail("user4"));
+        if (ken == null || trinity == null || ken.getFamilyId() != null) {
+            return;
+        }
+        // A site-admin caller acting as Ken: adminLink needs the privilege short-circuit, and there is no
+        // FacesContext at seed time, so the command bean's test seam is the honest way in.
+        final org.paulsens.trip.action.FamilyCommands commands = new org.paulsens.trip.action.FamilyCommands(
+                new org.paulsens.trip.action.ConfigCommands(), new org.paulsens.trip.action.AuditCommands(),
+                () -> new org.paulsens.trip.action.Caller(ken.getId(), true,
+                        org.paulsens.trip.audit.AuditActor.system(),
+                        new org.paulsens.trip.action.PrivilegeCommands()));
+        // Same loud failure the other seeds use: silently-missing fake data wastes debugging time later.
+        if (!commands.adminLink(ken.getId(), trinity.getId(), true)) {
+            throw new IllegalStateException("Fake family seed: could not link Trinity");
+        }
+        if (commands.createFamilyMember("Lucy", "Paulsen", LocalDate.of(2016, 4, 12),
+                Sex.Female, null, false) == null) {
+            throw new IllegalStateException("Fake family seed: could not create Lucy");
         }
     }
 
@@ -284,20 +314,38 @@ public class FakeData {
                 .id(Person.Id.from("admin"))
                 .first("admin")
                 .last("user")
-                .email("admin")
+                .email(localEmail("admin"))
                 .build());
+        // Every LOGIN PERSONA carries a real address, because a lot of behaviour now turns on having a
+        // mailable one -- family-manager grants, the unlink email rule, the chat-digest question -- and a
+        // bare persona ("user2") is a login name, not an address. Signing in is unchanged: you still type
+        // "user2", and PersonDAO resolves it (local mode only). Joe Smith above keeps a bare "u1" ON
+        // PURPOSE: production holds both shapes, and he is data rather than a login, so the invalid-address
+        // paths stay exercised without breaking anyone's sign-in.
         people.add(new Person(null, "Ken", "Kenneth", "", "Paulsen", Sex.Male,
-                LocalDate.of(1977, 12, 11), null, "user2", null, null, null, null, null, null, null, null));
+                LocalDate.of(1977, 12, 11), null, localEmail("user2"), null, null, null, null, null, null,
+                null, null));
         people.add(new Person(null, null, "Kevin", "David", "Paulsen", Sex.Male,
-                LocalDate.of(1987, 9, 27), null,"user3", null, null, null, null, null, null, null, null));
+                LocalDate.of(1987, 9, 27), null, localEmail("user3"), null, null, null, null, null, null,
+                null, null));
         people.add(new Person(null, "Trinity", "Trinity", "Anne", "Paulsen", Sex.Female,
-                LocalDate.of(1979, 12, 11), null, "user4", null, null, null, null, null, null, null, null));
+                LocalDate.of(1979, 12, 11), null, localEmail("user4"), null, null, null, null, null, null,
+                null, null));
         people.add(new Person(null, "Dave", "David", "A", "Robinson", Sex.Male,
-                LocalDate.of(1999, 1, 30), null, "user5", null, null, null, null, null, null, null, null));
+                LocalDate.of(1999, 1, 30), null, localEmail("user5"), null, null, null, null, null, null,
+                null, null));
         people.add(new Person(null, "Matt", "Matthew", null, "Smith", Sex.Male,
-                LocalDate.of(2010, 6, 1), null, "user6", null, null, null, null, null, null, null, null));
+                LocalDate.of(2010, 6, 1), null, localEmail("user6"), null, null, null, null, null, null,
+                null, null));
         return people;
     }
+
+    /** The mailable address a persona's seeded Person holds. Signing in still uses the bare persona. */
+    static String localEmail(final String persona) {
+        return persona.contains("@") ? persona : persona + LOCAL_EMAIL_DOMAIN;
+    }
+
+    private static final String LOCAL_EMAIL_DOMAIN = "@example.com";
 
     static List<Trip> initFakeTrips() {
         // Trip 1
@@ -496,7 +544,10 @@ public class FakeData {
         }
         final Map<String, AttributeValue> attrs = new HashMap<>();
         attrs.put(CredentialsDAO.EMAIL, lowEmail);
+        // Resolve the persona as typed first, then as the address it maps to: the family managers hold real
+        // addresses (see initFakePeople), and both "user2" and "user2@example.com" must reach that person.
         final AttributeValue userId = Optional.ofNullable(DAO.getInstance().getPersonByEmail(lowEmail.s()))
+                .or(() -> Optional.ofNullable(DAO.getInstance().getPersonByEmail(localEmail(lowEmail.s()))))
                 .map(Person::getId).map(id -> AttributeValue.builder().s(id.getValue()).build())
                 .orElse(lowEmail);
         attrs.put(CredentialsDAO.USER_ID, userId);

@@ -6,6 +6,7 @@ import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -259,6 +260,46 @@ public class TransactionsCommands {
             return null;
         }
         return tx.isShared() ? tx.getAmount() / Math.max(1, getUserIdsForGroup(tx).size()) : tx.getAmount();
+    }
+
+    /**
+     * This person's balance: the sum of their per-user amounts (a shared row contributes this person's SHARE).
+     * Negative means they owe. The transactions page's running column folds the same numbers in render order;
+     * this exists because a SECOND total (the family line) cannot ride a render-order fold, and totals belong
+     * in testable Java either way.
+     */
+    public double getBalance(final Person.Id userId) {
+        double total = 0d;
+        for (final Transaction tx : getTransactions(userId)) {
+            final Float amount = getUserAmount(tx);
+            if (amount != null) {
+                total += amount;
+            }
+        }
+        return total;
+    }
+
+    /** The whole family's balance: each member's own rows, so a shared row counts once per member's share. */
+    public double getFamilyBalance(final Collection<Person.Id> ids) {
+        double total = 0d;
+        if (ids != null) {
+            for (final Person.Id id : ids) {
+                total += getBalance(id);
+            }
+        }
+        return total;
+    }
+
+    /** Merged, date-sorted rows across the family for the "Entire family" transactions view. */
+    public List<Transaction> getFamilyTransactions(final Collection<Person.Id> ids) {
+        final List<Transaction> all = new ArrayList<>();
+        if (ids != null) {
+            for (final Person.Id id : ids) {
+                all.addAll(getTransactions(id));
+            }
+        }
+        sortTxByDate(all);
+        return all;
     }
 
     private Transaction updateTx(final Transaction tx, final LocalDateTime date, final Float amount,

@@ -22,16 +22,75 @@ public final class StarterTemplates {
     public static final String PHOTO_ALBUMS_ID = "photo-albums";
     public static final String FILE_ID = "file";
 
+    public static final String REGISTRATION_RECEIVED_ID = "registration-received";
+    public static final String REGISTRATION_APPROVED_ID = "registration-approved";
+    public static final String SUPPORT_REQUEST_ID = "support-request";
+
     /** Ids never deleted by the cleanup script without {@code --include-starters}. */
     public static final List<String> IDS = List.of(YOUTUBE_VIDEO_ID, IMAGE_ID, TEXT_ONLY_ID,
-            CONTAINER_ID, PILGRIMAGES_ID, PHOTO_ALBUMS_ID, FILE_ID);
+            CONTAINER_ID, PILGRIMAGES_ID, PHOTO_ALBUMS_ID, FILE_ID,
+            REGISTRATION_RECEIVED_ID, REGISTRATION_APPROVED_ID, SUPPORT_REQUEST_ID);
 
     private StarterTemplates() {
     }
 
     public static List<ContentTemplate> all() {
         return List.of(youtubeVideo(), image(), textOnly(), container(), pilgrimages(), photoAlbums(),
-                file());
+                file(), registrationReceived(), registrationApproved(), supportRequest());
+    }
+
+    /** Sent to the registering account owner the moment a registration (or family party) is submitted. */
+    private static ContentTemplate registrationReceived() {
+        final String body = """
+                <p>Thank you for registering for <b>{{tripTitle}}</b>!</p>
+                <p>We received your application for:</p>
+                {{travelersBlock}}
+                <p>The next step is approval: we review every registration, and you will hear from us once
+                yours is confirmed.</p>
+                <p><a href="{{tripUrl}}">See the trip details</a></p>
+                <p>Questions? Just reach out&mdash;reply to this email and we will get back to you.</p>
+                """;
+        return mail(REGISTRATION_RECEIVED_ID, "Registration received - {{tripTitle}}",
+                "Sent to the registrant (the account owner for a family) when a registration is submitted. "
+                        + "Tokens: tripTitle, tripUrl, travelersBlock (the submitted travelers as HTML).",
+                body);
+    }
+
+    /** Sent when an administrator approves one registration. */
+    private static ContentTemplate registrationApproved() {
+        final String body = """
+                <p>Welcome to <b>{{tripTitle}}</b>, {{firstName}}!</p>
+                <p>Your registration has been approved&mdash;we are so glad you are coming.</p>
+                <p><a href="{{itineraryUrl}}">See your trip</a></p>
+                <p>Please make sure <a href="{{profileUrl}}">your profile</a> is complete (passport,
+                birthdate, emergency contact): we need it for travel arrangements.</p>
+                <p>Questions? Just reach out&mdash;reply to this email and we will get back to you.</p>
+                """;
+        return mail(REGISTRATION_APPROVED_ID, "You're confirmed - {{tripTitle}}",
+                "Sent to a person (or, if they have no email, whoever registered them) when their "
+                        + "registration is approved. Tokens: tripTitle, firstName, itineraryUrl, profileUrl.",
+                body);
+    }
+
+    /** Sent to every support-channel admin when a member files a support request. */
+    private static ContentTemplate supportRequest() {
+        final String body = """
+                <p>{{requestBlock}}</p>
+                <p style="font-size:0.85em;color:#666;">You are receiving this because you are a support
+                channel admin (Settings page). The requester cannot see the channel; follow up with them
+                directly.</p>
+                """;
+        return mail(SUPPORT_REQUEST_ID, "{{subject}}",
+                "Sent to support-channel admins when a member files a request. Tokens: subject, "
+                        + "requestBlock (the request as HTML, including the admin action link).",
+                body);
+    }
+
+    /** A mail starter: the NAME is the subject-line template, the body is HTML with {{tokens}}. */
+    private static ContentTemplate mail(final String id, final String subject, final String description,
+            final String body) {
+        return new ContentTemplate(id, 0, subject, description, body,
+                List.of(), null, null, TemplateKind.MAIL, null, null, null);
     }
 
     private static ContentTemplate container() {

@@ -334,7 +334,9 @@ public class PassCommands {
             }
             result = false;
         } else {
-            final Creds oldCreds = adminGetCreds(oldEmail);
+            // A person who never had a login (a family member gaining an email) has no Creds row to re-key;
+            // adminGetCreds throws on a blank email, so it must not even be asked.
+            final Creds oldCreds = Util.isBlank(oldEmail) ? null : adminGetCreds(oldEmail);
             if (oldCreds == null) {
                 result = false;
             } else {

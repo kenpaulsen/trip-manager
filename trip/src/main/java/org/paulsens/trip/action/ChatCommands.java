@@ -260,7 +260,17 @@ public class ChatCommands {
         }
         final PrivilegeCommands priv = new PrivilegeCommands();
         final PersonCommands people = PersonCommands.getPersonCommands();
-        return people.hasRole("admin") || priv.check("tripView", tripId, personId);
+        if (people.hasRole("admin") || priv.check("tripView", tripId, personId)) {
+            return true;
+        }
+        // Full family membership: a parent whose managed member is on the trip participates in its chat as
+        // themselves (author stays the signed-in user -- the send contract is untouched).
+        for (final Person.Id managedId : people.getPerson(personId).getManagedUsers()) {
+            if (trip.getPeople().contains(managedId)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -408,8 +418,16 @@ public class ChatCommands {
             return "[]";
         }
         final PersonCommands people = PersonCommands.getPersonCommands();
+        // Roster ∪ explicit JOINED rows: family managers participate without being on the trip roster, and
+        // the mention autocomplete must be able to name anyone who can post here.
+        final java.util.LinkedHashSet<Person.Id> ids = new java.util.LinkedHashSet<>(trip.getPeople());
+        for (final ChatMembership row : dao().listChatMembers(ChatChannel.Id.forTrip(tripId))) {
+            if (row.getState() == ChatMembership.MemberState.JOINED) {
+                ids.add(row.getPersonId());
+            }
+        }
         final List<Person> members = new ArrayList<>();
-        for (final Person.Id id : trip.getPeople()) {
+        for (final Person.Id id : ids) {
             final Person person = people.getPerson(id);
             if (person != null) {
                 members.add(person);
@@ -1130,9 +1148,33 @@ public class ChatCommands {
         }
     }
 
+    /**
+     * {@link #setDigestChoice} fed straight from the page's draft map. Exists because the jsft script
+     * parser cannot take {@code map.get(key) == true} as a method argument (a runtime ELParser
+     * ParseException, which a jsft event turns into a silent redirect home) -- {@code ==} in those
+     * scripts is only safe between a plain property and a literal. The null-safety is a bonus.
+     */
+    public void parkDigestChoice(final Registration registration, final Map<String, Object> digests,
+            final String key) {
+        setDigestChoice(registration, digests != null && Boolean.TRUE.equals(digests.get(key)));
+    }
+
     /** The answer previously given, for redisplaying the form. Absent means "not asked yet", which reads as no. */
     public boolean digestChoice(final Registration registration) {
         return registration != null && Boolean.parseBoolean(registration.getOptions().get(DIGEST_REG_OPTION));
+    }
+
+    /**
+     * What the registration form's toggle should START as: the stored answer when one was given, else ON.
+     * Opt-out, not opt-in, by design (2026-08-10): most registrants want the daily summary, and the ones who
+     * do not are looking at the switch when they decline it. Only the form initializer may use this --
+     * {@link #digestChoice} stays strict so an absent answer is never mistaken for a given one.
+     */
+    public boolean digestChoiceOrDefault(final Registration registration) {
+        if (registration == null || !registration.getOptions().containsKey(DIGEST_REG_OPTION)) {
+            return true;
+        }
+        return digestChoice(registration);
     }
 
     /**
@@ -1943,7 +1985,19 @@ public class ChatCommands {
     // --- my chats ---
 
     public List<ChatSummary> myChats(final Person.Id personId) {
-        final List<Trip> trips = dao().getTripsForUser(personId);
+        // Union of my own trips and my managed members' trips (deduped): the parent of an on-trip kid has
+        // full chat membership (isTripMember), so their My Chats must list the kid's trip too.
+        final Map<String, Trip> byId = new java.util.LinkedHashMap<>();
+        for (final Trip trip : dao().getTripsForUser(personId)) {
+            byId.put(trip.getId(), trip);
+        }
+        for (final Person.Id managedId : PersonCommands.getPersonCommands()
+                .getPerson(personId).getManagedUsers()) {
+            for (final Trip trip : dao().getTripsForUser(managedId)) {
+                byId.putIfAbsent(trip.getId(), trip);
+            }
+        }
+        final List<Trip> trips = new ArrayList<>(byId.values());
         final Map<String, String> lastAct = dao().getCacheClient().getHash(CacheKeys.CHAT_LAST_ACTIVITY);
         final List<ChatSummary> out = new ArrayList<>();
         for (final Trip trip : trips) {

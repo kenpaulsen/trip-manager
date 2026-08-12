@@ -13,6 +13,15 @@ import lombok.With;
 
 @Value
 public class Registration implements Serializable {
+    /**
+     * Reserved {@link #options} keys, underscore-prefixed so they can never collide with the numeric
+     * {@code RegistrationOption} ids (the convention the mir2026 branch established). Additive JSON: rows
+     * written before family accounts simply lack them.
+     */
+    public static final String OPT_REGISTERED_BY = "_registeredBy";
+    /** One shared UUID per family submit, so the admin page can group a party visually. */
+    public static final String OPT_PARTY = "_party";
+
     String tripId;                  // The trip id (partition key)
     Person.Id userId;               // The user id (sort key)
     LocalDateTime created;          // When they first registered
@@ -40,6 +49,18 @@ public class Registration implements Serializable {
 
     public Registration withStatusString(final String description) {
         return withStatus(Status.fromDescription(description));
+    }
+
+    /** Who submitted this registration (a family manager registering their member), or null pre-family rows. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public String getRegisteredBy() {
+        return options.get(OPT_REGISTERED_BY);
+    }
+
+    /** The family-submit party id, or null when registered individually. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public String getParty() {
+        return options.get(OPT_PARTY);
     }
 
     public enum Status {

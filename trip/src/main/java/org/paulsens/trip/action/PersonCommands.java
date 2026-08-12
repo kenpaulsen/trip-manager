@@ -19,7 +19,9 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.util.EmailAddresses;
 import org.paulsens.trip.util.ScopeUtil;
 
 @Slf4j
@@ -30,6 +32,13 @@ public class PersonCommands {
     // identity, this variable is set to the non-admin user. The admin user's id can be found in the "aUser" key.
     public static final String ACTIVE_USER_ID = "userId";
     public static final String ACTIVE_USER_ROLE = "userRole";
+    /**
+     * Session key: the family member the signed-in user is currently "viewing" (Person.Id, or absent). Sticky
+     * so the selection survives menu navigation. This changes only which SUBJECT person-scoped pages default
+     * to -- NEVER the session identity: {@link #ACTIVE_USER_ID}, the audit actor, and chat authorship all stay
+     * the signed-in user, which is what separates this from the admin View As swap.
+     */
+    public static final String ACTING_FOR = "actingFor";
 
     public static PersonCommands getPersonCommands() {
         final FacesContext ctx = FacesContext.getCurrentInstance();
@@ -48,6 +57,12 @@ public class PersonCommands {
     }
 
     public boolean savePerson(final Person person) {
+        if (emailTakenByAnother(person)) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Email already in use",
+                    "'" + person.getEmail() + "' already belongs to another person. Use a different address, "
+                            + "or clear the email field.");
+            return false;
+        }
         boolean result;
         try {
             result = DAO.getInstance().savePerson(person);
@@ -63,6 +78,111 @@ public class PersonCommands {
             result = false;
         }
         return result;
+    }
+
+    /**
+     * The email-uniqueness funnel: a non-blank email may belong to at most one (non-deleted) person. Family
+     * members made null emails legitimate, and duplicate addresses were ONLY ever prevented by the pass
+     * table's primary key -- which cannot see people who never had a login. This check covers every writer
+     * that goes through this bean. It is check-then-act (DynamoDB cannot enforce uniqueness), so it is a
+     * guard against mistakes, not against a determined race -- and a failed LOOKUP never blocks the save,
+     * because refusing all profile edits during a cache hiccup would be worse than tolerating a duplicate.
+     */
+    public boolean emailTakenByAnother(final Person person) {
+        if (person == null || person.getEmail() == null || person.getEmail().isBlank()) {
+            return false;
+        }
+        try {
+            final Person existing = DAO.getInstance().getPersonByEmail(person.getEmail());
+            return existing != null && !existing.getId().equals(person.getId());
+        } catch (final RuntimeException ex) {
+            log.error("Email-uniqueness lookup failed for '{}'; allowing the save.", person.getEmail(), ex);
+            return false;
+        }
+    }
+
+    /**
+     * The display name of the person already using {@code email}, or null when it is free. Drives the
+     * profile page's on-blur conflict dialog -- the same check {@link #emailTakenByAnother} makes at save
+     * time, asked early so nobody types a whole profile before learning the address is taken.
+     */
+    public String emailConflictName(final String email, final Person.Id selfId) {
+        if (!EmailAddresses.isValid(email)) {
+            return null;
+        }
+        try {
+            final Person existing = DAO.getInstance().getPersonByEmail(email.trim());
+            return (existing == null || existing.getId().equals(selfId)) ? null : describeOwner(existing);
+        } catch (final RuntimeException ex) {
+            // Same rule as the save-time check: a failed lookup must not block the edit.
+            log.error("Email-conflict lookup failed for '{}'", email, ex);
+            return null;
+        }
+    }
+
+    /** Enough to recognise the account without publishing a stranger's full profile to the asker. */
+    private String describeOwner(final Person owner) {
+        final String last = owner.getLast();
+        return owner.getPreferredName() + ((last == null || last.isBlank()) ? "" : " " + last.charAt(0) + ".");
+    }
+
+    /** Whether this person can actually be mailed -- "has an email" is not the same as "has a usable one". */
+    public boolean hasValidEmail(final Person person) {
+        return person != null && EmailAddresses.isValid(person.getEmail());
+    }
+
+    /**
+     * Where to reach this person for DISPLAY: their own address when it works, otherwise their family's
+     * primary manager -- the parent who created the family, and in practice the mailbox a child's mail
+     * already goes to. Never used to address outbound mail (the sending paths make that choice explicitly,
+     * with their own fallbacks); this exists so a contact list shows something reachable instead of a blank.
+     *
+     * @see #contactEmailVia the name to render beside it, so nobody reads the parent's address as the child's
+     */
+    public String contactEmail(final Person person) {
+        if (person == null) {
+            return "";
+        }
+        if (EmailAddresses.isValid(person.getEmail())) {
+            return person.getEmail();
+        }
+        final Person manager = primaryManagerOf(person);
+        return (manager == null) ? "" : manager.getEmail();
+    }
+
+    /** The manager whose mailbox {@link #contactEmail} borrowed, or "" when the address is the person's own. */
+    public String contactEmailVia(final Person person) {
+        if (person == null || EmailAddresses.isValid(person.getEmail())) {
+            return "";
+        }
+        final Person manager = primaryManagerOf(person);
+        return (manager == null) ? "" : manager.getPreferredName();
+    }
+
+    /**
+     * The family manager to borrow an address from: the creator when they are still a manager, else the
+     * first-listed manager -- {@code managerIds} keeps insertion order, so that is the earliest-added one.
+     */
+    private Person primaryManagerOf(final Person person) {
+        if (person.getFamilyId() == null) {
+            return null;
+        }
+        final Family family = DAO.getInstance().getFamily(person.getFamilyId()).orElse(null);
+        if (family == null) {
+            return null;
+        }
+        final List<Person.Id> candidates = new ArrayList<>();
+        if (family.getManagerIds().contains(family.getCreatedBy())) {
+            candidates.add(family.getCreatedBy());
+        }
+        candidates.addAll(family.getManagerIds());
+        for (final Person.Id id : candidates) {
+            final Person manager = DAO.getInstance().getPerson(id).orElse(null);
+            if (manager != null && EmailAddresses.isValid(manager.getEmail())) {
+                return manager;
+            }
+        }
+        return null;
     }
 
     /** Prefix search over name/nickname/email/cell; default result cap. */
@@ -139,6 +259,63 @@ public class PersonCommands {
 
     public Person getCurrentPerson() {
         return getPerson(ScopeUtil.getInstance().getSessionMap(ACTIVE_USER_ID));
+    }
+
+    /**
+     * The subject a person-scoped page should show: an explicit {@code ?id=} always wins (page auth still
+     * gates it), else the sticky acting-for selection (validated here and cleared when stale -- an unlinked
+     * member must not keep haunting the session), else the signed-in user themselves.
+     */
+    public Person getSubject(final String idParam) {
+        if (idParam != null && !idParam.isBlank()) {
+            return getPerson(Person.Id.from(idParam));
+        }
+        final Person.Id actingFor = getActingFor();
+        final Person.Id self = ScopeUtil.getInstance().getSessionMap(ACTIVE_USER_ID);
+        return getPerson(actingFor != null ? actingFor : self);
+    }
+
+    /** The validated acting-for selection, or null. A selection the user may no longer access is cleared. */
+    public Person.Id getActingFor() {
+        final Object raw = ScopeUtil.getInstance().getSessionMap(ACTING_FOR);
+        if (raw == null) {
+            return null;
+        }
+        final Person.Id selected = (raw instanceof Person.Id pid) ? pid : Person.Id.from(raw.toString());
+        if (canAccessUserId(getCurrentPerson(), selected)
+                && !selected.equals(ScopeUtil.getInstance().getSessionMap(ACTIVE_USER_ID))) {
+            return selected;
+        }
+        setSessionValue(ACTING_FOR, null);
+        return null;
+    }
+
+    /** Sets (or, for self/invalid ids, clears) the sticky selection. Refuses anyone outside the caller's reach. */
+    public void actFor(final String idStr) {
+        if (idStr == null || idStr.isBlank()) {
+            setSessionValue(ACTING_FOR, null);
+            return;
+        }
+        final Person.Id target = Person.Id.from(idStr);
+        final Object self = ScopeUtil.getInstance().getSessionMap(ACTIVE_USER_ID);
+        if (target.equals(self) || !canAccessUserId(getCurrentPerson(), target)) {
+            setSessionValue(ACTING_FOR, null);
+        } else {
+            setSessionValue(ACTING_FOR, target);
+        }
+    }
+
+    private static void setSessionValue(final String key, final Object value) {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (ctx == null) {
+            return;
+        }
+        final Map<String, Object> session = ctx.getExternalContext().getSessionMap();
+        if (value == null) {
+            session.remove(key);
+        } else {
+            session.put(key, value);
+        }
     }
 
     public Person getPersonByEmail(final String email) {
