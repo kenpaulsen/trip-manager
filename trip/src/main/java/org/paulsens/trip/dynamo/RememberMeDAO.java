@@ -24,6 +24,8 @@ public class RememberMeDAO {
     static final String REMEMBER_TABLE = "remember_me";
     static final String SELECTOR = "selector";
     static final String VALIDATOR_HASH = "validatorHash";
+    static final String PREV_VALIDATOR_HASH = "prevValidatorHash";
+    static final String ROTATED_AT = "rotatedAt";
     static final String USER_ID = "userId";
     static final String EMAIL = "email";
     static final String CREATED = "created";
@@ -51,6 +53,13 @@ public class RememberMeDAO {
         final Map<String, AttributeValue> item = new HashMap<>();
         item.put(SELECTOR, AttributeValue.builder().s(token.getSelector()).build());
         item.put(VALIDATOR_HASH, AttributeValue.builder().s(token.getValidatorHash()).build());
+        // Absent until the first rotation; rows written before these columns existed read back as null.
+        if (token.getPrevValidatorHash() != null) {
+            item.put(PREV_VALIDATOR_HASH, AttributeValue.builder().s(token.getPrevValidatorHash()).build());
+        }
+        if (token.getRotatedAt() != null) {
+            item.put(ROTATED_AT, AttributeValue.builder().n(String.valueOf(token.getRotatedAt())).build());
+        }
         item.put(USER_ID, AttributeValue.builder().s(token.getUserId().getValue()).build());
         item.put(EMAIL, AttributeValue.builder().s(token.getEmail()).build());
         item.put(CREATED, AttributeValue.builder().n(String.valueOf(token.getCreated())).build());
@@ -102,6 +111,8 @@ public class RememberMeDAO {
         return new RememberToken(
                 item.get(SELECTOR).s(),
                 item.get(VALIDATOR_HASH).s(),
+                stringOrNull(item.get(PREV_VALIDATOR_HASH)),
+                numberOrNull(item.get(ROTATED_AT)),
                 Person.Id.from(item.get(USER_ID).s()),
                 item.get(EMAIL).s(),
                 numberOrNull(item.get(CREATED)),
@@ -111,5 +122,9 @@ public class RememberMeDAO {
 
     private static Long numberOrNull(final AttributeValue value) {
         return (value == null || value.n() == null) ? null : Long.valueOf(value.n());
+    }
+
+    private static String stringOrNull(final AttributeValue value) {
+        return (value == null) ? null : value.s();
     }
 }

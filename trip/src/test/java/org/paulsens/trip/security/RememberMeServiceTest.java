@@ -53,9 +53,9 @@ public class RememberMeServiceTest {
                 "the selector must survive rotation -- it is what makes theft detectable");
     }
 
-    /** The theft signature: a stale validator against a live selector kills the token for BOTH parties. */
+    /** The theft signature: a stale validator presented AFTER the grace window kills the token for BOTH parties. */
     @Test
-    public void aReplayedOldValidatorBurnsTheToken() {
+    public void aReplayedOldValidatorBurnsTheTokenAfterTheGraceWindow() {
         final Creds creds = userCreds("user3");
         final List<Cookie> issued = new ArrayList<>();
         service.issue(requestWith((Cookie) null), responseCapturing(issued), creds);
@@ -65,13 +65,69 @@ public class RememberMeServiceTest {
         final List<Cookie> rotated = new ArrayList<>();
         Assert.assertNotNull(service.validateAndRotate(requestWith(original), responseCapturing(rotated)));
 
+        // The grace window closes (aged in the store rather than slept through).
+        ageLastRotation(original, RememberMeService.ROTATION_GRACE_SECONDS + 1);
+
         // A thief (or the same browser with the pre-rotation copy) replays the ORIGINAL cookie.
         Assert.assertNull(service.validateAndRotate(requestWith(original), responseCapturing(new ArrayList<>())),
-                "a stale validator must be refused");
+                "a stale validator outside the grace window must be refused");
 
         // And the token is dead for the rotated copy too -- the row was deleted.
         Assert.assertNull(service.validateAndRotate(requestWith(rotated.get(0)),
                 responseCapturing(new ArrayList<>())), "theft detection must burn the whole token");
+    }
+
+    /**
+     * The browser racing its own rotation: a second request carrying the pre-rotation cookie lands moments
+     * after the first rotated. It must restore quietly -- no rotation, no Set-Cookie (the winner's cookie is
+     * already the live one), and the token must survive for both copies.
+     */
+    @Test
+    public void aPreRotationCopyWithinTheGraceWindowStillRestores() {
+        final Creds creds = userCreds("user7");
+        final List<Cookie> issued = new ArrayList<>();
+        service.issue(requestWith((Cookie) null), responseCapturing(issued), creds);
+        final Cookie original = issued.get(0);
+
+        final List<Cookie> rotated = new ArrayList<>();
+        Assert.assertNotNull(service.validateAndRotate(requestWith(original), responseCapturing(rotated)));
+
+        final List<Cookie> graceOut = new ArrayList<>();
+        final Creds graced = service.validateAndRotate(requestWith(original), responseCapturing(graceOut));
+        Assert.assertNotNull(graced, "the pre-rotation copy must restore within the grace window");
+        Assert.assertEquals(graced.getUserId(), creds.getUserId());
+        Assert.assertTrue(graceOut.isEmpty(),
+                "the grace path must not set a cookie -- the winner's rotated cookie is the live one");
+
+        // The token survived: the rotated cookie still works (and rotates normally).
+        Assert.assertNotNull(service.validateAndRotate(requestWith(rotated.get(0)),
+                responseCapturing(new ArrayList<>())), "the grace restore must not burn the token");
+    }
+
+    /** Only ONE generation back is honored: after a second rotation the original validator is theft again. */
+    @Test
+    public void theGraceWindowCoversOnlyTheLatestRotation() {
+        final Creds creds = userCreds("user8");
+        final List<Cookie> issued = new ArrayList<>();
+        service.issue(requestWith((Cookie) null), responseCapturing(issued), creds);
+        final Cookie original = issued.get(0);
+
+        final List<Cookie> second = new ArrayList<>();
+        Assert.assertNotNull(service.validateAndRotate(requestWith(original), responseCapturing(second)));
+        Assert.assertNotNull(service.validateAndRotate(requestWith(second.get(0)),
+                responseCapturing(new ArrayList<>())));
+
+        Assert.assertNull(service.validateAndRotate(requestWith(original), responseCapturing(new ArrayList<>())),
+                "a validator two rotations old must be refused even inside the time window");
+    }
+
+    /** Backdates the stored rotation timestamp so tests can cross the grace window without sleeping. */
+    private static void ageLastRotation(final Cookie cookie, final long seconds) {
+        final String selector = cookie.getValue().split(":")[0];
+        final org.paulsens.trip.model.RememberToken token =
+                DAO.getInstance().getRememberToken(selector).orElseThrow();
+        token.setRotatedAt(token.getRotatedAt() - seconds);
+        Assert.assertTrue(DAO.getInstance().saveRememberToken(token));
     }
 
     @Test

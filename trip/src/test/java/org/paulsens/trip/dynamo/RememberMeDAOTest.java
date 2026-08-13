@@ -13,7 +13,24 @@ public class RememberMeDAOTest {
 
     private static RememberToken token(final String selector, final Person.Id who) {
         final long now = Instant.now().getEpochSecond();
-        return new RememberToken(selector, "hash-" + selector, who, "who@example.org", now, now, now + 3600);
+        return new RememberToken(selector, "hash-" + selector, "prev-" + selector, now - 5, who,
+                "who@example.org", now, now, now + 3600);
+    }
+
+    /** Rows written before the rotation-grace columns existed have neither; they must read back as null. */
+    @Test
+    public void aRowWithoutGraceColumnsRoundTripsWithNulls() {
+        final String selector = RandomData.genSecureToken(9);
+        final long now = Instant.now().getEpochSecond();
+        final RememberToken legacy = new RememberToken(selector, "hash", null, null,
+                Person.Id.from("rm-legacy"), "who@example.org", now, now, now + 3600);
+
+        Assert.assertTrue(DAO.getInstance().saveRememberToken(legacy));
+        final RememberToken read = DAO.getInstance().getRememberToken(selector).orElseThrow();
+        Assert.assertNull(read.getPrevValidatorHash());
+        Assert.assertNull(read.getRotatedAt());
+        Assert.assertEquals(read, legacy);
+        DAO.getInstance().deleteRememberToken(selector);
     }
 
     @Test

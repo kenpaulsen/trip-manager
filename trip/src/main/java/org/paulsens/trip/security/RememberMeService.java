@@ -25,6 +25,13 @@ import org.paulsens.trip.util.RandomData;
  * copied cookie dies the next time the real browser checks in, and a stale validator against a live selector
  * is treated as theft: row deleted, ALARM audit, cookie expired.
  *
+ * <p>One exception to "stale means theft": for {@value #ROTATION_GRACE_SECONDS} seconds after a rotation, the
+ * validator that rotation replaced is still honored (restore only -- no second rotation, no Set-Cookie).
+ * A browser whose session just died fires several requests at once with the SAME cookie; whichever lands
+ * first rotates, and without the grace every sibling request would trip the theft detector and burn a
+ * legitimate token. The window is short enough that a thief gains at most one restore they could already
+ * have had by winning the race.
+ *
  * <p>Admin accounts are excluded at BOTH ends (no cookie issued, no cookie honored), so a role change
  * mid-token also kills the token. Expiry is absolute from creation. Role is read fresh from the pass table at
  * every restore, never from the token.
@@ -37,6 +44,8 @@ import org.paulsens.trip.util.RandomData;
 public class RememberMeService {
 
     public static final String COOKIE_NAME = "trip_remember";
+    /** How long the pre-rotation validator stays honored; see the class javadoc for why it exists at all. */
+    static final long ROTATION_GRACE_SECONDS = 30;
     private static final char SEPARATOR = ':';
     private static final RememberMeService INSTANCE = new RememberMeService(new ConfigCommands());
 
@@ -60,7 +69,7 @@ public class RememberMeService {
         final String validator = RandomData.genSecureToken(32);
         final long now = Instant.now().getEpochSecond();
         final long expires = now + days() * 86_400L;
-        final RememberToken token = new RememberToken(selector, Digests.sha256Base64(validator),
+        final RememberToken token = new RememberToken(selector, Digests.sha256Base64(validator), null, null,
                 creds.getUserId(), creds.getEmail(), now, now, expires);
         if (!Boolean.TRUE.equals(DAO.getInstance().saveRememberToken(token))) {
             // No row means the cookie could never work; better no cookie than a dead one.
@@ -97,7 +106,9 @@ public class RememberMeService {
             expire(request, response);
             return null;
         }
-        if (!Digests.matches(token.getValidatorHash(), Digests.sha256Base64(validator))) {
+        final String presentedHash = Digests.sha256Base64(validator);
+        final boolean current = Digests.matches(token.getValidatorHash(), presentedHash);
+        if (!current && !withinRotationGrace(token, presentedHash)) {
             // A known selector with the wrong validator is the theft signature: either the thief presented a
             // stale copy after the owner rotated, or the owner is presenting a stale copy after the thief
             // used it. Both mean the token is compromised; kill it loudly.
@@ -117,8 +128,24 @@ public class RememberMeService {
             expire(request, response);
             return null;
         }
-        rotate(request, response, token, selector);
+        if (current) {
+            rotate(request, response, token, selector);
+        }
+        // Grace path: no rotation and no Set-Cookie -- the racing request that won already rotated and set
+        // the browser's cookie to the live validator; rotating again here would just restage the race.
         return creds;
+    }
+
+    /**
+     * Whether this stale validator is the browser racing its own rotation rather than a theft: it must be
+     * the exact validator the LAST rotation replaced, presented within {@value #ROTATION_GRACE_SECONDS}
+     * seconds of that rotation. Rows from before the grace columns existed have neither field and never
+     * match, which keeps the old strict behavior for them.
+     */
+    private static boolean withinRotationGrace(final RememberToken token, final String presentedHash) {
+        return token.getPrevValidatorHash() != null && token.getRotatedAt() != null
+                && Digests.matches(token.getPrevValidatorHash(), presentedHash)
+                && Instant.now().getEpochSecond() - token.getRotatedAt() <= ROTATION_GRACE_SECONDS;
     }
 
     /** Deletes THIS browser's token and cookie (logout). */
@@ -145,8 +172,13 @@ public class RememberMeService {
     private void rotate(final HttpServletRequest request, final HttpServletResponse response,
             final RememberToken token, final String selector) {
         final String freshValidator = RandomData.genSecureToken(32);
+        final long now = Instant.now().getEpochSecond();
+        // The outgoing validator stays honored for the grace window; only ONE generation back, so a
+        // validator two rotations old is stale evidence again.
+        token.setPrevValidatorHash(token.getValidatorHash());
+        token.setRotatedAt(now);
         token.setValidatorHash(Digests.sha256Base64(freshValidator));
-        token.setLastUsed(Instant.now().getEpochSecond());
+        token.setLastUsed(now);
         if (Boolean.TRUE.equals(DAO.getInstance().saveRememberToken(token))) {
             final int remaining = (int) Math.max(60L, token.getExpires() - Instant.now().getEpochSecond());
             response.addCookie(cookie(request, selector + SEPARATOR + freshValidator, remaining));
