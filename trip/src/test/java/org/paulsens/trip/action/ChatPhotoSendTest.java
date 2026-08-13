@@ -9,8 +9,10 @@ import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.chat.ChatRateLimiter;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.media.PhotoFixtures;
+import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.chat.ChatAttachment;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatSettings;
@@ -210,6 +212,102 @@ public class ChatPhotoSendTest {
         Assert.assertTrue(tomb.isDeleted());
         Assert.assertTrue(tomb.getAttachments().isEmpty(),
                 "a tombstone must not keep keys pointing at deleted objects");
+    }
+
+    @Test
+    public void deletingOnePhotoLeavesTheRestAndANote() {
+        final ChatPhotos.StagedPhoto keep = stageOne();
+        final ChatPhotos.StagedPhoto oops = stageOne();
+        final ChatCommands.SendResult sent = chat.send(tripId, member, "two photos", null, null, actor,
+                List.of(new ChatPhotos.AttachmentRef(keep.key(), "keeper"),
+                        new ChatPhotos.AttachmentRef(oops.key(), "mistake")));
+        Assert.assertTrue(sent.isOk());
+        final ChatMessage.Id msgId = sent.getMessageObj().getId();
+
+        final Caller author = Caller.forActor(new AuditActor("shutter@test", member.getValue()));
+        Assert.assertTrue(chat.deleteAttachment(tripId, msgId, oops.key(), author));
+
+        final ChatMessage after = DAO.getInstance()
+                .getChatMessage(ChatChannel.Id.forTrip(tripId), msgId).orElseThrow();
+        Assert.assertFalse(after.isDeleted(), "the message itself survives");
+        Assert.assertNull(after.getEditedAt(), "a photo removal is not an edit and must not say 'edited'");
+        Assert.assertEquals(after.getAttachments().size(), 2, "tombstone slot, never a silent vanish");
+        final ChatAttachment tomb = after.getAttachments().stream()
+                .filter(ChatAttachment::isDeleted)
+                .findFirst().orElseThrow();
+        Assert.assertEquals(tomb.getDeletedBy(), "Shutterbug",
+                "the note names the remover by preferred name");
+        Assert.assertNull(tomb.getS3Key(), "a tombstone must not keep keys pointing at deleted objects");
+        Assert.assertNull(tomb.getThumbKey());
+        final ChatAttachment survivor = after.getAttachments().stream()
+                .filter(a -> !a.isDeleted())
+                .findFirst().orElseThrow();
+        Assert.assertEquals(survivor.getS3Key(), keep.key());
+
+        Assert.assertTrue(photos.localGet(oops.key()).isEmpty(), "deleted rendition gone");
+        Assert.assertTrue(photos.localGet(oops.smallKey()).isEmpty(), "deleted small rendition gone");
+        Assert.assertTrue(photos.localGet(keep.key()).isPresent(), "the other photo is untouched");
+        final List<MediaItem> album =
+                DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor(tripId));
+        Assert.assertEquals(album.size(), 1, "only the deleted photo leaves the album");
+        Assert.assertEquals(album.get(0).getS3Key(), keep.key());
+    }
+
+    @Test
+    public void aNonAuthorNonAdminMayNotDeleteAPhoto() {
+        final ChatPhotos.StagedPhoto staged = stageOne();
+        final ChatCommands.SendResult sent = chat.send(tripId, member, "", null, null, actor,
+                List.of(new ChatPhotos.AttachmentRef(staged.key(), null)));
+        Assert.assertTrue(sent.isOk());
+
+        final Caller stranger = Caller.forActor(new AuditActor("nosy@test", person("Nosy").getValue()));
+        Assert.assertFalse(chat.deleteAttachment(tripId, sent.getMessageObj().getId(), staged.key(), stranger));
+
+        Assert.assertTrue(photos.localGet(staged.key()).isPresent(), "nothing may be deleted on a refusal");
+        final ChatMessage untouched = DAO.getInstance()
+                .getChatMessage(ChatChannel.Id.forTrip(tripId), sent.getMessageObj().getId()).orElseThrow();
+        Assert.assertFalse(untouched.getAttachments().get(0).isDeleted());
+    }
+
+    @Test
+    public void anAdminDeletesAnyonesPhotoAndTheNoteNamesThem() {
+        final ChatPhotos.StagedPhoto staged = stageOne();
+        final ChatCommands.SendResult sent = chat.send(tripId, member, "", null, null, actor,
+                List.of(new ChatPhotos.AttachmentRef(staged.key(), null)));
+        Assert.assertTrue(sent.isOk());
+
+        Assert.assertTrue(chat.deleteAttachment(
+                tripId, sent.getMessageObj().getId(), staged.key(), Caller.forActor(actor)));
+
+        final ChatMessage after = DAO.getInstance()
+                .getChatMessage(ChatChannel.Id.forTrip(tripId), sent.getMessageObj().getId()).orElseThrow();
+        Assert.assertEquals(after.getAttachments().get(0).getDeletedBy(), "Moderator");
+        Assert.assertTrue(photos.localGet(staged.key()).isEmpty());
+    }
+
+    @Test
+    public void deletingTheSamePhotoTwiceFailsTheSecondTime() {
+        final ChatPhotos.StagedPhoto staged = stageOne();
+        final ChatCommands.SendResult sent = chat.send(tripId, member, "", null, null, actor,
+                List.of(new ChatPhotos.AttachmentRef(staged.key(), null)));
+        Assert.assertTrue(sent.isOk());
+        final Caller admin = Caller.forActor(actor);
+
+        Assert.assertTrue(chat.deleteAttachment(tripId, sent.getMessageObj().getId(), staged.key(), admin));
+        Assert.assertFalse(chat.deleteAttachment(tripId, sent.getMessageObj().getId(), staged.key(), admin),
+                "the tombstoned slot no longer matches; a repeat is a 404, not a second cascade");
+    }
+
+    @Test
+    public void deletingAPhotoFromATombstonedMessageFails() {
+        final ChatPhotos.StagedPhoto staged = stageOne();
+        final ChatCommands.SendResult sent = chat.send(tripId, member, "", null, null, actor,
+                List.of(new ChatPhotos.AttachmentRef(staged.key(), null)));
+        Assert.assertTrue(sent.isOk());
+        Assert.assertTrue(chat.deleteMessage(tripId, sent.getMessageObj().getId(), Caller.forActor(actor)));
+
+        Assert.assertFalse(chat.deleteAttachment(
+                tripId, sent.getMessageObj().getId(), staged.key(), Caller.forActor(actor)));
     }
 
     @Test

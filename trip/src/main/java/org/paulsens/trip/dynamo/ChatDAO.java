@@ -564,6 +564,59 @@ public class ChatDAO {
     }
 
     /**
+     * Tombstones ONE attachment of a message, leaving the rest (and the body) untouched. Same shape as a
+     * message tombstone — never a removal from the list, so an already-polled client is told the photo was
+     * withdrawn rather than watching it silently vanish. Empty when the message is gone, tombstoned as a
+     * whole, or has no live attachment under that key.
+     */
+    protected Optional<ChatMessage> removeAttachment(
+            final ChatChannel.Id channelId, final ChatMessage.Id msgId,
+            final String s3Key, final String deletedBy) {
+        final Optional<ChatMessage> existing = getMessage(channelId, msgId);
+        if (existing.isEmpty() || existing.get().isDeleted()) {
+            return Optional.empty();
+        }
+        final List<ChatAttachment> replaced = tombstoneOne(existing.get().getAttachments(), s3Key, deletedBy);
+        return replaced == null ? Optional.empty() : writeAttachments(existing.get(), replaced);
+    }
+
+    /** The list with the matching live attachment tombstoned, or null when nothing matched. */
+    private static List<ChatAttachment> tombstoneOne(
+            final List<ChatAttachment> attachments, final String s3Key, final String deletedBy) {
+        boolean matched = false;
+        final List<ChatAttachment> out = new ArrayList<>(attachments.size());
+        for (final ChatAttachment attachment : attachments) {
+            if (!matched && !attachment.isDeleted() && s3Key.equals(attachment.getS3Key())) {
+                matched = true;
+                out.add(attachment.deleted(deletedBy));
+            } else {
+                out.add(attachment);
+            }
+        }
+        return matched ? out : null;
+    }
+
+    private Optional<ChatMessage> writeAttachments(
+            final ChatMessage original, final List<ChatAttachment> replaced) {
+        final ChatMessage updated = original.withAttachments(replaced);
+        final String json = toJson(updated);
+        if (json == null) {
+            return Optional.empty();
+        }
+        final Map<String, AttributeValue> item = new HashMap<>();
+        item.put(ATTR_CHANNEL_ID, persistence.toStrAttr(updated.getChannelId().getValue()));
+        item.put(ATTR_MSG_ID, persistence.toStrAttr(updated.getId().getValue()));
+        item.put(ATTR_CONTENT, persistence.toStrAttr(json));
+        if (updated.getExpiresAt() != null) {
+            item.put(ATTR_EXPIRES_AT,
+                    AttributeValue.builder().n(Long.toString(updated.getExpiresAt())).build());
+        }
+        final boolean saved = persistence.putItem(b -> b.tableName(MESSAGES_TABLE).item(item))
+                .sdkHttpResponse().isSuccessful();
+        return saved ? cacheEdit(updated, json) : Optional.empty();
+    }
+
+    /**
      * Replaces a message body in place, stamping {@code editedAt}. Author and window checks live in the action
      * layer; this is the write.
      *

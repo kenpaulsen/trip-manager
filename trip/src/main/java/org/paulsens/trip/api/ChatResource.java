@@ -349,6 +349,44 @@ public class ChatResource extends BaseResource {
     }
 
     /**
+     * Removes ONE photo from a message, leaving the message and its other photos. The photo key travels as a
+     * query parameter, never a path segment — Tomcat rejects {@code %2F} in paths, and every s3 key contains
+     * slashes. Note the key must be checked for blank explicitly: {@code ?key=} arrives as an empty string,
+     * not null, and would otherwise fall through the null checks.
+     */
+    @DELETE
+    @Path("messages/{msgId}/photo")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response deletePhoto(
+            @PathParam("channelId") final String channelId,
+            @PathParam("msgId") final String msgId,
+            @QueryParam("key") final String key,
+            @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf) {
+        if (csrfMissing(csrf)) {
+            return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
+        }
+        final Person.Id me = personId();
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        if (key == null || key.isBlank()) {
+            return error(400, ChatErrors.BAD_ATTACHMENT, "Missing photo key.");
+        }
+        final ChatCommands chat = ChatCommands.getChatCommands();
+        // Same shaping as the message DELETE: the bean re-derives authorship from the stored message.
+        if (!chat.canDelete(tripId, ChatMessage.Id.from(msgId), me)
+                && !chat.canAdminister(tripId, caller())) {
+            return error(403, ChatErrors.FORBIDDEN, "You can only remove photos from your own messages.");
+        }
+        final boolean ok = chat.deleteAttachment(tripId, ChatMessage.Id.from(msgId), key, caller());
+        if (!ok) {
+            return error(404, ChatErrors.NOT_FOUND, "Photo not found.");
+        }
+        return ok(Map.of("deleted", true, "msgId", msgId));
+    }
+
+    /**
      * Author self-edit. {@code PATCH} because it replaces one field of an existing message rather than creating
      * anything — a {@code PUT} would imply the client is supplying the whole resource, including fields
      * ({@code sentAt}, {@code authorId}, the quote) that are immutable by design.

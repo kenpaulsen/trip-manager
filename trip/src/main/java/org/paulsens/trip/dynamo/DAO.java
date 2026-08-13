@@ -492,6 +492,11 @@ public class DAO {
             final ChatChannel.Id channelId, final ChatMessage.Id msgId, final String deletedBy) {
         return chatDao.tombstoneMessage(channelId, msgId, deletedBy);
     }
+    public Optional<ChatMessage> removeChatAttachment(
+            final ChatChannel.Id channelId, final ChatMessage.Id msgId,
+            final String s3Key, final String deletedBy) {
+        return chatDao.removeAttachment(channelId, msgId, s3Key, deletedBy);
+    }
     public ChatPage getChatMessagesSince(
             final ChatChannel.Id channelId, final ChatMessage.Id since, final int limit,
             final ChatMembership member, final ChatChannel channel, final Trip trip,

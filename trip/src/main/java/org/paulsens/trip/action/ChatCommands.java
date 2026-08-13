@@ -1868,6 +1868,65 @@ public class ChatCommands {
     }
 
     /**
+     * Removes ONE photo from a message, leaving the message and its other photos in place. The removed slot
+     * becomes a per-attachment tombstone the feed renders as "An image was deleted by &lt;name&gt;." — the
+     * note rides the message row itself (via the mutation counter), the same correction path as an edit or a
+     * whole-message tombstone.
+     *
+     * <p>Same permission rule as {@link #deleteMessage}: the author of the carrying message, or a chat
+     * administrator, with the author re-derived from the stored message. Same album semantics too: the photo
+     * is removed everywhere — stored renditions, CDN cache, album row, its comment thread.
+     *
+     * <p>Deliberately notification-free. Nothing here posts a message or a comment, so none of the chat
+     * mails (mention, reply, photo-comment) can fire for an image removal — per the feature request, the
+     * note must not email anyone.
+     */
+    public boolean deleteAttachment(
+            final String tripId, final ChatMessage.Id msgId, final String s3Key, final Caller caller) {
+        final AuditActor who = actorOf(caller);
+        final ChatChannel channel = getChannel(tripId);
+        if (channel == null || msgId == null || s3Key == null || s3Key.isBlank()) {
+            return false;
+        }
+        final Optional<ChatMessage> before = dao().getChatMessage(channel.getId(), msgId);
+        if (!isOwnMessage(before, who)) {
+            if (denyUnlessAdmin(tripId, "delete photo from message " + msgId.getValue(), caller)) {
+                return false;
+            }
+        }
+        // Captured BEFORE the tombstone write clears its keys: the cascade below needs the real s3/thumb keys.
+        final ChatAttachment target = before.map(ChatMessage::getAttachments).orElse(List.of()).stream()
+                .filter(a -> !a.isDeleted() && s3Key.equals(a.getS3Key()))
+                .findFirst().orElse(null);
+        if (target == null) {
+            return false;
+        }
+        final Optional<ChatMessage> updated = dao().removeChatAttachment(
+                channel.getId(), msgId, s3Key, deleterName(who));
+        if (updated.isEmpty()) {
+            return false;
+        }
+        final String author = before.map(m -> m.getAuthorId() == null ? "?" : m.getAuthorId().getValue())
+                .orElse("?");
+        audit(AuditAction.CHAT_ADMIN, who, AuditEventBuilder.TARGET_CHAT_MESSAGE, msgId.getValue(),
+                "photo deleted; author=" + author + "; key=" + s3Key);
+        // Album semantics (user decision 2026-08-07): photos SURVIVE retention expiry but NOT removal.
+        ChatPhotos.getChatPhotos().deleteEverywhere(List.of(target));
+        return true;
+    }
+
+    /**
+     * The remover's display name for the tombstone note, captured at delete time. Falls back to the actor's
+     * email, then a role word, rather than ever rendering a raw person id in the chat.
+     */
+    private static String deleterName(final AuditActor who) {
+        if (who == null || who.id() == null) {
+            return who == null || who.email() == null ? "an administrator" : who.email();
+        }
+        return displayNameOrId(PersonCommands.getPersonCommands(), who.id());
+    }
+
+    /**
      * Whether this actor wrote this message.
      *
      * <p>Compared on the id the message carries, so an author deleting their own never depends on the caller

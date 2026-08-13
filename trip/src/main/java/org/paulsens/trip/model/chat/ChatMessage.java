@@ -137,6 +137,16 @@ public class ChatMessage implements Serializable {
                 expiresAt, clientMessageId, schemaVersion);
     }
 
+    /**
+     * Replaces the attachment list — the single-photo removal write. Deliberately does NOT stamp
+     * {@code editedAt}: that flag renders as "· edited" and means the author rewrote their words, while a
+     * removed photo already announces itself via its own tombstone note.
+     */
+    public ChatMessage withAttachments(final List<ChatAttachment> newAttachments) {
+        return new ChatMessage(id, channelId, authorId, sentAt, kind, body, quote, newAttachments,
+                forwardedFrom, editedAt, deletedAt, deletedBy, expiresAt, clientMessageId, schemaVersion);
+    }
+
     public ChatMessage withId(final Id newId) {
         return new ChatMessage(newId, channelId, authorId,
                 Instant.ofEpochMilli(newId.getEpochMilli()), kind, body, quote, attachments,

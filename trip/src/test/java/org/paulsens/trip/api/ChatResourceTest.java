@@ -251,6 +251,54 @@ public class ChatResourceTest extends ResourceTestSupport {
         assertError(resource.delete(CHANNEL, "m1", CSRF_OK), 404, ChatErrors.NOT_FOUND);
     }
 
+    // --- single-photo delete ---
+
+    @Test
+    public void anAuthorDeletesOnePhotoFromTheirMessage() {
+        Mockito.when(chat.canDelete(TRIP_ID, ChatMessage.Id.from("m1"), ME)).thenReturn(true);
+        Mockito.when(chat.deleteAttachment(ArgumentMatchers.eq(TRIP_ID),
+                ArgumentMatchers.eq(ChatMessage.Id.from("m1")), ArgumentMatchers.eq("chat/t/p.jpg"),
+                ArgumentMatchers.any(Caller.class))).thenReturn(true);
+
+        assertOk(resource.deletePhoto(CHANNEL, "m1", "chat/t/p.jpg", CSRF_OK));
+    }
+
+    /** {@code ?key=} arrives as an empty string, not null — it must 400, not fall through as a no-op. */
+    @Test
+    public void aBlankPhotoKeyIs400() {
+        assertError(resource.deletePhoto(CHANNEL, "m1", "", CSRF_OK), 400, ChatErrors.BAD_ATTACHMENT);
+        assertError(resource.deletePhoto(CHANNEL, "m1", null, CSRF_OK), 400, ChatErrors.BAD_ATTACHMENT);
+        Mockito.verify(chat, Mockito.never()).deleteAttachment(ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(Caller.class));
+    }
+
+    @Test
+    public void aStrangerCannotDeleteSomebodyElsesPhoto() {
+        Mockito.when(chat.canDelete(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(false);
+        Mockito.when(chat.canAdminister(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.any(Caller.class)))
+                .thenReturn(false);
+
+        assertError(resource.deletePhoto(CHANNEL, "m1", "chat/t/p.jpg", CSRF_OK), 403, ChatErrors.FORBIDDEN);
+        Mockito.verify(chat, Mockito.never()).deleteAttachment(ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(Caller.class));
+    }
+
+    @Test
+    public void deletingAPhotoThatIsGoneIs404() {
+        Mockito.when(chat.canDelete(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(true);
+        Mockito.when(chat.deleteAttachment(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(Caller.class))).thenReturn(false);
+
+        assertError(resource.deletePhoto(CHANNEL, "m1", "chat/t/p.jpg", CSRF_OK), 404, ChatErrors.NOT_FOUND);
+    }
+
+    @Test
+    public void deletePhotoRequiresTheCsrfHeader() {
+        assertError(resource.deletePhoto(CHANNEL, "m1", "chat/t/p.jpg", null), 403, ChatErrors.CSRF);
+    }
+
     @Test
     public void editOutcomesMapToTheirStatuses() {
         Mockito.when(chat.editMessage(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME),
