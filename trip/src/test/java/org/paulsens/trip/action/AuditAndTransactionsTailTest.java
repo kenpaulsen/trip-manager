@@ -252,11 +252,27 @@ public class AuditAndTransactionsTailTest {
     }
 
     @Test
-    public void localTimeConvertsTheEventTimestamp() {
+    public void utcTimeConvertsTheEventTimestamp() {
         audit.log("time@audit.example", "CONFIG", "time check");
         final AuditPage page = auditView.getRecent(1);
         if (!page.getEvents().isEmpty()) {
-            Assert.assertNotNull(auditView.localTime(page.getEvents().get(0)));
+            Assert.assertNotNull(auditView.utcTime(page.getEvents().get(0)));
+        }
+    }
+
+    @Test
+    public void utcTimeAndEpochMillisTolerateNull() {
+        Assert.assertNull(auditView.utcTime(null));
+        Assert.assertEquals(auditView.epochMillis(null), 0L);
+    }
+
+    @Test
+    public void epochMillisMatchesTheEventTimestamp() {
+        audit.log("epoch@audit.example", "CONFIG", "epoch check");
+        final AuditPage page = auditView.getRecent(1);
+        if (!page.getEvents().isEmpty()) {
+            final var event = page.getEvents().get(0);
+            Assert.assertEquals(auditView.epochMillis(event), event.getTimestamp().toEpochMilli());
         }
     }
 }

@@ -167,6 +167,52 @@ public class AuditDAOTest {
     }
 
     @Test
+    public void anEmptyIncompletePageStillOffersACursor() {
+        // A filter can match nothing in one 60-day window while older matches exist beyond it. The old
+        // cursor (null on any empty page) disabled "Older" right there, making the rest of the history
+        // unreachable from the UI. An empty-but-incomplete page must offer to continue the walk.
+        final AuditPage page = page(AuditQuery.builder()
+                .before(Instant.parse("2026-07-26T12:00:00Z"))
+                .actor("nobody-matches-this@example.com")
+                .build());
+
+        assertTrue(page.isEmpty());
+        assertFalse(page.isComplete());
+        assertEquals(page.nextCursor(),
+                page.getSearchedBackTo().atStartOfDay(java.time.ZoneOffset.UTC).toInstant(),
+                "An exhausted-but-not-finished page should continue from where the walk stopped");
+    }
+
+    @Test
+    public void pagingPastAQuietWindowReachesOlderRecords() {
+        // End to end: a record 70 days back is beyond the first page's budget, so page one is empty --
+        // and paging AGAIN with its cursor must find the record rather than dead-ending.
+        final Instant now = Instant.parse("2026-07-26T12:00:00Z");
+        final Instant longAgo = now.minus(70, ChronoUnit.DAYS);
+        dao.saveAuditEvent(event(longAgo, AuditAction.LOGIN, AuditOutcome.SUCCESS, "quiet@x"));
+
+        final AuditPage first = page(AuditQuery.builder().before(now).build());
+        assertTrue(first.isEmpty(), "The record is beyond the first 60-day window");
+
+        final AuditPage second = page(AuditQuery.builder().before(first.nextCursor()).build());
+        assertEquals(second.getEvents().size(), 1, "The second page should reach past the quiet window");
+        assertEquals(second.getEvents().get(0).getActorEmail(), "quiet@x");
+    }
+
+    @Test
+    public void theCursorStopsAtTheStartOfHistory() {
+        // Once the walk has reached the beginning of recorded history there is nothing left to page to;
+        // offering a cursor would let "Older" spin forever over the same empty window.
+        final AuditPage page = page(AuditQuery.builder()
+                .before(AuditQuery.EARLIEST.plusDays(5).atStartOfDay(java.time.ZoneOffset.UTC).toInstant())
+                .build());
+
+        assertTrue(page.isEmpty());
+        assertEquals(page.getSearchedBackTo(), AuditQuery.EARLIEST);
+        assertEquals(page.nextCursor(), null, "Reaching the start of history should end the paging");
+    }
+
+    @Test
     public void sinceStopsTheWalkEarly() {
         final Instant now = Instant.parse("2026-07-26T12:00:00Z");
         dao.saveAuditEvent(event(now.minus(10, ChronoUnit.DAYS), AuditAction.LOGIN, AuditOutcome.SUCCESS, "old@x"))

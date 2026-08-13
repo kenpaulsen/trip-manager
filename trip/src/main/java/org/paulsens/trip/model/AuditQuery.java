@@ -2,6 +2,7 @@ package org.paulsens.trip.model;
 
 import java.io.Serializable;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Locale;
 import lombok.Builder;
 import lombok.Value;
@@ -27,6 +28,12 @@ public class AuditQuery implements Serializable {
 
     /** Default page size; also what the admin table requests. */
     public static final int DEFAULT_LIMIT = 50;
+
+    /**
+     * The start of recorded history (the oldest imported record is from late 2021). The walk never looks
+     * before this, and a cursor that reaches it has nothing left to page to.
+     */
+    public static final LocalDate EARLIEST = LocalDate.of(2021, 1, 1);
 
     /** Exclusive upper bound: return events strictly older than this. Null starts from now. */
     Instant before;

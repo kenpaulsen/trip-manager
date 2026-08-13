@@ -197,7 +197,7 @@ public class DeployCommands {
      * {@code localDateTime}, {@code zonedDateTime} and friends -- and handing it an Instant throws at RENDER
      * time. That surfaces as the container's default error page, which is {@code /index.jsf}, so the symptom
      * is the admin silently landing on the public home page rather than seeing an error. The audit page solves
-     * it the same way, via {@code AuditViewCommands.localTime}.
+     * it the same way, via {@code AuditViewCommands.utcTime}.
      *
      * <p>The site's own zone rather than UTC: this page is read by someone deciding whether a release is
      * stuck, and how long ago a stage changed has to be obvious at a glance.

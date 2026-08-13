@@ -84,9 +84,17 @@ public class AuditViewCommands {
         return List.of(AuditOutcome.values());
     }
 
-    /** Renders a record's timestamp in the viewer's terms; the stored value is UTC. */
-    public LocalDateTime localTime(final AuditEvent event) {
+    /** A record's timestamp as a UTC wall-clock value, for the server-rendered (no-JS) form of the cell. */
+    public LocalDateTime utcTime(final AuditEvent event) {
         return (event == null) ? null : LocalDateTime.ofInstant(event.getTimestamp(), ZoneOffset.UTC);
+    }
+
+    /**
+     * A record's timestamp as epoch milliseconds, carried on the cell as a data attribute so the browser --
+     * the only party that knows the viewer's timezone -- can re-render it in local time.
+     */
+    public long epochMillis(final AuditEvent event) {
+        return (event == null) ? 0L : event.getTimestamp().toEpochMilli();
     }
 
     /**

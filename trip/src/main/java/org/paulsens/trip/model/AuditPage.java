@@ -64,9 +64,23 @@ public class AuditPage implements Serializable {
         return failedPartitions > 0;
     }
 
-    /** The cursor for the next page: ask for events strictly older than the oldest one here. */
+    /**
+     * The cursor for the next page: ask for events strictly older than the oldest one here.
+     *
+     * <p>An EMPTY page is not necessarily the end: a filter can match nothing in one 60-day window while
+     * older matches exist beyond it. In that case the cursor continues from {@link #searchedBackTo}, so
+     * "Older" keeps walking instead of dead-ending on the first quiet stretch. Null -- no further paging --
+     * means the walk genuinely has nowhere left to look: it either filled the page budget with nothing
+     * beyond it ({@link #complete} without events cannot happen) or reached the start of recorded history.
+     */
     public java.time.Instant nextCursor() {
-        return events.isEmpty() ? null : events.get(events.size() - 1).getTimestamp();
+        if (!events.isEmpty()) {
+            return events.get(events.size() - 1).getTimestamp();
+        }
+        if (complete || !searchedBackTo.isAfter(AuditQuery.EARLIEST)) {
+            return null;
+        }
+        return searchedBackTo.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
     }
 
     public boolean isEmpty() {

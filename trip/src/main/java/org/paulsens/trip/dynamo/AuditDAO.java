@@ -55,8 +55,9 @@ public class AuditDAO {
     /** How many times a colliding write is nudged forward before giving up. */
     private static final int MAX_WRITE_RETRIES = 10;
 
-    /** Guards against walking past the start of recorded history. */
-    private static final LocalDate EARLIEST = LocalDate.of(2021, 1, 1);
+    /** Guards against walking past the start of recorded history. Shared with the model so the paging
+     *  cursor ({@code AuditPage.nextCursor}) can tell "budget ran out" from "history ran out". */
+    private static final LocalDate EARLIEST = org.paulsens.trip.model.AuditQuery.EARLIEST;
 
     private final ObjectMapper mapper;
     private final Persistence persistence;
