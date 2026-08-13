@@ -61,7 +61,8 @@ changes at runtime.
 - `#{content}` helpers drive the include: `getForView`, `childrenFor`, `getKind`, `typeId`, `render`
   (STANDARD only; "" otherwise), `renderTitle`, `isVisibleNow`, `getTemplateChoicesFor`,
   `autoStartContent`, `getChoices`, `idsFor`, `titleOf`, `canEdit`, `canEditPage`, `applyOrder`,
-  `frameClass`, `completeEditorPriv`, `getEditorPrivNamesJson`.
+  `frameClass`, `completeEditorPriv`, `getEditorPrivNamesJson`, `getTemplateVersions`, `pinnedVersion`,
+  `versionLabel`, `isTemplateOutdated`, `retargetTemplateVersion`.
 - **Privileges**: contentAdmin (or a site admin) edits everything. A container instance may name
   `editorPrivileges` (only contentAdmin can set them — the save path guards the field): holders of ANY
   listed privilege may add/edit/reorder/delete that container's CHILDREN (the landing page grants
@@ -81,7 +82,33 @@ changes at runtime.
   Operations".
 - **HTML validation**: `HtmlFragmentValidator` (structural: balance, nesting, quotes, comments; void and
   raw-text elements understood) gates `saveTemplate` bodies and `saveContent` RICH_TEXT values and
-  markup-bearing titles. Failures surface as growl messages and keep the dialog open.
+  markup-bearing titles. Failures surface as growl messages and keep the dialog open. It shares its tag
+  scanner with `RichTextRules` (`HtmlTags`), so the two never disagree about where a `<p>` begins.
+- **RICH_TEXT is BLOCK html, and that is not negotiable**: Quill's document model is a list of lines and
+  every line is a block element, so a one-line caption comes back as `<p>…</p>` plus a trailing empty
+  paragraph, and alignment arrives as a `ql-align-*` CLASS that only works where Quill's stylesheet is
+  loaded. Two consequences, each handled in its own place:
+  - **On save** (`RichTextRules.normalize`, called from `saveContent` AFTER validation): alignment classes
+    become inline `text-align` styles, trailing empty paragraphs are dropped, and a value that is exactly
+    ONE ATTRIBUTE-FREE `<p>` loses that wrapper. Multi-paragraph values keep their blocks (there the blocks
+    are the author's meaning), an aligned value keeps its `<p>` (alignment needs a block to live on), and
+    anything with attributes is treated as hand-authored and left byte-identical -- the Source toggle makes
+    raw authoring reachable, and it must round trip.
+  - **In a template BODY**: a RICH_TEXT `{{token}}` must sit in a block container (`<div>`), never inside a
+    `<p>` -- paragraphs cannot nest, so the browser closes the outer one early and the value renders OUTSIDE
+    its intended spot (this is a real bug that shipped: an image caption escaped its paragraph). `saveTemplate`
+    warns about it (`RichTextRules.richTextTokensInsideParagraph`) without blocking, and `RichTextRulesTest`
+    holds the shipped starters to the rule.
+- **Changing an instance's template version**: the content dialog shows a "Template version" menu for saved
+  instances whose template has more than one retained version, with the pinned one selected, the newest
+  marked, and an amber note when a newer one exists. Switching calls `retargetTemplateVersion`, which runs
+  `TemplateValueMigrator` over the values: same name is kept, then same label (case-insensitive), then a lone
+  same-type survivor on each side; anything left is DROPPED and named in the growl. New placeholders arrive
+  declared-but-empty. Nothing is stored until Apply, so Cancel abandons a bad migration. The version menu's
+  remoteCommand processes the WHOLE form so typed-but-unsaved values migrate too.
+- **Growl messages must carry everything in the SUMMARY**: `template.xhtml` renders message details only for
+  the URL-parameter messages (`hasDetail`), so a detail-only explanation is invisible to the user. Found by
+  clicking through the container; no test can see it.
 - **Raw HTML in the WYSIWYG editors**: every `p:textEditor` on the site carries an "HTML" toolbar button
   that swaps Quill for a textarea (`WEB-INF/quillEditor.xhtml`, patched onto the widget prototype, so
   editors created later by ajax get it too). While in Source mode the textarea writes straight into the

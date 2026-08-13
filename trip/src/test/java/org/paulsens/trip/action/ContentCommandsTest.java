@@ -447,4 +447,79 @@ public class ContentCommandsTest {
         Assert.assertTrue(content.getForSection(" ").isEmpty());
         Assert.assertTrue(content.getAllForSection(null).isEmpty());
     }
+
+    @Test
+    public void wysiwygWrappersAreCleanedOffRichTextOnSave() {
+        final ContentCommands content = as(ADMIN, false);
+        final ContentTemplate rich = new ContentTemplate("cc-caption-tpl", 0, "Rich", null,
+                "<div>{{caption}}</div>",
+                List.of(new Placeholder("caption", Placeholder.Type.RICH_TEXT, "Caption", null, false)),
+                null, null);
+        Assert.assertTrue(DAO.getInstance().saveTemplate(rich, 5));
+
+        final ContentInstance item = content.createContent("cc.section-rich", "cc-caption-tpl");
+        item.setTitle("Rich");
+        item.getValues().put("caption", "<p class=\"ql-align-center\">Thurs, <strong>Aug 27</strong></p>"
+                + "<p><br></p>");
+        Assert.assertTrue(content.saveContent(item));
+
+        Assert.assertEquals(DAO.getInstance().getContent(item.getId()).orElseThrow()
+                        .getValues().get("caption"),
+                "<p style=\"text-align:center\">Thurs, <strong>Aug 27</strong></p>",
+                "the editor's trailing paragraph goes, and alignment stops depending on Quill's stylesheet");
+    }
+
+    @Test
+    public void aTemplateVersionChangeCarriesValuesAcross() {
+        final ContentCommands content = as(ADMIN, false);
+        final ContentTemplate v1 = new ContentTemplate("cc-versioned", 0, "Versioned", null, "<p>{{cap}}</p>",
+                List.of(new Placeholder("cap", Placeholder.Type.TEXT, "Caption", null, false)), null, null);
+        Assert.assertTrue(DAO.getInstance().saveTemplate(v1, 5));
+        final ContentInstance item = content.createContent("cc.section-versions", "cc-versioned");
+        item.setTitle("Versioned");
+        item.getValues().put("cap", "kept");
+        Assert.assertTrue(content.saveContent(item));
+        Assert.assertEquals(item.getTemplateVersion(), 1);
+
+        // v2 renames the placeholder but keeps its label, and adds a second hole.
+        final ContentTemplate v2 = new ContentTemplate("cc-versioned", 1, "Versioned", null,
+                "<div>{{caption}}{{extra}}</div>",
+                List.of(new Placeholder("caption", Placeholder.Type.TEXT, "Caption", null, false),
+                        new Placeholder("extra", Placeholder.Type.TEXT, "Extra", null, false)), null, null);
+        Assert.assertTrue(DAO.getInstance().saveTemplate(v2, 5));
+
+        Assert.assertEquals(content.getTemplateVersions(item), List.of(2, 1), "newest first");
+        Assert.assertTrue(content.isTemplateOutdated(item));
+        Assert.assertEquals(content.pinnedVersion(item), "1");
+        Assert.assertEquals(content.versionLabel(item, 2), "v2 (latest)");
+        Assert.assertEquals(content.versionLabel(item, 1), "v1 (in use)");
+
+        Assert.assertTrue(content.retargetTemplateVersion(item, "2"));
+        Assert.assertEquals(item.getTemplateVersion(), 2);
+        Assert.assertEquals(item.getValues().get("caption"), "kept", "matched by its unchanged label");
+        Assert.assertEquals(item.getValues().get("extra"), "", "the new hole is declared but empty");
+        Assert.assertFalse(item.getValues().containsKey("cap"), "the old name is gone");
+        Assert.assertFalse(content.isTemplateOutdated(item));
+
+        Assert.assertTrue(content.saveContent(item), "the new pin survives the save");
+        Assert.assertEquals(DAO.getInstance().getContent(item.getId()).orElseThrow().getTemplateVersion(), 2);
+    }
+
+    @Test
+    public void aVersionChangeIsIgnoredWhenThereIsNothingToDo() {
+        final ContentCommands content = as(ADMIN, false);
+        final ContentInstance item = content.createContent("cc.section-noop", "cc-test-tpl");
+        Assert.assertFalse(content.retargetTemplateVersion(null, "2"));
+        Assert.assertFalse(content.retargetTemplateVersion(item, null));
+        Assert.assertFalse(content.retargetTemplateVersion(item, "  "));
+        Assert.assertFalse(content.retargetTemplateVersion(item, "not-a-number"));
+        Assert.assertFalse(content.retargetTemplateVersion(item, "1"), "already pinned there");
+        Assert.assertFalse(content.retargetTemplateVersion(item, "99"), "no such retained version");
+        Assert.assertEquals(item.getTemplateVersion(), 1, "a refused retarget changes nothing");
+
+        Assert.assertTrue(content.getTemplateVersions(null).isEmpty());
+        Assert.assertEquals(content.pinnedVersion(null), "");
+        Assert.assertFalse(content.isTemplateOutdated(null));
+        Assert.assertEquals(content.versionLabel(null, 3), "v3");
+    }
 }

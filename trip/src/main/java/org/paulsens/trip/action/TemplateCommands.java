@@ -18,6 +18,7 @@ import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.content.HtmlFragmentValidator;
 import org.paulsens.trip.content.ProgrammaticContentTemplate;
 import org.paulsens.trip.content.ProgrammaticTypes;
+import org.paulsens.trip.content.RichTextRules;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
@@ -131,10 +132,30 @@ public class TemplateCommands {
             return false;
         }
         if (saved) {
+            warnAboutRichTextInParagraph(template);
             audit(caller, template.getId(),
                     "Saved v" + template.getVersion() + " of template '" + template.getId() + "'");
         }
         return saved;
+    }
+
+    /**
+     * A WYSIWYG value is block HTML, so a body placing a RICH_TEXT token inside a {@code <p>} gets split by
+     * the browser and the value renders OUTSIDE the paragraph that was meant to hold it. Advisory, not
+     * blocking: the body is valid HTML and existing templates must keep saving -- but the author hears it
+     * now instead of finding it in the rendered page (which is exactly how this was found).
+     */
+    private void warnAboutRichTextInParagraph(final ContentTemplate template) {
+        final List<String> nested = RichTextRules.richTextTokensInsideParagraph(template);
+        if (nested.isEmpty()) {
+            return;
+        }
+        // The SUMMARY carries the whole warning: growl details are shown only for the URL-parameter
+        // messages (see template.xhtml's hasDetail), so a detail-only explanation never reaches anyone.
+        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN,
+                "Saved, but check the layout: rich text (" + String.join(", ", nested)
+                        + ") sits inside a <p>. The editor writes paragraphs, which cannot nest, so the "
+                        + "value will break out of it -- use a block container such as <div>.", "");
     }
 
     /**

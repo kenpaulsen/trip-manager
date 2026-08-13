@@ -4,6 +4,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +22,8 @@ import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.content.HtmlFragmentValidator;
 import org.paulsens.trip.content.ProgrammaticContentTemplate;
 import org.paulsens.trip.content.ProgrammaticTypes;
+import org.paulsens.trip.content.RichTextRules;
+import org.paulsens.trip.content.TemplateValueMigrator;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
@@ -30,6 +34,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.TemplateKind;
+import org.paulsens.trip.model.TemplateRecord;
 
 /**
  * Template-driven page content, exposed to pages as {@code #{content}}.
@@ -125,6 +130,7 @@ public class ContentCommands {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", problem);
             return false;
         }
+        normalizeRichText(instance);
         instance.setModifiedBy(caller.auditActor().email());
         final boolean saved;
         try {
@@ -177,6 +183,32 @@ public class ContentCommands {
 
     private boolean privilegeExists(final String name) {
         return priv.getPrivilege(name, null) != Privilege.NONE;
+    }
+
+    /**
+     * Cleans every RICH_TEXT value the WYSIWYG editor produced, AFTER validation so the author's own markup
+     * is what got checked. Runs on the way to storage rather than at render time on purpose: the stored row
+     * is what the Source view, the REST API and the next editor all read, and a value that renders clean but
+     * reads dirty is the same trap twice.
+     */
+    private void normalizeRichText(final ContentInstance instance) {
+        final ContentTemplate template = resolveTemplate(instance);
+        if (template == null) {
+            return;
+        }
+        for (final Placeholder ph : template.getPlaceholders()) {
+            if (ph.getType() == Placeholder.Type.RICH_TEXT) {
+                normalizeValue(instance, ph.getName());
+            }
+        }
+    }
+
+    private void normalizeValue(final ContentInstance instance, final String name) {
+        final String stored = instance.getValues().get(name);
+        final String cleaned = RichTextRules.normalize(stored);
+        if (cleaned != null && !cleaned.equals(stored)) {
+            instance.getValues().put(name, cleaned);
+        }
     }
 
     /**
@@ -569,9 +601,123 @@ public class ContentCommands {
         return choices.size() == 1 ? createContent(section, choices.getFirst().getId()) : null;
     }
 
+    // ---------------------------------------------------------------- template-version migration (dialog)
+
+    /**
+     * The template versions this instance may be pinned to, newest first: every version still retained on
+     * the template row, plus its own (which may already have aged out of retention -- it must stay
+     * selectable, or reopening the dialog would silently look like an upgrade).
+     */
+    public List<Integer> getTemplateVersions(final ContentInstance instance) {
+        if (instance == null || instance.getTemplateId() == null) {
+            return List.of();
+        }
+        final List<Integer> versions = new ArrayList<>();
+        retainedTemplates(instance.getTemplateId()).forEach(t -> versions.add(t.getVersion()));
+        if (instance.getTemplateVersion() > 0 && !versions.contains(instance.getTemplateVersion())) {
+            versions.add(instance.getTemplateVersion());
+        }
+        return versions.stream().distinct().sorted(Comparator.reverseOrder()).toList();
+    }
+
+    private List<ContentTemplate> retainedTemplates(final String templateId) {
+        try {
+            return DAO.getInstance().getTemplateRecord(templateId)
+                    .map(TemplateRecord::getAllVersions).orElse(List.of());
+        } catch (final RuntimeException ex) {
+            log.error("Unable to load template history: " + templateId, ex);
+            return List.of();
+        }
+    }
+
+    /** The instance's pinned version as the version menu's selected value (menus exchange strings). */
+    public String pinnedVersion(final ContentInstance instance) {
+        return instance == null ? "" : String.valueOf(instance.getTemplateVersion());
+    }
+
+    /** The version menu's row label, marking the newest one and the instance's own. */
+    public String versionLabel(final ContentInstance instance, final int version) {
+        final List<Integer> versions = getTemplateVersions(instance);
+        final String suffix;
+        if (!versions.isEmpty() && versions.getFirst() == version) {
+            suffix = " (latest)";
+        } else if (instance != null && instance.getTemplateVersion() == version) {
+            suffix = " (in use)";
+        } else {
+            suffix = "";
+        }
+        return "v" + version + suffix;
+    }
+
+    /** Whether a newer version of this instance's template exists -- the dialog's upgrade hint. */
+    public boolean isTemplateOutdated(final ContentInstance instance) {
+        final List<Integer> versions = getTemplateVersions(instance);
+        return instance != null && !versions.isEmpty() && versions.getFirst() > instance.getTemplateVersion();
+    }
+
+    /**
+     * Re-pins the dialog's working copy to another version of its own template, carrying the filled-in
+     * values across by {@link TemplateValueMigrator}'s rules. Nothing is stored until Apply, so a migration
+     * that lands badly is abandoned by cancelling. What moved and what was lost is reported to the editor --
+     * a dropped value must never be a surprise.
+     *
+     * @param version the wanted version, as the menu submits it.
+     */
+    public boolean retargetTemplateVersion(final ContentInstance instance, final String version) {
+        final Integer wanted = parseVersion(version);
+        if (instance == null || wanted == null || wanted == instance.getTemplateVersion()) {
+            return false;
+        }
+        final ContentTemplate from = resolveTemplate(instance);
+        final ContentTemplate to = loadTemplateVersion(instance.getTemplateId(), wanted);
+        if (to == null) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Version unavailable",
+                    "v" + wanted + " of this template is no longer retained.");
+            return false;
+        }
+        final TemplateValueMigrator.Result result = TemplateValueMigrator.migrate(
+                from == null ? List.of() : from.getPlaceholders(), to.getPlaceholders(), instance.getValues());
+        instance.setTemplateVersion(wanted);
+        instance.setValues(result.values());
+        // The whole report goes in the SUMMARY: this site's growl renders details only for the
+        // URL-parameter messages (template.xhtml's hasDetail), so a detail-only warning is invisible.
+        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO,
+                "Now editing v" + wanted + " -- " + migrationSummary(result), "");
+        return true;
+    }
+
+    private static String migrationSummary(final TemplateValueMigrator.Result result) {
+        final StringBuilder summary = new StringBuilder();
+        result.renamed().forEach((oldName, newName) -> summary.append(oldName).append(" moved to ")
+                .append(newName).append("; "));
+        if (!result.dropped().isEmpty()) {
+            summary.append("DROPPED (nowhere to put it): ").append(String.join(", ", result.dropped()))
+                    .append("; Cancel keeps the old version");
+        }
+        return summary.isEmpty() ? "every value carried over unchanged"
+                : summary.toString().replaceAll("; $", "");
+    }
+
+    private ContentTemplate loadTemplateVersion(final String templateId, final int version) {
+        try {
+            return DAO.getInstance().getTemplate(templateId, version).orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to load template " + templateId + " v" + version, ex);
+            return null;
+        }
+    }
+
+    private static Integer parseVersion(final String version) {
+        try {
+            return version == null || version.isBlank() ? null : Integer.valueOf(version.trim());
+        } catch (final NumberFormatException ex) {
+            return null;
+        }
+    }
+
     /** The section's instance ids in display order, as the MUTABLE list the arrange dialog drags. */
-    public java.util.ArrayList<String> idsFor(final String section, final boolean editMode) {
-        final java.util.ArrayList<String> ids = new java.util.ArrayList<>();
+    public ArrayList<String> idsFor(final String section, final boolean editMode) {
+        final ArrayList<String> ids = new ArrayList<>();
         getForView(section, editMode).forEach(instance -> ids.add(instance.getId()));
         return ids;
     }

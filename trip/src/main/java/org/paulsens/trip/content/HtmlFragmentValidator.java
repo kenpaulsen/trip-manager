@@ -3,7 +3,7 @@ package org.paulsens.trip.content;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Locale;
-import java.util.Set;
+import org.paulsens.trip.content.HtmlTags.Tag;
 
 /**
  * Structural sanity check for admin-authored HTML fragments (template bodies, rich-text values, container
@@ -18,12 +18,6 @@ import java.util.Set;
  * are plain text and pass through untouched.
  */
 public final class HtmlFragmentValidator {
-
-    /** Elements with no closing tag, per the HTML spec's void list. */
-    private static final Set<String> VOID_ELEMENTS = Set.of("area", "base", "br", "col", "embed", "hr",
-            "img", "input", "link", "meta", "source", "track", "wbr");
-    /** Elements whose content is raw text: nothing inside parses as markup until their own end tag. */
-    private static final Set<String> RAW_TEXT_ELEMENTS = Set.of("script", "style");
 
     private HtmlFragmentValidator() {
     }
@@ -50,35 +44,35 @@ public final class HtmlFragmentValidator {
                 }
                 i = end + 3;
             } else if (lt + 1 < html.length() && html.charAt(lt + 1) == '!') {
-                i = skipPast(html, lt, '>');            // doctype or CDATA-ish: ignore its innards
+                i = HtmlTags.skipPast(html, lt, '>');   // doctype or CDATA-ish: ignore its innards
             } else if (lt + 1 < html.length() && html.charAt(lt + 1) == '/') {
-                final Tag tag = readTag(html, lt + 2);
+                final Tag tag = HtmlTags.readTag(html, lt + 2);
                 if (tag == null) {
                     i = lt + 1;                          // "</" not starting a real end tag: text
                     continue;
                 }
-                final String problem = closeTag(open, tag.name);
+                final String problem = closeTag(open, tag.name());
                 if (problem != null) {
                     return problem;
                 }
-                i = tag.end;
+                i = tag.end();
             } else if (lt + 1 < html.length() && Character.isLetter(html.charAt(lt + 1))) {
-                final Tag tag = readTag(html, lt + 1);
+                final Tag tag = HtmlTags.readTag(html, lt + 1);
                 if (tag == null) {
                     return "The tag starting at “" + excerpt(html, lt) + "” is never closed with '>'.";
                 }
-                i = tag.end;
-                if (tag.selfClosing || VOID_ELEMENTS.contains(tag.name)) {
+                i = tag.end();
+                if (tag.selfClosing() || HtmlTags.VOID_ELEMENTS.contains(tag.name())) {
                     continue;
                 }
-                if (RAW_TEXT_ELEMENTS.contains(tag.name)) {
-                    final int close = html.toLowerCase(Locale.ROOT).indexOf("</" + tag.name, i);
+                if (HtmlTags.RAW_TEXT_ELEMENTS.contains(tag.name())) {
+                    final int close = html.toLowerCase(Locale.ROOT).indexOf("</" + tag.name(), i);
                     if (close < 0) {
-                        return "<" + tag.name + "> is never closed.";
+                        return "<" + tag.name() + "> is never closed.";
                     }
-                    i = skipPast(html, close, '>');
+                    i = HtmlTags.skipPast(html, close, '>');
                 } else {
-                    open.push(tag.name);
+                    open.push(tag.name());
                 }
             } else {
                 i = lt + 1;                              // '<' followed by anything else is plain text
@@ -101,48 +95,8 @@ public final class HtmlFragmentValidator {
         return null;
     }
 
-    /**
-     * Reads a tag whose name starts at {@code nameStart}, honoring quoted attribute values (a '>' inside
-     * quotes does not end the tag). Returns null when no name is present or the tag never terminates.
-     */
-    private static Tag readTag(final String html, final int nameStart) {
-        int i = nameStart;
-        while (i < html.length() && (Character.isLetterOrDigit(html.charAt(i)) || html.charAt(i) == '-')) {
-            i++;
-        }
-        if (i == nameStart) {
-            return null;
-        }
-        final String name = html.substring(nameStart, i).toLowerCase(Locale.ROOT);
-        boolean selfClosing = false;
-        while (i < html.length()) {
-            final char c = html.charAt(i);
-            if (c == '"' || c == '\'') {
-                final int endQuote = html.indexOf(c, i + 1);
-                if (endQuote < 0) {
-                    return null;                         // unterminated attribute value
-                }
-                i = endQuote + 1;
-            } else if (c == '>') {
-                return new Tag(name, selfClosing, i + 1);
-            } else {
-                selfClosing = c == '/';
-                i++;
-            }
-        }
-        return null;                                     // ran off the end without '>'
-    }
-
-    private static int skipPast(final String html, final int from, final char stop) {
-        final int at = html.indexOf(stop, from);
-        return at < 0 ? html.length() : at + 1;
-    }
-
     private static String excerpt(final String html, final int at) {
         final int end = Math.min(html.length(), at + 20);
         return html.substring(at, end).replaceAll("\\s+", " ");
-    }
-
-    private record Tag(String name, boolean selfClosing, int end) {
     }
 }

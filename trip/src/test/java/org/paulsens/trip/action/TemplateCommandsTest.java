@@ -219,6 +219,21 @@ public class TemplateCommandsTest {
     }
 
     @Test
+    public void aRichTextTokenInsideAParagraphWarnsButStillSaves() {
+        final TemplateCommands admin = as(true);
+        final ContentTemplate nested = new ContentTemplate("tc-rich-in-p", 0, "Nested", null,
+                "<p><img src=\"{{imageUrl}}\">{{caption}}</p>",
+                List.of(new Placeholder("imageUrl", Placeholder.Type.IMAGE_URL, "Image", null, false),
+                        new Placeholder("caption", Placeholder.Type.RICH_TEXT, "Caption", null, false)),
+                null, null);
+        // Advisory only: the body is valid HTML, and an existing template must never become unsaveable.
+        // The warning itself needs a FacesContext, so the message text is covered by RichTextRulesTest.
+        Assert.assertTrue(admin.saveTemplate(nested));
+        Assert.assertEquals(nested.getVersion(), 1);
+        Assert.assertTrue(admin.deleteTemplate("tc-rich-in-p"));
+    }
+
+    @Test
     public void templatesListIncludesStarters() {
         final List<String> ids = as(true).getTemplates().stream().map(ContentTemplate::getId).toList();
         Assert.assertTrue(ids.contains(StarterTemplates.TEXT_ONLY_ID), "" + ids);
