@@ -27,12 +27,19 @@ public enum AccessLevel {
     /** Registered on the same trip and nothing more. The default, and the one that must leak nothing. */
     PEER;
 
-    /** Cell, email, address, emergency contacts. */
+    /**
+     * Cell, email, full address, emergency contacts -- REGARDLESS of the subject's privacy choices.
+     *
+     * <p>Since privacy settings arrived this is the admin-side capability only. {@link #TRIP_VIEWER} and
+     * {@link #PEER} both get exactly what the subject's {@code PrivacySettings} allow, decided field by field in
+     * {@code PersonDto.redactedFor} -- a tripView holder has roster access, not the right to override someone's
+     * "keep my phone number private".
+     */
     public boolean seesContactDetail() {
-        return this != PEER;
+        return this == SELF || this == MANAGER || this == SITE_ADMIN || this == TRIP_ADMIN;
     }
 
-    /** Passport, TSA number, birthdate, sex -- what is needed to book travel and file a manifest. */
+    /** Passport, TSA number, birthdate -- what is needed to book travel and file a manifest. */
     public boolean seesTravelDocuments() {
         return this == SELF || this == MANAGER || this == SITE_ADMIN || this == TRIP_ADMIN;
     }

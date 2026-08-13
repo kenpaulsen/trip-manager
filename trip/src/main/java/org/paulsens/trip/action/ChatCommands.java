@@ -543,7 +543,10 @@ public class ChatCommands {
         if (preferredCounts.getOrDefault(preferred, 0L) <= 1L && !preferred.isBlank()) {
             return preferred;
         }
-        final String email = person.getEmail() == null ? "" : person.getEmail().trim();
+        // A private email must not be broadcast to the roster just because someone shares a name -- such a
+        // person falls through to the id rung, which is unique by construction and discloses nothing.
+        final String email = (person.getEmail() == null || !person.getPrivacy().isEmailVisible())
+                ? "" : person.getEmail().trim();
         if (!email.isBlank()) {
             return preferred.isBlank() ? email : preferred + " (" + email + ")";
         }

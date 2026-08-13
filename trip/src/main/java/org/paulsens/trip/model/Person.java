@@ -58,6 +58,13 @@ public final class Person implements Serializable, Comparable<Person> {
      * setter, keeping the 17-arg creator's callers untouched.
      */
     private Integer profilePhotoSlot;
+    /**
+     * The person's privacy choices for the four negotiable profile fields. Never null: rows written before the
+     * feature deserialize without the key, leaving this initializer in place, and the setter refuses null -- EL on
+     * the profile page binds straight to {@code person.privacy.email}, so a lazily-created default object would
+     * silently swallow writes. Like {@link #familyId}, deliberately NOT a constructor parameter.
+     */
+    private PrivacySettings privacy = new PrivacySettings();
 
     // @Builder sits on this constructor, not the class: the builder covers exactly these parameters, so fields
     // added later (familyId) don't force an 18-arg constructor on every existing caller. Setter-populated
@@ -133,6 +140,10 @@ public final class Person implements Serializable, Comparable<Person> {
         return getTrips().stream()
                 .map(Trip::getId)
                 .collect(Collectors.toList());
+    }
+
+    public void setPrivacy(final PrivacySettings privacy) {
+        this.privacy = (privacy == null) ? new PrivacySettings() : privacy;
     }
 
     public void setEmail(final String email) {

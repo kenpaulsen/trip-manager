@@ -54,6 +54,23 @@ public class PersonTest {
         Assert.assertNull(absent.getProfilePhotoSlot(), "Old rows must read as no-choice");
     }
 
+    /** Privacy rides outside the builder like familyId; old rows read as the defaults; null writes are refused. */
+    @Test
+    public void privacyRoundTripsOutsideTheBuilder() throws Exception {
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
+        final Person before = new Person();
+        before.getPrivacy().setEmail(PrivacySettings.Visibility.PRIVATE);
+        before.getPrivacy().setStreet(PrivacySettings.Visibility.LOGGED_IN);
+        final Person after = mapper.readValue(mapper.writeValueAsString(before), Person.class);
+        Assert.assertEquals(after.getPrivacy(), before.getPrivacy(), "privacy to/from json failed!");
+
+        final Person absent = mapper.readValue(oldSerializedPerson, Person.class);
+        Assert.assertEquals(absent.getPrivacy(), new PrivacySettings(), "Old rows must read as the defaults");
+
+        absent.setPrivacy(null);
+        Assert.assertEquals(absent.getPrivacy(), new PrivacySettings(), "null must reset to defaults, never null");
+    }
+
     @Test
     public void canReadOldStuff() throws Exception {
         final ObjectMapper mapper = DAO.getInstance().getMapper();

@@ -23,10 +23,12 @@ import org.paulsens.trip.action.PersonDataValueCommands;
 import org.paulsens.trip.action.ProfilePhotos;
 import org.paulsens.trip.api.dto.PersonDataValueDto;
 import org.paulsens.trip.api.dto.PersonDto;
+import org.paulsens.trip.api.dto.PrivacyDto;
 import org.paulsens.trip.api.mapper.PersonMapper;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
+import org.paulsens.trip.model.PrivacySettings;
 
 /**
  * People, and the data hung off a person.
@@ -258,6 +260,36 @@ public class PeopleResource extends BaseResource {
         }
         if (level.seesNotes()) {
             set(body.notes(), person::setNotes);
+        }
+        if (level.seesAccountStructure() && body.privacy() != null) {
+            applyPrivacy(body.privacy(), person.getPrivacy());
+        }
+    }
+
+    /**
+     * Merges the provided privacy knobs onto the stored ones -- absent knobs are left alone, matching the
+     * endpoint's absent-means-unchanged contract, and an unrecognized value is ignored rather than 500ing or
+     * silently resetting the knob to its default.
+     */
+    private static void applyPrivacy(final PrivacyDto dto, final PrivacySettings settings) {
+        setVisibility(dto.email(), settings::setEmail);
+        setVisibility(dto.cell(), settings::setCell);
+        setVisibility(dto.city(), settings::setCity);
+        setVisibility(dto.street(), settings::setStreet);
+    }
+
+    private static void setVisibility(final String value, final Consumer<PrivacySettings.Visibility> setter) {
+        final PrivacySettings.Visibility parsed = parseVisibility(value);
+        if (parsed != null) {
+            setter.accept(parsed);
+        }
+    }
+
+    private static PrivacySettings.Visibility parseVisibility(final String value) {
+        try {
+            return (value == null) ? null : PrivacySettings.Visibility.valueOf(value);
+        } catch (final IllegalArgumentException ex) {
+            return null;
         }
     }
 

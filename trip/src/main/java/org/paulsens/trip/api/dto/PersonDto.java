@@ -34,7 +34,8 @@ public record PersonDto(
         List<String> managedUsers,
         String emergencyContactName,
         String emergencyContactPhone,
-        boolean deleted) {
+        boolean deleted,
+        PrivacyDto privacy) {
 
     /**
      * This record narrowed to what {@code level} is allowed to see.
@@ -48,6 +49,8 @@ public record PersonDto(
      * only mechanism that reliably survives the next person adding a column.
      */
     public PersonDto redactedFor(final AccessLevel level) {
+        // A DTO built without privacy (older clients, tests) must redact as if the subject kept the defaults.
+        final PrivacyDto chosen = (privacy == null) ? PrivacyDto.DEFAULTS : privacy;
         return new PersonDto(
                 id,
                 nickname,
@@ -55,17 +58,32 @@ public record PersonDto(
                 middle,
                 last,
                 preferredName,
-                level.seesTravelDocuments() ? sex : null,
+                sex,
                 level.seesTravelDocuments() ? birthdate : null,
-                level.seesContactDetail() ? cell : null,
-                level.seesContactDetail() ? email : null,
+                (level.seesContactDetail() || chosen.cellVisible()) ? cell : null,
+                (level.seesContactDetail() || chosen.emailVisible()) ? email : null,
                 level.seesTravelDocuments() ? tsa : null,
-                level.seesContactDetail() ? address : null,
+                addressFor(level, chosen),
                 level.seesTravelDocuments() ? passport : null,
                 level.seesNotes() ? notes : null,
                 level.seesAccountStructure() ? managedUsers : null,
                 level.seesContactDetail() ? emergencyContactName : null,
                 level.seesContactDetail() ? emergencyContactPhone : null,
-                level.seesAccountStructure() && deleted);
+                level.seesAccountStructure() && deleted,
+                level.seesAccountStructure() ? privacy : null);
+    }
+
+    /**
+     * The address a viewer without {@code seesContactDetail} gets: nothing when city is private, city+state when
+     * only the city is shared, the full address when the subject opted the street in too.
+     */
+    private AddressDto addressFor(final AccessLevel level, final PrivacyDto chosen) {
+        if (level.seesContactDetail()) {
+            return address;
+        }
+        if (address == null || !chosen.cityVisible()) {
+            return null;
+        }
+        return chosen.streetVisible() ? address : new AddressDto(null, address.city(), address.state(), null);
     }
 }

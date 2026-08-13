@@ -6,9 +6,11 @@ import org.mapstruct.factory.Mappers;
 import org.paulsens.trip.api.dto.AddressDto;
 import org.paulsens.trip.api.dto.PassportDto;
 import org.paulsens.trip.api.dto.PersonDto;
+import org.paulsens.trip.api.dto.PrivacyDto;
 import org.paulsens.trip.model.Address;
 import org.paulsens.trip.model.Passport;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.PrivacySettings;
 
 /**
  * {@code Person} to its wire shape. Produces the FULL record; narrowing is
@@ -32,4 +34,17 @@ public interface PersonMapper {
     AddressDto toDto(Address address);
 
     PassportDto toDto(Passport passport);
+
+    /**
+     * Hand-written rather than generated so the wire form stays the enum NAME by construction -- MapStruct would
+     * also use {@code name()}, but an implicit enum-to-string mapping is exactly the kind of thing a later
+     * {@code toString()} "improvement" on the enum silently changes.
+     */
+    default PrivacyDto toDto(final PrivacySettings settings) {
+        if (settings == null) {
+            return null;
+        }
+        return new PrivacyDto(settings.getEmail().name(), settings.getCell().name(),
+                settings.getCity().name(), settings.getStreet().name());
+    }
 }

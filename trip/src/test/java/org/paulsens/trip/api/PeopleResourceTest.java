@@ -12,9 +12,11 @@ import org.paulsens.trip.action.PersonDataValueCommands;
 import org.paulsens.trip.action.ProfilePhotos;
 import org.paulsens.trip.api.dto.PersonDataValueDto;
 import org.paulsens.trip.api.dto.PersonDto;
+import org.paulsens.trip.api.dto.PrivacyDto;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
+import org.paulsens.trip.model.PrivacySettings;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -103,9 +105,28 @@ public class PeopleResourceTest extends ResourceTestSupport {
         Assert.assertEquals(dto.cell(), "555-0100", "Self sees their own contact detail");
     }
 
-    /** A peer gets a name and nothing else; this is the leak the redaction layer exists to prevent. */
+    /** A peer gets what the subject chose to share and nothing else -- the leak the redaction layer prevents. */
     @Test
-    public void aPeerDoesNotReceiveContactDetailOrNotes() {
+    public void aPeerDoesNotReceiveWhatTheSubjectKeptPrivate() {
+        signedInAs(ME);
+        exists(person(ME, "Ken"));
+        final Person sam = person(OTHER, "Sam");
+        sam.getPrivacy().setCell(PrivacySettings.Visibility.PRIVATE);
+        exists(sam);
+
+        final Response response = resource.get(OTHER.getValue(), null);
+
+        assertOk(response);
+        final PersonDto dto = (PersonDto) response.getEntity();
+        Assert.assertEquals(dto.first(), "Sam");
+        Assert.assertNull(dto.cell(), "A peer must not receive a private cell number");
+        Assert.assertNull(dto.notes(), "A peer must not receive notes");
+        Assert.assertNull(dto.privacy(), "A peer must not receive the privacy choices themselves");
+    }
+
+    /** The default knobs share email/cell/city with signed-in users -- the audience the subject opted into. */
+    @Test
+    public void aPeerReceivesWhatTheDefaultKnobsShare() {
         signedInAs(ME);
         exists(person(ME, "Ken"));
         exists(person(OTHER, "Sam"));
@@ -114,9 +135,25 @@ public class PeopleResourceTest extends ResourceTestSupport {
 
         assertOk(response);
         final PersonDto dto = (PersonDto) response.getEntity();
-        Assert.assertEquals(dto.first(), "Sam");
-        Assert.assertNull(dto.cell(), "A peer must not receive contact detail");
-        Assert.assertNull(dto.notes(), "A peer must not receive notes");
+        Assert.assertEquals(dto.cell(), "555-0100", "Default cell knob is LOGGED_IN");
+    }
+
+    /** PUT merges provided privacy knobs, leaves absent ones alone, and ignores garbage values. */
+    @Test
+    public void updateMergesPrivacyKnobsAndIgnoresGarbage() {
+        signedInAs(ME);
+        final Person me = person(ME, "Ken");
+        exists(me);
+        Mockito.when(people.savePerson(me)).thenReturn(Boolean.TRUE);
+
+        final PersonDto body = new PersonDto(null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, false,
+                new PrivacyDto("PRIVATE", null, null, "not-a-visibility"));
+        assertOk(resource.update(ME.getValue(), CSRF_OK, body));
+
+        Assert.assertEquals(me.getPrivacy().getEmail(), PrivacySettings.Visibility.PRIVATE, "Provided knob applies");
+        Assert.assertEquals(me.getPrivacy().getCell(), PrivacySettings.Visibility.LOGGED_IN, "Absent knob untouched");
+        Assert.assertEquals(me.getPrivacy().getStreet(), PrivacySettings.Visibility.PRIVATE, "Garbage is ignored");
     }
 
     @Test
@@ -372,7 +409,7 @@ public class PeopleResourceTest extends ResourceTestSupport {
 
     private static PersonDto dto(final String first) {
         return new PersonDto(null, null, first, null, null, null, null, null, null, null, null, null, null,
-                null, null, null, null, false);
+                null, null, null, null, false, null);
     }
 
     private static PersonDataValue dataValue(final String dataId, final Object content) {

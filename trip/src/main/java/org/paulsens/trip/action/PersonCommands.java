@@ -140,6 +140,15 @@ public class PersonCommands {
     }
 
     /**
+     * The per-field render states for the current viewer looking at {@code subject} -- see {@link PrivacyView}.
+     * {@code adminView} is the page's own privilege verdict (site admin / tripMgr / tripFinView), because which
+     * privilege grants the admin view differs per page and the page already computed it.
+     */
+    public PrivacyView privacyView(final Person subject, final boolean adminView) {
+        return PrivacyView.of(getCurrentPerson(), subject, adminView);
+    }
+
+    /**
      * Where to reach this person for DISPLAY: their own address when it works, otherwise their family's
      * primary manager -- the parent who created the family, and in practice the mailbox a child's mail
      * already goes to. Never used to address outbound mail (the sending paths make that choice explicitly,
@@ -186,7 +195,10 @@ public class PersonCommands {
         candidates.addAll(family.getManagerIds());
         for (final Person.Id id : candidates) {
             final Person manager = DAO.getInstance().getPerson(id).orElse(null);
-            if (manager != null && EmailAddresses.isValid(manager.getEmail())) {
+            // A manager who keeps their own email private has opted their mailbox out of contact lists too --
+            // the borrowed-address fallback is a courtesy display, never worth overriding a privacy choice for.
+            if (manager != null && EmailAddresses.isValid(manager.getEmail())
+                    && manager.getPrivacy().isEmailVisible()) {
                 return manager;
             }
         }

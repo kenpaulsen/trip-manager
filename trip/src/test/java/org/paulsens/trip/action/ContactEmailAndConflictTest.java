@@ -7,6 +7,7 @@ import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.PrivacySettings;
 import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -110,6 +111,22 @@ public class ContactEmailAndConflictTest {
         assertTrue(dao.savePerson(parent));
         assertEquals(people.contactEmail(reload(child)), "",
                 "An address that cannot be mailed is worse than no address -- it looks reachable");
+        assertEquals(people.contactEmailVia(reload(child)), "");
+    }
+
+    /** A manager who set their email private has opted their mailbox out of contact lists too. */
+    @Test
+    public void aPrivateManagerAddressIsNeverBorrowed() throws IOException {
+        final Person parent = savedPerson("Ken", "Paulsen", "parent." + unique() + "@example.com");
+        final FamilyCommands family = familyFor(parent);
+        final Person child = family.createFamilyMember("Kid", "P", LocalDate.of(2010, 1, 1), Person.Sex.Male,
+                null, false);
+        assertNotNull(child);
+
+        parent.getPrivacy().setEmail(PrivacySettings.Visibility.PRIVATE);
+        assertTrue(dao.savePerson(parent));
+        assertEquals(people.contactEmail(reload(child)), "",
+                "A privacy choice beats the display fallback");
         assertEquals(people.contactEmailVia(reload(child)), "");
     }
 

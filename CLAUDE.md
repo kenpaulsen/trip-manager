@@ -78,6 +78,10 @@ Lombok-annotated, Jackson-serialized to/from DynamoDB. Core types: `Person` (nes
 **Every type that can land in viewScope must be `Serializable`** — a non-serializable one breaks the session
 save and 500s every later request (looks like a site-wide outage). `ModelSerializationTest` is the guard.
 
+`Person.privacy` (`PrivacySettings`) holds the owner's field-visibility choices; `PersonDto.redactedFor`
+(REST) and `PrivacyView` (pages) are the two enforcement points — read `docs/privacy-settings.md` before
+touching Person field visibility, redaction, or the profile/contacts pages.
+
 ### CDI action beans (`org.paulsens.trip.action`)
 
 `@Named @ApplicationScoped` beans exposed to JSF EL. Current names: `trip` (TripCommands), `people`

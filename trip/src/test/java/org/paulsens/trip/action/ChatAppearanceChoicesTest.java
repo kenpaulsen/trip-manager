@@ -1,6 +1,7 @@
 package org.paulsens.trip.action;
 
 import java.util.List;
+import java.util.Map;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.chat.ChatRateLimiter;
 import org.paulsens.trip.config.KnownSettings;
@@ -8,6 +9,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Config;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.PrivacySettings;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatAppearance;
 import org.paulsens.trip.model.chat.ChatChannel;
@@ -177,6 +179,21 @@ public class ChatAppearanceChoicesTest {
         for (final String label : ChatCommands.uniqueLabels(distinct).values()) {
             Assert.assertFalse(label.contains("@"), "unambiguous names must not carry an email: " + label);
         }
+    }
+
+    @Test
+    public void aPrivateEmailIsNeverUsedToDisambiguate() {
+        // Sharing a name with someone must not cost you your email privacy: the private twin falls to the id
+        // rung, which is unique by construction and discloses nothing.
+        final Person open = person("Mary", "Smith", "mary.smith@example.com");
+        final Person closed = person("Mary", "Smith", "m.smith@example.com");
+        closed.getPrivacy().setEmail(PrivacySettings.Visibility.PRIVATE);
+        final Map<Person.Id, String> labels = ChatCommands.uniqueLabels(List.of(open, closed));
+        Assert.assertTrue(labels.get(open.getId()).contains("mary.smith@example.com"));
+        Assert.assertFalse(labels.get(closed.getId()).contains("@"),
+                "a private email leaked into a roster label: " + labels.get(closed.getId()));
+        Assert.assertNotEquals(labels.get(open.getId()), labels.get(closed.getId()),
+                "labels must still be unique");
     }
 
     private static Person person(final String preferred, final String last, final String email) {
