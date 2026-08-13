@@ -63,23 +63,23 @@ public class SessionRecoveryFilter implements Filter {
     @Override
     public void doFilter(final ServletRequest request, final ServletResponse response, final FilterChain chain)
             throws IOException, ServletException {
+        // getSession(false): neither resolving identity nor repairing the session may CREATE one.
+        final HttpSession session = (request instanceof HttpServletRequest req) ? req.getSession(false) : null;
+        // The other half of "this build cannot read that session": a session that IS readable but came back
+        // with a field Kryo never wrote. See DynamicResourceMap -- silent, and not a failure this filter's
+        // recovery path would ever see, because nothing throws.
+        DynamicResourceMap.repair(session);
         try {
             // Bind the request identity for the whole chain (this is the outermost filter). call(), not
             // run(): doFilter throws checked exceptions -- tunneled through one carrier type because call()
-            // infers a single throws clause. getSession(false): resolving identity must never CREATE a session.
-            ScopedValue.where(RequestContext.SCOPE, contextOf(request))
+            // infers a single throws clause.
+            ScopedValue.where(RequestContext.SCOPE, RequestContext.from(session))
                     .call(() -> runChain(chain, request, response));
         } catch (final Tunnel tunneled) {
             handleFailure(request, response, tunneled.getCause());
         } catch (final RuntimeException | Error ex) {
             handleFailure(request, response, ex);
         }
-    }
-
-    private static RequestContext contextOf(final ServletRequest request) {
-        return (request instanceof HttpServletRequest req)
-                ? RequestContext.from(req.getSession(false))
-                : RequestContext.from(null);
     }
 
     /** Carries the chain's checked exceptions across the ScopedValue.call boundary. */
