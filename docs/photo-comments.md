@@ -144,8 +144,13 @@ photo comments. No digest for photo threads.
   authors render as raw ids on a first comment), composer with the `@`-typeahead, delete for own comments.
   Hide toggle persists in localStorage (`tripPhotoComments`); layout is the flex-wrap idiom, so the panel
   wraps under the image on phones with no media queries.
-- Badges: one `POST meta` batch per page view; album grid top-right, chat thumbnail top-left (totals across
-  the message's stack; the `+N` pill keeps bottom-right), galleria slide top-right.
+- Badges: one `POST meta` batch per page view; album grid top-right, chat photo block top-left (totals
+  across ALL of the message's photos), galleria slide top-right.
+- Multi-photo chat messages render a tile GRID (2 side-by-side; 3 = wide hero over two squares; 4+ = 2x2,
+  the 4th tile carrying a `+N` scrim when photos were cut — the count includes the dimmed tile). Tile *i*
+  opens the viewer at photo *i*. The viewer itself shows a clickable thumbnail filmstrip (`.pv-strip`)
+  whenever it holds more than one photo — built once per open, on every surface; thumb clicks ride the same
+  `showAt` path as the arrows, so the comment-thread debounce still coalesces rapid navigation.
 - Anonymous flow: the composer area shows "Log in to comment"; a plain-DOM modal offers the round-trip —
   `POST login-return` with `returnUrl(key)` (a `?photo=` deep link that auto-opens the viewer), then the
   login page. Any mutation 401 (expired session) reuses the same modal. chat.xhtml's old 401 hard-bounce
