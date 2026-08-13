@@ -98,6 +98,32 @@ public class PhotoCropTest {
         Assert.assertEquals(degenerate, new PhotoProcessor.CropRect(10, 10, 1, 1));
     }
 
+    /** The badge pipeline is the profile pipeline at a caller-chosen size. */
+    @Test
+    public void processSquareHonoursTheRequestedSize() throws IOException {
+        final byte[] jpeg = processor.processSquare(PhotoFixtures.jpeg(2000, 1600), null, 1275);
+        final BufferedImage decoded = decode(jpeg);
+        Assert.assertEquals(decoded.getWidth(), 1275);
+        Assert.assertEquals(decoded.getHeight(), 1275);
+
+        final BufferedImage upscaled = decode(processor.processSquare(PhotoFixtures.jpeg(300, 200),
+                new PhotoProcessor.CropRect(0, 0, 150, 150), 1275));
+        Assert.assertEquals(upscaled.getWidth(), 1275, "Undersized sources upscale rather than fail");
+    }
+
+    /** squareSideOf must report the side the crop itself will use — clamping and all. */
+    @Test
+    public void squareSideOfMatchesTheActualCut() {
+        Assert.assertEquals(PhotoProcessor.squareSideOf(null, 2000, 1600), 1600,
+                "No rect means the largest centered square");
+        Assert.assertEquals(PhotoProcessor.squareSideOf(
+                new PhotoProcessor.CropRect(100, 100, 500, 800), 2000, 1600), 500,
+                "A tall rect squares to its short side");
+        Assert.assertEquals(PhotoProcessor.squareSideOf(
+                new PhotoProcessor.CropRect(1500, 0, 5000, 5000), 2000, 1600), 500,
+                "An out-of-bounds rect is clamped first");
+    }
+
     @Test
     public void squareRectNeverStretches() {
         final PhotoProcessor.CropRect square =

@@ -56,6 +56,32 @@ public class TripTest {
         assertFalse(reread.getChatEnabled(), "Off must survive being written and read back");
     }
 
+    /** Badge images: lazy list, copy setter, key lookup, and survival of the JSON round trip. */
+    @Test
+    void badgeImagesBehaveLikeTheOtherTripLists() throws Exception {
+        final Trip trip = Trip.builder().build();
+        assertTrue(trip.getBadgeImages().isEmpty(), "A new trip has an empty (not null) list");
+        trip.getBadgeImages().add(new BadgeImage("badgeImages/t/1.jpg", "One"));
+        assertEquals(trip.getBadgeImage("badgeImages/t/1.jpg").getLabel(), "One");
+        assertNull(trip.getBadgeImage("badgeImages/t/2.jpg"));
+        assertNull(trip.getBadgeImage(null));
+
+        final List<BadgeImage> mine = new ArrayList<>(List.of(new BadgeImage("k", "l")));
+        trip.setBadgeImages(mine);
+        mine.clear();
+        assertEquals(trip.getBadgeImages().size(), 1, "The setter copies, callers cannot mutate through");
+
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
+        final Trip reread = mapper.readValue(mapper.writeValueAsString(trip), Trip.class);
+        assertEquals(reread.getBadgeImage("k").getLabel(), "l", "Badge images survive the stored JSON");
+
+        final Trip legacy = mapper.readValue("{\"id\":\"t1\",\"title\":\"Older trip\"}", Trip.class);
+        assertTrue(legacy.getBadgeImages().isEmpty(), "A pre-feature trip reads back with an empty list");
+
+        assertEquals(Trip.builder().badgeImages(null).build().getBadgeImages().size(), 0,
+                "The builder treats null as empty, like every other list here");
+    }
+
     @Test
     void newTripHasId() {
         final Trip trip = Trip.builder().build();

@@ -112,11 +112,19 @@ public final class PhotoProcessor {
      * GIF contributes only its first frame — profile pictures are stills by definition.
      */
     public byte[] processProfile(final byte[] original, final CropRect rect) {
+        return processSquare(original, rect, PROFILE_SIZE);
+    }
+
+    /**
+     * The general square pipeline behind {@link #processProfile}: the requested region (forced square,
+     * clamped into bounds; null = the largest centered square) scaled to exactly {@code size} on both sides,
+     * as JPEG. Badge pictures use it at print resolution.
+     */
+    public byte[] processSquare(final byte[] original, final CropRect rect, final int size) {
         final ImageFormat format = ImageFormat.detect(original).orElseThrow(PhotoProcessor::notAnImage);
         final BufferedImage oriented = decodeOriented(original, format);
         final CropRect square = squareRect(rect, oriented.getWidth(), oriented.getHeight());
-        return encodeJpeg(scaleToExact(crop(oriented, square), PROFILE_SIZE, PROFILE_SIZE),
-                FULL_JPEG_QUALITY);
+        return encodeJpeg(scaleToExact(crop(oriented, square), size, size), FULL_JPEG_QUALITY);
     }
 
     /**
@@ -199,6 +207,15 @@ public final class PhotoProcessor {
     }
 
     /** The profile crop is square by force — {@code min(w, h)} of the clamped rect, never a stretch. */
+    /**
+     * The side, in source pixels, of the square {@link #processSquare} would actually cut for this request —
+     * how callers judge "is the chosen area big enough to print well" against the SAME clamping the crop
+     * itself will apply.
+     */
+    public static int squareSideOf(final CropRect rect, final int imgWidth, final int imgHeight) {
+        return squareRect(rect, imgWidth, imgHeight).width();
+    }
+
     static CropRect squareRect(final CropRect rect, final int imgWidth, final int imgHeight) {
         if (rect == null) {
             final int side = Math.min(imgWidth, imgHeight);

@@ -81,6 +81,8 @@ public final class Trip implements Serializable {
     private List<TripEvent> tripEvents;                 // The stuff needed to book, airfare, hotel, etc.
     @JsonProperty("regOptions")
     private List<RegistrationOption> regOptions;        // Registration page questions
+    @JsonProperty("badgeImages")
+    private List<BadgeImage> badgeImages;               // Manager-uploaded itinerary-badge pictures
 
     private Trip() {
     }
@@ -132,6 +134,26 @@ public final class Trip implements Serializable {
 
     public void setRegOptions(final List<RegistrationOption> options) {
         this.regOptions = new ArrayList<>(options);
+    }
+
+    public List<BadgeImage> getBadgeImages() {
+        if (badgeImages == null) {
+            badgeImages = new ArrayList<>();
+        }
+        return badgeImages;
+    }
+
+    public void setBadgeImages(final List<BadgeImage> badgeImages) {
+        this.badgeImages = new ArrayList<>(badgeImages);
+    }
+
+    /** This trip's badge image for the given object key, or null — the belongs-to-THIS-trip check. */
+    @JsonIgnore
+    public BadgeImage getBadgeImage(final String key) {
+        if (key == null) {
+            return null;
+        }
+        return getBadgeImages().stream().filter(img -> key.equals(img.getKey())).findAny().orElse(null);
     }
 
     /**
@@ -278,6 +300,7 @@ public final class Trip implements Serializable {
         private List<Person.Id> people = new ArrayList<>();
         private List<TripEvent> tripEvents = new ArrayList<>();
         private List<RegistrationOption> regOptions = new ArrayList<>();
+        private List<BadgeImage> badgeImages = new ArrayList<>();
 
         public TripBuilder id(final String id) {
             this.id = (id == null) ? UUID.randomUUID().toString() : id;
@@ -305,6 +328,10 @@ public final class Trip implements Serializable {
         }
         public TripBuilder regOptions(final List<RegistrationOption> regOptions) {
             this.regOptions = (regOptions == null) ? new ArrayList<>() : new ArrayList<>(regOptions);
+            return this;
+        }
+        public TripBuilder badgeImages(final List<BadgeImage> badgeImages) {
+            this.badgeImages = (badgeImages == null) ? new ArrayList<>() : new ArrayList<>(badgeImages);
             return this;
         }
     }
