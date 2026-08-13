@@ -21,14 +21,13 @@ import lombok.extern.slf4j.Slf4j;
  * a {@link PhotoProcessor#PROFILE_SIZE}-square RGBA PNG whose alpha channel is the predicted foreground mask.
  * The caller composites it over whatever background it likes; this class never touches storage.
  *
- * <p><b>Memory is the constraint, not speed.</b> The 2 GB task has an OOM history, so inference is bounded
+ * <p><b>Memory is the constraint, not speed.</b> The task has an OOM history, so inference is bounded
  * hard: ONE permit ({@link #GATE}) — a second request while one runs waits briefly and then reports "busy"
  * rather than queueing work — and the input is downscaled to {@link #MODEL_SIZE} before the tensor is built,
  * so peak transient cost is one 320x320 float tensor plus the session's own workspace. The session itself is
  * created lazily on FIRST use, never at boot (the feature ships flag-off, and a disabled feature must cost
- * zero), and is CLOSED again after {@link #IDLE_CLOSE_MILLIS} without use: the loaded session retains
- * ~440 MB of native arena, and on a 2 GB task whose heap ceiling is 1.5 GB that residency would be a
- * permanent over-commit. Occasional use pays a ~1s reload instead.
+ * zero), and is CLOSED again after {@link #IDLE_CLOSE_MILLIS} without use, giving most of that arena back.
+ * Occasional use pays a ~1s reload instead.
  *
  * <p>The model file lives on the classpath ({@value #MODEL_RESOURCE}). Absent — a build that chose not to
  * carry it — the feature reports {@link #isAvailable()} false and callers degrade to a friendly message.
@@ -50,10 +49,15 @@ public final class BackgroundRemover {
     private static final long GATE_WAIT_SECONDS = 5;
 
     /**
-     * How long the loaded session may sit unused before the reaper closes it. The session retains ~440 MB of
-     * native memory (measured, 2026-08-12) — permanent residency on the 2 GB task over-commits it against the
-     * heap's own ceiling, so an occasional-use feature gives the memory back and re-pays the ~1s model load
-     * on the next use instead.
+     * How long the loaded session may sit unused before the reaper closes it. An occasional-use feature gives
+     * the memory back and re-pays the ~1s model load on the next use instead of holding the arena forever.
+     *
+     * <p>Cost measured in PRODUCTION on 2026-08-13, superseding a ~440 MB bench figure that was too high by
+     * ~1.6x and led to an over-conservative heap sizing: loading the session costs <b>~283 MiB</b>, and
+     * closing it returns <b>~192 MiB</b>. The ~90 MiB difference is not a native leak — it is heap the
+     * inference allocated (masks, ARGB renditions) that G1 has not had reason to collect, and it stays inside
+     * the heap ceiling. Re-measure both numbers before trusting them in a sizing decision; the container
+     * budget they feed is written out in {@code medjugorje/docker/Dockerfile}.
      */
     static final long IDLE_CLOSE_MILLIS = TimeUnit.MINUTES.toMillis(10);
     private static final long REAPER_PERIOD_SECONDS = 60;
