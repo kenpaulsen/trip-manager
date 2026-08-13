@@ -67,7 +67,7 @@ public final class StarterTemplates {
                 <p>Questions? Just reach out&mdash;reply to this email and we will get back to you.</p>
                 """;
         return mail(REGISTRATION_APPROVED_ID, "You're confirmed - {{tripTitle}}",
-                "Sent to a person (or, if they have no email, whoever registered them) when their "
+                "Sent to a person (or, if they have no email, their family's managers) when their "
                         + "registration is approved. Tokens: tripTitle, firstName, itineraryUrl, profileUrl.",
                 body);
     }

@@ -150,11 +150,12 @@ public class PersonCommands {
 
     /**
      * Where to reach this person for DISPLAY: their own address when it works, otherwise their family's
-     * primary manager -- the parent who created the family, and in practice the mailbox a child's mail
-     * already goes to. Never used to address outbound mail (the sending paths make that choice explicitly,
-     * with their own fallbacks); this exists so a contact list shows something reachable instead of a blank.
+     * mailable managers ({@link #mailableManagers}, the same list the approval email is sent to), comma-joined
+     * -- MINUS any manager who keeps their email private. Privacy hides an address from viewers; it does not
+     * unsubscribe the manager from operational mail, so a private manager still receives the approval email
+     * while contact lists show nothing for them. That is the one sanctioned way display and send may differ.
      *
-     * @see #contactEmailVia the name to render beside it, so nobody reads the parent's address as the child's
+     * @see #contactEmailVia the names to render beside it, so nobody reads a parent's address as the child's
      */
     public String contactEmail(final Person person) {
         if (person == null) {
@@ -163,46 +164,68 @@ public class PersonCommands {
         if (EmailAddresses.isValid(person.getEmail())) {
             return person.getEmail();
         }
-        final Person manager = primaryManagerOf(person);
-        return (manager == null) ? "" : manager.getEmail();
+        return displayableManagers(person).stream()
+                .map(Person::getEmail)
+                .collect(java.util.stream.Collectors.joining(", "));
     }
 
-    /** The manager whose mailbox {@link #contactEmail} borrowed, or "" when the address is the person's own. */
+    /** The managers whose mailboxes {@link #contactEmail} borrowed, or "" when the address is the person's own. */
     public String contactEmailVia(final Person person) {
         if (person == null || EmailAddresses.isValid(person.getEmail())) {
             return "";
         }
-        final Person manager = primaryManagerOf(person);
-        return (manager == null) ? "" : manager.getPreferredName();
+        return displayableManagers(person).stream()
+                .map(Person::getPreferredName)
+                .collect(java.util.stream.Collectors.joining(", "));
     }
 
     /**
-     * The family manager to borrow an address from: the creator when they are still a manager, else the
-     * first-listed manager -- {@code managerIds} keeps insertion order, so that is the earliest-added one.
+     * {@link #mailableManagers} minus anyone who keeps their own email private: the borrowed-address
+     * fallback is a courtesy display, never worth overriding a privacy choice for.
      */
-    private Person primaryManagerOf(final Person person) {
-        if (person.getFamilyId() == null) {
-            return null;
+    private List<Person> displayableManagers(final Person person) {
+        return mailableManagers(person).stream()
+                .filter(this::emailVisible)
+                .toList();
+    }
+
+    private boolean emailVisible(final Person manager) {
+        return manager.getPrivacy().isEmailVisible();
+    }
+
+    /**
+     * This person's family managers that can actually be mailed: the creator first while they are still a
+     * manager ({@code managerIds} keeps insertion order for the rest), skipping any address that is not
+     * valid. The ONE source for "who answers for a traveler without a mailbox" -- the sending paths
+     * ({@code RegistrationCommands.approvalRecipients}) and the display fallback above both read it, so
+     * they cannot drift apart. Deliberately privacy-blind: privacy is a display concern, applied by
+     * {@link #displayableManagers} on top.
+     */
+    public List<Person> mailableManagers(final Person person) {
+        if (person == null || person.getFamilyId() == null) {
+            return List.of();
         }
         final Family family = DAO.getInstance().getFamily(person.getFamilyId()).orElse(null);
         if (family == null) {
-            return null;
+            return List.of();
         }
         final List<Person.Id> candidates = new ArrayList<>();
         if (family.getManagerIds().contains(family.getCreatedBy())) {
             candidates.add(family.getCreatedBy());
         }
-        candidates.addAll(family.getManagerIds());
-        for (final Person.Id id : candidates) {
-            final Person manager = DAO.getInstance().getPerson(id).orElse(null);
-            // A manager who keeps their own email private has opted their mailbox out of contact lists too --
-            // the borrowed-address fallback is a courtesy display, never worth overriding a privacy choice for.
-            if (manager != null && EmailAddresses.isValid(manager.getEmail())
-                    && manager.getPrivacy().isEmailVisible()) {
-                return manager;
+        for (final Person.Id id : family.getManagerIds()) {
+            if (!candidates.contains(id)) {
+                candidates.add(id);
             }
         }
-        return null;
+        final List<Person> managers = new ArrayList<>();
+        for (final Person.Id id : candidates) {
+            final Person manager = DAO.getInstance().getPerson(id).orElse(null);
+            if (manager != null && EmailAddresses.isValid(manager.getEmail())) {
+                managers.add(manager);
+            }
+        }
+        return managers;
     }
 
     /** Prefix search over name/nickname/email/cell; default result cap. */

@@ -130,20 +130,80 @@ public class FamilyRegistrationAndMailTest {
     public void approvalRecipientLadder() throws IOException {
         final RegistrationCommands reg = new RegistrationCommands();
         final Person withEmail = savedPerson("mail");
-        final Registration plain = new Registration("t", withEmail.getId());
-        assertEquals(reg.approvalRecipient(plain, withEmail), withEmail.getEmail(),
+        assertEquals(reg.approvalRecipients(withEmail), withEmail.getEmail(),
                 "A person with a usable address gets their own mail");
+        assertTrue(reg.canEmailApproval(withEmail), "...so the dialog checkbox is enabled");
 
-        final Person owner = savedPerson("fallb");
+        // No address and no family: nobody reachable, no mail, no error -- and the registered-by stamp is
+        // deliberately NOT consulted any more (the family row replaced it as the fallback authority).
         final Person noEmail = Person.builder().first("No").last("Email").build();
         assertTrue(dao.savePerson(noEmail));
-        final Registration stamped = new Registration("t", noEmail.getId());
-        stamped.getOptions().put(Registration.OPT_REGISTERED_BY, owner.getId().getValue());
-        assertEquals(reg.approvalRecipient(stamped, noEmail), owner.getEmail(),
-                "No address falls back to whoever registered them");
+        assertNull(reg.approvalRecipients(noEmail), "Nobody reachable: no mail, no error");
+        assertFalse(reg.canEmailApproval(noEmail), "...so the dialog checkbox is disabled");
 
-        final Registration unstamped = new Registration("t", noEmail.getId());
-        assertNull(reg.approvalRecipient(unstamped, noEmail), "Nobody reachable: no mail, no error");
+        // No address but a family: EVERY mailable manager receives it, comma-joined for send().
+        final Person kid = familyWithTwoManagers();
+        final String recipients = reg.approvalRecipients(kid);
+        assertNotNull(recipients);
+        final List<String> addresses = List.of(recipients.split(","));
+        assertEquals(addresses.size(), 2, "Both mailable managers, nobody else: " + recipients);
+        assertTrue(addresses.get(0).endsWith("@example.com") && addresses.get(1).endsWith("@example.com"));
+        assertTrue(reg.canEmailApproval(kid));
+    }
+
+    @Test
+    public void approvalEmailLabelStatesTheRecipientPerScenario() throws IOException {
+        final RegistrationCommands reg = new RegistrationCommands();
+        assertEquals(reg.approvalEmailLabel(null), "");
+
+        final Person withEmail = savedPerson("lbl");
+        assertEquals(reg.approvalEmailLabel(withEmail), "Send approval email to "
+                        + withEmail.getPreferredName() + " " + withEmail.getLast()
+                        + " (" + withEmail.getEmail() + ")",
+                "Own address: the label names the traveler and their address");
+
+        final Person noEmail = Person.builder().first("No").last("Mailbox").build();
+        assertTrue(dao.savePerson(noEmail));
+        assertEquals(reg.approvalEmailLabel(noEmail),
+                "No Mailbox will not receive an email because they do not have a valid email address.",
+                "No address anywhere: the label says the email cannot be sent");
+
+        final Person kid = familyWithTwoManagers();
+        final String label = reg.approvalEmailLabel(kid);
+        assertTrue(label.startsWith("Send approval email for Kid Mail to family managers "),
+                "Family fallback: the label says whose mail this is and who stands in: " + label);
+        for (final String address : reg.approvalRecipients(kid).split(",")) {
+            assertTrue(label.contains("(" + address + ")"),
+                    "Every manager address is spelled out: " + label);
+        }
+    }
+
+    @Test
+    public void approvalPreviewRendersTheManagedTemplate() throws IOException {
+        final MailCommands mail = new MailCommands();
+        final Trip trip = savedTrip();
+        final Person traveler = savedPerson("prev");
+        final Map<String, Object> values = new RegistrationCommands().approvedMailValues(trip, traveler);
+        final String subject = mail.renderManagedSubject(StarterTemplates.REGISTRATION_APPROVED_ID, values);
+        final String body = mail.renderManagedBody(StarterTemplates.REGISTRATION_APPROVED_ID, values);
+        assertTrue(subject.contains(trip.getTitle()), "The subject is the template name, tokens filled");
+        assertTrue(body.contains(traveler.getPreferredName()), "The body greets the traveler");
+        assertEquals(mail.renderManagedSubject("no-such-template", values), "",
+                "A missing template previews as empty rather than erroring");
+        assertEquals(mail.renderManagedBody("no-such-template", values), "");
+    }
+
+    /** A family whose creator AND one created co-manager are mailable; returns the created no-email kid. */
+    private Person familyWithTwoManagers() throws IOException {
+        final Person owner = savedPerson("fam");
+        final FamilyCommands family = familyFor(owner);
+        final Person coManager = family.createFamilyMember("Co", "Manager", LocalDate.of(1980, 1, 1),
+                Person.Sex.Female, "co." + RandomData.genAlpha(8) + "@example.com", true);
+        assertNotNull(coManager);
+        final Person kid = family.createFamilyMember("Kid", "Mail", LocalDate.of(2010, 1, 1),
+                Person.Sex.Male, null, false);
+        assertNotNull(kid);
+        return kid;
     }
 
     @Test

@@ -81,7 +81,7 @@ public class ContactEmailAndConflictTest {
     }
 
     @Test
-    public void theBorrowedAddressPrefersTheFamilyCreatorThenTheFirstManager() throws IOException {
+    public void everyMailableManagerIsShownCreatorFirstAndTheDisplayMatchesTheSendPath() throws IOException {
         final Person creator = savedPerson("First", "Manager", "creator." + unique() + "@example.com");
         final FamilyCommands family = familyFor(creator);
         final Person spouse = family.createFamilyMember("Second", "Manager", LocalDate.of(2000, 1, 1), Person.Sex.Female,
@@ -90,13 +90,18 @@ public class ContactEmailAndConflictTest {
         assertNotNull(spouse);
         assertNotNull(child);
 
-        assertEquals(people.contactEmail(reload(child)), creator.getEmail(),
-                "The family's creator is the primary manager");
+        assertEquals(people.contactEmail(reload(child)), creator.getEmail() + ", " + spouse.getEmail(),
+                "ALL mailable managers show, the family's creator first");
+        assertEquals(people.contactEmailVia(reload(child)), "First, Second",
+                "...each attributed by name, in the same order");
+        assertEquals(people.contactEmail(reload(child)).replace(", ", ","),
+                new RegistrationCommands().approvalRecipients(reload(child)),
+                "What the contact list shows and what the approval email sends must be the SAME set");
 
-        // Creator loses the manager flag: the remaining manager takes over as the contact.
+        // Creator loses the manager flag: only the remaining manager is shown (and mailed).
         assertTrue(family.setManager(creator.getId(), false));
         assertEquals(people.contactEmail(reload(child)), spouse.getEmail(),
-                "With the creator no longer a manager, the next manager is the contact");
+                "With the creator no longer a manager, the remaining manager is the contact");
     }
 
     @Test
@@ -128,6 +133,9 @@ public class ContactEmailAndConflictTest {
         assertEquals(people.contactEmail(reload(child)), "",
                 "A privacy choice beats the display fallback");
         assertEquals(people.contactEmailVia(reload(child)), "");
+        assertEquals(new RegistrationCommands().approvalRecipients(reload(child)), parent.getEmail(),
+                "...but privacy hides the address from VIEWERS only: the manager still receives the "
+                        + "approval email -- the one sanctioned display/send difference");
     }
 
     @Test

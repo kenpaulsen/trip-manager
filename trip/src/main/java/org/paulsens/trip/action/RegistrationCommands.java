@@ -324,22 +324,67 @@ public class RegistrationCommands {
     }
 
     /**
-     * Where the approval email goes: the approved person when they have a usable address, else whoever
-     * registered them (the family owner always has a login), else nobody -- and "nobody" must never block
-     * the approval itself.
+     * Where the approval email goes: the approved person when they have a usable address, else ALL of their
+     * family's managers with usable addresses (comma-joined, ready for {@code MailCommands.send}), else
+     * nobody -- and "nobody" must never block the approval itself.
+     *
+     * <p>This replaced the registered-by fallback (2026-08-12): the family row, not the registration stamp,
+     * is the source of truth for who answers for a traveler without a mailbox, and every mailable manager is
+     * included rather than guessing which one reads mail.
      */
-    public String approvalRecipient(final Registration reg, final Person person) {
+    public String approvalRecipients(final Person person) {
         if (person != null && org.paulsens.trip.util.EmailAddresses.isValid(person.getEmail())) {
             return person.getEmail();
         }
-        final String ownerId = (reg == null) ? null : reg.getRegisteredBy();
-        if (ownerId != null) {
-            final Person owner = DAO.getInstance().getPerson(Person.Id.from(ownerId)).orElse(null);
-            if (owner != null && org.paulsens.trip.util.EmailAddresses.isValid(owner.getEmail())) {
-                return owner.getEmail();
-            }
+        final List<Person> managers = mailableManagers(person);
+        if (managers.isEmpty()) {
+            return null;
         }
-        return null;
+        return managers.stream().map(Person::getEmail).collect(java.util.stream.Collectors.joining(","));
+    }
+
+    /** Whether approving this person can send an email at all -- drives the dialog checkbox's enablement. */
+    public boolean canEmailApproval(final Person person) {
+        return approvalRecipients(person) != null;
+    }
+
+    /**
+     * The text beside the approval dialog's send-email checkbox. Three shapes, one per recipient outcome:
+     * the person's own address, the family managers standing in for them, or a statement that no email can
+     * go out (the disabled-checkbox case). Built here rather than in EL so the browser test, the unit test,
+     * and the page render the exact same words.
+     */
+    public String approvalEmailLabel(final Person person) {
+        if (person == null) {
+            return "";
+        }
+        final String name = displayName(person);
+        if (org.paulsens.trip.util.EmailAddresses.isValid(person.getEmail())) {
+            return "Send approval email to " + name + " (" + person.getEmail() + ")";
+        }
+        final List<Person> managers = mailableManagers(person);
+        if (managers.isEmpty()) {
+            return name + " will not receive an email because they do not have a valid email address.";
+        }
+        final String managerList = managers.stream()
+                .map(this::nameAndAddress)
+                .collect(java.util.stream.Collectors.joining(", "));
+        return "Send approval email for " + name + " to family manager"
+                + (managers.size() > 1 ? "s " : " ") + managerList;
+    }
+
+    private String nameAndAddress(final Person manager) {
+        return displayName(manager) + " (" + manager.getEmail() + ")";
+    }
+
+    private static String displayName(final Person person) {
+        final String last = person.getLast();
+        return person.getPreferredName() + ((last == null || last.isBlank()) ? "" : " " + last);
+    }
+
+    /** One source with the display fallback ({@code PersonCommands.contactEmail}) -- they must not drift. */
+    private List<Person> mailableManagers(final Person person) {
+        return PersonCommands.getPersonCommands().mailableManagers(person);
     }
 
     /** "Registered by" label for the admin table: the submitting owner's name, or empty pre-family rows. */

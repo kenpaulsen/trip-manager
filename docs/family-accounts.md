@@ -83,12 +83,16 @@ Guard rails:
   `SupportChatCommands.fileEmailConflictRequest` (an `@all` post to the support channel) for a merge.
   The conflict answer names the holder only as "First L." and the support message carries no id for
   them: it answers a typo, it is not a directory lookup.
-- **Display-only contact fallback**: `people.contactEmail(person)` / `contactEmailVia(person)` answer a
-  no-address member with their family's primary manager (the family creator while still a manager, else
-  the first-listed manager, skipping any address that is not valid), rendered as
-  `parent@x.com (via Ken)`. Used on the people list and trip contacts. Deliberately NOT used to address
-  outbound mail — the sending paths choose recipients explicitly (see `approvalRecipient`) — and NOT on
-  reports/exports, where a substituted address would silently misattribute in a spreadsheet.
+- **Display contact fallback**: `people.contactEmail(person)` / `contactEmailVia(person)` answer a
+  no-address member with ALL of their family's mailable managers (creator first while still a manager,
+  then manager order, skipping any address that is not valid), rendered as
+  `mom@x.com, dad@x.com (via Ken, Trinity)`. Used on the people list and trip contacts. The manager
+  list is `people.mailableManagers`, the SAME one `approvalRecipients` addresses the approval email
+  with — what the display shows and what the system sends must never disagree about who receives a
+  traveler's mail, with ONE sanctioned exception: a manager who set their email PRIVATE is dropped from
+  the display (privacy hides the address from viewers) but still receives the approval email (privacy
+  is not an unsubscribe). Still NOT used on reports/exports, where a substituted address would silently
+  misattribute in a spreadsheet.
 
 ## Acting-for (the switcher)
 
@@ -201,10 +205,22 @@ HTML mode): body + NAME-as-subject with `{{token}}` substitution — tokens fill
 (`MailCommands.renderManagedTemplate` / `sendManagedTemplate`; String values escaped, `Raw` verbatim,
 domain objects are a loud error). **Never EL** — runtime-editable EL would be code execution. No
 instances, never offered by content pickers, excluded from page render. Shipped templates:
-`registration-received` (to the submitting owner), `registration-approved` (to the person, else
-whoever registered them — `approvalRecipient`), `support-request` (to support-channel admins).
+`registration-received` (to the submitting owner), `registration-approved` (see below),
+`support-request` (to support-channel admins).
 A missing template logs and SKIPS the mail; it never blocks the flow that wanted to send it.
 From/reply-to/base-URL: `reg.mail.*` settings.
+
+**The approval email is admin-confirmed.** The admin registrations page's Approve button opens a
+confirm dialog with a send-email checkbox (checked by default) whose text names the recipient(s), plus
+a "preview" link that renders the actual `registration-approved` template for that traveler in a
+scrollable dialog (capped at 80% of the viewport). Recipients come from
+`RegistrationCommands.approvalRecipients`: the person's own valid address, else **all** of their
+family's mailable managers (comma-joined), else nobody — in which case the checkbox is disabled and
+the text says no email can be sent, and the approval itself still goes through. This replaced the
+registered-by fallback (2026-08-12): the family row, not the registration stamp, decides who answers
+for a traveler without a mailbox. The checkbox text is built by `approvalEmailLabel` (one method so
+the page, the unit tests, and the browser tests agree on the words); the preview renders through
+`MailCommands.renderManagedSubject`/`renderManagedBody`.
 
 ## The support channel
 

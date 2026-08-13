@@ -338,6 +338,23 @@ public class MailCommands {
     }
 
     /**
+     * The rendered subject of a managed MAIL template, for on-page previews. "" when the template is
+     * missing -- a preview must render something rather than error. Split from {@link #renderManagedBody}
+     * (rather than exposing {@link ManagedMail} to pages) because viewScope demands Serializable and JSFT
+     * EL should not depend on record-accessor resolution.
+     */
+    public String renderManagedSubject(final String templateId, final Map<String, Object> values) {
+        final ManagedMail rendered = renderManagedTemplate(templateId, values);
+        return (rendered == null) ? "" : rendered.subject();
+    }
+
+    /** The rendered body of a managed MAIL template, for on-page previews; see {@link #renderManagedSubject}. */
+    public String renderManagedBody(final String templateId, final Map<String, Object> values) {
+        final ManagedMail rendered = renderManagedTemplate(templateId, values);
+        return (rendered == null) ? "" : rendered.body();
+    }
+
+    /**
      * Renders and sends a managed MAIL template to one recipient. A missing template or unusable recipient
      * logs and answers false -- registration/approval/support flows must never fail because their mail did.
      */
