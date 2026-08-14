@@ -95,7 +95,10 @@ public final class StarterTemplates {
 
     private static ContentTemplate container() {
         return new ContentTemplate(CONTAINER_ID, 0, "Container",
-                "Holds an ordered list of other content items, with an optional heading.", "",
+                "Holds an ordered list of other content items, with an optional heading. The body is the "
+                        + "row wrapped around EACH child: {{child}} marks where the item renders, and "
+                        + "{{child:title}} / {{child:id}} / {{child:index}} read that item's properties.",
+                ContentRenderer.DEFAULT_CHILD_ROW,
                 List.of(), null, null, TemplateKind.CONTAINER, null, null, null);
     }
 

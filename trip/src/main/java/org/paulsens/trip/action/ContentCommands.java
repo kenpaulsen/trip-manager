@@ -441,6 +441,69 @@ public class ContentCommands {
     }
 
     /**
+     * The markup a CONTAINER wraps BEFORE one of its children -- everything in its body up to
+     * {@code {{child}}}. The container owns the row (list item, table row, heading) because it is the
+     * container that iterates; the child template knows nothing about how it is being laid out.
+     *
+     * <p>Two calls rather than one because a child is a component tree, not a string: the page emits this,
+     * then the child's real components, then {@link #childRowAfter}.
+     */
+    public String childRowBefore(final ContentInstance container, final ContentInstance child,
+            final int index) {
+        return childRow(container, child, index).before();
+    }
+
+    /** The markup a CONTAINER wraps AFTER one of its children; see {@link #childRowBefore}. */
+    public String childRowAfter(final ContentInstance container, final ContentInstance child,
+            final int index) {
+        return childRow(container, child, index).after();
+    }
+
+    /**
+     * The row comes from the version the container instance PINNED, like every other template resolution.
+     * Reading the latest instead would be the friendlier rule -- a container has no values of its own to
+     * protect -- but the only unversioned lookup available rescans the whole template table whenever the
+     * cache is not authoritative, and the public render path performs no live reads (RenderPathCacheTest).
+     * So a row change reaches a container the same way any template change does: through the version menu
+     * on that container's own edit dialog.
+     */
+    private ContentRenderer.ChildRow childRow(final ContentInstance container, final ContentInstance child,
+            final int index) {
+        try {
+            return ContentRenderer.renderChildRow(containerBody(container).row(), child,
+                    "PROGRAMMATIC".equals(getKind(child)), index);
+        } catch (final RuntimeException ex) {
+            // Same contract as render(): the page renders without the decoration rather than failing.
+            log.error("Unable to render the container row for: " + (child == null ? null : child.getId()), ex);
+            return ContentRenderer.renderChildRow(null, child, false, index);
+        }
+    }
+
+    /**
+     * The markup a CONTAINER emits ONCE before all of its children -- the wrapper ({@code <ul>},
+     * {@code <table>}) that a per-child row cannot express. Empty unless the body delimits its row with
+     * {@code {{children:start}}} / {@code {{children:end}}}.
+     */
+    public String childrenBefore(final ContentInstance container) {
+        return containerBody(container).beforeAll();
+    }
+
+    /** The markup a CONTAINER emits ONCE after all of its children; see {@link #childrenBefore}. */
+    public String childrenAfter(final ContentInstance container) {
+        return containerBody(container).afterAll();
+    }
+
+    private ContentRenderer.ContainerBody containerBody(final ContentInstance container) {
+        try {
+            final ContentTemplate template = container == null ? null : resolveTemplate(container);
+            return ContentRenderer.containerBody(template == null ? null : template.getBody());
+        } catch (final RuntimeException ex) {
+            log.error("Unable to read the container body of: " + container.getId(), ex);
+            return ContentRenderer.containerBody(null);
+        }
+    }
+
+    /**
      * The page-side gate for edit buttons: {@code #{content.canEdit(sectionKey, userId)}}, where the key is
      * a page key or a container instance's id. A site administrator or contentAdmin passes outright; a
      * container id also passes holders of ANY of that container's {@code editorPrivileges}. Pages must keep

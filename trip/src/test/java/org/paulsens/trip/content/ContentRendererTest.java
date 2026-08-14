@@ -3,6 +3,7 @@ package org.paulsens.trip.content;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Placeholder;
@@ -25,6 +26,143 @@ public class ContentRendererTest {
 
     private static Placeholder ph(final String name, final Placeholder.Type type) {
         return new Placeholder(name, type, name, null, false);
+    }
+
+    private static ContentInstance child(final String id, final String title) {
+        return new ContentInstance(id, "s", title, "t", 1, new HashMap<>(), null, 0, 1, null, null);
+    }
+
+    /** The wrapper a row cannot express: emitted once around the whole list, not per child. */
+    @Test
+    public void aRegionSplitsTheWrapperFromTheRepeatedRow() {
+        final ContentRenderer.ContainerBody parts = ContentRenderer.containerBody(
+                "<ul class=\"ev\">{{children:start}}<li>{{child}}</li>{{children:end}}</ul>");
+        Assert.assertEquals(parts.beforeAll(), "<ul class=\"ev\">");
+        Assert.assertEquals(parts.row(), "<li>{{child}}</li>");
+        Assert.assertEquals(parts.afterAll(), "</ul>");
+    }
+
+    @Test
+    public void aBodyWithNoRegionIsAllRow() {
+        final ContentRenderer.ContainerBody parts =
+                ContentRenderer.containerBody("<li>{{child:title}}{{child}}</li>");
+        Assert.assertEquals(parts.beforeAll(), "");
+        Assert.assertEquals(parts.row(), "<li>{{child:title}}{{child}}</li>");
+        Assert.assertEquals(parts.afterAll(), "");
+    }
+
+    /** Half a wrapper would emit an unclosed tag into the page, so anything unusable loses the wrapper. */
+    @Test
+    public void anUnusableBodyDegradesToTheBuiltInRowWithNoWrapper() {
+        for (final String bad : new String[] {null, "  ", "<ul>{{children:start}}<li>{{child}}</li>",
+                "<ul>{{children:start}}<li>no slot</li>{{children:end}}</ul>", "<li>no slot at all</li>"}) {
+            final ContentRenderer.ContainerBody parts = ContentRenderer.containerBody(bad);
+            Assert.assertEquals(parts.beforeAll(), "", "no half wrapper for: " + bad);
+            Assert.assertEquals(parts.afterAll(), "", "no half wrapper for: " + bad);
+            Assert.assertEquals(parts.row(), ContentRenderer.DEFAULT_CHILD_ROW,
+                    "children must still render for: " + bad);
+        }
+    }
+
+    @Test
+    public void theRegionIsValidatedAsAPair() {
+        Assert.assertNull(ContentRenderer.containerBodyProblem(null), "blank means the built-in row");
+        Assert.assertNull(ContentRenderer.containerBodyProblem(""));
+        Assert.assertNull(ContentRenderer.containerBodyProblem("<li>{{child}}</li>"));
+        Assert.assertNull(ContentRenderer.containerBodyProblem(
+                "<ul>{{children:start}}<li>{{child}}</li>{{children:end}}</ul>"));
+
+        Assert.assertTrue(ContentRenderer.containerBodyProblem("<ul>{{children:start}}<li>{{child}}</li>")
+                .contains("as a pair"), "an unclosed region is refused");
+        Assert.assertTrue(ContentRenderer.containerBodyProblem("{{children:end}}{{child}}{{children:start}}")
+                .contains("in that order"), "a reversed region is refused");
+        Assert.assertTrue(ContentRenderer.containerBodyProblem(
+                        "{{children:start}}{{child}}{{children:end}}{{children:start}}{{children:end}}")
+                .contains("only once"), "one region per body");
+        Assert.assertTrue(ContentRenderer.containerBodyProblem("<li>no slot</li>").contains("{{child}}"),
+                "a row must still say where the child goes");
+    }
+
+    /** The wrapper is emitted once; the row's per-child tokens are not filled in it. */
+    @Test
+    public void theWrapperIsNotPerChild() {
+        final String body = "<ul>{{children:start}}<li>{{child:title}}{{child}}</li>{{children:end}}</ul>";
+        final ContentRenderer.ChildRow row =
+                ContentRenderer.renderChildRow(body, child("c1", "Rome"), false, 0);
+        Assert.assertEquals(row.before(), "<li>Rome", "the row alone repeats");
+        Assert.assertEquals(row.after(), "</li>");
+    }
+
+    @Test
+    public void aContainerRowSplitsAtTheChildSlot() {
+        final ContentRenderer.ChildRow row = ContentRenderer.renderChildRow(
+                "<li class=\"item\"><h4>{{child:title}}</h4>{{child}}</li>", child("c1", "Rome"), false, 0);
+        Assert.assertEquals(row.before(), "<li class=\"item\"><h4>Rome</h4>");
+        Assert.assertEquals(row.after(), "</li>");
+    }
+
+    @Test
+    public void aChildTitleIsEscapedLikeAnyOtherData() {
+        final ContentRenderer.ChildRow row = ContentRenderer.renderChildRow(
+                "<b>{{child:title}}</b>{{child}}", child("c1", "<img src=x onerror=alert(1)>"), false, 0);
+        Assert.assertEquals(row.before(), "<b>&lt;img src=x onerror=alert(1)&gt;</b>");
+    }
+
+    @Test
+    public void idAndOneBasedIndexAreReadable() {
+        final ContentRenderer.ChildRow row = ContentRenderer.renderChildRow(
+                "<a id=\"{{child:id}}\">{{child:index}}.</a>{{child}}", child("docs-3", "T"), false, 4);
+        Assert.assertEquals(row.before(), "<a id=\"docs-3\">5.</a>");
+    }
+
+    /** A programmatic child builds its own heading from live data; repeating the instance title duplicates it. */
+    @Test
+    public void aProgrammaticChildSuppressesTheContainerWrittenTitle() {
+        final ContentRenderer.ChildRow row = ContentRenderer.renderChildRow(
+                ContentRenderer.DEFAULT_CHILD_ROW, child("c1", "Photo Album"), true, 0);
+        Assert.assertEquals(row.before(), "<div class=\"contentTitle\"></div>");
+        Assert.assertEquals(row.after(), "");
+    }
+
+    @Test
+    public void unknownChildPropertiesAndNullsRenderEmpty() {
+        final ContentRenderer.ChildRow row = ContentRenderer.renderChildRow(
+                "[{{child:bogus}}][{{child:title}}]{{child}}", child("c1", null), false, 0);
+        Assert.assertEquals(row.before(), "[][]");
+        Assert.assertEquals(ContentRenderer.renderChildRow("{{child}}", null, false, 0).before(), "");
+    }
+
+    /** Dropping every child is the one container failure an editor cannot see or diagnose. */
+    @Test
+    public void aBodyWithoutTheSlotFallsBackToTheDefaultRow() {
+        final ContentRenderer.ChildRow row =
+                ContentRenderer.renderChildRow("<li>{{child:title}}</li>", child("c1", "Kept"), false, 0);
+        Assert.assertEquals(row.before(), "<div class=\"contentTitle\">Kept</div>");
+        Assert.assertEquals(row.after(), "");
+        Assert.assertEquals(ContentRenderer.renderChildRow(null, child("c1", "Kept"), false, 0).after(), "");
+        Assert.assertEquals(ContentRenderer.renderChildRow("  ", child("c1", "Kept"), false, 0).after(), "");
+    }
+
+    @Test
+    public void theSlotIsRecognizedWithWhitespaceAndOnlyWithoutAProperty() {
+        Assert.assertTrue(ContentRenderer.hasChildSlot("<li>{{ child }}</li>"));
+        Assert.assertFalse(ContentRenderer.hasChildSlot("<li>{{child:title}}</li>"));
+        Assert.assertFalse(ContentRenderer.hasChildSlot(null));
+        final ContentRenderer.ChildRow row =
+                ContentRenderer.renderChildRow("a{{ child }}b", child("c1", "T"), false, 0);
+        Assert.assertEquals(row.before(), "a");
+        Assert.assertEquals(row.after(), "b");
+    }
+
+    /**
+     * The property form carries a ':', which the STANDARD token pattern does not admit -- so a container
+     * body's vocabulary can never be mistaken for a placeholder, nor offered by "Detect from body".
+     */
+    @Test
+    public void childPropertyTokensAreNotStandardPlaceholders() {
+        Assert.assertEquals(ContentRenderer.tokenNames("<p>{{child:title}}{{real}}</p>"), Set.of("real"));
+        final ContentTemplate tpl = template("<p>{{child:title}}</p>");
+        Assert.assertEquals(ContentRenderer.render(tpl, instance(Map.of())), "<p>{{child:title}}</p>");
     }
 
     @Test

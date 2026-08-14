@@ -180,12 +180,44 @@ public class TemplateCommandsTest {
                 List.of(StarterTemplates.CONTAINER_ID), null, null);
         Assert.assertFalse(admin.saveTemplate(nested), "containers may not allow containers");
 
+        // A container body is the row wrapped around each child, so it must say where the child renders:
+        // without the slot every child would silently vanish from the page.
+        final ContentTemplate slotless = new ContentTemplate("tpl-slotless", 0, "Slotless", null,
+                "<p>no slot here</p>", List.of(), null, null, TemplateKind.CONTAINER, null, null, null);
+        Assert.assertFalse(admin.saveTemplate(slotless), "a body must mark where the child goes");
+
+        final ContentTemplate unbalanced = new ContentTemplate("tpl-unbalanced", 0, "Unbalanced", null,
+                "<li>{{child}}", List.of(), null, null, TemplateKind.CONTAINER, null, null, null);
+        Assert.assertFalse(admin.saveTemplate(unbalanced), "a row is validated like any other fragment");
+
+        // The once-around wrapper: an unclosed region would emit a stray <ul> into the page.
+        final ContentTemplate halfRegion = new ContentTemplate("tpl-half-region", 0, "Half", null,
+                "<ul>{{children:start}}<li>{{child}}</li></ul>",
+                List.of(), null, null, TemplateKind.CONTAINER, null, null, null);
+        Assert.assertFalse(admin.saveTemplate(halfRegion), "{{children:start}} must be closed");
+
+        final String wrapped = "<ul class=\"ev\">{{children:start}}<li>{{child:title}}{{child}}</li>"
+                + "{{children:end}}</ul>";
+        final ContentTemplate wrapping = new ContentTemplate("tpl-wrapped", 0, "Wrapped", null, wrapped,
+                List.of(), null, null, TemplateKind.CONTAINER, null, null, null);
+        Assert.assertTrue(admin.saveTemplate(wrapping), "a paired region carrying a wrapper saves");
+        Assert.assertEquals(admin.getTemplate("tpl-wrapped").getBody(), wrapped);
+        Assert.assertTrue(admin.deleteTemplate("tpl-wrapped"));
+
+        final String row = "<li class=\"ev\"><h4>{{child:title}}</h4>{{child}}</li>";
         final ContentTemplate sound = new ContentTemplate("tpl-good-container", 0, "Good", null,
-                "<p>ignored</p>", List.of(), null, null, TemplateKind.CONTAINER,
+                row, List.of(), null, null, TemplateKind.CONTAINER,
                 List.of(StarterTemplates.TEXT_ONLY_ID), 3, null);
         Assert.assertTrue(admin.saveTemplate(sound));
-        Assert.assertEquals(admin.getTemplate("tpl-good-container").getBody(), "",
-                "containers carry no body");
+        Assert.assertEquals(admin.getTemplate("tpl-good-container").getBody(), row,
+                "the container's row is kept verbatim");
+        Assert.assertTrue(admin.getTemplate("tpl-good-container").getPlaceholders().isEmpty(),
+                "a container declares no placeholders of its own -- it reads the child's");
+
+        final ContentTemplate blank = new ContentTemplate("tpl-blank-container", 0, "Blank", null, "",
+                List.of(), null, null, TemplateKind.CONTAINER, null, null, null);
+        Assert.assertTrue(admin.saveTemplate(blank), "blank means the built-in row");
+        Assert.assertTrue(admin.deleteTemplate("tpl-blank-container"));
         Assert.assertTrue(admin.getChildTemplateChoices().stream()
                 .noneMatch(t -> t.getKind() == TemplateKind.CONTAINER),
                 "the allowed-children picker never offers containers");

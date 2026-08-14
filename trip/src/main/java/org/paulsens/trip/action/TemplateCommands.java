@@ -281,8 +281,20 @@ public class TemplateCommands {
                 return "A container may not allow another container ('" + childId + "') as a child.";
             }
         }
-        // Containers have no body or placeholders of their own -- they only hold children.
-        template.setBody("");
+        // A container's body is the row it wraps around EACH child (optionally inside a {{children:start}}
+        // / {{children:end}} region carrying a wrapper). Blank is legal and means the built-in row.
+        final String body = template.getBody();
+        final String unusable = ContentRenderer.containerBodyProblem(body);
+        if (unusable != null) {
+            return unusable;
+        }
+        if (body != null && !body.isBlank()) {
+            final String invalid = HtmlFragmentValidator.validate(body);
+            if (invalid != null) {
+                return invalid;
+            }
+        }
+        // A container still has no placeholders of its own: it reads the CHILD's properties instead.
         template.setPlaceholders(List.of());
         return null;
     }

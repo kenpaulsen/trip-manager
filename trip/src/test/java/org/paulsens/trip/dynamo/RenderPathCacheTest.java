@@ -116,9 +116,19 @@ public class RenderPathCacheTest {
             templates.getTemplate(StarterTemplates.TEXT_ONLY_ID, 1);
             templates.getTemplate(StarterTemplates.CONTAINER_ID, 1);
             templates.getTemplate(StarterTemplates.PILGRIMAGES_ID, 1);
+            // A container's ROW resolves the same pinned version the rest of the render path uses
+            // (ContentCommands.childRow) -- once per child on every public page view.
+            templates.getTemplate(StarterTemplates.CONTAINER_ID, 1);
         }
         Assert.assertEquals(counting.reads.get(), 0,
                 "the warm render path must answer entirely from cache -- no live store reads");
+
+        // Why childRow must NOT reach for the friendlier unversioned lookup: it rescans the whole table
+        // whenever the cache is not authoritative, which on the render path would be once per child.
+        counting.reads.set(0);
+        templates.getTemplate(StarterTemplates.CONTAINER_ID);
+        Assert.assertTrue(counting.reads.get() > 0,
+                "if this ever becomes cache-served, childRow may resolve the LATEST row instead");
     }
 
     private static ContentInstance instance(final String id, final String section, final String templateId,

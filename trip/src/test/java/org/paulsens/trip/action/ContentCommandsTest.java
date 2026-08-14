@@ -334,6 +334,93 @@ public class ContentCommandsTest {
         Assert.assertFalse(admin.saveContent(badTitle), "a markup title must parse too");
     }
 
+    /**
+     * The container writes the row around each child, so a layout change is a template edit rather than an
+     * XHTML edit. The seeded default must reproduce what the page markup used to hardcode.
+     */
+    @Test
+    public void aContainerWritesTheRowAroundEachChild() {
+        final ContentCommands admin = as(ADMIN, false);
+        // The seeded 'events' container carries no body of its own, so it renders the built-in row.
+        final ContentInstance events = admin.getContent("events");
+        final ContentInstance child = admin.createContent("events", StarterTemplates.TEXT_ONLY_ID);
+        child.setTitle("Opening Mass");
+        child.getValues().put("body", "<p>Details</p>");
+        Assert.assertTrue(admin.saveContent(child));
+        Assert.assertEquals(admin.childRowBefore(events, child, 0),
+                "<div class=\"contentTitle\">Opening Mass</div>", "the default row is today's markup");
+        Assert.assertEquals(admin.childRowAfter(events, child, 0), "");
+
+        // Its own container template, so the layout choice belongs to the template and not to the page.
+        final ContentTemplate listy = new ContentTemplate("cc-row-container", 0, "Listy", null,
+                "<li id=\"{{child:id}}\"><b>{{child:index}}. {{child:title}}</b>{{child}}</li>",
+                List.of(), null, null, TemplateKind.CONTAINER, null, null, null);
+        Assert.assertTrue(DAO.getInstance().saveTemplate(listy, 5));
+        final ContentInstance holder = admin.createContent("cc.section-row", "cc-row-container");
+        holder.setTitle("Listy holder");
+        Assert.assertTrue(admin.saveContent(holder));
+
+        Assert.assertEquals(admin.childRowBefore(holder, child, 2),
+                "<li id=\"" + child.getId() + "\"><b>3. Opening Mass</b>", "1-based index for the reader");
+        Assert.assertEquals(admin.childRowAfter(holder, child, 2), "</li>");
+
+        Assert.assertTrue(admin.deleteContent(holder.getId()));
+        Assert.assertTrue(admin.deleteContent(child.getId()));
+    }
+
+    /** The wrapper a row cannot express -- emitted once around the list, not once per child. */
+    @Test
+    public void aContainerWrapsTheWholeChildListOnce() {
+        final ContentCommands admin = as(ADMIN, false);
+        final ContentTemplate listed = new ContentTemplate("cc-wrap-container", 0, "Wrapped", null,
+                "<ul class=\"evList\">{{children:start}}<li>{{child:title}}{{child}}</li>"
+                        + "{{children:end}}</ul>",
+                List.of(), null, null, TemplateKind.CONTAINER, null, null, null);
+        Assert.assertTrue(DAO.getInstance().saveTemplate(listed, 5));
+        final ContentInstance holder = admin.createContent("cc.section-wrap", "cc-wrap-container");
+        holder.setTitle("Wrapped holder");
+        Assert.assertTrue(admin.saveContent(holder));
+        final ContentInstance child = admin.createContent(holder.getId(), StarterTemplates.TEXT_ONLY_ID);
+        child.setTitle("Rome");
+        child.getValues().put("body", "<p>x</p>");
+        Assert.assertTrue(admin.saveContent(child));
+
+        Assert.assertEquals(admin.childrenBefore(holder), "<ul class=\"evList\">");
+        Assert.assertEquals(admin.childrenAfter(holder), "</ul>");
+        Assert.assertEquals(admin.childRowBefore(holder, child, 0), "<li>Rome", "the row alone repeats");
+        Assert.assertEquals(admin.childRowAfter(holder, child, 0), "</li>");
+
+        // The seeded container has no region, so it wraps nothing -- the page emits only the rows.
+        final ContentInstance events = admin.getContent("events");
+        Assert.assertEquals(admin.childrenBefore(events), "");
+        Assert.assertEquals(admin.childrenAfter(events), "");
+        Assert.assertEquals(admin.childrenBefore(null), "", "defensive: no wrapper without a container");
+
+        Assert.assertTrue(admin.deleteContent(holder.getId()));
+    }
+
+    /** A programmatic child builds its heading from live data; the container must not repeat it. */
+    @Test
+    public void aProgrammaticChildGetsNoContainerWrittenTitle() {
+        final ContentCommands admin = as(ADMIN, false);
+        final ContentInstance events = admin.getContent("events");
+        final ContentInstance albums = admin.getContent("fake-albums");
+        Assert.assertEquals(admin.getKind(albums), "PROGRAMMATIC", "fixture guard");
+        Assert.assertEquals(admin.childRowBefore(events, albums, 0), "<div class=\"contentTitle\"></div>",
+                "the heading box stays empty (trip.css collapses it) rather than duplicating the title");
+    }
+
+    /** Defensive: an unresolvable container still lists its children with the built-in row. */
+    @Test
+    public void aMissingContainerTemplateStillRendersTheRow() {
+        final ContentCommands admin = as(ADMIN, false);
+        final ContentInstance orphan = admin.createContent("cc.section-orphan", "cc-no-such-template");
+        orphan.setTitle("Orphan");
+        Assert.assertEquals(admin.childRowBefore(orphan, orphan, 0),
+                "<div class=\"contentTitle\">Orphan</div>");
+        Assert.assertEquals(admin.childRowBefore(null, null, 0), "<div class=\"contentTitle\"></div>");
+    }
+
     @Test
     public void includeHelpersDescribeInstances() {
         final ContentCommands admin = as(ADMIN, false);

@@ -13,7 +13,7 @@ strand instances; `saveTemplate` rejects it):
 | Kind | What a template declares | What an instance holds | How it renders |
 |------|--------------------------|------------------------|----------------|
 | `STANDARD` | HTML body with `{{token}}` placeholders | placeholder values | `ContentRenderer` substitution, typed escaping |
-| `CONTAINER` | `allowedChildTemplateIds` (null/empty = any non-container), `maxChildren` (null = unlimited) | optional WYSIWYG title, optional `editorPrivileges`, optional per-instance `allowedChildTemplateIds` | title via `renderContainerTitle`, then its CHILDREN in order |
+| `CONTAINER` | a body that is the ROW wrapped around each child (see below), `allowedChildTemplateIds` (null/empty = any non-container), `maxChildren` (null = unlimited) | optional WYSIWYG title, optional `editorPrivileges`, optional per-instance `allowedChildTemplateIds` | title via `renderContainerTitle`, then its CHILDREN in order, each inside the container's row |
 | `PROGRAMMATIC` | `programmaticTypeId` naming a registered type | the type's NVP property values | the type's Facelets fragment (full PrimeFaces behavior) |
 | `MAIL` | an EMAIL body with `{{token}}` placeholders; the template NAME doubles as the subject line | none — mail templates have no instances | never on a page; rendered by `MailCommands.sendManagedTemplate`, tokens filled by JAVA only (no EL — runtime-editable EL would be code execution) |
 
@@ -125,6 +125,65 @@ changes at runtime.
   contract in `contentSections.xhtml`): the include iterates viewScope-frozen lists, so in-place ajax
   cannot reflect adds/deletes/reorders.
 
+## A container's row (the body of a CONTAINER template)
+
+A container's body is **the row wrapped around EACH child**, not the container's own markup — the
+container is what iterates, so the layout of that iteration belongs to it and a child template never
+needs to know how it is being listed. Its vocabulary is deliberately separate from `{{token}}`
+(`CHILD_TOKEN` in `ContentRenderer`, not `TOKEN`), so no STANDARD template can declare a placeholder
+named `child` and "Detect from body" never offers one:
+
+| Token | Renders |
+|-------|---------|
+| `{{child}}` | where the child itself renders — **required**; save is refused without it |
+| `{{child:title}}` | the child instance's title, HTML-escaped (empty for a PROGRAMMATIC child, which titles itself from live data) |
+| `{{child:id}}` | the child instance's id, escaped — an anchor target |
+| `{{child:index}}` | its 1-based position in the container |
+| `{{children:start}}` / `{{children:end}}` | optional pair delimiting the repeated row; everything outside them is emitted ONCE, before and after the whole list |
+
+The default, seeded and used whenever the body is blank, reproduces exactly what the page markup used to
+hardcode, so adopting this changed no rendered byte:
+
+```html
+<div class="contentTitle">{{child:title}}</div>{{child}}
+```
+
+Rules worth knowing before changing this:
+
+- **The row splits at `{{child}}`; the page emits the halves around the child's real components.** A
+  child is a component tree — a PROGRAMMATIC fragment, the three edit buttons — so it can never be
+  produced by string substitution the way a STANDARD body's tokens are. `ContentCommands.childRowBefore`
+  / `childRowAfter` are the two EL calls; `ui:repeat`'s `varStatus.index` supplies the index.
+- **A body that has lost its slot falls back to the default row.** Dropping every child silently is the
+  one container failure an editor cannot see or diagnose, so it must not be reachable by mis-saving.
+- **The row resolves the version the container instance PINNED**, like every other template lookup, so
+  editing the row changes nothing on a page until each container is moved to the new version through the
+  version menu on its own edit dialog. Reading the LATEST would be friendlier (a container has no values
+  of its own to protect) and was tried — but the only unversioned lookup, `TemplateDAO.getTemplate(id)`,
+  falls back to `getAllTemplates()`, which rescans the whole table whenever the cache is not
+  authoritative. That is a live read per child per public page view; `RenderPathCacheTest` now pins both
+  halves of this, including a guard that fails if the unversioned lookup ever becomes cache-served.
+- **CONTAINER bodies edit as raw HTML only** (`templateDialog.xhtml` hides the visual editor for the
+  kind): Quill rewrites structural markup and would move the `{{child}}` marker out of place.
+- `.contentTitle:empty` is `display:none` in `trip.css` — the row writes the heading unconditionally, so
+  an untitled child (and every programmatic one) would otherwise leave an empty heading box.
+- **The wrapper is a region, not two extra fields.** `beforeAll`/`afterAll` as their own columns would each
+  hold an unbalanced fragment (`<ul>` … `</ul>`), which `HtmlFragmentValidator` must reject on its own —
+  so they would have to skip validation or be validated concatenated, at which point they are one
+  document. As a region the whole body validates normally and `ContentTemplate` gains no fields:
+
+  ```html
+  <ul class="eventList">
+  {{children:start}}
+    <li><h4 class="contentTitle">{{child:title}}</h4>{{child}}</li>
+  {{children:end}}
+  </ul>
+  ```
+
+- **Half a region is refused at save and ignored at render.** One marker without its partner, a reversed
+  pair, or a second pair is a save error; if such a body somehow reaches the page it degrades to the
+  built-in row with NO wrapper, because emitting an unclosed `<ul>` would corrupt everything after it.
+
 ## The include contract (`WEB-INF/contentSections.xhtml`)
 
 Host page's `initPage` captures into viewScope BEFORE the include's tree builds: `pageKey` (a viewScope
@@ -133,6 +192,10 @@ exist), `editMode`, `pageSections = content.getForView(pageKey, editMode)`, `chi
 content.childrenFor(pageSections, editMode)`. The include renders sections + all edit affordances and
 pulls in `contentDialog.xhtml` and `arrangeDialog.xhtml` itself. See `trip/index.xhtml` for the reference
 host.
+
+The include holds **no per-item layout of its own**: a container child is wrapped by
+`content.childRowBefore(sec, child, childStatus.index)` / `childRowAfter(...)`, which come from the
+container template's row (above). Markup added here instead is markup a content editor cannot reach.
 
 ## Performance rule
 
