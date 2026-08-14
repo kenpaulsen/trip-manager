@@ -149,4 +149,43 @@ public class SessionRecoveryFilterTest {
         });
         org.mockito.Mockito.verify(res).sendRedirect("/page.jsf");
     }
+
+    /**
+     * The 2026-08-14 outage shape: the session blob is unreadable, and the FIRST attribute read is the
+     * filter's own probe (a page that never touches the session in-request would otherwise defer the
+     * decode to Mojarra's requestDestroyed -- valve level, where nothing recovers and the user gets a raw
+     * 500). The probe must fail inside the guarded scope and recover: cookie expiry + same-path redirect,
+     * and the chain must never run against the broken session.
+     */
+    @Test
+    public void anUnreadableSessionFailsTheProbeAndRecoversBeforeTheChain() throws Exception {
+        final SessionRecoveryFilter filter = new SessionRecoveryFilter();
+        final jakarta.servlet.http.HttpServletRequest req = requestWithSession(null);
+        final jakarta.servlet.http.HttpServletResponse res =
+                org.mockito.Mockito.mock(jakarta.servlet.http.HttpServletResponse.class);
+        final java.io.InvalidClassException incompatible = new java.io.InvalidClassException(
+                "org.paulsens.trip.model.Trip",
+                "local class incompatible: stream classdesc serialVersionUID = 1, local = 2");
+        // The marker frames live on the CAUSE: Mockito refills the THROWN exception's stack at throw
+        // time, exactly as a real RedisException carries its own frames -- the decoder frames that
+        // identify the failure are further down the chain there too.
+        incompatible.setStackTrace(new StackTraceElement[] {
+                new StackTraceElement("org.redisson.client.handler.CommandDecoder", "decode",
+                        "CommandDecoder.java", 461),
+        });
+        final RuntimeException decodeFailure = new RuntimeException(
+                "Unexpected exception while processing command", incompatible);
+        // EVERY attribute read explodes, exactly like a Valkey session whose lazy full-map load fails.
+        org.mockito.Mockito.when(req.getSession(false).getAttribute(org.mockito.Mockito.anyString()))
+                .thenThrow(decodeFailure);
+        final java.util.concurrent.atomic.AtomicBoolean chainRan =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        filter.doFilter(req, res, (rq, rs) -> chainRan.set(true));
+
+        Assert.assertFalse(chainRan.get(), "the chain must not run against a session that cannot be read");
+        org.mockito.Mockito.verify(res).sendRedirect("/page.jsf");
+        org.mockito.Mockito.verify(res).addCookie(org.mockito.Mockito.argThat(
+                cookie -> "JSESSIONID".equals(cookie.getName()) && cookie.getMaxAge() == 0));
+    }
 }

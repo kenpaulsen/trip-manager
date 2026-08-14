@@ -65,11 +65,16 @@ public class SessionRecoveryFilter implements Filter {
             throws IOException, ServletException {
         // getSession(false): neither resolving identity nor repairing the session may CREATE one.
         final HttpSession session = (request instanceof HttpServletRequest req) ? req.getSession(false) : null;
-        // The other half of "this build cannot read that session": a session that IS readable but came back
-        // with a field Kryo never wrote. See DynamicResourceMap -- silent, and not a failure this filter's
-        // recovery path would ever see, because nothing throws.
-        DynamicResourceMap.repair(session);
         try {
+            // Force the stored attributes to decode HERE, inside the guarded scope. The Valkey-backed
+            // session loads lazily on the first getAttribute, and on a page that never touches the session
+            // during the request, that first read used to happen in Mojarra's requestDestroyed -- fired at
+            // VALVE level after this filter unwound, where nothing recovers and every returning visitor
+            // gets a raw 500. That is exactly how the 2026-08-14 Trip serialVersionUID drift took the
+            // public landing page down for anyone holding a pre-deploy cookie, while incognito worked.
+            // The repair call doubles as the probe (it reads an attribute); it also belongs inside the
+            // guarded scope in its own right, which it never was.
+            DynamicResourceMap.repair(session);
             // Bind the request identity for the whole chain (this is the outermost filter). call(), not
             // run(): doFilter throws checked exceptions -- tunneled through one carrier type because call()
             // infers a single throws clause.
