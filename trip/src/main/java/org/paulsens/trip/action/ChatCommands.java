@@ -6,6 +6,7 @@ import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import java.io.IOException;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.ArrayList;
@@ -383,7 +384,14 @@ public class ChatCommands {
      * is easy to break, because putting the object there reads as the obvious thing to do.
      */
 
-    /** The channel's history setting, for the page banner, without putting a channel in viewScope. */
+    /**
+     * The channel's history setting, without putting a channel in viewScope.
+     *
+     * <p>No page reads this today: the chat page's "everyone can read the full history" banner was removed
+     * with the full-screen layout, on the grounds that a standing condition is not news and the page has no
+     * room for it. Kept because it is the only accessor for the setting outside the admin page, and the
+     * banner is the kind of thing that comes back.
+     */
     public boolean fullHistoryForTrip(final String tripId) {
         final ChatChannel channel = channelForPage(tripId);
         return channel != null && channel.getSettings().isFullHistoryForNewMembers();
@@ -425,6 +433,50 @@ public class ChatCommands {
             return "You are muted and cannot post right now.";
         }
         return "";
+    }
+
+    /**
+     * Where the chat page's back arrow goes for this person: the page they would most likely have come from.
+     *
+     * <p>The chat page is a full-screen shell with no trip tabs, so this is the ONLY way off it, which is why
+     * the three answers are chosen to be pages the person can definitely open:
+     * <ul>
+     *   <li>not a trip member (an invite-link guest, say) → the trip's public details page;</li>
+     *   <li>on the roster and the trip is running right now → the itinerary, the useful page mid-trip;</li>
+     *   <li>otherwise → trip contacts, the trip's home page before and after.</li>
+     * </ul>
+     *
+     * <p>The itinerary branch tests roster membership rather than {@link #isTripMember}: that method also
+     * answers true for admins, {@code tripView} holders and family members, and {@code tripTabs.xhtml} gates
+     * its own Itinerary entry on the roster. Sending someone to a page whose tab they do not have would land
+     * them on an itinerary for a trip they are not on.
+     */
+    public String exitUrlForTrip(final String tripId, final Person.Id personId) {
+        final Trip trip = tripId == null ? null : dao().getTrip(tripId).orElse(null);
+        if (trip == null) {
+            return "/trip/tripContacts.jsf";
+        }
+        final String query = "?trip=" + trip.getId();
+        if (!isTripMember(tripId, personId)) {
+            return "/trip/tripDetails.jsf" + query;
+        }
+        if (trip.getPeople().contains(personId) && isUnderway(trip, LocalDateTime.now())) {
+            return "/trip/itinerary.jsf" + query;
+        }
+        return "/trip/tripContacts.jsf" + query;
+    }
+
+    /**
+     * Whether {@code now} falls in the trip's window. The end date is a day, not a moment, so the last day
+     * counts in full — a trip ending "today" is still underway all of today.
+     */
+    private static boolean isUnderway(final Trip trip, final LocalDateTime now) {
+        final LocalDateTime start = trip.getStartDate();
+        final LocalDateTime end = trip.getEndDate();
+        if (start == null || end == null) {
+            return false;
+        }
+        return !now.isBefore(start) && now.isBefore(end.toLocalDate().plusDays(1).atStartOfDay());
     }
 
     /** The look this person gets for this chat: their override per field, else the channel's default. */

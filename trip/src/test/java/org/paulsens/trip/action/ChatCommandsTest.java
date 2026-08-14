@@ -445,4 +445,78 @@ public class ChatCommandsTest {
         final ChatCommands.SendResult empty = chat.send(tripId, author, "", null, null, actor);
         Assert.assertFalse(empty.isOk());
     }
+
+    /*
+     * exitUrlForTrip -- the chat page's back arrow. The full-screen chat has no trip tabs, so a wrong answer
+     * here is a dead end: it must always name a page the person can actually open.
+     */
+
+    @Test
+    public void exitUrlSendsANonMemberToTheTripDetailsPage() {
+        final Person.Id stranger = Person.Id.from("exit-stranger-" + System.nanoTime());
+        Assert.assertEquals(chat.exitUrlForTrip(TRIP, stranger), "/trip/tripDetails.jsf?trip=" + TRIP,
+                "someone who is not on the trip has no contacts or itinerary page to go back to");
+    }
+
+    @Test
+    public void exitUrlSendsARosterMemberToTheItineraryWhileTheTripIsUnderway() throws IOException {
+        final Person.Id traveller = Person.Id.from("exit-underway-" + System.nanoTime());
+        final String tripId = seedDatedTrip(traveller, LocalDateTime.now().minusDays(2),
+                LocalDateTime.now().plusDays(2));
+        Assert.assertEquals(chat.exitUrlForTrip(tripId, traveller), "/trip/itinerary.jsf?trip=" + tripId);
+    }
+
+    @Test
+    public void exitUrlIncludesTheWholeOfTheLastDay() throws IOException {
+        // The end date is a DAY, not a moment: a trip whose endDate is midnight this morning is still
+        // underway all of today. Storing it as a LocalDateTime makes that boundary easy to get wrong.
+        final Person.Id traveller = Person.Id.from("exit-lastday-" + System.nanoTime());
+        final String tripId = seedDatedTrip(traveller, LocalDateTime.now().minusDays(3),
+                LocalDateTime.now().toLocalDate().atStartOfDay());
+        Assert.assertEquals(chat.exitUrlForTrip(tripId, traveller), "/trip/itinerary.jsf?trip=" + tripId);
+    }
+
+    @Test
+    public void exitUrlSendsARosterMemberToContactsBeforeAndAfterTheTrip() throws IOException {
+        final Person.Id traveller = Person.Id.from("exit-dated-" + System.nanoTime());
+        final String future = seedDatedTrip(traveller, LocalDateTime.now().plusDays(30),
+                LocalDateTime.now().plusDays(40));
+        Assert.assertEquals(chat.exitUrlForTrip(future, traveller), "/trip/tripContacts.jsf?trip=" + future);
+
+        final String past = seedDatedTrip(traveller, LocalDateTime.now().minusDays(40),
+                LocalDateTime.now().minusDays(30));
+        Assert.assertEquals(chat.exitUrlForTrip(past, traveller), "/trip/tripContacts.jsf?trip=" + past);
+    }
+
+    @Test
+    public void exitUrlKeepsANonRosterMemberOffTheItinerary() {
+        // A tripView holder (admin, family manager) is a trip member for chat purposes but has no itinerary
+        // of their own -- tripTabs.xhtml gates its Itinerary entry the same way, on the roster.
+        final Person.Id viewer = Person.Id.from("exit-viewer-" + System.nanoTime());
+        grantTripView(List.of(viewer));
+        Assert.assertTrue(chat.isTripMember(TRIP, viewer), "test setup: tripView must make them a member");
+        Assert.assertEquals(chat.exitUrlForTrip(TRIP, viewer), "/trip/tripContacts.jsf?trip=" + TRIP);
+    }
+
+    @Test
+    public void exitUrlFallsBackWhenTheTripIsUnknown() {
+        Assert.assertEquals(chat.exitUrlForTrip(null, adminId), "/trip/tripContacts.jsf");
+        Assert.assertEquals(chat.exitUrlForTrip("no-such-trip-" + System.nanoTime(), adminId),
+                "/trip/tripContacts.jsf");
+    }
+
+    /** A trip of its own with {@code member} on the roster, so the date window can be varied per test. */
+    private String seedDatedTrip(final Person.Id member, final LocalDateTime start, final LocalDateTime end)
+            throws IOException {
+        final String id = java.util.UUID.randomUUID().toString();
+        Assert.assertTrue(DAO.getInstance().saveTrip(Trip.builder()
+                .id(id)
+                .title("Exit url trip")
+                .openToPublic(false)
+                .startDate(start)
+                .endDate(end)
+                .people(new ArrayList<>(List.of(member)))
+                .build()), "test setup: save dated trip");
+        return id;
+    }
 }
