@@ -27,13 +27,24 @@ import sun.reflect.ReflectionFactory;
  */
 public class DynamicResourceMapTest {
 
-    /** What Kryo does: allocate, no constructor, then replay the entries. */
+    /**
+     * What Kryo does: allocate, no constructor, then replay the entries ONE AT A TIME, which is what
+     * {@code MapSerializer.read} does — never {@code putAll}.
+     *
+     * <p>The distinction is load-bearing here, not pedantry. The allocation leaves {@code HashMap.loadFactor}
+     * at <b>0.0</b>, and {@code putAll} pre-sizes the table to {@code ceil(size / loadFactor)} — that is
+     * {@code Infinity}, clamped to {@code MAXIMUM_CAPACITY} — so it tries to allocate a 2^30-entry table,
+     * roughly 4GB. A developer machine's default max heap absorbs that; CI's does not, which made these two
+     * tests fail with OutOfMemoryError on the GitHub runner alone. {@code put} takes the default-capacity
+     * path, so this stands in for Kryo both faithfully and cheaply.
+     */
     private static <T> T reconstructedWithoutConstructor(final Class<T> type, final Map<String, String> entries) {
         try {
             final Constructor<?> alloc = ReflectionFactory.getReflectionFactory()
                     .newConstructorForSerialization(type, Object.class.getDeclaredConstructor());
             final T instance = type.cast(alloc.newInstance());
-            ((Map<String, String>) instance).putAll(entries);
+            final Map<String, String> map = (Map<String, String>) instance;
+            entries.forEach(map::put);
             return instance;
         } catch (final ReflectiveOperationException ex) {
             throw new IllegalStateException("Could not stand in for Kryo's allocation of " + type, ex);
