@@ -250,7 +250,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         Mockito.when(trips.saveTrip(created)).thenReturn(true);
 
         final TripDto body = new TripDto(null, "Rome 2027", "Ten days", null, false, null, null, 40, null,
-                null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null);
         final Response response = resource.create(CSRF_OK, body);
 
         assertOk(response);
@@ -286,7 +286,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         Mockito.when(trips.saveTrip(existing)).thenReturn(true);
 
         final TripDto body = new TripDto(null, "Renamed", null, null, false, null, null, null, null,
-                null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null);
         assertOk(resource.update(TRIP_ID, CSRF_OK, body));
 
         Assert.assertEquals(existing.getTitle(), "Renamed");

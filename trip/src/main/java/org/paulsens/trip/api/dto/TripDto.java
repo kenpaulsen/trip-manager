@@ -30,6 +30,7 @@ public record TripDto(
         String director,
         String localGuide,
         String facilitators,
+        String flyerUrl,
         String nonHostedTripUrl,
         Integer nonHostedRegNumber,
         List<String> people,
@@ -38,7 +39,7 @@ public record TripDto(
     /** The same trip without its itinerary, for list responses. */
     public TripDto withoutEvents() {
         return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
-                provider, language, estimatedPrice, director, localGuide, facilitators, nonHostedTripUrl,
-                nonHostedRegNumber, people, null);
+                provider, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
+                nonHostedTripUrl, nonHostedRegNumber, people, null);
     }
 }

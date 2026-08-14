@@ -246,6 +246,7 @@ public class TripTest {
                 .director("Fr John")
                 .localGuide("Marija")
                 .facilitators("Ken + Audie")
+                .flyerUrl("https://somewhere/flyer.pdf")
                 .nonHostedTripUrl("https://somewhere")
                 .nonHostedRegNumber(12)
                 .tripEvents(FakeData.getFakeTrips().get(0).getTripEvents())

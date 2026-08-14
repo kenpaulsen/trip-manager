@@ -450,6 +450,7 @@ public class FakeData {
                 .language(Language.English)
                 .estimatedPrice("$3,000")
                 .director("Fr. Demo Director")
+                .flyerUrl("https://example.com/demo-flyer.pdf")     // the only seed with a flyer link
                 .startDate(LocalDateTime.now().plusDays(30))
                 .endDate(LocalDateTime.now().plusDays(40))
                 .people(new ArrayList<>(List.of(allPeople.get(2))))

@@ -71,6 +71,8 @@ public final class Trip implements Serializable {
     private String localGuide;                          // The local guide of the trip
     @JsonProperty("facilitators")
     private String facilitators;                        // The facilitators or "organizers" of the trip;
+    @JsonProperty("flyerUrl")
+    private String flyerUrl;                            // Optional printable flyer (PDF or image) for the trip
     @JsonProperty("nonHostedTripUrl")
     private String nonHostedTripUrl;                    // For non-hosted trips, a URL for more info
     @JsonProperty("nonHostedRegNumber")

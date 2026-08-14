@@ -255,8 +255,8 @@ public class ApiCoverageTailTest extends ResourceTestSupport {
         final LocalDateTime start = LocalDateTime.of(2027, 5, 1, 8, 0);
         final LocalDateTime end = LocalDateTime.of(2027, 5, 10, 20, 0);
         final TripDto body = new TripDto(null, null, "New description", Boolean.TRUE, false, start, end, 25,
-                "CFPW", null, "$3000", "Fr. Director", "Guide", "Facilitators", "https://info.example", null,
-                null, null);
+                "CFPW", null, "$3000", "Fr. Director", "Guide", "Facilitators", "https://flyer.example/f.pdf",
+                "https://info.example", null, null, null);
         assertOk(resource.update("t1", CSRF_OK, body));
 
         Assert.assertEquals(existing.getDescription(), "New description");
@@ -269,6 +269,7 @@ public class ApiCoverageTailTest extends ResourceTestSupport {
         Assert.assertEquals(existing.getDirector(), "Fr. Director");
         Assert.assertEquals(existing.getLocalGuide(), "Guide");
         Assert.assertEquals(existing.getFacilitators(), "Facilitators");
+        Assert.assertEquals(existing.getFlyerUrl(), "https://flyer.example/f.pdf");
         Assert.assertEquals(existing.getNonHostedTripUrl(), "https://info.example");
     }
 

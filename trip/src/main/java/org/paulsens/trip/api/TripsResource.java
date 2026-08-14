@@ -328,7 +328,7 @@ public class TripsResource extends BaseResource {
         final TripDto dto = TripMapper.INSTANCE.toDto(trip);
         return new TripDto(dto.id(), dto.title(), dto.description(), dto.openToPublic(), dto.chatEnabled(),
                 dto.startDate(), dto.endDate(), dto.regLimit(), dto.provider(), dto.language(),
-                dto.estimatedPrice(), dto.director(), dto.localGuide(), dto.facilitators(),
+                dto.estimatedPrice(), dto.director(), dto.localGuide(), dto.facilitators(), dto.flyerUrl(),
                 dto.nonHostedTripUrl(), dto.nonHostedRegNumber(), dto.people(), eventDtos(trip, me));
     }
 
@@ -383,6 +383,9 @@ public class TripsResource extends BaseResource {
         }
         if (body.facilitators() != null) {
             trip.setFacilitators(body.facilitators());
+        }
+        if (body.flyerUrl() != null) {
+            trip.setFlyerUrl(body.flyerUrl());
         }
         if (body.nonHostedTripUrl() != null) {
             trip.setNonHostedTripUrl(body.nonHostedTripUrl());
