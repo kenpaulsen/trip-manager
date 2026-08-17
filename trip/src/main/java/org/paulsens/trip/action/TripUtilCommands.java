@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.LocalMode;
@@ -245,6 +246,52 @@ public class TripUtilCommands {
 
     public LocalDateTime localDateTimeNow() {
         return LocalDateTime.now();
+    }
+
+    /**
+     * The title a flight trip-event carries, e.g. {@code "PDX -> FCO"}.
+     *
+     * <p>Airport codes are uppercased and trimmed so the title does not depend on how the manager typed them.
+     *
+     * @param startIATA departure airport code
+     * @param endIATA   arrival airport code
+     * @return the composed title
+     */
+    public String composeFlightTitle(final String startIATA, final String endIATA) {
+        return blankToEmpty(startIATA).trim().toUpperCase() + " -> " + blankToEmpty(endIATA).trim().toUpperCase();
+    }
+
+    /**
+     * The notes body for a flight trip-event, e.g.
+     * {@code "Alaska Airlines AS 123: 8:15am -> 11:45am (9h 10m)"}, with a {@code +1} marker when the flight
+     * lands on a later calendar day.
+     *
+     * <p>This used to be a JSFT script inline in {@code trip/edit.xhtml}, where nothing could unit-test it and a
+     * null field would abort the whole block. Two bugs came out of the move: the departure time was formatted
+     * with {@code K} (hour 0-11), so a 12:15pm departure read {@code 0:15pm}; and the overnight marker compared
+     * {@code dayOfYear}, which goes negative across New Year, so a 31-Dec flight lost its {@code +1}.
+     *
+     * @param flightNumber airline and flight number, free text
+     * @param start        departure date and time
+     * @param end          arrival date and time
+     * @param duration     duration as the manager typed it, e.g. {@code "9h 10m"}
+     * @return the composed notes
+     */
+    public String composeFlightNotes(final String flightNumber, final LocalDateTime start, final LocalDateTime end,
+            final String duration) {
+        final String overnight = (start != null && end != null && end.toLocalDate().isAfter(start.toLocalDate()))
+                ? " +1" : "";
+        return blankToEmpty(flightNumber).trim() + ": " + flightClock(start) + " -> " + flightClock(end) + overnight
+                + " (" + blankToEmpty(duration).trim() + ")";
+    }
+
+    /** Wall-clock half of a flight time, lowercased: {@code 8:15am}. */
+    private String flightClock(final LocalDateTime when) {
+        return when == null ? "" : formatDateTime("h:mma", when).toLowerCase(Locale.ROOT);
+    }
+
+    private static String blankToEmpty(final String value) {
+        return value == null ? "" : value;
     }
 
     public ZonedDateTime withTimeZone(final LocalDateTime time, final String zoneId) {
