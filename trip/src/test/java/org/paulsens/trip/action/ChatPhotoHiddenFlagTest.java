@@ -9,6 +9,7 @@ import org.paulsens.trip.model.chat.ChatAttachment;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * The uploader's "keep off the public site" choice, end to end through the send-time plumbing: the tray JSON
@@ -50,7 +51,7 @@ public class ChatPhotoHiddenFlagTest {
                 Person.Id.from("uploader"), "Uploader", List.of(hidden, visible),
                 new AuditActor("uploader@example.com", "uploader"));
 
-        final List<MediaItem> album = DAO.getInstance().getMediaInSlot("tripChat-hidden-flag-trip");
+        final List<MediaItem> album = DAO.getInstance().getMediaInSlot("tripChat-hidden-flag-trip", Cached.NO);
         Assert.assertEquals(album.size(), 2);
         final MediaItem hiddenRow = album.stream()
                 .filter(item -> item.getS3Key().equals("chat/hidden-flag-trip/one.jpg"))

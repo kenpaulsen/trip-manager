@@ -28,6 +28,7 @@ import org.paulsens.trip.web.Sessions;
 
 import static org.paulsens.trip.action.TripUtilCommands.addMessage;
 import static org.paulsens.trip.dynamo.CredentialsDAO.IS_ADMIN;
+import org.paulsens.trip.cache.Cached;
 
 @Slf4j
 @Named("pass")
@@ -35,7 +36,7 @@ import static org.paulsens.trip.dynamo.CredentialsDAO.IS_ADMIN;
 @ApplicationScoped
 public class PassCommands {
     public boolean userExistsWithEmail(final String email) {
-        return DAO.getInstance().getPersonByEmail(email) != null;
+        return DAO.getInstance().getPersonByEmail(email, Cached.NO) != null;
     }
 
     /**
@@ -167,7 +168,7 @@ public class PassCommands {
             throw new IllegalArgumentException("Email or password is blank.");
         }
         try {
-            return DAO.getInstance().getCredsByEmailAndPass(email, pass);
+            return DAO.getInstance().getCredsByEmailAndPass(email, pass, Cached.NO);
         } catch (final RuntimeException ex) {
             log.error("Failed to get creds for: " + email, ex);
             return null;
@@ -178,7 +179,7 @@ public class PassCommands {
         if (Util.isBlank(email)) {
             throw new IllegalArgumentException("Email is blank.");
         }
-        return DAO.getInstance().adminGetCredsByEmail(email)
+        return DAO.getInstance().adminGetCredsByEmail(email, Cached.NO)
                 
                 ;
     }
@@ -228,7 +229,7 @@ public class PassCommands {
             throw new IllegalArgumentException("Email or password is blank.");
         }
         try {
-            return DAO.getInstance().getCredsByEmailAdminOnly(email, id);
+            return DAO.getInstance().getCredsByEmailAdminOnly(email, id, Cached.NO);
         } catch (final RuntimeException ex) {
             log.error("Failed to get creds for: " + email, ex);
             return null;
@@ -276,7 +277,7 @@ public class PassCommands {
             return false;
         }
         final DAO dao = DAO.getInstance();
-        final Person person = dao.getPersonByEmail(email);
+        final Person person = dao.getPersonByEmail(email, Cached.NO);
         final Creds currCreds = getCreds(email, currPass);
         if ((currCreds == null) || (person == null)) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Person or credentials missing!", "");
@@ -293,7 +294,7 @@ public class PassCommands {
     public Boolean deleteCreds(final String email) {
         // The plain (no-password, no-viewMap) read: this is not an authorization -- removeCreds carries its
         // own gate -- just a lookup of whose remember-me tokens die if the removal succeeds.
-        final Creds doomed = DAO.getInstance().getCredsForCodeLogin(email);
+        final Creds doomed = DAO.getInstance().getCredsForCodeLogin(email, Cached.NO);
         final Boolean result = DAO.getInstance().removeCreds(email);
         if (Boolean.TRUE.equals(result) && doomed != null && doomed.getUserId() != null) {
             RememberMeService.getInstance().revokeAllFor(doomed.getUserId());
@@ -357,7 +358,7 @@ public class PassCommands {
      */
     private Boolean setPass(final String email, final String pass) {
         final DAO dao = DAO.getInstance();
-        final Person person = dao.getPersonByEmail(email);
+        final Person person = dao.getPersonByEmail(email, Cached.NO);
         if (person == null) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
                     "Check email address, and make sure you have registered.", "");

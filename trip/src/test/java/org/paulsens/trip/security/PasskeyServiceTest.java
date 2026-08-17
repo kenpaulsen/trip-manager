@@ -13,6 +13,7 @@ import org.paulsens.trip.model.Person;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Full WebAuthn ceremonies against {@link PasskeyService}, with {@link WebAuthnTestFixture} playing the
@@ -66,7 +67,8 @@ public class PasskeyServiceTest {
         Assert.assertNotNull(creds, "a valid assertion should answer the account's creds");
         Assert.assertEquals(creds.getEmail(), "user2");
         // The stored row advanced its counter and lastUsed.
-        final PasskeyCredential used = DAO.getInstance().getPasskey(registered.getCredentialId()).orElseThrow();
+        final PasskeyCredential used = DAO.getInstance().getPasskey(registered.getCredentialId(),
+                Cached.NO).orElseThrow();
         Assert.assertEquals(used.getSignCount(), 1L);
     }
 

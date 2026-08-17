@@ -10,6 +10,7 @@ import org.paulsens.trip.model.TripEvent;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Adding and removing a person from a trip event, the way the itinerary page does it.
@@ -52,11 +53,11 @@ public class TripEventParticipationTest {
 
         final List<TripEvent> selection = eventsFor(theTrip, who);
         // Exactly what the page submits: the value that came back through the converter, not the trip's instance.
-        selection.add(DAO.getInstance().getTripEvent(target.getId()));
+        selection.add(DAO.getInstance().getTripEvent(target.getId(), Cached.NO));
 
         Assert.assertTrue(trip.setEventParticipation(theTrip, selection, who));
 
-        final TripEvent stored = DAO.getInstance().getTripEvent(target.getId());
+        final TripEvent stored = DAO.getInstance().getTripEvent(target.getId(), Cached.NO);
         Assert.assertTrue(stored.getParticipants().contains(who),
                 "the added participant must reach the durable store, not just the screen");
     }
@@ -74,7 +75,7 @@ public class TripEventParticipationTest {
 
         Assert.assertTrue(trip.setEventParticipation(theTrip, selection, who));
 
-        final TripEvent stored = DAO.getInstance().getTripEvent(target.getId());
+        final TripEvent stored = DAO.getInstance().getTripEvent(target.getId(), Cached.NO);
         Assert.assertFalse(stored.getParticipants().contains(who), "the removal must reach the durable store");
     }
 
@@ -89,10 +90,10 @@ public class TripEventParticipationTest {
         final List<Person.Id> others = new ArrayList<>(target.getParticipants());
 
         final List<TripEvent> selection = eventsFor(theTrip, who);
-        selection.add(DAO.getInstance().getTripEvent(target.getId()));
+        selection.add(DAO.getInstance().getTripEvent(target.getId(), Cached.NO));
         trip.setEventParticipation(theTrip, selection, who);
 
-        final TripEvent stored = DAO.getInstance().getTripEvent(target.getId());
+        final TripEvent stored = DAO.getInstance().getTripEvent(target.getId(), Cached.NO);
         Assert.assertTrue(stored.getParticipants().containsAll(others),
                 "everyone already on the event must still be on it: " + stored.getParticipants());
     }
@@ -112,7 +113,7 @@ public class TripEventParticipationTest {
                 .filter(te -> !te.getParticipants().contains(who))
                 .findFirst().orElseThrow();
 
-        final TripEvent fromDao = DAO.getInstance().getTripEvent(inTrip.getId());
+        final TripEvent fromDao = DAO.getInstance().getTripEvent(inTrip.getId(), Cached.NO);
         Assert.assertNotSame(fromDao, inTrip, "a DAO read returns a copy; that is the whole trap");
         Assert.assertEquals(fromDao, inTrip, "and it is equal by value, so every contains() check still passed");
 
@@ -121,7 +122,7 @@ public class TripEventParticipationTest {
         fromDao.setParticipants(updated);
         trip.saveTrip(theTrip);
 
-        final TripEvent stored = DAO.getInstance().getTripEvent(inTrip.getId());
+        final TripEvent stored = DAO.getInstance().getTripEvent(inTrip.getId(), Cached.NO);
         Assert.assertFalse(stored.getParticipants().contains(who),
                 "mutating a detached copy must NOT persist -- if it does, the reason for setEventParticipation "
                         + "has changed and this test should be revisited");
@@ -152,12 +153,12 @@ public class TripEventParticipationTest {
         final Trip theTrip = trip();
         final Person.Id who = FakeData.getFakePeople().get(0).getId();
         final TripEvent inTrip = theTrip.getTripEvents().get(0);
-        final TripEvent detachedRow = DAO.getInstance().getTripEvent(inTrip.getId());
+        final TripEvent detachedRow = DAO.getInstance().getTripEvent(inTrip.getId(), Cached.NO);
         Assert.assertNotSame(detachedRow, inTrip, "precondition: the row is a copy, as it is after the picker");
 
         Assert.assertTrue(trip.saveEventNote(theTrip, detachedRow, who, "bring the blue folder"));
 
-        final TripEvent stored = DAO.getInstance().getTripEvent(inTrip.getId());
+        final TripEvent stored = DAO.getInstance().getTripEvent(inTrip.getId(), Cached.NO);
         Assert.assertEquals(stored.getPrivNotes().get(who), "bring the blue folder",
                 "a note typed after using the picker must still reach the durable store");
     }
@@ -172,7 +173,7 @@ public class TripEventParticipationTest {
         trip.saveEventNote(theTrip, event, mine, "mine");
         trip.saveEventNote(theTrip, event, theirs, "theirs");
 
-        final TripEvent stored = DAO.getInstance().getTripEvent(event.getId());
+        final TripEvent stored = DAO.getInstance().getTripEvent(event.getId(), Cached.NO);
         Assert.assertEquals(stored.getPrivNotes().get(mine), "mine");
         Assert.assertEquals(stored.getPrivNotes().get(theirs), "theirs",
                 "private notes are per person; one must not overwrite another");
@@ -185,7 +186,7 @@ public class TripEventParticipationTest {
         final TripEvent event = theTrip.getTripEvents().get(2);
         Assert.assertTrue(trip.saveEventNote(theTrip, event, who, null));
         Assert.assertEquals(
-                DAO.getInstance().getTripEvent(event.getId()).getPrivNotes().get(who), "");
+                DAO.getInstance().getTripEvent(event.getId(), Cached.NO).getPrivNotes().get(who), "");
     }
 
     @Test

@@ -27,6 +27,7 @@ import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatSettings;
 import org.paulsens.trip.util.EmailAddresses;
 import org.paulsens.trip.util.TripThreads;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * The site-wide technical-support channel ({@code support:main}) -- the {@code PhotoChatCommands} precedent:
@@ -101,7 +102,7 @@ public class SupportChatCommands {
         if (personId == null) {
             return false;
         }
-        return dao().getChatMembership(ChatChannel.Id.forSupport(), personId)
+        return dao().getChatMembership(ChatChannel.Id.forSupport(), personId, Cached.NO)
                 .map(ChatMembership::getState)
                 .map(state -> state == ChatMembership.MemberState.JOINED)
                 .orElse(false);
@@ -112,9 +113,9 @@ public class SupportChatCommands {
     /** The resolved people currently holding a JOINED membership row -- the support-admin list. */
     public List<Person> listAdmins() {
         final List<Person> admins = new ArrayList<>();
-        for (final ChatMembership row : dao().listChatMembers(ChatChannel.Id.forSupport())) {
+        for (final ChatMembership row : dao().listChatMembers(ChatChannel.Id.forSupport(), Cached.NO)) {
             if (row.getState() == ChatMembership.MemberState.JOINED) {
-                dao().getPerson(row.getPersonId()).ifPresent(admins::add);
+                dao().getPerson(row.getPersonId(), Cached.NO).ifPresent(admins::add);
             }
         }
         return admins;
@@ -125,7 +126,7 @@ public class SupportChatCommands {
             return false;
         }
         final ChatChannel channel = ensureSupportChannel(callerSource.get().auditActor());
-        final ChatMembership existing = dao().getChatMembership(channel.getId(), target).orElse(null);
+        final ChatMembership existing = dao().getChatMembership(channel.getId(), target, Cached.NO).orElse(null);
         final ChatMembership joined = (existing == null)
                 ? ChatMembership.joining(channel.getId(), target, Instant.now())
                 : existing.withState(ChatMembership.MemberState.JOINED);
@@ -141,7 +142,7 @@ public class SupportChatCommands {
             return false;
         }
         final ChatMembership existing =
-                dao().getChatMembership(ChatChannel.Id.forSupport(), target).orElse(null);
+                dao().getChatMembership(ChatChannel.Id.forSupport(), target, Cached.NO).orElse(null);
         if (existing == null || existing.getState() != ChatMembership.MemberState.JOINED) {
             return true;
         }
@@ -174,7 +175,7 @@ public class SupportChatCommands {
         }
         final List<SupportMessage> result = new ArrayList<>();
         for (final ChatMessage message : dao().getRawChatMessagesBefore(
-                ChatChannel.Id.forSupport(), null, Math.min(Math.max(limit, 1), 200))) {
+                ChatChannel.Id.forSupport(), null, Math.min(Math.max(limit, 1), 200), Cached.NO)) {
             if (message.getDeletedAt() == null) {
                 result.add(new SupportMessage(authorName(message.getAuthorId()),
                         message.getSentAt() == null ? "" : SENT_FORMAT.format(message.getSentAt()),
@@ -262,7 +263,7 @@ public class SupportChatCommands {
         if (authorId == null) {
             return "(system)";
         }
-        return dao().getPerson(authorId).map(Person::getPreferredName).orElse(authorId.getValue());
+        return dao().getPerson(authorId, Cached.NO).map(Person::getPreferredName).orElse(authorId.getValue());
     }
 
     // ------------------------------------------------------------------ requests
@@ -278,9 +279,9 @@ public class SupportChatCommands {
         if (me == null) {
             return fail("Not signed in", "Sign in to send a support request.");
         }
-        final Person target = dao().getPerson(targetId).orElse(null);
+        final Person target = dao().getPerson(targetId, Cached.NO).orElse(null);
         final Family family = (me.getFamilyId() == null) ? null
-                : dao().getFamily(me.getFamilyId()).orElse(null);
+                : dao().getFamily(me.getFamilyId(), Cached.NO).orElse(null);
         if (target == null || family == null || !family.isMember(targetId)) {
             return fail("Not in your family", "You can only request removal of your own family members.");
         }
@@ -309,7 +310,7 @@ public class SupportChatCommands {
             return fail("Not signed in", "Sign in to send a support request.");
         }
         final Family family = (me.getFamilyId() == null) ? null
-                : dao().getFamily(me.getFamilyId()).orElse(null);
+                : dao().getFamily(me.getFamilyId(), Cached.NO).orElse(null);
         final int limit = config.getInt(KnownSettings.FAMILY_MAX_MEMBERS, 1, 100);
         if (family == null || family.getSize() < limit) {
             return fail("Limit not reached", "Your family is not at the size limit.");
@@ -342,7 +343,7 @@ public class SupportChatCommands {
         if (me == null) {
             return fail("Not signed in", "Sign in to send a support request.");
         }
-        final Person subject = dao().getPerson(subjectId).orElse(null);
+        final Person subject = dao().getPerson(subjectId, Cached.NO).orElse(null);
         if (subject == null
                 || !PersonCommands.getPersonCommands().canAccessUserId(me, subjectId)) {
             return fail("Not your profile", "You can only ask about a profile you manage.");
@@ -410,7 +411,7 @@ public class SupportChatCommands {
             final Instant now) {
         final Instant floor = now.minus(REQUEST_COOLDOWN);
         for (final ChatMessage message : dao().getRawChatMessagesBefore(channel.getId(), null,
-                GUARD_SCAN_LIMIT)) {
+                GUARD_SCAN_LIMIT, Cached.NO)) {
             if (message.getSentAt() != null && message.getSentAt().isBefore(floor)) {
                 return false;   // newest-first: everything after this is older still
             }
@@ -468,7 +469,7 @@ public class SupportChatCommands {
 
     ChatChannel ensureSupportChannel(final AuditActor actor) {
         final ChatChannel.Id id = ChatChannel.Id.forSupport();
-        final ChatChannel existing = dao().getChatChannel(id).orElse(null);
+        final ChatChannel existing = dao().getChatChannel(id, Cached.NO).orElse(null);
         if (existing != null) {
             return existing;
         }
@@ -505,7 +506,7 @@ public class SupportChatCommands {
         if (caller == null || !caller.isAuthenticated()) {
             return null;
         }
-        return dao().getPerson(caller.personId()).orElse(null);
+        return dao().getPerson(caller.personId(), Cached.NO).orElse(null);
     }
 
     private boolean requireConfigAdmin() {

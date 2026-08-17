@@ -27,6 +27,7 @@ import org.primefaces.model.dashboard.DashboardModel;
 import org.primefaces.model.dashboard.DashboardWidget;
 import org.primefaces.model.dashboard.DefaultDashboardModel;
 import org.primefaces.model.dashboard.DefaultDashboardWidget;
+import org.paulsens.trip.cache.Cached;
 
 @Slf4j
 @Named("todo")
@@ -73,7 +74,7 @@ public class TodoCommands {
 
     public List<TodoItem> getTodos(final String tripId) {
         try {
-            return DAO.getInstance().getTodoItems(tripId);
+            return DAO.getInstance().getTodoItems(tripId, Cached.NO);
         } catch (final RuntimeException ex) {
             log.error("Failed to get todos for trip '" + tripId + "'!", ex);
             return Collections.emptyList();
@@ -102,7 +103,7 @@ public class TodoCommands {
             return null;
         }
         try {
-            return DAO.getInstance().getTodoItem(tripId, dataId).orElse(null);
+            return DAO.getInstance().getTodoItem(tripId, dataId, Cached.NO).orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Failed to get trip '" + tripId + "' todo for '" + dataId.getValue() + "'!", ex);
             return null;

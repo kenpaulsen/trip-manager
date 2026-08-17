@@ -27,6 +27,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.EmailAddresses;
 import org.paulsens.trip.util.ScopeUtil;
 import org.paulsens.trip.web.Sessions;
+import org.paulsens.trip.cache.Cached;
 
 @Slf4j
 @Named("people")
@@ -102,7 +103,7 @@ public class PersonCommands {
             return false;
         }
         try {
-            final Person existing = DAO.getInstance().getPersonByEmail(person.getEmail());
+            final Person existing = DAO.getInstance().getPersonByEmail(person.getEmail(), Cached.NO);
             return existing != null && !existing.getId().equals(person.getId());
         } catch (final RuntimeException ex) {
             log.error("Email-uniqueness lookup failed for '{}'; allowing the save.", person.getEmail(), ex);
@@ -120,7 +121,7 @@ public class PersonCommands {
             return null;
         }
         try {
-            final Person existing = DAO.getInstance().getPersonByEmail(email.trim());
+            final Person existing = DAO.getInstance().getPersonByEmail(email.trim(), Cached.NO);
             return (existing == null || existing.getId().equals(selfId)) ? null : describeOwner(existing);
         } catch (final RuntimeException ex) {
             // Same rule as the save-time check: a failed lookup must not block the edit.
@@ -206,7 +207,7 @@ public class PersonCommands {
         if (person == null || person.getFamilyId() == null) {
             return List.of();
         }
-        final Family family = DAO.getInstance().getFamily(person.getFamilyId()).orElse(null);
+        final Family family = DAO.getInstance().getFamily(person.getFamilyId(), Cached.NO).orElse(null);
         if (family == null) {
             return List.of();
         }
@@ -221,7 +222,7 @@ public class PersonCommands {
         }
         final List<Person> managers = new ArrayList<>();
         for (final Person.Id id : candidates) {
-            final Person manager = DAO.getInstance().getPerson(id).orElse(null);
+            final Person manager = DAO.getInstance().getPerson(id, Cached.NO).orElse(null);
             if (manager != null && EmailAddresses.isValid(manager.getEmail())) {
                 managers.add(manager);
             }
@@ -236,7 +237,7 @@ public class PersonCommands {
 
     public List<Person> searchPeople(final String query, final int limit) {
         try {
-            return DAO.getInstance().searchPeople(query, limit);
+            return DAO.getInstance().searchPeople(query, limit, Cached.NO);
         } catch (final RuntimeException ex) {
             log.error("Failed to search people for '{}'!", query, ex);
             return Collections.emptyList();
@@ -431,7 +432,7 @@ public class PersonCommands {
 
     public Person getPersonByEmail(final String email) {
         try {
-            return DAO.getInstance().getPersonByEmail(email);
+            return DAO.getInstance().getPersonByEmail(email, Cached.NO);
         } catch (final RuntimeException ex) {
             log.error("Exception while trying to find person with email: " + email);
             throw new IllegalStateException(ex);
@@ -503,7 +504,7 @@ public class PersonCommands {
 
     private Person getPersonInternal(final Person.Id id, final Supplier<Person> defaultPersonSupplier) {
         try {
-            return DAO.getInstance().getPerson(id).orElse(defaultPersonSupplier.get());
+            return DAO.getInstance().getPerson(id, Cached.YES).orElse(defaultPersonSupplier.get());
         } catch (final RuntimeException ex) {
             log.error("Failed to get person '" + id + "'!", ex);
             return defaultPersonSupplier.get();

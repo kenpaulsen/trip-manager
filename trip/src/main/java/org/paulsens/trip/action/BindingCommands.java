@@ -14,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.CompositeKey;
+import org.paulsens.trip.cache.Cached;
 
 @Slf4j
 @Named("bind")
@@ -24,7 +25,7 @@ public class BindingCommands {
 
     public List<String> getBindings(final String id, final BindingType type, final BindingType destType) {
         try {
-            return dao.getBindings(id, type, destType);
+            return dao.getBindings(id, type, destType, Cached.YES);
         } catch (final IllegalArgumentException ex) {
             // A caller bug (e.g. a bare id for a composite type) must surface, not read as "no bindings".
             throw ex;

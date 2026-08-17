@@ -33,6 +33,7 @@ import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.chat.ChatAttachment;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Chat photo storage, exposed to pages as {@code #{chatPhotos}}. Sits between the upload servlet / send path
@@ -328,7 +329,7 @@ public class ChatPhotos {
         }
         final List<MediaItem> rows;
         try {
-            rows = DAO.getInstance().getAllMedia();
+            rows = DAO.getInstance().getAllMedia(Cached.NO);
         } catch (final RuntimeException ex) {
             log.error("Photo objects deleted, but the media rows could not be listed for cleanup", ex);
             return;

@@ -21,6 +21,7 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * The family invariants. Every test drives the REAL command + DAO + in-memory store; only the caller (no
@@ -43,7 +44,7 @@ public class FamilyCommandsTest {
                 "Lucy", "Paulsen", LocalDate.of(2015, 5, 4), Person.Sex.Female, null, false);
 
         assertNotNull(member, "Create should succeed");
-        final Family family = dao.getFamily(reload(owner).getFamilyId()).orElseThrow();
+        final Family family = dao.getFamily(reload(owner).getFamilyId(), Cached.NO).orElseThrow();
         assertTrue(family.isManager(owner.getId()), "The owner becomes the first manager");
         assertTrue(family.isMember(member.getId()));
         assertFalse(family.isManager(member.getId()), "A plain member is not a manager");
@@ -85,7 +86,7 @@ public class FamilyCommandsTest {
         final Person refused = commandsFor(member).createFamilyMember(
                 "Friend", "Smith", LocalDate.of(2010, 7, 1), Person.Sex.Male, null, false);
         assertNull(refused, "A non-manager member must be refused");
-        final Family family = dao.getFamily(reload(owner).getFamilyId()).orElseThrow();
+        final Family family = dao.getFamily(reload(owner).getFamilyId(), Cached.NO).orElseThrow();
         assertEquals(family.getSize(), 2, "The family must be unchanged");
     }
 
@@ -96,7 +97,8 @@ public class FamilyCommandsTest {
         Mockito.when(tinyLimit.getInt(KnownSettings.FAMILY_MAX_MEMBERS, 1, 100)).thenReturn(2);
         final FamilyCommands commands = new FamilyCommands(tinyLimit, new AuditCommands(), callerOf(owner, false));
 
-        assertNotNull(commands.createFamilyMember("A", "One", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false));
+        assertNotNull(commands.createFamilyMember("A",
+                "One", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false));
         assertNull(commands.createFamilyMember("B", "Two", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false),
                 "The member that would exceed family.maxMembers must be refused");
         assertTrue(commands.isAtLimit());
@@ -110,17 +112,20 @@ public class FamilyCommandsTest {
         assertTrue(dao.savePerson(existing));
 
         final Person owner = savedOwner();
-        assertNull(commandsFor(owner).createFamilyMember("Dup", "Email", LocalDate.of(2000, 1, 1), Person.Sex.Female, email, false),
+        assertNull(commandsFor(owner).createFamilyMember("Dup",
+                "Email", LocalDate.of(2000, 1, 1), Person.Sex.Female, email, false),
                 "An email already belonging to another person must be refused");
     }
 
     @Test
     public void requiredNamesAreEnforcedAndNobodySignedInIsRefused() {
         final Person owner = savedOwner();
-        assertNull(commandsFor(owner).createFamilyMember(" ", "Last", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false));
+        assertNull(commandsFor(owner).createFamilyMember(" ",
+                "Last", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false));
         final FamilyCommands anonymous = new FamilyCommands(
                 new ConfigCommands(), new AuditCommands(), () -> new Caller(null, false, null, grantsNothing()));
-        assertNull(anonymous.createFamilyMember("First", "Last", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false));
+        assertNull(anonymous.createFamilyMember("First",
+                "Last", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false));
     }
 
     // ------------------------------------------------------------------ the admin-grant survival property
@@ -158,8 +163,10 @@ public class FamilyCommandsTest {
     public void deleteIsBlockedByTripMembershipOrTransactions() throws IOException {
         final Person owner = savedOwner();
         final FamilyCommands commands = commandsFor(owner);
-        final Person onTrip = commands.createFamilyMember("On", "Trip", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
-        final Person hasTx = commands.createFamilyMember("Has", "Tx", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
+        final Person onTrip = commands.createFamilyMember("On",
+                "Trip", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
+        final Person hasTx = commands.createFamilyMember("Has",
+                "Tx", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
         assertNotNull(onTrip);
         assertNotNull(hasTx);
 
@@ -182,13 +189,14 @@ public class FamilyCommandsTest {
         final FamilyCommands commands = commandsFor(owner);
         final Person spouse = commands.createFamilyMember("S", "P", LocalDate.of(2000, 1, 1), Person.Sex.Female,
                 "s." + unique() + "@example.com", true);
-        final Person typo = commands.createFamilyMember("Typo", "Oops", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
+        final Person typo = commands.createFamilyMember("Typo",
+                "Oops", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
         assertNotNull(spouse);
         assertNotNull(typo);
 
         assertTrue(commands.deleteFamilyMember(typo.getId()));
-        assertTrue(dao.getPerson(typo.getId()).isEmpty(), "Soft-deleted people stop resolving");
-        final Family family = dao.getFamily(reload(owner).getFamilyId()).orElseThrow();
+        assertTrue(dao.getPerson(typo.getId(), Cached.NO).isEmpty(), "Soft-deleted people stop resolving");
+        final Family family = dao.getFamily(reload(owner).getFamilyId(), Cached.NO).orElseThrow();
         assertFalse(family.isMember(typo.getId()));
         assertFalse(reload(owner).getManagedUsers().contains(typo.getId()),
                 "Every manager forgets the deleted member");
@@ -205,7 +213,8 @@ public class FamilyCommandsTest {
         final FamilyCommands commands = commandsFor(owner);
         final Person spouse = commands.createFamilyMember("S", "P", LocalDate.of(2000, 1, 1), Person.Sex.Female,
                 "s." + unique() + "@example.com", false);
-        final Person child = commands.createFamilyMember("C", "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
+        final Person child = commands.createFamilyMember("C",
+                "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
         assertNotNull(spouse);
         assertNotNull(child);
 
@@ -226,10 +235,12 @@ public class FamilyCommandsTest {
         final Person owner = savedOwner();
         final FamilyCommands commands = commandsFor(owner);
 
-        assertNull(commands.createFamilyMember("Bogus", "Manager", LocalDate.of(2000, 1, 1), Person.Sex.Male, "foo", true),
+        assertNull(commands.createFamilyMember("Bogus", "Manager", LocalDate.of(2000, 1, 1), Person.Sex.Male,
+                "foo", true),
                 "'foo' is not an address; it cannot buy a manager grant");
 
-        final Person member = commands.createFamilyMember("Half", "Baked", LocalDate.of(2000, 1, 1), Person.Sex.Male, "foo", false);
+        final Person member = commands.createFamilyMember("Half", "Baked", LocalDate.of(2000, 1, 1), Person.Sex.Male,
+                "foo", false);
         assertNotNull(member, "A non-manager may still hold whatever the legacy data holds");
         assertFalse(commands.setManager(member.getId(), true),
                 "Granting manager to a member whose 'email' is not an address must be refused");
@@ -253,8 +264,10 @@ public class FamilyCommandsTest {
     public void theStringOverloadRefusesABlankSex() {
         final Person owner = savedOwner();
         final FamilyCommands commands = commandsFor(owner);
-        assertNull(commands.addFamilyMember("No", "Sex", LocalDate.of(2000, 1, 1), "", null, false), "Blank sex is refused");
-        assertNull(commands.addFamilyMember("No", "Sex", LocalDate.of(2000, 1, 1), null, null, false), "Null sex is refused");
+        assertNull(commands.addFamilyMember("No", "Sex", LocalDate.of(2000, 1, 1), "", null, false),
+                "Blank sex is refused");
+        assertNull(commands.addFamilyMember("No", "Sex", LocalDate.of(2000, 1, 1), null, null, false),
+                "Null sex is refused");
         assertNotNull(commands.addFamilyMember("Has", "Sex", LocalDate.of(2000, 1, 1), "Male", null, false));
     }
 
@@ -283,11 +296,12 @@ public class FamilyCommandsTest {
         assertNull(reload(owner).getFamilyId(),
                 "The refused create must not have created anything (checked before any write)");
 
-        final Person child = commands.createFamilyMember("C", "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
+        final Person child = commands.createFamilyMember("C",
+                "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
         assertNotNull(child, "A NON-manager without an email is fine");
         assertFalse(commands.setManager(child.getId(), true),
                 "Granting manager to an email-less member must be refused");
-        assertFalse(dao.getFamily(reload(owner).getFamilyId()).orElseThrow().isManager(child.getId()));
+        assertFalse(dao.getFamily(reload(owner).getFamilyId(), Cached.NO).orElseThrow().isManager(child.getId()));
 
         // A standalone (no-family) email-less person: adminLink must refuse the as-manager link too.
         final Person standalone = Person.builder().first("E").last("L").build();
@@ -313,7 +327,8 @@ public class FamilyCommandsTest {
     public void theLastManagerOfAMultiPersonFamilyCannotBeRevoked() throws IOException {
         final Person owner = savedOwner();
         final FamilyCommands commands = commandsFor(owner);
-        assertNotNull(commands.createFamilyMember("Kid", "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false));
+        assertNotNull(commands.createFamilyMember("Kid",
+                "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false));
         assertFalse(commands.setManager(owner.getId(), false),
                 "Revoking the only manager of a 2+ person family must be refused");
     }
@@ -326,7 +341,7 @@ public class FamilyCommandsTest {
         final Person spouse = savedOwner();     // existing person with their own login story
         assertTrue(commandsAdmin().adminLink(anchor.getId(), spouse.getId(), true));
 
-        final Family family = dao.getFamily(reload(anchor).getFamilyId()).orElseThrow();
+        final Family family = dao.getFamily(reload(anchor).getFamilyId(), Cached.NO).orElseThrow();
         assertTrue(family.isMember(spouse.getId()));
         assertTrue(family.isManager(spouse.getId()));
         assertTrue(reload(spouse).getManagedUsers().contains(anchor.getId()));
@@ -352,14 +367,16 @@ public class FamilyCommandsTest {
         // Family: owner (email), spouse-manager (no email), child (no email).
         final Person owner = savedOwner();
         final FamilyCommands commands = commandsFor(owner);
-        final Person spouse = commands.createFamilyMember("S", "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
-        final Person child = commands.createFamilyMember("C", "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
+        final Person spouse = commands.createFamilyMember("S",
+                "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
+        final Person child = commands.createFamilyMember("C",
+                "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
         assertNotNull(spouse);
         assertNotNull(child);
         // A no-email manager can no longer be CREATED through the commands (the email gate), but legacy
         // data can still hold one -- an email can be removed after the grant. Build that state directly;
         // the unlink rules must keep protecting against it.
-        final Family withNoEmailManager = dao.getFamily(reload(owner).getFamilyId()).orElseThrow();
+        final Family withNoEmailManager = dao.getFamily(reload(owner).getFamilyId(), Cached.NO).orElseThrow();
         withNoEmailManager.getManagerIds().add(spouse.getId());
         assertTrue(dao.saveFamily(withNoEmailManager));
 
@@ -388,13 +405,14 @@ public class FamilyCommandsTest {
     public void unlinkingTheLastMemberDeletesTheFamilyRow() throws IOException {
         final Person owner = savedOwner();
         final FamilyCommands commands = commandsFor(owner);
-        final Person child = commands.createFamilyMember("C", "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
+        final Person child = commands.createFamilyMember("C",
+                "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
         assertNotNull(child);
         final Family.Id familyId = reload(owner).getFamilyId();
 
         assertTrue(commandsAdmin().adminUnlink(child.getId()));
         assertTrue(commandsAdmin().adminUnlink(owner.getId()));
-        assertTrue(dao.getFamily(familyId).isEmpty(), "An emptied family row is deleted");
+        assertTrue(dao.getFamily(familyId, Cached.NO).isEmpty(), "An emptied family row is deleted");
     }
 
     // ------------------------------------------------------------------ resync
@@ -433,7 +451,7 @@ public class FamilyCommandsTest {
         final Family.Id first = reload(owner).getFamilyId();
         assertNotNull(commands.createFamilyMember("B", "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false));
         assertEquals(reload(owner).getFamilyId(), first, "A second add reuses the same family");
-        assertEquals(dao.getFamily(first).orElseThrow().getSize(), 3);
+        assertEquals(dao.getFamily(first, Cached.NO).orElseThrow().getSize(), 3);
     }
 
     // ------------------------------------------------------------------ profile completeness
@@ -462,7 +480,8 @@ public class FamilyCommandsTest {
         assertFalse(commands.isMyFamilyManager());
         assertTrue(commands.getMembers(null).isEmpty());
 
-        final Person child = commands.createFamilyMember("Kid", "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
+        final Person child = commands.createFamilyMember("Kid",
+                "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
         assertNotNull(child);
         final Family family = commands.getMyFamily();
         assertNotNull(family);
@@ -483,7 +502,8 @@ public class FamilyCommandsTest {
 
         final FamilyCommands commands = commandsFor(owner);
         assertNull(commands.getMyFamily(), "A pointer at a missing row answers null, never throws");
-        final Person child = commands.createFamilyMember("Kid", "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
+        final Person child = commands.createFamilyMember("Kid",
+                "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
         assertNotNull(child, "The next member-add replaces the dangling family");
         assertNotNull(commands.getMyFamily());
         assertTrue(commands.getMyFamily().isMember(child.getId()));
@@ -499,7 +519,8 @@ public class FamilyCommandsTest {
         assertFalse(commands.setManager(Person.Id.from("nobody"), true), "No family to manage");
 
         final Person stranger = savedOwner();
-        assertNotNull(commands.createFamilyMember("Kid", "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false));
+        assertNotNull(commands.createFamilyMember("Kid",
+                "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false));
         assertFalse(commands.deleteFamilyMember(stranger.getId()), "Not in your family");
         assertFalse(commands.setManager(stranger.getId(), true), "Not in your family");
         assertTrue(commands.setManager(loner.getId(), true), "Granting an existing manager is a no-op");
@@ -515,8 +536,9 @@ public class FamilyCommandsTest {
     public void resyncToleratesAFamilyReferencingAMissingPerson() throws IOException {
         final Person owner = savedOwner();
         final FamilyCommands commands = commandsFor(owner);
-        assertNotNull(commands.createFamilyMember("Kid", "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false));
-        final Family family = dao.getFamily(reload(owner).getFamilyId()).orElseThrow();
+        assertNotNull(commands.createFamilyMember("Kid",
+                "P", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false));
+        final Family family = dao.getFamily(reload(owner).getFamilyId(), Cached.NO).orElseThrow();
         family.getMemberIds().add(Person.Id.from("ghost-" + unique()));
         assertTrue(dao.saveFamily(family));
 
@@ -532,7 +554,7 @@ public class FamilyCommandsTest {
         final Person member = commandsFor(owner).createFamilyMember(
                 "Plain", "Member", LocalDate.of(2012, 2, 2), Person.Sex.Male, null, false);
         assertNotNull(member);
-        final Family family = dao.getFamily(reload(owner).getFamilyId()).orElseThrow();
+        final Family family = dao.getFamily(reload(owner).getFamilyId(), Cached.NO).orElseThrow();
 
         assertTrue(commandsFor(owner).canManage(family), "a manager manages");
         assertFalse(commandsFor(reload(member)).canManage(family), "a plain member does not");
@@ -593,7 +615,7 @@ public class FamilyCommandsTest {
     }
 
     private Person reload(final Person person) {
-        return dao.getPerson(person.getId()).orElseThrow();
+        return dao.getPerson(person.getId(), Cached.NO).orElseThrow();
     }
 
     private FamilyCommands commandsFor(final Person person) {

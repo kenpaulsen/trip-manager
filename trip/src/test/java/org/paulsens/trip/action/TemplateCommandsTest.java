@@ -12,6 +12,7 @@ import org.paulsens.trip.model.TemplateKind;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
+import org.paulsens.trip.cache.Cached;
 
 /** The template manager's contracts: privilege gating, referenced-delete refusal, starters, detection. */
 public class TemplateCommandsTest {
@@ -23,7 +24,7 @@ public class TemplateCommandsTest {
         // (still in the store) vanish from list reads. Re-saving each stored current -- a version-matching
         // save -- puts them back in the cache.
         for (final String id : StarterTemplates.IDS) {
-            DAO.getInstance().getTemplateRecord(id)
+            DAO.getInstance().getTemplateRecord(id, Cached.NO)
                     .ifPresent(rec -> DAO.getInstance().saveTemplate(rec.getCurrent(), 5));
         }
     }
@@ -73,7 +74,7 @@ public class TemplateCommandsTest {
         // FakeData's intro/event instances reference text-only -- deleting it would break published pages.
         final TemplateCommands admin = as(true);
         Assert.assertFalse(admin.deleteTemplate(StarterTemplates.TEXT_ONLY_ID));
-        Assert.assertTrue(DAO.getInstance().getTemplate(StarterTemplates.TEXT_ONLY_ID).isPresent());
+        Assert.assertTrue(DAO.getInstance().getTemplate(StarterTemplates.TEXT_ONLY_ID, Cached.NO).isPresent());
         Assert.assertFalse(admin.deleteTemplate(" "));
     }
 
@@ -83,9 +84,9 @@ public class TemplateCommandsTest {
         // Nothing references the image starter; it deletes -- and install restores exactly the missing one.
         Assert.assertEquals(admin.installStarterTemplates(), 0, "all starters present already");
         Assert.assertTrue(admin.deleteTemplate(StarterTemplates.IMAGE_ID));
-        Assert.assertTrue(DAO.getInstance().getTemplate(StarterTemplates.IMAGE_ID).isEmpty());
+        Assert.assertTrue(DAO.getInstance().getTemplate(StarterTemplates.IMAGE_ID, Cached.NO).isEmpty());
         Assert.assertEquals(admin.installStarterTemplates(), 1);
-        Assert.assertTrue(DAO.getInstance().getTemplate(StarterTemplates.IMAGE_ID).isPresent());
+        Assert.assertTrue(DAO.getInstance().getTemplate(StarterTemplates.IMAGE_ID, Cached.NO).isPresent());
     }
 
     @Test

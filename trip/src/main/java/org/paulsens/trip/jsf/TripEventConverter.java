@@ -6,12 +6,13 @@ import jakarta.faces.convert.Converter;
 import jakarta.faces.convert.FacesConverter;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.TripEvent;
+import org.paulsens.trip.cache.Cached;
 
 @FacesConverter("tripEvent")
 public class TripEventConverter implements Converter<TripEvent> {
     @Override
     public TripEvent getAsObject(FacesContext ctx, UIComponent comp, String value) {
-        return DAO.getInstance().getTripEvent(value);
+        return DAO.getInstance().getTripEvent(value, Cached.YES);
     }
 
     @Override

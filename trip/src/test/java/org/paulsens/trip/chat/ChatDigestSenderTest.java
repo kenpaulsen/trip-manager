@@ -26,6 +26,7 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 import software.amazon.awssdk.services.ses.model.SendEmailResponse;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * {@link ChatDigestSender}: who gets a daily digest, and what stops tomorrow repeating today.
@@ -99,7 +100,8 @@ public class ChatDigestSenderTest {
         final Person person = new Person();
         person.setId(MEMBER);
         person.setEmail("member@example.org");
-        Mockito.when(dao.getPerson(MEMBER)).thenReturn(Optional.of(person));
+        Mockito.when(dao.getPerson(ArgumentMatchers.eq(MEMBER),
+                ArgumentMatchers.eq(Cached.NO))).thenReturn(Optional.of(person));
         Mockito.when(mail.formatEmail(ArgumentMatchers.any())).thenReturn("Member <member@example.org>");
     }
 
@@ -163,7 +165,8 @@ public class ChatDigestSenderTest {
     /** No usable address is not a retryable failure: report done so the run can finish. */
     @Test
     public void aRecipientWithNoAddressIsTreatedAsDoneNotFailed() {
-        Mockito.when(dao.getPerson(MEMBER)).thenReturn(Optional.empty());
+        Mockito.when(dao.getPerson(ArgumentMatchers.eq(MEMBER),
+                ArgumentMatchers.eq(Cached.NO))).thenReturn(Optional.empty());
 
         Assert.assertTrue(sender.send(candidate(pageOf(message("100", null)))));
 
@@ -176,7 +179,8 @@ public class ChatDigestSenderTest {
 
     @Test
     public void aFailureInsideDeliveryIsReportedNotThrown() {
-        Mockito.when(dao.getPerson(MEMBER)).thenThrow(new IllegalStateException("store is down"));
+        Mockito.when(dao.getPerson(ArgumentMatchers.eq(MEMBER),
+                ArgumentMatchers.eq(Cached.NO))).thenThrow(new IllegalStateException("store is down"));
 
         Assert.assertFalse(sender.send(candidate(pageOf(message("100", null)))),
                 "one bad recipient must not abort the whole scheduled run");
@@ -200,7 +204,7 @@ public class ChatDigestSenderTest {
 
     @Test
     public void nobodyIsACandidateWhenThereAreNoTrips() {
-        Mockito.when(dao.getActiveTrips(ArgumentMatchers.any()))
+        Mockito.when(dao.getActiveTrips(ArgumentMatchers.any(), ArgumentMatchers.eq(Cached.NO)))
                 .thenReturn(List.of());
 
         Assert.assertTrue(sender.candidates(Instant.now()).isEmpty());
@@ -215,14 +219,14 @@ public class ChatDigestSenderTest {
      */
     @Test
     public void theTripLookbackReachesWellPastTheEndOfATrip() {
-        Mockito.when(dao.getActiveTrips(ArgumentMatchers.any()))
+        Mockito.when(dao.getActiveTrips(ArgumentMatchers.any(), ArgumentMatchers.eq(Cached.NO)))
                 .thenReturn(List.of());
 
         sender.candidates(Instant.now());
 
         final org.mockito.ArgumentCaptor<LocalDateTime> cutoff =
                 org.mockito.ArgumentCaptor.forClass(LocalDateTime.class);
-        Mockito.verify(dao).getActiveTrips(cutoff.capture());
+        Mockito.verify(dao).getActiveTrips(cutoff.capture(), ArgumentMatchers.eq(Cached.NO));
         Assert.assertTrue(cutoff.getValue().isBefore(LocalDateTime.now().minusDays(300)),
                 "the cutoff must reach past any archiveAfterTripEndDays setting");
     }
@@ -250,17 +254,17 @@ public class ChatDigestSenderTest {
     }
 
     private void tripPipeline(final Trip trip, final ChatChannel chan, final ChatMembership member) {
-        Mockito.when(dao.getActiveTrips(ArgumentMatchers.any()))
+        Mockito.when(dao.getActiveTrips(ArgumentMatchers.any(), ArgumentMatchers.eq(Cached.NO)))
                 .thenReturn(List.of(trip));
-        Mockito.when(dao.getChatChannel(ArgumentMatchers.any()))
+        Mockito.when(dao.getChatChannel(ArgumentMatchers.any(), ArgumentMatchers.eq(Cached.NO)))
                 .thenReturn(Optional.ofNullable(chan));
-        Mockito.when(dao.listChatMembers(ArgumentMatchers.any()))
+        Mockito.when(dao.listChatMembers(ArgumentMatchers.any(), ArgumentMatchers.eq(Cached.NO)))
                 .thenReturn(List.of(member));
-        Mockito.when(dao.getChatCursor(ArgumentMatchers.any(), ArgumentMatchers.any()))
+        Mockito.when(dao.getChatCursor(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.eq(Cached.NO)))
                 .thenReturn(Optional.empty());
         Mockito.when(dao.getChatMessagesSince(ArgumentMatchers.any(), ArgumentMatchers.any(),
                         ArgumentMatchers.anyInt(), ArgumentMatchers.any(), ArgumentMatchers.any(),
-                        ArgumentMatchers.any(), ArgumentMatchers.any()))
+                        ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.eq(Cached.NO)))
                 .thenReturn(pageOf(message("100", null)));
     }
 
@@ -299,7 +303,7 @@ public class ChatDigestSenderTest {
         final Person noAddress = new Person();
         noAddress.setId(MEMBER);
         noAddress.setEmail("just a name, not an address");
-        Mockito.when(dao.getPerson(MEMBER))
+        Mockito.when(dao.getPerson(ArgumentMatchers.eq(MEMBER), ArgumentMatchers.eq(Cached.NO)))
                 .thenReturn(Optional.of(noAddress));
         tripPipeline(trip(), channel(null), membership(ChatMembership.MemberState.JOINED, true));
 
@@ -313,7 +317,7 @@ public class ChatDigestSenderTest {
         tripPipeline(disabled, channel(null), membership(ChatMembership.MemberState.JOINED, true));
 
         Assert.assertTrue(sender.candidates(Instant.now()).isEmpty());
-        Mockito.verify(dao, Mockito.never()).getChatChannel(ArgumentMatchers.any());
+        Mockito.verify(dao, Mockito.never()).getChatChannel(ArgumentMatchers.any(), ArgumentMatchers.eq(Cached.NO));
     }
 
     @Test
@@ -342,7 +346,7 @@ public class ChatDigestSenderTest {
         tripPipeline(longOver, channel(null), membership(ChatMembership.MemberState.JOINED, true));
 
         Assert.assertTrue(sender.candidates(Instant.now()).isEmpty());
-        Mockito.verify(dao, Mockito.never()).listChatMembers(ArgumentMatchers.any());
+        Mockito.verify(dao, Mockito.never()).listChatMembers(ArgumentMatchers.any(), ArgumentMatchers.eq(Cached.NO));
     }
 
     @Test
@@ -351,7 +355,7 @@ public class ChatDigestSenderTest {
         tripPipeline(trip(), channel(null), membership(ChatMembership.MemberState.JOINED, true));
         Mockito.when(dao.getChatMessagesSince(ArgumentMatchers.any(), ArgumentMatchers.any(),
                         ArgumentMatchers.anyInt(), ArgumentMatchers.any(), ArgumentMatchers.any(),
-                        ArgumentMatchers.any(), ArgumentMatchers.any()))
+                        ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.eq(Cached.NO)))
                 .thenReturn(pageOf(message("100", Instant.now())));
 
         Assert.assertTrue(sender.candidates(Instant.now()).isEmpty());
@@ -370,7 +374,7 @@ public class ChatDigestSenderTest {
         final ChatMessage.Id cursor = ChatMessage.Id.of(now.minusSeconds(3_600).toEpochMilli());
         final ChatMessage.Id watermark = ChatMessage.Id.of(now.minusSeconds(60).toEpochMilli());
         tripPipeline(trip(), channel(null), membership(ChatMembership.MemberState.JOINED, true));
-        Mockito.when(dao.getChatCursor(ArgumentMatchers.any(), ArgumentMatchers.any()))
+        Mockito.when(dao.getChatCursor(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.eq(Cached.NO)))
                 .thenReturn(Optional.of(cursor));
         Mockito.when(cache.getValue(ArgumentMatchers.contains("digest")))
                 .thenReturn(Optional.of(watermark.getValue()));
@@ -381,7 +385,7 @@ public class ChatDigestSenderTest {
                 org.mockito.ArgumentCaptor.forClass(ChatMessage.Id.class);
         Mockito.verify(dao).getChatMessagesSince(ArgumentMatchers.any(), floor.capture(),
                 ArgumentMatchers.anyInt(), ArgumentMatchers.any(), ArgumentMatchers.any(),
-                ArgumentMatchers.any(), ArgumentMatchers.any());
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.eq(Cached.NO));
         Assert.assertEquals(floor.getValue(), watermark, "the later floor (the watermark here) must win");
     }
 
@@ -401,7 +405,7 @@ public class ChatDigestSenderTest {
                 org.mockito.ArgumentCaptor.forClass(ChatMessage.Id.class);
         Mockito.verify(dao).getChatMessagesSince(ArgumentMatchers.any(), floor.capture(),
                 ArgumentMatchers.anyInt(), ArgumentMatchers.any(), ArgumentMatchers.any(),
-                ArgumentMatchers.any(), ArgumentMatchers.any());
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.eq(Cached.NO));
         Assert.assertNotNull(floor.getValue(), "a null floor digests the trip's opening conversation");
         Assert.assertEquals(floor.getValue(), ChatMessage.Id.of(now.minus(Duration.ofDays(7)).toEpochMilli()));
     }

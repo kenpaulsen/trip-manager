@@ -36,6 +36,7 @@ import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.PasskeyCredential;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * WebAuthn (passkey) ceremonies over the Yubico library: registration binds a new keypair to the signed-in
@@ -183,7 +184,7 @@ public class PasskeyService {
                 return null;
             }
             final String credentialId = result.getCredential().getCredentialId().getBase64Url();
-            final PasskeyCredential passkey = DAO.getInstance().getPasskey(credentialId).orElse(null);
+            final PasskeyCredential passkey = DAO.getInstance().getPasskey(credentialId, Cached.NO).orElse(null);
             if (passkey == null) {
                 return null;
             }
@@ -197,7 +198,7 @@ public class PasskeyService {
             passkey.setLastUsed(Instant.now().getEpochSecond());
             DAO.getInstance().savePasskey(passkey);
             // Role and account state come from the pass table NOW; the key only proves who is holding it.
-            return DAO.getInstance().getCredsForCodeLogin(passkey.getEmail());
+            return DAO.getInstance().getCredsForCodeLogin(passkey.getEmail(), Cached.NO);
         } catch (final Exception ex) {
             log.info("Passkey assertion failed: {}", ex.toString());
             return null;
@@ -260,14 +261,14 @@ public class PasskeyService {
 
         @Override
         public Set<PublicKeyCredentialDescriptor> getCredentialIdsForUsername(final String username) {
-            return DAO.getInstance().getPasskeysForEmailAndRp(username, rpId).stream()
+            return DAO.getInstance().getPasskeysForEmailAndRp(username, rpId, Cached.NO).stream()
                     .map(DynamoCredentialRepository::descriptorOf)
                     .collect(Collectors.toSet());
         }
 
         @Override
         public Optional<ByteArray> getUserHandleForUsername(final String username) {
-            return DAO.getInstance().getPasskeysForEmailAndRp(username, rpId).stream()
+            return DAO.getInstance().getPasskeysForEmailAndRp(username, rpId, Cached.NO).stream()
                     .findFirst()
                     .map(passkey -> b64(passkey.getUserHandle()));
         }
@@ -275,7 +276,7 @@ public class PasskeyService {
         @Override
         public Optional<String> getUsernameForUserHandle(final ByteArray userHandle) {
             final Person.Id userId = Person.Id.from(new String(userHandle.getBytes(), StandardCharsets.UTF_8));
-            return DAO.getInstance().getPasskeysForUser(userId).stream()
+            return DAO.getInstance().getPasskeysForUser(userId, Cached.NO).stream()
                     .filter(passkey -> rpId.equals(passkey.getRpId()))
                     .findFirst()
                     .map(PasskeyCredential::getEmail);
@@ -283,14 +284,14 @@ public class PasskeyService {
 
         @Override
         public Optional<RegisteredCredential> lookup(final ByteArray credentialId, final ByteArray userHandle) {
-            return DAO.getInstance().getPasskey(credentialId.getBase64Url())
+            return DAO.getInstance().getPasskey(credentialId.getBase64Url(), Cached.NO)
                     .filter(passkey -> rpId.equals(passkey.getRpId()))
                     .map(DynamoCredentialRepository::registeredOf);
         }
 
         @Override
         public Set<RegisteredCredential> lookupAll(final ByteArray credentialId) {
-            return DAO.getInstance().getPasskey(credentialId.getBase64Url()).stream()
+            return DAO.getInstance().getPasskey(credentialId.getBase64Url(), Cached.NO).stream()
                     .map(DynamoCredentialRepository::registeredOf)
                     .collect(Collectors.toSet());
         }

@@ -20,6 +20,7 @@ import org.paulsens.trip.model.chat.ChatSettings;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Core membership / settings rules.
@@ -79,7 +80,7 @@ public class ChatCommandsTest {
         Assert.assertFalse(chat.mute(TRIP, victim, Instant.now().plusSeconds(600), "nope", Caller.forActor(stranger)));
         Assert.assertFalse(chat.updateSettings(TRIP, ChatSettings.defaults(), Caller.forActor(stranger)));
         Assert.assertNull(DAO.getInstance()
-                        .getChatMembership(ChatChannel.Id.forTrip(TRIP), victim).orElse(null),
+                        .getChatMembership(ChatChannel.Id.forTrip(TRIP), victim, Cached.NO).orElse(null),
                 "a denied removal must not have written a membership row");
     }
 
@@ -136,7 +137,7 @@ public class ChatCommandsTest {
         final Person.Id target = Person.Id.from("implicit-user-" + System.nanoTime());
         Assert.assertTrue(chat.removeMember(tripId, target, "test remove", Caller.forActor(actor)));
         final ChatMembership row = DAO.getInstance()
-                .getChatMembership(ChatChannel.Id.forTrip(tripId), target).orElse(null);
+                .getChatMembership(ChatChannel.Id.forTrip(tripId), target, Cached.NO).orElse(null);
         Assert.assertNotNull(row, "REMOVE of implicit member must write a row");
         Assert.assertEquals(row.getState(), ChatMembership.MemberState.REMOVED);
     }
@@ -155,7 +156,7 @@ public class ChatCommandsTest {
         chat.leave(tripId, me, actor);
         Assert.assertTrue(chat.rejoin(tripId, me, actor));
         final ChatMembership after = DAO.getInstance()
-                .getChatMembership(channel.getId(), me).orElseThrow();
+                .getChatMembership(channel.getId(), me, Cached.NO).orElseThrow();
         Assert.assertEquals(after.getJoinedAt(), firstJoin);
         Assert.assertEquals(after.getState(), ChatMembership.MemberState.JOINED);
         Assert.assertNotNull(after.getAddedBackAt());

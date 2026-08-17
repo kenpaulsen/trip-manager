@@ -7,6 +7,7 @@ import org.paulsens.trip.model.RememberToken;
 import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
 import org.testng.annotations.Test;
+import org.paulsens.trip.cache.Cached;
 
 /** {@link RememberMeDAO} round-trips against the in-memory fake store (which is the real local-mode store). */
 public class RememberMeDAOTest {
@@ -26,7 +27,7 @@ public class RememberMeDAOTest {
                 Person.Id.from("rm-legacy"), "who@example.org", now, now, now + 3600);
 
         Assert.assertTrue(DAO.getInstance().saveRememberToken(legacy));
-        final RememberToken read = DAO.getInstance().getRememberToken(selector).orElseThrow();
+        final RememberToken read = DAO.getInstance().getRememberToken(selector, Cached.NO).orElseThrow();
         Assert.assertNull(read.getPrevValidatorHash());
         Assert.assertNull(read.getRotatedAt());
         Assert.assertEquals(read, legacy);
@@ -39,12 +40,12 @@ public class RememberMeDAOTest {
         final RememberToken token = token(selector, Person.Id.from("rm-round-trip"));
 
         Assert.assertTrue(DAO.getInstance().saveRememberToken(token));
-        final Optional<RememberToken> read = DAO.getInstance().getRememberToken(selector);
+        final Optional<RememberToken> read = DAO.getInstance().getRememberToken(selector, Cached.NO);
         Assert.assertTrue(read.isPresent());
         Assert.assertEquals(read.get(), token);
 
         Assert.assertTrue(DAO.getInstance().deleteRememberToken(selector));
-        Assert.assertTrue(DAO.getInstance().getRememberToken(selector).isEmpty());
+        Assert.assertTrue(DAO.getInstance().getRememberToken(selector, Cached.NO).isEmpty());
     }
 
     @Test
@@ -60,9 +61,9 @@ public class RememberMeDAOTest {
 
         Assert.assertEquals(DAO.getInstance().deleteRememberTokensForUser(victim), 2);
 
-        Assert.assertTrue(DAO.getInstance().getRememberToken(victimSel1).isEmpty());
-        Assert.assertTrue(DAO.getInstance().getRememberToken(victimSel2).isEmpty());
-        Assert.assertTrue(DAO.getInstance().getRememberToken(bystanderSel).isPresent(),
+        Assert.assertTrue(DAO.getInstance().getRememberToken(victimSel1, Cached.NO).isEmpty());
+        Assert.assertTrue(DAO.getInstance().getRememberToken(victimSel2, Cached.NO).isEmpty());
+        Assert.assertTrue(DAO.getInstance().getRememberToken(bystanderSel, Cached.NO).isPresent(),
                 "another person's token must survive");
     }
 
@@ -82,9 +83,9 @@ public class RememberMeDAOTest {
 
     @Test
     public void blankAndUnknownLookupsAnswerEmpty() {
-        Assert.assertTrue(DAO.getInstance().getRememberToken(null).isEmpty());
-        Assert.assertTrue(DAO.getInstance().getRememberToken("").isEmpty());
-        Assert.assertTrue(DAO.getInstance().getRememberToken("never-issued").isEmpty());
+        Assert.assertTrue(DAO.getInstance().getRememberToken(null, Cached.NO).isEmpty());
+        Assert.assertTrue(DAO.getInstance().getRememberToken("", Cached.NO).isEmpty());
+        Assert.assertTrue(DAO.getInstance().getRememberToken("never-issued", Cached.NO).isEmpty());
         Assert.assertEquals(DAO.getInstance().deleteRememberTokensForUser(null), 0);
     }
 }

@@ -13,6 +13,7 @@ import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Sends chat notifications by email.
@@ -84,7 +85,7 @@ public final class EmailChatNotifier implements ChatNotifier {
         if (!claim(dedupe)) {
             return;
         }
-        final Person person = DAO.getInstance().getPerson(recipient).orElse(null);
+        final Person person = DAO.getInstance().getPerson(recipient, Cached.NO).orElse(null);
         final String to = person == null ? null : mail.formatEmail(person);
         if (to == null) {
             log.debug("Skipping chat notification for {}: no usable email address", recipient);

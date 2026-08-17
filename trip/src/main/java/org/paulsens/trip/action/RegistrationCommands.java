@@ -13,6 +13,7 @@ import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.Registration;
+import org.paulsens.trip.cache.Cached;
 
 @Slf4j
 @Named("reg")
@@ -160,7 +161,7 @@ public class RegistrationCommands {
             if (!canRegisterFor(me, who)) {
                 continue;
             }
-            final Registration stored = DAO.getInstance().getRegistration(trip.getId(), who).orElse(null);
+            final Registration stored = DAO.getInstance().getRegistration(trip.getId(), who, Cached.NO).orElse(null);
             if (stored == null || stored.getStatus() == Registration.Status.NOT_REGISTERED) {
                 continue;   // the store no longer agrees they are registered; nothing to edit
             }
@@ -420,12 +421,12 @@ public class RegistrationCommands {
     private Person currentPerson() {
         final Caller caller = callerSource.get();
         return caller.isAuthenticated()
-                ? DAO.getInstance().getPerson(caller.personId()).orElse(null) : null;
+                ? DAO.getInstance().getPerson(caller.personId(), Cached.NO).orElse(null) : null;
     }
 
     public List<Registration> getRegistrations(final String tripId) {
         try {
-            return DAO.getInstance().getRegistrations(tripId);
+            return DAO.getInstance().getRegistrations(tripId, Cached.NO);
         } catch (final RuntimeException ex) {
             log.error("Failed to get registrations for trip '" + tripId + "'!", ex);
             return Collections.emptyList();
@@ -477,7 +478,7 @@ public class RegistrationCommands {
             return null;
         }
         try {
-            return DAO.getInstance().getRegistration(tripId, userId)
+            return DAO.getInstance().getRegistration(tripId, userId, Cached.NO)
                     .orElse(createRegistration(tripId, userId));
         } catch (final RuntimeException ex) {
             log.error("Failed to get registration for user '" + userId.getValue()

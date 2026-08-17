@@ -13,6 +13,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
+import org.paulsens.trip.cache.Cached;
 
 @Slf4j
 @Named("pdv")
@@ -54,7 +55,7 @@ public class PersonDataValueCommands {
 
     public static Map<DataId, PersonDataValue> getPersonDataValues(final Person.Id userId) {
         try {
-            return DAO.getInstance().getPersonDataValues(userId);
+            return DAO.getInstance().getPersonDataValues(userId, Cached.NO);
         } catch (final RuntimeException ex) {
             log.error("Failed to get PersonDataValues for user: '" + userId + "'!", ex);
             return new HashMap<>();
@@ -71,7 +72,7 @@ public class PersonDataValueCommands {
             return null;
         }
         try {
-            return DAO.getInstance().getPersonDataValue(userId, pdvId).orElse(null);
+            return DAO.getInstance().getPersonDataValue(userId, pdvId, Cached.NO).orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Failed to get PersonDataValue for user '" + userId + "' with id '" + pdvId + "'!", ex);
             return null;

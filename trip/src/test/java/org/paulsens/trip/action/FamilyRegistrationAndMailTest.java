@@ -23,6 +23,7 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Phase-4 behaviors: the family party registration (ordinary rows + reserved keys), the approval-email
@@ -44,8 +45,10 @@ public class FamilyRegistrationAndMailTest {
     public void registerPartyWritesOrdinaryRowsWithThePartyStamps() throws IOException {
         final Person owner = savedPerson("own");
         final FamilyCommands family = familyFor(owner);
-        final Person kid = family.createFamilyMember("Kid", "Party", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
-        final Person other = family.createFamilyMember("Other", "Party", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
+        final Person kid = family.createFamilyMember("Kid",
+                "Party", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
+        final Person other = family.createFamilyMember("Other",
+                "Party", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
         assertNotNull(kid);
         assertNotNull(other);
         final Trip trip = savedTrip();
@@ -63,14 +66,14 @@ public class FamilyRegistrationAndMailTest {
         final List<Person> registered = regCommandsFor(owner).registerParty(trip, selected, regs);
         assertEquals(registered.size(), 2);
 
-        final Registration kidRow = dao.getRegistration(trip.getId(), kid.getId()).orElseThrow();
-        final Registration ownerRow = dao.getRegistration(trip.getId(), owner.getId()).orElseThrow();
+        final Registration kidRow = dao.getRegistration(trip.getId(), kid.getId(), Cached.NO).orElseThrow();
+        final Registration ownerRow = dao.getRegistration(trip.getId(), owner.getId(), Cached.NO).orElseThrow();
         assertEquals(kidRow.getStatus(), Registration.Status.PENDING);
         assertEquals(kidRow.getRegisteredBy(), owner.getId().getValue());
         assertNotNull(kidRow.getParty());
         assertEquals(kidRow.getParty(), ownerRow.getParty(), "One shared party id per submit");
-        assertTrue(dao.getRegistration(trip.getId(), other.getId()).isEmpty()
-                        || dao.getRegistration(trip.getId(), other.getId()).orElseThrow().getStatus()
+        assertTrue(dao.getRegistration(trip.getId(), other.getId(), Cached.NO).isEmpty()
+                        || dao.getRegistration(trip.getId(), other.getId(), Cached.NO).orElseThrow().getStatus()
                                 == Registration.Status.NOT_REGISTERED,
                 "The unselected traveler is untouched");
     }
@@ -79,7 +82,8 @@ public class FamilyRegistrationAndMailTest {
     public void registerPartyRefusesStrangersAndRespectsCanJoin() throws IOException {
         final Person owner = savedPerson("own2");
         final FamilyCommands family = familyFor(owner);
-        final Person kid = family.createFamilyMember("Kid2", "Party", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
+        final Person kid = family.createFamilyMember("Kid2",
+                "Party", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
         assertNotNull(kid);
         final Person stranger = savedPerson("str");
         final Trip trip = savedTrip();

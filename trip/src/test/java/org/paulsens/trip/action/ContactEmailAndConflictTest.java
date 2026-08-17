@@ -17,6 +17,7 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Email identity around family members: the profile page's on-blur conflict lookup, and the display-only
@@ -84,9 +85,11 @@ public class ContactEmailAndConflictTest {
     public void everyMailableManagerIsShownCreatorFirstAndTheDisplayMatchesTheSendPath() throws IOException {
         final Person creator = savedPerson("First", "Manager", "creator." + unique() + "@example.com");
         final FamilyCommands family = familyFor(creator);
-        final Person spouse = family.createFamilyMember("Second", "Manager", LocalDate.of(2000, 1, 1), Person.Sex.Female,
+        final Person spouse = family.createFamilyMember("Second",
+                "Manager", LocalDate.of(2000, 1, 1), Person.Sex.Female,
                 "spouse." + unique() + "@example.com", true);
-        final Person child = family.createFamilyMember("Kid", "Manager", LocalDate.of(2000, 1, 1), Person.Sex.Male, null, false);
+        final Person child = family.createFamilyMember("Kid",
+                "Manager", LocalDate.of(2000, 1, 1), Person.Sex.Male, null, false);
         assertNotNull(spouse);
         assertNotNull(child);
 
@@ -108,7 +111,8 @@ public class ContactEmailAndConflictTest {
     public void anUnusableManagerAddressIsSkippedRatherThanShown() throws IOException {
         final Person parent = savedPerson("Ken", "Paulsen", "parent." + unique() + "@example.com");
         final FamilyCommands family = familyFor(parent);
-        final Person child = family.createFamilyMember("Kid", "P", LocalDate.of(2000, 1, 1), Person.Sex.Male, null, false);
+        final Person child = family.createFamilyMember("Kid",
+                "P", LocalDate.of(2000, 1, 1), Person.Sex.Male, null, false);
         assertNotNull(child);
 
         // The legacy shape: a manager row whose "email" is a login name, not an address.
@@ -175,7 +179,7 @@ public class ContactEmailAndConflictTest {
     }
 
     private Person reload(final Person person) {
-        return dao.getPerson(person.getId()).orElseThrow();
+        return dao.getPerson(person.getId(), Cached.NO).orElseThrow();
     }
 
     private FamilyCommands familyFor(final Person person) {

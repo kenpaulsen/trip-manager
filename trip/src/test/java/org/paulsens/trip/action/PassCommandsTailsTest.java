@@ -8,6 +8,7 @@ import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
 import org.testng.Assert;
 import org.testng.annotations.Test;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * {@link PassCommands}' remaining branches: the email-collision revert, the reset flow, and the
@@ -29,7 +30,7 @@ public class PassCommandsTailsTest {
         final long deadline = System.currentTimeMillis() + 5_000;
         try {
             while (org.paulsens.trip.dynamo.DAO.getInstance()
-                    .getPersonByEmail(person.getEmail()) == null) {
+                    .getPersonByEmail(person.getEmail(), Cached.NO) == null) {
                 Assert.assertTrue(System.currentTimeMillis() < deadline, "email mapping never appeared");
                 Thread.sleep(20);
             }
@@ -64,7 +65,7 @@ public class PassCommandsTailsTest {
         final String aliceOriginal = alice.getEmail();
         alice.setEmail("bob-owns-this@example.org");
         final org.paulsens.trip.dynamo.DAO dao = Mockito.mock(org.paulsens.trip.dynamo.DAO.class);
-        Mockito.when(dao.adminGetCredsByEmail("bob-owns-this@example.org"))
+        Mockito.when(dao.adminGetCredsByEmail("bob-owns-this@example.org", Cached.NO))
                 .thenReturn(new Creds("bob-owns-this@example.org", Person.Id.from("bob"), "pw"));
         Mockito.when(dao.savePerson(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(true);

@@ -18,6 +18,7 @@ import org.paulsens.trip.model.chat.ChatSettings;
 import org.paulsens.trip.model.chat.PhotoChatMeta;
 import org.testng.Assert;
 import org.testng.annotations.Test;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * The DAO half of photo threads: per-photo meta (rebuild, cache, invalidation), the roll-up fold into a trip
@@ -44,7 +45,7 @@ public class ChatDAOPhotoTest {
         Assert.assertTrue(dao.putChatReaction(rootReaction(key, BOB, "👍")));
         dao.invalidatePhotoChatMeta(key);
 
-        final PhotoChatMeta meta = dao.getPhotoChatMeta(List.of(key)).get(key);
+        final PhotoChatMeta meta = dao.getPhotoChatMeta(List.of(key), Cached.NO).get(key);
         Assert.assertEquals(meta.getCommentCount(), 1, "a tombstoned comment must not count");
         Assert.assertEquals(meta.getRootReactions().count("👍"), 2);
     }
@@ -53,28 +54,28 @@ public class ChatDAOPhotoTest {
     public void metaIsCachedUntilInvalidated() {
         final String key = key("meta-cache");
         final ChatChannel photo = photoChannel(key);
-        Assert.assertEquals(dao.getPhotoChatMeta(List.of(key)).get(key).getCommentCount(), 0);
+        Assert.assertEquals(dao.getPhotoChatMeta(List.of(key), Cached.NO).get(key).getCommentCount(), 0);
 
         // A write the cache has not been told about is invisible — the hash field is the authority...
         Assert.assertTrue(dao.saveChatMessage(comment(photo, ANN, "hi"), photo, null).isPresent());
         // (the message write itself does not drop pmeta; that is the command layer's job)
-        Assert.assertEquals(dao.getPhotoChatMeta(List.of(key)).get(key).getCommentCount(), 0,
+        Assert.assertEquals(dao.getPhotoChatMeta(List.of(key), Cached.NO).get(key).getCommentCount(), 0,
                 "still the cached zero");
 
         // ...until the field is dropped, after which the next read rebuilds from the store.
         dao.invalidatePhotoChatMeta(key);
-        Assert.assertEquals(dao.getPhotoChatMeta(List.of(key)).get(key).getCommentCount(), 1);
+        Assert.assertEquals(dao.getPhotoChatMeta(List.of(key), Cached.NO).get(key).getCommentCount(), 1);
     }
 
     @Test
     public void metaBatchAnswersEveryKeyEvenTheEmptyOnes() {
         final String a = key("batch-a");
         final String b = key("batch-b");
-        final Map<String, PhotoChatMeta> meta = dao.getPhotoChatMeta(List.of(a, b));
+        final Map<String, PhotoChatMeta> meta = dao.getPhotoChatMeta(List.of(a, b), Cached.NO);
         Assert.assertEquals(meta.get(a).getCommentCount(), 0);
         Assert.assertEquals(meta.get(b).getCommentCount(), 0);
-        Assert.assertTrue(dao.getPhotoChatMeta(List.of()).isEmpty());
-        Assert.assertTrue(dao.getPhotoChatMeta(null).isEmpty());
+        Assert.assertTrue(dao.getPhotoChatMeta(List.of(), Cached.NO).isEmpty());
+        Assert.assertTrue(dao.getPhotoChatMeta(null, Cached.NO).isEmpty());
     }
 
     // --- the fold (roll-up read side) ---
@@ -95,7 +96,7 @@ public class ChatDAOPhotoTest {
         dao.invalidatePhotoChatMeta(key);
 
         final Map<ChatMessage.Id, ChatReactionSummary> summaries =
-                dao.getChatReactionSummaries(tripChannel.getId(), List.of(carrier));
+                dao.getChatReactionSummaries(tripChannel.getId(), List.of(carrier), Cached.NO);
         final ChatReactionSummary folded = summaries.get(carrier.getId());
         Assert.assertEquals(folded.count("👍"), 2, "direct + photo = 2 (SUM, not union)");
         Assert.assertTrue(folded.mine("👍", ANN), "mine stays bound to the direct reaction");
@@ -119,7 +120,7 @@ public class ChatDAOPhotoTest {
         dao.invalidatePhotoChatMeta(key);
 
         final Map<ChatMessage.Id, ChatReactionSummary> window =
-                dao.getChatReactionWindow(tripChannel.getId(), bare.getId(), carrier.getId());
+                dao.getChatReactionWindow(tripChannel.getId(), bare.getId(), carrier.getId(), Cached.NO);
         Assert.assertEquals(window.get(carrier.getId()).count("👍"), 1,
                 "a photo-only reaction must reach the window refetch — it is how live clients learn of it");
         Assert.assertFalse(window.containsKey(bare.getId()),
@@ -132,11 +133,11 @@ public class ChatDAOPhotoTest {
         final ChatChannel photo = photoChannel(key);
         final ChatMessage c = dao.saveChatMessage(comment(photo, ANN, "hello"), photo, null).orElseThrow();
 
-        Assert.assertFalse(dao.getChatLastActivity().containsKey(photo.getId().getValue()),
+        Assert.assertFalse(dao.getChatLastActivity(Cached.NO).containsKey(photo.getId().getValue()),
                 "a commented photo must not grow the my-chats last-activity hash");
         // And summarising a photo channel's own page must not recurse into pmeta.
         final Map<ChatMessage.Id, ChatReactionSummary> summaries =
-                dao.getChatReactionSummaries(photo.getId(), List.of(c));
+                dao.getChatReactionSummaries(photo.getId(), List.of(c), Cached.NO);
         Assert.assertEquals(summaries.get(c.getId()).totalCount(), 0);
     }
 
@@ -153,17 +154,17 @@ public class ChatDAOPhotoTest {
 
         // Warm the parent's cached summary, then react on the photo and roll up.
         Assert.assertEquals(dao.getChatReactionSummaries(
-                tripChannel.getId(), List.of(carrier)).get(carrier.getId()).totalCount(), 0);
-        final long versionBefore = dao.getChatReactionsVersion(tripChannel.getId());
+                tripChannel.getId(), List.of(carrier), Cached.NO).get(carrier.getId()).totalCount(), 0);
+        final long versionBefore = dao.getChatReactionsVersion(tripChannel.getId(), Cached.NO);
 
         Assert.assertTrue(dao.putChatReaction(rootReaction(key, BOB, "👍")));
         dao.invalidatePhotoChatMeta(key);
         Assert.assertTrue(dao.rollupPhotoToParent(photo));
 
-        Assert.assertTrue(dao.getChatReactionsVersion(tripChannel.getId()) > versionBefore,
+        Assert.assertTrue(dao.getChatReactionsVersion(tripChannel.getId(), Cached.NO) > versionBefore,
                 "clients watch this version; without the bump the reaction never reaches them");
         Assert.assertEquals(dao.getChatReactionSummaries(
-                        tripChannel.getId(), List.of(carrier)).get(carrier.getId()).count("👍"), 1,
+                        tripChannel.getId(), List.of(carrier), Cached.NO).get(carrier.getId()).count("👍"), 1,
                 "the dropped summary rebuilds with the folded count");
     }
 
@@ -213,16 +214,16 @@ public class ChatDAOPhotoTest {
         final ChatMessage c = dao.saveChatMessage(comment(photo, ANN, "bye"), photo, null).orElseThrow();
         Assert.assertTrue(dao.putChatReaction(rootReaction(key, ANN, "👍")));
         dao.invalidatePhotoChatMeta(key);
-        Assert.assertEquals(dao.getPhotoChatMeta(List.of(key)).get(key).getCommentCount(), 1);
+        Assert.assertEquals(dao.getPhotoChatMeta(List.of(key), Cached.NO).get(key).getCommentCount(), 1);
 
         Assert.assertTrue(dao.purgeChatChannel(photo.getId()).isPresent(),
                 "the purge returns the channel it removed — the caller rolls up to its parent");
 
-        Assert.assertTrue(dao.getChatChannel(photo.getId()).isEmpty(), "channel row gone");
-        Assert.assertTrue(dao.getChatMessage(photo.getId(), c.getId()).isEmpty(), "comment rows gone");
-        Assert.assertEquals(dao.getPhotoChatMeta(List.of(key)).get(key).getCommentCount(), 0,
+        Assert.assertTrue(dao.getChatChannel(photo.getId(), Cached.NO).isEmpty(), "channel row gone");
+        Assert.assertTrue(dao.getChatMessage(photo.getId(), c.getId(), Cached.NO).isEmpty(), "comment rows gone");
+        Assert.assertEquals(dao.getPhotoChatMeta(List.of(key), Cached.NO).get(key).getCommentCount(), 0,
                 "meta rebuilt from an empty partition");
-        Assert.assertEquals(dao.getPhotoChatMeta(List.of(key)).get(key).getRootReactions().totalCount(), 0);
+        Assert.assertEquals(dao.getPhotoChatMeta(List.of(key), Cached.NO).get(key).getRootReactions().totalCount(), 0);
         // Idempotent: a replayed cascade must be harmless.
         Assert.assertTrue(dao.purgeChatChannel(photo.getId()).isEmpty());
         Assert.assertTrue(dao.purgeChatChannel(null).isEmpty());

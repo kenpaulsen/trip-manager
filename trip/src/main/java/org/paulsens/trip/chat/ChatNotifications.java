@@ -17,6 +17,7 @@ import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatNotifyPref;
 import org.paulsens.trip.model.chat.ChatQuote;
 import org.paulsens.trip.util.EmailAddresses;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Decides who hears about a message, and whether they are told what it said.
@@ -187,7 +188,7 @@ public final class ChatNotifications {
         final java.util.LinkedHashSet<Person.Id> all = new java.util.LinkedHashSet<>(trip.getPeople());
         for (final org.paulsens.trip.model.chat.ChatMembership row
                 : DAO.getInstance().listChatMembers(
-                        org.paulsens.trip.model.chat.ChatChannel.Id.forTrip(trip.getId()))) {
+                        org.paulsens.trip.model.chat.ChatChannel.Id.forTrip(trip.getId()), Cached.NO)) {
             if (row.getState() == org.paulsens.trip.model.chat.ChatMembership.MemberState.JOINED) {
                 all.add(row.getPersonId());
             }
@@ -246,7 +247,7 @@ public final class ChatNotifications {
             return false;
         }
         final Optional<ChatMembership> row = DAO.getInstance()
-                .getChatMembership(channelId, person);
+                .getChatMembership(channelId, person, Cached.NO);
         if (row.isPresent()) {
             final ChatMembership member = row.get();
             if (member.getState() == ChatMembership.MemberState.LEFT
@@ -264,7 +265,7 @@ public final class ChatNotifications {
 
     /** False when the person has no address, or the field holds something that is not one (e.g. {@code joe.smith}). */
     private static boolean hasUsableEmail(final Person.Id person) {
-        final boolean usable = DAO.getInstance().getPerson(person)
+        final boolean usable = DAO.getInstance().getPerson(person, Cached.NO)
                 .map(Person::getEmail)
                 .filter(EmailAddresses::isValid)
                 .isPresent();

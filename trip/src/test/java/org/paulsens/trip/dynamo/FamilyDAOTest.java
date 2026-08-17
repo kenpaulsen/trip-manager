@@ -11,6 +11,7 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
+import org.paulsens.trip.cache.Cached;
 
 public class FamilyDAOTest {
     private static DAO dao;
@@ -26,7 +27,7 @@ public class FamilyDAOTest {
         assertTrue(dao.saveFamily(family));
         assertEquals(family.getVersion(), 1L, "A successful save bumps the in-memory version");
 
-        final Family read = dao.getFamily(family.getId()).orElseThrow();
+        final Family read = dao.getFamily(family.getId(), Cached.NO).orElseThrow();
         assertEquals(read, family);
     }
 
@@ -49,7 +50,7 @@ public class FamilyDAOTest {
         final Family family = newFamily();
         assertTrue(dao.saveFamily(family));                       // stored version 1
 
-        final Family other = dao.getFamily(family.getId()).orElseThrow();   // loaded at version 1
+        final Family other = dao.getFamily(family.getId(), Cached.NO).orElseThrow();   // loaded at version 1
         other.getMemberIds().add(Person.Id.from("added-by-other"));
         assertTrue(dao.saveFamily(other));                        // stored version 2
 
@@ -61,7 +62,7 @@ public class FamilyDAOTest {
             assertEquals(family.getVersion(), 1L, "The loser keeps its loaded version so it can retry");
         }
 
-        final Family reread = dao.getFamily(family.getId()).orElseThrow();
+        final Family reread = dao.getFamily(family.getId(), Cached.NO).orElseThrow();
         reread.getMemberIds().add(Person.Id.from("added-by-loser"));
         assertTrue(dao.saveFamily(reread), "Retry after re-read must succeed");
         assertEquals(reread.getVersion(), 3L);
@@ -72,10 +73,10 @@ public class FamilyDAOTest {
         final Family family = newFamily();
         assertTrue(dao.saveFamily(family));
 
-        final Family first = dao.getFamily(family.getId()).orElseThrow();
+        final Family first = dao.getFamily(family.getId(), Cached.NO).orElseThrow();
         first.getMemberIds().add(Person.Id.from("mutated-locally"));
 
-        final Family second = dao.getFamily(family.getId()).orElseThrow();
+        final Family second = dao.getFamily(family.getId(), Cached.NO).orElseThrow();
         assertEquals(second.getMemberIds().size(), 1,
                 "Mutating a read copy must not leak into later reads (the documented DAO copy contract)");
     }
@@ -85,13 +86,13 @@ public class FamilyDAOTest {
         final Family family = newFamily();
         assertTrue(dao.saveFamily(family));
         assertTrue(dao.deleteFamily(family.getId()));
-        assertTrue(dao.getFamily(family.getId()).isEmpty());
+        assertTrue(dao.getFamily(family.getId(), Cached.NO).isEmpty());
         assertTrue(dao.deleteFamily(family.getId()), "Deleting an absent family is not an error");
     }
 
     @Test
     public void nullIdReadsEmpty() {
-        assertTrue(dao.getFamily(null).isEmpty());
+        assertTrue(dao.getFamily(null, Cached.NO).isEmpty());
     }
 
     @Test

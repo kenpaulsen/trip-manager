@@ -35,6 +35,7 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Managed media, exposed to pages as {@code #{media}}.
@@ -71,7 +72,7 @@ public class MediaCommands {
     /** @return every media item, newest first, for the admin page. */
     public List<MediaItem> getAll() {
         try {
-            return DAO.getInstance().getAllMedia().stream()
+            return DAO.getInstance().getAllMedia(Cached.NO).stream()
                     .sorted(Comparator.comparing(MediaItem::getUploaded,
                             Comparator.nullsLast(Comparator.reverseOrder())))
                     .toList();
@@ -102,7 +103,7 @@ public class MediaCommands {
      */
     public List<MediaItem> getInSlot(final String slot) {
         try {
-            return DAO.getInstance().getMediaInSlot(slot);
+            return DAO.getInstance().getMediaInSlot(slot, Cached.YES);
         } catch (final RuntimeException ex) {
             // A page must still render if the media table is unavailable; it just shows nothing in this slot.
             log.error("Unable to list media in slot: " + slot, ex);
@@ -191,7 +192,7 @@ public class MediaCommands {
     public List<TripAlbum> getHomeAlbums(final int windowDays, final int minPhotos) {
         final LocalDateTime now = LocalDateTime.now();
         try {
-            return DAO.getInstance().getActiveTrips(now.minusDays(windowDays)).stream()
+            return DAO.getInstance().getActiveTrips(now.minusDays(windowDays), Cached.YES).stream()
                     .filter(trip -> Boolean.TRUE.equals(trip.getOpenToPublic()))
                     .filter(trip -> trip.getStartDate() != null && !trip.getStartDate().isAfter(now))
                     .map(this::toAlbum)
@@ -364,7 +365,7 @@ public class MediaCommands {
             return null;
         }
         try {
-            return DAO.getInstance().getMedia(id).orElse(null);
+            return DAO.getInstance().getMedia(id, Cached.YES).orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Unable to look up media: " + id, ex);
             return null;
@@ -603,7 +604,7 @@ public class MediaCommands {
     public boolean delete(final String id, final String deletedBy) {
         final Optional<MediaItem> found;
         try {
-            found = DAO.getInstance().getMedia(id);
+            found = DAO.getInstance().getMedia(id, Cached.NO);
         } catch (final RuntimeException ex) {
             log.error("Unable to look up media for delete: " + id, ex);
             return false;

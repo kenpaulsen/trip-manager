@@ -15,6 +15,7 @@ import org.paulsens.trip.model.AuditEvent;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.AuditPage;
 import org.paulsens.trip.model.AuditQuery;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Reads the audit trail for the admin page, as {@code #{auditView}}.
@@ -59,7 +60,7 @@ public class AuditViewCommands {
                 .limit(limit <= 0 ? AuditQuery.DEFAULT_LIMIT : limit)
                 .build();
         try {
-            return DAO.getInstance().getAuditEvents(query);
+            return DAO.getInstance().getAuditEvents(query, Cached.NO);
         } catch (final RuntimeException ex) {
             // The audit page failing is annoying; the audit page throwing a 500 during an incident is worse.
             log.error("Unable to read the audit trail", ex);
@@ -114,7 +115,7 @@ public class AuditViewCommands {
                 .build();
         final List<AuditEvent> events;
         try {
-            events = DAO.getInstance().exportAuditEvents(query);
+            events = DAO.getInstance().exportAuditEvents(query, Cached.NO);
         } catch (final RuntimeException ex) {
             log.error("Unable to export the audit trail", ex);
             return "error\nCould not read the audit trail; see the application log.\n";

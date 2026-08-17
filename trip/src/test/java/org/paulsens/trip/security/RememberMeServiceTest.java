@@ -14,6 +14,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Creds;
 import org.testng.Assert;
 import org.testng.annotations.Test;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * {@link RememberMeService} against the local-mode fake store. What must hold: a cookie signs its browser
@@ -125,7 +126,7 @@ public class RememberMeServiceTest {
     private static void ageLastRotation(final Cookie cookie, final long seconds) {
         final String selector = cookie.getValue().split(":")[0];
         final org.paulsens.trip.model.RememberToken token =
-                DAO.getInstance().getRememberToken(selector).orElseThrow();
+                DAO.getInstance().getRememberToken(selector, Cached.NO).orElseThrow();
         token.setRotatedAt(token.getRotatedAt() - seconds);
         Assert.assertTrue(DAO.getInstance().saveRememberToken(token));
     }
@@ -210,13 +211,13 @@ public class RememberMeServiceTest {
         service.issue(requestWith((Cookie) null), responseCapturing(issued), creds);
         final String selector = issued.get(0).getValue().split(":")[0];
         final org.paulsens.trip.model.RememberToken token =
-                DAO.getInstance().getRememberToken(selector).orElseThrow();
+                DAO.getInstance().getRememberToken(selector, Cached.NO).orElseThrow();
         token.setExpires(1L);
         Assert.assertTrue(DAO.getInstance().saveRememberToken(token));
 
         Assert.assertNull(service.validateAndRotate(requestWith(issued.get(0)),
                 responseCapturing(new ArrayList<>())), "an expired token must be refused");
-        Assert.assertTrue(DAO.getInstance().getRememberToken(selector).isEmpty(),
+        Assert.assertTrue(DAO.getInstance().getRememberToken(selector, Cached.NO).isEmpty(),
                 "the expired row should have been deleted");
     }
 

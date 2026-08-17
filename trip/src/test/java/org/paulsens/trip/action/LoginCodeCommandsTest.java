@@ -16,6 +16,7 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * {@link LoginCodeCommands} against local-mode fake data, where the code is always
@@ -205,7 +206,7 @@ public class LoginCodeCommandsTest {
         // EMAIL, so wait for the mapping rather than racing it (same idiom as PassCommandsTailsTest).
         final long deadline = System.currentTimeMillis() + 5_000;
         try {
-            while (org.paulsens.trip.dynamo.DAO.getInstance().getPersonByEmail(email) == null) {
+            while (org.paulsens.trip.dynamo.DAO.getInstance().getPersonByEmail(email, Cached.NO) == null) {
                 Assert.assertTrue(System.currentTimeMillis() < deadline, "email mapping never appeared");
                 Thread.sleep(20);
             }

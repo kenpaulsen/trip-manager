@@ -7,6 +7,7 @@ import org.paulsens.trip.action.ChatPhotos;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Placeholder;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * One document from the media library, as a programmatic content type: the instance stores ONLY the media
@@ -51,7 +52,7 @@ final class FileType implements ProgrammaticContentTemplate {
         if (!PROP_MEDIA_ID.equals(propertyName)) {
             return List.of();
         }
-        return DAO.getInstance().getAllMedia().stream()
+        return DAO.getInstance().getAllMedia(Cached.YES).stream()
                 .filter(item -> !ChatPhotos.isChatSlot(item.getSlot()))
                 .filter(item -> !item.getHidden())
                 .sorted(Comparator.comparing(FileType::titleKey))

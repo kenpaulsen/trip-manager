@@ -16,6 +16,7 @@ import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Privilege;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Developer-facing privilege API. Every accessor takes the privilege's base {@code name} plus a {@code tripId}
@@ -72,13 +73,13 @@ public class PrivilegeCommands {
 
     /** Global (non-trip) privileges, name-sorted. */
     public List<Privilege> getGlobalPrivileges() {
-        return sorted(dao.getGlobalPrivileges());
+        return sorted(dao.getGlobalPrivileges(Cached.NO));
     }
 
     /** Privileges scoped to the given trip (blank/null == the global partition), name-sorted. */
     public List<Privilege> getTripPrivileges(final String tripId) {
         final String scope = blankToNull(tripId);
-        return sorted(scope == null ? dao.getGlobalPrivileges() : dao.getTripPrivileges(scope));
+        return sorted(scope == null ? dao.getGlobalPrivileges(Cached.NO) : dao.getTripPrivileges(scope, Cached.NO));
     }
 
     /**
@@ -279,7 +280,7 @@ public class PrivilegeCommands {
     private Optional<Privilege> getPrivilegeById(final String id) {
         Optional<Privilege> priv;
         try {
-            priv = dao.getPrivilege(id);
+            priv = dao.getPrivilege(id, Cached.NO);
         } catch (final RuntimeException ex) {
             priv = logAndReturn(ex, Optional.empty());
         }

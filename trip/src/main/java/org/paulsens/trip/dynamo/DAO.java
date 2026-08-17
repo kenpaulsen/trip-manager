@@ -212,20 +212,11 @@ public class DAO {
     public Boolean savePerson(final Person person) throws IOException {
         return personDao.savePerson(person);
     }
-    public List<Person> searchPeople(final String query, final int limit) {
-        return personDao.searchPeople(query, limit);
-    }
     public List<Person> searchPeople(final String query, final int limit, final Cached cached) {
         return NearCacheContext.call(cached, () -> personDao.searchPeople(query, limit));
     }
-    public Optional<Person> getPerson(final Person.Id id) {
-        return personDao.getPerson(id);
-    }
     public Optional<Person> getPerson(final Person.Id id, final Cached cached) {
         return NearCacheContext.call(cached, () -> personDao.getPerson(id));
-    }
-    public Person getPersonByEmail(final String email) {
-        return personDao.getPersonByEmail(email);
     }
     public Person getPersonByEmail(final String email, final Cached cached) {
         return NearCacheContext.call(cached, () -> personDao.getPersonByEmail(email));
@@ -240,9 +231,6 @@ public class DAO {
     public Boolean saveFamily(final Family family) throws IOException {
         return familyDao.saveFamily(family);
     }
-    public Optional<Family> getFamily(final Family.Id id) {
-        return familyDao.getFamily(id);
-    }
     public Optional<Family> getFamily(final Family.Id id, final Cached cached) {
         return NearCacheContext.call(cached, () -> familyDao.getFamily(id));
     }
@@ -254,41 +242,23 @@ public class DAO {
     public Boolean saveTrip(final Trip trip) throws IOException {
         return tripDao.saveTrip(trip);
     }
-    public Optional<Trip> getTrip(final String id) {
-        return tripDao.getTrip(id);
-    }
     public Optional<Trip> getTrip(final String id, final Cached cached) {
         return NearCacheContext.call(cached, () -> tripDao.getTrip(id));
-    }
-    public List<Trip> getActiveTrips(final LocalDateTime cutoff) {
-        return tripDao.getActiveTrips(cutoff);
     }
     public List<Trip> getActiveTrips(final LocalDateTime cutoff, final Cached cached) {
         return NearCacheContext.call(cached, () -> tripDao.getActiveTrips(cutoff));
     }
-    public List<Trip> getInactiveTrips(final LocalDateTime cutoff, final int limit) {
-        return tripDao.getInactiveTrips(cutoff, limit);
-    }
     public List<Trip> getInactiveTrips(final LocalDateTime cutoff, final int limit, final Cached cached) {
         return NearCacheContext.call(cached, () -> tripDao.getInactiveTrips(cutoff, limit));
     }
-    public List<Trip> getRecentTrips(final int limit) {
-        return tripDao.getRecentTrips(limit);
-    }
     public List<Trip> getRecentTrips(final int limit, final Cached cached) {
         return NearCacheContext.call(cached, () -> tripDao.getRecentTrips(limit));
-    }
-    public List<Trip> getTripsForUser(final Person.Id userId) {
-        return tripDao.getTripsForUser(userId);
     }
     public List<Trip> getTripsForUser(final Person.Id userId, final Cached cached) {
         return NearCacheContext.call(cached, () -> tripDao.getTripsForUser(userId));
     }
 
     // Trip Events
-    public TripEvent getTripEvent(final String id) {
-        return tripEventDao.getTripEvent(id);
-    }
     public TripEvent getTripEvent(final String id, final Cached cached) {
         return NearCacheContext.call(cached, () -> tripEventDao.getTripEvent(id));
     }
@@ -303,28 +273,16 @@ public class DAO {
     public Boolean saveRegistration(final Registration reg) throws IOException {
         return regDao.saveRegistration(reg);
     }
-    public List<Registration> getRegistrations(final String tripId) {
-        return regDao.getRegistrations(tripId);
-    }
     public List<Registration> getRegistrations(final String tripId, final Cached cached) {
         return NearCacheContext.call(cached, () -> regDao.getRegistrations(tripId));
-    }
-    public Optional<Registration> getRegistration(final String tripId, final Person.Id userId) {
-        return regDao.getRegistration(tripId, userId);
     }
     public Optional<Registration> getRegistration(final String tripId, final Person.Id userId, final Cached cached) {
         return NearCacheContext.call(cached, () -> regDao.getRegistration(tripId, userId));
     }
 
     // Transactions
-    public List<Transaction> getTransactions(final Person.Id userId) {
-        return txDao.getTransactions(userId);
-    }
     public List<Transaction> getTransactions(final Person.Id userId, final Cached cached) {
         return NearCacheContext.call(cached, () -> txDao.getTransactions(userId));
-    }
-    public Optional<Transaction> getTransaction(final Person.Id userId, final String txId) {
-        return txDao.getTransaction(userId, txId);
     }
     public Optional<Transaction> getTransaction(final Person.Id userId, final String txId, final Cached cached) {
         return NearCacheContext.call(cached, () -> txDao.getTransaction(userId, txId));
@@ -334,28 +292,16 @@ public class DAO {
     }
 
     // Credentials
-    public Creds adminGetCredsByEmail(final String email) {
-        return credDao.adminGetCredsByEmail(email);
-    }
     public Creds adminGetCredsByEmail(final String email, final Cached cached) {
         return NearCacheContext.call(cached, () -> credDao.adminGetCredsByEmail(email));
     }
-    public Creds getCredsByEmailAndPass(final String email, final String pass) {
-        return credDao.getCredsByEmailAndPass(email, pass);
-    }
     public Creds getCredsByEmailAndPass(final String email, final String pass, final Cached cached) {
         return NearCacheContext.call(cached, () -> credDao.getCredsByEmailAndPass(email, pass));
-    }
-    public Creds getCredsByEmailAdminOnly(final String email, final Person.Id id) {
-        return credDao.getCredsByEmailAdminOnly(email, id);
     }
     public Creds getCredsByEmailAdminOnly(final String email, final Person.Id id, final Cached cached) {
         return NearCacheContext.call(cached, () -> credDao.getCredsByEmailAdminOnly(email, id));
     }
     /** No password check -- ONLY after the caller has verified identity via an email one-time code. */
-    public Creds getCredsForCodeLogin(final String email) {
-        return credDao.getCredsForCodeLogin(email);
-    }
     public Creds getCredsForCodeLogin(final String email, final Cached cached) {
         return NearCacheContext.call(cached, () -> credDao.getCredsForCodeLogin(email));
     }
@@ -373,9 +319,6 @@ public class DAO {
     }
 
     // Remember-me tokens
-    public Optional<RememberToken> getRememberToken(final String selector) {
-        return rememberMeDao.getToken(selector);
-    }
     public Optional<RememberToken> getRememberToken(final String selector, final Cached cached) {
         return NearCacheContext.call(cached, () -> rememberMeDao.getToken(selector));
     }
@@ -390,20 +333,11 @@ public class DAO {
     }
 
     // Passkeys (WebAuthn credentials)
-    public Optional<PasskeyCredential> getPasskey(final String credentialId) {
-        return passkeyDao.getPasskey(credentialId);
-    }
     public Optional<PasskeyCredential> getPasskey(final String credentialId, final Cached cached) {
         return NearCacheContext.call(cached, () -> passkeyDao.getPasskey(credentialId));
     }
-    public List<PasskeyCredential> getPasskeysForUser(final Person.Id userId) {
-        return passkeyDao.getPasskeysForUser(userId);
-    }
     public List<PasskeyCredential> getPasskeysForUser(final Person.Id userId, final Cached cached) {
         return NearCacheContext.call(cached, () -> passkeyDao.getPasskeysForUser(userId));
-    }
-    public List<PasskeyCredential> getPasskeysForEmailAndRp(final String email, final String rpId) {
-        return passkeyDao.getPasskeysForEmailAndRp(email, rpId);
     }
     public List<PasskeyCredential> getPasskeysForEmailAndRp(
             final String email, final String rpId, final Cached cached) {
@@ -420,14 +354,8 @@ public class DAO {
     public Boolean saveTodo(final TodoItem todo) throws IOException {
         return todoDao.saveTodo(todo);
     }
-    public List<TodoItem> getTodoItems(final String tripId) {
-        return todoDao.getTodoItems(tripId);
-    }
     public List<TodoItem> getTodoItems(final String tripId, final Cached cached) {
         return NearCacheContext.call(cached, () -> todoDao.getTodoItems(tripId));
-    }
-    public Optional<TodoItem> getTodoItem(final String tripId, final DataId pdvId){
-        return todoDao.getTodoItem(tripId, pdvId);
     }
     public Optional<TodoItem> getTodoItem(final String tripId, final DataId pdvId, final Cached cached) {
         return NearCacheContext.call(cached, () -> todoDao.getTodoItem(tripId, pdvId));
@@ -437,14 +365,8 @@ public class DAO {
     public Boolean savePersonDataValue(final PersonDataValue pdv) throws IOException {
         return pdvDao.savePersonDataValue(pdv);
     }
-    public Map<DataId, PersonDataValue> getPersonDataValues(final Person.Id pid) {
-        return pdvDao.getPersonDataValues(pid);
-    }
     public Map<DataId, PersonDataValue> getPersonDataValues(final Person.Id pid, final Cached cached) {
         return NearCacheContext.call(cached, () -> pdvDao.getPersonDataValues(pid));
-    }
-    public Optional<PersonDataValue> getPersonDataValue(final Person.Id pid, final DataId pdvId) {
-        return pdvDao.getPersonDataValue(pid, pdvId);
     }
     public Optional<PersonDataValue> getPersonDataValue(final Person.Id pid, final DataId pdvId, final Cached cached) {
         return NearCacheContext.call(cached, () -> pdvDao.getPersonDataValue(pid, pdvId));
@@ -455,20 +377,11 @@ public class DAO {
         return privDao.savePrivilege(priv);
     }
     // Managed media metadata (see MediaDAO); the bytes live in S3.
-    public Optional<MediaItem> getMedia(final String id) {
-        return mediaDao.getMedia(id);
-    }
     public Optional<MediaItem> getMedia(final String id, final Cached cached) {
         return NearCacheContext.call(cached, () -> mediaDao.getMedia(id));
     }
-    public List<MediaItem> getAllMedia() {
-        return mediaDao.getAllMedia();
-    }
     public List<MediaItem> getAllMedia(final Cached cached) {
         return NearCacheContext.call(cached, () -> mediaDao.getAllMedia());
-    }
-    public List<MediaItem> getMediaInSlot(final String slot) {
-        return mediaDao.getMediaInSlot(slot);
     }
     public List<MediaItem> getMediaInSlot(final String slot, final Cached cached) {
         return NearCacheContext.call(cached, () -> mediaDao.getMediaInSlot(slot));
@@ -496,26 +409,14 @@ public class DAO {
     public Boolean saveTemplate(final ContentTemplate template, final int retain) {
         return templateDao.saveTemplate(template, retain);
     }
-    public List<ContentTemplate> getAllTemplates() {
-        return templateDao.getAllTemplates();
-    }
     public List<ContentTemplate> getAllTemplates(final Cached cached) {
         return NearCacheContext.call(cached, () -> templateDao.getAllTemplates());
-    }
-    public Optional<ContentTemplate> getTemplate(final String id) {
-        return templateDao.getTemplate(id);
     }
     public Optional<ContentTemplate> getTemplate(final String id, final Cached cached) {
         return NearCacheContext.call(cached, () -> templateDao.getTemplate(id));
     }
-    public Optional<ContentTemplate> getTemplate(final String id, final int version) {
-        return templateDao.getTemplate(id, version);
-    }
     public Optional<ContentTemplate> getTemplate(final String id, final int version, final Cached cached) {
         return NearCacheContext.call(cached, () -> templateDao.getTemplate(id, version));
-    }
-    public Optional<TemplateRecord> getTemplateRecord(final String id) {
-        return templateDao.getTemplateRecord(id);
     }
     public Optional<TemplateRecord> getTemplateRecord(final String id, final Cached cached) {
         return NearCacheContext.call(cached, () -> templateDao.getTemplateRecord(id));
@@ -532,26 +433,14 @@ public class DAO {
     public Boolean saveContent(final ContentInstance instance, final int retain) {
         return contentDao.saveContent(instance, retain);
     }
-    public List<ContentInstance> getContentForSection(final String section) {
-        return contentDao.getContentForSection(section);
-    }
     public List<ContentInstance> getContentForSection(final String section, final Cached cached) {
         return NearCacheContext.call(cached, () -> contentDao.getContentForSection(section));
-    }
-    public Optional<ContentInstance> getContent(final String id) {
-        return contentDao.getContent(id);
     }
     public Optional<ContentInstance> getContent(final String id, final Cached cached) {
         return NearCacheContext.call(cached, () -> contentDao.getContent(id));
     }
-    public Optional<ContentRecord> getContentRecord(final String id) {
-        return contentDao.getContentRecord(id);
-    }
     public Optional<ContentRecord> getContentRecord(final String id, final Cached cached) {
         return NearCacheContext.call(cached, () -> contentDao.getContentRecord(id));
-    }
-    public List<ContentRecord> getAllContentRecords() {
-        return contentDao.getAllContentRecords();
     }
     public List<ContentRecord> getAllContentRecords(final Cached cached) {
         return NearCacheContext.call(cached, () -> contentDao.getAllContentRecords());
@@ -568,14 +457,8 @@ public class DAO {
     }
 
     // Runtime settings (see ConfigDAO). Reads never throw; callers always supply a default.
-    public Optional<Config> getConfig(final String name) {
-        return configDao.getConfig(name);
-    }
     public Optional<Config> getConfig(final String name, final Cached cached) {
         return NearCacheContext.call(cached, () -> configDao.getConfig(name));
-    }
-    public List<Config> getAllConfig() {
-        return configDao.getAllConfig();
     }
     public List<Config> getAllConfig(final Cached cached) {
         return NearCacheContext.call(cached, () -> configDao.getAllConfig());
@@ -588,33 +471,18 @@ public class DAO {
     public Boolean saveAuditEvent(final AuditEvent event) {
         return auditDao.saveAuditEvent(event);
     }
-    public AuditPage getAuditEvents(final AuditQuery query) {
-        return auditDao.getAuditEvents(query);
-    }
     public AuditPage getAuditEvents(final AuditQuery query, final Cached cached) {
         return NearCacheContext.call(cached, () -> auditDao.getAuditEvents(query));
-    }
-    public List<AuditEvent> exportAuditEvents(final AuditQuery query) {
-        return auditDao.exportAuditEvents(query);
     }
     public List<AuditEvent> exportAuditEvents(final AuditQuery query, final Cached cached) {
         return NearCacheContext.call(cached, () -> auditDao.exportAuditEvents(query));
     }
 
-    public Optional<Privilege> getPrivilege(final String name) {
-        return privDao.getPrivilege(name);
-    }
     public Optional<Privilege> getPrivilege(final String name, final Cached cached) {
         return NearCacheContext.call(cached, () -> privDao.getPrivilege(name));
     }
-    public List<Privilege> getGlobalPrivileges() {
-        return privDao.getGlobalPrivileges();
-    }
     public List<Privilege> getGlobalPrivileges(final Cached cached) {
         return NearCacheContext.call(cached, () -> privDao.getGlobalPrivileges());
-    }
-    public List<Privilege> getTripPrivileges(final String tripId) {
-        return privDao.getTripPrivileges(tripId);
     }
     public List<Privilege> getTripPrivileges(final String tripId, final Cached cached) {
         return NearCacheContext.call(cached, () -> privDao.getTripPrivileges(tripId));
@@ -624,9 +492,6 @@ public class DAO {
     public Boolean saveChatChannel(final ChatChannel channel) {
         return chatDao.saveChannel(channel);
     }
-    public Optional<ChatChannel> getChatChannel(final ChatChannel.Id id) {
-        return chatDao.getChannel(id);
-    }
     public Optional<ChatChannel> getChatChannel(final ChatChannel.Id id, final Cached cached) {
         return NearCacheContext.call(cached, () -> chatDao.getChannel(id));
     }
@@ -634,15 +499,8 @@ public class DAO {
         return chatDao.saveMembership(member);
     }
     public Optional<ChatMembership> getChatMembership(
-            final ChatChannel.Id channelId, final Person.Id personId) {
-        return chatDao.getMembership(channelId, personId);
-    }
-    public Optional<ChatMembership> getChatMembership(
             final ChatChannel.Id channelId, final Person.Id personId, final Cached cached) {
         return NearCacheContext.call(cached, () -> chatDao.getMembership(channelId, personId));
-    }
-    public List<ChatMembership> listChatMembers(final ChatChannel.Id channelId) {
-        return chatDao.listMembers(channelId);
     }
     public List<ChatMembership> listChatMembers(final ChatChannel.Id channelId, final Cached cached) {
         return NearCacheContext.call(cached, () -> chatDao.listMembers(channelId));
@@ -652,18 +510,8 @@ public class DAO {
         return chatDao.saveMessage(draft, channel, trip);
     }
     public Optional<ChatMessage> getChatMessage(
-            final ChatChannel.Id channelId, final ChatMessage.Id msgId) {
-        return chatDao.getMessage(channelId, msgId);
-    }
-    public Optional<ChatMessage> getChatMessage(
             final ChatChannel.Id channelId, final ChatMessage.Id msgId, final Cached cached) {
         return NearCacheContext.call(cached, () -> chatDao.getMessage(channelId, msgId));
-    }
-    public Optional<ChatMessage> getVisibleChatMessage(
-            final ChatChannel.Id channelId, final ChatMessage.Id msgId,
-            final ChatMembership member, final ChatChannel channel, final Trip trip,
-            final java.time.Instant now) {
-        return chatDao.getVisibleMessage(channelId, msgId, member, channel, trip, now);
     }
     public Optional<ChatMessage> getVisibleChatMessage(
             final ChatChannel.Id channelId, final ChatMessage.Id msgId,
@@ -684,21 +532,9 @@ public class DAO {
     public ChatPage getChatMessagesSince(
             final ChatChannel.Id channelId, final ChatMessage.Id since, final int limit,
             final ChatMembership member, final ChatChannel channel, final Trip trip,
-            final java.time.Instant now) {
-        return chatDao.getMessagesSince(channelId, since, limit, member, channel, trip, now);
-    }
-    public ChatPage getChatMessagesSince(
-            final ChatChannel.Id channelId, final ChatMessage.Id since, final int limit,
-            final ChatMembership member, final ChatChannel channel, final Trip trip,
             final java.time.Instant now, final Cached cached) {
         return NearCacheContext.call(cached,
                 () -> chatDao.getMessagesSince(channelId, since, limit, member, channel, trip, now));
-    }
-    public ChatPage getChatMessagesBefore(
-            final ChatChannel.Id channelId, final ChatMessage.Id before, final int limit,
-            final ChatMembership member, final ChatChannel channel, final Trip trip,
-            final java.time.Instant now) {
-        return chatDao.getMessagesBefore(channelId, before, limit, member, channel, trip, now);
     }
     public ChatPage getChatMessagesBefore(
             final ChatChannel.Id channelId, final ChatMessage.Id before, final int limit,
@@ -716,24 +552,13 @@ public class DAO {
         return chatDao.deleteReaction(channelId, targetMessageId, personId, emoji);
     }
     public Map<ChatMessage.Id, ChatReactionSummary> getChatReactionSummaries(
-            final ChatChannel.Id channelId, final List<ChatMessage> messages) {
-        return chatDao.summariesForMessages(channelId, messages);
-    }
-    public Map<ChatMessage.Id, ChatReactionSummary> getChatReactionSummaries(
             final ChatChannel.Id channelId, final List<ChatMessage> messages, final Cached cached) {
         return NearCacheContext.call(cached, () -> chatDao.summariesForMessages(channelId, messages));
-    }
-    public Map<ChatMessage.Id, ChatReactionSummary> getChatReactionWindow(
-            final ChatChannel.Id channelId, final ChatMessage.Id oldest, final ChatMessage.Id newest) {
-        return chatDao.summariesForWindow(channelId, oldest, newest);
     }
     public Map<ChatMessage.Id, ChatReactionSummary> getChatReactionWindow(
             final ChatChannel.Id channelId, final ChatMessage.Id oldest, final ChatMessage.Id newest,
             final Cached cached) {
         return NearCacheContext.call(cached, () -> chatDao.summariesForWindow(channelId, oldest, newest));
-    }
-    public Long getChatReactionsVersion(final ChatChannel.Id channelId) {
-        return chatDao.currentReactionsVersion(channelId);
     }
     public Long getChatReactionsVersion(final ChatChannel.Id channelId, final Cached cached) {
         return NearCacheContext.call(cached, () -> chatDao.currentReactionsVersion(channelId));
@@ -747,30 +572,16 @@ public class DAO {
         return chatDao.saveCursor(channelId, personId, cursor);
     }
     public Optional<ChatMessage.Id> getChatCursor(
-            final ChatChannel.Id channelId, final Person.Id personId) {
-        return chatDao.getCursor(channelId, personId);
-    }
-    public Optional<ChatMessage.Id> getChatCursor(
             final ChatChannel.Id channelId, final Person.Id personId, final Cached cached) {
         return NearCacheContext.call(cached, () -> chatDao.getCursor(channelId, personId));
     }
-    public Map<String, String> getChatLastActivity() {
-        return chatDao.lastActivity();
-    }
     public Map<String, String> getChatLastActivity(final Cached cached) {
         return NearCacheContext.call(cached, () -> chatDao.lastActivity());
-    }
-    public Map<String, PhotoChatMeta> getPhotoChatMeta(final List<String> s3Keys) {
-        return chatDao.photoMeta(s3Keys);
     }
     public Map<String, PhotoChatMeta> getPhotoChatMeta(final List<String> s3Keys, final Cached cached) {
         return NearCacheContext.call(cached, () -> chatDao.photoMeta(s3Keys));
     }
     /** Raw newest-first rows, unfiltered by visibility — plumbing for photo parent resolution, never display. */
-    public List<ChatMessage> getRawChatMessagesBefore(
-            final ChatChannel.Id channelId, final ChatMessage.Id before, final int limit) {
-        return chatDao.rawMessagesBefore(channelId, before, limit);
-    }
     public List<ChatMessage> getRawChatMessagesBefore(
             final ChatChannel.Id channelId, final ChatMessage.Id before, final int limit, final Cached cached) {
         return NearCacheContext.call(cached, () -> chatDao.rawMessagesBefore(channelId, before, limit));
@@ -787,9 +598,6 @@ public class DAO {
     public Boolean addGuestChatChannel(final Person.Id personId, final ChatChannel.Id channelId) {
         return chatDao.addGuestChannel(personId, channelId);
     }
-    public List<ChatChannel.Id> getGuestChatChannelIds(final Person.Id personId) {
-        return chatDao.listGuestChannelIds(personId);
-    }
     public List<ChatChannel.Id> getGuestChatChannelIds(final Person.Id personId, final Cached cached) {
         return NearCacheContext.call(cached, () -> chatDao.listGuestChannelIds(personId));
     }
@@ -798,15 +606,9 @@ public class DAO {
     public Boolean saveChatInvite(final ChatInvite invite) {
         return chatInviteDao.saveInvite(invite);
     }
-    public Optional<ChatInvite> getChatInvite(final ChatChannel.Id channelId, final String selector) {
-        return chatInviteDao.getInvite(channelId, selector);
-    }
     public Optional<ChatInvite> getChatInvite(
             final ChatChannel.Id channelId, final String selector, final Cached cached) {
         return NearCacheContext.call(cached, () -> chatInviteDao.getInvite(channelId, selector));
-    }
-    public List<ChatInvite> listChatInvites(final ChatChannel.Id channelId) {
-        return chatInviteDao.listInvites(channelId);
     }
     public List<ChatInvite> listChatInvites(final ChatChannel.Id channelId, final Cached cached) {
         return NearCacheContext.call(cached, () -> chatInviteDao.listInvites(channelId));
@@ -822,10 +624,6 @@ public class DAO {
     public Boolean saveBinding(final String id, final BindingType type,
             final String destId, final BindingType destType, final boolean bidirectionalBindings) {
         return bindingDao.saveBinding(id, type, destId, destType, bidirectionalBindings);
-    }
-    public List<String> getBindings(
-            final String name, final BindingType type, BindingType destType) {
-        return bindingDao.getBindings(name, type, destType);
     }
     public List<String> getBindings(
             final String name, final BindingType type, BindingType destType, final Cached cached) {

@@ -19,6 +19,7 @@ import org.paulsens.trip.model.chat.ChatSettings;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Sending photos end-to-end against the local store: stage (as the upload servlet would), reference from a
@@ -89,7 +90,7 @@ public class ChatPhotoSendTest {
         Assert.assertEquals(stored.getAttachments().get(0).getS3Key(), staged.key());
         Assert.assertEquals(stored.getAttachments().get(0).getThumbKey(), staged.smallKey());
         Assert.assertEquals(stored.getAttachments().get(0).getCaption(), "The blue cross");
-        Assert.assertEquals(DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor(tripId)).size(), 1,
+        Assert.assertEquals(DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor(tripId), Cached.NO).size(), 1,
                 "the send is what creates the album row");
     }
 
@@ -205,10 +206,10 @@ public class ChatPhotoSendTest {
 
         Assert.assertTrue(photos.localGet(staged.key()).isEmpty(), "full rendition gone");
         Assert.assertTrue(photos.localGet(staged.smallKey()).isEmpty(), "small rendition gone");
-        Assert.assertEquals(DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor(tripId)).size(), 0,
+        Assert.assertEquals(DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor(tripId), Cached.NO).size(), 0,
                 "album row gone");
         final ChatMessage tomb = DAO.getInstance()
-                .getChatMessage(ChatChannel.Id.forTrip(tripId), msgId).orElseThrow();
+                .getChatMessage(ChatChannel.Id.forTrip(tripId), msgId, Cached.NO).orElseThrow();
         Assert.assertTrue(tomb.isDeleted());
         Assert.assertTrue(tomb.getAttachments().isEmpty(),
                 "a tombstone must not keep keys pointing at deleted objects");
@@ -228,7 +229,7 @@ public class ChatPhotoSendTest {
         Assert.assertTrue(chat.deleteAttachment(tripId, msgId, oops.key(), author));
 
         final ChatMessage after = DAO.getInstance()
-                .getChatMessage(ChatChannel.Id.forTrip(tripId), msgId).orElseThrow();
+                .getChatMessage(ChatChannel.Id.forTrip(tripId), msgId, Cached.NO).orElseThrow();
         Assert.assertFalse(after.isDeleted(), "the message itself survives");
         Assert.assertNull(after.getEditedAt(), "a photo removal is not an edit and must not say 'edited'");
         Assert.assertEquals(after.getAttachments().size(), 2, "tombstone slot, never a silent vanish");
@@ -248,7 +249,7 @@ public class ChatPhotoSendTest {
         Assert.assertTrue(photos.localGet(oops.smallKey()).isEmpty(), "deleted small rendition gone");
         Assert.assertTrue(photos.localGet(keep.key()).isPresent(), "the other photo is untouched");
         final List<MediaItem> album =
-                DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor(tripId));
+                DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor(tripId), Cached.NO);
         Assert.assertEquals(album.size(), 1, "only the deleted photo leaves the album");
         Assert.assertEquals(album.get(0).getS3Key(), keep.key());
     }
@@ -265,7 +266,7 @@ public class ChatPhotoSendTest {
 
         Assert.assertTrue(photos.localGet(staged.key()).isPresent(), "nothing may be deleted on a refusal");
         final ChatMessage untouched = DAO.getInstance()
-                .getChatMessage(ChatChannel.Id.forTrip(tripId), sent.getMessageObj().getId()).orElseThrow();
+                .getChatMessage(ChatChannel.Id.forTrip(tripId), sent.getMessageObj().getId(), Cached.NO).orElseThrow();
         Assert.assertFalse(untouched.getAttachments().get(0).isDeleted());
     }
 
@@ -280,7 +281,7 @@ public class ChatPhotoSendTest {
                 tripId, sent.getMessageObj().getId(), staged.key(), Caller.forActor(actor)));
 
         final ChatMessage after = DAO.getInstance()
-                .getChatMessage(ChatChannel.Id.forTrip(tripId), sent.getMessageObj().getId()).orElseThrow();
+                .getChatMessage(ChatChannel.Id.forTrip(tripId), sent.getMessageObj().getId(), Cached.NO).orElseThrow();
         Assert.assertEquals(after.getAttachments().get(0).getDeletedBy(), "Moderator");
         Assert.assertTrue(photos.localGet(staged.key()).isEmpty());
     }

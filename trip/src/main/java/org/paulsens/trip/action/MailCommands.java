@@ -31,6 +31,7 @@ import software.amazon.awssdk.services.ses.model.Destination;
 import software.amazon.awssdk.services.ses.model.Message;
 import software.amazon.awssdk.services.ses.model.SendEmailRequest;
 import software.amazon.awssdk.services.ses.model.SendEmailResponse;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * This class contains methods that perform mail actions.
@@ -297,7 +298,7 @@ public class MailCommands {
     }
 
     public Collection<String> addRecipients(final Collection<String> current, final Collection<Person.Id> newPeople) {
-        newPeople.forEach(pid -> dao.getPerson(pid)
+        newPeople.forEach(pid -> dao.getPerson(pid, Cached.NO)
                 .map(this::formatEmail)
                 .map(current::add));
         return current;
@@ -327,7 +328,7 @@ public class MailCommands {
      */
     public ManagedMail renderManagedTemplate(final String templateId, final Map<String, Object> values) {
         final org.paulsens.trip.model.ContentTemplate template =
-                dao.getTemplate(templateId).orElse(null);
+                dao.getTemplate(templateId, Cached.NO).orElse(null);
         if (template == null || template.getKind() != org.paulsens.trip.model.TemplateKind.MAIL) {
             log.error("No MAIL template '{}' (missing, or not MAIL kind); mail skipped. Run "
                     + "install-starter-templates.sh or create it on the Templates page.", templateId);
@@ -422,7 +423,7 @@ public class MailCommands {
             return null;
         }
         // Accepts either a bare address or the "Pref Last <email>" form produced by formatEmail().
-        return Optional.ofNullable(dao.getPersonByEmail(bareEmail(email)))
+        return Optional.ofNullable(dao.getPersonByEmail(bareEmail(email), Cached.NO))
                 .orElseGet(() -> Person.builder().email(email).build());
     }
 

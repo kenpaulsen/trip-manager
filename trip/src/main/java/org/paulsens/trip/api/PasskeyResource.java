@@ -25,6 +25,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.security.PasskeyService;
 import org.paulsens.trip.security.RememberMeService;
 import org.paulsens.trip.web.Sessions;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * The passkey (WebAuthn) ceremonies' HTTP edge. Registration and management require the signed-in session
@@ -64,7 +65,8 @@ public class PasskeyResource extends BaseResource {
     public Response status() {
         final Map<String, Object> result = new LinkedHashMap<>();
         result.put("enabled", passkeys.enabled());
-        result.put("count", passkeys.enabled() ? DAO.getInstance().getPasskeysForUser(personId()).size() : 0);
+        result.put("count", passkeys.enabled() ? DAO.getInstance().getPasskeysForUser(personId(),
+                Cached.NO).size() : 0);
         return ok(result);
     }
 
@@ -76,7 +78,7 @@ public class PasskeyResource extends BaseResource {
         if (!passkeys.enabled()) {
             return ok(List.of());
         }
-        final List<Map<String, Object>> keys = DAO.getInstance().getPasskeysForUser(personId()).stream()
+        final List<Map<String, Object>> keys = DAO.getInstance().getPasskeysForUser(personId(), Cached.NO).stream()
                 .map(PasskeyResource::describe)
                 .toList();
         return ok(keys);

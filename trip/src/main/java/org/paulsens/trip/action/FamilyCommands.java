@@ -14,6 +14,7 @@ import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.EmailAddresses;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Family accounts: one login owning several full Person profiles. This bean is the ONLY writer of family
@@ -70,7 +71,7 @@ public class FamilyCommands {
         if (person == null || person.getFamilyId() == null) {
             return null;
         }
-        final Family family = DAO.getInstance().getFamily(person.getFamilyId()).orElse(null);
+        final Family family = DAO.getInstance().getFamily(person.getFamilyId(), Cached.NO).orElse(null);
         if (family == null) {
             log.warn("Person {} points at family {} which does not exist.",
                     person.getId(), person.getFamilyId());
@@ -116,7 +117,7 @@ public class FamilyCommands {
             if (me != null && memberId.equals(me.getId())) {
                 continue;
             }
-            final Person member = DAO.getInstance().getPerson(memberId).orElse(null);
+            final Person member = DAO.getInstance().getPerson(memberId, Cached.NO).orElse(null);
             if (member != null) {
                 result.add(member);
             }
@@ -162,10 +163,10 @@ public class FamilyCommands {
      * is on); soft-deleted transactions still block -- financial history must survive.
      */
     public String deleteBlockReason(final Person.Id memberId) {
-        if (!DAO.getInstance().getTripsForUser(memberId).isEmpty()) {
+        if (!DAO.getInstance().getTripsForUser(memberId, Cached.NO).isEmpty()) {
             return "This person has trip registrations. Ask an administrator to remove them instead.";
         }
-        if (!DAO.getInstance().getTransactions(memberId).isEmpty()) {
+        if (!DAO.getInstance().getTransactions(memberId, Cached.NO).isEmpty()) {
             return "This person has financial history. Ask an administrator to remove them instead.";
         }
         return null;
@@ -207,7 +208,7 @@ public class FamilyCommands {
         if (isBlank(subjectId) || me.getId().getValue().equals(subjectId)) {
             return me;
         }
-        final Person subject = DAO.getInstance().getPerson(Person.Id.from(subjectId)).orElse(null);
+        final Person subject = DAO.getInstance().getPerson(Person.Id.from(subjectId), Cached.NO).orElse(null);
         if (subject == null) {
             return null;
         }
@@ -300,7 +301,7 @@ public class FamilyCommands {
      */
     public boolean deleteFamilyMember(final Person.Id memberId) {
         final Person me = currentPerson();
-        final Person member = memberId == null ? null : DAO.getInstance().getPerson(memberId).orElse(null);
+        final Person member = memberId == null ? null : DAO.getInstance().getPerson(memberId, Cached.NO).orElse(null);
         // The MEMBER's family, not the caller's: for a manager they are the same, and anchoring here is
         // what lets a site admin work the subject-aware family page (?id=) for someone else's household.
         final Family family = familyOf(member);
@@ -337,7 +338,7 @@ public class FamilyCommands {
      */
     public boolean setManager(final Person.Id memberId, final boolean grant) {
         final Person me = currentPerson();
-        final Person member = memberId == null ? null : DAO.getInstance().getPerson(memberId).orElse(null);
+        final Person member = memberId == null ? null : DAO.getInstance().getPerson(memberId, Cached.NO).orElse(null);
         // The MEMBER's family (same reasoning as deleteFamilyMember): identical for a manager, and it lets
         // a site admin manage another household from the subject-aware family page.
         final Family family = familyOf(member);
@@ -385,8 +386,8 @@ public class FamilyCommands {
         if (!requirePeopleAdmin()) {
             return false;
         }
-        final Person anchor = DAO.getInstance().getPerson(anchorId).orElse(null);
-        final Person person = DAO.getInstance().getPerson(personId).orElse(null);
+        final Person anchor = DAO.getInstance().getPerson(anchorId, Cached.NO).orElse(null);
+        final Person person = DAO.getInstance().getPerson(personId, Cached.NO).orElse(null);
         if (anchor == null || person == null) {
             return fail("Unknown person", "Both people must exist to link a family.");
         }
@@ -433,7 +434,7 @@ public class FamilyCommands {
      * to a remaining family of one, because a login-less, email-less solo member is unreachable by anyone.
      */
     public String unlinkBlockReason(final Person.Id memberId) {
-        final Person member = DAO.getInstance().getPerson(memberId).orElse(null);
+        final Person member = DAO.getInstance().getPerson(memberId, Cached.NO).orElse(null);
         final Family family = familyOf(member);
         if (family == null || !family.isMember(memberId)) {
             return "That person is not in a family.";
@@ -464,7 +465,7 @@ public class FamilyCommands {
         if (blocked != null) {
             return fail("Cannot remove from family", blocked);
         }
-        final Person member = DAO.getInstance().getPerson(memberId).orElse(null);
+        final Person member = DAO.getInstance().getPerson(memberId, Cached.NO).orElse(null);
         final Family family = familyOf(member);
         if (member == null || family == null) {
             return fail("Not in a family", "That person is not in a family.");
@@ -491,12 +492,12 @@ public class FamilyCommands {
         if (!requirePeopleAdmin()) {
             return false;
         }
-        final Family family = DAO.getInstance().getFamily(Family.Id.from(familyId)).orElse(null);
+        final Family family = DAO.getInstance().getFamily(Family.Id.from(familyId), Cached.NO).orElse(null);
         if (family == null) {
             return fail("Unknown family", "No family with id " + familyId);
         }
         for (final Person.Id memberId : family.getMemberIds()) {
-            final Person member = DAO.getInstance().getPerson(memberId).orElse(null);
+            final Person member = DAO.getInstance().getPerson(memberId, Cached.NO).orElse(null);
             if (member == null) {
                 log.warn("Family {} references missing/deleted person {}", familyId, memberId);
                 continue;
@@ -507,7 +508,7 @@ public class FamilyCommands {
             }
         }
         for (final Person.Id managerId : family.getManagerIds()) {
-            final Person managerPerson = DAO.getInstance().getPerson(managerId).orElse(null);
+            final Person managerPerson = DAO.getInstance().getPerson(managerId, Cached.NO).orElse(null);
             if (managerPerson != null) {
                 applyManagerFlagToMember(family, managerPerson, true);
             }
@@ -555,7 +556,7 @@ public class FamilyCommands {
             if (managerId.equals(newMember.getId())) {
                 continue;
             }
-            final Person managerPerson = DAO.getInstance().getPerson(managerId).orElse(null);
+            final Person managerPerson = DAO.getInstance().getPerson(managerId, Cached.NO).orElse(null);
             if (managerPerson != null && !managerPerson.getManagedUsers().contains(newMember.getId())) {
                 managerPerson.getManagedUsers().add(newMember.getId());
                 savePersonOrWarn(managerPerson);
@@ -576,7 +577,7 @@ public class FamilyCommands {
     private void syncMemberRemoved(final Family family, final Person member, final Person.Id memberId,
             final boolean wasManager, final boolean delete) {
         for (final Person.Id managerId : family.getManagerIds()) {
-            final Person managerPerson = DAO.getInstance().getPerson(managerId).orElse(null);
+            final Person managerPerson = DAO.getInstance().getPerson(managerId, Cached.NO).orElse(null);
             if (managerPerson != null && managerPerson.getManagedUsers().remove(memberId)) {
                 savePersonOrWarn(managerPerson);
             }
@@ -625,7 +626,7 @@ public class FamilyCommands {
 
     private boolean anyoneHasEmail(final List<Person.Id> ids) {
         for (final Person.Id id : ids) {
-            final Person person = DAO.getInstance().getPerson(id).orElse(null);
+            final Person person = DAO.getInstance().getPerson(id, Cached.NO).orElse(null);
             if (person != null && EmailAddresses.isValid(person.getEmail())) {
                 return true;
             }
@@ -634,7 +635,7 @@ public class FamilyCommands {
     }
 
     private boolean emailInUse(final String email, final Person.Id selfId) {
-        final Person existing = DAO.getInstance().getPersonByEmail(email);
+        final Person existing = DAO.getInstance().getPersonByEmail(email, Cached.NO);
         return existing != null && !existing.getId().equals(selfId);
     }
 
@@ -649,7 +650,8 @@ public class FamilyCommands {
         // Not getCurrentPerson(): that answers a BLANK person with a fresh id when nobody is signed in, which
         // would satisfy every null check and then anchor a junk family. Resolve through the Caller instead.
         final Caller current = caller();
-        return current.isAuthenticated() ? DAO.getInstance().getPerson(current.personId()).orElse(null) : null;
+        return current.isAuthenticated() ? DAO.getInstance().getPerson(current.personId(),
+                Cached.NO).orElse(null) : null;
     }
 
     private boolean saveFamilyOrWarn(final Family family) {

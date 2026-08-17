@@ -15,6 +15,7 @@ import org.paulsens.trip.model.TemplateKind;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * The content bean's contracts: visibility filtering, version pinning, the undo path, and -- the part a page
@@ -36,7 +37,7 @@ public class ContentCommandsTest {
         // documented remedy (see TemplateCommandsTest.warmUp): re-save every stored current, a
         // version-matching save that puts each row back into its partition.
         FakeData.addFakeData();
-        DAO.getInstance().getAllContentRecords().stream()
+        DAO.getInstance().getAllContentRecords(Cached.NO).stream()
                 .map(ContentRecord::getCurrent)
                 .filter(current -> current != null)
                 .forEach(current -> DAO.getInstance().saveContent(current, 5));
@@ -508,7 +509,7 @@ public class ContentCommandsTest {
         Assert.assertEquals(content.render(pinned), "<p>hello</p>");
 
         // Advance the template; the pinned instance must keep rendering its own version's body.
-        final ContentTemplate tpl = DAO.getInstance().getTemplate("cc-test-tpl").orElseThrow();
+        final ContentTemplate tpl = DAO.getInstance().getTemplate("cc-test-tpl", Cached.NO).orElseThrow();
         tpl.setBody("<h1>{{msg}}</h1>");
         Assert.assertTrue(DAO.getInstance().saveTemplate(tpl, 5));
         Assert.assertEquals(content.render(content.getContent(pinned.getId())), "<p>hello</p>");
@@ -550,7 +551,7 @@ public class ContentCommandsTest {
                 + "<p><br></p>");
         Assert.assertTrue(content.saveContent(item));
 
-        Assert.assertEquals(DAO.getInstance().getContent(item.getId()).orElseThrow()
+        Assert.assertEquals(DAO.getInstance().getContent(item.getId(), Cached.NO).orElseThrow()
                         .getValues().get("caption"),
                 "<p style=\"text-align:center\">Thurs, <strong>Aug 27</strong></p>",
                 "the editor's trailing paragraph goes, and alignment stops depending on Quill's stylesheet");
@@ -589,7 +590,8 @@ public class ContentCommandsTest {
         Assert.assertFalse(content.isTemplateOutdated(item));
 
         Assert.assertTrue(content.saveContent(item), "the new pin survives the save");
-        Assert.assertEquals(DAO.getInstance().getContent(item.getId()).orElseThrow().getTemplateVersion(), 2);
+        Assert.assertEquals(DAO.getInstance().getContent(item.getId(),
+                Cached.NO).orElseThrow().getTemplateVersion(), 2);
     }
 
     @Test

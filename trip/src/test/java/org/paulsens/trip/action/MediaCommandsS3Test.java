@@ -16,6 +16,7 @@ import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.paginators.ListObjectsV2Iterable;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * {@link MediaCommands}' S3-touching paths, with the client injected so no bucket is ever contacted.
@@ -186,7 +187,8 @@ public class MediaCommandsS3Test {
             daoStatic.when(org.paulsens.trip.dynamo.DAO::getInstance).thenReturn(failing);
 
             Assert.assertFalse(media.delete(id, "admin"), "an unreadable row cannot be deleted");
-            Mockito.when(failing.getMedia(id)).thenReturn(java.util.Optional.of(new MediaItem(id, key, "T", null,
+            Mockito.when(failing.getMedia(id,
+                    Cached.NO)).thenReturn(java.util.Optional.of(new MediaItem(id, key, "T", null,
                     "application/pdf", 1L, "downloads", 0, null, null)));
             Assert.assertFalse(media.delete(id, "admin"), "a failing row delete maps to false");
             Assert.assertFalse(media.update(id, null, "T", null, null, null, "admin"),

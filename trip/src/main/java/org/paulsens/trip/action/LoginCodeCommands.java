@@ -27,6 +27,7 @@ import org.paulsens.trip.security.RememberMeService;
 import org.paulsens.trip.util.RandomData;
 import org.paulsens.trip.util.Util;
 import org.paulsens.trip.web.Sessions;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Sign-in with a short code emailed to the account address, which is also the forgot-password flow: once the
@@ -85,7 +86,7 @@ public class LoginCodeCommands {
                     .log();
             return true;
         }
-        final Person person = DAO.getInstance().getPersonByEmail(lowEmail);
+        final Person person = DAO.getInstance().getPersonByEmail(lowEmail, Cached.NO);
         if (person == null) {
             Audit.builder(AuditAction.CODE_REQUEST, AuditOutcome.FAILURE)
                     .actor(lowEmail, null)
@@ -192,7 +193,7 @@ public class LoginCodeCommands {
      * a real one from the code-login page or the change-password page.
      */
     private Creds credsFor(final String lowEmail) {
-        final Creds existing = DAO.getInstance().getCredsForCodeLogin(lowEmail);
+        final Creds existing = DAO.getInstance().getCredsForCodeLogin(lowEmail, Cached.NO);
         if (existing != null) {
             return existing;
         }

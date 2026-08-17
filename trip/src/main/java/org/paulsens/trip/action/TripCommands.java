@@ -30,6 +30,7 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 
 import static java.time.temporal.ChronoUnit.DAYS;
+import org.paulsens.trip.cache.Cached;
 
 @Slf4j
 @Named("trip")
@@ -190,7 +191,7 @@ public class TripCommands {
 
     public Trip sortTripPeople(final Trip trip) {
         final List<Person.Id> sortedIdList = trip.getPeople().stream()
-                        .map(id -> DAO.getInstance().getPerson(id))
+                        .map(id -> DAO.getInstance().getPerson(id, Cached.NO))
                         .map(opt -> opt.orElse(null))
                         .filter(Objects::nonNull)
                         .sorted()
@@ -202,7 +203,8 @@ public class TripCommands {
 
     public List<Trip> getActiveTrips(final int pastDaysToCountAsActive) {
         try {
-            return DAO.getInstance().getActiveTrips(LocalDateTime.now().minus(pastDaysToCountAsActive, DAYS));
+            return DAO.getInstance().getActiveTrips(LocalDateTime.now().minus(pastDaysToCountAsActive, DAYS),
+                    Cached.YES);
         } catch (final RuntimeException ex) {
             log.error("Failed to get active trips!", ex);
             return Collections.emptyList();
@@ -333,7 +335,7 @@ public class TripCommands {
         final LocalDateTime cutoff = LocalDateTime.now().minus(pastDaysStillActive, DAYS);
         if (isAdmin) {
             try {
-                return DAO.getInstance().getInactiveTrips(cutoff, limit);
+                return DAO.getInstance().getInactiveTrips(cutoff, limit, Cached.YES);
             } catch (final RuntimeException ex) {
                 log.error("Failed to get inactive trips!", ex);
                 return Collections.emptyList();
@@ -352,7 +354,7 @@ public class TripCommands {
      */
     public List<Trip> getRecentTrips(final int limit) {
         try {
-            return DAO.getInstance().getRecentTrips(limit);
+            return DAO.getInstance().getRecentTrips(limit, Cached.YES);
         } catch (final RuntimeException ex) {
             log.error("Failed to get recent trips!", ex);
             return Collections.emptyList();
@@ -361,7 +363,7 @@ public class TripCommands {
 
     public Trip getTrip(final String id) {
         try {
-            return DAO.getInstance().getTrip(id).orElse(Trip.builder().build());
+            return DAO.getInstance().getTrip(id, Cached.YES).orElse(Trip.builder().build());
         } catch (final RuntimeException ex) {
             log.error("Failed to get trip '" + id + "'!", ex);
             return Trip.builder().build();
@@ -387,7 +389,8 @@ public class TripCommands {
      *
      * @return  The trip to display, or null if the user should not see any trips.
      */
-    public Trip getTripForUser(final Trip currTrip, final Person.Id userId, final Boolean showAll, final String tripId) {
+    public Trip getTripForUser(final Trip currTrip, final Person.Id userId, final Boolean showAll,
+            final String tripId) {
         Trip result;
         if (canSeeTrip(currTrip, userId, showAll)) {
             result = currTrip;                          // Use current trip
@@ -412,7 +415,7 @@ public class TripCommands {
 
     private Trip advisoryGetTrip(final String tripId) {
         try {
-            return DAO.getInstance().getTrip(tripId).orElse(null);
+            return DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
         } catch (final RuntimeException ex) {
             return null;
         }
@@ -434,7 +437,7 @@ public class TripCommands {
 
     public List<Trip> getTripsForUser(final Person.Id userId) {
         try {
-            return DAO.getInstance().getTripsForUser(userId);
+            return DAO.getInstance().getTripsForUser(userId, Cached.YES);
         } catch (final RuntimeException ex) {
             log.error("Failed to get trips for user!", ex);
             return Collections.emptyList();
@@ -443,7 +446,7 @@ public class TripCommands {
 
     public TripEvent getTripEvent(final String eventId) {
         try {
-            return DAO.getInstance().getTripEvent(eventId);
+            return DAO.getInstance().getTripEvent(eventId, Cached.YES);
         } catch (final RuntimeException ex) {
             return logAndReturn(ex, null);
         }
@@ -546,7 +549,7 @@ public class TripCommands {
      * @return The trip or null if not found.
      */
     private Trip findTrip(final String tripId) {
-        return DAO.getInstance().getTrip(tripId).orElse(null);
+        return DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
     }
 
     /**

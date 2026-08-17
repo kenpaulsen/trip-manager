@@ -25,6 +25,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Transaction.Type;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.cache.Cached;
 
 @Slf4j
 @Named("txCmds")
@@ -63,7 +64,7 @@ public class TransactionsCommands {
             return List.of();
         }
         try {
-            return DAO.getInstance().getTransactions(userId);
+            return DAO.getInstance().getTransactions(userId, Cached.NO);
         } catch (final RuntimeException ex) {
             log.error("Error querying transactions for user {}: ", userId.getValue(), ex);
             return Collections.emptyList();
@@ -72,7 +73,7 @@ public class TransactionsCommands {
 
     public List<Transaction> getTripTransactions(final String tripId) {
         try {
-            return DAO.getInstance().getTrip(tripId)
+            return DAO.getInstance().getTrip(tripId, Cached.NO)
                     .map(Trip::getPeople)
                     .orElse(List.of())
                     .stream()
@@ -95,7 +96,7 @@ public class TransactionsCommands {
             return createTransaction(userId);
         }
         try {
-            return DAO.getInstance().getTransaction(userId, txId).orElse(null);
+            return DAO.getInstance().getTransaction(userId, txId, Cached.NO).orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Error while getting Tx ({}) for userId: '{}'!", txId, userId, ex);
             return null;
@@ -107,7 +108,7 @@ public class TransactionsCommands {
             throw new IllegalArgumentException("You must provide the userId and a txId!");
         }
         try {
-            return DAO.getInstance().getTransaction(userId, txId).isPresent();
+            return DAO.getInstance().getTransaction(userId, txId, Cached.NO).isPresent();
         } catch (final RuntimeException ex) {
             return false;
         }
@@ -193,7 +194,8 @@ public class TransactionsCommands {
             if ((tripId != null) && !tripId.isEmpty()) {
                 bind.setBindings(txBindKey, BindingType.TRANSACTION, BindingType.TRIP, List.of(tripId), true);
                 if ((eventId != null) && !eventId.isEmpty()) {
-                    bind.setBindings(txBindKey, BindingType.TRANSACTION, BindingType.TRIP_EVENT, List.of(eventId), true);
+                    bind.setBindings(txBindKey, BindingType.TRANSACTION, BindingType.TRIP_EVENT, List.of(eventId),
+                            true);
                 }
             }
         } else {
@@ -226,7 +228,7 @@ public class TransactionsCommands {
      * @return  Optionally the matching {@code Transaction}.
      */
     public Optional<Transaction> getGroupTransactionForUser(final Person.Id userId, final String groupId) {
-        return DAO.getInstance().getTransactions(userId).stream()
+        return DAO.getInstance().getTransactions(userId, Cached.NO).stream()
                 .filter(tx -> groupId.equals(tx.getGroupId())).findAny();
     }
 

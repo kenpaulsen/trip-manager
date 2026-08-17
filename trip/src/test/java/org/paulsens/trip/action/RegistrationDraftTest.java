@@ -24,6 +24,7 @@ import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotSame;
 import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * The session-held registration draft: typed answers must survive the add-a-family-member detour, and a
@@ -181,7 +182,7 @@ public class RegistrationDraftTest {
         final List<Person> registered = reg.registerParty(trip, sel, regs, digests);
         assertEquals(registered.size(), 1, "The already-registered kid is skipped, not re-registered");
         assertEquals(registered.get(0).getId(), me.getId());
-        final Registration stored = dao.getRegistration(trip.getId(), me.getId()).orElseThrow();
+        final Registration stored = dao.getRegistration(trip.getId(), me.getId(), Cached.NO).orElseThrow();
         assertTrue(new ChatCommands().digestChoice(stored),
                 "The digest answer was parked on the saved registration");
         assertTrue(reg.registerParty(null, sel, regs, digests).isEmpty(), "No trip: nothing registered");
@@ -233,8 +234,8 @@ public class RegistrationDraftTest {
         // The page's draft copy edits an answer and flips the digest; meanwhile an admin CONFIRMS the
         // row in the store. The edit must land on the STORED (confirmed) row -- saving the draft object
         // wholesale would silently revert the approval.
-        final Registration draftReg = dao.getRegistration(trip.getId(), me.getId()).orElseThrow();
-        assertTrue(dao.saveRegistration(dao.getRegistration(trip.getId(), me.getId()).orElseThrow()
+        final Registration draftReg = dao.getRegistration(trip.getId(), me.getId(), Cached.NO).orElseThrow();
+        assertTrue(dao.saveRegistration(dao.getRegistration(trip.getId(), me.getId(), Cached.NO).orElseThrow()
                 .withStatusString("Confirmed")));
         draftReg.getOptions().put("1", "Aisle");
         regs.put(key(me), draftReg);            // the draft still says Pending
@@ -242,7 +243,7 @@ public class RegistrationDraftTest {
         sel.put(key(me), Boolean.FALSE);
 
         assertTrue(reg.registerParty(trip, sel, regs, digests).isEmpty(), "Nothing NEW registered");
-        final Registration stored = dao.getRegistration(trip.getId(), me.getId()).orElseThrow();
+        final Registration stored = dao.getRegistration(trip.getId(), me.getId(), Cached.NO).orElseThrow();
         assertEquals(stored.getStatus(), Registration.Status.CONFIRMED,
                 "A response edit must never touch the status");
         assertEquals(stored.getOptions().get("1"), "Aisle", "The option edit landed");
@@ -274,13 +275,14 @@ public class RegistrationDraftTest {
                 "reg.allowEdits", "false", org.paulsens.trip.model.Config.Type.BOOLEAN, null, null, null),
                 "test"));
         try {
-            final Registration draftReg = dao.getRegistration(trip.getId(), me.getId()).orElseThrow();
+            final Registration draftReg = dao.getRegistration(trip.getId(), me.getId(), Cached.NO).orElseThrow();
             draftReg.getOptions().put("1", "should not stick");
             regs.put(key(me), draftReg);
             sel.put(key(me), Boolean.FALSE);
             assertTrue(reg.registerParty(trip, sel, regs, null).isEmpty());
             assertFalse("should not stick".equals(
-                            dao.getRegistration(trip.getId(), me.getId()).orElseThrow().getOptions().get("1")),
+                            dao.getRegistration(trip.getId(), me.getId(),
+                                    Cached.NO).orElseThrow().getOptions().get("1")),
                     "With reg.allowEdits off, the edit is not saved");
         } finally {
             assertTrue(config.save(new org.paulsens.trip.model.Config(
@@ -307,7 +309,7 @@ public class RegistrationDraftTest {
                     "Same status in draft and store: the in-progress edit is carried");
 
             // The status moves on (approval elsewhere): the store wins, the unsaved edit is dropped.
-            assertTrue(dao.saveRegistration(dao.getRegistration(trip.getId(), me.getId()).orElseThrow()
+            assertTrue(dao.saveRegistration(dao.getRegistration(trip.getId(), me.getId(), Cached.NO).orElseThrow()
                     .withStatusString("Confirmed")));
             final RegistrationDraft third = reg.loadDraft(trip, List.of(me));
             assertNotSame(third.getRegs().get(key(me)), first.getRegs().get(key(me)));

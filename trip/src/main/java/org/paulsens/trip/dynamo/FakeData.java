@@ -31,6 +31,7 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
+import org.paulsens.trip.cache.Cached;
 
 public class FakeData {
 
@@ -150,8 +151,8 @@ public class FakeData {
      * suite tests re-run addFakeData against a shared store, and a re-seed would duplicate members.
      */
     private static void addFakeFamily() {
-        final Person ken = DAO.getInstance().getPersonByEmail(localEmail("user2"));
-        final Person trinity = DAO.getInstance().getPersonByEmail(localEmail("user4"));
+        final Person ken = DAO.getInstance().getPersonByEmail(localEmail("user2"), Cached.NO);
+        final Person trinity = DAO.getInstance().getPersonByEmail(localEmail("user4"), Cached.NO);
         if (ken == null || trinity == null || ken.getFamilyId() != null) {
             return;
         }
@@ -187,7 +188,7 @@ public class FakeData {
     private static void savePrivilege(final Privilege privilege) {
         // Conditional like saveContent: suite tests re-run addFakeData against a shared store, and a
         // re-save would wipe any membership a test granted in the meantime.
-        if (DAO.getInstance().getPrivilege(privilege.getId()).isEmpty()) {
+        if (DAO.getInstance().getPrivilege(privilege.getId(), Cached.NO).isEmpty()) {
             DAO.getInstance().savePrivilege(privilege);
         }
     }
@@ -265,7 +266,7 @@ public class FakeData {
         // Idempotent: addFakeData runs once per DAO instance, but tests re-run it against a shared local
         // store, and a re-save of an existing versioned row trips the lost-update guard.
         StarterTemplates.all().stream()
-                .filter(t -> DAO.getInstance().getTemplate(t.getId()).isEmpty())
+                .filter(t -> DAO.getInstance().getTemplate(t.getId(), Cached.NO).isEmpty())
                 .forEach(t -> DAO.getInstance().saveTemplate(t, 5));
         final LocalDateTime now = LocalDateTime.now();
         saveContent(new ContentInstance("fake-title", PAGE_KEY, "Title block",
@@ -336,7 +337,7 @@ public class FakeData {
     }
 
     private static void saveContent(final ContentInstance instance) {
-        if (DAO.getInstance().getContent(instance.getId()).isPresent()) {
+        if (DAO.getInstance().getContent(instance.getId(), Cached.NO).isPresent()) {
             return;     // already seeded (tests re-run addFakeData against a shared local store)
         }
         if (!DAO.getInstance().saveContent(instance, 5)) {
@@ -585,8 +586,8 @@ public class FakeData {
         attrs.put(CredentialsDAO.EMAIL, lowEmail);
         // Resolve the persona as typed first, then as the address it maps to: the family managers hold real
         // addresses (see initFakePeople), and both "user2" and "user2@example.com" must reach that person.
-        final AttributeValue userId = Optional.ofNullable(DAO.getInstance().getPersonByEmail(lowEmail.s()))
-                .or(() -> Optional.ofNullable(DAO.getInstance().getPersonByEmail(localEmail(lowEmail.s()))))
+        final AttributeValue userId = Optional.ofNullable(DAO.getInstance().getPersonByEmail(lowEmail.s(), Cached.NO))
+                .or(() -> Optional.ofNullable(DAO.getInstance().getPersonByEmail(localEmail(lowEmail.s()), Cached.NO)))
                 .map(Person::getId).map(id -> AttributeValue.builder().s(id.getValue()).build())
                 .orElse(lowEmail);
         attrs.put(CredentialsDAO.USER_ID, userId);

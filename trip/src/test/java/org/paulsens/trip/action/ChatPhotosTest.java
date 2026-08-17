@@ -13,6 +13,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.chat.ChatAttachment;
 import org.testng.Assert;
 import org.testng.annotations.Test;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * The photo service against the LOCAL store (no bucket configured — the whole unit suite runs that way) plus
@@ -103,7 +104,7 @@ public class ChatPhotosTest {
         photos.recordAlbumRows("trip-d", "Pilgrimage 2026", UPLOADER, "Pat Pilgrim", resolved,
                 new AuditActor("pat@test", UPLOADER.getValue()));
 
-        final List<MediaItem> inSlot = DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor("trip-d"));
+        final List<MediaItem> inSlot = DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor("trip-d"), Cached.NO);
         Assert.assertEquals(inSlot.size(), 1);
         final MediaItem row = inSlot.get(0);
         Assert.assertEquals(row.getS3Key(), staged.key());
@@ -125,7 +126,7 @@ public class ChatPhotosTest {
         photos.recordAlbumRows("trip-e", "Trip E", UPLOADER, "Someone", resolved,
                 new AuditActor("s@test", UPLOADER.getValue()));
 
-        final MediaItem row = DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor("trip-e")).get(0);
+        final MediaItem row = DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor("trip-e"), Cached.NO).get(0);
         Assert.assertEquals(row.getTitle(), staged.key().substring(staged.key().lastIndexOf('/') + 1));
     }
 
@@ -137,13 +138,13 @@ public class ChatPhotosTest {
                 List.of(new ChatPhotos.AttachmentRef(staged.key(), "gone soon")));
         photos.recordAlbumRows("trip-f", "Trip F", UPLOADER, "Someone", resolved,
                 new AuditActor("s@test", UPLOADER.getValue()));
-        Assert.assertEquals(DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor("trip-f")).size(), 1);
+        Assert.assertEquals(DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor("trip-f"), Cached.NO).size(), 1);
 
         photos.deleteEverywhere(resolved);
 
         Assert.assertTrue(photos.localGet(staged.key()).isEmpty(), "full rendition removed");
         Assert.assertTrue(photos.localGet(staged.smallKey()).isEmpty(), "small rendition removed");
-        Assert.assertEquals(DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor("trip-f")).size(), 0,
+        Assert.assertEquals(DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor("trip-f"), Cached.NO).size(), 0,
                 "album row removed");
         photos.deleteEverywhere(List.of());
         photos.deleteEverywhere(null);
@@ -167,11 +168,11 @@ public class ChatPhotosTest {
                     new AuditActor("s@test", UPLOADER.getValue()));
             sent.add(resolved);
         }
-        Assert.assertEquals(DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor(trip)).size(), 3);
+        Assert.assertEquals(DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor(trip), Cached.NO).size(), 3);
 
         photos.deleteEverywhere(sent.get(0));
 
-        final List<MediaItem> remaining = DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor(trip));
+        final List<MediaItem> remaining = DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor(trip), Cached.NO);
         Assert.assertEquals(remaining.size(), 2,
                 "deleting one photo must not empty the album via the cache reload");
     }

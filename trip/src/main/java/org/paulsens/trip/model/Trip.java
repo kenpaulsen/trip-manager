@@ -27,6 +27,7 @@ import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.cache.Cached;
 
 @Data
 @Builder
@@ -361,7 +362,7 @@ public final class Trip implements Serializable {
             try (var scope = StructuredTaskScope.open()) {
                 final List<StructuredTaskScope.Subtask<TripEvent>> tasks = new ArrayList<>(ids.size());
                 for (final String id : ids) {
-                    tasks.add(scope.fork(() -> DAO.getInstance().getTripEvent(id)));
+                    tasks.add(scope.fork(() -> DAO.getInstance().getTripEvent(id, Cached.YES)));
                 }
                 scope.join();
                 final List<TripEvent> events = new ArrayList<>(ids.size());

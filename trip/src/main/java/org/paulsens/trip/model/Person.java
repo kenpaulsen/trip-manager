@@ -20,6 +20,7 @@ import lombok.Data;
 import lombok.Setter;
 import lombok.Value;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.cache.Cached;
 
 @Data
 public final class Person implements Serializable, Comparable<Person> {
@@ -129,7 +130,7 @@ public final class Person implements Serializable, Comparable<Person> {
     @JsonIgnore
     public List<Trip> getTrips() {
         try {
-            return DAO.getInstance().getTripsForUser(getId());
+            return DAO.getInstance().getTripsForUser(getId(), Cached.YES);
         } catch (final RuntimeException ex) {
             return new ArrayList<>();
         }

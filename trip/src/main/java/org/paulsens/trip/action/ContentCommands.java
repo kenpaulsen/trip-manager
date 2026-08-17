@@ -35,6 +35,7 @@ import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.TemplateKind;
 import org.paulsens.trip.model.TemplateRecord;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Template-driven page content, exposed to pages as {@code #{content}}.
@@ -81,7 +82,8 @@ public class ContentCommands {
      */
     public ContentInstance getContent(final String id) {
         try {
-            return DAO.getInstance().getContent(id).map(ContentInstance::copy).orElseGet(ContentCommands::blank);
+            return DAO.getInstance().getContent(id,
+                    Cached.NO).map(ContentInstance::copy).orElseGet(ContentCommands::blank);
         } catch (final RuntimeException ex) {
             log.error("Unable to look up content: " + id, ex);
             return blank();
@@ -93,7 +95,7 @@ public class ContentCommands {
      * per declared placeholder and a position after the section's existing instances.
      */
     public ContentInstance createContent(final String section, final String templateId) {
-        final ContentTemplate template = DAO.getInstance().getTemplate(templateId).orElse(null);
+        final ContentTemplate template = DAO.getInstance().getTemplate(templateId, Cached.NO).orElse(null);
         final ContentInstance created = blank();
         created.setSection(section);
         if (template != null) {
@@ -162,7 +164,7 @@ public class ContentCommands {
             sanitizeEditorPrivileges(instance);
             return;
         }
-        final ContentInstance stored = DAO.getInstance().getContent(instance.getId()).orElse(null);
+        final ContentInstance stored = DAO.getInstance().getContent(instance.getId(), Cached.NO).orElse(null);
         instance.setEditorPrivileges(stored == null ? null : stored.getEditorPrivileges());
         instance.setAllowedChildTemplateIds(stored == null ? null : stored.getAllowedChildTemplateIds());
     }
@@ -224,7 +226,7 @@ public class ContentCommands {
         }
         final ContentInstance parent;
         try {
-            parent = DAO.getInstance().getContent(instance.getSection()).orElse(null);
+            parent = DAO.getInstance().getContent(instance.getSection(), Cached.NO).orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Unable to resolve the parent of content: " + instance.getId(), ex);
             return "The containing section could not be checked; try again.";
@@ -263,7 +265,7 @@ public class ContentCommands {
             return "A container cannot be placed inside another container.";
         }
         final ContentTemplate containerTemplate =
-                DAO.getInstance().getTemplate(parent.getTemplateId()).orElse(null);
+                DAO.getInstance().getTemplate(parent.getTemplateId(), Cached.NO).orElse(null);
         if (containerTemplate == null || containerTemplate.getKind() != TemplateKind.CONTAINER) {
             return null;    // parent id collides with a non-container instance; nothing to enforce
         }
@@ -298,8 +300,8 @@ public class ContentCommands {
             return null;
         }
         try {
-            return DAO.getInstance().getTemplate(instance.getTemplateId(), instance.getTemplateVersion())
-                    .or(() -> DAO.getInstance().getTemplate(instance.getTemplateId()))
+            return DAO.getInstance().getTemplate(instance.getTemplateId(), instance.getTemplateVersion(), Cached.YES)
+                    .or(() -> DAO.getInstance().getTemplate(instance.getTemplateId(), Cached.YES))
                     .orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Unable to resolve the template of content: " + instance.getId(), ex);
@@ -315,7 +317,7 @@ public class ContentCommands {
     public boolean deleteContent(final String id) {
         final ContentInstance existing;
         try {
-            existing = DAO.getInstance().getContent(id).orElse(null);
+            existing = DAO.getInstance().getContent(id, Cached.NO).orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Unable to look up content for delete: " + id, ex);
             return false;
@@ -374,7 +376,8 @@ public class ContentCommands {
     /** Every retained version of an instance, current first, for the history dialog. */
     public List<ContentInstance> getHistory(final String id) {
         try {
-            return DAO.getInstance().getContentRecord(id).map(ContentRecord::getAllVersions).orElse(List.of());
+            return DAO.getInstance().getContentRecord(id,
+                    Cached.NO).map(ContentRecord::getAllVersions).orElse(List.of());
         } catch (final RuntimeException ex) {
             log.error("Unable to load content history: " + id, ex);
             return List.of();
@@ -385,7 +388,7 @@ public class ContentCommands {
     public boolean restoreContent(final String id, final int version) {
         final ContentRecord record;
         try {
-            record = DAO.getInstance().getContentRecord(id).orElse(null);
+            record = DAO.getInstance().getContentRecord(id, Cached.NO).orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Unable to load content for restore: " + id, ex);
             return false;
@@ -554,7 +557,7 @@ public class ContentCommands {
     /** The editor privileges of the container instance a section key names; empty for page keys. */
     private List<String> containerEditorPrivileges(final String section) {
         try {
-            return DAO.getInstance().getContent(section)
+            return DAO.getInstance().getContent(section, Cached.NO)
                     .map(ContentInstance::getEditorPrivileges)
                     .orElse(List.of());
         } catch (final RuntimeException ex) {
@@ -628,7 +631,7 @@ public class ContentCommands {
         try {
             // MAIL templates are email bodies: they have no instances and never render on a page, so no
             // Add dialog anywhere may offer one.
-            all = DAO.getInstance().getAllTemplates().stream()
+            all = DAO.getInstance().getAllTemplates(Cached.NO).stream()
                     .filter(t -> t.getKind() != TemplateKind.MAIL)
                     .toList();
         } catch (final RuntimeException ex) {
@@ -637,7 +640,7 @@ public class ContentCommands {
         }
         final ContentInstance container;
         try {
-            container = section == null ? null : DAO.getInstance().getContent(section).orElse(null);
+            container = section == null ? null : DAO.getInstance().getContent(section, Cached.NO).orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Unable to resolve container for template choices: " + section, ex);
             return List.of();
@@ -646,7 +649,7 @@ public class ContentCommands {
             return all;     // a page key: any kind may become a section
         }
         final ContentTemplate containerTemplate =
-                DAO.getInstance().getTemplate(container.getTemplateId()).orElse(null);
+                DAO.getInstance().getTemplate(container.getTemplateId(), Cached.NO).orElse(null);
         final List<String> allowed = effectiveAllowList(container, containerTemplate);
         return all.stream()
                 .filter(t -> t.getKind() != TemplateKind.CONTAINER)
@@ -685,7 +688,7 @@ public class ContentCommands {
 
     private List<ContentTemplate> retainedTemplates(final String templateId) {
         try {
-            return DAO.getInstance().getTemplateRecord(templateId)
+            return DAO.getInstance().getTemplateRecord(templateId, Cached.NO)
                     .map(TemplateRecord::getAllVersions).orElse(List.of());
         } catch (final RuntimeException ex) {
             log.error("Unable to load template history: " + templateId, ex);
@@ -763,7 +766,7 @@ public class ContentCommands {
 
     private ContentTemplate loadTemplateVersion(final String templateId, final int version) {
         try {
-            return DAO.getInstance().getTemplate(templateId, version).orElse(null);
+            return DAO.getInstance().getTemplate(templateId, version, Cached.NO).orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Unable to load template " + templateId + " v" + version, ex);
             return null;
@@ -835,7 +838,7 @@ public class ContentCommands {
 
     private List<ContentInstance> readSection(final String section) {
         try {
-            return DAO.getInstance().getContentForSection(section);
+            return DAO.getInstance().getContentForSection(section, Cached.YES);
         } catch (final RuntimeException ex) {
             // A page must still render if the content table is unavailable; the section is just empty.
             log.error("Unable to list content for section: " + section, ex);

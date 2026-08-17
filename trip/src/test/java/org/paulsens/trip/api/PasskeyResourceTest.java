@@ -11,6 +11,7 @@ import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * {@link PasskeyResource}'s edge behaviour: auth gating, CSRF on writes, the feature switch, and the
@@ -135,7 +136,7 @@ public class PasskeyResourceTest extends ResourceTestSupport {
 
         // And its owner can remove it.
         assertOk(live.delete(CSRF_OK, authenticator.credentialIdBase64Url()));
-        Assert.assertTrue(DAO.getInstance().getPasskey(authenticator.credentialIdBase64Url()).isEmpty());
+        Assert.assertTrue(DAO.getInstance().getPasskey(authenticator.credentialIdBase64Url(), Cached.NO).isEmpty());
     }
 
     @Test
@@ -148,7 +149,7 @@ public class PasskeyResourceTest extends ResourceTestSupport {
 
         assertError(resource.delete(CSRF_OK, someoneElsesKey), 404, ApiErrors.NOT_FOUND);
         assertError(resource.delete(CSRF_OK, "never-existed"), 404, ApiErrors.NOT_FOUND);
-        Assert.assertTrue(DAO.getInstance().getPasskey(someoneElsesKey).isPresent(),
+        Assert.assertTrue(DAO.getInstance().getPasskey(someoneElsesKey, Cached.NO).isPresent(),
                 "the other person's key must survive");
     }
 }

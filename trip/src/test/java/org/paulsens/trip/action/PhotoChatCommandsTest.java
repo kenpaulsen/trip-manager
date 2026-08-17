@@ -32,6 +32,7 @@ import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * The photo-thread rules: who may read (comments follow the photo), who may post (any signed-in user), the
@@ -162,7 +163,7 @@ public class PhotoChatCommandsTest {
         Assert.assertNotNull(result.getDecision(), "the 429 mapping needs the decision's Retry-After");
         // Photo posting has no membership row, so even an auto-mute-tier denial stays a plain rate limit.
         Assert.assertTrue(DAO.getInstance().getChatMembership(
-                ChatChannel.Id.forPhoto(key), member).isEmpty(), "no mute row materialised");
+                ChatChannel.Id.forPhoto(key), member, Cached.NO).isEmpty(), "no mute row materialised");
     }
 
     @Test
@@ -189,7 +190,8 @@ public class PhotoChatCommandsTest {
         Assert.assertEquals(photo.getParentMsgId(), carrier.getId(),
                 "the send-path hook created the channel with its parent already known");
         Assert.assertEquals(DAO.getInstance().getChatReactionSummaries(
-                        ChatChannel.Id.forTrip(tripId), List.of(carrier)).get(carrier.getId()).count("👍"), 1,
+                        ChatChannel.Id.forTrip(tripId), List.of(carrier), Cached.NO)
+                        .get(carrier.getId()).count("👍"), 1,
                 "the photo reaction reached the message's chip");
 
         Assert.assertTrue(photoChat.react(key, stranger, "👍", false, callerFor(stranger)).ok());

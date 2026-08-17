@@ -7,6 +7,7 @@ import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatInvite;
 import org.testng.Assert;
 import org.testng.annotations.Test;
+import org.paulsens.trip.cache.Cached;
 
 /** {@code chat_invites} rows through the DAO facade against the in-memory fake. */
 public class ChatInviteDAOTest {
@@ -24,7 +25,7 @@ public class ChatInviteDAOTest {
         final long expires = Instant.now().plusSeconds(3600).getEpochSecond();
         Assert.assertTrue(DAO.getInstance().saveChatInvite(invite(channel, "sel-1", expires)));
 
-        final ChatInvite read = DAO.getInstance().getChatInvite(channel, "sel-1").orElseThrow();
+        final ChatInvite read = DAO.getInstance().getChatInvite(channel, "sel-1", Cached.NO).orElseThrow();
         Assert.assertEquals(read.getChannelId(), channel);
         Assert.assertEquals(read.getSelector(), "sel-1");
         Assert.assertEquals(read.getValidatorHash(), "hash-of-sel-1");
@@ -33,7 +34,7 @@ public class ChatInviteDAOTest {
         Assert.assertEquals(read.getUses(), 0L);
 
         Assert.assertTrue(DAO.getInstance().deleteChatInvite(channel, "sel-1"));
-        Assert.assertTrue(DAO.getInstance().getChatInvite(channel, "sel-1").isEmpty());
+        Assert.assertTrue(DAO.getInstance().getChatInvite(channel, "sel-1", Cached.NO).isEmpty());
     }
 
     @Test
@@ -45,7 +46,7 @@ public class ChatInviteDAOTest {
         Assert.assertTrue(DAO.getInstance().saveChatInvite(invite(mine, "sel-b", expires)));
         Assert.assertTrue(DAO.getInstance().saveChatInvite(invite(other, "sel-c", expires)));
 
-        final List<ChatInvite> listed = DAO.getInstance().listChatInvites(mine);
+        final List<ChatInvite> listed = DAO.getInstance().listChatInvites(mine, Cached.NO);
         Assert.assertEquals(listed.size(), 2);
         Assert.assertTrue(listed.stream().allMatch(i -> i.getChannelId().equals(mine)));
     }
@@ -57,8 +58,8 @@ public class ChatInviteDAOTest {
         Assert.assertTrue(DAO.getInstance().saveChatInvite(invite(channel, "sel-use", expires)));
 
         DAO.getInstance().recordChatInviteUse(
-                DAO.getInstance().getChatInvite(channel, "sel-use").orElseThrow());
-        Assert.assertEquals(DAO.getInstance().getChatInvite(channel, "sel-use").orElseThrow().getUses(), 1L);
+                DAO.getInstance().getChatInvite(channel, "sel-use", Cached.NO).orElseThrow());
+        Assert.assertEquals(DAO.getInstance().getChatInvite(channel, "sel-use", Cached.NO).orElseThrow().getUses(), 1L);
     }
 
     @Test
@@ -76,10 +77,10 @@ public class ChatInviteDAOTest {
     @Test
     public void nullAndBlankKeysAreRefusedNotThrown() {
         final ChatChannel.Id channel = ChatChannel.Id.forTrip("invite-dao-trip-6");
-        Assert.assertTrue(DAO.getInstance().getChatInvite(null, "x").isEmpty());
-        Assert.assertTrue(DAO.getInstance().getChatInvite(channel, null).isEmpty());
-        Assert.assertTrue(DAO.getInstance().getChatInvite(channel, "").isEmpty());
-        Assert.assertEquals(DAO.getInstance().listChatInvites(null), List.of());
+        Assert.assertTrue(DAO.getInstance().getChatInvite(null, "x", Cached.NO).isEmpty());
+        Assert.assertTrue(DAO.getInstance().getChatInvite(channel, null, Cached.NO).isEmpty());
+        Assert.assertTrue(DAO.getInstance().getChatInvite(channel, "", Cached.NO).isEmpty());
+        Assert.assertEquals(DAO.getInstance().listChatInvites(null, Cached.NO), List.of());
         Assert.assertFalse(DAO.getInstance().deleteChatInvite(null, "x"));
         Assert.assertFalse(DAO.getInstance().deleteChatInvite(channel, null));
         Assert.assertFalse(DAO.getInstance().saveChatInvite(null));
@@ -107,20 +108,20 @@ public class ChatInviteDAOTest {
         final Person.Id guest = Person.Id.from("reverse-guest-" + System.nanoTime());
         final ChatChannel.Id first = ChatChannel.Id.forTrip("reverse-trip-1");
         final ChatChannel.Id second = ChatChannel.Id.forTrip("reverse-trip-2");
-        Assert.assertEquals(DAO.getInstance().getGuestChatChannelIds(guest), List.of());
+        Assert.assertEquals(DAO.getInstance().getGuestChatChannelIds(guest, Cached.NO), List.of());
 
         Assert.assertTrue(DAO.getInstance().addGuestChatChannel(guest, first));
         Assert.assertTrue(DAO.getInstance().addGuestChatChannel(guest, second));
         // Idempotent: redeeming the same invite twice writes the same row.
         Assert.assertTrue(DAO.getInstance().addGuestChatChannel(guest, first));
 
-        final List<ChatChannel.Id> channels = DAO.getInstance().getGuestChatChannelIds(guest);
+        final List<ChatChannel.Id> channels = DAO.getInstance().getGuestChatChannelIds(guest, Cached.NO);
         Assert.assertEquals(channels.size(), 2);
         Assert.assertTrue(channels.contains(first));
         Assert.assertTrue(channels.contains(second));
 
         // The synthetic person: partition must never leak into a real channel's member listing.
-        Assert.assertTrue(DAO.getInstance().listChatMembers(first).stream()
+        Assert.assertTrue(DAO.getInstance().listChatMembers(first, Cached.NO).stream()
                 .noneMatch(m -> m.getPersonId().equals(guest)));
     }
 }

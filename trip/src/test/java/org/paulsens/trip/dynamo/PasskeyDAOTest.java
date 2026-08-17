@@ -6,6 +6,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
 import org.testng.annotations.Test;
+import org.paulsens.trip.cache.Cached;
 
 /** {@link PasskeyDAO} round-trips and the owner check, against the in-memory fake store. */
 public class PasskeyDAOTest {
@@ -24,10 +25,10 @@ public class PasskeyDAOTest {
         final PasskeyCredential stored = passkey(id, who, "pk@example.org", "localhost");
 
         Assert.assertTrue(DAO.getInstance().savePasskey(stored));
-        Assert.assertEquals(DAO.getInstance().getPasskey(id).orElseThrow(), stored);
+        Assert.assertEquals(DAO.getInstance().getPasskey(id, Cached.NO).orElseThrow(), stored);
 
         Assert.assertTrue(DAO.getInstance().deletePasskey(id, who));
-        Assert.assertTrue(DAO.getInstance().getPasskey(id).isEmpty());
+        Assert.assertTrue(DAO.getInstance().getPasskey(id, Cached.NO).isEmpty());
     }
 
     @Test
@@ -39,7 +40,7 @@ public class PasskeyDAOTest {
         Assert.assertFalse(DAO.getInstance().deletePasskey(id, Person.Id.from("pk-somebody-else")),
                 "someone else's id must not delete this key, whatever the page sent");
         Assert.assertFalse(DAO.getInstance().deletePasskey(id, null));
-        Assert.assertTrue(DAO.getInstance().getPasskey(id).isPresent(), "the key must survive the attempts");
+        Assert.assertTrue(DAO.getInstance().getPasskey(id, Cached.NO).isPresent(), "the key must survive the attempts");
         Assert.assertTrue(DAO.getInstance().deletePasskey(id, owner));
     }
 
@@ -50,19 +51,19 @@ public class PasskeyDAOTest {
         DAO.getInstance().savePasskey(passkey(RandomData.genSecureToken(12), who, email, "localhost"));
         DAO.getInstance().savePasskey(passkey(RandomData.genSecureToken(12), who, email, "unitetrip.com"));
 
-        Assert.assertEquals(DAO.getInstance().getPasskeysForUser(who).size(), 2);
+        Assert.assertEquals(DAO.getInstance().getPasskeysForUser(who, Cached.NO).size(), 2);
         // Domain-scoped, like the browser: the other domain's key must not be offered.
-        Assert.assertEquals(DAO.getInstance().getPasskeysForEmailAndRp(email, "localhost").size(), 1);
-        Assert.assertEquals(DAO.getInstance().getPasskeysForEmailAndRp(email, "unitetrip.com").size(), 1);
-        Assert.assertEquals(DAO.getInstance().getPasskeysForEmailAndRp(email, "example.org").size(), 0);
+        Assert.assertEquals(DAO.getInstance().getPasskeysForEmailAndRp(email, "localhost", Cached.NO).size(), 1);
+        Assert.assertEquals(DAO.getInstance().getPasskeysForEmailAndRp(email, "unitetrip.com", Cached.NO).size(), 1);
+        Assert.assertEquals(DAO.getInstance().getPasskeysForEmailAndRp(email, "example.org", Cached.NO).size(), 0);
     }
 
     @Test
     public void blankLookupsAnswerEmpty() {
-        Assert.assertTrue(DAO.getInstance().getPasskey(null).isEmpty());
-        Assert.assertTrue(DAO.getInstance().getPasskey("").isEmpty());
-        Assert.assertTrue(DAO.getInstance().getPasskeysForUser(null).isEmpty());
-        Assert.assertTrue(DAO.getInstance().getPasskeysForEmailAndRp(null, "x").isEmpty());
-        Assert.assertTrue(DAO.getInstance().getPasskeysForEmailAndRp("a@b", null).isEmpty());
+        Assert.assertTrue(DAO.getInstance().getPasskey(null, Cached.NO).isEmpty());
+        Assert.assertTrue(DAO.getInstance().getPasskey("", Cached.NO).isEmpty());
+        Assert.assertTrue(DAO.getInstance().getPasskeysForUser(null, Cached.NO).isEmpty());
+        Assert.assertTrue(DAO.getInstance().getPasskeysForEmailAndRp(null, "x", Cached.NO).isEmpty());
+        Assert.assertTrue(DAO.getInstance().getPasskeysForEmailAndRp("a@b", null, Cached.NO).isEmpty());
     }
 }

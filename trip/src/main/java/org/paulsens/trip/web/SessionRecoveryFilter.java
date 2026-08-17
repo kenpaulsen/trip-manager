@@ -24,6 +24,7 @@ import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.AuditPage;
 import org.paulsens.trip.model.AuditQuery;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Recovers a browser whose stored session can no longer be read, instead of showing it a stack trace.
@@ -210,8 +211,8 @@ public class SessionRecoveryFilter implements Filter {
                         .since(since)
                         .text(AUDIT_PREFIX)
                         .limit(AUDIT_SCAN_LIMIT)
-                        .build())
-                ;
+                        .build(),
+                Cached.NO);
         return page.getEvents().stream()
                 .anyMatch(e -> e.getMessage() != null && e.getMessage().contains("session=" + key));
     }

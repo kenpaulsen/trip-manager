@@ -15,6 +15,7 @@ import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.RememberToken;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * The {@code trip_remember} cookie: quietly signs a browser back in after its session is gone.
@@ -96,7 +97,7 @@ public class RememberMeService {
         }
         final String selector = value.substring(0, split);
         final String validator = value.substring(split + 1);
-        final RememberToken token = DAO.getInstance().getRememberToken(selector).orElse(null);
+        final RememberToken token = DAO.getInstance().getRememberToken(selector, Cached.NO).orElse(null);
         if (token == null) {
             expire(request, response);
             return null;
@@ -122,7 +123,7 @@ public class RememberMeService {
         }
         // Role comes from the pass table NOW, not from the token: privilege changes must bite immediately,
         // and an account that became admin since issue stops being restorable at all.
-        final Creds creds = DAO.getInstance().getCredsForCodeLogin(token.getEmail());
+        final Creds creds = DAO.getInstance().getCredsForCodeLogin(token.getEmail(), Cached.NO);
         if (creds == null || isAdmin(creds.getPriv())) {
             DAO.getInstance().deleteRememberToken(selector);
             expire(request, response);

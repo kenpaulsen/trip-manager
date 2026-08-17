@@ -8,13 +8,14 @@ import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.cache.Cached;
 
 @Slf4j
 @FacesConverter("person")
 public class PersonConverter implements Converter {
     @Override
     public Object getAsObject(FacesContext ctx, UIComponent comp, String value) {
-        final Person person = DAO.getInstance().getPerson(Person.Id.from(value))
+        final Person person = DAO.getInstance().getPerson(Person.Id.from(value), Cached.YES)
                 
                 
                 .orElse(null);
@@ -33,7 +34,8 @@ public class PersonConverter implements Converter {
         } else if (value instanceof String) {
             return (String) value;
         }
-        log.warn("Unable to convert {} of type {} to a Person.", value, value == null ? "null" : value.getClass().getName());
+        log.warn("Unable to convert {} of type {} to a Person.", value,
+                value == null ? "null" : value.getClass().getName());
         return null;
     }
 }

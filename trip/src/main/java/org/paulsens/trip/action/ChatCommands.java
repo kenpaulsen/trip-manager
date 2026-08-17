@@ -55,6 +55,7 @@ import org.paulsens.trip.model.chat.ChatVisibility;
 import org.paulsens.trip.security.Digests;
 import org.paulsens.trip.util.RandomData;
 import org.paulsens.trip.util.ScopeUtil;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Chat operations for both JSF pages and the JAX-RS resource. Capture {@link AuditActor} at the top of any
@@ -125,11 +126,11 @@ public class ChatCommands {
 
     public ChatChannel ensureChannel(final String tripId, final AuditActor actor) {
         final ChatChannel.Id id = ChatChannel.Id.forTrip(tripId);
-        final Optional<ChatChannel> existing = dao().getChatChannel(id);
+        final Optional<ChatChannel> existing = dao().getChatChannel(id, Cached.NO);
         if (existing.isPresent()) {
             return existing.get();
         }
-        final Trip trip = dao().getTrip(tripId).orElse(null);
+        final Trip trip = dao().getTrip(tripId, Cached.NO).orElse(null);
         final String title = trip == null || trip.getTitle() == null ? "Trip chat" : trip.getTitle() + " chat";
         final ChatChannel created = new ChatChannel(
                 id, tripId, ChatChannel.Kind.TRIP, title, null, null,
@@ -154,14 +155,14 @@ public class ChatCommands {
         if (existing != null) {
             return existing;
         }
-        final Trip trip = dao().getTrip(tripId).orElse(null);
+        final Trip trip = dao().getTrip(tripId, Cached.NO).orElse(null);
         final String title = trip == null || trip.getTitle() == null ? "Trip chat" : trip.getTitle() + " chat";
         return new ChatChannel(ChatChannel.Id.forTrip(tripId), tripId, ChatChannel.Kind.TRIP, title,
                 null, null, ChatSettings.defaults(), Instant.EPOCH, null, null, null);
     }
 
     public ChatChannel getChannel(final String tripId) {
-        return dao().getChatChannel(ChatChannel.Id.forTrip(tripId)).orElse(null);
+        return dao().getChatChannel(ChatChannel.Id.forTrip(tripId), Cached.NO).orElse(null);
     }
 
     // --- authorization helpers ---
@@ -256,7 +257,7 @@ public class ChatCommands {
         if (tripId == null || personId == null) {
             return false;
         }
-        final Trip trip = dao().getTrip(tripId).orElse(null);
+        final Trip trip = dao().getTrip(tripId, Cached.NO).orElse(null);
         if (trip == null) {
             return false;
         }
@@ -289,7 +290,7 @@ public class ChatCommands {
         if (person == null || person.getFamilyId() == null) {
             return false;
         }
-        final Family family = dao().getFamily(person.getFamilyId()).orElse(null);
+        final Family family = dao().getFamily(person.getFamilyId(), Cached.NO).orElse(null);
         return family != null && family.getMemberIds().stream().anyMatch(trip.getPeople()::contains);
     }
 
@@ -301,7 +302,7 @@ public class ChatCommands {
         final Person person = PersonCommands.getPersonCommands().getPerson(personId);
         final Set<Person.Id> out = new LinkedHashSet<>(person.getManagedUsers());
         if (person.getFamilyId() != null) {
-            dao().getFamily(person.getFamilyId()).ifPresent(family -> out.addAll(family.getMemberIds()));
+            dao().getFamily(person.getFamilyId(), Cached.NO).ifPresent(family -> out.addAll(family.getMemberIds()));
         }
         out.remove(personId);
         return out;
@@ -320,7 +321,7 @@ public class ChatCommands {
             return resolved;
         }
         if (canParticipate(tripId, me)) {
-            return dao().getTrip(tripId).orElse(resolved);
+            return dao().getTrip(tripId, Cached.NO).orElse(resolved);
         }
         return resolved;
     }
@@ -339,7 +340,7 @@ public class ChatCommands {
         if (tripId == null || personId == null) {
             return false;
         }
-        return guestJoined(dao().getChatMembership(ChatChannel.Id.forTrip(tripId), personId).orElse(null));
+        return guestJoined(dao().getChatMembership(ChatChannel.Id.forTrip(tripId), personId, Cached.NO).orElse(null));
     }
 
     private static boolean guestJoined(final ChatMembership row) {
@@ -353,7 +354,7 @@ public class ChatCommands {
      * place allowed to decide what an implicit member may see.
      */
     public Optional<ChatMembership> membershipRow(final ChatChannel.Id channelId, final Person.Id personId) {
-        return dao().getChatMembership(channelId, personId);
+        return dao().getChatMembership(channelId, personId, Cached.NO);
     }
 
     /**
@@ -452,7 +453,7 @@ public class ChatCommands {
      * them on an itinerary for a trip they are not on.
      */
     public String exitUrlForTrip(final String tripId, final Person.Id personId) {
-        final Trip trip = tripId == null ? null : dao().getTrip(tripId).orElse(null);
+        final Trip trip = tripId == null ? null : dao().getTrip(tripId, Cached.NO).orElse(null);
         if (trip == null) {
             return "/trip/tripContacts.jsf";
         }
@@ -537,7 +538,7 @@ public class ChatCommands {
      * in a JavaScript string literal.
      */
     public String rosterJsonForTrip(final String tripId) {
-        final Trip trip = dao().getTrip(tripId).orElse(null);
+        final Trip trip = dao().getTrip(tripId, Cached.NO).orElse(null);
         if (trip == null) {
             return "[]";
         }
@@ -545,7 +546,7 @@ public class ChatCommands {
         // Roster ∪ explicit JOINED rows: family managers participate without being on the trip roster, and
         // the mention autocomplete must be able to name anyone who can post here.
         final java.util.LinkedHashSet<Person.Id> ids = new java.util.LinkedHashSet<>(trip.getPeople());
-        for (final ChatMembership row : dao().listChatMembers(ChatChannel.Id.forTrip(tripId))) {
+        for (final ChatMembership row : dao().listChatMembers(ChatChannel.Id.forTrip(tripId), Cached.NO)) {
             if (row.getState() == ChatMembership.MemberState.JOINED) {
                 ids.add(row.getPersonId());
             }
@@ -763,7 +764,7 @@ public class ChatCommands {
         // an admin REMOVE must oust a trip member and a guest alike, and a guest-marked JOINED row is itself
         // a grant -- so the row can no longer be an afterthought consulted only for members. Exactly one
         // membership read either way.
-        final ChatMembership row = dao().getChatMembership(channel.getId(), me).orElse(null);
+        final ChatMembership row = dao().getChatMembership(channel.getId(), me, Cached.NO).orElse(null);
         if (row != null && row.getState() == ChatMembership.MemberState.LEFT) {
             return "LEFT_CHANNEL";
         }
@@ -784,7 +785,7 @@ public class ChatCommands {
 
     /** Whether this trip has chat at all, for a page deciding whether to render or redirect. */
     public boolean chatEnabledForTrip(final String tripId) {
-        final Trip trip = dao().getTrip(tripId).orElse(null);
+        final Trip trip = dao().getTrip(tripId, Cached.NO).orElse(null);
         return trip == null || trip.getChatEnabled();
     }
 
@@ -841,7 +842,7 @@ public class ChatCommands {
         final ChatChannel channel = ensureChannel(tripId, who);
         // One membership read serves the whole send: the authorization chain, the denial reason, and the reply
         // quote's visibility check. It was read four times per send, each a separate blocking round trip.
-        final ChatMembership row = dao().getChatMembership(channel.getId(), authorId).orElse(null);
+        final ChatMembership row = dao().getChatMembership(channel.getId(), authorId, Cached.NO).orElse(null);
         final SendResult denial = postDenial(channel, authorId, row, now);
         if (denial != null) {
             return denial;
@@ -892,7 +893,7 @@ public class ChatCommands {
         ChatQuote quote = null;
         if (replyToId != null) {
             final Optional<ChatMessage> original = dao().getVisibleChatMessage(
-                    channel.getId(), replyToId, row, channel, tripOf(channel), now);
+                    channel.getId(), replyToId, row, channel, tripOf(channel), now, Cached.NO);
             if (original.isPresent()) {
                 final Person author = PersonCommands.getPersonCommands().getPerson(original.get().getAuthorId());
                 final String name = author == null ? "Someone" : author.getPreferredName();
@@ -966,7 +967,7 @@ public class ChatCommands {
         }
         final ChatMessage.Id since = ChatMessage.Id.of(now.minus(EVERYONE_WINDOW).toEpochMilli());
         return dao().getChatMessagesSince(
-                        channel.getId(), since, 200, null, channel, tripOf(channel), now)
+                        channel.getId(), since, 200, null, channel, tripOf(channel), now, Cached.NO)
                 .getMessages().stream()
                 .filter(m -> !m.getId().equals(sent.getId()))
                 .filter(m -> authorId.equals(m.getAuthorId()))
@@ -1021,7 +1022,7 @@ public class ChatCommands {
      */
     public AttachGate checkAttach(final String tripId, final Person.Id me) {
         final ChatChannel channel = channelForPage(tripId);
-        final ChatMembership row = dao().getChatMembership(channel.getId(), me).orElse(null);
+        final ChatMembership row = dao().getChatMembership(channel.getId(), me, Cached.NO).orElse(null);
         final SendResult denial = postDenial(channel, me, row, Instant.now());
         if (denial != null) {
             return new AttachGate(channel, denial.getMessage());
@@ -1043,9 +1044,9 @@ public class ChatCommands {
             return ChatPage.empty();
         }
         final Optional<ChatMembership> member =
-                dao().getChatMembership(channel.getId(), readerId);
+                dao().getChatMembership(channel.getId(), readerId, Cached.NO);
         return withNames(dao().getChatMessagesSince(
-                channel.getId(), since, limit, member.orElse(null), channel, tripOf(channel), Instant.now())
+                channel.getId(), since, limit, member.orElse(null), channel, tripOf(channel), Instant.now(), Cached.NO)
                 );
     }
 
@@ -1059,9 +1060,9 @@ public class ChatCommands {
             return ChatPage.empty();
         }
         final Optional<ChatMembership> member =
-                dao().getChatMembership(channel.getId(), readerId);
+                dao().getChatMembership(channel.getId(), readerId, Cached.NO);
         return withNames(dao().getChatMessagesBefore(
-                channel.getId(), before, limit, member.orElse(null), channel, tripOf(channel), Instant.now())
+                channel.getId(), before, limit, member.orElse(null), channel, tripOf(channel), Instant.now(), Cached.NO)
                 );
     }
 
@@ -1176,7 +1177,7 @@ public class ChatCommands {
         }
         final ChatMembership row = membershipFor(channel.getId(), me);
         final Optional<ChatMessage> target = dao().getVisibleChatMessage(
-                channel.getId(), msgId, row, channel, tripOf(channel), now);
+                channel.getId(), msgId, row, channel, tripOf(channel), now, Cached.NO);
         if (target.isEmpty() || target.get().isDeleted()) {
             return ReactResult.fail("not_found", "Message not found.");
         }
@@ -1440,7 +1441,7 @@ public class ChatCommands {
         if (channel == null || me == null || !canRead(channel, me)) {
             return false;
         }
-        return unreadAgainst(channel, me, dao().getChatLastActivity());
+        return unreadAgainst(channel, me, dao().getChatLastActivity(Cached.NO));
     }
 
     private boolean unreadAgainst(
@@ -1449,7 +1450,7 @@ public class ChatCommands {
         if (activity <= 0L) {
             return false;
         }
-        final ChatMessage.Id cursor = dao().getChatCursor(channel.getId(), me).orElse(null);
+        final ChatMessage.Id cursor = dao().getChatCursor(channel.getId(), me, Cached.NO).orElse(null);
         // No cursor means they have never opened this chat. Anything at all is unread -- which is the correct
         // first-time signal, and it is also why an absent cursor must not be read as "caught up".
         return cursor == null || cursor.getEpochMilli() < activity;
@@ -1505,7 +1506,7 @@ public class ChatCommands {
         // would confirm it exists and put their name on it in everyone else's chip tooltip.
         final ChatMembership row = membershipFor(channel.getId(), me);
         final Optional<ChatMessage> target = dao().getVisibleChatMessage(
-                channel.getId(), msgId, row, channel, tripOf(channel), now);
+                channel.getId(), msgId, row, channel, tripOf(channel), now, Cached.NO);
         if (target.isEmpty()) {
             return ReactResult.fail("not_found", "Message not found.");
         }
@@ -1560,12 +1561,12 @@ public class ChatCommands {
         if (channel == null || !canRead(channel, me)) {
             return Map.of();
         }
-        return dao().getChatReactionWindow(channel.getId(), oldest, newest);
+        return dao().getChatReactionWindow(channel.getId(), oldest, newest, Cached.NO);
     }
 
     public long reactionsVersion(final String tripId) {
         final ChatChannel channel = getChannel(tripId);
-        return channel == null ? 0L : dao().getChatReactionsVersion(channel.getId());
+        return channel == null ? 0L : dao().getChatReactionsVersion(channel.getId(), Cached.NO);
     }
 
     /** The reaction palette, for the picker and for validating what a client sends back. */
@@ -1579,7 +1580,7 @@ public class ChatCommands {
         final AuditActor who = actor != null ? actor : AuditActor.current();
         final ChatChannel channel = ensureChannel(tripId, who);
         final Instant now = Instant.now();
-        final ChatMembership existing = dao().getChatMembership(channel.getId(), personId)
+        final ChatMembership existing = dao().getChatMembership(channel.getId(), personId, Cached.NO)
                 .orElseGet(() -> new ChatMembership(
                         channel.getId(), personId, ChatMembership.MemberState.JOINED,
                         ChatMembership.MemberRole.MEMBER, channel.getCreated(), null, null, null,
@@ -1597,7 +1598,7 @@ public class ChatCommands {
         final AuditActor who = actor != null ? actor : AuditActor.current();
         final ChatChannel channel = ensureChannel(tripId, who);
         final Instant now = Instant.now();
-        final Optional<ChatMembership> existing = dao().getChatMembership(channel.getId(), personId);
+        final Optional<ChatMembership> existing = dao().getChatMembership(channel.getId(), personId, Cached.NO);
         if (existing.isPresent() && existing.get().getState() == ChatMembership.MemberState.REMOVED) {
             return false; // admin must re-add
         }
@@ -1647,7 +1648,7 @@ public class ChatCommands {
             return false;
         }
         final ChatChannel channel = channelForPage(tripId);
-        final ChatMembership row = dao().getChatMembership(channel.getId(), me).orElse(null);
+        final ChatMembership row = dao().getChatMembership(channel.getId(), me, Cached.NO).orElse(null);
         return postDenial(channel, me, row, Instant.now()) == null || canAdminister(tripId);
     }
 
@@ -1723,7 +1724,7 @@ public class ChatCommands {
      */
     private long countOutstanding(final ChatChannel.Id channelId, final Instant now) {
         long live = 0;
-        for (final ChatInvite invite : dao().listChatInvites(channelId)) {
+        for (final ChatInvite invite : dao().listChatInvites(channelId, Cached.NO)) {
             if (invite.isExpired(now)) {
                 dao().deleteChatInvite(channelId, invite.getSelector());
             } else {
@@ -1789,7 +1790,7 @@ public class ChatCommands {
             return "invalid";
         }
         final ChatChannel.Id channelId = ChatChannel.Id.forTrip(tripId);
-        final ChatInvite invite = dao().getChatInvite(channelId, token.substring(0, dot)).orElse(null);
+        final ChatInvite invite = dao().getChatInvite(channelId, token.substring(0, dot), Cached.NO).orElse(null);
         if (invite == null || !Digests.matches(invite.getValidatorHash(),
                 Digests.sha256Base64(token.substring(dot + 1)))) {
             return auditRedeemFailure(actor, channelId, "invalid or revoked invite token");
@@ -1798,14 +1799,14 @@ public class ChatCommands {
         if (invite.isExpired(now)) {
             return auditRedeemFailure(actor, channelId, "expired invite " + invite.getSelector());
         }
-        if (!chatEnabledForTrip(tripId) || dao().getTrip(tripId).isEmpty()) {
+        if (!chatEnabledForTrip(tripId) || dao().getTrip(tripId, Cached.NO).isEmpty()) {
             return "disabled";
         }
         final ChatChannel channel = ensureChannel(tripId, actor);
         if (ChatVisibility.isArchived(channel, tripOf(channel), now)) {
             return "archived";
         }
-        final ChatMembership existing = dao().getChatMembership(channel.getId(), me).orElse(null);
+        final ChatMembership existing = dao().getChatMembership(channel.getId(), me, Cached.NO).orElse(null);
         if (existing != null && existing.getState() == ChatMembership.MemberState.REMOVED) {
             // An invite must not bypass moderation: whoever an admin removed stays removed, whatever links
             // they collect afterwards.
@@ -1850,7 +1851,7 @@ public class ChatCommands {
             return List.of();
         }
         final Instant now = Instant.now();
-        return dao().listChatInvites(ChatChannel.Id.forTrip(tripId)).stream()
+        return dao().listChatInvites(ChatChannel.Id.forTrip(tripId), Cached.NO).stream()
                 .filter(invite -> !invite.isExpired(now))
                 .sorted(Comparator.comparing(ChatInvite::getCreated).reversed())
                 .toList();
@@ -1893,7 +1894,7 @@ public class ChatCommands {
         if (channel == null) {
             return false;
         }
-        final Optional<ChatMessage> before = dao().getChatMessage(channel.getId(), msgId);
+        final Optional<ChatMessage> before = dao().getChatMessage(channel.getId(), msgId, Cached.NO);
         if (!isOwnMessage(before, who)) {
             if (denyUnlessAdmin(tripId, "delete message " + (msgId == null ? "?" : msgId.getValue()),
                     caller)) {
@@ -1940,7 +1941,7 @@ public class ChatCommands {
         if (channel == null || msgId == null || s3Key == null || s3Key.isBlank()) {
             return false;
         }
-        final Optional<ChatMessage> before = dao().getChatMessage(channel.getId(), msgId);
+        final Optional<ChatMessage> before = dao().getChatMessage(channel.getId(), msgId, Cached.NO);
         if (!isOwnMessage(before, who)) {
             if (denyUnlessAdmin(tripId, "delete photo from message " + msgId.getValue(), caller)) {
                 return false;
@@ -2003,7 +2004,7 @@ public class ChatCommands {
             return true;
         }
         final ChatChannel channel = getChannel(tripId);
-        return channel != null && dao().getChatMessage(channel.getId(), msgId)
+        return channel != null && dao().getChatMessage(channel.getId(), msgId, Cached.NO)
                 .map(ChatMessage::getAuthorId).filter(Objects::nonNull).map(me::equals).orElse(false);
     }
 
@@ -2213,7 +2214,7 @@ public class ChatCommands {
             return false;
         }
         final ChatChannel channel = ensureChannel(tripId, who);
-        final Optional<ChatMembership> row = dao().getChatMembership(channel.getId(), target);
+        final Optional<ChatMembership> row = dao().getChatMembership(channel.getId(), target, Cached.NO);
         if (row.isEmpty()) {
             return true;
         }
@@ -2265,7 +2266,7 @@ public class ChatCommands {
         }
         final ChatChannel channel = ensureChannel(tripId, who);
         final Instant now = Instant.now();
-        final Optional<ChatMembership> existing = dao().getChatMembership(channel.getId(), target);
+        final Optional<ChatMembership> existing = dao().getChatMembership(channel.getId(), target, Cached.NO);
         final ChatMembership base = existing.orElseGet(() -> new ChatMembership(
                 channel.getId(), target, ChatMembership.MemberState.JOINED,
                 ChatMembership.MemberRole.MEMBER, now, null, null, null,
@@ -2292,7 +2293,7 @@ public class ChatCommands {
     }
 
     public String addWarningText(final ChatChannel channel, final Person.Id target) {
-        final Optional<ChatMembership> row = dao().getChatMembership(channel.getId(), target);
+        final Optional<ChatMembership> row = dao().getChatMembership(channel.getId(), target, Cached.NO);
         final Person person = PersonCommands.getPersonCommands().getPerson(target);
         final String name = person == null ? target.getValue() : person.getPreferredName();
         if (row.isEmpty()) {
@@ -2417,7 +2418,7 @@ public class ChatCommands {
             return;
         }
         for (final Person.Id pid : trip.getPeople()) {
-            final Optional<ChatMembership> row = dao().getChatMembership(channel.getId(), pid);
+            final Optional<ChatMembership> row = dao().getChatMembership(channel.getId(), pid, Cached.NO);
             if (row.isEmpty()) {
                 final ChatMembership m = ChatMembership.joining(channel.getId(), pid, channel.getCreated());
                 dao().saveChatMembership(m);
@@ -2433,18 +2434,18 @@ public class ChatCommands {
         // list that trip too -- and a guest's channel is reachable through no trip of theirs at all, only
         // through the person:{id} reverse rows. The canRead filter below is what drops a removed guest.
         final Map<String, Trip> byId = new java.util.LinkedHashMap<>();
-        for (final Trip trip : dao().getTripsForUser(personId)) {
+        for (final Trip trip : dao().getTripsForUser(personId, Cached.NO)) {
             byId.put(trip.getId(), trip);
         }
         for (final Person.Id relativeId : householdOf(personId)) {
-            for (final Trip trip : dao().getTripsForUser(relativeId)) {
+            for (final Trip trip : dao().getTripsForUser(relativeId, Cached.NO)) {
                 byId.putIfAbsent(trip.getId(), trip);
             }
         }
-        for (final ChatChannel.Id guestChannelId : dao().getGuestChatChannelIds(personId)) {
+        for (final ChatChannel.Id guestChannelId : dao().getGuestChatChannelIds(personId, Cached.NO)) {
             final String tripId = guestChannelId.tripIdOrNull();
             if (tripId != null && !byId.containsKey(tripId)) {
-                dao().getTrip(tripId).ifPresent(trip -> byId.put(trip.getId(), trip));
+                dao().getTrip(tripId, Cached.NO).ifPresent(trip -> byId.put(trip.getId(), trip));
             }
         }
         final List<Trip> trips = new ArrayList<>(byId.values());
@@ -2452,7 +2453,7 @@ public class ChatCommands {
         final List<ChatSummary> out = new ArrayList<>();
         for (final Trip trip : trips) {
             final ChatChannel.Id cid = ChatChannel.Id.forTrip(trip.getId());
-            final ChatChannel channel = dao().getChatChannel(cid).orElse(null);
+            final ChatChannel channel = dao().getChatChannel(cid, Cached.NO).orElse(null);
             if (channel == null) {
                 continue;
             }
@@ -2472,7 +2473,7 @@ public class ChatCommands {
         if (channel == null) {
             return List.of();
         }
-        return dao().listChatMembers(channel.getId());
+        return dao().listChatMembers(channel.getId(), Cached.NO);
     }
 
     // --- JSF helpers ---
@@ -2532,7 +2533,7 @@ public class ChatCommands {
     private ChatMembership materialize(final ChatChannel channel, final Person.Id personId, final Instant now) {
         // An implicit member has been in the channel since it existed, so that is their joinedAt floor.
         final Instant since = channel.getCreated() == null ? now : channel.getCreated();
-        return dao().getChatMembership(channel.getId(), personId)
+        return dao().getChatMembership(channel.getId(), personId, Cached.NO)
                 .orElseGet(() -> ChatMembership.joining(channel.getId(), personId, since));
     }
 
@@ -2540,7 +2541,7 @@ public class ChatCommands {
         if (channel == null || channel.getTripId() == null) {
             return null;
         }
-        return dao().getTrip(channel.getTripId()).orElse(null);
+        return dao().getTrip(channel.getTripId(), Cached.NO).orElse(null);
     }
 
     private DAO dao() {

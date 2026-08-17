@@ -21,6 +21,7 @@ import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Config;
 import org.paulsens.trip.model.SettingDef;
 import org.paulsens.trip.model.SettingSection;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Runtime settings, exposed to pages as {@code #{config}}.
@@ -229,7 +230,7 @@ public class ConfigCommands {
     /** All settings, name-sorted, for the admin page. */
     public List<Config> getAll() {
         try {
-            return DAO.getInstance().getAllConfig().stream()
+            return DAO.getInstance().getAllConfig(Cached.NO).stream()
                     .sorted(Comparator.comparing(Config::getName, String.CASE_INSENSITIVE_ORDER))
                     .toList();
         } catch (final RuntimeException ex) {
@@ -351,7 +352,7 @@ public class ConfigCommands {
 
     private Optional<Config> lookup(final String name) {
         try {
-            return DAO.getInstance().getConfig(name);
+            return DAO.getInstance().getConfig(name, Cached.YES);
         } catch (final RuntimeException ex) {
             // Never propagate: a settings lookup happens mid-render and must not break the page.
             log.error("Unable to read config: " + name, ex);

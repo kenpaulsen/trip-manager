@@ -29,6 +29,7 @@ import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.model.TemplateKind;
 import org.paulsens.trip.model.TemplateRecord;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Content-template management, exposed to the template-manager page as {@code #{contentTemplate}}.
@@ -50,7 +51,7 @@ public class TemplateCommands {
     /** The latest version of every template, name-sorted -- drives the manager table and pickers. */
     public List<ContentTemplate> getTemplates() {
         try {
-            return DAO.getInstance().getAllTemplates();
+            return DAO.getInstance().getAllTemplates(Cached.NO);
         } catch (final RuntimeException ex) {
             log.error("Unable to list templates", ex);
             return List.of();
@@ -87,7 +88,7 @@ public class TemplateCommands {
      */
     public ContentTemplate getTemplate(final String id) {
         try {
-            return DAO.getInstance().getTemplate(id).map(ContentTemplate::copy)
+            return DAO.getInstance().getTemplate(id, Cached.NO).map(ContentTemplate::copy)
                     .orElseGet(() -> blank(id));
         } catch (final RuntimeException ex) {
             log.error("Unable to look up template: " + id, ex);
@@ -98,7 +99,7 @@ public class TemplateCommands {
     /** One specific retained version; the content dialog uses this to build its placeholder form. */
     public ContentTemplate getTemplate(final String id, final int version) {
         try {
-            return DAO.getInstance().getTemplate(id, version).map(ContentTemplate::copy)
+            return DAO.getInstance().getTemplate(id, version, Cached.NO).map(ContentTemplate::copy)
                     .orElseGet(() -> getTemplate(id));
         } catch (final RuntimeException ex) {
             log.error("Unable to look up template: " + id + " v" + version, ex);
@@ -192,7 +193,7 @@ public class TemplateCommands {
     /** Every retained version, current first, for the history dialog. */
     public List<ContentTemplate> getHistory(final String id) {
         try {
-            return DAO.getInstance().getTemplateRecord(id).map(TemplateRecord::getAllVersions)
+            return DAO.getInstance().getTemplateRecord(id, Cached.NO).map(TemplateRecord::getAllVersions)
                     .orElse(List.of());
         } catch (final RuntimeException ex) {
             log.error("Unable to load template history: " + id, ex);
@@ -204,7 +205,7 @@ public class TemplateCommands {
     public boolean restoreTemplate(final String id, final int version) {
         final TemplateRecord record;
         try {
-            record = DAO.getInstance().getTemplateRecord(id).orElse(null);
+            record = DAO.getInstance().getTemplateRecord(id, Cached.NO).orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Unable to load template for restore: " + id, ex);
             return false;
@@ -235,7 +236,7 @@ public class TemplateCommands {
         for (final ContentTemplate starter : StarterTemplates.all()) {
             final boolean exists;
             try {
-                exists = DAO.getInstance().getTemplate(starter.getId()).isPresent();
+                exists = DAO.getInstance().getTemplate(starter.getId(), Cached.NO).isPresent();
             } catch (final RuntimeException ex) {
                 log.error("Unable to check for starter template: " + starter.getId(), ex);
                 continue;
@@ -256,7 +257,7 @@ public class TemplateCommands {
     private String validateForSave(final ContentTemplate template) {
         final ContentTemplate stored;
         try {
-            stored = DAO.getInstance().getTemplate(template.getId()).orElse(null);
+            stored = DAO.getInstance().getTemplate(template.getId(), Cached.NO).orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Unable to check the stored template for: " + template.getId(), ex);
             return "The existing template could not be checked; try again.";
@@ -276,7 +277,7 @@ public class TemplateCommands {
             return "Max children must be blank (unlimited) or at least 1.";
         }
         for (final String childId : allowedIds(template)) {
-            final ContentTemplate child = DAO.getInstance().getTemplate(childId).orElse(null);
+            final ContentTemplate child = DAO.getInstance().getTemplate(childId, Cached.NO).orElse(null);
             if (child != null && child.getKind() == TemplateKind.CONTAINER) {
                 return "A container may not allow another container ('" + childId + "') as a child.";
             }
@@ -392,7 +393,7 @@ public class TemplateCommands {
 
     private boolean isReferenced(final String templateId) {
         try {
-            return DAO.getInstance().getAllContentRecords().stream()
+            return DAO.getInstance().getAllContentRecords(Cached.NO).stream()
                     .map(ContentRecord::getAllVersions)
                     .flatMap(List::stream)
                     .map(ContentInstance::getTemplateId)

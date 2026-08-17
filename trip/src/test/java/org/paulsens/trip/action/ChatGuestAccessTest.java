@@ -21,6 +21,7 @@ import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Non-member chat access: whole-family membership, invite-link guests, and the hardening that came with
@@ -133,7 +134,7 @@ public class ChatGuestAccessTest {
         Assert.assertFalse(chat.rejoin(tripId, outsider, actor),
                 "an outsider must not be able to write themselves a JOINED row");
         Assert.assertTrue(DAO.getInstance()
-                .getChatMembership(ChatChannel.Id.forTrip(tripId), outsider).isEmpty(),
+                .getChatMembership(ChatChannel.Id.forTrip(tripId), outsider, Cached.NO).isEmpty(),
                 "the refused rejoin must not have written a row");
 
         final ChatChannel channel = chat.ensureChannel(tripId, actor);
@@ -143,7 +144,7 @@ public class ChatGuestAccessTest {
                 .withLeft(Instant.now(), "self")));
         Assert.assertTrue(chat.rejoin(tripId, guest, actor), "a departed guest may come back on their own");
         final ChatMembership after = DAO.getInstance()
-                .getChatMembership(channel.getId(), guest).orElseThrow();
+                .getChatMembership(channel.getId(), guest, Cached.NO).orElseThrow();
         Assert.assertTrue(after.isGuest(), "withRejoined must preserve the guest marker");
         Assert.assertTrue(after.isJoined());
     }
@@ -163,10 +164,10 @@ public class ChatGuestAccessTest {
         Assert.assertEquals(chat.redeemInvite(tripId, token, guest, actor), "ok");
         Assert.assertTrue(chat.canParticipate(tripId, guest));
         final ChatMembership row = DAO.getInstance()
-                .getChatMembership(ChatChannel.Id.forTrip(tripId), guest).orElseThrow();
+                .getChatMembership(ChatChannel.Id.forTrip(tripId), guest, Cached.NO).orElseThrow();
         Assert.assertTrue(row.isGuest());
         Assert.assertNotNull(row.getInvitedVia());
-        Assert.assertTrue(DAO.getInstance().getGuestChatChannelIds(guest)
+        Assert.assertTrue(DAO.getInstance().getGuestChatChannelIds(guest, Cached.NO)
                 .contains(ChatChannel.Id.forTrip(tripId)), "the reverse row feeds My Chats");
         Assert.assertTrue(chat.rosterJsonForTrip(tripId).contains(guest.getValue()),
                 "a guest joins the mention roster (the same JOINED-row union @all and the digest read)");

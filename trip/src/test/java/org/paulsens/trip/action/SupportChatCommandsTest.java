@@ -18,6 +18,7 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * The support channel's own authorization and the request flows. Real DAO + in-memory store; the rate limiter
@@ -268,14 +269,15 @@ public class SupportChatCommandsTest {
         final Person owner = savedPerson("own");
         final FamilyCommands family = new FamilyCommands(new ConfigCommands(), new AuditCommands(),
                 () -> callerFor(owner, false));
-        assertNotNull(family.createFamilyMember(childName, "Test", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false));
+        assertNotNull(family.createFamilyMember(childName,
+                "Test", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false));
         return owner;
     }
 
     private Person childOf(final Person owner) {
-        final Person reloaded = dao.getPerson(owner.getId()).orElseThrow();
+        final Person reloaded = dao.getPerson(owner.getId(), Cached.NO).orElseThrow();
         final Person.Id childId = reloaded.getManagedUsers().get(reloaded.getManagedUsers().size() - 1);
-        return dao.getPerson(childId).orElseThrow();
+        return dao.getPerson(childId, Cached.NO).orElseThrow();
     }
 
     private Person savedPerson(final String tag) {

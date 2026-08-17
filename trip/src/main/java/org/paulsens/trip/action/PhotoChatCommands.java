@@ -37,6 +37,7 @@ import org.paulsens.trip.model.chat.ChatReaction;
 import org.paulsens.trip.model.chat.ChatReactionSummary;
 import org.paulsens.trip.model.chat.ChatSettings;
 import org.paulsens.trip.model.chat.PhotoChatMeta;
+import org.paulsens.trip.cache.Cached;
 
 /**
  * Per-photo comment threads and image reactions. A photo's thread is an ordinary chat channel whose id is
@@ -128,7 +129,7 @@ public class PhotoChatCommands {
         if (s3Key == null) {
             return null;
         }
-        for (final MediaItem item : dao().getAllMedia()) {
+        for (final MediaItem item : dao().getAllMedia(Cached.NO)) {
             if (s3Key.equals(item.getS3Key()) && ChatPhotos.isChatSlot(item.getSlot())) {
                 return item;
             }
@@ -172,7 +173,7 @@ public class PhotoChatCommands {
         if (caller == null || !caller.isAuthenticated()) {
             return false;
         }
-        final Trip trip = dao().getTrip(tripId).orElse(null);
+        final Trip trip = dao().getTrip(tripId, Cached.NO).orElse(null);
         if (trip != null && caller.personId() != null && trip.getPeople().contains(caller.personId())) {
             return true;
         }
@@ -196,7 +197,7 @@ public class PhotoChatCommands {
      * us and may cause mail. Mere account registration is open to anyone and deliberately does not count.
      */
     public boolean isKnownTraveler(final Person.Id personId) {
-        return personId != null && !dao().getTripsForUser(personId).isEmpty();
+        return personId != null && !dao().getTripsForUser(personId, Cached.NO).isEmpty();
     }
 
     public boolean isEnabled() {
@@ -207,7 +208,7 @@ public class PhotoChatCommands {
 
     /** The photo's channel if one exists. Never creates — a GET must not write. */
     public ChatChannel photoChannelForRead(final String s3Key) {
-        return dao().getChatChannel(ChatChannel.Id.forPhoto(s3Key)).orElse(null);
+        return dao().getChatChannel(ChatChannel.Id.forPhoto(s3Key), Cached.NO).orElse(null);
     }
 
     /**
@@ -276,7 +277,7 @@ public class PhotoChatCommands {
         final ChatChannel.Id tripChannel = ChatChannel.Id.forTrip(tripId);
         ChatMessage.Id before = null;
         for (int page = 0; page < MAX_PARENT_PAGES; page++) {
-            final List<ChatMessage> batch = dao().getRawChatMessagesBefore(tripChannel, before, 200);
+            final List<ChatMessage> batch = dao().getRawChatMessagesBefore(tripChannel, before, 200, Cached.NO);
             final ChatMessage.Id found = messageCarrying(batch, s3Key);
             if (found != null) {
                 return new Parent(tripChannel, found);
@@ -317,13 +318,13 @@ public class PhotoChatCommands {
         // trip-end expiry can apply. Both are the album semantics, stated on the channel row itself.
         final ChatPage page = dao().getChatMessagesBefore(
                 channel.getId(), before, limit <= 0 ? 50 : Math.min(limit, 50),
-                null, channel, null, Instant.now());
+                null, channel, null, Instant.now(), Cached.NO);
         return withNames(page);
     }
 
     /** The photo's own reaction summary (the image-root target), from the cached per-photo meta. */
     public ChatReactionSummary rootSummary(final String s3Key) {
-        final PhotoChatMeta meta = dao().getPhotoChatMeta(List.of(s3Key)).get(s3Key);
+        final PhotoChatMeta meta = dao().getPhotoChatMeta(List.of(s3Key), Cached.NO).get(s3Key);
         return meta == null ? ChatReactionSummary.empty(PhotoChatMeta.PHOTO_ROOT) : meta.getRootReactions();
     }
 
@@ -345,7 +346,7 @@ public class PhotoChatCommands {
                 allowed.add(key);
             }
         }
-        return dao().getPhotoChatMeta(allowed);
+        return dao().getPhotoChatMeta(allowed, Cached.NO);
     }
 
     // --- mutations ---
@@ -454,7 +455,7 @@ public class PhotoChatCommands {
             return false;
         }
         final AuditActor who = caller.auditActor();
-        final Optional<ChatMessage> before = dao().getChatMessage(channel.getId(), msgId);
+        final Optional<ChatMessage> before = dao().getChatMessage(channel.getId(), msgId, Cached.NO);
         if (before.isEmpty()) {
             return false;
         }
@@ -501,7 +502,7 @@ public class PhotoChatCommands {
             final DAO dao = DAO.getInstance();
             final ChatChannel.Id id = ChatChannel.Id.forPhoto(s3Key);
             dao.invalidatePhotoChatMeta(s3Key);
-            dao.getChatChannel(id).ifPresent(dao::rollupPhotoToParent);
+            dao.getChatChannel(id, Cached.NO).ifPresent(dao::rollupPhotoToParent);
             dao.purgeChatChannel(id);
         } catch (final RuntimeException ex) {
             log.error("Photo comment thread was not purged for {}", s3Key, ex);
@@ -544,7 +545,7 @@ public class PhotoChatCommands {
             return List.of();
         }
         final List<Person> matches = new ArrayList<>();
-        for (final Person person : dao().searchPeople(q, Math.max(1, maxResults))) {
+        for (final Person person : dao().searchPeople(q, Math.max(1, maxResults), Cached.NO)) {
             if (person != null && person.getId() != null) {
                 matches.add(person);
             }
@@ -646,7 +647,7 @@ public class PhotoChatCommands {
         if (channel == null || channel.getTripId() == null) {
             return null;
         }
-        return dao().getTrip(channel.getTripId()).orElse(null);
+        return dao().getTrip(channel.getTripId(), Cached.NO).orElse(null);
     }
 
     private static String snippetOf(final String body) {
