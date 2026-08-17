@@ -4,9 +4,16 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.io.IOException;
+import java.io.Serial;
+import java.io.Serializable;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.DataId;
@@ -431,6 +438,66 @@ public class RegistrationCommands {
             log.error("Failed to get registrations for trip '" + tripId + "'!", ex);
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * The scalar row model the admin trip-registrations table keeps in the VIEW. PrimeFaces sorts the
+     * value list IN PLACE and row buttons decode by row position against that same list, so the list
+     * must live across postbacks in the exact order the admin last saw -- but the session-scope policy
+     * bans domain objects from view/session scope (viewScope rides into the serialized session, where
+     * the next change to Registration's shape would invalidate every live session). Strings and a date
+     * only; the real {@link Registration} and Person resolve per request from {@link #getUserId()}.
+     * Plain mutable POJO with a no-arg constructor on purpose: Kryo session serialization restores
+     * fields directly and runs no constructor (see BadgeImage for the precedent).
+     */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RegRow implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String userId;
+        private LocalDateTime created;
+        private String status;
+        private String party;
+    }
+
+    /** The view-held rows for the admin registrations table -- scalars only, see {@link RegRow}. */
+    public List<RegRow> rowsForTrip(final String tripId) {
+        final List<RegRow> rows = new ArrayList<>();
+        for (final Registration reg : getRegistrations(tripId)) {
+            rows.add(new RegRow(reg.getUserId().getValue(), reg.getCreated(),
+                    reg.getStatus().getDescription(), reg.getParty()));
+        }
+        return rows;
+    }
+
+    /**
+     * One row's registration out of the request's SINGLE {@link #getRegistrations} read -- registrations
+     * are deliberately uncached, so per-row lookups must not each go back to the store. Null when the
+     * row's user no longer has a registration (deleted between render and this request).
+     */
+    public Registration rowRegistration(final List<Registration> regs, final String userId) {
+        if (regs == null || userId == null) {
+            return null;
+        }
+        for (final Registration reg : regs) {
+            if (userId.equals(reg.getUserId().getValue())) {
+                return reg;
+            }
+        }
+        return null;
+    }
+
+    /** Row-model variant of {@link #registeredByLabel(Registration)} for the converted admin table. */
+    public String registeredByLabel(final List<Registration> regs, final String userId) {
+        return registeredByLabel(rowRegistration(regs, userId));
+    }
+
+    /** One option's submitted value for a row, or null when unanswered (drives the rendered flags). */
+    public String regOptionValue(final List<Registration> regs, final String userId, final Object optId) {
+        final Registration reg = rowRegistration(regs, userId);
+        return (reg == null || optId == null) ? null : reg.getOptions().get(String.valueOf(optId));
     }
 
     public int getNumPending(final String tripId) {
