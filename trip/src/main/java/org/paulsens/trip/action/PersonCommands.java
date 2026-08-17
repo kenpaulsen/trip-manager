@@ -17,6 +17,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
@@ -265,8 +266,23 @@ public class PersonCommands {
         return aStrVal.compareTo(bStrVal);
     }
 
+    // Mutable on purpose: a PrimeFaces dataTable SORTS its value list in place, so an immutable
+    // Stream.toList() here 500s the whole page the first time a sortable column renders.
     public List<Person> getPeopleByIds(final List<Person.Id> ids) {
-        return ids.stream().map(this::getPerson).toList();
+        return ids == null ? new ArrayList<>()
+                : ids.stream().map(this::getPerson).collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    /**
+     * The ids of {@code people} — for views that keep a person-list result across postbacks. viewScope is
+     * serialized into the HTTP session, so a page stores the IDS of a search result and re-resolves the
+     * objects each request via {@link #getPeopleByIds} (point-cached, so the resolve is a map lookup): other
+     * users' Person rows never ride in someone's session blob, and a Person shape change cannot invalidate
+     * live sessions. Mutable for the same reason as {@link #getPeopleByIds}.
+     */
+    public List<Person.Id> toIds(final List<Person> people) {
+        return people == null ? new ArrayList<>()
+                : people.stream().map(Person::getId).collect(Collectors.toCollection(ArrayList::new));
     }
 
     /**
