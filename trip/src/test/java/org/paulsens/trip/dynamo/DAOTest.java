@@ -1,6 +1,7 @@
 package org.paulsens.trip.dynamo;
 
 import java.io.IOException;
+import java.lang.reflect.Constructor;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -12,13 +13,20 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
+import org.paulsens.trip.cache.CacheClient;
+import org.paulsens.trip.cache.InMemoryCacheClient;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.model.Address;
+import org.paulsens.trip.model.Config;
+import org.paulsens.trip.model.ContentInstance;
+import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Passport;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Person.Sex;
 import org.paulsens.trip.model.PersonDataValue;
+import org.paulsens.trip.model.SettingDef;
 import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Transaction.Type;
@@ -311,6 +319,78 @@ public class DAOTest {
         } catch (final IOException ex) {
             throw new RuntimeException("failed to save tx", ex);
         }
+    }
+
+    @Test
+    public void saveAllTripEventsWritesEveryEventOnTheTrip() {
+        final TripEvent one = new TripEvent();
+        final TripEvent two = new TripEvent();
+        final Trip trip = Trip.builder()
+                .id("all-te-" + RandomData.genAlpha(6)).title("All Events")
+                .tripEvents(new ArrayList<>(List.of(one, two)))
+                .build();
+        assertTrue(DB_UTILS.saveAllTripEvents(trip));
+        assertEquals(DB_UTILS.getTripEvent(one.getId(), Cached.NO).getId(), one.getId());
+        assertEquals(DB_UTILS.getTripEvent(two.getId(), Cached.NO).getId(), two.getId());
+    }
+
+    /** The near-cache tuning reader: a stored value parses (trimmed); garbage falls back to the default. */
+    @Test
+    public void nearCacheTuningParsesSettingsAndFallsBackOnGarbage() {
+        final SettingDef ttl = KnownSettings.CACHE_NEAR_TTL_SECONDS;
+        final Optional<Config> original = DB_UTILS.getConfig(ttl.getName(), Cached.NO);
+        try {
+            assertTrue(DB_UTILS.saveConfig(new Config(ttl.getName(), " 123 ", Config.Type.INT,
+                    null, null, null)));
+            assertEquals(DAO.settingSeconds(ttl), 123L, "A stored value wins, whitespace tolerated");
+            assertTrue(DB_UTILS.saveConfig(new Config(ttl.getName(), "not-a-number", Config.Type.INT,
+                    null, null, null)));
+            assertEquals(DAO.settingSeconds(ttl), ttl.longDefault(),
+                    "Unparseable settings fall back to the declared default, never throw");
+            final long[] tuning = DAO.readNearCacheTuning();
+            assertEquals(tuning.length, 2);
+            assertEquals(tuning[0], ttl.longDefault());
+            assertEquals(tuning[1], DAO.settingSeconds(KnownSettings.CACHE_NEAR_CHECK_SECONDS));
+        } finally {
+            // Put the row back so no later test reads this test's garbage.
+            DB_UTILS.saveConfig(original.orElse(new Config(ttl.getName(), ttl.getDefaultValue(),
+                    Config.Type.INT, null, null, null)));
+        }
+    }
+
+    /**
+     * The template/content cache-clear escape hatches, on an ISOLATED facade instance (never the shared
+     * singleton -- a clear here must not disturb the suite's seeded stores). The two DAOs deliberately
+     * differ after a clear with soft revalidate off (the in-memory client): getAllTemplates re-SCANS the
+     * store (its explicit not-authoritative guard), while a content SECTION listing answers empty until
+     * rows are re-put -- the trap behind "never press Refresh from database in a webtest". Point lookups
+     * heal either way (record fall-back / direct record read).
+     */
+    @Test
+    public void cacheClearEscapeHatchesEmptyTheListingsButPointReadsHeal() throws Exception {
+        final Constructor<DAO> ctor = DAO.class.getDeclaredConstructor(Persistence.class, CacheClient.class);
+        ctor.setAccessible(true);
+        final DAO dao = ctor.newInstance(new InMemoryPersistence(), new InMemoryCacheClient());
+
+        final String id = "dao-clear-" + RandomData.genAlpha(6);
+        final String section = "sec-" + id;
+        assertTrue(dao.saveTemplate(new ContentTemplate(id, 1, "Name", "Desc", "<p>{{body}}</p>",
+                null, LocalDateTime.now(), "test"), 3));
+        assertTrue(dao.saveContent(new ContentInstance(id, section, "Title", id, 1,
+                null, null, 0, 1, LocalDateTime.now(), "test"), 3));
+        assertEquals(dao.getAllTemplates(Cached.NO).size(), 1);
+        assertEquals(dao.getContentForSection(section, Cached.NO).size(), 1);
+
+        dao.clearTemplateCache();
+        dao.clearContentCache();
+        assertEquals(dao.getAllTemplates(Cached.NO).size(), 1,
+                "The template listing re-scans the store when the cleared cache is not authoritative");
+        assertTrue(dao.getContentForSection(section, Cached.NO).isEmpty(),
+                "A content SECTION listing has no rebuild path: empty until rows are re-put");
+        assertTrue(dao.getTemplate(id, Cached.NO).isPresent(),
+                "A template point lookup falls back to the persistence record and heals");
+        assertTrue(dao.getContent(id, Cached.NO).isPresent(),
+                "A content point lookup reads the persistence record directly");
     }
 
     private Transaction createRandomTx(final Person.Id personId) {

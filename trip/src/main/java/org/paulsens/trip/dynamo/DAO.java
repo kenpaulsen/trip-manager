@@ -192,13 +192,14 @@ public class DAO {
      * singleton exists, and only ever invoked from the client's tuning re-sync (admin save or its lazy
      * background check), never from the cache read path (the ConfigDAO-sits-on-these-caches cycle).
      */
-    private static long[] readNearCacheTuning() {
+    static long[] readNearCacheTuning() {
         return new long[] {
                 settingSeconds(KnownSettings.CACHE_NEAR_TTL_SECONDS),
                 settingSeconds(KnownSettings.CACHE_NEAR_CHECK_SECONDS)};
     }
 
-    private static long settingSeconds(final SettingDef def) {
+    /** Package-private (not private) so DAOTest can pin the parse-and-fallback rules directly. */
+    static long settingSeconds(final SettingDef def) {
         final String raw = getInstance().getConfig(def.getName(), Cached.NO)
                 .map(Config::getValue).orElse(def.getDefaultValue());
         try {
