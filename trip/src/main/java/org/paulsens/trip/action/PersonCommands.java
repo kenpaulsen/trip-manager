@@ -317,6 +317,20 @@ public class PersonCommands {
         return getPersonInternal(id, Person::new);
     }
 
+    /**
+     * The person an EDIT form seeds its working copy from, always read fresh: the form's copy becomes the
+     * save payload wholesale, so seeding it from the near-cache would let a stale copy overwrite fields
+     * somebody else just changed. Display lookups stay on {@link #getPerson}.
+     */
+    public Person getPersonForEdit(final Person.Id id) {
+        try {
+            return DAO.getInstance().getPerson(id, Cached.NO).orElseGet(Person::new);
+        } catch (final RuntimeException ex) {
+            log.error("Failed to get person '" + id + "' for editing!", ex);
+            return new Person();
+        }
+    }
+
     public Person getCurrentPerson() {
         return getPerson(ScopeUtil.getInstance().getSessionMap(ACTIVE_USER_ID));
     }
@@ -327,12 +341,20 @@ public class PersonCommands {
      * member must not keep haunting the session), else the signed-in user themselves.
      */
     public Person getSubject(final String idParam) {
+        return getPerson(subjectId(idParam));
+    }
+
+    /** {@link #getSubject} for the profile EDITOR: same subject resolution, fresh read (see getPersonForEdit). */
+    public Person getSubjectForEdit(final String idParam) {
+        return getPersonForEdit(subjectId(idParam));
+    }
+
+    private Person.Id subjectId(final String idParam) {
         if (idParam != null && !idParam.isBlank()) {
-            return getPerson(Person.Id.from(idParam));
+            return Person.Id.from(idParam);
         }
         final Person.Id actingFor = getActingFor();
-        final Person.Id self = ScopeUtil.getInstance().getSessionMap(ACTIVE_USER_ID);
-        return getPerson(actingFor != null ? actingFor : self);
+        return actingFor != null ? actingFor : ScopeUtil.getInstance().getSessionMap(ACTIVE_USER_ID);
     }
 
     /** The validated acting-for selection, or null. A selection the user may no longer access is cleared. */
@@ -462,7 +484,7 @@ public class PersonCommands {
         if (viewPerson == null || viewPerson.getId() == null || slot < 1 || slot > ProfilePhotos.MAX_SLOTS) {
             return false;
         }
-        final Person fresh = getPerson(viewPerson.getId());
+        final Person fresh = getPersonForEdit(viewPerson.getId());
         if (!fresh.getId().equals(viewPerson.getId())) {
             // getPerson never returns null; a blank answer carries a FRESH id, which is how "not found" shows.
             return false;

@@ -152,7 +152,7 @@ public class MediaCommands {
      * {@code uploaded} for exactly the opposite reason -- see {@link #update}.)
      */
     public boolean assignToSlot(final String id, final String slot, final String actor) {
-        final MediaItem existing = get(id);
+        final MediaItem existing = getForEdit(id);
         if (existing == null || slot == null || slot.isBlank()) {
             return false;
         }
@@ -253,7 +253,7 @@ public class MediaCommands {
      * coherent; members-only pages keep showing the item either way (only public pages filter on it).
      */
     public boolean setHidden(final String id, final boolean hidden, final String actor) {
-        final MediaItem existing = get(id);
+        final MediaItem existing = getForEdit(id);
         if (existing == null) {
             return false;
         }
@@ -359,6 +359,23 @@ public class MediaCommands {
         return true;
     }
 
+    /**
+     * The read the MUTATION helpers start from ({@code assignToSlot}/{@code setHidden}/{@code update}):
+     * always fresh, because each re-saves the row it read -- a near-cached copy could resurrect fields
+     * another edit just changed. Display lookups stay on {@link #get}.
+     */
+    private MediaItem getForEdit(final String id) {
+        if (id == null || id.isBlank()) {
+            return null;
+        }
+        try {
+            return DAO.getInstance().getMedia(id, Cached.NO).orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to look up media for editing: " + id, ex);
+            return null;
+        }
+    }
+
     /** One item by row id, for the edit page. */
     public MediaItem get(final String id) {
         if (id == null || id.isBlank()) {
@@ -387,7 +404,7 @@ public class MediaCommands {
      */
     public boolean update(final String id, final String newKey, final String title, final String description,
             final String slot, final Integer position, final String editedBy) {
-        final MediaItem existing = get(id);
+        final MediaItem existing = getForEdit(id);
         return update(id, newKey, title, description, slot, position,
                 existing != null && existing.getHidden(), editedBy);
     }
@@ -395,7 +412,7 @@ public class MediaCommands {
     /** As the shorter {@code update}, with the public-visibility flag (the admin editor's toggle). */
     public boolean update(final String id, final String newKey, final String title, final String description,
             final String slot, final Integer position, final boolean hidden, final String editedBy) {
-        final MediaItem existing = get(id);
+        final MediaItem existing = getForEdit(id);
         if (existing == null) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", "No such media item.");
             return false;

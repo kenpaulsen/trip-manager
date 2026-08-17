@@ -370,6 +370,20 @@ public class TripCommands {
         }
     }
 
+    /**
+     * The trip an EDIT page seeds its working draft from ({@code TripEditDrafts}), always read fresh: the
+     * draft becomes the save payload wholesale, so seeding it from the near-cache would let a stale copy
+     * overwrite fields somebody else just changed. Display resolution stays on {@link #getTrip}.
+     */
+    public Trip getTripForEdit(final String id) {
+        try {
+            return DAO.getInstance().getTrip(id, Cached.NO).orElse(Trip.builder().build());
+        } catch (final RuntimeException ex) {
+            log.error("Failed to get trip '" + id + "' for editing!", ex);
+            return Trip.builder().build();
+        }
+    }
+
     public Trip getBoundTrip(final String id, final String bindingType) {
         return getBind().getBoundThing(id, bindingType, BindingType.TRIP, this::getTrip);
     }
