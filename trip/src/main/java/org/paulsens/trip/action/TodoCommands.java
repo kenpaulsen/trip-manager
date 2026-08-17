@@ -6,6 +6,7 @@ import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -91,6 +92,40 @@ public class TodoCommands {
 
     public DataId dataIdFrom(final String id) {
         return DataId.from(id);
+    }
+
+    /** The frozen row anchors for the todo page's dialogs: "dataId|userId" SCALARS the view may keep. */
+    public List<String> todoKeysOf(final List<TodoStatus> statuses) {
+        final List<String> keys = new ArrayList<>();
+        if (statuses != null) {
+            for (final TodoStatus status : statuses) {
+                keys.add(status.getDataId().getValue() + "|" + status.getUserId().getValue());
+            }
+        }
+        return keys;
+    }
+
+    /**
+     * The CURRENT status rows for the frozen keys, in the frozen order (vanished todos are skipped): the
+     * page's per-row dialogs bind straight into their row object, so decode must see the same row at the
+     * same position the render produced. Every todo mutation on the page redirects, which is what re-runs
+     * the freeze.
+     */
+    public List<TodoStatus> todosForFrozenKeys(final String tripId, final List<String> keys) {
+        final List<TodoStatus> statuses = new ArrayList<>();
+        if (tripId == null || keys == null) {
+            return statuses;
+        }
+        for (final String key : keys) {
+            final int split = key.indexOf('|');
+            final TodoItem todo = getTodo(tripId, DataId.from(key.substring(0, split)));
+            final TodoStatus status = (todo == null) ? null
+                    : getTodoStatus(todo, Person.Id.from(key.substring(split + 1)));
+            if (status != null) {
+                statuses.add(status);
+            }
+        }
+        return statuses;
     }
 
     public TodoItem getTodo(final String tripId, final DataId dataId) {

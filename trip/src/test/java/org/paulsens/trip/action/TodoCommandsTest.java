@@ -42,6 +42,32 @@ public class TodoCommandsTest {
         assertNull(todo.getMoreDetails());
     }
 
+    /** The frozen "dataId|userId" anchors behind the todo page's per-request rows. */
+    @Test
+    public void frozenKeysResolveCurrentRowsInFrozenOrder() {
+        final String tripId = RandomData.genAlpha(12);
+        final TodoItem first = todoCommands.createTodo(tripId);
+        final TodoItem second = todoCommands.createTodo(tripId);
+        assertTrue(todoCommands.saveTodo(first));
+        assertTrue(todoCommands.saveTodo(second));
+        final Person.Id user = Person.Id.newInstance();
+        assertTrue(todoCommands.saveTodoStatus(todoCommands.getOrCreateTodoStatus(first, user)));
+        assertTrue(todoCommands.saveTodoStatus(todoCommands.getOrCreateTodoStatus(second, user)));
+
+        final List<String> keys = todoCommands.todoKeysOf(List.of(
+                todoCommands.getTodoStatus(second, user), todoCommands.getTodoStatus(first, user)));
+        final List<TodoStatus> resolved = todoCommands.todosForFrozenKeys(tripId, keys);
+        assertEquals(resolved.size(), 2);
+        assertEquals(resolved.get(0).getDataId(), second.getDataId(), "Frozen order wins");
+        assertEquals(resolved.get(1).getDataId(), first.getDataId());
+
+        keys.add("no-such-todo|" + user.getValue());
+        assertEquals(todoCommands.todosForFrozenKeys(tripId, keys).size(), 2, "Vanished keys are skipped");
+        assertEquals(todoCommands.todosForFrozenKeys(null, keys), List.of());
+        assertEquals(todoCommands.todosForFrozenKeys(tripId, null), List.of());
+        assertEquals(todoCommands.todoKeysOf(null), List.of());
+    }
+
     @Test
     public void testSaveTodo() {
         final TodoItem todo = todoCommands.createTodo(RandomData.genAlpha(12));

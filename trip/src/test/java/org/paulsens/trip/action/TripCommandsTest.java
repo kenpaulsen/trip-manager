@@ -30,6 +30,29 @@ public class TripCommandsTest {
         trips = FakeData.getFakeTrips();
     }
 
+    /** The frozen-id anchors behind the itinerary table's per-request, cell-editable rows. */
+    @Test
+    public void frozenEventIdsResolveTheTripsCurrentCopiesInFrozenOrder() {
+        final TripEvent one = new TripEvent();
+        final TripEvent two = new TripEvent();
+        final Trip trip = Trip.builder().id("frozen-ev").title("Frozen")
+                .tripEvents(new java.util.ArrayList<>(List.of(one, two))).build();
+
+        final List<String> frozen = tripCommands.eventIdsOf(List.of(two, one));    // reversed on purpose
+        org.testng.Assert.assertEquals(frozen, List.of(two.getId(), one.getId()));
+
+        final List<TripEvent> rows = tripCommands.eventsForFrozenIds(trip, frozen);
+        org.testng.Assert.assertEquals(rows.get(0).getId(), two.getId(), "Frozen order wins");
+        org.testng.Assert.assertEquals(rows.get(1).getId(), one.getId());
+
+        frozen.add("vanished-event");
+        org.testng.Assert.assertEquals(tripCommands.eventsForFrozenIds(trip, frozen).size(), 2,
+                "A vanished id is skipped, never a null row");
+        org.testng.Assert.assertEquals(tripCommands.eventsForFrozenIds(null, frozen), List.of());
+        org.testng.Assert.assertEquals(tripCommands.eventsForFrozenIds(trip, null), List.of());
+        org.testng.Assert.assertEquals(tripCommands.eventIdsOf(null), List.of());
+    }
+
     @Test
     public void testLateArriver() {
         final Trip trip = trips.get(0);

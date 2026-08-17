@@ -427,6 +427,39 @@ public class TripCommands {
         return result;
     }
 
+    /** The ids of these events, in order -- the view-held SCALAR anchor for frozen-order row resolution. */
+    public List<String> eventIdsOf(final List<TripEvent> events) {
+        final List<String> ids = new ArrayList<>();
+        if (events != null) {
+            for (final TripEvent event : events) {
+                ids.add(event.getId());
+            }
+        }
+        return ids;
+    }
+
+    /**
+     * The trip's CURRENT copies of the given events, in the FROZEN order (vanished ids are skipped): a
+     * cell-editing table binds straight into its row objects, so decode must see the same row at the same
+     * position the render produced -- which a per-request derive alone cannot promise once the trip's
+     * event list changes underneath the open view.
+     */
+    public List<TripEvent> eventsForFrozenIds(final Trip trip, final List<String> ids) {
+        final List<TripEvent> events = new ArrayList<>();
+        if (trip == null || ids == null) {
+            return events;
+        }
+        for (final String id : ids) {
+            for (final TripEvent event : trip.getTripEvents()) {
+                if (event.getId().equals(id)) {
+                    events.add(event);
+                    break;
+                }
+            }
+        }
+        return events;
+    }
+
     private Trip advisoryGetTrip(final String tripId) {
         try {
             return DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
