@@ -192,6 +192,18 @@ public class ConfigCommands {
     }
 
     /** Stored rows that no longer correspond to anything the code reads -- shown so they cannot go unnoticed. */
+    /**
+     * One stored row by name, or null when absent. The admin table's edit button resolves its row FRESH
+     * from the name baked into the click at render time: the table's value is per-request, so the row
+     * var at decode may no longer be the row the admin actually clicked.
+     */
+    public Config getSetting(final String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        return lookup(name).orElse(null);
+    }
+
     public List<Config> getUnknown() {
         // Name-sorted: the admin table resolves this per request and its row buttons decode by row
         // position, so the order must be deterministic between a render and the following postback.

@@ -12,6 +12,18 @@ public class ConfigCommandsAdminTest {
 
     private final ConfigCommands config = new ConfigCommands();
 
+    /** The edit button resolves its row fresh by the name baked into the click. */
+    @Test
+    public void getSettingAnswersTheRowByNameOrNull() {
+        Assert.assertTrue(config.saveNew("test.get.setting", "7", "int", "desc", "admin"));
+        final org.paulsens.trip.model.Config row = config.getSetting("test.get.setting");
+        Assert.assertEquals(row.getValue(), "7");
+        Assert.assertEquals(row.getType(), org.paulsens.trip.model.Config.Type.INT);
+        Assert.assertNull(config.getSetting("test.get.setting.never-stored"));
+        Assert.assertNull(config.getSetting(null));
+        Assert.assertNull(config.getSetting("  "));
+    }
+
     /** The "Other settings" table resolves per request; row buttons decode by row position. */
     @Test
     public void getUnknownAnswersNameSortedRows() {
