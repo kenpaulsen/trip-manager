@@ -12,6 +12,17 @@ public class ConfigCommandsAdminTest {
 
     private final ConfigCommands config = new ConfigCommands();
 
+    /** The "Other settings" table resolves per request; row buttons decode by row position. */
+    @Test
+    public void getUnknownAnswersNameSortedRows() {
+        Assert.assertTrue(config.saveNew("test.zz.unknown", "v", null, "d", "admin"));
+        Assert.assertTrue(config.saveNew("test.aa.unknown", "v", null, "d", "admin"));
+        final java.util.List<String> names = config.getUnknown().stream()
+                .map(org.paulsens.trip.model.Config::getName).toList();
+        Assert.assertTrue(names.indexOf("test.aa.unknown") < names.indexOf("test.zz.unknown"),
+                "Unknown settings must come back in deterministic name order, saw: " + names);
+    }
+
     @Test
     public void saveNewParsesItsTypeAndFallsBackToString() {
         Assert.assertTrue(config.saveNew("test.admin.str", "v", null, "d", "admin"), "blank type is STRING");

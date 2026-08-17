@@ -185,6 +185,17 @@ public class TransactionsCommands {
         txs.sort(Comparator.comparing(Transaction::getTxDate));
     }
 
+    /**
+     * {@link #getTransactions} in a DETERMINISTIC date order (mutable copy), for a per-request table whose
+     * rows carry commands: the store's order is unspecified, and the ledger table's initial date sort must
+     * be a stable no-op so a postback's row decode sees exactly the order the render produced.
+     */
+    public List<Transaction> getTransactionsSorted(final Person.Id userId) {
+        final List<Transaction> txs = new ArrayList<>(getTransactions(userId));
+        sortTxByDate(txs);
+        return txs;
+    }
+
     private void persistTx(final Transaction tx, final String tripId, final String eventId, final AtomicBoolean r) {
         final BindingCommands bind = getBind();
         final String txBindKey = bind.key(tx.getUserId().getValue(), tx.getTxId());

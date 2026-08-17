@@ -193,7 +193,11 @@ public class ConfigCommands {
 
     /** Stored rows that no longer correspond to anything the code reads -- shown so they cannot go unnoticed. */
     public List<Config> getUnknown() {
-        return getAll().stream().filter(config -> !KnownSettings.isKnown(config.getName())).toList();
+        // Name-sorted: the admin table resolves this per request and its row buttons decode by row
+        // position, so the order must be deterministic between a render and the following postback.
+        return getAll().stream().filter(config -> !KnownSettings.isKnown(config.getName()))
+                .sorted(Comparator.comparing(Config::getName))
+                .toList();
     }
 
     /**

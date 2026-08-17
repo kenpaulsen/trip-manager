@@ -15,6 +15,25 @@ public class TransactionsCommandsTest {
     final TransactionsCommands txCmds = new TransactionsCommands();
     final PersonCommands personCmds = new PersonCommands();
 
+    /** The ledger table resolves per request and its delete link decodes by row position. */
+    @Test
+    public void getTransactionsSortedAnswersADeterministicMutableDateOrder() throws Exception {
+        final Person.Id owner = createPerson();
+        final LocalDateTime base = LocalDateTime.of(2026, 8, 1, 12, 0);
+        for (final int day : new int[] {20, 5, 12}) {
+            org.paulsens.trip.dynamo.DAO.getInstance().saveTransaction(new Transaction(
+                    RandomData.genAlpha(8), owner, null, Transaction.Type.Tx,
+                    Transaction.TransactionType.Bill, base.plusDays(day), 10f, "cat", "note"));
+        }
+        final List<Transaction> sorted = txCmds.getTransactionsSorted(owner);
+        assertEquals(sorted.size(), 3);
+        assertEquals(sorted.get(0).getTxDate(), base.plusDays(5));
+        assertEquals(sorted.get(1).getTxDate(), base.plusDays(12));
+        assertEquals(sorted.get(2).getTxDate(), base.plusDays(20));
+        sorted.add(sorted.get(0));      // PrimeFaces sorts the value list in place: it must be mutable
+        assertEquals(txCmds.getTransactionsSorted(null), List.of(), "Null user answers an empty list");
+    }
+
     @Test
     public void getUserAmountReturnsNullWhenTxIsNull() {
         final Transaction tx = txCmds.getTransaction(Person.Id.from("foo"), null);
