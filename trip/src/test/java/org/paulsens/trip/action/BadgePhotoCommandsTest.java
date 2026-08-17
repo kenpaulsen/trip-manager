@@ -367,7 +367,7 @@ public class BadgePhotoCommandsTest {
         final String key = trip.getBadgeImages().getFirst().getKey();
         Assert.assertEquals(session.get(BadgePhotoCommands.SELECTED_KEY), key);
 
-        bean.deleteFromUi(trip, key);
+        bean.deleteFromUi(key);
         Assert.assertEquals(params.get("badgeDeleted"), Boolean.TRUE);
         Assert.assertTrue(trip.getBadgeImages().isEmpty());
         Assert.assertTrue(bean.localGet(key).isEmpty(), "The bytes are gone too");
@@ -389,7 +389,7 @@ public class BadgePhotoCommandsTest {
         final String key = "badgeImages/trip-1/1.jpg";
         trip.getBadgeImages().add(new BadgeImage(key, "one"));
 
-        bean.deleteFromUi(trip, "badgeImages/trip-1/other.jpg");
+        bean.deleteFromUi("badgeImages/trip-1/other.jpg");
         Assert.assertEquals(params.get("badgeDeleted"), Boolean.FALSE, "Unknown key");
         Assert.assertEquals(trip.getBadgeImages().size(), 1);
 
@@ -401,6 +401,34 @@ public class BadgePhotoCommandsTest {
         caller = callerFor(Person.Id.newInstance(), false);
         Assert.assertFalse(bean.delete(trip, key), "A non-manager may not delete");
         Assert.assertEquals(trip.getBadgeImages().size(), 1);
+    }
+
+    // --- subjectTrip: the pinned-id fresh resolve the page relies on ---
+
+    @Test
+    public void subjectTripResolvesFreshFromThePinnedIdAndProbesExistence() throws Exception {
+        final TripCommands trips = Mockito.mock(TripCommands.class);
+        final Map<String, Object> view = new HashMap<>();
+        final BadgePhotoCommands resolver = new BadgePhotoCommands() {
+            @Override
+            @SuppressWarnings("unchecked")
+            protected <T> T viewMap(final String key) {
+                return (T) view.get(key);
+            }
+        };
+        final Field declared = BadgePhotoCommands.class.getDeclaredField("trips");
+        declared.setAccessible(true);
+        declared.set(resolver, trips);
+
+        Assert.assertNull(resolver.subjectTrip(), "No pinned id means no subject trip");
+
+        view.put("theTripId", "trip-1");
+        Mockito.when(trips.getTripForEdit("trip-1")).thenReturn(Trip.builder().id("trip-1").build());
+        Assert.assertEquals(resolver.subjectTrip().getId(), "trip-1");
+
+        Mockito.when(trips.getTripForEdit("trip-1")).thenReturn(Trip.builder().build());
+        Assert.assertNull(resolver.subjectTrip(),
+                "An unknown id answers a blank trip with a FRESH id; the same-id probe must refuse it");
     }
 
     // --- lookups the page uses ---

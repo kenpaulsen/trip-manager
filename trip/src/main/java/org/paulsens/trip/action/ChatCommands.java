@@ -2560,6 +2560,13 @@ public class ChatCommands {
     }
 
     private String currentTripId() {
+        // The chat page pins the id in the view (the session-scope policy keeps the Trip itself out of
+        // the session, and a postback carries no ?trip= parameter) -- so the pinned id is the primary
+        // source; the Trip-object read below is a transition-era fallback for any page not yet converted.
+        final Object pinnedId = ScopeUtil.getInstance().getViewMap("theTripId");
+        if (pinnedId != null) {
+            return pinnedId.toString();
+        }
         final Object trip = ScopeUtil.getInstance().getViewMap("theTrip");
         if (trip instanceof Trip t) {
             return t.getId();

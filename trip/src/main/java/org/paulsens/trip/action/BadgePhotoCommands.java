@@ -276,10 +276,11 @@ public class BadgePhotoCommands {
     /**
      * The delete button's action: void (a boolean action outcome would be fed to navigation), reporting
      * instead through the {@code badgeDeleted} ajax param — the page reloads only on success, so a refusal's
-     * growl actually gets seen.
+     * growl actually gets seen. The trip comes from {@link #subjectTrip()}, not a page-supplied object: the
+     * view holds only the id, and the delete's read-modify-write wants a fresh read anyway.
      */
-    public void deleteFromUi(final Trip trip, final String key) {
-        publishParam("badgeDeleted", delete(trip, key));
+    public void deleteFromUi(final String key) {
+        publishParam("badgeDeleted", delete(subjectTrip(), key));
     }
 
     /** Whether the given dropdown value is one of THIS trip's custom images (vs a built-in name). */
@@ -402,9 +403,21 @@ public class BadgePhotoCommands {
         return Caller.current();
     }
 
-    /** Seam: the page's subject ({@code viewScope.theTrip}); tests override. */
+    /**
+     * The trip being edited, resolved FRESH from the page's pinned id ({@code viewScope.theTripId}) on
+     * every call: badge add/delete are read-modify-write saves of the whole trip, so the seed must come
+     * from the store (never the near-cache, never a view-held snapshot — the session-scope policy bans
+     * the latter outright). Null when the id is absent or resolves to nothing ({@code getTripForEdit}
+     * answers a blank trip with a FRESH id, so a same-id probe is the existence test) — {@code mayEdit}
+     * then refuses cleanly instead of letting an admin save a junk row. Tests override.
+     */
     protected Trip subjectTrip() {
-        return ScopeUtil.getInstance().getViewMap("theTrip");
+        final Object id = viewMap("theTripId");
+        if (id == null) {
+            return null;
+        }
+        final Trip fresh = trips.getTripForEdit(id.toString());
+        return id.toString().equals(fresh.getId()) ? fresh : null;
     }
 
     /** Seam: dialog-local viewScope reads; tests override. */
