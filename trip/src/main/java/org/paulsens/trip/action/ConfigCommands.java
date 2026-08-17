@@ -13,6 +13,7 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
+import org.paulsens.trip.cache.NearCacheClient;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
@@ -283,6 +284,12 @@ public class ConfigCommands {
                         .target(AuditEventBuilder.TARGET_CONFIG, stamped.getName())
                         .message("Set " + stamped.getName() + " = " + stamped.getValue())
                         .log();
+                // The near-cache cannot read its own tuning from the read path (ConfigDAO sits on top of
+                // it), so the admin save pushes: an edited cache.near.* setting takes effect immediately
+                // instead of waiting for the lazy background re-sync.
+                if (DAO.getInstance().getCacheClient() instanceof NearCacheClient near) {
+                    near.resyncTuning();
+                }
             }
             return saved;
         } catch (final RuntimeException ex) {

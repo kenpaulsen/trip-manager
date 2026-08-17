@@ -331,9 +331,32 @@ public final class KnownSettings {
                     + "in use the model holds a few hundred MB of task memory; it is released again after 10 "
                     + "idle minutes (the next use re-pays a ~1s model load).");
 
+    // --- performance ---
+
+    public static final SettingDef CACHE_NEAR_TTL_SECONDS = new SettingDef(
+            "cache.near.ttlSeconds", Config.Type.INT, "21600", "Near-cache TTL (seconds)",
+            "How long the in-JVM near-cache may serve an entry before it must reload from the shared cache. "
+                    + "Reads that declared Cached.YES are served from this cache; a background health check "
+                    + "keeps entries current well inside this bound (see the check interval below), and "
+                    + "anything written through THIS instance is never stale at all. 0 turns the near-cache "
+                    + "off. Changes apply on save; a -Dtrip.cache.near.ttlSeconds sysprop pins this against "
+                    + "the settings table entirely.");
+
+    public static final SettingDef CACHE_NEAR_CHECK_SECONDS = new SettingDef(
+            "cache.near.checkSeconds", Config.Type.INT, "15", "Near-cache health-check interval (seconds)",
+            "On a near-cache hit whose last check is older than this, ONE background refresh re-reads the "
+                    + "shared cache and updates the entry; the request itself never waits. This is the "
+                    + "staleness bound for data changed outside this instance (scripts, console edits) once "
+                    + "traffic touches the entry.");
+
     private static final List<SettingSection> SECTIONS = List.of(
             new SettingSection("Site", null,
                     List.of(SITE_ORG_NAME)),
+            new SettingSection("Performance",
+                    "The in-JVM near-cache in front of the shared Valkey cache. Only reads whose call site "
+                            + "declared Cached.YES (public/render paths) are served from it; auth, payments "
+                            + "and editors always bypass it.",
+                    List.of(CACHE_NEAR_TTL_SECONDS, CACHE_NEAR_CHECK_SECONDS)),
             new SettingSection("Profile pictures", null,
                     List.of(PROFILE_BG_REMOVAL_ENABLED)),
             new SettingSection("Home page", null,
