@@ -611,4 +611,53 @@ public class ContentCommandsTest {
         Assert.assertFalse(content.isTemplateOutdated(null));
         Assert.assertEquals(content.versionLabel(null, 3), "v3");
     }
+
+    /**
+     * The frozen-id round trip behind the landing page's session-scope conversion: the view keeps only
+     * ids, and the resolver must honor the FROZEN order (row identity for decode), drop rows deleted
+     * since the freeze, and never blow up on ids that no longer resolve.
+     */
+    @Test
+    public void frozenIdsResolveCurrentCopiesInFrozenOrder() {
+        final ContentCommands content = as(ADMIN, false);
+        final String section = "cc.section-frozen";
+        final ContentInstance first = content.createContent(section, "cc-test-tpl");
+        first.setTitle("first");
+        final ContentInstance second = content.createContent(section, "cc-test-tpl");
+        second.setTitle("second");
+        Assert.assertTrue(content.saveContent(first));
+        Assert.assertTrue(content.saveContent(second));
+
+        final java.util.List<String> frozen = content.idsOf(content.getForView(section, true));
+        Assert.assertEquals(frozen.size(), 2, "both rows freeze");
+
+        final java.util.List<String> reversed = new java.util.ArrayList<>(frozen);
+        java.util.Collections.reverse(reversed);
+        Assert.assertEquals(content.idsOf(content.forFrozenIds(section, true, reversed)), reversed,
+                "the FROZEN order wins over the cache's natural order");
+
+        reversed.add("no-such-row");
+        Assert.assertEquals(content.forFrozenIds(section, true, reversed).size(), 2,
+                "an id deleted since the freeze drops out rather than erroring");
+        Assert.assertTrue(content.forFrozenIds(section, true, null).isEmpty());
+        Assert.assertTrue(content.idsOf(null).isEmpty());
+    }
+
+    /** The child-id map round trip, against the seeded 'events' CONTAINER. */
+    @Test
+    public void frozenChildIdsRoundTripThroughTheResolvers() {
+        final ContentCommands content = as(ADMIN, false);
+        final java.util.List<ContentInstance> sections = content.getForView("page:trip-index", true);
+        final java.util.HashMap<String, java.util.List<String>> childIds =
+                content.childIdsFor(sections, true);
+        Assert.assertTrue(childIds.containsKey("events"),
+                "the seeded events CONTAINER should appear in the frozen child map");
+
+        final java.util.HashMap<String, java.util.List<ContentInstance>> resolved =
+                content.childrenForFrozen(childIds, true);
+        Assert.assertEquals(content.idsOf(resolved.get("events")), childIds.get("events"),
+                "children resolve in their frozen order");
+        Assert.assertTrue(content.childrenForFrozen(null, true).isEmpty());
+        Assert.assertTrue(content.childIdsFor(null, true).isEmpty());
+    }
 }

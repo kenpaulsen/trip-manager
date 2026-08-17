@@ -592,6 +592,70 @@ public class ContentCommands {
         return children;
     }
 
+    /**
+     * The ids of {@code instances} — what a view may keep. viewScope is serialized into the HTTP session,
+     * so the host page freezes IDS at first render (row identity for decode: postback buttons must iterate
+     * the same rows the user clicked) and re-resolves the instances per request via
+     * {@link #forFrozenIds}.
+     */
+    public List<String> idsOf(final List<ContentInstance> instances) {
+        final List<String> ids = new ArrayList<>();
+        if (instances != null) {
+            for (final ContentInstance instance : instances) {
+                ids.add(instance.getId());
+            }
+        }
+        return ids;
+    }
+
+    /** Child-id lists per CONTAINER section id — the view-frozen shape of {@link #childrenFor}. */
+    public HashMap<String, List<String>> childIdsFor(final List<ContentInstance> sections,
+            final boolean editMode) {
+        final HashMap<String, List<String>> childIds = new HashMap<>();
+        final HashMap<String, List<ContentInstance>> children = childrenFor(sections, editMode);
+        for (final Map.Entry<String, List<ContentInstance>> entry : children.entrySet()) {
+            childIds.put(entry.getKey(), idsOf(entry.getValue()));
+        }
+        return childIds;
+    }
+
+    /**
+     * The current instances of {@code section} in the FROZEN id order: rows deleted since the freeze drop
+     * out, rows added since it stay invisible until the reload that every structural edit forces — so a
+     * postback decodes exactly the rows its render produced, while the objects themselves are always the
+     * cache's current copies rather than a session snapshot.
+     */
+    public List<ContentInstance> forFrozenIds(final String section, final boolean editMode,
+            final List<String> ids) {
+        final List<ContentInstance> resolved = new ArrayList<>();
+        if (ids == null) {
+            return resolved;
+        }
+        final HashMap<String, ContentInstance> current = new HashMap<>();
+        for (final ContentInstance instance : getForView(section, editMode)) {
+            current.put(instance.getId(), instance);
+        }
+        for (final String id : ids) {
+            final ContentInstance instance = current.get(id);
+            if (instance != null) {
+                resolved.add(instance);
+            }
+        }
+        return resolved;
+    }
+
+    /** Resolves a frozen child-id map back to instances, per {@link #forFrozenIds}. */
+    public HashMap<String, List<ContentInstance>> childrenForFrozen(
+            final Map<String, List<String>> childIds, final boolean editMode) {
+        final HashMap<String, List<ContentInstance>> children = new HashMap<>();
+        if (childIds != null) {
+            for (final Map.Entry<String, List<String>> entry : childIds.entrySet()) {
+                children.put(entry.getKey(), forFrozenIds(entry.getKey(), editMode, entry.getValue()));
+            }
+        }
+        return children;
+    }
+
     /** The instance's template kind as a string for EL branching: STANDARD, CONTAINER or PROGRAMMATIC. */
     public String getKind(final ContentInstance instance) {
         if (instance == null) {
