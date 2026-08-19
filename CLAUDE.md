@@ -70,6 +70,10 @@ a clean "convert to JPEG" rejection and everything else works) · metadata-extra
 Persistence gotchas (each has caused a real bug):
 
 - DAO reads return **copies**: mutating an object you read earlier and saving its *parent* writes nothing.
+- `Trip` stores event **ids** (`tripEventIds`); `TripEvent`s resolve lazily on the first `getTripEvents()`
+  call per instance and are memoized (same mutable list every call — mutate-then-`saveTrip` still works).
+  A trip whose events are never touched never fans out, and `saveTrip` skips event rows for unresolved
+  instances. The id list is authoritative: a failed event read never shrinks it on save.
 - A read immediately after a write can be stale in production (async invalidation) — pass along the object
   you just saved instead of re-reading.
 - `queryAll` ignores `limit` (it paginates the whole partition); use `query()` for unbounded partitions.

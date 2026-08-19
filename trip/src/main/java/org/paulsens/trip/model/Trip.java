@@ -2,9 +2,6 @@ package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import com.fasterxml.jackson.databind.annotation.JsonSerialize;
-import com.fasterxml.jackson.databind.util.StdConverter;
 import com.sun.jsft.util.Util;
 import jakarta.faces.context.FacesContext;
 import java.io.Serializable;
@@ -24,8 +21,10 @@ import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.ToString;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.cache.Cached;
 
@@ -33,6 +32,13 @@ import org.paulsens.trip.cache.Cached;
 @Builder
 @AllArgsConstructor
 public final class Trip implements Serializable {
+    /**
+     * Pinned so the computed UID can never drift again: a field change on this class once invalidated
+     * every Kryo-serialized session at deploy (2026-08-14 outage). Trip itself is banned from sessions
+     * now (SessionScopePolicyIT), but the pin closes the class of accident for anything that slips.
+     */
+    private static final long serialVersionUID = 1L;
+
     @JsonProperty("id")
     private String id;   // Trip ID
     @JsonProperty("title")
@@ -78,10 +84,31 @@ public final class Trip implements Serializable {
     private String nonHostedTripUrl;                    // For non-hosted trips, a URL for more info
     @JsonProperty("nonHostedRegNumber")
     private Integer nonHostedRegNumber;                 // For non-hosted trips, the number of people enrolled
-    @JsonProperty("tripEvents")
-    @JsonSerialize(converter = TripEventsSerializer.class)
-    @JsonDeserialize(converter = TripEventsDeserializer.class)
-    private List<TripEvent> tripEvents;                 // The stuff needed to book, airfare, hotel, etc.
+    /**
+     * The trip's event ids -- the authoritative stored list (the row and every cache blob store ids only;
+     * event bodies live in the {@code trip_events} table). Events resolve lazily on the first
+     * {@link #getTripEvents()} call per instance. They used to resolve inside a Jackson converter on EVERY
+     * materialization, which made "deserialize a Trip" silently cost one DAO read per event -- the traffic
+     * amplifier behind the 2026-08-18 cache incident. Serialized through the accessor pair below so a
+     * failed event read can never shrink this list on save.
+     */
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    private List<String> tripEventIds;
+    /** Resolved event instances, memoized per instance; null until first access. Never stored. */
+    @JsonIgnore
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    private transient List<TripEvent> resolvedEvents;
+    /** Ids whose event read failed during resolution -- preserved so a later save cannot drop them. */
+    @JsonIgnore
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    private transient List<String> unresolvedIds;
     @JsonProperty("regOptions")
     private List<RegistrationOption> regOptions;        // Registration page questions
     @JsonProperty("badgeImages")
@@ -157,15 +184,103 @@ public final class Trip implements Serializable {
         this.people = new ArrayList<>(people);
     }
 
+    /**
+     * The trip's events, resolved from {@link #tripEventIds} on FIRST call and memoized: every caller of
+     * this instance gets the SAME mutable list, so the mutate-then-{@code saveTrip} contract holds exactly
+     * as it did when deserialization materialized the objects -- and a trip whose events are never touched
+     * never pays the fan-out. Must stay {@code @JsonIgnore}: the JSON property "tripEvents" is the id list
+     * (accessor pair below), and this getter's bean property would collide with it and re-introduce object
+     * serialization.
+     */
+    @JsonIgnore
     public List<TripEvent> getTripEvents() {
-        if (tripEvents == null) {
-            tripEvents = new ArrayList<>();
+        if (resolvedEvents == null) {
+            resolveEvents();
         }
-        return tripEvents;
+        return resolvedEvents;
     }
 
+    /** The caller supplies the full authoritative list; any unresolved ids are deliberately discarded. */
     public void setTripEvents(final List<TripEvent> events) {
-        this.tripEvents = new ArrayList<>(events);
+        this.resolvedEvents = new ArrayList<>(events);
+        this.unresolvedIds = null;
+        this.tripEventIds = eventIds(this.resolvedEvents);
+    }
+
+    /**
+     * The resolved instances if resolution ever ran on this instance, else null. Save paths use this to
+     * skip trips that never materialized their events: unresolved copies cannot carry mutations, and
+     * resolving just to rewrite identical rows would reintroduce the per-save fan-out.
+     */
+    @JsonIgnore
+    public List<TripEvent> getResolvedTripEvents() {
+        return resolvedEvents;
+    }
+
+    private void resolveEvents() {
+        final List<String> ids = (tripEventIds == null) ? List.of() : List.copyOf(tripEventIds);
+        final List<TripEvent> events = new ArrayList<>(ids.size());
+        final List<String> failed = new ArrayList<>();
+        // Fork per id: cache misses for a trip's events resolve concurrently (a 50-event trip is one round
+        // trip's latency, not 50), each on a virtual thread, and the scope outlives nothing.
+        try (var scope = StructuredTaskScope.open()) {
+            final List<StructuredTaskScope.Subtask<TripEvent>> tasks = new ArrayList<>(ids.size());
+            for (final String eventId : ids) {
+                tasks.add(scope.fork(() -> DAO.getInstance().getTripEvent(eventId, Cached.YES)));
+            }
+            scope.join();
+            for (int i = 0; i < ids.size(); i++) {
+                collectResolved(ids.get(i), tasks.get(i).get(), events, failed);
+            }
+        } catch (final InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while loading trip events", ex);
+        }
+        this.resolvedEvents = events;
+        this.unresolvedIds = failed;
+    }
+
+    private static void collectResolved(final String eventId, final TripEvent event,
+            final List<TripEvent> events, final List<String> failed) {
+        if (event == null) {
+            failed.add(eventId);
+        } else {
+            events.add(event);
+        }
+    }
+
+    /**
+     * The JSON property {@code "tripEvents"}: ids only, exactly the shape the row and cache blobs have
+     * always had (no data migration). An untouched instance round-trips its stored ids unchanged; a
+     * resolved instance serializes its current events' ids PLUS any ids whose read failed -- the old
+     * converter dropped those silently, and the next save made the loss permanent.
+     */
+    @JsonProperty("tripEvents")
+    private List<String> serializedEventIds() {
+        if (resolvedEvents == null) {
+            return (tripEventIds == null) ? Collections.emptyList() : tripEventIds;
+        }
+        final List<String> ids = eventIds(resolvedEvents);
+        if (unresolvedIds != null) {
+            ids.addAll(unresolvedIds);
+        }
+        return ids;
+    }
+
+    @JsonProperty("tripEvents")
+    private void setSerializedEventIds(final List<String> ids) {
+        this.tripEventIds = (ids == null) ? new ArrayList<>() : new ArrayList<>(ids);
+    }
+
+    private static List<String> eventIds(final List<TripEvent> events) {
+        return events.stream().map(TripEvent::getId).collect(Collectors.toList());
+    }
+
+    /** Keeps the stored id list in step after a structural event mutation on a resolved instance. */
+    private void syncEventIds() {
+        if (resolvedEvents != null) {
+            this.tripEventIds = serializedEventIds();
+        }
     }
 
     public List<RegistrationOption> getRegOptions() {
@@ -223,6 +338,7 @@ public final class Trip implements Serializable {
         final String id = UUID.randomUUID().toString();
         events.add(new TripEvent(id, type, title, notes, start, end, null, null));
         events.sort(Comparator.comparing(TripEvent::getStart));
+        syncEventIds();
         return id;
     }
 
@@ -313,6 +429,7 @@ public final class Trip implements Serializable {
     @JsonIgnore
     public void deleteTripEvent(final TripEvent te) {
         getTripEvents().remove(te);
+        syncEventIds();
     }
 
     public void editTripEvent(final TripEvent newTE) {
@@ -323,6 +440,7 @@ public final class Trip implements Serializable {
         events.remove(oldTE);
         events.add(newTE);
         events.sort(Comparator.comparing(TripEvent::getStart));
+        syncEventIds();
     }
 
     public void addTripOption() {
@@ -341,7 +459,8 @@ public final class Trip implements Serializable {
         private LocalDateTime startDate = LocalDateTime.now().plusDays(90);     // Start of trip
         private LocalDateTime endDate = LocalDateTime.now().plusDays(100);      // Start of trip
         private List<Person.Id> people = new ArrayList<>();
-        private List<TripEvent> tripEvents = new ArrayList<>();
+        private List<String> tripEventIds = new ArrayList<>();
+        private List<TripEvent> resolvedEvents;
         private List<RegistrationOption> regOptions = new ArrayList<>();
         private List<BadgeImage> badgeImages = new ArrayList<>();
 
@@ -365,8 +484,18 @@ public final class Trip implements Serializable {
             this.people = (people == null) ? new ArrayList<>() : new ArrayList<>(people);
             return this;
         }
+        /** Event OBJECTS: the built trip is resolved (FakeData/tests semantics -- save persists them). */
         public TripBuilder tripEvents(final List<TripEvent> tripEvents) {
-            this.tripEvents = (tripEvents == null) ? new ArrayList<>() : new ArrayList<>(tripEvents);
+            final List<TripEvent> events = (tripEvents == null) ? new ArrayList<>() : new ArrayList<>(tripEvents);
+            this.resolvedEvents = events;
+            this.tripEventIds = events.stream().map(TripEvent::getId).collect(Collectors.toList());
+            return this;
+        }
+
+        /** Event IDS only: the built trip is unresolved and resolves lazily on first access. */
+        public TripBuilder tripEventIds(final List<String> ids) {
+            this.tripEventIds = (ids == null) ? new ArrayList<>() : new ArrayList<>(ids);
+            this.resolvedEvents = null;
             return this;
         }
         public TripBuilder regOptions(final List<RegistrationOption> regOptions) {
@@ -379,43 +508,4 @@ public final class Trip implements Serializable {
         }
     }
 
-    static class TripEventsSerializer extends StdConverter<List<TripEvent>, List<String>> {
-        @Override
-        public List<String> convert(final List<TripEvent> events) {
-            if (events == null) {
-                return Collections.emptyList();
-            }
-            return events.stream().map(TripEvent::getId).collect(Collectors.toList());
-        }
-    }
-
-    static class TripEventsDeserializer extends StdConverter<List<String>, List<TripEvent>> {
-        @Override
-        public List<TripEvent> convert(final List<String> ids) {
-            if (ids == null) {
-                return Collections.emptyList();
-            }
-            // Fork per event id: the fan-out the CF era had, minus the nested joins that once forced the
-            // persistence pool to be unbounded. Cache misses for a trip's events resolve concurrently (a
-            // 50-event trip is one round trip's latency, not 50), each on a virtual thread whose blocking is
-            // free, and the scope guarantees nothing outlives this deserialization.
-            try (var scope = StructuredTaskScope.open()) {
-                final List<StructuredTaskScope.Subtask<TripEvent>> tasks = new ArrayList<>(ids.size());
-                for (final String id : ids) {
-                    tasks.add(scope.fork(() -> DAO.getInstance().getTripEvent(id, Cached.YES)));
-                }
-                scope.join();
-                final List<TripEvent> events = new ArrayList<>(ids.size());
-                for (final StructuredTaskScope.Subtask<TripEvent> task : tasks) {
-                    if (task.get() != null) {
-                        events.add(task.get());
-                    }
-                }
-                return events;
-            } catch (final InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("Interrupted while loading trip events", ex);
-            }
-        }
-    }
 }

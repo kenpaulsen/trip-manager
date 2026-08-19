@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
@@ -45,9 +46,15 @@ public class TripEventDAO {
     }
 
     protected Boolean saveAllTripEvents(final Trip trip) {
+        final List<TripEvent> events = trip.getResolvedTripEvents();
+        if (events == null) {
+            // This instance never materialized its events: unresolved copies cannot carry mutations, and
+            // resolving here just to rewrite identical rows would reintroduce the per-save fan-out.
+            return true;
+        }
         // Sequential on purpose for now; the Phase 7 structured-concurrency pass may re-fan-out.
         boolean allSaved = true;
-        for (final TripEvent te : trip.getTripEvents()) {
+        for (final TripEvent te : events) {
             allSaved &= saveTripEvent(te);
         }
         return allSaved;

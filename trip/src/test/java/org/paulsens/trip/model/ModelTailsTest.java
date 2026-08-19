@@ -338,14 +338,6 @@ public class ModelTailsTest {
                 () -> TripLink.validateUrlScheme("http://[not-a-valid-uri"));
     }
 
-    @Test
-    public void theTripEventsSerializerToleratesNullAndMapsToIds() {
-        final Trip.TripEventsSerializer serializer = new Trip.TripEventsSerializer();
-
-        Assert.assertEquals(serializer.convert(null), List.of());
-        Assert.assertEquals(serializer.convert(List.of(new TripEvent("ser-1", TripEvent.Type.EVENT, "T",
-                null, LocalDateTime.now(), null, null, null))), List.of("ser-1"));
-    }
 
     /** Past the 250-id cap, reactors overflow to a counter; totals must still include them. */
     @Test
