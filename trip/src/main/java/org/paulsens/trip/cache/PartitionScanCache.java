@@ -91,7 +91,16 @@ public final class PartitionScanCache<V> {
     /** Write-through of a single entity into its partition hash. */
     public boolean put(final V value) {
         final String key = keyPrefix + partitioner.apply(value);
-        final boolean ok = cache.putHashField(key, fielder.apply(value), serializer.apply(value));
+        final String json = serializer.apply(value);
+        if (json == null) {
+            // Serializer regression (the DAO serializers answer null on failure, like the other cache
+            // templates' contracts). Drop the possibly-stale cached entry surgically rather than NPE after
+            // the database write already succeeded -- invalidate() is unsafe in local mode (see removeOne).
+            log.warn("Serializer returned null for '{}'; dropping the cached entry instead", key);
+            cache.removeHashField(key, fielder.apply(value));
+            return false;
+        }
+        final boolean ok = cache.putHashField(key, fielder.apply(value), json);
         cache.expire(key, gcTtl);
         return ok;
     }

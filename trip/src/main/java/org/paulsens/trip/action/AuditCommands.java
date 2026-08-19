@@ -108,6 +108,22 @@ public class AuditCommands {
      * vary too much for a prefix helper; the target is the person the change is ABOUT (the member), while the
      * actor identifies who did it.
      */
+    /**
+     * Payment lifecycle events (start / completion / failure), targeted at the PAYMENT id so a payment's
+     * whole story lines up under one target. The message returns to the caller (pages reuse audit text).
+     * The actor is passed explicitly everywhere: captures complete on return requests and retries can run
+     * from the reconciliation page, so {@code AuditActor.current()} is the wrong default here.
+     */
+    public String payment(final String paymentId, final boolean succeeded, final String msg,
+            final AuditActor who) {
+        Audit.builder(AuditAction.PAYMENT, succeeded ? AuditOutcome.SUCCESS : AuditOutcome.FAILURE)
+                .actor((who == null) ? AuditActor.current() : who)
+                .target(AuditEventBuilder.TARGET_PAYMENT, paymentId)
+                .message(msg)
+                .log();
+        return msg;
+    }
+
     public String family(final Person target, final String msg) {
         return family(target, msg, AuditActor.current());
     }

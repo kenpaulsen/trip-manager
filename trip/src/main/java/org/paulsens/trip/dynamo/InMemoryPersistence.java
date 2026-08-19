@@ -76,7 +76,20 @@ public class InMemoryPersistence implements Persistence {
             Map.entry(PasskeyDAO.PASSKEY_TABLE, new TableKeys(PasskeyDAO.CREDENTIAL_ID, null)),
             // Families are written in local mode (FakeData seeds one, the family page edits them), and
             // their optimistic-version puts must be honestly rejectable here or the race is untestable.
-            Map.entry(FamilyDAO.FAMILY_TABLE, new TableKeys("id", null)));
+            Map.entry(FamilyDAO.FAMILY_TABLE, new TableKeys("id", null)),
+            // Organizations follow the family rules (seeded + edited locally, version races must be real);
+            // membership rows must round-trip so the org pages and the migration tooling are testable.
+            Map.entry(OrganizationDAO.ORG_TABLE, new TableKeys("id", null)),
+            Map.entry(OrgMemberDAO.ORG_MEMBERS_TABLE,
+                    new TableKeys(OrgMemberDAO.ORG_ID, OrgMemberDAO.PERSON_ID)),
+            // Processor configs round-trip locally (FakeData seeds FAKE configs; orgSettings edits them),
+            // and their optimistic-version puts must be honestly rejectable.
+            Map.entry(PaymentProcessorDAO.PROCESSORS_TABLE,
+                    new TableKeys(PaymentProcessorDAO.ORG_ID, PaymentProcessorDAO.CONFIG_ID)),
+            // Payments round-trip locally (the FAKE-processor flow is fully webtestable), and their
+            // conditional state transitions must be honestly rejectable or the double-capture race is
+            // untestable.
+            Map.entry(PaymentDAO.PAYMENTS_TABLE, new TableKeys(PaymentDAO.PAYMENT_ID, null)));
 
     /** table -> (pk -> (sk -> item)). sk is "" for PK-only tables. */
     private final Map<String, Map<String, Map<String, Map<String, AttributeValue>>>> store =

@@ -9,6 +9,7 @@ import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.util.RandomData;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNull;
+import static org.testng.Assert.assertTrue;
 import org.testng.annotations.Test;
 
 public class TransactionsCommandsTest {
@@ -63,6 +64,50 @@ public class TransactionsCommandsTest {
         assertEquals((float) txCmds.getUserAmount(tx2), amount / 4);
         final Transaction tx3 = txCmds.getGroupTransactionForUser(groupUsers.get(3), sharedGroup).orElse(null);
         assertEquals((float) txCmds.getUserAmount(tx3), amount / 4);
+    }
+
+    // ------------------------------------------------------------------ org (tenancy) stamping
+
+    @Test
+    public void savingAgainstAnOrgOwnedTripStampsTheOrg() {
+        org.paulsens.trip.dynamo.FakeData.initFakeData();
+        org.paulsens.trip.dynamo.FakeData.addFakeData();     // seeds faketrip with the CFPW org id
+        final Transaction tx = new Transaction(createPerson(), null, null);
+        assertTrue(txCmds.saveTransaction(tx, "faketrip"));
+        assertEquals(tx.getOrgId(), org.paulsens.trip.dynamo.FakeData.CFPW_ORG_ID);
+    }
+
+    @Test
+    public void orgStampingNeverReTenantsAndToleratesLegacyTrips() {
+        org.paulsens.trip.dynamo.FakeData.initFakeData();
+        org.paulsens.trip.dynamo.FakeData.addFakeData();
+        final Transaction preTenanted = new Transaction(createPerson(), null, null);
+        preTenanted.setOrgId("some-other-org");
+        assertTrue(txCmds.saveTransaction(preTenanted, "faketrip"));
+        assertEquals(preTenanted.getOrgId(), "some-other-org", "Re-saving never re-tenants a row");
+
+        final Transaction noTrip = new Transaction(createPerson(), null, null);
+        assertTrue(txCmds.saveTransaction(noTrip, null));
+        assertNull(noTrip.getOrgId(), "No trip, no org: the migration backfills legacy rows");
+
+        final Transaction unknownTrip = new Transaction(createPerson(), null, null);
+        assertTrue(txCmds.saveTransaction(unknownTrip, "no-such-trip"));
+        assertNull(unknownTrip.getOrgId());
+    }
+
+    @Test
+    public void groupSavesStampEveryRowFromTheTrip() {
+        org.paulsens.trip.dynamo.FakeData.initFakeData();
+        org.paulsens.trip.dynamo.FakeData.addFakeData();
+        final List<Person.Id> groupUsers = List.of(createPerson(), createPerson());
+        assertTrue(txCmds.saveGroupTransaction(null, null, Transaction.Type.Shared,
+                Transaction.TransactionType.Payment, LocalDateTime.now(), 100f, "Payment", "org stamp test",
+                "faketrip", null, groupUsers));
+        for (final Person.Id uid : groupUsers) {
+            final Transaction row = txCmds.getTransactions(uid).get(0);
+            assertEquals(row.getOrgId(), org.paulsens.trip.dynamo.FakeData.CFPW_ORG_ID,
+                    "Every row of a group save carries the trip's org");
+        }
     }
 
     private Person.Id createPerson() {

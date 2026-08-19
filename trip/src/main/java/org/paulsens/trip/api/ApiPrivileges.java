@@ -29,6 +29,7 @@ public final class ApiPrivileges {
     public static final String EVENT_ADMIN = PrivilegeCommands.EVENT_ADMIN;
     public static final String EMAIL_ADMIN = PrivilegeCommands.EMAIL_ADMIN;
     public static final String SITE_DEPLOYER = PrivilegeCommands.SITE_DEPLOYER;
+    public static final String PAYMENTS_ADMIN = PrivilegeCommands.PAYMENTS_ADMIN;
     public static final String TRIP_MGR = PrivilegeCommands.TRIP_MGR;
     public static final String TRIP_VIEW = PrivilegeCommands.TRIP_VIEW;
     public static final String TRIP_FIN_VIEW = PrivilegeCommands.TRIP_FIN_VIEW;

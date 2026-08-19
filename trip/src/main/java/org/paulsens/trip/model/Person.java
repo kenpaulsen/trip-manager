@@ -52,6 +52,14 @@ public final class Person implements Serializable, Comparable<Person> {
      */
     private Family.Id familyId;
     /**
+     * Back-pointers to the {@link Organization}s this person belongs to (usually exactly one; multi-org is
+     * supported). The {@code org_members} table is the source of truth -- this derived list exists so
+     * authorization ("is this viewer in that org?") never needs a table query. Synced surgically by
+     * {@code OrgCommands}. Like {@link #familyId}, deliberately NOT a constructor parameter, and never null:
+     * rows written before the feature deserialize without the key, leaving this initializer in place.
+     */
+    private List<Organization.Id> orgIds = new ArrayList<>();
+    /**
      * Which of this person's profile-picture slots (1-4) is THE profile picture; null when never chosen, in
      * which case the lowest occupied slot wins (the deterministic default). The slot NUMBER is stored rather
      * than the object key so replacing a photo — which mints a new versioned key — never has to write this
@@ -145,6 +153,11 @@ public final class Person implements Serializable, Comparable<Person> {
 
     public void setPrivacy(final PrivacySettings privacy) {
         this.privacy = (privacy == null) ? new PrivacySettings() : privacy;
+    }
+
+    // Same never-null contract as privacy: EL and sync code iterate this list without guarding.
+    public void setOrgIds(final List<Organization.Id> orgIds) {
+        this.orgIds = (orgIds == null) ? new ArrayList<>() : new ArrayList<>(orgIds);
     }
 
     public void setEmail(final String email) {

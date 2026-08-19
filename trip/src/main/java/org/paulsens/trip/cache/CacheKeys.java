@@ -44,6 +44,16 @@ public final class CacheKeys {
     // no scan path and no index.
     public static final String FAMILY_PREFIX = FORMAT_VERSION + "family:";
 
+    // Organizations: the whole (small) table in ONE hash, like config/media -- org lists render on ordinary
+    // admin pages and pickers, so a read must be one HGETALL. Membership rows are a per-org partition hash
+    // (append the orgId); the reverse edge is Person.orgIds, so there is no by-person partition.
+    public static final String ORG_PREFIX = FORMAT_VERSION + "org:";
+    public static final String ORG_PARTITION = "__all__";
+    public static final String ORG_LOADED = FORMAT_VERSION + "org_loaded";
+    public static final String ORG_MEMBER_PREFIX = FORMAT_VERSION + "org_member:";
+    // Payment-processor configs: per-org partition hash (append the orgId) -- the org IS the tenancy boundary.
+    public static final String PROCESSOR_PREFIX = FORMAT_VERSION + "processor:";
+
     // Email lookup hash: field = lowercased email, value = personId. Lazy cache in front of the email-index GSI
     // (and the authoritative store in local mode, where every save goes through write-through).
     public static final String EMAIL_IDX = FORMAT_VERSION + "email";

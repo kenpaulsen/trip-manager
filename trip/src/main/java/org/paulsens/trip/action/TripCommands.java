@@ -25,6 +25,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Language;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
@@ -68,6 +69,7 @@ public class TripCommands {
         // here rather than at each Remove button because there are several ways off a trip and they must all
         // agree: a chat still listing people who are no longer on the trip is the wrong answer everywhere.
         final List<Person.Id> removed = peopleRemovedBy(trip);
+        syncProviderFromOrg(trip);
         try {
             result = DAO.getInstance().saveTrip(sortTripPeople(trip));
         } catch (final RuntimeException ex) {
@@ -85,6 +87,27 @@ public class TripCommands {
             ChatCommands.getChatCommands().leaveOnTripRemoval(trip.getId(), removed);
         }
         return result;
+    }
+
+    /**
+     * Keeps {@code Trip.provider} -- the display string every public renderer and {@code isCfpw()} still read
+     * -- synced from the owning {@link org.paulsens.trip.model.Organization}'s name. Runs on EVERY save path
+     * (page and REST) so the two can never drift while both exist; a trip with no org (legacy) keeps whatever
+     * provider string it has.
+     */
+    private void syncProviderFromOrg(final Trip trip) {
+        if (trip.getOrgId() == null || trip.getOrgId().isBlank()) {
+            return;
+        }
+        final Organization owner = DAO.getInstance()
+                .getOrganization(Organization.Id.from(trip.getOrgId()), Cached.YES)
+                .orElse(null);
+        if (owner == null) {
+            log.warn("Trip {} points at unknown organization {}; provider left as-is",
+                    trip.getId(), trip.getOrgId());
+            return;
+        }
+        trip.setProvider(owner.getName());
     }
 
     /**

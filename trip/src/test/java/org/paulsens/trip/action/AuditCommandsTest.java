@@ -107,6 +107,26 @@ public class AuditCommandsTest {
     }
 
     @Test
+    public void paymentEventsTargetThePaymentId() {
+        final org.paulsens.trip.audit.AuditActor actor =
+                new org.paulsens.trip.audit.AuditActor("payer@example.com", "payer-1");
+        final String ok = captureStdout(
+                () -> audit.payment("pay-123", true, "Payment started: $475 to CFPW", actor));
+        Assert.assertTrue(ok.contains("PAYMENT"), ok);
+        Assert.assertTrue(ok.contains("target=payment:pay-123"), ok);
+        Assert.assertTrue(ok.contains("payer@example.com"), ok);
+        Assert.assertTrue(ok.contains("outcome=SUCCESS"), ok);
+
+        final String failed = captureStdout(
+                () -> audit.payment("pay-123", false, "Capture failed", actor));
+        Assert.assertTrue(failed.contains("outcome=FAILURE"), failed);
+
+        // A null actor falls back to the request-thread lookup rather than dying off-thread.
+        Assert.assertEquals(audit.payment("pay-123", true, "msg", null), "msg",
+                "The message returns to the caller, the pages-reuse-audit-text convention");
+    }
+
+    @Test
     public void deprecatedStringApiStillRecords() {
         // Unconverted pages must keep working while the conversion finishes.
         final String out = captureStdout(() -> audit.log("a@x.com", "LOGIN", "did a thing"));

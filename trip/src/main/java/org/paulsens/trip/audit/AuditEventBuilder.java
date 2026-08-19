@@ -33,6 +33,8 @@ public final class AuditEventBuilder {
     public static final String TARGET_CHAT_CHANNEL = "chatChannel";
     public static final String TARGET_CHAT_MESSAGE = "chatMessage";
     public static final String TARGET_PIPELINE = "pipeline";
+    public static final String TARGET_ORGANIZATION = "organization";
+    public static final String TARGET_PAYMENT = "payment";
 
     private final AuditAction action;
     private final AuditOutcome outcome;

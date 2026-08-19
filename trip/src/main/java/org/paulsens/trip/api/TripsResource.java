@@ -327,7 +327,7 @@ public class TripsResource extends BaseResource {
     private TripDto withViewerEvents(final Trip trip, final Person.Id me) {
         final TripDto dto = TripMapper.INSTANCE.toDto(trip);
         return new TripDto(dto.id(), dto.title(), dto.description(), dto.openToPublic(), dto.chatEnabled(),
-                dto.startDate(), dto.endDate(), dto.regLimit(), dto.provider(), dto.language(),
+                dto.startDate(), dto.endDate(), dto.regLimit(), dto.provider(), dto.orgId(), dto.language(),
                 dto.estimatedPrice(), dto.director(), dto.localGuide(), dto.facilitators(), dto.flyerUrl(),
                 dto.nonHostedTripUrl(), dto.nonHostedRegNumber(), dto.people(), eventDtos(trip, me));
     }
@@ -371,6 +371,10 @@ public class TripsResource extends BaseResource {
     private static void applyDetails(final TripDto body, final Trip trip) {
         if (body.provider() != null) {
             trip.setProvider(body.provider());
+        }
+        if (body.orgId() != null) {
+            // saveTrip re-syncs provider from the org, so an orgId in the body wins over a provider string.
+            trip.setOrgId(body.orgId());
         }
         if (body.estimatedPrice() != null) {
             trip.setEstimatedPrice(body.estimatedPrice());

@@ -229,16 +229,6 @@
                         <exclude>**/*MapperImpl.class</exclude>
                         <exclude>**/App.class</exclude>
                         <!--
-                            TODO: remove both PayPal exclusions once the PayPal rework lands.
-
-                            Excluded 2026-08-03 because this version of the PayPal code is not in use and is
-                            about to be replaced, so holding it to the floor would fail the build over code
-                            already on its way out. PayCommandsCaptureTest still exists and still runs; only
-                            the coverage requirement is lifted.
-                        -->
-                        <exclude>org/paulsens/trip/pay/**</exclude>
-                        <exclude>**/PayCommands.class</exclude>
-                        <!--
                             Mojarra instantiates these through the JSF factory chain to override the server
                             name; constructing one outside a container means faking the whole factory stack for
                             three overrides. Covers TripFacesContext, its TripExternalContext inner class, and

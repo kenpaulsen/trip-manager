@@ -322,6 +322,31 @@ public final class KnownSettings {
                     + "look like part of this site. Add an app's custom scheme (e.g. trip://) here before "
                     + "shipping it, not after.");
 
+    public static final SettingDef PAYMENT_NOTIFY_EMAIL = new SettingDef(
+            "payment.notify.email", Config.Type.STRING, "",
+            "Payment notification recipient",
+            "Site-wide fallback address that receives an internal note for each completed payment. An "
+                    + "organization's contact email wins when set; blank here means no internal note.");
+
+    public static final SettingDef PAYMENT_MAIL_FROM = new SettingDef(
+            "payment.mail.from", Config.Type.STRING, "",
+            "Payment confirmation From address",
+            "Site-wide fallback From for payment confirmation email, e.g. 'Site Name <no-reply@site.org>'. "
+                    + "The trip's payment settings, then the organization's defaults, win when set.");
+
+    public static final SettingDef PAYMENT_CONFIRM_TEMPLATE = new SettingDef(
+            "payment.confirm.templateId", Config.Type.STRING, "payment-confirmation",
+            "Payment confirmation template",
+            "The MAIL-kind content template used for payment confirmations when neither the trip nor its "
+                    + "organization picks one. Installed by install-starter-templates.sh.");
+
+    public static final SettingDef PAYMENT_FEES_PAID_BY = new SettingDef(
+            "payment.fees.paidBy", Config.Type.STRING, "ORGANIZATION",
+            "Who pays processor fees",
+            "ORGANIZATION or PAYER; the bottom rung of the trip/org/site ladder. PAYER adds the trip-portion "
+                    + "fee on top of the charge; ORGANIZATION absorbs it. A donation's fee share is always "
+                    + "absorbed by the organization either way.");
+
     // --- profile pictures ---
 
     public static final SettingDef PROFILE_BG_REMOVAL_ENABLED = new SettingDef(
@@ -408,9 +433,12 @@ public final class KnownSettings {
                     "Who receives them is managed in the \"Support channel admins\" panel below the settings.",
                     List.of(SUPPORT_MAIL_ENABLED)),
             new SettingSection("Payments",
-                    "Only applies to payments started through the API. The web checkout derives its return "
-                            + "address from the page the payer was on and never consults this.",
-                    List.of(PAYMENT_RETURN_URL_PREFIXES)));
+                    "The mail/fee settings are the SITE rung of the trip → organization → site "
+                            + "defaults ladder. The return-address allowlist only applies to payments "
+                            + "started through the API; the web checkout derives its return address from "
+                            + "the page the payer was on and never consults it.",
+                    List.of(PAYMENT_NOTIFY_EMAIL, PAYMENT_MAIL_FROM, PAYMENT_CONFIRM_TEMPLATE,
+                            PAYMENT_FEES_PAID_BY, PAYMENT_RETURN_URL_PREFIXES)));
 
     private static final Map<String, SettingDef> BY_NAME = index();
 

@@ -35,6 +35,10 @@ import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.MediaItem;
+import org.paulsens.trip.model.OrgMember;
+import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.model.Payment;
+import org.paulsens.trip.model.PaymentProcessorConfig;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.Privilege;
@@ -64,6 +68,10 @@ public class DAO {
     private final CacheClient cacheClient;
     private final PersonDAO personDao;
     private final FamilyDAO familyDao;
+    private final OrganizationDAO orgDao;
+    private final OrgMemberDAO orgMemberDao;
+    private final PaymentProcessorDAO paymentProcessorDao;
+    private final PaymentDAO paymentDao;
     private final TripEventDAO tripEventDao;
     private final TripDAO tripDao;
     private final RegistrationDAO regDao;
@@ -95,6 +103,11 @@ public class DAO {
         this.cacheClient = cacheClient;
         this.personDao = new PersonDAO(mapper, persistence, cacheClient);
         this.familyDao = new FamilyDAO(mapper, persistence, cacheClient);
+        this.orgDao = new OrganizationDAO(mapper, persistence, cacheClient);
+        this.orgMemberDao = new OrgMemberDAO(mapper, persistence, cacheClient);
+        this.paymentProcessorDao = new PaymentProcessorDAO(mapper, persistence, cacheClient);
+        // No cacheClient: payment rows authorize captures and steer money; a stale read double-charges.
+        this.paymentDao = new PaymentDAO(mapper, persistence);
         this.tripEventDao = new TripEventDAO(mapper, persistence, cacheClient);
         this.tripDao = new TripDAO(mapper, persistence, tripEventDao, cacheClient);
         this.regDao = new RegistrationDAO(mapper, persistence, cacheClient);
@@ -237,6 +250,74 @@ public class DAO {
     }
     public Boolean deleteFamily(final Family.Id id) {
         return familyDao.deleteFamily(id);
+    }
+
+    // Organizations (tenancy roots; see OrganizationDAO). No delete on purpose -- history hangs off orgs.
+    /**
+     * Conditionally saves this organization (optimistic version guard, like {@link #saveFamily}). Throws
+     * {@link software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException} on a lost race.
+     */
+    public Boolean saveOrganization(final Organization org) throws IOException {
+        return orgDao.saveOrganization(org);
+    }
+    public Optional<Organization> getOrganization(final Organization.Id id, final Cached cached) {
+        return NearCacheContext.call(cached, () -> orgDao.getOrganization(id));
+    }
+    public List<Organization> getOrganizations(final Cached cached) {
+        return NearCacheContext.call(cached, () -> orgDao.getOrganizations());
+    }
+    /** Same escape hatch as {@link #clearMediaCache()}, for rows written behind the DAO's back (migration). */
+    public void clearOrganizationCache() {
+        orgDao.clearCache();
+    }
+
+    // Org membership rows (source of truth; Person.orgIds is the derived reverse edge).
+    public Boolean saveOrgMember(final OrgMember member) throws IOException {
+        return orgMemberDao.saveMember(member);
+    }
+    public List<OrgMember> getOrgMembers(final Organization.Id orgId, final Cached cached) {
+        return NearCacheContext.call(cached, () -> orgMemberDao.getMembers(orgId));
+    }
+    public Optional<OrgMember> getOrgMember(
+            final Organization.Id orgId, final Person.Id personId, final Cached cached) {
+        return NearCacheContext.call(cached, () -> orgMemberDao.getMember(orgId, personId));
+    }
+    public Boolean deleteOrgMember(final Organization.Id orgId, final Person.Id personId) {
+        return orgMemberDao.deleteMember(orgId, personId);
+    }
+
+    // Payment-processor configs (org-partitioned; see PaymentProcessorDAO). Money-adjacent: readers that are
+    // about to authorize or charge must pass Cached.NO.
+    public Boolean savePaymentProcessorConfig(final PaymentProcessorConfig config) throws IOException {
+        return paymentProcessorDao.saveConfig(config);
+    }
+    public List<PaymentProcessorConfig> getPaymentProcessorConfigs(
+            final Organization.Id orgId, final Cached cached) {
+        return NearCacheContext.call(cached, () -> paymentProcessorDao.getConfigs(orgId));
+    }
+    public Optional<PaymentProcessorConfig> getPaymentProcessorConfig(
+            final Organization.Id orgId, final PaymentProcessorConfig.Id configId, final Cached cached) {
+        return NearCacheContext.call(cached, () -> paymentProcessorDao.getConfig(orgId, configId));
+    }
+    public Boolean deletePaymentProcessorConfig(
+            final Organization.Id orgId, final PaymentProcessorConfig.Id configId) {
+        return paymentProcessorDao.deleteConfig(orgId, configId);
+    }
+
+    // Payments (uncached state machine; see PaymentDAO). Transitions throw ConditionalCheckFailedException
+    // on a lost race -- the caller re-reads to find who won.
+    public Boolean createPayment(final Payment payment) throws IOException {
+        return paymentDao.createPayment(payment);
+    }
+    public Boolean transitionPayment(final Payment payment, final Payment.Status expectedStatus)
+            throws IOException {
+        return paymentDao.transitionPayment(payment, expectedStatus);
+    }
+    public Optional<Payment> getPayment(final String paymentId) {
+        return paymentDao.getPayment(paymentId);
+    }
+    public List<Payment> getAllPayments() {
+        return paymentDao.getAllPayments();
     }
 
     // Trips

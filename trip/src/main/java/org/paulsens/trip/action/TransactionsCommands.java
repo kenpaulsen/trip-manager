@@ -38,6 +38,15 @@ public class TransactionsCommands {
         return new Transaction(userId, null, null);
     }
 
+    /**
+     * {@link #saveTransaction(Transaction)}, additionally stamping the org (tenancy boundary) from the trip
+     * this transaction is being recorded against. Callers that know the trip should use this form.
+     */
+    public boolean saveTransaction(final Transaction tx, final String tripId) {
+        stampOrgFromTrip(tx, tripId);
+        return saveTransaction(tx);
+    }
+
     public boolean saveTransaction(final Transaction tx) {
         // FIXME: Maybe move sending email to here? Be careful on batch Tx to not spam yourself!
         // FIXME: Look where this is called from
@@ -200,6 +209,7 @@ public class TransactionsCommands {
         final BindingCommands bind = getBind();
         final String txBindKey = bind.key(tx.getUserId().getValue(), tx.getTxId());
         tx.setDeleted(null); // Ensure not deleted
+        stampOrgFromTrip(tx, tripId);
         if (saveTransaction(tx)) {
             // Now save any binding(s)
             if ((tripId != null) && !tripId.isEmpty()) {
@@ -212,6 +222,21 @@ public class TransactionsCommands {
         } else {
             log.error("Unable to save group tx ({}) with note: {}", tx.getGroupId(), tx.getNote());
             r.set(false);
+        }
+    }
+
+    /**
+     * Stamps the tenancy boundary from the trip's organization onto a new write. A row that already carries an
+     * org keeps it (re-saving an old row must not re-tenant it), and a legacy trip with no org leaves it null
+     * for the migration to backfill.
+     */
+    private void stampOrgFromTrip(final Transaction tx, final String tripId) {
+        if (tx.getOrgId() != null || tripId == null || tripId.isEmpty()) {
+            return;
+        }
+        final Trip trip = DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
+        if (trip != null && trip.getOrgId() != null && !trip.getOrgId().isBlank()) {
+            tx.setOrgId(trip.getOrgId());
         }
     }
 

@@ -51,6 +51,8 @@ public enum AuditAction {
     PERSON,
     /** Family-account membership changed: member created/linked/unlinked/deleted, manager granted/revoked. */
     FAMILY,
+    /** An organization was created or edited, or its membership/admins changed. */
+    ORGANIZATION,
     /** A runtime setting changed. */
     CONFIG,
     /** Managed media uploaded or deleted. */

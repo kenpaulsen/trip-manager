@@ -57,6 +57,8 @@ public class PrivilegeCommands {
     public static final String TRIP_FIN_ADMIN = "tripFinAdmin";
     public static final String ADD_TRIP = "addTrip";
     public static final String ADD_TX = "addTx";
+    /** May flip the payment page into SANDBOX mode (sandbox APIs, no real ledger writes). Global. */
+    public static final String PAYMENTS_ADMIN = "paymentsAdmin";
 
     private static final long TIMEOUT = 5_000;
     private final DAO dao = DAO.getInstance();

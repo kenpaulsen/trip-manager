@@ -86,6 +86,22 @@ public final class Trip implements Serializable {
     private List<RegistrationOption> regOptions;        // Registration page questions
     @JsonProperty("badgeImages")
     private List<BadgeImage> badgeImages;               // Manager-uploaded itinerary-badge pictures
+    /**
+     * The {@link Organization} (tenancy boundary) offering this trip; null on legacy rows until the org
+     * migration backfills. While both exist, {@link #provider} is a denormalized DISPLAY string synced from
+     * the org's name on save ({@code TripCommands.saveTrip}), so every provider consumer -- {@link #isCfpw()},
+     * the landing-page filter, {@code pilgrimageRow.xhtml} -- keeps working unchanged during the transition.
+     */
+    @JsonProperty("orgId")
+    private String orgId;
+    /**
+     * Trip-level payment configuration overrides; null fields inherit from the org's defaults and then the
+     * site settings (resolved by {@code OrgCommands.effectivePaymentConfig}). Read through the lazy getter
+     * (the {@code getRegOptions} pattern) so the trip editor's dialog can bind before anything was saved.
+     */
+    @JsonProperty("paymentConfig")
+    @Getter(AccessLevel.NONE)
+    private TripPaymentConfig paymentConfig;
 
     private Trip() {
     }
@@ -104,6 +120,30 @@ public final class Trip implements Serializable {
 
     public void setChatEnabled(final boolean enabled) {
         this.chatEnabled = enabled;
+    }
+
+    /**
+     * The owning {@link Organization} resolved from {@link #orgId}, or null. A derived DAO-backed property
+     * (the {@code Person.getTrips()} precedent) so the org autocomplete can bind straight to the edit draft
+     * -- the picker's value is the Organization, the stored field stays the id string.
+     */
+    @JsonIgnore
+    public Organization getOrganization() {
+        if (orgId == null || orgId.isBlank()) {
+            return null;
+        }
+        return DAO.getInstance().getOrganization(Organization.Id.from(orgId), Cached.YES).orElse(null);
+    }
+
+    public void setOrganization(final Organization organization) {
+        this.orgId = (organization == null) ? null : organization.getId().getValue();
+    }
+
+    public TripPaymentConfig getPaymentConfig() {
+        if (paymentConfig == null) {
+            paymentConfig = new TripPaymentConfig();
+        }
+        return paymentConfig;
     }
 
     public List<Person.Id> getPeople() {

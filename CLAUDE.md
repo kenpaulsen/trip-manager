@@ -46,6 +46,7 @@ a clean "convert to JPEG" rejection and everything else works) · metadata-extra
   in web.xml's listener order (`ChatLifecycleListener` touches the DAO in its own `contextInitialized`).
 - `DAO` — singleton composing the domain DAOs: Person, Family, Trip, TripEvent, Registration, Transaction,
   Credentials, Todo, PersonDataValue, Privileges, Binding, Config, Media, Template, Content, Audit, Chat.
+  Payments add: Organization/OrgMember (org_members is the membership source of truth, Person.orgIds the derived edge), PaymentProcessorConfig (org-partitioned; secrets live in Secrets Manager via `security/ProcessorSecrets`, never in rows), and Payment (UNCACHED state machine CREATED/CAPTURED/RECORDED with conditional-put transitions) — read `docs/payments.md` before touching any of them.
   The `family` row is the source of truth for household membership (optimistic-version conditional puts);
   managers' `Person.managedUsers` lists are DERIVED from it — see `docs/family-accounts.md` before touching
   anything family-related.
@@ -114,7 +115,7 @@ template manager; see `docs/content-templates.md` before touching either — MAI
 runtime-editable email copy rendered by `MailCommands.sendManagedTemplate`, tokens filled by Java only),
 `family` (FamilyCommands — family accounts; the create-and-link security boundary, see
 `docs/family-accounts.md`), `support` (SupportChatCommands — the support:main channel; requests post
-without membership), `pay` (PayCommands — PayPal), `deploy`, `json`, `tripUtil`.
+without membership), `org` (OrgCommands — organizations, THE tenancy boundary: membership, processor configs, the payment-config ladder; see `docs/payments.md` before touching), `payment` (PaymentCommands — the whole payment flow in Java: quote/start/complete/cancel + reconciliation + paymentsAdmin sandbox; see `docs/payments.md`), `deploy`, `json`, `tripUtil`.
 
 - `ChatPhotos.getChatPhotos()` is ONE static instance on purpose — never give it ChatCommands'
   FacesContext/application-map lookup: the upload servlet has no FacesContext and the JSF send does, so a

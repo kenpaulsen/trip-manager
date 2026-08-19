@@ -25,6 +25,13 @@ public final class Transaction implements Serializable {
     // membership never requires probing other users' transactions. Null on legacy rows (see migration doc)
     // and on plain Tx rows.
     private List<Person.Id> groupPeople;
+    /**
+     * The {@link Organization} (tenancy boundary) this transaction belongs to; null on legacy rows until the
+     * org migration backfills. Deliberately NOT a constructor parameter (the {@code Person.familyId} pattern):
+     * Jackson populates it through the setter, so the many existing constructor call sites stay untouched.
+     * Writers that know the trip stamp it from the trip's org.
+     */
+    private String orgId;
 
     @JsonCreator
     public Transaction(
@@ -126,6 +133,13 @@ public final class Transaction implements Serializable {
      * <p>Note: A credit is a negative {@code Payment} -- money exchanges hands.</p>
      */
     public enum TransactionType {
-        Bill, Payment;
+        Bill, Payment,
+        /**
+         * The zeroing counterpart of a donation paid through the payments system: the donor's ledger shows a
+         * {@code Payment} row (+amount) and this row (-amount, "Thank you for your donation…"), so the gift is
+         * visible without changing their balance. Added 2026-08-17; rows only exist once the payment flow
+         * writes them, so deploys that predate this value never read one.
+         */
+        Donation;
     }
 }

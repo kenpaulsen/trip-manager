@@ -25,18 +25,21 @@ public final class StarterTemplates {
     public static final String REGISTRATION_RECEIVED_ID = "registration-received";
     public static final String REGISTRATION_APPROVED_ID = "registration-approved";
     public static final String SUPPORT_REQUEST_ID = "support-request";
+    public static final String PAYMENT_CONFIRMATION_ID = "payment-confirmation";
 
     /** Ids never deleted by the cleanup script without {@code --include-starters}. */
     public static final List<String> IDS = List.of(YOUTUBE_VIDEO_ID, IMAGE_ID, TEXT_ONLY_ID,
             CONTAINER_ID, PILGRIMAGES_ID, PHOTO_ALBUMS_ID, FILE_ID,
-            REGISTRATION_RECEIVED_ID, REGISTRATION_APPROVED_ID, SUPPORT_REQUEST_ID);
+            REGISTRATION_RECEIVED_ID, REGISTRATION_APPROVED_ID, SUPPORT_REQUEST_ID,
+            PAYMENT_CONFIRMATION_ID);
 
     private StarterTemplates() {
     }
 
     public static List<ContentTemplate> all() {
         return List.of(youtubeVideo(), image(), textOnly(), container(), pilgrimages(), photoAlbums(),
-                file(), registrationReceived(), registrationApproved(), supportRequest());
+                file(), registrationReceived(), registrationApproved(), supportRequest(),
+                paymentConfirmation());
     }
 
     /** Sent to the registering account owner the moment a registration (or family party) is submitted. */
@@ -87,6 +90,26 @@ public final class StarterTemplates {
     }
 
     /** A mail starter: the NAME is the subject-line template, the body is HTML with {{tokens}}. */
+    /**
+     * Sent to the payer when a payment completes. Tokens (filled by PaymentMailer, never authors):
+     * payerName, tripTitle, totalPaid, feeNote, donationAmount, donationNote, captureId, processorName,
+     * paymentDate, orgName, amountsBlock (Raw HTML table of person -> amount).
+     */
+    private static ContentTemplate paymentConfirmation() {
+        final String body = """
+                <p>Dear {{payerName}},</p>
+                <p>Thank you! Your payment of <b>{{totalPaid}}</b> for <b>{{tripTitle}}</b> was received
+                by {{orgName}}.</p>
+                {{amountsBlock}}
+                <p>{{feeNote}}</p>
+                <p>{{donationNote}}</p>
+                <p style="font-size:0.85em;color:#666;">Processor: {{processorName}} &middot;
+                transaction id {{captureId}} &middot; {{paymentDate}}</p>
+                """;
+        return mail(PAYMENT_CONFIRMATION_ID, "Payment received - {{tripTitle}}",
+                "Payment confirmation email; the name doubles as the subject line.", body);
+    }
+
     private static ContentTemplate mail(final String id, final String subject, final String description,
             final String body) {
         return new ContentTemplate(id, 0, subject, description, body,

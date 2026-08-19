@@ -361,12 +361,22 @@ public class MailCommands {
      */
     public boolean sendManagedTemplate(final String templateId, final Map<String, Object> values,
             final String to, final String from, final String replyTo, final AuditActor actor) {
+        return sendManagedTemplate(templateId, values, to, from, replyTo, null, actor);
+    }
+
+    /**
+     * {@link #sendManagedTemplate(String, Map, String, String, String, AuditActor)} with a bcc (the payment
+     * confirmation's org copy). {@code send} always supported bcc; this overload just exposes it.
+     */
+    public boolean sendManagedTemplate(final String templateId, final Map<String, Object> values,
+            final String to, final String from, final String replyTo, final String bcc,
+            final AuditActor actor) {
         final ManagedMail rendered = renderManagedTemplate(templateId, values);
         if (rendered == null || to == null || to.isBlank()) {
             return false;
         }
         try {
-            send(from, to, null, replyTo, rendered.subject(), rendered.body(), actor);
+            send(from, to, bcc, replyTo, rendered.subject(), rendered.body(), actor);
             return true;
         } catch (final RuntimeException ex) {
             log.error("Managed mail '{}' to '{}' failed", templateId, to, ex);

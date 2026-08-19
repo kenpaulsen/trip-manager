@@ -21,7 +21,11 @@ import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.MediaItem;
+import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.model.PaymentProcessorConfig;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.ProcessorType;
+import org.paulsens.trip.security.ProcessorSecrets;
 import org.paulsens.trip.model.Person.Sex;
 import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.RegistrationOption;
@@ -106,6 +110,7 @@ public class FakeData {
             addFakePrivileges();
             addFakeContent();
             addFakeFamily();
+            addFakeOrgs();
             relaxChatLimitsForFakeTrips();
         }
     }
@@ -170,6 +175,116 @@ public class FakeData {
         if (commands.createFamilyMember("Lucy", "Paulsen", LocalDate.of(2016, 4, 12),
                 Sex.Female, null, false) == null) {
             throw new IllegalStateException("Fake family seed: could not create Lucy");
+        }
+    }
+
+    /**
+     * The fixed id of the seeded CFPW organization. A CONSTANT (not a minted UUID) so local mode and the
+     * production migration script (`medjugorje/scripts/org-migrate.sh`) agree on the same id, and re-seeding
+     * converges instead of duplicating. Same idea for the second tenant, "Acme Inc", which exists so the
+     * org-isolation rules ("an Acme admin sees only Acme") are demonstrable and webtestable locally.
+     */
+    public static final String CFPW_ORG_ID = "5f0c2a4e-9d31-4a8e-8f34-6d2f19c7b0a1";
+    public static final String ACME_ORG_ID = "a17c3b52-2e84-4d0b-9c66-08d94f2e6b73";
+
+    /**
+     * Seeds the two demo organizations through the REAL {@code OrgCommands} membership path (so the
+     * org_members rows and the derived {@code Person.orgIds} lists stay honest): CFPW holds every fake
+     * person, with the admin persona as its org admin; Acme Inc holds Kevin (user3) as its NON-site-admin
+     * org admin -- the tenant-isolation demo account. Guarded like every other seed.
+     */
+    private static void addFakeOrgs() {
+        final Person admin = DAO.getInstance().getPersonByEmail(localEmail("admin"), Cached.NO);
+        if (admin == null
+                || DAO.getInstance().getOrganization(
+                        Organization.Id.from(CFPW_ORG_ID), Cached.NO).isPresent()) {
+            return;
+        }
+        seedOrg(CFPW_ORG_ID, "CFPW", "CFPW", admin.getId());
+        seedOrg(ACME_ORG_ID, "Acme Inc", "Acme", admin.getId());
+        final org.paulsens.trip.action.OrgCommands commands = new org.paulsens.trip.action.OrgCommands(
+                () -> new org.paulsens.trip.action.Caller(admin.getId(), true,
+                        org.paulsens.trip.audit.AuditActor.system(),
+                        new org.paulsens.trip.action.PrivilegeCommands()));
+        for (final Person person : getFakePeople()) {
+            if (!commands.addMember(CFPW_ORG_ID, person.getId())) {
+                throw new IllegalStateException("Fake org seed: could not add " + person.getId() + " to CFPW");
+            }
+        }
+        if (!commands.setOrgAdmin(CFPW_ORG_ID, admin.getId(), true)) {
+            throw new IllegalStateException("Fake org seed: could not make admin a CFPW org admin");
+        }
+        final Person kevin = DAO.getInstance().getPersonByEmail(localEmail("user3"), Cached.NO);
+        if (kevin == null || !commands.setOrgAdmin(ACME_ORG_ID, kevin.getId(), true)) {
+            throw new IllegalStateException("Fake org seed: could not make Kevin the Acme org admin");
+        }
+        seedFakeProcessor(CFPW_PROCESSOR_ID, CFPW_ORG_ID, "CFPW Test Processor", admin.getId());
+        seedFakeProcessor(ACME_PROCESSOR_ID, ACME_ORG_ID, "Acme Test Processor", kevin.getId());
+        seedCfpwPaymentDefaults();
+    }
+
+    /**
+     * Org-level payment defaults so local mode is PAYABLE out of the box: the FAKE processor, payer-pays
+     * fees (exercises the gross-up math on screen), donations on, and a from-address (test-send + the
+     * confirmation render need one). Every seeded trip with the CFPW org inherits all of it.
+     */
+    private static void seedCfpwPaymentDefaults() {
+        try {
+            final Organization cfpw = DAO.getInstance()
+                    .getOrganization(Organization.Id.from(CFPW_ORG_ID), Cached.NO).orElseThrow();
+            cfpw.getPaymentDefaults().setProcessorConfigId(CFPW_PROCESSOR_ID);
+            cfpw.getPaymentDefaults().setFeesPaidBy(org.paulsens.trip.model.FeesPaidBy.PAYER);
+            cfpw.getPaymentDefaults().setDonationEnabled(Boolean.TRUE);
+            cfpw.getPaymentDefaults().setMailFrom("CFPW <no-reply@example.com>");
+            if (!DAO.getInstance().saveOrganization(cfpw)) {
+                throw new IllegalStateException("Fake org seed: could not save CFPW payment defaults");
+            }
+        } catch (final IOException ex) {
+            throw new IllegalStateException("Fake org seed: could not save CFPW payment defaults", ex);
+        }
+    }
+
+    /** Fixed FAKE-processor config ids, so webtests and the payment flow agree across re-seeds. */
+    public static final String CFPW_PROCESSOR_ID = "0c41d9b7-6e2a-4f58-9a03-8b1c5d7e2f60";
+    public static final String ACME_PROCESSOR_ID = "9d82e4c6-1b5f-4a37-8c09-2e6a4f8b1d73";
+
+    private static void seedFakeProcessor(final String id, final String orgId, final String label,
+            final Person.Id creator) {
+        try {
+            final boolean saved = DAO.getInstance().savePaymentProcessorConfig(PaymentProcessorConfig.builder()
+                    .id(PaymentProcessorConfig.Id.from(id))
+                    .orgId(Organization.Id.from(orgId))
+                    .label(label)
+                    .type(ProcessorType.FAKE)
+                    .mode(PaymentProcessorConfig.ProcessorMode.SANDBOX)
+                    .enabled(true)
+                    .createdBy(creator)
+                    .created(LocalDateTime.now())
+                    .build());
+            if (!saved) {
+                throw new IllegalStateException("Fake processor seed failed: " + label);
+            }
+            // A stored (fake) secret so the settings page's badges and the ping have data locally.
+            ProcessorSecrets.getInstance().put(id, Map.of("clientSecret", "fake-secret"));
+        } catch (final IOException ex) {
+            throw new IllegalStateException("Fake processor seed failed: " + label, ex);
+        }
+    }
+
+    private static void seedOrg(final String id, final String name, final String abbr, final Person.Id creator) {
+        try {
+            final boolean saved = DAO.getInstance().saveOrganization(Organization.builder()
+                    .id(Organization.Id.from(id))
+                    .name(name)
+                    .abbreviation(abbr)
+                    .createdBy(creator)
+                    .created(LocalDateTime.now())
+                    .build());
+            if (!saved) {
+                throw new IllegalStateException("Fake org seed: could not save " + name);
+            }
+        } catch (final IOException ex) {
+            throw new IllegalStateException("Fake org seed: could not save " + name, ex);
         }
     }
 
@@ -409,6 +524,7 @@ public class FakeData {
         trips.add(Trip.builder()
                 .id("faketrip")
                 .title("Spring Demo Trip")
+                .orgId(CFPW_ORG_ID)
                 .openToPublic(false)
                 .description("desc")
                 .startDate(LocalDateTime.now().plusDays(48))
@@ -433,6 +549,7 @@ public class FakeData {
         trips.add(Trip.builder()
                 .id("Fake2")
                 .title("Summer Demo Trip")
+                .orgId(CFPW_ORG_ID)
                 .openToPublic(true)
                 .description("Trip Description")
                 .startDate(LocalDateTime.now().minusDays(4))

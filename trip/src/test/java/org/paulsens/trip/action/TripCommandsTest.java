@@ -15,6 +15,7 @@ import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotEquals;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
 public class TripCommandsTest {
@@ -154,5 +155,42 @@ public class TripCommandsTest {
         assertEquals(tripCommands.getLodgingDays(
                 LocalDateTime.of(2025, 5, 23,  5, 0, 0),
                 LocalDateTime.of(2025, 5, 27,  2, 0, 0)), 4);
+    }
+
+    // ------------------------------------------------------------------ provider <- org sync
+
+    @Test
+    public void saveTripSyncsTheProviderStringFromTheOwningOrg() {
+        final Trip trip = Trip.builder().id("org-sync-" + System.nanoTime()).title("Org sync").build();
+        trip.setOrgId(FakeData.CFPW_ORG_ID);
+        trip.setProvider("Stale Display String");
+        assertTrue(tripCommands.saveTrip(trip));
+        assertEquals(trip.getProvider(), "CFPW",
+                "The provider display string derives from the org's name on every save");
+        assertTrue(trip.isCfpw(), "...which is what keeps isCfpw and the landing filter working");
+    }
+
+    @Test
+    public void saveTripLeavesTheProviderAloneWithoutAnOrg() {
+        final Trip trip = Trip.builder().id("org-sync2-" + System.nanoTime()).title("Legacy").build();
+        trip.setProvider("Hand Entered Provider");
+        assertTrue(tripCommands.saveTrip(trip));
+        assertEquals(trip.getProvider(), "Hand Entered Provider", "Legacy trips keep their string");
+
+        final Trip unknownOrg = Trip.builder().id("org-sync3-" + System.nanoTime()).title("Ghost").build();
+        unknownOrg.setOrgId("no-such-org");
+        unknownOrg.setProvider("Kept");
+        assertTrue(tripCommands.saveTrip(unknownOrg));
+        assertEquals(unknownOrg.getProvider(), "Kept", "An unknown org warns and leaves provider as-is");
+    }
+
+    @Test
+    public void theOrganizationPropertyResolvesAndAssigns() {
+        final Trip trip = Trip.builder().id("org-prop-" + System.nanoTime()).build();
+        assertNull(trip.getOrganization(), "No org id, no organization");
+        trip.setOrgId(FakeData.CFPW_ORG_ID);
+        assertEquals(trip.getOrganization().getName(), "CFPW");
+        trip.setOrganization(null);
+        assertNull(trip.getOrgId(), "Clearing the picker clears the id");
     }
 }
