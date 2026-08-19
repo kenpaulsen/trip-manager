@@ -6,13 +6,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.util.TripThreads;
 
 /**
  * A partition-keyed cache (one Valkey hash per partition, field = entity id, value = entity JSON) whose partitions
@@ -56,11 +54,12 @@ public final class PartitionScanCache<V> {
     private final Function<String, V> deserializer;
     @Builder.Default
     private final Supplier<Long> clock = System::currentTimeMillis;
-    /** Injectable jitter source in [0,1) for tests; production uses {@link ThreadLocalRandom}. */
+    /** Injectable jitter source in [0,1) for tests; production uses {@link Revalidator#randomJitter()}. */
     @Builder.Default
-    private final Supplier<Double> ttlJitter = PartitionScanCache::randomJitter;
+    private final Supplier<Double> ttlJitter = Revalidator::randomJitter;
 
-    private final AtomicBoolean refreshing = new AtomicBoolean();
+    /** In-process single-flight for the (single) background rebuild; keyed by {@code loadedKey}. */
+    private final ConcurrentHashMap<String, Boolean> refreshing = new ConcurrentHashMap<>();
 
     /** All entities in the given partition (unordered; caller applies display order). */
     public List<V> getPartition(final String partition) {
@@ -78,6 +77,7 @@ public final class PartitionScanCache<V> {
             final String partition, final String field, final Supplier<Optional<V>> pointLoader) {
         final String json = cache.getHashFields(keyPrefix + partition, List.of(field)).get(field);
         if (json != null) {
+            maybeRevalidateOnHit();
             return Optional.ofNullable(deserializer.apply(json));
         }
         if (cache.getValue(loadedKey).isPresent()) {
@@ -152,10 +152,22 @@ public final class PartitionScanCache<V> {
         if (loadedAt.isEmpty() && softRevalidate) {
             return buildAndAnswer(inMemoryAnswer);
         }
-        if (softRevalidate && isSoftStale(loadedAt.orElse(null))) {
-            maybeScheduleRebuild();
-        }
+        maybeScheduleRebuild(loadedAt.orElse(null));
         return cacheAnswer.get();
+    }
+
+    /**
+     * A {@link #getOne} hit previously never revalidated, so an entity read only via point lookups stayed
+     * stale until {@link CacheKeys#GC_TTL} (7 days). Consult the marker inline (heap-served for Cached.YES
+     * readers) and schedule the shared rebuild when it is present and stale; an absent marker keeps the old
+     * semantics -- the hash holds only write-through entries, and a foreground scan on a point read would
+     * be a regression.
+     */
+    private void maybeRevalidateOnHit() {
+        if (!softRevalidate) {
+            return;
+        }
+        cache.getValue(loadedKey).ifPresent(this::maybeScheduleRebuild);
     }
 
     private List<V> buildAndAnswer(final Function<List<V>, List<V>> inMemoryAnswer) {
@@ -190,56 +202,12 @@ public final class PartitionScanCache<V> {
         return cache.putValue(loadedKey, String.valueOf(clock.get()), gcTtl);
     }
 
-    private void maybeScheduleRebuild() {
-        if (!refreshing.compareAndSet(false, true)) {
+    private void maybeScheduleRebuild(final String loadedAtRaw) {
+        final Revalidator revalidator = new Revalidator(cache, softTtl, clock, ttlJitter);
+        if (!softRevalidate || !revalidator.isSoftStale(loadedAtRaw)) {
             return;
         }
-        if (!RefreshPermits.tryAcquire()) {
-            // At the global refresh cap: skip entirely -- a later read re-triggers (see RefreshPermits).
-            refreshing.set(false);
-            return;
-        }
-        TripThreads.start(this::runBackgroundRebuild);
-    }
-
-    private void runBackgroundRebuild() {
-        try {
-            final String lockKey = CacheKeys.refreshLockKey(loadedKey);
-            if (!cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)) {
-                return;
-            }
-            try {
-                log.debug("Soft-revalidating partition-scan cache '{}'", keyPrefix);
-                populate(loader.get());
-            } catch (final RuntimeException ex) {
-                logIfFailed(ex);
-            } finally {
-                cache.releaseLock(lockKey);
-            }
-        } finally {
-            refreshing.set(false);
-            RefreshPermits.release();
-        }
-    }
-
-    private boolean isSoftStale(final String loadedAtRaw) {
-        if (loadedAtRaw == null || loadedAtRaw.isBlank()) {
-            return true;
-        }
-        try {
-            return clock.get() - Long.parseLong(loadedAtRaw.trim()) >= jitteredSoftTtlMillis();
-        } catch (final NumberFormatException ex) {
-            return true;
-        }
-    }
-
-    /** ±10% per check -- see {@code PointCache#jitteredSoftTtlMillis} for why the herd must be broken. */
-    private long jitteredSoftTtlMillis() {
-        return (long) (softTtl.toMillis() * (0.9 + 0.2 * ttlJitter.get()));
-    }
-
-    private static double randomJitter() {
-        return ThreadLocalRandom.current().nextDouble();
+        revalidator.schedule(refreshing, loadedKey, loadedKey, "partition-scan", () -> populate(loader.get()));
     }
 
     private void logIfFailed(final Throwable ex) {

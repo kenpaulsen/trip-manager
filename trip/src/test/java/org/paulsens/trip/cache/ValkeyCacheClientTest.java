@@ -47,6 +47,34 @@ public class ValkeyCacheClientTest {
         }
     }
 
+    /** The bulkhead routing rules: lane binding decides which connection a command rides. */
+    @Test
+    public void commandsRouteByCacheLane() throws Exception {
+        Assert.assertFalse(client.routesToBackground(), "a plain test thread is foreground");
+
+        final AtomicReference<Boolean> boundLane = new AtomicReference<>();
+        org.paulsens.trip.util.CacheLane.runBackground(() -> boundLane.set(client.routesToBackground()));
+        Assert.assertTrue(boundLane.get(), "inside runBackground the background connection is used");
+
+        final CompletableFuture<Boolean> viaTripThreads = new CompletableFuture<>();
+        org.paulsens.trip.util.TripThreads.start(() -> viaTripThreads.complete(client.routesToBackground()));
+        Assert.assertTrue(viaTripThreads.get(3, TimeUnit.SECONDS), "TripThreads spawns are background");
+
+        try (var scope = java.util.concurrent.StructuredTaskScope.open()) {
+            final var sub = scope.fork(client::routesToBackground);
+            scope.join();
+            Assert.assertFalse(sub.get(), "a foreground thread's forks stay foreground");
+        }
+    }
+
+    /** The background connection is a real, working connection, not a routing artifact. */
+    @Test
+    public void backgroundLaneRoundTrips() {
+        org.paulsens.trip.util.CacheLane.runBackground(() -> client.putValue("lane-bg", "v", null));
+        Assert.assertEquals(client.getValue("lane-bg").orElse(null), "v",
+                "a value written on the background connection is visible on the foreground one");
+    }
+
     @Test
     public void stringsRoundTrip() {
         Assert.assertTrue(client.putValue("k1", "v1", null));

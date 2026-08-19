@@ -50,13 +50,22 @@ a clean "convert to JPEG" rejection and everything else works) · metadata-extra
   The `family` row is the source of truth for household membership (optimistic-version conditional puts);
   managers' `Person.managedUsers` lists are DERIVED from it — see `docs/family-accounts.md` before touching
   anything family-related.
-- **Caching** (`org.paulsens.trip.cache`): all caching goes through the `CacheClient` abstraction —
-  `ValkeyCacheClient` (production, shared across instances), `InMemoryCacheClient` (local), `NoopCacheClient`
-  (off). Each DAO uses a typed cache on top (`PointCache`, `PartitionCache`, `PartitionScanCache`,
-  `AdjacencyCache`, plus `SearchIndex`/`TripIndex`). `AuditDAO` and `CredentialsDAO` are deliberately
-  uncached. `DAO.clearAllCaches()` clears the data namespace only — never a Valkey FLUSH, never sessions.
-  NB: `NoopCacheClient.tryAcquireLock` grants every lock — never use a cache lock for exclusion without
-  probing the cache mode first.
+- **Caching** (`org.paulsens.trip.cache`) — full architecture doc: `docs/caching.md` (read it before
+  touching any cache or DAO read path). All caching goes through the `CacheClient` abstraction —
+  `ValkeyCacheClient` (production, shared across instances; TWO connections: foreground queue 5000,
+  background queue 500 routed by `CacheLane` — background work sheds early and can never starve the
+  request path), `InMemoryCacheClient` (local), `NoopCacheClient` (off), with `NearCacheClient` (in-JVM
+  heap for `Cached.YES` reads) decorating the production client. Each DAO uses a typed cache on top
+  (`PointCache`, `PartitionCache`, `PartitionScanCache`, `AdjacencyCache`, plus `SearchIndex`/`TripIndex`).
+  Freshness: every cached value carries its loaded-at stamp (`PointCache` envelope `"<epoch>|<json>"`,
+  in-hash `__loaded_at__`, index markers) — staleness is decided INLINE, and only a stale hit schedules a
+  background refresh through the shared `Revalidator` (dedup → `RefreshPermits` → lock → reload; gates
+  before spawn, always — the 2026-08-18 incident was a per-hit probe ahead of the gates). Out-of-band
+  writes are made visible by `DAO.invalidate(CacheScope)` (clears + broadcasts on `sys:v1:cache_inval`;
+  REST: `POST /api/cache/invalidate`; scripts: `scripts/lib/cache-invalidate.sh`). `AuditDAO` and
+  `CredentialsDAO` are deliberately uncached. `DAO.clearAllCaches()` clears the data namespace only —
+  never a Valkey FLUSH, never sessions. NB: `NoopCacheClient.tryAcquireLock` grants every lock — never
+  use a cache lock for exclusion without probing the cache mode first.
 
 Persistence gotchas (each has caused a real bug):
 

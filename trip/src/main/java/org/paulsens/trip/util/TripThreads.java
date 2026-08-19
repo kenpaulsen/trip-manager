@@ -14,15 +14,24 @@ import org.paulsens.trip.audit.RequestContext;
  *
  * <p>Threads keep the {@code trip-persist-} name prefix so thread dumps (and the Valkey integration
  * tests) can still tell cache/persistence work from everything else.</p>
+ *
+ * <p>Every spawn runs inside {@link CacheLane#runBackground}, so its Valkey commands ride the background
+ * connection (small queue, sheds early) and can never starve the request path. This deliberately includes
+ * chat nudge delivery (the pub/sub hand-off spawns here): a shed nudge degrades to the client's poll
+ * fallback, which is the designed behavior under cache pressure.</p>
  */
 public final class TripThreads {
     private static final ThreadFactory FACTORY = Thread.ofVirtual().name("trip-persist-", 1).factory();
 
-    /** Fire-and-forget: runs {@code task} on a fresh named virtual thread. */
+    /** Fire-and-forget: runs {@code task} on a fresh named virtual thread, in the background cache lane. */
     public static Thread start(final Runnable task) {
-        final Thread thread = FACTORY.newThread(task);
+        final Thread thread = newBackgroundThread(task);
         thread.start();
         return thread;
+    }
+
+    private static Thread newBackgroundThread(final Runnable task) {
+        return FACTORY.newThread(() -> CacheLane.runBackground(task));
     }
 
     /**
@@ -38,9 +47,12 @@ public final class TripThreads {
         ScopedValue.where(RequestContext.SCOPE, RequestContext.of(actor)).run(task);
     }
 
-    /** The named virtual-thread factory, for the rare caller that manages its own lifecycle. */
+    /**
+     * The named virtual-thread factory, for the rare caller that manages its own lifecycle. Threads it
+     * creates run in the background cache lane too -- there is deliberately no unbound side door.
+     */
     public static ThreadFactory factory() {
-        return FACTORY;
+        return TripThreads::newBackgroundThread;
     }
 
     private TripThreads() {

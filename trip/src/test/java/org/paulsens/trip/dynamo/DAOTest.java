@@ -59,6 +59,28 @@ public class DAOTest {
         DB_UTILS.clearAllCaches();;
     }
 
+    /** Scope invalidation clears the owning DAO's namespaces and broadcasts exactly one event. */
+    @Test
+    public void invalidateClearsTheScopeAndBroadcastsOnce() throws Exception {
+        final CacheClient client = DB_UTILS.getCacheClient();
+        final List<String> events = new ArrayList<>();
+        try (AutoCloseable ignored = client.subscribe(
+                List.of(org.paulsens.trip.cache.CacheKeys.CACHE_INVAL_CHANNEL), (ch, p) -> events.add(p))) {
+            final List<String> cleared = DB_UTILS.invalidate(DAO.CacheScope.TRIP);
+            assertTrue(cleared.contains(org.paulsens.trip.cache.CacheKeys.TRIP_PREFIX), "cleared: " + cleared);
+            assertEquals(events.size(), 1, "exactly one broadcast per invalidation");
+            assertTrue(events.get(0).contains(org.paulsens.trip.cache.CacheKeys.TRIP_PREFIX));
+        }
+    }
+
+    /** Every scope answers a non-empty prefix list -- a scope that clears nothing is a wiring bug. */
+    @Test
+    public void everyScopeClearsSomething() {
+        for (final DAO.CacheScope scope : DAO.CacheScope.values()) {
+            assertTrue(!DB_UTILS.invalidate(scope).isEmpty(), "scope " + scope + " cleared nothing");
+        }
+    }
+
     @Test
     public void testSavePerson() throws IOException {
         final Person.Id id = Person.Id.from(RandomData.genAlpha(7));

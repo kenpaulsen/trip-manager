@@ -9,12 +9,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.util.TripThreads;
 
 /**
  * Read-through/write-through template for the "query by partition key" access shape (registrations by trip,
@@ -74,9 +72,9 @@ public class PartitionCache<K, V> {
     /** Injectable clock for tests (epoch millis). */
     @Builder.Default
     private final Supplier<Long> clock = System::currentTimeMillis;
-    /** Injectable jitter source in [0,1) for tests; production uses {@link ThreadLocalRandom}. */
+    /** Injectable jitter source in [0,1) for tests; production uses {@link Revalidator#randomJitter()}. */
     @Builder.Default
-    private final Supplier<Double> ttlJitter = PartitionCache::randomJitter;
+    private final Supplier<Double> ttlJitter = Revalidator::randomJitter;
 
     /** In-process single-flight for background refresh (complements distributed locks). */
     private final ConcurrentHashMap<String, Boolean> refreshing = new ConcurrentHashMap<>();
@@ -160,61 +158,12 @@ public class PartitionCache<K, V> {
     }
 
     private void maybeScheduleRefresh(final String key, final String loadedAtRaw, final Supplier<List<V>> loader) {
-        if (!softRevalidate || !isSoftStale(loadedAtRaw)) {
+        final Revalidator revalidator = new Revalidator(cache, softTtl, clock, ttlJitter);
+        if (!softRevalidate || !revalidator.isSoftStale(loadedAtRaw)) {
             return;
         }
-        if (refreshing.putIfAbsent(key, Boolean.TRUE) != null) {
-            return;
-        }
-        if (!RefreshPermits.tryAcquire()) {
-            // At the global refresh cap: skip entirely -- a later read re-triggers (see RefreshPermits).
-            refreshing.remove(key);
-            return;
-        }
-        TripThreads.start(() -> runBackgroundRefresh(key, loader));
-    }
-
-    private void runBackgroundRefresh(final String key, final Supplier<List<V>> loader) {
-        try {
-            final String lockKey = CacheKeys.refreshLockKey(key);
-            // Duplicate refreshes after lock TTL are safe: overlay + snapshot reconcile; LOADED_AT is LWW.
-            // Lock loss means another instance is refreshing; their lock must not be released here.
-            if (!cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)) {
-                return;
-            }
-            try {
-                log.debug("Soft-revalidating cache key '{}'", key);
-                loadAndMerge(key, loader);
-            } catch (final RuntimeException ex) {
-                log.error("Background revalidate failed for '{}'", key, ex);
-            } finally {
-                cache.releaseLock(lockKey);
-            }
-        } finally {
-            refreshing.remove(key);
-            RefreshPermits.release();
-        }
-    }
-
-    private boolean isSoftStale(final String loadedAtRaw) {
-        if (loadedAtRaw == null || loadedAtRaw.isBlank()) {
-            return true;
-        }
-        try {
-            final long loadedAt = Long.parseLong(loadedAtRaw.trim());
-            return clock.get() - loadedAt >= jitteredSoftTtlMillis();
-        } catch (final NumberFormatException ex) {
-            return true;
-        }
-    }
-
-    /** ±10% per check -- see {@code PointCache#jitteredSoftTtlMillis} for why the herd must be broken. */
-    private long jitteredSoftTtlMillis() {
-        return (long) (softTtl.toMillis() * (0.9 + 0.2 * ttlJitter.get()));
-    }
-
-    private static double randomJitter() {
-        return ThreadLocalRandom.current().nextDouble();
+        // Duplicate refreshes after lock TTL are safe: overlay + snapshot reconcile; LOADED_AT is LWW.
+        revalidator.schedule(refreshing, key, key, "partition", () -> loadAndMerge(key, loader));
     }
 
     private List<V> loadAndMerge(final String key, final Supplier<List<V>> loader) {

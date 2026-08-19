@@ -2,7 +2,9 @@
 # Stamps `groupPeople` (the full member list of a Shared/Batch group) into legacy transaction rows
 # whose `content` JSON predates membership stamping. Membership for a group = the sorted userIds of
 # all non-deleted rows sharing that groupId. Idempotent -- rows that already have groupPeople are
-# skipped. See docs/migrations/group-tx-membership.md (including the cache-clear step afterwards).
+# skipped. See docs/migrations/group-tx-membership.md. After a live run the app's tx cache is
+# invalidated automatically when TRIP_APP_URL and TRIP_ADMIN_EMAIL are exported (see
+# lib/cache-invalidate.sh); otherwise a manual clear-caches reminder is printed.
 #
 # Updates run CONCURRENCY at a time (default 25). A failed row is reported and counted but never
 # aborts the run; the script exits non-zero if any row failed, and is safe to re-run to retry them.
@@ -25,6 +27,8 @@ while [[ $# -gt 0 ]]; do
         *) echo "Unknown arg: $1" >&2; exit 1 ;;
     esac
 done
+
+. "$(dirname "$0")/lib/cache-invalidate.sh"
 
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
 
@@ -94,7 +98,7 @@ tr '\n' '\0' < "$WORK/records.json" |
 
 FAILED=$(find "$WORK" -name 'failed.*' -type f | wc -l | tr -d ' ')
 echo "Done. Updated $((COUNT - FAILED)) of $COUNT rows."
-echo "Remember: clear the shared cache (admin action) or restart Tomcat so cached tx partitions refresh."
+trip_invalidate_cache tx
 if [[ "$FAILED" -gt 0 ]]; then
     echo "$FAILED row(s) FAILED -- see the messages above; re-run to retry just those." >&2
     exit 1

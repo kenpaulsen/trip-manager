@@ -21,6 +21,7 @@ public class TripApiApplication extends Application {
         return Set.of(
                 AuditResource.class,
                 AuthResource.class,
+                CacheResource.class,
                 PasskeyResource.class,
                 ChatAdminResource.class,
                 ChatResource.class,

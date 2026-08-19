@@ -10,12 +10,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Supplier;
 import lombok.Builder;
 import lombok.Singular;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.util.TripThreads;
 
 /**
  * Read-through/write-through template for the bindings adjacency shape: one shared-cache set per
@@ -48,9 +46,9 @@ public class AdjacencyCache {
     private final boolean softRevalidate = true;
     @Builder.Default
     private final Supplier<Long> clock = System::currentTimeMillis;
-    /** Injectable jitter source in [0,1) for tests; production uses {@link ThreadLocalRandom}. */
+    /** Injectable jitter source in [0,1) for tests; production uses {@link Revalidator#randomJitter()}. */
     @Builder.Default
-    private final Supplier<Double> ttlJitter = AdjacencyCache::randomJitter;
+    private final Supplier<Double> ttlJitter = Revalidator::randomJitter;
 
     private final ConcurrentHashMap<String, Boolean> refreshing = new ConcurrentHashMap<>();
 
@@ -102,63 +100,14 @@ public class AdjacencyCache {
 
     private void maybeScheduleRefresh(final String sourceKey, final String loadedAtRaw,
             final Supplier<Map<String, List<String>>> loader) {
-        if (!softRevalidate || !isSoftStale(loadedAtRaw)) {
+        // The legacy marker value "1" parses to epoch 1 ms -- ancient, therefore stale, as before.
+        final Revalidator revalidator = new Revalidator(cache, softTtl, clock, ttlJitter);
+        if (!softRevalidate || !revalidator.isSoftStale(loadedAtRaw)) {
             return;
         }
-        if (refreshing.putIfAbsent(sourceKey, Boolean.TRUE) != null) {
-            return;
-        }
-        if (!RefreshPermits.tryAcquire()) {
-            // At the global refresh cap: skip entirely -- a later read re-triggers (see RefreshPermits).
-            refreshing.remove(sourceKey);
-            return;
-        }
-        TripThreads.start(() -> runBackgroundRefresh(sourceKey, loader));
-    }
-
-    private void runBackgroundRefresh(final String sourceKey, final Supplier<Map<String, List<String>>> loader) {
-        try {
-            final String lockKey = CacheKeys.refreshLockKey(keyPrefix + sourceKey);
-            // Duplicate refreshes after lock TTL are safe by design; a lost lock belongs to another instance.
-            if (!cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)) {
-                return;
-            }
-            try {
-                log.debug("Soft-revalidating bindings for '{}'", sourceKey);
-                loadAndMerge(sourceKey, "", loader);
-            } catch (final RuntimeException ex) {
-                log.error("Background binding revalidate failed for '{}'", sourceKey, ex);
-            } finally {
-                cache.releaseLock(lockKey);
-            }
-        } finally {
-            refreshing.remove(sourceKey);
-            RefreshPermits.release();
-        }
-    }
-
-    private boolean isSoftStale(final String loadedAtRaw) {
-        if (loadedAtRaw == null || loadedAtRaw.isBlank()) {
-            return true;
-        }
-        if (CacheKeys.LOADED_VALUE.equals(loadedAtRaw.trim())) {
-            return true;
-        }
-        try {
-            final long loadedAt = Long.parseLong(loadedAtRaw.trim());
-            return clock.get() - loadedAt >= jitteredSoftTtlMillis();
-        } catch (final NumberFormatException ex) {
-            return true;
-        }
-    }
-
-    /** ±10% per check -- see {@code PointCache#jitteredSoftTtlMillis} for why the herd must be broken. */
-    private long jitteredSoftTtlMillis() {
-        return (long) (softTtl.toMillis() * (0.9 + 0.2 * ttlJitter.get()));
-    }
-
-    private static double randomJitter() {
-        return ThreadLocalRandom.current().nextDouble();
+        // Duplicate refreshes after lock TTL are safe by design; a lost lock belongs to another instance.
+        revalidator.schedule(refreshing, sourceKey, keyPrefix + sourceKey, "binding",
+                () -> loadAndMerge(sourceKey, "", loader));
     }
 
     private List<String> loadAndMerge(final String sourceKey, final String destTypeId,

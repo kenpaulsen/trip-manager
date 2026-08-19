@@ -406,9 +406,19 @@ public final class CacheKeys {
     public static final String LOADED_AT = "__loaded_at__";
 
     /**
-     * Soft revalidate age: after this, cache hits still serve immediately but may trigger a background Dynamo reload.
+     * Soft revalidate age: after this, cache hits still serve immediately but may trigger a background Dynamo
+     * reload. Since event-driven invalidation (the {@link #CACHE_INVAL_CHANNEL} broadcast + script hooks)
+     * became the primary freshness mechanism, polling is only the heal path for missed events and console
+     * edits -- hence hours, not minutes.
      */
-    public static final Duration SOFT_TTL = Duration.ofHours(1);
+    public static final Duration SOFT_TTL = Duration.ofHours(6);
+
+    /**
+     * Cache-invalidation broadcast channel. Outside {@link #FORMAT_VERSION} (it must survive
+     * {@code DAO.clearAllCaches()}) and outside {@code chat:}. A single static name -- ElastiCache
+     * Serverless has no PSUBSCRIBE, so subscribers must be able to enumerate their channels.
+     */
+    public static final String CACHE_INVAL_CHANNEL = "sys:v1:cache_inval";
 
     /**
      * Idle hygiene TTL applied after full loads (and refreshed on write-through activity). Bounds abandoned key

@@ -1,0 +1,116 @@
+<svg width="680" height="770" viewBox="0 0 680 770" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Cache architecture: read path, background threads, and invalidation flow">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <style>
+    .t  { font: 500 14px system-ui, sans-serif; }
+    .ts { font: 400 12px system-ui, sans-serif; }
+  </style>
+  <rect x="0" y="0" width="680" height="770" fill="#ffffff"/>
+
+  <!-- left spine: the foreground read path -->
+  <g>
+    <rect x="60" y="40" width="250" height="48" rx="4" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.75"/>
+    <text class="t" x="72" y="60" fill="#444441">Page render / REST</text>
+    <text class="ts" x="72" y="78" fill="#5F5E5A">re-reads domain objects every request</text>
+  </g>
+  <g>
+    <rect x="60" y="128" width="250" height="62" rx="4" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.75"/>
+    <text class="t" x="72" y="148" fill="#3C3489">Typed caches</text>
+    <text class="ts" x="72" y="166" fill="#534AB7">PointCache, PartitionCache, indexes</text>
+    <text class="ts" x="72" y="180" fill="#534AB7">envelope "epoch|json": staleness inline</text>
+  </g>
+  <g>
+    <rect x="60" y="230" width="250" height="48" rx="4" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.75"/>
+    <text class="t" x="72" y="250" fill="#3C3489">Near cache (JVM heap)</text>
+    <text class="ts" x="72" y="268" fill="#534AB7">Cached.YES only, 6h TTL, 15s check</text>
+  </g>
+  <g>
+    <rect x="60" y="318" width="250" height="62" rx="4" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.75"/>
+    <text class="t" x="72" y="338" fill="#3C3489">ValkeyCacheClient</text>
+    <text class="ts" x="72" y="356" fill="#534AB7">fg queue 5000 / bg queue 500</text>
+    <text class="ts" x="72" y="370" fill="#534AB7">3s timeout; errors fail open to DDB</text>
+  </g>
+  <g>
+    <rect x="60" y="420" width="250" height="48" rx="4" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.75"/>
+    <text class="t" x="72" y="440" fill="#085041">Valkey (ElastiCache)</text>
+    <text class="ts" x="72" y="458" fill="#0F6E56">shared cache + pub/sub</text>
+  </g>
+  <g>
+    <rect x="230" y="640" width="220" height="48" rx="4" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.75"/>
+    <text class="t" x="242" y="660" fill="#085041">DynamoDB</text>
+    <text class="ts" x="242" y="678" fill="#0F6E56">source of truth</text>
+  </g>
+
+  <!-- background threads container -->
+  <rect x="380" y="120" width="252" height="230" rx="4" fill="none" stroke="#888780" stroke-width="0.75" stroke-dasharray="4 3"/>
+  <text class="ts" x="392" y="140" fill="#5F5E5A">background virtual threads (CacheLane)</text>
+  <g>
+    <rect x="392" y="152" width="228" height="62" rx="4" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.75"/>
+    <text class="t" x="404" y="172" fill="#633806">Revalidator refresh</text>
+    <text class="ts" x="404" y="190" fill="#854F0B">stale only: dedup, &#8804;8, lock</text>
+    <text class="ts" x="404" y="204" fill="#854F0B">reloads DDB, rewrites envelope</text>
+  </g>
+  <g>
+    <rect x="392" y="252" width="228" height="62" rx="4" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.75"/>
+    <text class="t" x="404" y="272" fill="#633806">Near-cache health check</text>
+    <text class="ts" x="404" y="290" fill="#854F0B">&#8805;15s per key, &#8804;8 threads</text>
+    <text class="ts" x="404" y="304" fill="#854F0B">re-pulls heap from Valkey</text>
+  </g>
+
+  <!-- invalidation flow -->
+  <g>
+    <rect x="60" y="540" width="250" height="48" rx="4" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.75"/>
+    <text class="t" x="72" y="560" fill="#444441">Out-of-band writer</text>
+    <text class="ts" x="72" y="578" fill="#5F5E5A">migration script / admin Settings</text>
+  </g>
+  <g>
+    <rect x="380" y="540" width="240" height="48" rx="4" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.75"/>
+    <text class="t" x="392" y="560" fill="#3C3489">DAO.invalidate(scope)</text>
+    <text class="ts" x="392" y="578" fill="#534AB7">clears Valkey + heap, publishes</text>
+  </g>
+
+  <!-- spine arrows -->
+  <line x1="185" y1="88" x2="185" y2="124" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text class="ts" x="197" y="110" fill="#5F5E5A">every read</text>
+  <line x1="185" y1="190" x2="185" y2="226" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="185" y1="278" x2="185" y2="314" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text class="ts" x="197" y="300" fill="#5F5E5A">heap miss / Cached.NO</text>
+  <line x1="185" y1="380" x2="185" y2="416" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- stale hit schedules a refresh (gates first, spawn last) -->
+  <line x1="310" y1="170" x2="388" y2="170" stroke="#854F0B" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text class="ts" x="316" y="162" fill="#854F0B">stale hit only</text>
+
+  <!-- background lane into the small queue -->
+  <line x1="380" y1="345" x2="316" y2="345" stroke="#854F0B" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text class="ts" x="322" y="337" fill="#854F0B">bg lane</text>
+
+  <!-- foreground miss loads DDB (left margin route) -->
+  <path d="M60 160 L46 160 L46 664 L224 664" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text class="ts" x="56" y="630" fill="#5F5E5A">miss: load from DDB</text>
+
+  <!-- background refresh reloads DDB (right margin route) -->
+  <path d="M620 183 L640 183 L640 664 L456 664" fill="none" stroke="#854F0B" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- invalidation arrows -->
+  <line x1="310" y1="564" x2="376" y2="564" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text class="ts" x="260" y="606" fill="#5F5E5A">POST /api/cache/invalidate</text>
+  <path d="M480 540 L480 444 L314 444" fill="none" stroke="#534AB7" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text class="ts" x="490" y="480" fill="#534AB7">UNLINK + publish</text>
+  <line x1="90" y1="416" x2="90" y2="282" stroke="#0F6E56" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arr)"/>
+  <text class="ts" x="98" y="390" fill="#0F6E56">sys:v1:cache_inval:</text>
+  <text class="ts" x="98" y="404" fill="#0F6E56">other JVMs drop heap</text>
+
+  <!-- legend -->
+  <rect x="60" y="716" width="10" height="10" rx="2" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.75"/>
+  <text class="ts" x="76" y="725" fill="#444441">in-JVM layer</text>
+  <rect x="180" y="716" width="10" height="10" rx="2" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.75"/>
+  <text class="ts" x="196" y="725" fill="#444441">network store</text>
+  <rect x="310" y="716" width="10" height="10" rx="2" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.75"/>
+  <text class="ts" x="326" y="725" fill="#444441">throttled background work</text>
+  <rect x="500" y="716" width="10" height="10" rx="2" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.75"/>
+  <text class="ts" x="516" y="725" fill="#444441">foreground / external</text>
+</svg>

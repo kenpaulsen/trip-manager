@@ -18,6 +18,9 @@
 #
 # Both modes DRY RUN by default and write only with --apply.
 #
+# No cache-invalidation hook on purpose: credentials are deliberately uncached (CredentialsDAO), so no
+# cache invalidation is needed after rotation.
+#
 # Usage:
 #   rotate-password-pepper.sh [--apply] [--region <r>] [--secret <name>] [--profile <p>] [--value <b64>]
 #   rotate-password-pepper.sh --migrate [--apply] [--region <r>] [--secret <name>] [--profile <p>]
@@ -35,7 +38,7 @@ APPLY=0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-usage() { sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in

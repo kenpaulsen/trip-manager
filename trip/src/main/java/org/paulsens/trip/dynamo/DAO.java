@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheConfig;
+import org.paulsens.trip.cache.CacheInvalidation;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.cache.NearCacheClient;
@@ -717,12 +718,135 @@ public class DAO {
     }
 
     /**
+     * The invalidation scopes an operator (admin Settings, the REST endpoint, migration-script hooks) can
+     * clear. Scopes rather than raw prefixes on purpose: {@code PERSON} knows it also means the email index
+     * and the people search index -- key-layout knowledge that must not leak into shell scripts.
+     */
+    public enum CacheScope {
+        PERSON, FAMILY, TRIP, TRIP_EVENT, REG, TX, TODO, PDV, PRIV, CONFIG, MEDIA, TEMPLATE, CONTENT,
+        ORG, BINDING, ALL
+    }
+
+    /**
+     * Clears one scope's shared-cache namespaces -- Valkey and this JVM's near-cache heap (via
+     * {@code clearNamespace}) -- then broadcasts the invalidation on
+     * {@link CacheKeys#CACHE_INVAL_CHANNEL} so other instances drop their heap copies too. THE entry
+     * point for making an out-of-band DynamoDB write visible; returns the cleared prefixes.
+     */
+    public List<String> invalidate(final CacheScope scope) {
+        final List<String> prefixes = clearScope(scope);
+        CacheInvalidation.broadcast(cacheClient, prefixes);
+        return prefixes;
+    }
+
+    private List<String> clearScope(final CacheScope scope) {
+        return switch (scope) {
+            case PERSON -> clearPersonScope();
+            case FAMILY -> clearPrefix(CacheKeys.FAMILY_PREFIX);
+            case TRIP -> clearTripScope();
+            case TRIP_EVENT -> clearTripEventScope();
+            case REG -> clearRegScope();
+            case TX -> clearTxScope();
+            case TODO -> clearTodoScope();
+            case PDV -> clearPdvScope();
+            case PRIV -> clearPrivScope();
+            case CONFIG -> clearConfigScope();
+            case MEDIA -> clearMediaScope();
+            case TEMPLATE -> clearTemplateScope();
+            case CONTENT -> clearContentScope();
+            case ORG -> clearOrgScope();
+            case BINDING -> clearBindingScope();
+            case ALL -> clearPrefix(CacheKeys.FORMAT_VERSION);
+        };
+    }
+
+    private List<String> clearPrefix(final String prefix) {
+        cacheClient.clearNamespace(prefix);
+        return List.of(prefix);
+    }
+
+    private List<String> clearPersonScope() {
+        personDao.clearCache();
+        return List.of(CacheKeys.PERSON_PREFIX, CacheKeys.EMAIL_IDX, CacheKeys.PEOPLE_SEARCH);
+    }
+
+    private List<String> clearTripScope() {
+        tripDao.clearCache();
+        return List.of(CacheKeys.TRIP_PREFIX, CacheKeys.TRIPS_BY_DATE, CacheKeys.TRIPS_BY_PERSON);
+    }
+
+    private List<String> clearTripEventScope() {
+        tripEventDao.clearCache();
+        return List.of(CacheKeys.TRIP_EVENT_PREFIX);
+    }
+
+    private List<String> clearRegScope() {
+        regDao.clearCache();
+        return List.of(CacheKeys.REG_PREFIX);
+    }
+
+    private List<String> clearTxScope() {
+        txDao.clearCache();
+        return List.of(CacheKeys.TX_PREFIX);
+    }
+
+    private List<String> clearTodoScope() {
+        todoDao.clearCache();
+        return List.of(CacheKeys.TODO_PREFIX);
+    }
+
+    private List<String> clearPdvScope() {
+        pdvDao.clearCache();
+        return List.of(CacheKeys.PDV_PREFIX);
+    }
+
+    private List<String> clearPrivScope() {
+        privDao.clearCache();
+        return List.of(CacheKeys.PRIV_PREFIX, CacheKeys.PRIV_LOADED);
+    }
+
+    private List<String> clearConfigScope() {
+        configDao.clearCache();
+        return List.of(CacheKeys.CONFIG_PREFIX, CacheKeys.CONFIG_LOADED);
+    }
+
+    private List<String> clearMediaScope() {
+        mediaDao.clearCache();
+        return List.of(CacheKeys.MEDIA_PREFIX, CacheKeys.MEDIA_LOADED);
+    }
+
+    private List<String> clearTemplateScope() {
+        templateDao.clearCache();
+        return List.of(CacheKeys.TEMPLATE_PREFIX, CacheKeys.TEMPLATE_LOADED);
+    }
+
+    private List<String> clearContentScope() {
+        contentDao.clearCache();
+        return List.of(CacheKeys.CONTENT_PREFIX, CacheKeys.CONTENT_LOADED);
+    }
+
+    /** Organizations, their memberships, and processor configs move together (one tenancy boundary). */
+    private List<String> clearOrgScope() {
+        orgDao.clearCache();
+        cacheClient.clearNamespace(CacheKeys.ORG_MEMBER_PREFIX);
+        cacheClient.clearNamespace(CacheKeys.PROCESSOR_PREFIX);
+        return List.of(CacheKeys.ORG_PREFIX, CacheKeys.ORG_LOADED, CacheKeys.ORG_MEMBER_PREFIX,
+                CacheKeys.PROCESSOR_PREFIX);
+    }
+
+    private List<String> clearBindingScope() {
+        bindingDao.clearCache();
+        return List.of(CacheKeys.BIND_PREFIX);
+    }
+
+    /**
      * Drops every entry in the shared cache's data namespace (never a full FLUSH -- on ElastiCache Serverless that
      * would also wipe the distributed sessions). Used by tests and the admin "clear all caches" action; with the
-     * shared cache this now flushes for every running instance at once.
+     * shared cache this now flushes for every running instance at once, and broadcasts so other instances drop
+     * their near-cache heap too.
      */
     public void clearAllCaches() {
-        cacheClient.clearNamespace(CacheKeys.FORMAT_VERSION);
+        invalidate(CacheScope.ALL);
     }
 
     private ObjectMapper createObjectMapper() {

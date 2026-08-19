@@ -8,13 +8,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.util.TripThreads;
 
 /**
  * Trip index: replaces the whole-table trip scan with two Valkey structures rebuilt from the trips themselves.
@@ -52,11 +50,12 @@ public final class TripIndex {
     private final Supplier<List<Entry>> loader;
     @Builder.Default
     private final Supplier<Long> clock = System::currentTimeMillis;
-    /** Injectable jitter source in [0,1) for tests; production uses {@link ThreadLocalRandom}. */
+    /** Injectable jitter source in [0,1) for tests; production uses {@link Revalidator#randomJitter()}. */
     @Builder.Default
-    private final Supplier<Double> ttlJitter = TripIndex::randomJitter;
+    private final Supplier<Double> ttlJitter = Revalidator::randomJitter;
 
-    private final AtomicBoolean refreshing = new AtomicBoolean();
+    /** In-process single-flight for the (single) background rebuild; keyed by the date-index key. */
+    private final ConcurrentHashMap<String, Boolean> refreshing = new ConcurrentHashMap<>();
 
     /** One trip's contribution to the index. {@code userIds} are the member ids as plain strings. */
     public record Entry(String tripId, long endEpochMillis, Set<String> userIds) {
@@ -165,9 +164,7 @@ public final class TripIndex {
         if (loadedAt == null && softRevalidate) {
             return buildAndAnswer(inMemoryAnswer);
         }
-        if (softRevalidate && isSoftStale(loadedAt)) {
-            maybeScheduleRebuild();
-        }
+        maybeScheduleRebuild(loadedAt);
         return cacheAnswer.get();
     }
 
@@ -204,43 +201,24 @@ public final class TripIndex {
         return cache.putValue(loadedKey(), String.valueOf(clock.get()), gcTtl);
     }
 
-    private void maybeScheduleRebuild() {
-        if (!refreshing.compareAndSet(false, true)) {
+    private void maybeScheduleRebuild(final String loadedAtRaw) {
+        final Revalidator revalidator = new Revalidator(cache, softTtl, clock, ttlJitter);
+        if (!softRevalidate || !revalidator.isSoftStale(loadedAtRaw)) {
             return;
         }
-        if (!RefreshPermits.tryAcquire()) {
-            // At the global refresh cap: skip entirely -- a later read re-triggers (see RefreshPermits).
-            refreshing.set(false);
-            return;
-        }
-        TripThreads.start(this::runBackgroundRebuild);
+        revalidator.schedule(refreshing, CacheKeys.TRIPS_BY_DATE, CacheKeys.TRIPS_BY_DATE, "trip-index",
+                this::rebuildIndexes);
     }
 
-    private void runBackgroundRebuild() {
-        try {
-            final String lockKey = CacheKeys.refreshLockKey(CacheKeys.TRIPS_BY_DATE);
-            if (!cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)) {
-                return;
-            }
-            try {
-                log.debug("Soft-revalidating trip index");
-                // Snapshot BEFORE the load so concurrent write-through additions are never reconciled away.
-                final List<String> dateSnapshot = cache.getRangeByScore(
-                        CacheKeys.TRIPS_BY_DATE, NEG_INF, POS_INF, false, RECONCILE_FETCH_LIMIT);
-                final List<String> personSnapshot = cache.getSortedSetByPrefix(
-                        CacheKeys.TRIPS_BY_PERSON, "", RECONCILE_FETCH_LIMIT);
-                final List<Entry> entries = loader.get();
-                populate(entries);
-                reconcile(dateSnapshot, personSnapshot, entries);
-            } catch (final RuntimeException ex) {
-                logIfFailed(ex);
-            } finally {
-                cache.releaseLock(lockKey);
-            }
-        } finally {
-            refreshing.set(false);
-            RefreshPermits.release();
-        }
+    private void rebuildIndexes() {
+        // Snapshot BEFORE the load so concurrent write-through additions are never reconciled away.
+        final List<String> dateSnapshot = cache.getRangeByScore(
+                CacheKeys.TRIPS_BY_DATE, NEG_INF, POS_INF, false, RECONCILE_FETCH_LIMIT);
+        final List<String> personSnapshot = cache.getSortedSetByPrefix(
+                CacheKeys.TRIPS_BY_PERSON, "", RECONCILE_FETCH_LIMIT);
+        final List<Entry> entries = loader.get();
+        populate(entries);
+        reconcile(dateSnapshot, personSnapshot, entries);
     }
 
     private void reconcile(
@@ -256,26 +234,6 @@ public final class TripIndex {
                 .filter(entry -> !freshPersonEntries.contains(entry)).toList();
         cache.removeSortedSetEntries(CacheKeys.TRIPS_BY_DATE, staleTrips);
         cache.removeSortedSetEntries(CacheKeys.TRIPS_BY_PERSON, stalePersons);
-    }
-
-    private boolean isSoftStale(final String loadedAtRaw) {
-        if (loadedAtRaw == null || loadedAtRaw.isBlank()) {
-            return true;
-        }
-        try {
-            return clock.get() - Long.parseLong(loadedAtRaw.trim()) >= jitteredSoftTtlMillis();
-        } catch (final NumberFormatException ex) {
-            return true;
-        }
-    }
-
-    /** ±10% per check -- see {@code PointCache#jitteredSoftTtlMillis} for why the herd must be broken. */
-    private long jitteredSoftTtlMillis() {
-        return (long) (softTtl.toMillis() * (0.9 + 0.2 * ttlJitter.get()));
-    }
-
-    private static double randomJitter() {
-        return ThreadLocalRandom.current().nextDouble();
     }
 
     private void logIfFailed(final Throwable ex) {

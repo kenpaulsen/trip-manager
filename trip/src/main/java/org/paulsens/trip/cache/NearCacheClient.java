@@ -194,8 +194,18 @@ public final class NearCacheClient implements CacheClient {
     @Override
     public boolean clearNamespace(final String prefix) {
         final boolean result = delegate.clearNamespace(prefix);
-        entries.keySet().removeIf(key -> key.startsWith(prefix));
+        dropLocalNamespace(prefix);
         return result;
+    }
+
+    /**
+     * Drops heap entries under {@code prefix} WITHOUT touching the delegate -- the remote-invalidation
+     * path. When another instance broadcasts on {@code CacheKeys.CACHE_INVAL_CHANNEL} it has already
+     * cleared the shared cache; each subscriber only needs to forget its own heap copies (re-clearing
+     * Valkey here would SCAN it once per instance and could race a concurrent write-through).
+     */
+    public void dropLocalNamespace(final String prefix) {
+        entries.keySet().removeIf(key -> key.startsWith(prefix));
     }
 
     // ------------------------------------------------------------------- forwarded (never cached)

@@ -31,6 +31,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
+import org.paulsens.trip.util.CacheLane;
 import org.paulsens.trip.util.TripThreads;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -59,57 +60,102 @@ public final class ValkeyCacheClient implements CacheClient {
      */
     private static final int REQUEST_QUEUE_SIZE = 5_000;
     /**
+     * The background lane's much smaller queue: spawned work (soft revalidates, health checks, index
+     * rebuilds) tolerates shed commands everywhere, so it should shed EARLY rather than compete with
+     * request-path reads for queue slots. During the 2026-08-18 incident background probes filled the one
+     * shared queue and every foreground command was rejected; two queues make that starvation structurally
+     * impossible. Queue size is a client-level option, hence the second client below.
+     */
+    private static final int BACKGROUND_QUEUE_SIZE = 500;
+    /**
      * Backstop for the blocking await, over and above Lettuce's own {@link #COMMAND_TIMEOUT}: the client
      * fails the future at 3s, so this only fires if a completion is lost outright. It must exist -- a
      * virtual thread parked forever on a lost future is a leaked request.
      */
     private static final long AWAIT_TIMEOUT_SECONDS = COMMAND_TIMEOUT.toSeconds() + 2;
 
-    private final AutoCloseable client;
-    private final AutoCloseable connection;
-    private final RedisClusterAsyncCommands<String, String> commands;
+    private final AutoCloseable fgClient;
+    private final AutoCloseable bgClient;
+    private final AutoCloseable fgConnection;
+    private final AutoCloseable bgConnection;
+    private final RedisClusterAsyncCommands<String, String> fgCommands;
+    private final RedisClusterAsyncCommands<String, String> bgCommands;
     /**
-     * Opens a pub/sub connection on demand. Separate from {@link #connection} because a subscribed connection
-     * cannot serve ordinary commands -- issuing a GET on it is a protocol error -- so the two cannot be shared.
-     * Lazy so a deployment that never subscribes never opens one.
+     * Opens a pub/sub connection on demand. Separate from the command connections because a subscribed
+     * connection cannot serve ordinary commands -- issuing a GET on it is a protocol error -- so they cannot
+     * be shared. Lazy so a deployment that never subscribes never opens one.
      */
     private final Supplier<StatefulRedisPubSubConnection<String, String>> pubSubFactory;
 
     public ValkeyCacheClient(final CacheConfig config) {
         final RedisURI uri = RedisURI.create(config.getValkeyUri());
         if (config.isCluster()) {
-            final RedisClusterClient clusterClient = RedisClusterClient.create(uri);
-            clusterClient.setOptions(ClusterClientOptions.builder()
-                    .timeoutOptions(TimeoutOptions.enabled(COMMAND_TIMEOUT))
-                    .requestQueueSize(REQUEST_QUEUE_SIZE)
-                    .topologyRefreshOptions(ClusterTopologyRefreshOptions.builder()
-                            .enablePeriodicRefresh(Duration.ofMinutes(15))
-                            .enableAllAdaptiveRefreshTriggers()
-                            .build())
-                    .build());
-            final StatefulRedisClusterConnection<String, String> conn = clusterClient.connect();
-            this.client = clusterClient;
-            this.connection = conn;
-            this.commands = conn.async();
-            this.pubSubFactory = clusterClient::connectPubSub;
+            final RedisClusterClient fg = clusterClient(uri, REQUEST_QUEUE_SIZE);
+            final RedisClusterClient bg = clusterClient(uri, BACKGROUND_QUEUE_SIZE);
+            final StatefulRedisClusterConnection<String, String> fgConn = fg.connect();
+            final StatefulRedisClusterConnection<String, String> bgConn = bg.connect();
+            this.fgClient = fg;
+            this.bgClient = bg;
+            this.fgConnection = fgConn;
+            this.bgConnection = bgConn;
+            this.fgCommands = fgConn.async();
+            this.bgCommands = bgConn.async();
+            this.pubSubFactory = fg::connectPubSub;
         } else {
-            final RedisClient redisClient = RedisClient.create(uri);
-            redisClient.setOptions(ClientOptions.builder()
-                    .timeoutOptions(TimeoutOptions.enabled(COMMAND_TIMEOUT))
-                    .requestQueueSize(REQUEST_QUEUE_SIZE)
-                    .build());
-            final StatefulRedisConnection<String, String> conn = redisClient.connect();
-            this.client = redisClient;
-            this.connection = conn;
-            this.commands = conn.async();
-            this.pubSubFactory = redisClient::connectPubSub;
+            final RedisClient fg = standaloneClient(uri, REQUEST_QUEUE_SIZE);
+            final RedisClient bg = standaloneClient(uri, BACKGROUND_QUEUE_SIZE);
+            final StatefulRedisConnection<String, String> fgConn = fg.connect();
+            final StatefulRedisConnection<String, String> bgConn = bg.connect();
+            this.fgClient = fg;
+            this.bgClient = bg;
+            this.fgConnection = fgConn;
+            this.bgConnection = bgConn;
+            this.fgCommands = fgConn.async();
+            this.bgCommands = bgConn.async();
+            this.pubSubFactory = fg::connectPubSub;
         }
         // Startup connectivity check -- log only, the app must come up even if the cache is down.
         final String mode = config.isCluster() ? "cluster" : "standalone";
         final String uriLabel = config.getValkeyUri();
-        commands.ping()
+        fgCommands.ping()
                 .thenAccept(pong -> logConnected(mode, uriLabel))
                 .exceptionally(ex -> logNotReachable(uriLabel, ex));
+    }
+
+    private static RedisClusterClient clusterClient(final RedisURI uri, final int queueSize) {
+        final RedisClusterClient client = RedisClusterClient.create(uri);
+        client.setOptions(ClusterClientOptions.builder()
+                .timeoutOptions(TimeoutOptions.enabled(COMMAND_TIMEOUT))
+                .requestQueueSize(queueSize)
+                .topologyRefreshOptions(ClusterTopologyRefreshOptions.builder()
+                        .enablePeriodicRefresh(Duration.ofMinutes(15))
+                        .enableAllAdaptiveRefreshTriggers()
+                        .build())
+                .build());
+        return client;
+    }
+
+    private static RedisClient standaloneClient(final RedisURI uri, final int queueSize) {
+        final RedisClient client = RedisClient.create(uri);
+        client.setOptions(ClientOptions.builder()
+                .timeoutOptions(TimeoutOptions.enabled(COMMAND_TIMEOUT))
+                .requestQueueSize(queueSize)
+                .build());
+        return client;
+    }
+
+    /**
+     * Routes by lane: background-spawned work ({@link org.paulsens.trip.util.TripThreads} binds the lane)
+     * gets the small-queue connection so a background flood sheds early instead of starving request-path
+     * reads. Unbound threads -- request threads and their StructuredTaskScope forks -- stay foreground.
+     */
+    private RedisClusterAsyncCommands<String, String> commands() {
+        return CacheLane.isBackground() ? bgCommands : fgCommands;
+    }
+
+    /** Test seam: whether a command issued right now would ride the background connection. */
+    boolean routesToBackground() {
+        return commands() == bgCommands;
     }
 
     private static void logConnected(final String mode, final String uriLabel) {
@@ -123,30 +169,30 @@ public final class ValkeyCacheClient implements CacheClient {
 
     @Override
     public Optional<String> getValue(final String key) {
-        return await("GET " + key, commands.get(key), Optional::ofNullable, Optional.empty());
+        return await("GET " + key, commands().get(key), Optional::ofNullable, Optional.empty());
     }
 
     @Override
     public boolean putValue(final String key, final String value, final Duration ttl) {
         if (ttl == null || ttl.isZero() || ttl.isNegative()) {
-            return await("SET " + key, commands.set(key, value), "OK"::equals, false);
+            return await("SET " + key, commands().set(key, value), "OK"::equals, false);
         }
-        return await("SETEX " + key, commands.setex(key, ttl.toSeconds(), value), "OK"::equals, false);
+        return await("SETEX " + key, commands().setex(key, ttl.toSeconds(), value), "OK"::equals, false);
     }
 
     @Override
     public boolean removeKey(final String key) {
-        return await("UNLINK " + key, commands.unlink(key), ignored -> true, false);
+        return await("UNLINK " + key, commands().unlink(key), ignored -> true, false);
     }
 
     @Override
     public Map<String, String> getHash(final String key) {
-        return await("HGETALL " + key, commands.hgetall(key), Function.identity(), Map.of());
+        return await("HGETALL " + key, commands().hgetall(key), Function.identity(), Map.of());
     }
 
     @Override
     public Map<String, String> getHashFields(final String key, final Collection<String> fields) {
-        return await("HMGET " + key, commands.hmget(key, fields.toArray(String[]::new)),
+        return await("HMGET " + key, commands().hmget(key, fields.toArray(String[]::new)),
                 ValkeyCacheClient::toHashFieldMap, Map.of());
     }
 
@@ -162,22 +208,22 @@ public final class ValkeyCacheClient implements CacheClient {
 
     @Override
     public boolean putHashField(final String key, final String field, final String value) {
-        return await("HSET " + key, commands.hset(key, field, value), ignored -> true, false);
+        return await("HSET " + key, commands().hset(key, field, value), ignored -> true, false);
     }
 
     @Override
     public boolean putHashFields(final String key, final Map<String, String> fields) {
-        return await("HSET(multi) " + key, commands.hset(key, fields), ignored -> true, false);
+        return await("HSET(multi) " + key, commands().hset(key, fields), ignored -> true, false);
     }
 
     @Override
     public boolean removeHashField(final String key, final String field) {
-        return await("HDEL " + key, commands.hdel(key, field), ignored -> true, false);
+        return await("HDEL " + key, commands().hdel(key, field), ignored -> true, false);
     }
 
     @Override
     public boolean addSetMembers(final String key, final Collection<String> members) {
-        return await("SADD " + key, commands.sadd(key, members.toArray(String[]::new)), ignored -> true, false);
+        return await("SADD " + key, commands().sadd(key, members.toArray(String[]::new)), ignored -> true, false);
     }
 
     @Override
@@ -188,7 +234,7 @@ public final class ValkeyCacheClient implements CacheClient {
         final ScoredValue<String>[] scored = entries.stream()
                 .map(entry -> ScoredValue.just(0.0d, entry))
                 .toArray(ScoredValue[]::new);
-        return await("ZADD " + key, commands.zadd(key, scored), ignored -> true, false);
+        return await("ZADD " + key, commands().zadd(key, scored), ignored -> true, false);
     }
 
     @Override
@@ -196,7 +242,7 @@ public final class ValkeyCacheClient implements CacheClient {
         if (entries.isEmpty()) {
             return true;
         }
-        return await("ZREM " + key, commands.zrem(key, entries.toArray(String[]::new)), ignored -> true, false);
+        return await("ZREM " + key, commands().zrem(key, entries.toArray(String[]::new)), ignored -> true, false);
     }
 
     @Override
@@ -204,7 +250,7 @@ public final class ValkeyCacheClient implements CacheClient {
         final Range<String> range = Range.from(
                 Range.Boundary.including(prefix), Range.Boundary.including(prefix + Character.MAX_VALUE));
         final Limit lim = (limit > 0) ? Limit.create(0, limit) : Limit.unlimited();
-        return await("ZRANGEBYLEX " + key, commands.zrangebylex(key, range, lim), Function.identity(), List.of());
+        return await("ZRANGEBYLEX " + key, commands().zrangebylex(key, range, lim), Function.identity(), List.of());
     }
 
     @Override
@@ -215,7 +261,7 @@ public final class ValkeyCacheClient implements CacheClient {
         final ScoredValue<String>[] scored = memberScores.entrySet().stream()
                 .map(e -> ScoredValue.just(e.getValue(), e.getKey()))
                 .toArray(ScoredValue[]::new);
-        return await("ZADD(scored) " + key, commands.zadd(key, scored), ignored -> true, false);
+        return await("ZADD(scored) " + key, commands().zadd(key, scored), ignored -> true, false);
     }
 
     @Override
@@ -224,8 +270,8 @@ public final class ValkeyCacheClient implements CacheClient {
         final Range<Double> range = Range.from(scoreBoundary(minScore, true), scoreBoundary(maxScore, false));
         final Limit lim = (limit > 0) ? Limit.create(0, limit) : Limit.unlimited();
         final RedisFuture<List<String>> future = reverse
-                ? commands.zrevrangebyscore(key, range, lim)
-                : commands.zrangebyscore(key, range, lim);
+                ? commands().zrevrangebyscore(key, range, lim)
+                : commands().zrangebyscore(key, range, lim);
         return await((reverse ? "ZREVRANGEBYSCORE " : "ZRANGEBYSCORE ") + key, future, Function.identity(), List.of());
     }
 
@@ -238,22 +284,22 @@ public final class ValkeyCacheClient implements CacheClient {
 
     @Override
     public boolean removeSetMember(final String key, final String member) {
-        return await("SREM " + key, commands.srem(key, member), ignored -> true, false);
+        return await("SREM " + key, commands().srem(key, member), ignored -> true, false);
     }
 
     @Override
     public Set<String> getSetMembers(final String key) {
-        return await("SMEMBERS " + key, commands.smembers(key), Function.identity(), Set.of());
+        return await("SMEMBERS " + key, commands().smembers(key), Function.identity(), Set.of());
     }
 
     @Override
     public boolean expire(final String key, final Duration ttl) {
-        return await("EXPIRE " + key, commands.expire(key, ttl.toSeconds()), ignored -> true, false);
+        return await("EXPIRE " + key, commands().expire(key, ttl.toSeconds()), ignored -> true, false);
     }
 
     @Override
     public Optional<Long> increment(final String key, final long delta, final Duration ttl) {
-        return await("INCRBY " + key, commands.incrby(key, delta),
+        return await("INCRBY " + key, commands().incrby(key, delta),
                 value -> countedWithTtl(key, delta, ttl, value),
                 Optional.empty());
     }
@@ -268,7 +314,7 @@ public final class ValkeyCacheClient implements CacheClient {
             // Fire and forget, but observed: an unhandled failure here must not surface as an exception on the
             // caller's future -- the counter itself already succeeded, and a missing TTL costs memory hygiene,
             // not correctness.
-            commands.expire(key, ttl.toSeconds()).exceptionally(ex -> logTtlFailure(key, ex));
+            commands().expire(key, ttl.toSeconds()).exceptionally(ex -> logTtlFailure(key, ex));
         }
         return Optional.ofNullable(value);
     }
@@ -285,7 +331,7 @@ public final class ValkeyCacheClient implements CacheClient {
         }
         // Keep the highest-ranked (newest by score) maxSize members; drop the oldest.
         return await("ZREMRANGEBYRANK " + key,
-                commands.zremrangebyrank(key, 0, -(maxSize + 1L)),
+                commands().zremrangebyrank(key, 0, -(maxSize + 1L)),
                 ignored -> true,
                 false);
     }
@@ -294,7 +340,7 @@ public final class ValkeyCacheClient implements CacheClient {
     public boolean tryAcquireLock(final String key, final Duration ttl) {
         final long seconds = Math.max(1L, ttl == null ? 5L : ttl.toSeconds());
         return await("SET NX EX " + key,
-                commands.set(key, "1", SetArgs.Builder.nx().ex(seconds)),
+                commands().set(key, "1", SetArgs.Builder.nx().ex(seconds)),
                 "OK"::equals,
                 false);
     }
@@ -314,16 +360,16 @@ public final class ValkeyCacheClient implements CacheClient {
     private boolean scanAndUnlink(final String prefix) {
         try {
             final ScanArgs args = ScanArgs.Builder.matches(prefix + "*").limit(SCAN_BATCH);
-            KeyScanCursor<String> cursor = commands.scan(args).get(ADMIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            KeyScanCursor<String> cursor = commands().scan(args).get(ADMIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             while (true) {
                 if (!cursor.getKeys().isEmpty()) {
-                    commands.unlink(cursor.getKeys().toArray(String[]::new))
+                    commands().unlink(cursor.getKeys().toArray(String[]::new))
                             .get(ADMIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 }
                 if (cursor.isFinished()) {
                     return true;
                 }
-                cursor = commands.scan(cursor, args).get(ADMIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                cursor = commands().scan(cursor, args).get(ADMIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             }
         } catch (final Exception ex) {
             log.error("Valkey clearNamespace('{}') failed", prefix, ex);
@@ -339,7 +385,7 @@ public final class ValkeyCacheClient implements CacheClient {
         // message-loss bug nobody can reproduce. Regular PUBLISH broadcasts to every node, so cross-shard
         // delivery is correct by construction with no dependency on routing or topology refresh. The saving from
         // sharded fan-out is unmeasurable at one small nudge per message.
-        return await("PUBLISH " + channel, commands.publish(channel, payload), received -> true, false);
+        return await("PUBLISH " + channel, commands().publish(channel, payload), received -> true, false);
     }
 
     @Override
@@ -392,11 +438,17 @@ public final class ValkeyCacheClient implements CacheClient {
 
     @Override
     public void close() {
+        closeQuietly(fgConnection);
+        closeQuietly(bgConnection);
+        closeQuietly(fgClient);
+        closeQuietly(bgClient);
+    }
+
+    private static void closeQuietly(final AutoCloseable closeable) {
         try {
-            connection.close();
-            client.close();
+            closeable.close();
         } catch (final Exception ex) {
-            log.warn("Error closing Valkey client", ex);
+            log.warn("Error closing Valkey client resource", ex);
         }
     }
 

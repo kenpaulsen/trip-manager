@@ -28,6 +28,9 @@ public class ValkeyCacheClientFaultTest {
     private static final AtomicBoolean FAIL_EXPIRE = new AtomicBoolean();
     private static final AtomicBoolean FAIL_SCAN = new AtomicBoolean();
     private static final AtomicBoolean FAIL_GET = new AtomicBoolean();
+    /** Parks GETs of {@code bg-victim:*} keys so the bulkhead test can occupy one connection. */
+    private static final AtomicBoolean PARK_VICTIM_GET = new AtomicBoolean();
+    private static final long VICTIM_PARK_MILLIS = 1_500;
 
     private RedisServer server;
     private ValkeyCacheClient client;
@@ -47,6 +50,9 @@ public class ValkeyCacheClientFaultTest {
                     if (FAIL_GET.get() && "get".equalsIgnoreCase(name)) {
                         return Response.error("ERR get disabled by test");
                     }
+                    if (PARK_VICTIM_GET.get() && "get".equalsIgnoreCase(name) && isVictimKey(params)) {
+                        sleepQuietly(VICTIM_PARK_MILLIS);
+                    }
                     return MockExecutor.proceed(state, name, params);
                 }))
                 .start();
@@ -65,6 +71,51 @@ public class ValkeyCacheClientFaultTest {
         }
         if (server != null) {
             server.stop();
+        }
+    }
+
+    /**
+     * The bulkhead: a background command parked server-side must not delay a foreground command, because
+     * the two lanes ride separate connections (jedis-mock serializes per connection, so sharing one would
+     * make the foreground read wait out the park). This is the 2026-08-18 starvation, miniaturized.
+     */
+    @Test
+    public void aParkedBackgroundCommandDoesNotDelayForegroundReads() throws Exception {
+        client.putValue("bg-victim:1", "v", null);
+        client.putValue("fault-fast", "v", null);
+        PARK_VICTIM_GET.set(true);
+        try {
+            final java.util.concurrent.CountDownLatch bgStarted = new java.util.concurrent.CountDownLatch(1);
+            final Thread bg = org.paulsens.trip.util.TripThreads.start(() -> readVictim(bgStarted));
+            Assert.assertTrue(bgStarted.await(2, TimeUnit.SECONDS));
+            Thread.sleep(100); // let the background GET reach the server and park there
+
+            final long start = System.nanoTime();
+            Assert.assertEquals(client.getValue("fault-fast").orElse(null), "v");
+            final long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+
+            Assert.assertTrue(elapsedMs < 1_000,
+                    "foreground read took " + elapsedMs + "ms behind a parked background command");
+            bg.join(5_000);
+        } finally {
+            PARK_VICTIM_GET.set(false);
+        }
+    }
+
+    private void readVictim(final java.util.concurrent.CountDownLatch started) {
+        started.countDown();
+        client.getValue("bg-victim:1");
+    }
+
+    private static boolean isVictimKey(final List<com.github.fppt.jedismock.datastructures.Slice> params) {
+        return !params.isEmpty() && new String(params.get(0).data()).startsWith("bg-victim");
+    }
+
+    private static void sleepQuietly(final long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (final InterruptedException ex) {
+            Thread.currentThread().interrupt();
         }
     }
 

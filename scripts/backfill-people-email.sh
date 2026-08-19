@@ -4,6 +4,10 @@
 # Deleted people / people without an email get the attribute removed (they stay out of the index).
 # Idempotent -- safe to re-run. See docs/migrations/people-email-gsi.md.
 #
+# After a live run the app's person cache is invalidated automatically when TRIP_APP_URL and
+# TRIP_ADMIN_EMAIL are exported (see lib/cache-invalidate.sh); otherwise a manual clear-caches
+# reminder is printed.
+#
 # Usage: backfill-people-email.sh [--profile <p>] [--region <r>] [--table <t>] [--dry-run]
 set -euo pipefail
 
@@ -19,6 +23,8 @@ while [[ $# -gt 0 ]]; do
         *) echo "Unknown arg: $1" >&2; exit 1 ;;
     esac
 done
+
+. "$(dirname "$0")/lib/cache-invalidate.sh"
 
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
 
@@ -53,3 +59,6 @@ while IFS=$'\t' read -r id want have; do
     fi
 done
 echo "Done.$([[ $DRY_RUN -eq 1 ]] && echo ' (dry run -- nothing written)')"
+if [[ $DRY_RUN -eq 0 ]]; then
+    trip_invalidate_cache person
+fi

@@ -51,6 +51,15 @@ public class ValkeyCacheClientIntegrationTest {
         }
     }
 
+    /** The background-lane connection works against real Valkey and shares the keyspace with foreground. */
+    @Test
+    public void backgroundLaneRoundTripsAgainstRealValkey() {
+        final String key = NS + "lane-bg";
+        org.paulsens.trip.util.CacheLane.runBackground(
+                () -> client.putValue(key, "v", java.time.Duration.ofMinutes(5)));
+        org.testng.Assert.assertEquals(client.getValue(key).orElse(null), "v");
+    }
+
     /**
      * A real publish reaches a real subscriber, and the callback does NOT run on a Netty event loop.
      *

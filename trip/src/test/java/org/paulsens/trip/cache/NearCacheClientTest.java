@@ -13,6 +13,24 @@ import static org.testng.Assert.assertTrue;
 
 public class NearCacheClientTest {
 
+    /** The remote-invalidation path: heap forgotten, delegate untouched (the initiator cleared Valkey). */
+    @org.testng.annotations.Test
+    public void dropLocalNamespaceForgetsHeapWithoutTouchingTheDelegate() {
+        final CountingCacheClient delegate = new CountingCacheClient();
+        final NearCacheClient near = new NearCacheClient(delegate, null);
+        delegate.putValue("t1:drop:x", "v", null);
+        NearCacheContext.call(Cached.YES, () -> near.getValue("t1:drop:x"));
+        delegate.reads.set(0);
+
+        near.dropLocalNamespace("t1:drop:");
+
+        org.testng.Assert.assertEquals(delegate.getValue("t1:drop:x").orElse(null), "v",
+                "the delegate's entry must survive a local drop");
+        NearCacheContext.call(Cached.YES, () -> near.getValue("t1:drop:x"));
+        org.testng.Assert.assertEquals(delegate.reads.get(), 2,
+                "after the drop the next read must refetch from the delegate (plus this assert's own read)");
+    }
+
     private static final String KEY = "t1:test:one";
     private static final String HASH_KEY = "t1:test:hash";
     private static final long START = 1_000_000L;

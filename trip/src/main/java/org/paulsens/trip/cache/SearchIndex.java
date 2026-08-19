@@ -8,12 +8,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.util.TripThreads;
 
 /**
  * Prefix-search template: one lexicographic sorted set of {@code token|entityId} entries plus a sibling
@@ -50,11 +48,12 @@ public final class SearchIndex {
     private final Supplier<Map<String, Set<String>>> loader;
     @Builder.Default
     private final Supplier<Long> clock = System::currentTimeMillis;
-    /** Injectable jitter source in [0,1) for tests; production uses {@link ThreadLocalRandom}. */
+    /** Injectable jitter source in [0,1) for tests; production uses {@link Revalidator#randomJitter()}. */
     @Builder.Default
-    private final Supplier<Double> ttlJitter = SearchIndex::randomJitter;
+    private final Supplier<Double> ttlJitter = Revalidator::randomJitter;
 
-    private final AtomicBoolean refreshing = new AtomicBoolean();
+    /** In-process single-flight for the (single) background rebuild; keyed by the index key. */
+    private final ConcurrentHashMap<String, Boolean> refreshing = new ConcurrentHashMap<>();
 
     /** Normalizes a raw field or query into a search token (lowercase, trimmed, separator stripped). */
     public static String normalizeToken(final String raw) {
@@ -77,9 +76,7 @@ public final class SearchIndex {
         if (loadedAt == null && softRevalidate) {
             return buildAndAnswer(prefix, limit);
         }
-        if (softRevalidate && isSoftStale(loadedAt)) {
-            maybeScheduleRebuild();
-        }
+        maybeScheduleRebuild(loadedAt);
         return rangeIds(prefix, limit);
     }
 
@@ -173,41 +170,21 @@ public final class SearchIndex {
         return cache.putValue(loadedKey(), String.valueOf(clock.get()), gcTtl);
     }
 
-    private void maybeScheduleRebuild() {
-        if (!refreshing.compareAndSet(false, true)) {
+    private void maybeScheduleRebuild(final String loadedAtRaw) {
+        final Revalidator revalidator = new Revalidator(cache, softTtl, clock, ttlJitter);
+        if (!softRevalidate || !revalidator.isSoftStale(loadedAtRaw)) {
             return;
         }
-        if (!RefreshPermits.tryAcquire()) {
-            // At the global refresh cap: skip entirely -- a later read re-triggers (see RefreshPermits).
-            refreshing.set(false);
-            return;
-        }
-        TripThreads.start(this::runBackgroundRebuild);
+        revalidator.schedule(refreshing, key, key, "search-index", this::rebuildIndex);
     }
 
-    private void runBackgroundRebuild() {
-        try {
-            final String lockKey = CacheKeys.refreshLockKey(key);
-            if (!cache.tryAcquireLock(lockKey, CacheKeys.REFRESH_LOCK_TTL)) {
-                return;
-            }
-            try {
-                log.debug("Soft-revalidating search index '{}'", key);
-                // Snapshot BEFORE the load: entries added concurrently by write-through are newer than the
-                // snapshot and therefore never deleted by reconcile.
-                final List<String> snapshot = cache.getSortedSetByPrefix(key, "", RECONCILE_FETCH_LIMIT);
-                final Map<String, Set<String>> all = loader.get();
-                populate(all);
-                reconcile(snapshot, all);
-            } catch (final RuntimeException ex) {
-                logIfFailed(ex);
-            } finally {
-                cache.releaseLock(lockKey);
-            }
-        } finally {
-            refreshing.set(false);
-            RefreshPermits.release();
-        }
+    private void rebuildIndex() {
+        // Snapshot BEFORE the load: entries added concurrently by write-through are newer than the
+        // snapshot and therefore never deleted by reconcile.
+        final List<String> snapshot = cache.getSortedSetByPrefix(key, "", RECONCILE_FETCH_LIMIT);
+        final Map<String, Set<String>> all = loader.get();
+        populate(all);
+        reconcile(snapshot, all);
     }
 
     /** Removes snapshot entries the fresh load no longer produces (heals deletes and direct database edits). */
@@ -216,26 +193,6 @@ public final class SearchIndex {
         all.forEach((id, tokens) -> fresh.addAll(toEntries(tokens, id)));
         final List<String> stale = snapshot.stream().filter(entry -> !fresh.contains(entry)).toList();
         return cache.removeSortedSetEntries(key, stale);
-    }
-
-    private boolean isSoftStale(final String loadedAtRaw) {
-        if (loadedAtRaw == null || loadedAtRaw.isBlank()) {
-            return true;
-        }
-        try {
-            return clock.get() - Long.parseLong(loadedAtRaw.trim()) >= jitteredSoftTtlMillis();
-        } catch (final NumberFormatException ex) {
-            return true;
-        }
-    }
-
-    /** ±10% per check -- see {@code PointCache#jitteredSoftTtlMillis} for why the herd must be broken. */
-    private long jitteredSoftTtlMillis() {
-        return (long) (softTtl.toMillis() * (0.9 + 0.2 * ttlJitter.get()));
-    }
-
-    private static double randomJitter() {
-        return ThreadLocalRandom.current().nextDouble();
     }
 
     private void logIfFailed(final Throwable ex) {

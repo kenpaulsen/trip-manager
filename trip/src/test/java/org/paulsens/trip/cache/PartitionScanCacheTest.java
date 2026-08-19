@@ -176,6 +176,43 @@ public class PartitionScanCacheTest {
                 "the background rescan never landed");
     }
 
+    /** A point-lookup hit on a stale cache schedules the same background rescan a partition read would. */
+    @Test
+    public void aSoftStaleMarkerTriggersARescanOnAGetOneHit() throws Exception {
+        final PartitionScanCache<String> scan = scanCache();
+        scan.getPartition("pa");
+        final int afterWarm = loads.get();
+        clock.addAndGet(Duration.ofMinutes(2).toMillis());
+
+        Assert.assertEquals(scan.getOne("pa", "one", Optional::empty), Optional.of(A1));
+
+        awaitTrue(() -> loads.get() > afterWarm, "a stale getOne hit must trigger a background rescan");
+    }
+
+    @Test
+    public void aFreshMarkerSchedulesNothingOnAGetOneHit() throws Exception {
+        final PartitionScanCache<String> scan = scanCache();
+        scan.getPartition("pa");
+        final int afterWarm = loads.get();
+
+        Assert.assertEquals(scan.getOne("pa", "one", Optional::empty), Optional.of(A1));
+
+        Thread.sleep(200);
+        Assert.assertEquals(loads.get(), afterWarm, "a fresh getOne hit must not scan");
+    }
+
+    /** Without the loaded marker a hash holds only write-through entries; a hit must stay schedule-free. */
+    @Test
+    public void anUnloadedWriteThroughHitSchedulesNothing() throws Exception {
+        final PartitionScanCache<String> scan = scanCache();
+        Assert.assertTrue(scan.put(A1)); // write-through only: no scan ever ran, no marker exists
+
+        Assert.assertEquals(scan.getOne("pa", "one", Optional::empty), Optional.of(A1));
+
+        Thread.sleep(200);
+        Assert.assertEquals(loads.get(), 0, "an unloaded hit must not trigger a scan");
+    }
+
     /** A mangled marker reads as stale (rebuild) rather than as fresh (serve stale data forever). */
     @Test
     public void anUnparseableMarkerCountsAsStale() throws Exception {
