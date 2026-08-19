@@ -11,11 +11,22 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.util.TripThreads;
 
 /**
- * Point-read template (trip events): string value + sibling {@code :at} epoch for soft revalidate.
- * Blocking since the virtual-threads port; a hit still returns without waiting for the freshness check,
- * which runs on a spawned virtual thread. Background reload with null removes the entry (out-of-band
+ * Point-read template (trips, trip events, people, families, chat channels). The cached string is an
+ * envelope {@code "<epochMillis>|<json>"} carrying its own loaded-at stamp, so staleness is decided inline
+ * from the value already in hand: a fresh hit costs zero extra cache commands and spawns nothing. Only a
+ * stale hit proceeds, and the gates (per-key dedup, the global {@link RefreshPermits} cap) run BEFORE any
+ * thread is spawned. The 2026-08-18 incident was the previous design's per-hit probe of a sibling
+ * {@code :at} key: the probe sat in front of the gates, so probe volume scaled with hit rate and overran
+ * the shared Valkey connection once the near-cache made hits heap-speed.
+ *
+ * <p>A value without an envelope prefix is a legacy entry: served as-is and treated as stale-once, so the
+ * background refresh rewrites it enveloped -- no flush, no format-version bump. This relies on serializers
+ * emitting JSON: entity JSON starts with <code>'{'</code>, so a real value can never be mistaken for an
+ * envelope prefix.</p>
+ *
+ * <p>Blocking since the virtual-threads port. Background reload with null removes the entry (out-of-band
  * deletes heal). Soft revalidate is read-triggered. {@link CacheKeys#GC_TTL} is hygiene only. Duplicate
- * refreshes are safe by design.
+ * refreshes are safe by design.</p>
  *
  * @param <V> The entity type.
  */
@@ -44,12 +55,11 @@ public class PointCache<V> {
         final String key = keyPrefix + id;
         final Optional<String> cached = cache.getValue(key);
         if (cached.isPresent()) {
-            final V value = deserializer.apply(cached.get());
+            final Envelope env = Envelope.decode(cached.get());
+            final V value = deserializer.apply(env.json());
             if (value != null) {
-                // The freshness check costs a second cache read; a spawned thread pays it so the hit
-                // returns immediately -- and a degraded cache cannot double a reader's timeout exposure.
-                if (softRevalidate) {
-                    TripThreads.start(() -> checkFreshness(id, key, loader));
+                if (softRevalidate && isSoftStale(env.loadedAt())) {
+                    maybeScheduleRefresh(id, key, loader);
                 }
                 return Optional.of(value);
             }
@@ -77,35 +87,28 @@ public class PointCache<V> {
         if (json == null) {
             return remove(id);
         }
-        final String key = keyPrefix + id;
-        if (cache.putValue(key, json, gcTtl)) {
-            cache.putValue(CacheKeys.pointAtKey(key), String.valueOf(clock.get()), gcTtl);
-        }
+        cache.putValue(keyPrefix + id, clock.get() + "|" + json, gcTtl);
         return true;
     }
 
     public boolean remove(final String id) {
-        final String key = keyPrefix + id;
-        cache.removeKey(key);
-        cache.removeKey(CacheKeys.pointAtKey(key));
+        cache.removeKey(keyPrefix + id);
         return true;
     }
 
-    /** Runs on a spawned thread: reads the freshness epoch and, when soft-stale, refreshes in place. */
-    private void checkFreshness(final String id, final String key, final Function<String, V> loader) {
-        final String loadedAtRaw = cache.getValue(CacheKeys.pointAtKey(key)).orElse(null);
-        if (!isSoftStale(loadedAtRaw)) {
-            return;
-        }
+    /**
+     * Gates first, spawn last (the {@link PartitionCache} shape): per-key dedup, then the global permit
+     * cap, and only then a thread. A stale hit at the cap simply skips -- a later read re-triggers.
+     */
+    private void maybeScheduleRefresh(final String id, final String key, final Function<String, V> loader) {
         if (refreshing.putIfAbsent(id, Boolean.TRUE) != null) {
             return;
         }
         if (!RefreshPermits.tryAcquire()) {
-            // At the global refresh cap: skip entirely -- a later read re-triggers (see RefreshPermits).
             refreshing.remove(id);
             return;
         }
-        runBackgroundRefresh(id, key, loader);
+        TripThreads.start(() -> runBackgroundRefresh(id, key, loader));
     }
 
     private void runBackgroundRefresh(final String id, final String key, final Function<String, V> loader) {
@@ -137,16 +140,8 @@ public class PointCache<V> {
         }
     }
 
-    private boolean isSoftStale(final String loadedAtRaw) {
-        if (loadedAtRaw == null || loadedAtRaw.isBlank()) {
-            return true;
-        }
-        try {
-            final long loadedAt = Long.parseLong(loadedAtRaw.trim());
-            return clock.get() - loadedAt >= jitteredSoftTtlMillis();
-        } catch (final NumberFormatException ex) {
-            return true;
-        }
+    private boolean isSoftStale(final long loadedAt) {
+        return loadedAt <= 0 || clock.get() - loadedAt >= jitteredSoftTtlMillis();
     }
 
     /**
@@ -160,5 +155,24 @@ public class PointCache<V> {
 
     private static double randomJitter() {
         return ThreadLocalRandom.current().nextDouble();
+    }
+
+    /**
+     * Decoded cache value. Legacy values (no {@code digits|} prefix) decode with {@code loadedAt = 0},
+     * which {@link #isSoftStale(long)} always judges stale -- so pre-envelope entries serve once and are
+     * rewritten enveloped by the refresh, healing the format without a flush.
+     */
+    private record Envelope(long loadedAt, String json) {
+        private static Envelope decode(final String raw) {
+            final int sep = raw.indexOf('|');
+            if (sep < 1) {
+                return new Envelope(0L, raw);
+            }
+            try {
+                return new Envelope(Long.parseLong(raw.substring(0, sep)), raw.substring(sep + 1));
+            } catch (final NumberFormatException ex) {
+                return new Envelope(0L, raw);
+            }
+        }
     }
 }

@@ -137,6 +137,58 @@ public class PointCacheTest {
         awaitLoads(loads, 2);
     }
 
+    /**
+     * The 2026-08-18 incident regression test: a FRESH hit must cost exactly one cache read and spawn
+     * nothing. The old design probed a sibling {@code :at} key from a spawned thread on EVERY hit, ahead
+     * of every gate, so probe volume scaled with hit rate and overran the shared connection's queue.
+     */
+    @Test
+    public void aFreshHitIssuesExactlyOneCacheReadAndSpawnsNothing() throws Exception {
+        final AtomicInteger loads = new AtomicInteger();
+        final AtomicLong clock = new AtomicLong(1_000_000L);
+        final CountingCacheClient client = new CountingCacheClient();
+        final PointCache<String> cache = point(clock, client);
+
+        assertEquals(cache.get("e1", countingLoader(loads)), Optional.of("v1"));
+        client.reads.set(0);
+        client.readLog.clear();
+
+        assertEquals(cache.get("e1", countingLoader(loads)), Optional.of("v1"));
+        Thread.sleep(100);
+        assertEquals(client.reads.get(), 1, "a fresh hit is exactly one GET; saw: " + client.readLog);
+        assertEquals(loads.get(), 1, "a fresh hit must not schedule any background work");
+    }
+
+    /** Pre-envelope entries serve as-is, count as stale-once, and heal to the enveloped format. */
+    @Test
+    public void aLegacyPlainValueServesOnceStaleAndIsRewrittenEnveloped() throws Exception {
+        final AtomicInteger loads = new AtomicInteger();
+        final AtomicLong clock = new AtomicLong(1_000_000L);
+        final InMemoryCacheClient client = new InMemoryCacheClient();
+        final PointCache<String> cache = point(clock, client);
+        client.putValue("te:e1", "legacy", Duration.ofMinutes(5));
+
+        assertEquals(cache.get("e1", countingLoader(loads)), Optional.of("legacy"),
+                "a pre-envelope value must still serve");
+        awaitLoads(loads, 1);
+        assertTrue(awaitEnveloped(client, "te:e1").matches("\\d+\\|v1"),
+                "the background refresh must rewrite the entry enveloped");
+        assertEquals(cache.get("e1", countingLoader(loads)), Optional.of("v1"));
+        Thread.sleep(100);
+        assertEquals(loads.get(), 1, "an enveloped fresh entry must not refresh again");
+    }
+
+    @Test
+    public void putWritesASingleEnvelopedKeyAndNoSibling() {
+        final AtomicLong clock = new AtomicLong(1_000_000L);
+        final InMemoryCacheClient client = new InMemoryCacheClient();
+        final PointCache<String> cache = point(clock, client);
+
+        assertTrue(cache.put("e1", "v1"));
+        assertEquals(client.getValue("te:e1"), Optional.of("1000000|v1"));
+        assertEquals(client.getValue("te:e1:at"), Optional.empty(), "no :at sibling may be written");
+    }
+
     /** Jitter bounds: 0.0 makes the effective TTL 0.9x (stale sooner), 1.0 makes it 1.1x (stale later). */
     @Test
     public void ttlJitterWidensAndNarrowsTheStalenessLine() throws Exception {
@@ -171,6 +223,17 @@ public class PointCacheTest {
             Thread.sleep(50);
         }
         assertEquals(loads.get(), expected);
+    }
+
+    private static String awaitEnveloped(final CacheClient client, final String key) throws InterruptedException {
+        for (int i = 0; i < 40; i++) {
+            final String raw = client.getValue(key).orElse("");
+            if (raw.matches("\\d+\\|.*")) {
+                return raw;
+            }
+            Thread.sleep(50);
+        }
+        return client.getValue(key).orElse("");
     }
 
     private static int drainAllPermits() {
@@ -235,7 +298,7 @@ public class PointCacheTest {
 
         @Override
         public boolean removeKey(final String key) {
-            if (!key.contains("refresh:") && !key.endsWith(CacheKeys.POINT_AT_SUFFIX)) {
+            if (!key.contains("refresh:")) {
                 dataKeyRemovals.incrementAndGet();
             }
             return super.removeKey(key);

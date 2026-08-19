@@ -119,7 +119,7 @@ public class CacheTemplateTailsTest {
     }
 
     @Test
-    public void aGarbagePointMarkerCountsAsStale() throws Exception {
+    public void aGarbagePointEnvelopeCountsAsStale() throws Exception {
         final InMemoryCacheClient client = new InMemoryCacheClient();
         final AtomicLong clock = new AtomicLong(1_000_000L);
         final AtomicInteger loads = new AtomicInteger();
@@ -129,15 +129,16 @@ public class CacheTemplateTailsTest {
             return "v-" + id;
         };
         Assert.assertEquals(cache.get("x", loader), Optional.of("v-x"));
-        client.putValue(CacheKeys.pointAtKey("pt-tails:x"), "garbage", Duration.ofMinutes(5));
+        // A mangled envelope prefix decodes as legacy (the whole string is the value) and counts as stale.
+        client.putValue("pt-tails:x", "99xx|v-x", Duration.ofMinutes(5));
 
-        Assert.assertEquals(cache.get("x", loader), Optional.of("v-x"));
+        Assert.assertEquals(cache.get("x", loader), Optional.of("99xx|v-x"));
 
         final long deadline = System.currentTimeMillis() + 5_000;
         while (loads.get() < 2 && System.currentTimeMillis() < deadline) {
             Thread.sleep(10);
         }
-        Assert.assertTrue(loads.get() >= 2, "a mangled marker must trigger a background revalidate");
+        Assert.assertTrue(loads.get() >= 2, "a mangled envelope must trigger a background revalidate");
     }
 
     @Test

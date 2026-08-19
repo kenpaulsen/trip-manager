@@ -69,9 +69,9 @@ public final class CacheKeys {
     public static final String TODO_PREFIX = FORMAT_VERSION + "todo:";
     public static final String PDV_PREFIX = FORMAT_VERSION + "pdv:";
 
-    // Point entries (append the entity id). Sibling {@code :at} key holds epoch millis for soft revalidate.
+    // Point entries (append the entity id). The value is a PointCache envelope ("<epochMillis>|<json>"), so
+    // the loaded-at stamp travels with the data and staleness never costs a second cache read.
     public static final String TRIP_EVENT_PREFIX = FORMAT_VERSION + "trip_event:";
-    public static final String POINT_AT_SUFFIX = ":at";
 
     // Runtime settings. The config table is tiny and read on ordinary page renders, so the WHOLE table lives in
     // one hash under a single fixed partition (field = setting name, value = Config JSON): a read is one
@@ -418,10 +418,6 @@ public final class CacheKeys {
 
     public static String refreshLockKey(final String dataKey) {
         return REFRESH_LOCK_PREFIX + dataKey;
-    }
-
-    public static String pointAtKey(final String pointKey) {
-        return pointKey + POINT_AT_SUFFIX;
     }
 
     private CacheKeys() {
