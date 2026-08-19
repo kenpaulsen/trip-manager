@@ -11,7 +11,7 @@ invalidation) that followed the 2026-08-18 request-queue incident.
 | Layer | Class | What it holds |
 |---|---|---|
 | Typed caches | `PointCache`, `PartitionCache`, `PartitionScanCache`, `AdjacencyCache`, `SearchIndex`, `TripIndex` | Per-DAO access shapes over the shared cache; serialize/deserialize per read so every caller gets a fresh copy |
-| Near cache | `NearCacheClient` | In-JVM heap of the delegate's raw strings/hashes, for `Cached.YES` reads of `t1:` keys only; 6h TTL, 15s per-key health check |
+| Near cache | `NearCacheClient` | In-JVM heap of the delegate's raw strings/hashes, for `Cached.YES` reads of `t1:` keys only; 5m per-key converge-check, 24h hard bound (both runtime settings) |
 | Shared cache | `ValkeyCacheClient` | ElastiCache Serverless Valkey; every instance shares it; survives restarts |
 | Source of truth | DynamoDB | Always wins; every cache layer fails open to it |
 
@@ -53,6 +53,15 @@ The envelope is why the 2026-08-18 incident cannot recur in kind: the old `Point
 `:at` key from a spawned thread on *every hit*, ahead of every gate, so probe volume scaled with hit rate
 — ~7,100 commands/sec once the near cache made hits heap-speed — and overran the shared connection's
 queue. Legacy (un-enveloped) values still parse: they read as stale-once and rewrite themselves enveloped.
+
+**Why the near-cache health check still exists at all:** the broadcast fires only for *deliberate*
+invalidations — ordinary write-through does not publish per-key events. A write from another JVM (a CLI
+tool with `TRIP_VALKEY_URI` set, a future second task) updates Valkey and that JVM's heap only; this
+JVM's heap converges at the next health check (default 5m, `cache.near.checkSeconds`). The near-cache
+TTL (default 24h, `cache.near.ttlSeconds`) is the absolute bound should both the event and the check
+path fail. The heap map is deliberately unbounded — the `t1:` keyspace is a few MB by construction; note
+expiry is lazy-on-read, so if the keyspace ever grows real (many tenants), the fix is a size cap with
+eviction, not a shorter TTL.
 
 ## The bulkhead
 

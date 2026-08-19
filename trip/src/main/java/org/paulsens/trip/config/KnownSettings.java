@@ -359,20 +359,20 @@ public final class KnownSettings {
     // --- performance ---
 
     public static final SettingDef CACHE_NEAR_TTL_SECONDS = new SettingDef(
-            "cache.near.ttlSeconds", Config.Type.INT, "21600", "Near-cache TTL (seconds)",
-            "How long the in-JVM near-cache may serve an entry before it must reload from the shared cache. "
-                    + "Reads that declared Cached.YES are served from this cache; a background health check "
-                    + "keeps entries current well inside this bound (see the check interval below), and "
-                    + "anything written through THIS instance is never stale at all. 0 turns the near-cache "
-                    + "off. Changes apply on save; a -Dtrip.cache.near.ttlSeconds sysprop pins this against "
-                    + "the settings table entirely.");
+            "cache.near.ttlSeconds", Config.Type.INT, "86400", "Near-cache TTL (seconds)",
+            "Absolute upper bound on how long the in-JVM near-cache may serve an entry. Writes through this "
+                    + "instance and broadcast invalidations (scripts, admin clears) update the cache "
+                    + "immediately, and the health check below converges everything else, so this bound only "
+                    + "matters if both fail. 0 turns the near-cache off. Changes apply on save; a "
+                    + "-Dtrip.cache.near.ttlSeconds sysprop pins this against the settings table entirely.");
 
     public static final SettingDef CACHE_NEAR_CHECK_SECONDS = new SettingDef(
-            "cache.near.checkSeconds", Config.Type.INT, "15", "Near-cache health-check interval (seconds)",
+            "cache.near.checkSeconds", Config.Type.INT, "300", "Near-cache health-check interval (seconds)",
             "On a near-cache hit whose last check is older than this, ONE background refresh re-reads the "
-                    + "shared cache and updates the entry; the request itself never waits. This is the "
-                    + "staleness bound for data changed outside this instance (scripts, console edits) once "
-                    + "traffic touches the entry.");
+                    + "shared cache and updates the entry; the request itself never waits. Since broadcast "
+                    + "invalidation covers deliberate out-of-band writes, this is the convergence bound only "
+                    + "for ordinary writes from OTHER JVMs (CLI tools with the cache configured, a second "
+                    + "instance) and for missed broadcasts.");
 
     private static final List<SettingSection> SECTIONS = List.of(
             new SettingSection("Site", null,

@@ -25,7 +25,7 @@
   <g>
     <rect x="60" y="230" width="250" height="48" rx="4" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.75"/>
     <text class="t" x="72" y="250" fill="#3C3489">Near cache (JVM heap)</text>
-    <text class="ts" x="72" y="268" fill="#534AB7">Cached.YES only, 6h TTL, 15s check</text>
+    <text class="ts" x="72" y="268" fill="#534AB7">Cached.YES; 5m converge, 24h bound</text>
   </g>
   <g>
     <rect x="60" y="318" width="250" height="62" rx="4" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.75"/>
@@ -56,8 +56,8 @@
   <g>
     <rect x="392" y="252" width="228" height="62" rx="4" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.75"/>
     <text class="t" x="404" y="272" fill="#633806">Near-cache health check</text>
-    <text class="ts" x="404" y="290" fill="#854F0B">&#8805;15s per key, &#8804;8 threads</text>
-    <text class="ts" x="404" y="304" fill="#854F0B">re-pulls heap from Valkey</text>
+    <text class="ts" x="404" y="290" fill="#854F0B">&#8805;5m per key, &#8804;8 threads</text>
+    <text class="ts" x="404" y="304" fill="#854F0B">converges other-JVM writes</text>
   </g>
 
   <!-- invalidation flow -->

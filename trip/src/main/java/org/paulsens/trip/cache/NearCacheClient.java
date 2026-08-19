@@ -56,8 +56,14 @@ public final class NearCacheClient implements CacheClient {
     public static final String TTL_SYSPROP = "trip.cache.near.ttlSeconds";
     public static final String CHECK_SYSPROP = "trip.cache.near.checkSeconds";
 
-    static final long DEFAULT_TTL_SECONDS = 6L * 60 * 60;
-    static final long DEFAULT_CHECK_SECONDS = 15L;
+    /**
+     * Since event-driven invalidation became the primary freshness mechanism, the health check is only
+     * the convergence path for ordinary writes from OTHER JVMs (CLI tools, a future second task -- plain
+     * write-through does not broadcast) and for missed broadcasts; the TTL is the absolute backstop
+     * should both paths fail. Hence hours/minutes, not minutes/seconds.
+     */
+    static final long DEFAULT_TTL_SECONDS = 24L * 60 * 60;
+    static final long DEFAULT_CHECK_SECONDS = 300L;
     private static final long TUNING_SYNC_MILLIS = 60_000L;
 
     /** Only keys in the shared data namespace are ever near-cached (never sessions, chat, login codes). */
