@@ -229,6 +229,12 @@ public final class Trip implements Serializable {
                 tasks.add(scope.fork(() -> DAO.getInstance().getTripEvent(eventId, Cached.YES)));
             }
             scope.join();
+            // join() reports an interrupt only when it actually parks; once every fork has finished it
+            // returns normally and an interrupt set by our caller goes unseen. Check it explicitly so an
+            // interrupted resolve always fails the same way instead of by scheduling luck.
+            if (Thread.currentThread().isInterrupted()) {
+                throw new IllegalStateException("Interrupted while loading trip events");
+            }
             for (int i = 0; i < ids.size(); i++) {
                 collectResolved(ids.get(i), tasks.get(i).get(), events, failed);
             }

@@ -102,7 +102,10 @@ public class PaymentsResourceTest extends ResourceTestSupport {
         Assert.assertTrue(approvalUrl.startsWith("/trip/fakeCheckout.jsf?token=FAKE-"));
         final String paymentId = paymentIdFrom(approvalUrl);
 
-        final Response completed = resource.complete(paymentId, CSRF_OK, null);
+        // Send the processor's token back the way a returning client does; it is the order reference the
+        // capture falls back to when the row has none, so a null body would skip that path entirely.
+        final Response completed = resource.complete(paymentId, CSRF_OK,
+                new PaymentsResource.CompleteRequest(tokenFrom(approvalUrl)));
         assertOk(completed);
         @SuppressWarnings("unchecked")
         final Map<String, Object> outcome = (Map<String, Object>) completed.getEntity();
@@ -159,6 +162,12 @@ public class PaymentsResourceTest extends ResourceTestSupport {
             throw new IllegalStateException(ex);
         }
         return person;
+    }
+
+    private static String tokenFrom(final String approvalUrl) {
+        final int start = approvalUrl.indexOf("token=") + 6;
+        final int end = approvalUrl.indexOf('&', start);
+        return (end < 0) ? approvalUrl.substring(start) : approvalUrl.substring(start, end);
     }
 
     private static String paymentIdFrom(final String approvalUrl) {
