@@ -230,6 +230,23 @@ public class PersonCommands {
         return managers;
     }
 
+    /**
+     * The one-line label a person picker shows, EMPTY for no selection.
+     *
+     * <p>An autocomplete evaluates its {@code itemLabel} for the current value too, not just for the
+     * suggestion rows, and a composite expression there renders its punctuation against a null item: the
+     * admin Organizations picker came up pre-filled with a literal "  ()", which every keystroke then
+     * appended to, so the search could never match anything. A method that returns "" for null keeps the
+     * informative label on the rows and an empty box when nothing is picked.
+     */
+    public String pickerLabel(final Person person) {
+        if (person == null) {
+            return "";
+        }
+        final String name = (person.getPreferredName() + " " + person.getLast()).trim();
+        return EmailAddresses.isValid(person.getEmail()) ? name + " (" + person.getEmail() + ")" : name;
+    }
+
     /** Prefix search over name/nickname/email/cell; default result cap. */
     public List<Person> searchPeople(final String query) {
         return searchPeople(query, 25);

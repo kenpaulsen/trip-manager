@@ -28,6 +28,27 @@ public class ActionBeansTailTest {
         return person;
     }
 
+    // --- PersonCommands.pickerLabel ---
+
+    /**
+     * The null case is the one that matters: an autocomplete renders itemLabel for its CURRENT value, so a
+     * label that is not empty when nothing is picked pre-fills the search box with junk.
+     */
+    @Test
+    public void pickerLabelIsEmptyWhenNothingIsPicked() {
+        Assert.assertEquals(people.pickerLabel(null), "");
+    }
+
+    @Test
+    public void pickerLabelCarriesTheAddressOnlyWhenItIsMailable() {
+        final Person mailable = savedPerson("Pickable");
+        Assert.assertEquals(people.pickerLabel(mailable), "Pickable Tailer (pickable@tail.example)");
+
+        mailable.setEmail("u1");
+        Assert.assertEquals(people.pickerLabel(mailable), "Pickable Tailer",
+                "a bare persona is not an address, so it should not be shown as one");
+    }
+
     // --- RegistrationCommands ---
 
     @Test
