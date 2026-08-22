@@ -260,6 +260,120 @@ public class TripDeleteCommandsTest {
                 "trip->transaction bindings are left as the record of money");
     }
 
+    /**
+     * The user-specified lifecycle sequence (2026-08-22), proving the delete path never destroys unintended
+     * data: X is accepted on {@code delMe} AND {@code other}, with a financial transaction on each. The
+     * delete of {@code delMe} must refuse while X is accepted, refuse again over the live transaction after
+     * X is removed, succeed once that transaction is soft-deleted -- and at every stage {@code other}'s
+     * registration, roster, and transaction must come through untouched.
+     */
+    @Test
+    public void theLifecycleSequenceNeverTouchesTheOtherTripsData() throws IOException {
+        final Person userX = savedPerson();
+        // "Accepted" is what the approval flow writes: a CONFIRMED registration AND roster membership.
+        final Trip delMe = acceptedTripFor(userX, "delMe " + unique());
+        final Transaction delMeTx = liveBoundTransaction(userX, delMe.getId());
+        final Trip other = acceptedTripFor(userX, "other " + unique());
+        final Transaction otherTx = liveBoundTransaction(userX, other.getId());
+        final TripDeleteCommands admin = siteAdmin();
+
+        // 1) Refused: X is accepted (both the roster and the approved registration say so).
+        assertFalse(admin.deleteTrip(delMe, "delete"), "an accepted pilgrim must block the delete");
+        assertTrue(dao.getTrip(delMe.getId(), Cached.NO).isPresent());
+        final List<String> acceptedBlockers = admin.blockers(freshTrip(delMe.getId()));
+        assertTrue(acceptedBlockers.stream().anyMatch(b -> b.contains("still part of this pilgrimage")),
+                "roster blocker expected: " + acceptedBlockers);
+        assertTrue(acceptedBlockers.stream().anyMatch(b -> b.contains("approved")),
+                "approved-registration blocker expected: " + acceptedBlockers);
+        assertOtherTripIntact(other, userX, otherTx);
+
+        // 2) Remove X from delMe, the way the registrations page does: off the roster, registration
+        //    back to Not Registered.
+        final Trip roster = freshTrip(delMe.getId());
+        roster.setPeople(new java.util.ArrayList<>());
+        assertTrue(dao.saveTrip(roster));
+        assertTrue(dao.saveRegistration(dao.getRegistration(delMe.getId(), userX.getId(), Cached.NO)
+                .orElseThrow().withStatus(Registration.Status.NOT_REGISTERED)));
+
+        // 3) Refused again: the live transaction is still bound to delMe.
+        assertFalse(admin.deleteTrip(delMe, "delete"), "a live transaction must still block the delete");
+        assertTrue(dao.getTrip(delMe.getId(), Cached.NO).isPresent());
+        final List<String> txBlockers = admin.blockers(freshTrip(delMe.getId()));
+        assertEquals(txBlockers.size(), 1, "only the transaction should block now: " + txBlockers);
+        assertTrue(txBlockers.get(0).contains("transaction"), txBlockers.get(0));
+        assertOtherTripIntact(other, userX, otherTx);
+
+        // 4) Soft-delete delMe's transaction; other's stays live.
+        delMeTx.delete();
+        assertTrue(dao.saveTransaction(delMeTx));
+        assertTrue(hasLiveTransaction(userX, otherTx.getTxId()),
+                "soft-deleting delMe's transaction must not touch other's");
+
+        // 5) Now the delete succeeds, and delMe is gone everywhere a user could find it.
+        assertTrue(admin.deleteTrip(delMe, "delete"));
+        assertTrue(dao.getTrip(delMe.getId(), Cached.NO).isEmpty(), "delMe's row must be gone");
+        assertTrue(dao.getRegistrations(delMe.getId(), Cached.NO).isEmpty(),
+                "delMe's registrations must be gone");
+        assertFalse(dao.getRecentTrips(0, Cached.NO).stream()
+                .anyMatch(t -> t.getId().equals(delMe.getId())), "delMe must leave the listings");
+        assertFalse(dao.getTripsForUser(userX.getId(), Cached.NO).stream()
+                .anyMatch(t -> t.getId().equals(delMe.getId())), "delMe must leave X's trip list");
+
+        // 6) X's world is otherwise untouched: the other trip, its registration, and its LIVE transaction
+        //    survive; no live transaction remains for delMe; X's person row is intact.
+        assertOtherTripIntact(other, userX, otherTx);
+        assertTrue(dao.getTripsForUser(userX.getId(), Cached.NO).stream()
+                .anyMatch(t -> t.getId().equals(other.getId())), "X must still be on 'other'");
+        assertFalse(hasLiveTransaction(userX, delMeTx.getTxId()),
+                "no live transaction may remain for delMe");
+        assertEquals(dao.getPerson(userX.getId(), Cached.NO).orElseThrow().getEmail(), userX.getEmail(),
+                "X's person row must be untouched");
+        // delMe's trip->tx binding survives as the dangling record of money (locked decision).
+        assertEquals(dao.getBindings(delMe.getId(), BindingType.TRIP, BindingType.TRANSACTION, Cached.NO),
+                List.of(userX.getId().getValue() + "," + delMeTx.getTxId()));
+    }
+
+    /** A saved trip where {@code who} is accepted: on the roster with a CONFIRMED registration. */
+    private Trip acceptedTripFor(final Person who, final String title) throws IOException {
+        final Trip trip = Trip.builder().people(List.of(who.getId())).build();
+        trip.setTitle(title);
+        assertTrue(dao.saveTrip(trip));
+        assertTrue(dao.saveRegistration(new Registration(trip.getId(), who.getId())
+                .withStatus(Registration.Status.CONFIRMED)));
+        return trip;
+    }
+
+    /** A saved live transaction for {@code who}, bound to the trip both directions (the persistTx shape). */
+    private Transaction liveBoundTransaction(final Person who, final String tripId) throws IOException {
+        final Transaction tx = new Transaction(who.getId(), null, Transaction.Type.Tx);
+        assertTrue(dao.saveTransaction(tx));
+        bindTxToTrip(who, tx, tripId);
+        return tx;
+    }
+
+    private Trip freshTrip(final String tripId) {
+        return dao.getTrip(tripId, Cached.NO).orElseThrow();
+    }
+
+    private boolean hasLiveTransaction(final Person who, final String txId) {
+        return dao.getTransaction(who.getId(), txId, Cached.NO)
+                .filter(tx -> tx.getDeleted() == null)
+                .isPresent();
+    }
+
+    /** Everything the sequence must NOT damage: other's row, roster, approved registration, live tx. */
+    private void assertOtherTripIntact(final Trip other, final Person userX, final Transaction otherTx) {
+        final Trip fresh = freshTrip(other.getId());
+        assertEquals(fresh.getTitle(), other.getTitle(), "other's title must be untouched");
+        assertTrue(fresh.getPeople().contains(userX.getId()), "X must still be on other's roster");
+        assertEquals(dao.getRegistration(other.getId(), userX.getId(), Cached.NO).orElseThrow().getStatus(),
+                Registration.Status.CONFIRMED, "other's registration must stay approved");
+        assertTrue(hasLiveTransaction(userX, otherTx.getTxId()), "other's transaction must stay live");
+        assertEquals(dao.getBindings(other.getId(), BindingType.TRIP, BindingType.TRANSACTION, Cached.NO),
+                List.of(userX.getId().getValue() + "," + otherTx.getTxId()),
+                "other's trip->transaction binding must be untouched");
+    }
+
     @Test
     public void deletedTripLeavesTheTripListings() throws IOException {
         final Trip trip = savedTrip(null);
