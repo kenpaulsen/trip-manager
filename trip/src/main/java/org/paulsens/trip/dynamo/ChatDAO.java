@@ -273,6 +273,21 @@ public class ChatDAO {
                 .toList();
     }
 
+    /**
+     * Removes one guest's reverse-index row for a channel. {@link #purgeChannel} purges by channel partition
+     * and cannot see these {@code person:} rows, so a hard channel delete (the trip delete cascade) must call
+     * this per guest -- otherwise the rows dangle forever once the channel is gone.
+     */
+    protected Boolean removeGuestChannel(final Person.Id personId, final ChatChannel.Id channelId) {
+        if (personId == null || channelId == null) {
+            return false;
+        }
+        return persistence.deleteItem(b -> b.tableName(MEMBERS_TABLE).key(Map.of(
+                        ATTR_CHANNEL_ID, AttributeValue.builder().s(guestPartition(personId)).build(),
+                        ATTR_PERSON_ID, AttributeValue.builder().s(channelId.getValue()).build())))
+                .sdkHttpResponse().isSuccessful();
+    }
+
     private static String guestPartition(final Person.Id personId) {
         return "person:" + personId.getValue();
     }

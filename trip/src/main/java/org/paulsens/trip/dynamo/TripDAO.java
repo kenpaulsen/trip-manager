@@ -159,6 +159,20 @@ public class TripDAO {
         }
     }
 
+    /**
+     * Hard-deletes the trip row and drops it from the point cache and both index sorted sets. Takes the Trip
+     * rather than an id so the index can be handed the same membership entry a save would diff against. The
+     * caller (the delete cascade) removes the trip's dependent rows FIRST -- notably trip events, which are
+     * unreachable once this row is gone.
+     */
+    protected Boolean deleteTrip(final Trip trip) {
+        final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(trip.getId()).build());
+        final boolean deleted = persistence.deleteItem(b -> b.tableName(TRIP_TABLE).key(key))
+                .sdkHttpResponse().isSuccessful();
+        cache.remove(trip.getId());
+        return index.update(entryOf(trip), null, true) && deleted;
+    }
+
     public void clearCache() {
         cacheClient.clearNamespace(CacheKeys.TRIP_PREFIX);
         index.invalidate();

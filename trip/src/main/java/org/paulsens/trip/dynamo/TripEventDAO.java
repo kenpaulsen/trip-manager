@@ -77,6 +77,14 @@ public class TripEventDAO {
         return cache.get(id, this::loadTripEvent).orElse(null);
     }
 
+    /** Hard-deletes one event row. Events carry no tripId, so the caller must resolve ids via the Trip FIRST. */
+    protected Boolean deleteTripEvent(final String id) {
+        final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id).build());
+        final boolean deleted = persistence.deleteItem(b -> b.tableName(TRIP_EVENT_TABLE).key(key))
+                .sdkHttpResponse().isSuccessful();
+        return cache.remove(id) && deleted;
+    }
+
     public void clearCache() {
         cacheClient.clearNamespace(CacheKeys.TRIP_EVENT_PREFIX);
     }

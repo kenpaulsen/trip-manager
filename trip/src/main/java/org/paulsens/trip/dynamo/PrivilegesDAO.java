@@ -76,6 +76,19 @@ public class PrivilegesDAO {
         }
     }
 
+    /**
+     * Hard-deletes one privilege ROW by id (== DynamoDB name), holders and all. Exists for the trip delete
+     * cascade -- trip-scoped rows fuse the tripId into their key, so a deleted trip would otherwise strand
+     * them forever. Cache removal is {@code removeOne} on purpose: in local mode the scan cache IS the store.
+     */
+    protected Boolean deletePrivilege(final String id) {
+        final Map<String, AttributeValue> key = Map.of(NAME, AttributeValue.builder().s(id).build());
+        final boolean deleted = persistence.deleteItem(b -> b.tableName(PRIVILEGE_TABLE).key(key))
+                .sdkHttpResponse().isSuccessful();
+        cache.removeOne(partitionOf(id), baseNameOf(id));
+        return deleted;
+    }
+
     /** Global (non-trip) privileges. */
     protected List<Privilege> getGlobalPrivileges() {
         try {

@@ -1427,6 +1427,32 @@ public class ChatCommands {
         }
     }
 
+    /**
+     * The trip-delete cascade for chat: everything the trip's channel owns, permanently. Covers the two rows
+     * {@code purgeChannel} deliberately leaves behind -- invite rows (their own table) and guests' reverse-index
+     * rows (a {@code person:} partition the channel purge cannot see) -- plus every chat photo: album rows,
+     * per-photo comment channels, stored renditions, and the CDN copies. Idempotent, and safe on a trip whose
+     * chat was never used (no channel row means there is only the photo sweep to run).
+     */
+    public void purgeTripChat(final String tripId) {
+        if (tripId == null || tripId.isBlank()) {
+            return;
+        }
+        final ChatChannel.Id channelId = ChatChannel.Id.forTrip(tripId);
+        // Members and invites must be read BEFORE the purge deletes the rows they are read from.
+        final List<ChatMembership> members = dao().listChatMembers(channelId, Cached.NO);
+        for (final ChatInvite invite : dao().listChatInvites(channelId, Cached.NO)) {
+            dao().deleteChatInvite(channelId, invite.getSelector());
+        }
+        dao().purgeChatChannel(channelId);
+        for (final ChatMembership member : members) {
+            if (member.isGuest()) {
+                dao().removeGuestChatChannel(member.getPersonId(), channelId);
+            }
+        }
+        ChatPhotos.getChatPhotos().deleteAllForTrip(tripId);
+    }
+
     /** Records how far this person has read, which is what clears the unread dot. */
     public boolean markRead(final String tripId, final Person.Id me, final ChatMessage.Id cursor) {
         final ChatChannel channel = getChannel(tripId);

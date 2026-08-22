@@ -531,4 +531,35 @@ public class BadgePhotoCommandsTest {
         Assert.assertTrue(bean.localGet(first).isEmpty(), "The oldest object was evicted");
         Assert.assertTrue(bean.localGet(second).isPresent(), "The newest object survives");
     }
+
+    // ------------------------------------------------------------------ trip-delete cascade
+
+    /** The listed image goes via the trip's list; the second, "stray" one only via the prefix sweep. */
+    @Test
+    public void deleteAllForTripSweepsListedAndStrayLocalObjects() {
+        uploadFixture();
+        Assert.assertTrue(bean.applyCrop(trip, null));
+        uploadFixture();
+        Assert.assertTrue(bean.applyCrop(trip, null));
+        final String listed = trip.getBadgeImages().get(0).getKey();
+        final String stray = trip.getBadgeImages().get(1).getKey();
+        trip.getBadgeImages().remove(1);    // still stored, no longer on the trip -- the sweep's reason to exist
+
+        Assert.assertEquals(bean.deleteAllForTrip(trip), 2);
+        Assert.assertTrue(bean.localGet(listed).isEmpty(), "the listed image must be removed");
+        Assert.assertTrue(bean.localGet(stray).isEmpty(), "the stray object must be swept by prefix");
+    }
+
+    @Test
+    public void deleteAllForTripSweepsTheRemoteStoreAndCdn() {
+        Mockito.when(media.isUploadEnabled()).thenReturn(true);
+        Mockito.when(media.listKeys("badgeImages/trip-1/"))
+                .thenReturn(List.of("badgeImages/trip-1/stray.jpg"));
+        trip.getBadgeImages().add(new BadgeImage("badgeImages/trip-1/1.jpg", "One"));
+
+        Assert.assertEquals(bean.deleteAllForTrip(trip), 2);
+        Mockito.verify(media).deleteObject("badgeImages/trip-1/1.jpg");
+        Mockito.verify(media).deleteObject("badgeImages/trip-1/stray.jpg");
+        Mockito.verify(media).invalidateCdn(List.of("/badgeImages/trip-1/*"));
+    }
 }

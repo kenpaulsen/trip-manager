@@ -379,6 +379,46 @@ public class BadgePhotoCommands {
     }
 
     /** Deletes a stored object and (privacy, not correctness) invalidates its CDN path. */
+    /**
+     * The trip-delete cascade for badge images: every image the trip row lists, then a store sweep of
+     * anything left under {@code badgeImages/{tripId}/} (superseded versions, uploads that never got saved
+     * onto the trip). No per-image growl or audit, no trip save -- the row is about to be deleted; the
+     * caller records one audit event for the whole cascade.
+     *
+     * @return how many stored objects were removed.
+     */
+    public int deleteAllForTrip(final Trip trip) {
+        int removed = 0;
+        for (final BadgeImage image : trip.getBadgeImages()) {
+            removeStored(image.getKey());
+            removed++;
+        }
+        final String prefix = PREFIX + trip.getId() + "/";
+        if (media.isUploadEnabled()) {
+            final List<String> keys = media.listKeys(prefix);
+            for (final String key : keys) {
+                media.deleteObject(key);
+            }
+            removed += keys.size();
+            if (!keys.isEmpty()) {
+                media.invalidateCdn(List.of("/" + prefix + "*"));
+            }
+        } else {
+            synchronized (localObjects) {
+                final var iterator = localObjects.entrySet().iterator();
+                while (iterator.hasNext()) {
+                    final var entry = iterator.next();
+                    if (entry.getKey().startsWith(prefix)) {
+                        localBytes -= entry.getValue().length;
+                        iterator.remove();
+                        removed++;
+                    }
+                }
+            }
+        }
+        return removed;
+    }
+
     private void removeStored(final String key) {
         if (media.isUploadEnabled()) {
             media.deleteObject(key);

@@ -599,6 +599,11 @@ public class RegistrationCommands {
     }
 
     private DataId getTripRoomDataId(final String tripId) {
+        return tripRoomDataId(tripId);
+    }
+
+    /** The person-data key for one person's room on this trip -- shared with the trip delete sweep. */
+    static DataId tripRoomDataId(final String tripId) {
         return DataId.from(ROOM + tripId);
     }
 }

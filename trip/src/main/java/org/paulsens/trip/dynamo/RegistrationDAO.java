@@ -4,9 +4,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
@@ -89,6 +91,31 @@ public class RegistrationDAO {
         } catch (final RuntimeException ex) {
             throw ex;
         }
+    }
+
+    /**
+     * Hard-deletes EVERY registration row for the trip, returning how many rows went. Enumerates the union
+     * of the cached list (in local mode the cache IS the store -- the raw table is empty) and a raw partition
+     * query (production rows the read path filters out: unparseable content, legacy status values). Backs
+     * the destructive trip delete, which must leave nothing behind.
+     */
+    protected int deleteAllForTrip(final String tripId) {
+        final Set<String> userIds = new LinkedHashSet<>();
+        getRegistrations(tripId).forEach(reg -> userIds.add(reg.getUserId().getValue()));
+        for (final Map<String, AttributeValue> row : persistence.queryAll(qb ->
+                registrationsByTripId(qb, tripId))) {
+            final AttributeValue userId = row.get(USER_ID);
+            if (userId != null) {
+                userIds.add(userId.s());
+            }
+        }
+        for (final String userId : userIds) {
+            persistence.deleteItem(b -> b.tableName(REGISTRATION_TABLE).key(Map.of(
+                    TRIP_ID, AttributeValue.builder().s(tripId).build(),
+                    USER_ID, AttributeValue.builder().s(userId).build())));
+            cache.remove(tripId, Person.Id.from(userId));
+        }
+        return userIds.size();
     }
 
     public void clearCache() {

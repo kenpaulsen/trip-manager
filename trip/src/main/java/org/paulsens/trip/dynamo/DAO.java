@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
@@ -340,6 +341,10 @@ public class DAO {
     public List<Trip> getTripsForUser(final Person.Id userId, final Cached cached) {
         return NearCacheContext.call(cached, () -> tripDao.getTripsForUser(userId));
     }
+    /** Hard delete. Orchestrated by {@code TripDeleteCommands} -- dependent rows must already be gone. */
+    public Boolean deleteTrip(final Trip trip) {
+        return tripDao.deleteTrip(trip);
+    }
 
     // Trip Events
     public TripEvent getTripEvent(final String id, final Cached cached) {
@@ -351,10 +356,16 @@ public class DAO {
     public Boolean saveAllTripEvents(final Trip trip) {
         return tripEventDao.saveAllTripEvents(trip);
     }
+    public Boolean deleteTripEvent(final String id) {
+        return tripEventDao.deleteTripEvent(id);
+    }
 
     // Registrations
     public Boolean saveRegistration(final Registration reg) throws IOException {
         return regDao.saveRegistration(reg);
+    }
+    public int deleteRegistrationsForTrip(final String tripId) {
+        return regDao.deleteAllForTrip(tripId);
     }
     public List<Registration> getRegistrations(final String tripId, final Cached cached) {
         return NearCacheContext.call(cached, () -> regDao.getRegistrations(tripId));
@@ -443,10 +454,20 @@ public class DAO {
     public Optional<TodoItem> getTodoItem(final String tripId, final DataId pdvId, final Cached cached) {
         return NearCacheContext.call(cached, () -> todoDao.getTodoItem(tripId, pdvId));
     }
+    public List<DataId> deleteTodoItemsForTrip(final String tripId) {
+        return todoDao.deleteAllForTrip(tripId);
+    }
 
     // Per-User Stored Data
     public Boolean savePersonDataValue(final PersonDataValue pdv) throws IOException {
         return pdvDao.savePersonDataValue(pdv);
+    }
+    public Boolean deletePersonDataValue(final Person.Id pid, final DataId pdvId) {
+        return pdvDao.deletePersonDataValue(pid, pdvId);
+    }
+    /** Cross-person sweep by dataId (candidates via cache, then one table scan) -- the trip delete cascade. */
+    public int deletePersonDataValuesByDataIds(final Set<DataId> targets, final Set<Person.Id> candidates) {
+        return pdvDao.deleteAllByDataIds(targets, candidates);
     }
     public Map<DataId, PersonDataValue> getPersonDataValues(final Person.Id pid, final Cached cached) {
         return NearCacheContext.call(cached, () -> pdvDao.getPersonDataValues(pid));
@@ -458,6 +479,10 @@ public class DAO {
     // Privileges
     public Boolean savePrivilege(final Privilege priv) {
         return privDao.savePrivilege(priv);
+    }
+    /** Hard-deletes one privilege ROW (holders and all) -- the trip delete cascade, nothing else. */
+    public Boolean deletePrivilege(final String id) {
+        return privDao.deletePrivilege(id);
     }
     // Managed media metadata (see MediaDAO); the bytes live in S3.
     public Optional<MediaItem> getMedia(final String id, final Cached cached) {
@@ -680,6 +705,9 @@ public class DAO {
     }
     public Boolean addGuestChatChannel(final Person.Id personId, final ChatChannel.Id channelId) {
         return chatDao.addGuestChannel(personId, channelId);
+    }
+    public Boolean removeGuestChatChannel(final Person.Id personId, final ChatChannel.Id channelId) {
+        return chatDao.removeGuestChannel(personId, channelId);
     }
     public List<ChatChannel.Id> getGuestChatChannelIds(final Person.Id personId, final Cached cached) {
         return NearCacheContext.call(cached, () -> chatDao.listGuestChannelIds(personId));

@@ -72,6 +72,12 @@ public enum AuditAction {
     DEPLOY,
     /** An admin acted as another user. */
     IMPERSONATION,
+    /**
+     * A trip was permanently deleted, with every dependent row (registrations, events, todos, privileges,
+     * chat, photos). Its own constant for the same reason {@link #DEPLOY} has one: "who destroyed this
+     * pilgrimage, and when" must be answerable on its own -- usually while someone is asking where it went.
+     */
+    TRIP_DELETE,
     /** Any admin action not covered above; the legacy catch-all type. */
     ADMIN,
     /** A person joined a trip chat channel. */

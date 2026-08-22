@@ -261,6 +261,15 @@ public final class Trip implements Serializable {
      * resolved instance serializes its current events' ids PLUS any ids whose read failed -- the old
      * converter dropped those silently, and the next save made the loss permanent.
      */
+    /**
+     * The raw event-row ids, resolved or not. The delete cascade needs these BEFORE the trip row goes --
+     * {@code trip_events} rows carry no tripId, so this list is the only way to ever find them again.
+     */
+    @JsonIgnore
+    public List<String> getTripEventIds() {
+        return serializedEventIds().stream().toList();
+    }
+
     @JsonProperty("tripEvents")
     private List<String> serializedEventIds() {
         if (resolvedEvents == null) {

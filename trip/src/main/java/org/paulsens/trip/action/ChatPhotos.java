@@ -347,6 +347,46 @@ public class ChatPhotos {
         }
     }
 
+    /**
+     * The trip-delete cascade for photos: every album row in the trip's chat slot (row + comment thread +
+     * REMOVED event), then a store sweep of everything left under {@code chat/{tripId}/} — thumbnails,
+     * renditions whose media row was never recorded, uploads that were staged but never sent. The prefix
+     * sweep is what makes the delete complete: rows and messages only know about photos that made it into
+     * the album, the object store is the ground truth.
+     *
+     * @return how many album rows were removed.
+     */
+    public int deleteAllForTrip(final String tripId) {
+        final List<MediaItem> rows = DAO.getInstance().getMediaInSlot(slotFor(tripId), Cached.NO);
+        for (final MediaItem row : rows) {
+            deleteAlbumRow(row);
+            PhotoChatCommands.purgePhotoThread(row.getS3Key());
+        }
+        final String prefix = KEY_PREFIX + tripId + "/";
+        if (isRemoteStore()) {
+            final List<String> keys = media.listKeys(prefix);
+            for (final String key : keys) {
+                media.deleteObject(key);
+            }
+            if (!keys.isEmpty()) {
+                // One wildcard invalidation instead of a path per object; CloudFront bills per path.
+                media.invalidateCdn(List.of("/" + prefix + "*"));
+            }
+        } else {
+            synchronized (localObjects) {
+                final var iterator = localObjects.entrySet().iterator();
+                while (iterator.hasNext()) {
+                    final var entry = iterator.next();
+                    if (entry.getKey().startsWith(prefix)) {
+                        localBytes -= entry.getValue().bytes().length;
+                        iterator.remove();
+                    }
+                }
+            }
+        }
+        return rows.size();
+    }
+
     private void deleteAlbumRow(final MediaItem row) {
         try {
             if (DAO.getInstance().deleteMedia(row.getId())) {

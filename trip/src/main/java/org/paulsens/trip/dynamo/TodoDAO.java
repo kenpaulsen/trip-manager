@@ -2,12 +2,15 @@ package org.paulsens.trip.dynamo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
@@ -88,6 +91,33 @@ public class TodoDAO {
         } catch (final RuntimeException ex) {
             throw ex;
         }
+    }
+
+    /**
+     * Hard-deletes EVERY todo row for the trip, returning the deleted {@link DataId}s so the caller can sweep
+     * the matching per-person {@code TodoStatus} rows out of {@code person_data} (their dataId is this one).
+     * Enumerates the cached list (the store itself in local mode) PLUS a raw partition query, so production
+     * rows the read path filters out (unparseable content) go too.
+     */
+    protected List<DataId> deleteAllForTrip(final String tripId) {
+        final Set<String> dataIds = new LinkedHashSet<>();
+        getTodoItems(tripId).forEach(todo -> dataIds.add(todo.getDataId().getValue()));
+        for (final Map<String, AttributeValue> row : persistence.queryAll(qb -> queryTodoItemsByTrip(qb, tripId))) {
+            final AttributeValue dataId = row.get(DATA_ID);
+            if (dataId != null) {
+                dataIds.add(dataId.s());
+            }
+        }
+        final List<DataId> deleted = new ArrayList<>();
+        for (final String dataId : dataIds) {
+            persistence.deleteItem(b -> b.tableName(TODO_ITEM_TABLE).key(Map.of(
+                    TRIP_ID, AttributeValue.builder().s(tripId).build(),
+                    DATA_ID, AttributeValue.builder().s(dataId).build())));
+            final DataId id = DataId.from(dataId);
+            cache.remove(tripId, id);
+            deleted.add(id);
+        }
+        return deleted;
     }
 
     public void clearCache() {
