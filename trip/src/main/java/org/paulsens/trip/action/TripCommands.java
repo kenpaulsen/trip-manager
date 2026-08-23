@@ -137,10 +137,11 @@ public class TripCommands {
     }
 
     /**
-     * Keeps {@code Trip.provider} -- the display string every public renderer and {@code isCfpw()} still read
-     * -- synced from the owning {@link org.paulsens.trip.model.Organization}'s name. Runs on EVERY save path
-     * (page and REST) so the two can never drift while both exist; a trip with no org (legacy) keeps whatever
-     * provider string it has.
+     * Keeps {@code Trip.provider} -- the display string the public renderers read -- synced from the owning
+     * {@link org.paulsens.trip.model.Organization}'s name. Runs on EVERY save path (page and REST) so the two
+     * can never drift while both exist; a trip with no org (legacy) keeps whatever provider string it has.
+     * NB {@code Trip.isCfpw()} deliberately does NOT read this string: recognition keys on the org's short
+     * name, because this sync writes the FULL name and production CFPW is "Center for Peace West".
      */
     private void syncProviderFromOrg(final Trip trip) {
         if (trip.getOrgId() == null || trip.getOrgId().isBlank()) {

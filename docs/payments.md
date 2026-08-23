@@ -6,8 +6,9 @@ replaces it end to end. Design decisions here are user-locked — do not relitig
 ## Organizations: the tenancy boundary
 
 `Organization` is the platform's tenancy root: **every Person belongs to ≥1 org** (multi-org supported),
-every Trip belongs to one (`Trip.orgId`; the legacy `provider` display string is SYNCED from the org name on
-every save — `TripCommands.syncProviderFromOrg` — so `isCfpw()` and the landing filter keep working), and
+every Trip belongs to one (`Trip.orgId`; the legacy `provider` display string is SYNCED from the org's FULL
+name on every save — `TripCommands.syncProviderFromOrg` — for the public renderers; `isCfpw()` and the
+landing filter key on the org's short name, falling back to `provider` only for org-less legacy rows), and
 Transactions carry `orgId` (stamped from the trip on new writes; `org-migrate.sh` backfills legacy rows).
 Design every new data holder along this boundary.
 

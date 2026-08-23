@@ -116,8 +116,9 @@ public final class Trip implements Serializable {
     /**
      * The {@link Organization} (tenancy boundary) offering this trip; null on legacy rows until the org
      * migration backfills. While both exist, {@link #provider} is a denormalized DISPLAY string synced from
-     * the org's name on save ({@code TripCommands.saveTrip}), so every provider consumer -- {@link #isCfpw()},
-     * the landing-page filter, {@code pilgrimageRow.xhtml} -- keeps working unchanged during the transition.
+     * the org's name on save ({@code TripCommands.saveTrip}) for the public renderers
+     * ({@code pilgrimageRow.xhtml}); {@link #isCfpw()} keys on the org itself and only falls back to
+     * provider for org-less legacy rows.
      */
     @JsonProperty("orgId")
     private String orgId;
@@ -389,9 +390,20 @@ public final class Trip implements Serializable {
         return title.replaceFirst("^\\s*[^:]{1,12}:\\s*", "");
     }
 
-    /** Whether CFPW hosts this trip (vs. an external provider's pilgrimage we merely list). */
+    /**
+     * Whether CFPW hosts this trip (vs. an external provider's pilgrimage we merely list). Decided by the
+     * owning org's {@link Organization#getShortName() short name}, never by {@link #provider}: provider is a
+     * display string re-synced from the org's full NAME on every save, and the production CFPW org is named
+     * "Center for Peace West" -- keying recognition on provider silently dropped a trip from the CFPW badge
+     * and sidebar the first time it was re-saved after the org migration (2026-08). The provider compare
+     * remains only as the fallback for legacy rows that predate {@link #orgId}.
+     */
     @JsonIgnore
     public boolean isCfpw() {
+        final Organization owner = getOrganization();
+        if (owner != null) {
+            return "CFPW".equalsIgnoreCase(owner.getShortName());
+        }
         return "CFPW".equalsIgnoreCase(provider);
     }
 

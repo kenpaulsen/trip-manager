@@ -47,13 +47,20 @@ public class TripPublicHelpersTest {
     }
 
     @Test
-    public void cfpwIsCaseInsensitiveAndNullSafe() {
+    public void cfpwFallsBackToTheProviderStringForOrglessLegacyRows() {
+        // No orgId on any of these, so isCfpw exercises the legacy provider-string fallback; the org-keyed
+        // primary path (including a provider re-synced to a full org name) is pinned in TripCommandsTest.
         Assert.assertFalse(titled("t").isCfpw());
         final Trip cfpw = titled("t");
         cfpw.setProvider("cfpw");
         Assert.assertTrue(cfpw.isCfpw());
         cfpw.setProvider("Queen of Peace Centre");
         Assert.assertFalse(cfpw.isCfpw());
+        // An orgId that resolves to nothing (deleted or unseeded org) also folds to the fallback.
+        final Trip ghostOrg = titled("t");
+        ghostOrg.setOrgId("no-such-org");
+        ghostOrg.setProvider("CFPW");
+        Assert.assertTrue(ghostOrg.isCfpw());
     }
 
     @Test

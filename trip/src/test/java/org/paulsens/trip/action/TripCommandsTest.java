@@ -14,6 +14,7 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
@@ -204,7 +205,42 @@ public class TripCommandsTest {
         assertTrue(tripCommands.saveTrip(trip));
         assertEquals(trip.getProvider(), "CFPW",
                 "The provider display string derives from the org's name on every save");
-        assertTrue(trip.isCfpw(), "...which is what keeps isCfpw and the landing filter working");
+        assertTrue(trip.isCfpw(), "isCfpw keys on the org, so the sync cannot break it");
+    }
+
+    @Test
+    public void isCfpwSurvivesAFullNamedOrgAndAProviderResync() throws java.io.IOException {
+        // The production shape: the CFPW org's NAME is the full "Center for Peace West"; only its
+        // abbreviation is "CFPW". The provider sync writes the full name, which is exactly what broke
+        // recognition when isCfpw compared the provider string (trip 4a9f058e, 2026-08).
+        final String orgId = java.util.UUID.randomUUID().toString();
+        assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveOrganization(
+                org.paulsens.trip.model.Organization.builder()
+                        .id(org.paulsens.trip.model.Organization.Id.from(orgId))
+                        .name("Center for Peace West")
+                        .abbreviation("CFPW")
+                        .createdBy(people.get(0).getId())
+                        .created(LocalDateTime.now())
+                        .build()));
+        final Trip trip = Trip.builder().id("full-name-" + System.nanoTime()).title("Fall Medjugorje").build();
+        trip.setOrgId(orgId);
+        trip.setProvider("CFPW");
+        assertTrue(tripCommands.saveTrip(trip));
+        assertEquals(trip.getProvider(), "Center for Peace West", "The sync writes the org's full name...");
+        assertTrue(trip.isCfpw(), "...and the trip must STILL be recognized as CFPW (org short name)");
+
+        final String partnerId = java.util.UUID.randomUUID().toString();
+        assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveOrganization(
+                org.paulsens.trip.model.Organization.builder()
+                        .id(org.paulsens.trip.model.Organization.Id.from(partnerId))
+                        .name("Schaefer Travel")
+                        .createdBy(people.get(0).getId())
+                        .created(LocalDateTime.now())
+                        .build()));
+        final Trip partner = Trip.builder().id("partner-" + System.nanoTime()).title("Partner trip").build();
+        partner.setOrgId(partnerId);
+        assertTrue(tripCommands.saveTrip(partner));
+        assertFalse(partner.isCfpw(), "A partner org's trip never reads as CFPW");
     }
 
     @Test

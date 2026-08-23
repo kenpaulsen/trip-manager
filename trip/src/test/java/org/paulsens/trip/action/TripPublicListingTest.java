@@ -75,7 +75,9 @@ public class TripPublicListingTest {
         final List<String> english = ids(trip.getPublicCfpwTrips("English"));
         Assert.assertTrue(english.containsAll(List.of("pub-en-1", "pub-en-2", "pub-past-3d")), "" + english);
         Assert.assertFalse(english.contains("pub-ext-1"), "external provider");
-        Assert.assertFalse(english.contains("Fake2"), "no provider");
+        // Fake2 has the CFPW orgId and NO provider string -- the shape of every legacy production row.
+        // Recognition keys on the org, so it lists; only org-less rows fall back to the provider compare.
+        Assert.assertTrue(english.contains("Fake2"), "org-owned trip lists regardless of provider");
     }
 
     @Test
