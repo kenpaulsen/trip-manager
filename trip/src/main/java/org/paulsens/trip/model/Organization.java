@@ -47,6 +47,15 @@ public final class Organization implements Serializable {
      * untouched; never null via the lazy getter.
      */
     private TripPaymentConfig paymentDefaults;
+    /**
+     * The privilege base names this org may grant (site-admin controlled allow-list, bounding both the
+     * trip-scoped roles on the trip editor and the org-scoped grants on the org People page). {@code null}
+     * means "never restricted" == everything allowed, so existing rows need no migration and restriction is
+     * always an explicit act; an EMPTY list means "nothing grantable". That distinction is why -- unlike
+     * {@link #paymentDefaults} -- the getter must NOT lazy-init. Setter-populated, deliberately outside the
+     * 8-arg creator for the same reason {@code paymentDefaults} is.
+     */
+    private List<String> grantablePrivileges;
 
     @Builder
     @JsonCreator
@@ -83,6 +92,12 @@ public final class Organization implements Serializable {
     @JsonIgnore
     public boolean isAdmin(final Person.Id personId) {
         return personId != null && adminIds.contains(personId);
+    }
+
+    /** True when this org may grant the given privilege base name -- see {@link #grantablePrivileges}. */
+    @JsonIgnore
+    public boolean mayGrant(final String baseName) {
+        return grantablePrivileges == null || grantablePrivileges.contains(baseName);
     }
 
     /** The short label when one was set, otherwise the full name -- what compact UI (chips, notes) shows. */

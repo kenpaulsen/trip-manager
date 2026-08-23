@@ -40,6 +40,7 @@ public class FamilyCommands {
     private final ConfigCommands config;
     private final AuditCommands audit;
     private final java.util.function.Supplier<Caller> callerSource;
+    private final java.util.function.Supplier<OrgCommands> orgSource;
 
     public FamilyCommands() {
         this(new ConfigCommands(), new AuditCommands(), Caller::current);
@@ -48,12 +49,15 @@ public class FamilyCommands {
     /**
      * Test seam (the {@code ChatCommands} pattern): collaborators handed in, no container needed. The caller
      * supplier exists because {@code Caller.current()} needs a FacesContext, which unit tests do not have.
+     * The org supplier shares the SAME caller source, so the admin-link reach check answers for the caller
+     * this instance was built for.
      */
     public FamilyCommands(final ConfigCommands config, final AuditCommands audit,
             final java.util.function.Supplier<Caller> callerSource) {
         this.config = config;
         this.audit = audit;
         this.callerSource = callerSource;
+        this.orgSource = () -> new OrgCommands(callerSource);
     }
 
     private Caller caller() {
@@ -383,7 +387,9 @@ public class FamilyCommands {
      * construction.
      */
     public boolean adminLink(final Person.Id anchorId, final Person.Id personId, final boolean manager) {
-        if (!requirePeopleAdmin()) {
+        // Reach is required over BOTH ends: linking pulls the person into the anchor's household, so an
+        // org-scoped people admin needs authority over each of them, not just one.
+        if (!requirePeopleAdminFor(anchorId) || !requirePeopleAdminFor(personId)) {
             return false;
         }
         final Person anchor = DAO.getInstance().getPerson(anchorId, Cached.NO).orElse(null);
@@ -458,7 +464,7 @@ public class FamilyCommands {
      * reachable from this family's logins. The last member's unlink deletes the family row itself.
      */
     public boolean adminUnlink(final Person.Id memberId) {
-        if (!requirePeopleAdmin()) {
+        if (!requirePeopleAdminFor(memberId)) {
             return false;
         }
         final String blocked = unlinkBlockReason(memberId);
@@ -489,12 +495,16 @@ public class FamilyCommands {
      * legitimate admin grant, so removal is a human decision (the consistency script reports candidates).
      */
     public boolean resyncFamily(final String familyId) {
-        if (!requirePeopleAdmin()) {
-            return false;
-        }
         final Family family = DAO.getInstance().getFamily(Family.Id.from(familyId), Cached.NO).orElse(null);
         if (family == null) {
             return fail("Unknown family", "No family with id " + familyId);
+        }
+        // Repair touches every member's managedUsers, so it needs people-admin reach over each of them
+        // (trivially true for the site admins and ops flows this tool serves).
+        for (final Person.Id memberId : family.getMemberIds()) {
+            if (!requirePeopleAdminFor(memberId)) {
+                return false;
+            }
         }
         for (final Person.Id memberId : family.getMemberIds()) {
             final Person member = DAO.getInstance().getPerson(memberId, Cached.NO).orElse(null);
@@ -639,11 +649,16 @@ public class FamilyCommands {
         return existing != null && !existing.getId().equals(selfId);
     }
 
-    private boolean requirePeopleAdmin() {
-        if (caller().has(PrivilegeCommands.PEOPLE_ADMIN)) {
+    /**
+     * People-admin reach over ONE subject: site admin, or {@code peopleAdmin} in an org the subject belongs
+     * to ({@code OrgCommands.canAdminPerson} -- the global peopleAdmin variant is retired, org migration
+     * 2026-08). Subject-scoped on purpose: a people admin for one org must not relink another org's people.
+     */
+    private boolean requirePeopleAdminFor(final Person.Id subjectId) {
+        if (orgSource.get().canAdminPerson(subjectId)) {
             return true;
         }
-        return fail("Not authorized", "Managing family links requires the peopleAdmin privilege.");
+        return fail("Not authorized", "Managing family links requires people-admin access to this person.");
     }
 
     private Person currentPerson() {

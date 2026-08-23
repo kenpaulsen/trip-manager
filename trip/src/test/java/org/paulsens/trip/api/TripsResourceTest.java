@@ -8,6 +8,7 @@ import java.util.Map;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.PersonCommands;
+import org.paulsens.trip.action.PrivilegeCommands;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.api.dto.TripDto;
 import org.paulsens.trip.api.dto.TripEventDto;
@@ -231,15 +232,42 @@ public class TripsResourceTest extends ResourceTestSupport {
         Assert.assertEquals(((List<?>) response.getEntity()).size(), TripEvent.Type.values().length);
     }
 
+    /** A body whose only interesting fields are title/regLimit/orgId -- the create matrix's fixture. */
+    private static TripDto createBody(final String orgId) {
+        return new TripDto(null, "Rome 2027", "Ten days", null, false, null, null, 40, null,
+                orgId, null, null, null, null, null, null, null, null, null, null);
+    }
+
     @Test
-    public void creatingATripNeedsCsrfAndTheAddTripPrivilege() {
+    public void creatingATripNeedsCsrfAnOrgIdAndOrgAuthority() {
         signedInAsSiteAdmin(ME);
         assertError(resource.create(null, null), 403, ApiErrors.CSRF);
+        assertError(resource.create(CSRF_OK, null), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.create(CSRF_OK, createBody("  ")), 400, ApiErrors.VALIDATION_FAILED);
 
         signedInAs(ME);
         final TripsResource ordinary = resource(new TripsResource());
-        assertError(ordinary.create(CSRF_OK, null), 403, ApiErrors.FORBIDDEN);
+        assertError(ordinary.create(CSRF_OK, createBody(java.util.UUID.randomUUID().toString())),
+                403, ApiErrors.FORBIDDEN);
         Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any());
+    }
+
+    @Test
+    public void anAddTripHolderCreatesInTheirOrgOnly() {
+        // Real privilege row: addTrip scoped to one org admits creation there and nowhere else.
+        final String orgId = java.util.UUID.randomUUID().toString();
+        final PrivilegeCommands priv = new PrivilegeCommands();
+        Assert.assertTrue(priv.savePrivilege(
+                priv.createPrivilege("addTrip", "May create trips", orgId, List.of(ME)), null));
+        Mockito.when(trips.createTrip()).thenReturn(trip("new-trip", ME));
+        Mockito.when(trips.saveTrip(ArgumentMatchers.any())).thenReturn(true);
+
+        signedInAs(ME);
+        assertOk(resource(new TripsResource()).create(CSRF_OK, createBody(orgId)));
+        signedInAs(ME);
+        assertError(resource(new TripsResource())
+                        .create(CSRF_OK, createBody(java.util.UUID.randomUUID().toString())),
+                403, ApiErrors.FORBIDDEN);
     }
 
     @Test
@@ -249,13 +277,13 @@ public class TripsResourceTest extends ResourceTestSupport {
         Mockito.when(trips.createTrip()).thenReturn(created);
         Mockito.when(trips.saveTrip(created)).thenReturn(true);
 
-        final TripDto body = new TripDto(null, "Rome 2027", "Ten days", null, false, null, null, 40, null,
-                null, null, null, null, null, null, null, null, null, null, null);
-        final Response response = resource.create(CSRF_OK, body);
+        final String orgId = java.util.UUID.randomUUID().toString();
+        final Response response = resource.create(CSRF_OK, createBody(orgId));
 
         assertOk(response);
         Assert.assertEquals(created.getTitle(), "Rome 2027");
         Assert.assertEquals(created.getRegLimit(), Integer.valueOf(40));
+        Assert.assertEquals(created.getOrgId(), orgId, "The body's orgId is stamped on the trip");
     }
 
     @Test
@@ -264,7 +292,8 @@ public class TripsResourceTest extends ResourceTestSupport {
         Mockito.when(trips.createTrip()).thenReturn(trip("new-trip", ME));
         Mockito.when(trips.saveTrip(ArgumentMatchers.any())).thenReturn(false);
 
-        assertError(resource.create(CSRF_OK, null), 500, ApiErrors.STORE_FAILED);
+        assertError(resource.create(CSRF_OK, createBody(java.util.UUID.randomUUID().toString())),
+                500, ApiErrors.STORE_FAILED);
     }
 
     @Test

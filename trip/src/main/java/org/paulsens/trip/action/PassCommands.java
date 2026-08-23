@@ -27,7 +27,6 @@ import org.paulsens.trip.util.Util;
 import org.paulsens.trip.web.Sessions;
 
 import static org.paulsens.trip.action.TripUtilCommands.addMessage;
-import static org.paulsens.trip.dynamo.CredentialsDAO.IS_ADMIN;
 import org.paulsens.trip.cache.Cached;
 
 @Slf4j
@@ -175,53 +174,27 @@ public class PassCommands {
         }
     }
 
+    /**
+     * INTERNAL credential lookup. Java-side flows only ({@link #setEmail}'s move logic and the like) --
+     * pages must never call this: a {@code Creds} object in EL is one expression away from echoing a stored
+     * secret, which for a legacy un-rehashed row is a plaintext password. The display-safe accessor for
+     * pages is {@link #userTypeOf}. (The old admin set-password UI that consumed this is gone -- password
+     * changes go through the user's own reset flow.)
+     */
     public Creds adminGetCreds(final String email) {
         if (Util.isBlank(email)) {
             throw new IllegalArgumentException("Email is blank.");
         }
-        return DAO.getInstance().adminGetCredsByEmail(email, Cached.NO)
-                
-                ;
+        return DAO.getInstance().adminGetCredsByEmail(email, Cached.NO);
     }
 
-    public Boolean adminSetPass(final String email, final String pass) {
-        if (Util.isBlank(email) || Util.isBlank(pass)) {
-            throw new IllegalArgumentException("Email or password is blank.");
+    /** The stored account type ("user"/"admin") for display, or null when no login exists. */
+    public String userTypeOf(final String email) {
+        if (Util.isBlank(email)) {
+            return null;
         }
-        final FacesContext facesContext = FacesContext.getCurrentInstance();
-        if (facesContext == null) {
-            return false;
-        }
-        final Map<String, Object> viewMap = facesContext.getViewRoot().getViewMap(false);
-        if (viewMap == null || !Boolean.parseBoolean(viewMap.getOrDefault(IS_ADMIN, false).toString())) {
-            return false;
-        }
-        return setPass(email, pass);
-    }
-
-    /**
-     * Sets somebody else's password, authorized by privilege rather than by the {@code showAll} view flag.
-     *
-     * <p>The no-{@link Caller} form above reads {@code viewRoot.getViewMap().get("showAll")}, which the page
-     * template sets on every JSF render. That works, and it is unusable anywhere else: off a Faces thread there
-     * is no view map, so the check evaluates to "not an administrator" and the call silently returns false.
-     * It fails closed, which is the right direction, but it means the REST edge cannot reuse it at all.
-     *
-     * <p>This form asks for {@code peopleAdmin} instead. {@code showAll} is the legacy all-or-nothing admin flag
-     * and is being phased out, so new callers authorize by named privilege.
-     *
-     * <p>The check is made HERE and not only at the edge that called us. Resetting another person's password is
-     * the most consequential thing this class does, and an authorization that lives only in the caller is one
-     * refactor away from not being made at all.
-     */
-    public Boolean adminSetPass(final String email, final String pass, final Caller caller) {
-        if (Util.isBlank(email) || Util.isBlank(pass)) {
-            throw new IllegalArgumentException("Email or password is blank.");
-        }
-        if (caller == null || !caller.has(PrivilegeCommands.PEOPLE_ADMIN)) {
-            return false;
-        }
-        return setPass(email, pass);
+        final Creds creds = adminGetCreds(email);
+        return (creds == null) ? null : creds.getPriv();
     }
 
     public Creds getCredsByAdmin(final String email, final Person.Id id) {

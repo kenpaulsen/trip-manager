@@ -618,6 +618,39 @@ public class FamilyCommandsTest {
         return dao.getPerson(person.getId(), Cached.NO).orElseThrow();
     }
 
+    /** An org-scoped people admin can link within their org, and NEVER across the tenancy line. */
+    @org.testng.annotations.Test
+    public void orgScopedPeopleAdminLinksOnlyInsideTheirOrg() {
+        final Person deputy = savedOwner();
+        final Person anchor = savedOwner();
+        final Person insider = savedOwner();
+        final Person outsider = savedOwner();
+        final OrgCommands siteAdmin = new OrgCommands(() -> new Caller(Person.Id.from("admin"), true,
+                new AuditActor("admin@test", "admin"), new PrivilegeCommands()));
+        final org.paulsens.trip.model.Organization acme =
+                siteAdmin.createOrganization("FamOrg " + unique(), null, null);
+        final org.paulsens.trip.model.Organization other =
+                siteAdmin.createOrganization("FamOther " + unique(), null, null);
+        final String orgId = acme.getId().getValue();
+        org.testng.Assert.assertTrue(siteAdmin.addMember(orgId, deputy.getId()));
+        org.testng.Assert.assertTrue(siteAdmin.addMember(orgId, anchor.getId()));
+        org.testng.Assert.assertTrue(siteAdmin.addMember(orgId, insider.getId()));
+        org.testng.Assert.assertTrue(siteAdmin.addMember(other.getId().getValue(), outsider.getId()));
+        final PrivilegeCommands realPrivs = new PrivilegeCommands();
+        org.testng.Assert.assertTrue(realPrivs.savePrivilege(realPrivs.createPrivilege(
+                PrivilegeCommands.PEOPLE_ADMIN, "test", orgId, java.util.List.of(deputy.getId())), null));
+
+        final FamilyCommands asDeputy = new FamilyCommands(new ConfigCommands(), new AuditCommands(),
+                () -> new Caller(deputy.getId(), false,
+                        new AuditActor(deputy.getEmail(), deputy.getId().getValue()), new PrivilegeCommands()));
+        org.testng.Assert.assertTrue(asDeputy.adminLink(anchor.getId(), insider.getId(), false),
+                "peopleAdmin@org links two people of that org");
+        org.testng.Assert.assertFalse(asDeputy.adminLink(anchor.getId(), outsider.getId(), false),
+                "...but never someone from a different org");
+        org.testng.Assert.assertTrue(asDeputy.adminUnlink(insider.getId()),
+                "and unlinks within the org too");
+    }
+
     private FamilyCommands commandsFor(final Person person) {
         return new FamilyCommands(new ConfigCommands(), new AuditCommands(), callerOf(person, false));
     }

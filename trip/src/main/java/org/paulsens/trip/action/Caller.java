@@ -123,7 +123,7 @@ public final class Caller {
     }
 
     /**
-     * Whether this caller holds the named privilege, optionally scoped to a trip.
+     * Whether this caller holds the named privilege, optionally scoped to a trip or an organization.
      *
      * <p>A site administrator holds everything, checked first. Without that short-circuit an administrator is
      * refused whenever nobody remembered to create the backing privilege row -- which is most of them, since
@@ -135,7 +135,7 @@ public final class Caller {
      * hundred scans of the same two rows. Privileges cannot meaningfully change mid-request, so caching within
      * one is free of the staleness a longer-lived cache would have.
      */
-    public boolean has(final String privilegeName, final String tripId) {
+    public boolean has(final String privilegeName, final String scopeId) {
         if (siteAdmin) {
             return true;
         }
@@ -144,8 +144,8 @@ public final class Caller {
         }
         // Plain HashMap, not concurrent: a Caller belongs to one request and is never shared between threads.
         return answers.computeIfAbsent(
-                privilegeName + '@' + (tripId == null ? "" : tripId),
-                key -> privileges.check(privilegeName, tripId, personId));
+                privilegeName + '@' + (scopeId == null ? "" : scopeId),
+                key -> privileges.check(privilegeName, scopeId, personId));
     }
 
     /**

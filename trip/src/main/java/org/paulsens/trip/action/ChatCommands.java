@@ -67,7 +67,7 @@ import org.paulsens.trip.cache.Cached;
 public class ChatCommands {
 
     private static final String CHAT_ADMIN_PRIV = "chatAdmin";
-    private static final String CHAT_MGR_PRIV = "chatMgr";
+    private static final String CHAT_MGR_PRIV = PrivilegeCommands.CHAT_MGR;
 
     public static final String MEDIA_TYPE_V1 = "application/vnd.trip.chat.v1+json";
     public static final String CSRF_HEADER = "X-Trip-Chat";
@@ -249,7 +249,7 @@ public class ChatCommands {
 
     public boolean hasChatMgr(final String tripId) {
         final List<Person.Id> holders = new PrivilegeCommands()
-                .getPeopleWithPriv(List.of("chatMgr"), tripId);
+                .getPeopleWithPriv(List.of(PrivilegeCommands.CHAT_MGR), tripId);
         return !holders.isEmpty();
     }
 

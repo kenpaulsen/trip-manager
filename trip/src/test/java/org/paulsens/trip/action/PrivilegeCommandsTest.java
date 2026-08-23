@@ -21,6 +21,32 @@ public class PrivilegeCommandsTest {
     private final Person.Id hasAccess2 = FakeData.getFakePeople().get(2).getId();
 
     @Test
+    public void deleteRemovesExactlyOneRowAndAnswersFalseOnAMiss() {
+        final String scope = java.util.UUID.randomUUID().toString();
+        final Privilege doomed = privCmds.createPrivilege("del" + RandomData.genAlpha(8), "doomed", scope,
+                List.of(hasAccess1));
+        final Privilege survivor = privCmds.createPrivilege("keep" + RandomData.genAlpha(8), "kept", scope,
+                List.of(hasAccess2));
+        assertTrue(privCmds.savePrivilege(doomed));
+        assertTrue(privCmds.savePrivilege(survivor));
+
+        assertTrue(privCmds.deletePrivilege(doomed.getName(), scope));
+        assertEquals(privCmds.getPrivilege(doomed.getName(), scope), Privilege.NONE, "The row is gone");
+        assertEquals(privCmds.getPrivilege(survivor.getName(), scope).getPeople(), List.of(hasAccess2),
+                "Its partition neighbour survives (removeOne, never a partition invalidate)");
+        assertFalse(privCmds.deletePrivilege(doomed.getName(), scope), "Deleting a miss reports false");
+        assertFalse(privCmds.deletePrivilege("  ", scope));
+    }
+
+    @Test
+    public void knownBasesAnswerPerScopeKind() {
+        assertEquals(privCmds.knownBases("GLOBAL"), PrivilegeCommands.GLOBAL_BASES);
+        assertEquals(privCmds.knownBases("TRIP"), PrivilegeCommands.TRIP_SCOPED_BASES);
+        assertEquals(privCmds.knownBases("ORG"), PrivilegeCommands.ORG_SCOPED_BASES);
+        assertEquals(privCmds.knownBases(null), PrivilegeCommands.GLOBAL_BASES);
+    }
+
+    @Test
     public void badGetPrivNameReturnsNull() {
         final String name = RandomData.genAlpha(15);
         privCmds.getPrivilege(name, null);

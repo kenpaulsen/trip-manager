@@ -23,6 +23,7 @@ import org.paulsens.trip.model.OrgMember;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.PaymentProcessorConfig;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.ProcessorType;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPaymentConfig;
@@ -265,14 +266,34 @@ public class OrgCommands {
      * {@code Person.orgIds} delta. Returns false (with a growl) on refusal or failure.
      */
     public boolean addMember(final String orgId, final Person.Id personId) {
-        final Caller current = caller();
-        final Organization org = findOrganization(orgId);
-        if (org == null || personId == null) {
+        if (findOrganization(orgId) == null || personId == null) {
             return fail("Unable to add", "Unknown organization or person.");
         }
         if (!canManageOrg(orgId)) {
             return fail("Not allowed", "Only this organization's admins can add members.");
         }
+        return writeMembership(orgId, personId);
+    }
+
+    /**
+     * Membership write for a person a people admin just CREATED. Unlike {@link #addMember} (org-admin only,
+     * because pulling an EXISTING person into an org is an access change), creation tenants a brand-new
+     * person into an org the creator holds {@code peopleAdmin} in -- nobody's existing access moves.
+     */
+    public boolean addCreatedPerson(final String orgId, final Person.Id personId) {
+        if (findOrganization(orgId) == null || personId == null) {
+            return fail("Unable to add", "Unknown organization or person.");
+        }
+        if (!canViewOrgPeople(orgId)) {
+            return fail("Not allowed", "Creating a person here requires people-admin access to this "
+                    + "organization.");
+        }
+        return writeMembership(orgId, personId);
+    }
+
+    private boolean writeMembership(final String orgId, final Person.Id personId) {
+        final Caller current = caller();
+        final Organization org = findOrganization(orgId);
         final Person person = DAO.getInstance().getPerson(personId, Cached.NO).orElse(null);
         if (person == null) {
             return fail("Unable to add", "Unknown person.");
@@ -315,6 +336,10 @@ public class OrgCommands {
             return fail("Admin first", "This person is an admin of the organization. "
                     + "Revoke their admin role before removing them.");
         }
+        if (isOnAnyOrgTrip(orgId, personId)) {
+            return fail("On a trip", "This person is on a trip belonging to this organization. "
+                    + "Remove them from the trip before removing them from the organization.");
+        }
         if (DAO.getInstance().getOrgMember(org.getId(), personId, Cached.NO).isEmpty()) {
             return fail("Not a member", "This person is not a member of the organization.");
         }
@@ -329,9 +354,25 @@ public class OrgCommands {
         if (person != null && person.getOrgIds().remove(org.getId())) {
             savePersonOrWarn(person);
         }
+        revokeOrgPrivilegesOf(org, personId);
         audit(current, org, "Removed " + (person == null ? personId.getValue() : describe(person))
                 + " from organization '" + org.getName() + "'");
         return true;
+    }
+
+    /**
+     * Strips every org-scoped privilege a departing member held here -- a grant must not outlive the
+     * membership it was bounded by (grants require membership, so leaving revokes). Each revocation audits
+     * its own delta through the privilege save.
+     */
+    private void revokeOrgPrivilegesOf(final Organization org, final Person.Id personId) {
+        final PrivilegeCommands priv = privCommands();
+        for (final String base : PrivilegeCommands.ORG_SCOPED_BASES) {
+            final Privilege row = priv.getPrivilege(base, org.getId().getValue());
+            if (row.getPeople().contains(personId)) {
+                priv.savePrivilege(row.withoutPerson(personId), caller().auditActor());
+            }
+        }
     }
 
     /**
@@ -370,6 +411,441 @@ public class OrgCommands {
         audit(current, fresh, (admin ? "Granted" : "Revoked") + " org admin for " + personId.getValue()
                 + " on organization '" + fresh.getName() + "'");
         return true;
+    }
+
+    // ------------------------------------------------------------------ org-scoped privileges
+
+    /**
+     * Whether the signed-in user holds the given base privilege in ANY of their orgs (site admin: always).
+     * The menu and the shared people/mail pages gate on this -- "does an org-scoped door exist for this
+     * person at all" -- while each page then enforces its own per-subject or per-org check.
+     */
+    public boolean holdsAnywhere(final String base) {
+        return !orgsWithPriv(base).isEmpty();
+    }
+
+    /**
+     * The orgs in which the signed-in user holds the given base privilege (site admin: all of them). Scans
+     * every org rather than just the caller's memberships so the answer matches {@link #canViewOrgHub} --
+     * the org list is small and cached, and {@link Caller#has} memoizes per request.
+     */
+    public List<Organization> orgsWithPriv(final String base) {
+        final Caller current = caller();
+        if (base == null || !current.isAuthenticated()) {
+            return List.of();
+        }
+        if (current.isSiteAdmin()) {
+            return getOrganizations();
+        }
+        return getOrganizations().stream()
+                .filter(org -> current.has(base, org.getId().getValue()))
+                .toList();
+    }
+
+    /**
+     * The orgs whose hub the signed-in user can open: the ones they administer plus the ones where they hold
+     * any org-scoped privilege. Drives the menu's org entries, so reachability and the hub gate agree.
+     */
+    public List<Organization> visibleOrgs() {
+        final Caller current = caller();
+        if (!current.isAuthenticated()) {
+            return List.of();
+        }
+        if (current.isSiteAdmin()) {
+            return getOrganizations();
+        }
+        return getOrganizations().stream()
+                .filter(org -> canViewOrgHub(org.getId().getValue()))
+                .toList();
+    }
+
+    /** Whether the signed-in user may create a trip belonging to this org. */
+    public boolean canCreateTripFor(final String orgId) {
+        return canManageOrg(orgId)
+                || (orgId != null && !orgId.isBlank() && caller().has(PrivilegeCommands.ADD_TRIP, orgId));
+    }
+
+    /** The org hub (dashboard): admins plus anyone holding an org-scoped privilege there. */
+    public boolean canViewOrgHub(final String orgId) {
+        if (canManageOrg(orgId)) {
+            return true;
+        }
+        if (orgId == null || orgId.isBlank()) {
+            return false;
+        }
+        final Caller current = caller();
+        return PrivilegeCommands.ORG_SCOPED_BASES.stream().anyMatch(base -> current.has(base, orgId));
+    }
+
+    /** The org Trips page: admins, plus addTrip holders (they need the list their button lives on). */
+    public boolean canViewOrgTrips(final String orgId) {
+        return canCreateTripFor(orgId);
+    }
+
+    /** The org People page: admins get the controls, peopleAdmin holders a read-only browse. */
+    public boolean canViewOrgPeople(final String orgId) {
+        return canManageOrg(orgId)
+                || (orgId != null && !orgId.isBlank() && caller().has(PrivilegeCommands.PEOPLE_ADMIN, orgId));
+    }
+
+    /**
+     * Whether the signed-in user may administer this person's record: site admin, or holder of
+     * {@code peopleAdmin} in an org the subject belongs to. Both org lists are tiny and
+     * {@link Caller#has} memoizes per request, so this is safe inside a search-result filter.
+     */
+    public boolean canAdminPerson(final Person.Id subjectId) {
+        final Caller current = caller();
+        if (subjectId == null || !current.isAuthenticated()) {
+            return false;
+        }
+        if (current.isSiteAdmin()) {
+            return true;
+        }
+        final Person subject = DAO.getInstance().getPerson(subjectId, Cached.YES).orElse(null);
+        if (subject == null) {
+            return false;
+        }
+        return subject.getOrgIds().stream()
+                .anyMatch(orgId -> current.has(PrivilegeCommands.PEOPLE_ADMIN, orgId.getValue()));
+    }
+
+    /**
+     * The org-scoped privilege bases this org may grant, allow-list-filtered -- the ONE source for both the
+     * People page's toggles/chips and {@link #grantOrgPrivilege}'s enforcement, so UI and server cannot
+     * drift. Empty unless the viewer can at least see the People page.
+     */
+    public List<String> grantableOrgPrivileges(final String orgId) {
+        final Organization org = findOrganization(orgId);
+        if (org == null || !canViewOrgPeople(orgId)) {
+            return List.of();
+        }
+        return PrivilegeCommands.ORG_SCOPED_BASES.stream().filter(org::mayGrant).toList();
+    }
+
+    /** Display names for the trip-scoped role bases, as the trip editor has always labelled them. */
+    private static final java.util.Map<String, String> TRIP_ROLE_NAMES = java.util.Map.of(
+            PrivilegeCommands.TRIP_MGR, "Editor Admin",
+            PrivilegeCommands.TRIP_FIN_ADMIN, "Finance Admin",
+            PrivilegeCommands.TRIP_FIN_VIEW, "Finance Viewer",
+            PrivilegeCommands.TRIP_VIEW, "Viewer",
+            PrivilegeCommands.CHAT_MGR, "Chat Admin");
+
+    /**
+     * The trip editor's manager-role definitions ({@code name} / {@code desc} / {@code base} maps), built
+     * from {@link #grantableTripBases} so the rendered role list and the {@link #setTripRole} enforcement
+     * are the same filter. Replaces the list the page used to assemble inline (which could not be
+     * allow-list-aware).
+     */
+    public List<java.util.Map<String, String>> tripRoleDefs(final Trip trip) {
+        return grantableTripBases(trip).stream().map(base -> roleDef(trip, base)).toList();
+    }
+
+    private java.util.Map<String, String> roleDef(final Trip trip, final String base) {
+        final String name = TRIP_ROLE_NAMES.getOrDefault(base, base);
+        return java.util.Map.of("name", name, "desc", trip.getTitle() + " - " + name, "base", base);
+    }
+
+    /** ALL trip-scoped role bases, unfiltered -- the display list for who-holds-what (never a grant list). */
+    public List<String> allTripRoleBases() {
+        return PrivilegeCommands.TRIP_SCOPED_BASES;
+    }
+
+    /** The trip-scoped role bases the given trip's org may grant (site admin: unfiltered). */
+    public List<String> grantableTripBases(final Trip trip) {
+        if (trip == null) {
+            return List.of();
+        }
+        if (caller().isSiteAdmin()) {
+            return PrivilegeCommands.TRIP_SCOPED_BASES;
+        }
+        final Organization owner = (trip.getOrgId() == null) ? null : findOrganization(trip.getOrgId());
+        if (owner == null || !canManageOrg(owner.getId().getValue())) {
+            return List.of();
+        }
+        return PrivilegeCommands.TRIP_SCOPED_BASES.stream().filter(owner::mayGrant).toList();
+    }
+
+    /**
+     * Grants an org-scoped privilege to an org member. Org-admin only; the base must be one the org's
+     * allow-list permits (site admins bypass the allow-list); the grantee must be a member but need NOT be
+     * an org admin. The privilege save itself audits the grant delta.
+     */
+    public boolean grantOrgPrivilege(final String orgId, final Person.Id personId, final String base) {
+        final Organization org = findOrganization(orgId);
+        if (org == null || personId == null) {
+            return fail("Unable to grant", "Unknown organization or person.");
+        }
+        if (!canManageOrg(orgId)) {
+            return fail("Not allowed", "Only this organization's admins can grant privileges.");
+        }
+        if (!PrivilegeCommands.ORG_SCOPED_BASES.contains(base)) {
+            return fail("Unable to grant", "'" + base + "' is not an organization-scoped privilege.");
+        }
+        if (!caller().isSiteAdmin() && !org.mayGrant(base)) {
+            return fail("Not available", "This organization does not have access to '" + base + "'.");
+        }
+        if (!isMember(orgId, personId)) {
+            return fail("Not a member", "Privileges can only be granted to members of the organization.");
+        }
+        final PrivilegeCommands priv = privCommands();
+        final Privilege row = priv.getOrCreate(base, org.getId().getValue(), org.getShortName() + " " + base);
+        return priv.savePrivilege(row.withNewPerson(personId), caller().auditActor());
+    }
+
+    /**
+     * Revokes an org-scoped privilege. Org-admin only, but deliberately NOT allow-list-checked: revocation
+     * must keep working after a site admin restricts the org, or stale grants become unremovable.
+     */
+    public boolean revokeOrgPrivilege(final String orgId, final Person.Id personId, final String base) {
+        if (findOrganization(orgId) == null || personId == null) {
+            return fail("Unable to revoke", "Unknown organization or person.");
+        }
+        if (!canManageOrg(orgId)) {
+            return fail("Not allowed", "Only this organization's admins can revoke privileges.");
+        }
+        final PrivilegeCommands priv = privCommands();
+        final Privilege row = priv.getPrivilege(base, orgId);
+        if (!row.getPeople().contains(personId)) {
+            return true;
+        }
+        return priv.savePrivilege(row.withoutPerson(personId), caller().auditActor());
+    }
+
+    /**
+     * Grants or revokes a trip-scoped role -- the server-side enforcement behind the trip editor's manager
+     * checkboxes. Site admin, or an admin of the trip's org whose allow-list permits the base.
+     */
+    public boolean setTripRole(final String tripId, final Person.Id personId, final String base,
+            final boolean granted) {
+        final Trip trip = (tripId == null || tripId.isBlank()) ? null
+                : DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
+        if (trip == null || personId == null) {
+            return fail("Unable to save", "Unknown trip or person.");
+        }
+        if (!caller().isSiteAdmin() && !canManageOrg(trip.getOrgId())) {
+            return fail("Not allowed", "Only this trip's organization admins can change trip roles.");
+        }
+        if (!grantableTripBases(trip).contains(base)) {
+            return fail("Not available", "'" + base + "' is not a role this organization can grant.");
+        }
+        final PrivilegeCommands priv = privCommands();
+        final Privilege row = priv.getOrCreate(base, trip.getId(),
+                base + " for trip '" + trip.getTitle() + "'");
+        final Privilege changed = granted ? row.withNewPerson(personId) : row.withoutPerson(personId);
+        // Same-object means no membership change; skip the no-op save (and its "unchanged" audit row).
+        return changed == row || priv.savePrivilege(changed, caller().auditActor());
+    }
+
+    // ------------------------------------------------------------------ org-bounded mail merge
+
+    /** Whether the signed-in user may use the mail-merge surface at all. */
+    public boolean canMail() {
+        return caller().isSiteAdmin() || holdsAnywhere(PrivilegeCommands.EMAIL_ADMIN);
+    }
+
+    /**
+     * Every address the signed-in user may mail, lower-cased -- or {@code null} for a site admin
+     * (unrestricted). For an {@code emailAdmin@org} holder: the members of each such org plus the rosters of
+     * those orgs' trips. Computed on demand only (send/search time) -- never per row at render.
+     */
+    public java.util.Set<String> allowedRecipientEmails() {
+        if (caller().isSiteAdmin()) {
+            return null;
+        }
+        final java.util.Set<String> allowed = new java.util.HashSet<>();
+        for (final Organization org : orgsWithPriv(PrivilegeCommands.EMAIL_ADMIN)) {
+            getMembers(org).forEach(member -> addEmail(allowed, member.getEmail()));
+            for (final Trip trip : orgTrips(org.getId().getValue())) {
+                for (final Person.Id personId : trip.getPeople()) {
+                    DAO.getInstance().getPerson(personId, Cached.YES)
+                            .ifPresent(person -> addEmail(allowed, person.getEmail()));
+                }
+            }
+        }
+        return allowed;
+    }
+
+    /** Whether the signed-in user may mail this trip's roster (bounds the mail page's trip picker AND its
+     *  roster listing, so a forged trip id cannot enumerate another tenant's addresses). */
+    public boolean canMailTrip(final String tripId) {
+        final Trip trip = (tripId == null || tripId.isBlank()) ? null
+                : DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
+        if (trip == null || !canMail()) {
+            return false;
+        }
+        if (caller().isSiteAdmin()) {
+            return true;
+        }
+        return trip.getOrgId() != null
+                && caller().has(PrivilegeCommands.EMAIL_ADMIN, trip.getOrgId());
+    }
+
+    /** The trips whose rosters the signed-in user may mail, newest first. */
+    public List<Trip> mailableTrips(final int limit) {
+        if (!canMail()) {
+            return List.of();
+        }
+        final List<Trip> recent = DAO.getInstance().getRecentTrips(limit, Cached.YES);
+        if (caller().isSiteAdmin()) {
+            return recent;
+        }
+        return recent.stream().filter(trip -> canMailTrip(trip.getId())).toList();
+    }
+
+    /** People search bounded to the addresses the signed-in user may mail (site admin: unbounded). */
+    public List<Person> searchMailablePeople(final String query, final int limit) {
+        if (!canMail()) {
+            return List.of();
+        }
+        final java.util.Set<String> allowed = allowedRecipientEmails();
+        return PersonCommands.getPersonCommands().searchPeople(query, limit * 4).stream()
+                .filter(person -> allowed == null || isAllowedEmail(allowed, person.getEmail()))
+                .limit(limit)
+                .toList();
+    }
+
+    /**
+     * The mail-merge send, org-bounded server-side: recipients (and bcc entries) outside the caller's
+     * allowed set are DROPPED with a growl naming the count, and the send proceeds for the rest. This is
+     * the enforcement point behind the Send button -- the page never composes the filter itself.
+     */
+    public boolean sendMerge(final String from, final List<String> toEmails, final String bcc,
+            final String replyTo, final String subject, final String body) {
+        if (!canMail()) {
+            return fail("Not allowed", "Sending mail requires the emailAdmin privilege.");
+        }
+        final java.util.Set<String> allowed = allowedRecipientEmails();
+        final List<String> toList = (toEmails == null) ? List.of() : toEmails;
+        final List<String> accepted = toList.stream()
+                .filter(email -> allowed == null || isAllowedEmail(allowed, email))
+                .toList();
+        final int rejected = toList.size() - accepted.size();
+        if (rejected > 0) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN, rejected + " recipient(s) outside "
+                    + "your organization(s) were skipped.", null);
+        }
+        if (accepted.isEmpty()) {
+            return fail("Nobody to mail", "No recipients are within your organization(s).");
+        }
+        final String boundedBcc = boundBcc(bcc, allowed);
+        final MailCommands mail = mailSource.get();
+        mail.sendTemplate(from, mail.emailsToPeople(accepted), boundedBcc, replyTo, subject, body);
+        return true;
+    }
+
+    /** The org's contact address as the mail page's default From, or null when none of the caller's
+     *  email-orgs has one (the page falls back to the site default). */
+    public String orgMailFrom() {
+        return orgsWithPriv(PrivilegeCommands.EMAIL_ADMIN).stream()
+                .map(Organization::getContactEmail)
+                .filter(email -> email != null && !email.isBlank())
+                .findFirst()
+                .orElse(null);
+    }
+
+    private List<Trip> orgTrips(final String orgId) {
+        return DAO.getInstance().getRecentTrips(400, Cached.YES).stream()
+                .filter(trip -> orgId.equals(trip.getOrgId()))
+                .toList();
+    }
+
+    private static void addEmail(final java.util.Set<String> allowed, final String email) {
+        if (email != null && !email.isBlank()) {
+            allowed.add(email.trim().toLowerCase(Locale.ROOT));
+        }
+    }
+
+    private static boolean isAllowedEmail(final java.util.Set<String> allowed, final String email) {
+        return email != null && allowed.contains(email.trim().toLowerCase(Locale.ROOT));
+    }
+
+    /** The caller-bounded form of {@link #boundBcc} for edges that assemble their own sends (REST). */
+    public String boundedBcc(final String bcc) {
+        return boundBcc(bcc, allowedRecipientEmails());
+    }
+
+    /** BCC entries ride every message, so they are bounded exactly like recipients (comma-separated). */
+    private static String boundBcc(final String bcc, final java.util.Set<String> allowed) {
+        if (bcc == null || bcc.isBlank() || allowed == null) {
+            return bcc;
+        }
+        final List<String> kept = java.util.Arrays.stream(bcc.split(","))
+                .map(String::trim)
+                .filter(entry -> !entry.isEmpty() && isAllowedEmail(allowed, entry))
+                .toList();
+        return kept.isEmpty() ? null : String.join(",", kept);
+    }
+
+    /** Whether this person is on the roster of any trip belonging to this org (blocks member removal). */
+    public boolean isOnAnyOrgTrip(final String orgId, final Person.Id personId) {
+        if (orgId == null || orgId.isBlank() || personId == null) {
+            return false;
+        }
+        return DAO.getInstance().getTripsForUser(personId, Cached.YES).stream()
+                .anyMatch(trip -> orgId.equals(trip.getOrgId()));
+    }
+
+    /**
+     * Site-admin edit of the org's allow-list. {@code null} resets to "never restricted" (everything);
+     * non-null lists are validated against the known grantable bases so a typo cannot silently disable a
+     * feature.
+     */
+    public boolean setGrantablePrivileges(final String orgId, final List<String> bases) {
+        final Caller current = caller();
+        if (!current.isSiteAdmin()) {
+            return fail("Not allowed", "Only a site administrator can restrict an organization's privileges.");
+        }
+        final Organization fresh = (orgId == null || orgId.isBlank()) ? null
+                : DAO.getInstance().getOrganization(Organization.Id.from(orgId.trim()), Cached.NO).orElse(null);
+        if (fresh == null) {
+            return fail("Unable to save", "Unknown organization.");
+        }
+        final List<String> cleaned;
+        if (bases == null) {
+            cleaned = null;
+        } else {
+            cleaned = bases.stream().distinct().toList();
+            final List<String> unknown = cleaned.stream().filter(base -> !isGrantableBase(base)).toList();
+            if (!unknown.isEmpty()) {
+                return fail("Unable to save", "Unknown privilege name(s): " + String.join(", ", unknown));
+            }
+        }
+        fresh.setGrantablePrivileges(cleaned);
+        if (!saveOrgOrWarn(fresh)) {
+            return false;
+        }
+        audit(current, fresh, "Allow-list set to " + (cleaned == null ? "ALL (never restricted)" : cleaned)
+                + " for organization '" + fresh.getName() + "'");
+        return true;
+    }
+
+    /**
+     * The org's allow-list as the site-admin editor's checkboxes should render it: the stored list, or every
+     * grantable base when the org was never restricted (null). Read-only display sugar -- enforcement stays
+     * in {@link Organization#mayGrant}.
+     */
+    public List<String> effectiveGrantable(final String orgId) {
+        final Organization org = findOrganization(orgId);
+        if (org == null) {
+            return List.of();
+        }
+        return (org.getGrantablePrivileges() == null) ? allGrantableBases() : org.getGrantablePrivileges();
+    }
+
+    /** Every base name an allow-list may contain, for the site-admin editor's checkboxes. */
+    public List<String> allGrantableBases() {
+        final List<String> all = new ArrayList<>(PrivilegeCommands.TRIP_SCOPED_BASES);
+        all.addAll(PrivilegeCommands.ORG_SCOPED_BASES);
+        return all;
+    }
+
+    private static boolean isGrantableBase(final String base) {
+        return PrivilegeCommands.TRIP_SCOPED_BASES.contains(base)
+                || PrivilegeCommands.ORG_SCOPED_BASES.contains(base);
+    }
+
+    private PrivilegeCommands privCommands() {
+        return new PrivilegeCommands();
     }
 
     // ------------------------------------------------------------------ payment processor configs

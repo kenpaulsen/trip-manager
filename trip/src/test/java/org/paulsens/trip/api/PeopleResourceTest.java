@@ -183,21 +183,26 @@ public class PeopleResourceTest extends ResourceTestSupport {
         Mockito.when(people.searchPeople(ArgumentMatchers.anyString(), ArgumentMatchers.anyInt()))
                 .thenReturn(List.of());
 
+        // The raw fetch is 4x the clamped page: the org filter runs after it (see the endpoint comment).
         resource.search(null, 100_000);
-        Mockito.verify(people).searchPeople("", 100);
+        Mockito.verify(people).searchPeople("", 400);
 
         resource.search("x", -5);
-        Mockito.verify(people).searchPeople("x", 1);
+        Mockito.verify(people).searchPeople("x", 4);
     }
 
     @Test
-    public void creatingAPersonRequiresCsrfAndPeopleAdmin() {
+    public void creatingAPersonRequiresCsrfAnOrgAndPeopleAdminReach() {
         signedInAsSiteAdmin(ME);
-        assertError(resource.create(null, null), 403, ApiErrors.CSRF);
+        assertError(resource.create(null, null, null), 403, ApiErrors.CSRF);
 
         signedInAs(ME);
         final PeopleResource asOrdinaryUser = resource(new PeopleResource());
-        assertError(asOrdinaryUser.create(CSRF_OK, null), 403, ApiErrors.FORBIDDEN);
+        assertError(asOrdinaryUser.create(CSRF_OK, null, null), 400, ApiErrors.VALIDATION_FAILED);
+        signedInAs(ME);
+        assertError(resource(new PeopleResource())
+                        .create(CSRF_OK, java.util.UUID.randomUUID().toString(), null),
+                403, ApiErrors.FORBIDDEN);
         Mockito.verify(people, Mockito.never()).savePerson(ArgumentMatchers.any());
     }
 
@@ -208,7 +213,7 @@ public class PeopleResourceTest extends ResourceTestSupport {
         Mockito.when(people.createPerson()).thenReturn(created);
         Mockito.when(people.savePerson(created)).thenReturn(true);
 
-        assertOk(resource.create(CSRF_OK, dto("Fresh")));
+        assertOk(resource.create(CSRF_OK, null, dto("Fresh")));
 
         Assert.assertEquals(created.getFirst(), "Fresh");
         // savePerson does not audit; the edge has to, or a REST-created person leaves no trace.
@@ -223,7 +228,7 @@ public class PeopleResourceTest extends ResourceTestSupport {
         Mockito.when(people.createPerson()).thenReturn(created);
         Mockito.when(people.savePerson(created)).thenReturn(false);
 
-        assertError(resource.create(CSRF_OK, dto("Fresh")), 500, ApiErrors.STORE_FAILED);
+        assertError(resource.create(CSRF_OK, null, dto("Fresh")), 500, ApiErrors.STORE_FAILED);
         Mockito.verifyNoInteractions(audit);
     }
 

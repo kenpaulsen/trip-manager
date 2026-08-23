@@ -56,7 +56,7 @@ public class PhotoChatCommands {
 
     /** Duplicated from {@code ChatCommands} (private there); the grant rows are shared. */
     private static final String CHAT_ADMIN_PRIV = "chatAdmin";
-    private static final String CHAT_MGR_PRIV = "chatMgr";
+    private static final String CHAT_MGR_PRIV = PrivilegeCommands.CHAT_MGR;
 
     /** Most photo keys one batch-meta call may ask about; more is a client bug, not a bigger page. */
     public static final int MAX_META_KEYS = 200;

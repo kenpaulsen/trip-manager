@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.MailCommands;
+import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.TripThreads;
@@ -56,7 +57,10 @@ public class MailResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        if (!privileges().has(ApiPrivileges.EMAIL_ADMIN)) {
+        // emailAdmin is ORG-scoped now (org migration, 2026-08): entry needs it somewhere, and the preview
+        // subject must be someone the caller could actually mail (or themselves).
+        final OrgCommands orgs = new OrgCommands(this::caller);
+        if (!orgs.canMail()) {
             return error(403, ApiErrors.FORBIDDEN, "Email administration required.");
         }
         if (body == null || body.template() == null || body.template().isBlank()) {
@@ -66,6 +70,12 @@ public class MailResource extends BaseResource {
                 ? findPerson(personId()) : findPerson(Person.Id.from(body.personId()));
         if (person == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such person to preview against.");
+        }
+        final java.util.Set<String> allowed = orgs.allowedRecipientEmails();
+        if (allowed != null && !person.getId().equals(personId())
+                && (person.getEmail() == null
+                        || !allowed.contains(person.getEmail().trim().toLowerCase(java.util.Locale.ROOT)))) {
+            return error(403, ApiErrors.FORBIDDEN, "That person is outside your organization(s).");
         }
         // renderTemplate, not previewTemplate: the latter evaluates through the Faces expression context and
         // off a Faces thread returns the literal text "null" for the whole template -- a preview that looks
@@ -93,7 +103,8 @@ public class MailResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        if (!privileges().has(ApiPrivileges.EMAIL_ADMIN)) {
+        final OrgCommands orgs = new OrgCommands(this::caller);
+        if (!orgs.canMail()) {
             return error(403, ApiErrors.FORBIDDEN, "Email administration required.");
         }
         final Response invalid = validate(body);
@@ -102,17 +113,23 @@ public class MailResource extends BaseResource {
         }
         final MailCommands mail = Beans.get(MailCommands.class);
         final AuditActor actor = actor();
+        // emailAdmin is org-scoped: recipients outside the caller's orgs are dropped and counted in
+        // "rejected" (null allowed-set == site admin, unrestricted).
+        final java.util.Set<String> allowed = orgs.allowedRecipientEmails();
         final List<String> accepted = body.to().stream()
                 .map(mail::validateEmail)
                 .filter(Objects::nonNull)
+                .filter(email -> allowed == null
+                        || allowed.contains(email.trim().toLowerCase(java.util.Locale.ROOT)))
                 .toList();
         if (accepted.isEmpty()) {
             return error(422, ApiErrors.VALIDATION_FAILED, "No usable recipient addresses.");
         }
+        final String bcc = orgs.boundedBcc(body.bcc());
         for (final String recipient : accepted) {
             // startAs, not a bare spawn: send() is blocking now, and a plain spawn would not inherit the
             // ScopedValue-bound identity -- the actor must ride along explicitly for the EMAIL audit record.
-            TripThreads.startAs(actor, () -> sendOne(mail, body, recipient, actor));
+            TripThreads.startAs(actor, () -> sendOne(mail, body, recipient, bcc, actor));
         }
         // Reports what was ACCEPTED, not what was delivered. The sends run on their own virtual threads and
         // SES decides delivery later; claiming success here would be claiming something this call cannot know.
@@ -120,8 +137,8 @@ public class MailResource extends BaseResource {
     }
 
     private static void sendOne(final MailCommands mail, final SendRequest body, final String recipient,
-            final AuditActor actor) {
-        mail.send(body.from(), recipient, body.bcc(), body.replyTo(), body.subject(), body.body(), actor);
+            final String bcc, final AuditActor actor) {
+        mail.send(body.from(), recipient, bcc, body.replyTo(), body.subject(), body.body(), actor);
     }
 
     private Response validate(final SendRequest body) {

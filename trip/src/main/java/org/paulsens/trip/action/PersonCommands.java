@@ -50,6 +50,17 @@ public class PersonCommands {
      */
     public static final String PAY_FOR = "payFor";
 
+    private final Supplier<OrgCommands> orgSource;
+
+    public PersonCommands() {
+        this(() -> org.paulsens.trip.api.Beans.get(OrgCommands.class));
+    }
+
+    /** Test seam (the {@link TripDeleteCommands} pattern): {@code Beans.get} needs a CDI container. */
+    PersonCommands(final Supplier<OrgCommands> orgSource) {
+        this.orgSource = orgSource;
+    }
+
     public static PersonCommands getPersonCommands() {
         final FacesContext ctx = FacesContext.getCurrentInstance();
         final PersonCommands result;
@@ -259,6 +270,21 @@ public class PersonCommands {
             log.error("Failed to search people for '{}'!", query, ex);
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * People search restricted to subjects the caller may administer ({@code OrgCommands.canAdminPerson}:
+     * site admins see everyone; org-scoped {@code peopleAdmin} holders see their orgs' people only). The
+     * admin people pages and their pickers use THIS, never {@link #searchPeople}, so tenancy is enforced in
+     * the data source rather than per page. The raw search runs with a larger limit because the org filter
+     * runs after it -- otherwise a full page of out-of-org hits could mask every permitted one.
+     */
+    public List<Person> adminSearchPeople(final String query, final int limit) {
+        final OrgCommands orgCommands = orgSource.get();
+        return searchPeople(query, limit * 4).stream()
+                .filter(person -> orgCommands.canAdminPerson(person.getId()))
+                .limit(limit)
+                .toList();
     }
 
     /**

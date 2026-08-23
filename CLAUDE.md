@@ -128,7 +128,9 @@ template manager; see `docs/content-templates.md` before touching either — MAI
 runtime-editable email copy rendered by `MailCommands.sendManagedTemplate`, tokens filled by Java only),
 `family` (FamilyCommands — family accounts; the create-and-link security boundary, see
 `docs/family-accounts.md`), `support` (SupportChatCommands — the support:main channel; requests post
-without membership), `org` (OrgCommands — organizations, THE tenancy boundary: membership, processor configs, the payment-config ladder; see `docs/payments.md` before touching), `payment` (PaymentCommands — the whole payment flow in Java: quote/start/complete/cancel + reconciliation + paymentsAdmin sandbox; see `docs/payments.md`), `deploy`, `json`, `tripUtil`.
+without membership), `org` (OrgCommands — organizations, THE tenancy boundary: membership, org-scoped privileges + the per-org
+allow-list, processor configs, the payment-config ladder; see `docs/org-admin.md` and `docs/payments.md`
+before touching), `payment` (PaymentCommands — the whole payment flow in Java: quote/start/complete/cancel + reconciliation + paymentsAdmin sandbox; see `docs/payments.md`), `deploy`, `json`, `tripUtil`.
 
 - `ChatPhotos.getChatPhotos()` is ONE static instance on purpose — never give it ChatCommands'
   FacesContext/application-map lookup: the upload servlet has no FacesContext and the JSF send does, so a

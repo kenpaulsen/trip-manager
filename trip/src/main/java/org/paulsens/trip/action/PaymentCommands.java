@@ -85,9 +85,21 @@ public class PaymentCommands {
 
     // ------------------------------------------------------------------ page-facing views
 
-    /** Whether the signed-in user may flip the page into sandbox mode. */
-    public boolean isSandboxAllowed() {
-        return caller().has(PrivilegeCommands.PAYMENTS_ADMIN);
+    /**
+     * Whether the signed-in user may flip the page into sandbox mode for THIS trip: site admin, or a holder
+     * of {@code paymentsAdmin} scoped to the trip's org (sandbox mode exercises that org's sandbox
+     * credentials, so the grant follows the org -- the global variant is retired, org migration 2026-08).
+     * An org-less legacy trip has no org to hold the grant, so only site admins get sandbox there.
+     */
+    public boolean isSandboxAllowed(final Trip trip) {
+        final Caller current = caller();
+        if (current.isSiteAdmin()) {
+            return true;
+        }
+        if (trip == null || trip.getOrgId() == null || trip.getOrgId().isBlank()) {
+            return false;
+        }
+        return current.has(PrivilegeCommands.PAYMENTS_ADMIN, trip.getOrgId());
     }
 
     /**
@@ -156,8 +168,9 @@ public class PaymentCommands {
         if (config == null) {
             return failNull("Payments not configured", "This trip is not set up to take payments.");
         }
-        if (sandbox && !isSandboxAllowed()) {
-            return failNull("Not allowed", "Sandbox mode requires the paymentsAdmin privilege.");
+        if (sandbox && !isSandboxAllowed(trip)) {
+            return failNull("Not allowed", "Sandbox mode requires the paymentsAdmin privilege for this "
+                    + "trip's organization.");
         }
         final List<Payment.Allocation> allocations = parseAllocations(payer, rawAmounts);
         if (allocations == null) {

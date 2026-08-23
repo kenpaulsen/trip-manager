@@ -97,19 +97,11 @@ public class PassCommandsTailsTest {
     }
 
     @Test
-    public void adminSetPassIsGatedOnThePeopleAdminPrivilege() {
+    public void userTypeOfFailsClosedOffAFacesThread() {
         final Person target = personWithCreds("Reset");
-
-        Assert.assertFalse(pass.adminSetPass(target.getEmail(), "new-pass", null),
-                "no caller means no authorization, whatever the edge said");
-        final Caller nobody = Mockito.mock(Caller.class);
-        Assert.assertFalse(pass.adminSetPass(target.getEmail(), "new-pass", nobody));
-
-        final Caller admin = Mockito.mock(Caller.class);
-        Mockito.when(admin.has(PrivilegeCommands.PEOPLE_ADMIN)).thenReturn(true);
-        Assert.assertTrue(pass.adminSetPass(target.getEmail(), "new-pass", admin));
-        Assert.assertThrows(IllegalArgumentException.class,
-                () -> pass.adminSetPass(" ", "x", admin));
+        // The admin set-password path is gone (org migration, 2026-08); the surviving admin-facing
+        // credential read is the display-safe type string, and it inherits the view-flag gate.
+        Assert.assertNull(pass.userTypeOf(target.getEmail()));
     }
 
 }

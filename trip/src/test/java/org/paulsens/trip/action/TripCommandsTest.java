@@ -31,6 +31,43 @@ public class TripCommandsTest {
         trips = FakeData.getFakeTrips();
     }
 
+    @Test
+    public void createTripForGatesOnOrgAuthorityAndStampsTheOrg() throws java.io.IOException {
+        final String orgId = java.util.UUID.randomUUID().toString();
+        final Trip created = asSiteAdmin().createTripFor(orgId);
+        assertEquals(created.getOrgId(), orgId, "The new trip belongs to the requested org");
+        assertNull(asNobody().createTripFor(orgId), "No org authority, no trip");
+        assertNull(asSiteAdmin().createTripFor(null), "A new trip must name its org");
+    }
+
+    @Test
+    public void getTripsForOrgFiltersByTenantAndGate() throws java.io.IOException {
+        final String orgId = java.util.UUID.randomUUID().toString();
+        final Trip mine = Trip.builder().title("Org Trip " + orgId).build();
+        mine.setOrgId(orgId);
+        final Trip other = Trip.builder().title("Other Trip " + orgId).build();
+        other.setOrgId(java.util.UUID.randomUUID().toString());
+        assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveTrip(mine));
+        assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveTrip(other));
+
+        final List<String> ids = asSiteAdmin().getTripsForOrg(orgId, 100).stream().map(Trip::getId).toList();
+        assertTrue(ids.contains(mine.getId()));
+        assertTrue(ids.stream().noneMatch(id -> id.equals(other.getId())),
+                "Another tenant's trip never appears");
+        assertEquals(asNobody().getTripsForOrg(orgId, 100), List.of(), "View-gated like the page");
+        assertEquals(asSiteAdmin().getTripCountForOrg(orgId), 1);
+    }
+
+    private static TripCommands asSiteAdmin() {
+        return new TripCommands(() -> new OrgCommands(() -> new Caller(Person.Id.from("admin"), true,
+                org.paulsens.trip.audit.AuditActor.system(), new PrivilegeCommands())));
+    }
+
+    private static TripCommands asNobody() {
+        return new TripCommands(() -> new OrgCommands(() -> new Caller(null, false,
+                org.paulsens.trip.audit.AuditActor.system(), new PrivilegeCommands())));
+    }
+
     /** The frozen-id anchors behind the itinerary table's per-request, cell-editable rows. */
     @Test
     public void frozenEventIdsResolveTheTripsCurrentCopiesInFrozenOrder() {

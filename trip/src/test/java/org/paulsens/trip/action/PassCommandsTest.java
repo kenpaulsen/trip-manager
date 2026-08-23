@@ -42,9 +42,6 @@ public class PassCommandsTest {
         Assert.assertThrows(IllegalArgumentException.class, () -> commands.login("a@b", " "));
         Assert.assertThrows(IllegalArgumentException.class, () -> commands.getCreds(null, "x"));
         Assert.assertThrows(IllegalArgumentException.class, () -> commands.adminGetCreds(" "));
-        Assert.assertThrows(IllegalArgumentException.class, () -> commands.adminSetPass(" ", "x"));
-        // The Caller form refuses a null caller rather than throwing: authorization failure, not bad input.
-        Assert.assertFalse(commands.adminSetPass("a@b", "x", null));
         Assert.assertThrows(IllegalArgumentException.class, () -> commands.getCredsByAdmin(" ", null));
     }
 
@@ -54,40 +51,32 @@ public class PassCommandsTest {
         Assert.assertFalse(commands.userExistsWithEmail("nobody@nowhere.example"));
     }
 
-    /** Off a Faces thread there is no view map: the check must fail CLOSED, not blow up. */
+    /** The display-safe replacement for handing Creds to a page: type only, never the stored secret. */
     @Test
-    public void theViewMapAdminSetPassFailsClosedWithoutAFacesContext() {
-        Assert.assertFalse(commands.adminSetPass("user2", "newpass"));
-    }
-
-    @Test
-    public void theViewMapAdminSetPassHonoursTheFlagWhenPresent() {
+    public void userTypeOfAnswersTheAccountTypeOrNull() {
+        // Off a Faces thread the underlying credential read fails CLOSED, so the type is unknowable.
+        Assert.assertNull(commands.userTypeOf("admin"));
+        Assert.assertNull(commands.userTypeOf(" "));
         try (MockedStatic<FacesContext> faces = Mockito.mockStatic(FacesContext.class)) {
             final FacesContext ctx = Mockito.mock(FacesContext.class);
             final UIViewRoot viewRoot = Mockito.mock(UIViewRoot.class);
             faces.when(FacesContext::getCurrentInstance).thenReturn(ctx);
             Mockito.when(ctx.getViewRoot()).thenReturn(viewRoot);
 
-            // Flag absent: refused.
-            Mockito.when(viewRoot.getViewMap(false)).thenReturn(Map.of());
-            Assert.assertFalse(commands.adminSetPass("user2", "newpass"));
-
-            // Flag present: allowed, and the underlying set succeeds against the fake store.
+            // A site-admin view (the template-set flag) reads the type.
             Mockito.when(viewRoot.getViewMap(false)).thenReturn(Map.of(CredentialsDAO.IS_ADMIN, "true"));
-            Assert.assertTrue(commands.adminSetPass("user2", "newpass"));
+            Assert.assertEquals(commands.userTypeOf("admin"), "admin");
+            Assert.assertNull(commands.userTypeOf("nobody@nowhere.example"));
+
+            // A people-admin page's own flag (org-scoped viewers never get showAll) works the same way.
+            Mockito.when(viewRoot.getViewMap(false))
+                    .thenReturn(Map.of(CredentialsDAO.CREDS_ADMIN_VIEW, "true"));
+            Assert.assertEquals(commands.userTypeOf("admin"), "admin");
+
+            // No flag at all: fail closed.
+            Mockito.when(viewRoot.getViewMap(false)).thenReturn(Map.of());
+            Assert.assertNull(commands.userTypeOf("admin"));
         }
-    }
-
-    @Test
-    public void theCallerFormAuthorizesByPrivilegeNotViewState() {
-        final PrivilegeCommands refusing = Mockito.mock(PrivilegeCommands.class);
-        final Caller nobody = new Caller(Person.Id.from("p1"), false,
-                org.paulsens.trip.audit.AuditActor.from(null), refusing);
-        Assert.assertFalse(commands.adminSetPass("user2", "newpass", nobody));
-
-        final Caller admin = new Caller(Person.Id.from("p1"), true,
-                org.paulsens.trip.audit.AuditActor.from(null), refusing);
-        Assert.assertTrue(commands.adminSetPass("user2", "newpass", admin));
     }
 
     @Test

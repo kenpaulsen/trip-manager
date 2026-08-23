@@ -8,6 +8,7 @@ import org.testng.annotations.Test;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotEquals;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
 public class OrganizationTest {
@@ -64,6 +65,29 @@ public class OrganizationTest {
         assertTrue(org.isAdmin(admin));
         assertFalse(org.isAdmin(Person.Id.newInstance()));
         assertFalse(org.isAdmin(null));
+    }
+
+    @Test
+    public void mayGrantDistinguishesNeverSetFromEmpty() {
+        final Organization org = new Organization();
+        assertTrue(org.mayGrant("tripFinAdmin"), "null allow-list must mean everything is allowed");
+        org.setGrantablePrivileges(List.of());
+        assertFalse(org.mayGrant("tripFinAdmin"), "an EMPTY allow-list must mean nothing is grantable");
+        org.setGrantablePrivileges(List.of("tripMgr", "peopleAdmin"));
+        assertTrue(org.mayGrant("tripMgr"));
+        assertFalse(org.mayGrant("tripFinAdmin"));
+    }
+
+    @Test
+    public void grantablePrivilegesRoundTripAndAbsentStaysNull() throws Exception {
+        // Absent field == "never restricted"; the round-trip must not manufacture an empty list, which would
+        // silently flip the org from all-allowed to nothing-allowed.
+        final Organization never = MAPPER.readValue("{\"name\":\"CFPW\"}", Organization.class);
+        assertNull(never.getGrantablePrivileges());
+        final Organization org = Organization.builder().name("Acme Inc").build();
+        org.setGrantablePrivileges(List.of("tripMgr"));
+        final Organization back = MAPPER.readValue(MAPPER.writeValueAsString(org), Organization.class);
+        assertEquals(back.getGrantablePrivileges(), List.of("tripMgr"));
     }
 
     @Test

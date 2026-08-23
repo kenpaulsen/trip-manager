@@ -19,6 +19,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
@@ -46,8 +47,54 @@ public class TripCommands {
     @Inject
     private BindingCommands bind;
 
+    private final Supplier<OrgCommands> orgSource;
+
+    public TripCommands() {
+        this(() -> org.paulsens.trip.api.Beans.get(OrgCommands.class));
+    }
+
+    /** Test seam (the {@link TripDeleteCommands} pattern): {@code Beans.get} needs a CDI container. */
+    TripCommands(final Supplier<OrgCommands> orgSource) {
+        this.orgSource = orgSource;
+    }
+
     public Trip createTrip() {
         return Trip.builder().build();
+    }
+
+    /**
+     * A new (unsaved) trip belonging to the given org, or null when the caller may not create one there
+     * ({@code OrgCommands.canCreateTripFor}: org admin or {@code addTrip@org}). This is the page-side gate for
+     * trip creation -- the draft registry only ever receives a trip minted here, and draft tokens are
+     * owner-bound, so Save cannot persist a trip an unauthorized user conjured. REST enforces separately.
+     */
+    public Trip createTripFor(final String orgId) {
+        if (!orgSource.get().canCreateTripFor(orgId)) {
+            return null;
+        }
+        final Trip trip = Trip.builder().build();
+        trip.setOrgId(orgId.trim());
+        return trip;
+    }
+
+    /**
+     * The org's trips, newest first, for its Trips page. View-gated like the page itself. The raw fetch is
+     * over-sized because the org filter runs after the recency cap -- one busy tenant must not push another
+     * tenant's trips out of their own list. Legacy trips with no orgId never appear here (expected).
+     */
+    public List<Trip> getTripsForOrg(final String orgId, final int limit) {
+        if (orgId == null || orgId.isBlank() || !orgSource.get().canViewOrgTrips(orgId)) {
+            return Collections.emptyList();
+        }
+        return getRecentTrips(limit * 4).stream()
+                .filter(trip -> orgId.equals(trip.getOrgId()))
+                .limit(limit)
+                .toList();
+    }
+
+    /** Trip count for the org hub's card. Same gate as {@link #getTripsForOrg}. */
+    public int getTripCountForOrg(final String orgId) {
+        return getTripsForOrg(orgId, RECENT_TRIP_LIMIT).size();
     }
 
     /**

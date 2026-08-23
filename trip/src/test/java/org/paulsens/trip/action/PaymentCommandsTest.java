@@ -95,7 +95,7 @@ public class PaymentCommandsTest {
     public void sandboxRunsThePipelineWithoutTouchingTheLedger() {
         final Person admin = savedPerson();
         final PaymentCommands commands = commandsFor(admin, true);
-        assertTrue(commands.isSandboxAllowed());
+        assertTrue(commands.isSandboxAllowed(trip()), "paymentsAdmin@the-trip's-org enables sandbox");
 
         final String approvalUrl = commands.startPayment(trip(),
                 Map.of(admin.getId().getValue(), "475"), null, true, "http://localhost/pay");
@@ -118,9 +118,13 @@ public class PaymentCommandsTest {
     @Test
     public void sandboxRequiresThePrivilege() {
         final Person user = savedPerson();
-        assertFalse(commandsFor(user, false).isSandboxAllowed());
+        assertFalse(commandsFor(user, false).isSandboxAllowed(trip()));
         assertNull(commandsFor(user, false).startPayment(trip(),
                 Map.of(user.getId().getValue(), "10"), null, true, "http://localhost/pay"));
+        // The grant is per-org: an org-less legacy trip offers sandbox to site admins only.
+        final Trip orgless = Trip.builder().id("orgless-" + user.getId().getValue()).title("Orgless").build();
+        assertFalse(commandsFor(user, true).isSandboxAllowed(orgless));
+        assertTrue(commandsFor(savedPersonAsSiteAdmin(), false).isSandboxAllowed(orgless));
     }
 
     // ------------------------------------------------------------------ refusals

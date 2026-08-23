@@ -146,16 +146,18 @@ public class AuthResource extends BaseResource {
         return ok(result);
     }
 
+    /**
+     * Client hints for the GLOBAL privileges only. {@code peopleAdmin}, {@code emailAdmin}, and
+     * {@code addTrip} are org-scoped now (org migration, 2026-08) and no longer appear -- old clients read
+     * an absent flag as false, which is the correct answer for the retired global variants.
+     */
     private static Map<String, Boolean> privilegeFlags(final ApiPrivileges privileges) {
         final Map<String, Boolean> flags = new LinkedHashMap<>();
-        flags.put(ApiPrivileges.PEOPLE_ADMIN, privileges.has(ApiPrivileges.PEOPLE_ADMIN));
         flags.put(ApiPrivileges.PRIVILEGE_ADMIN, privileges.has(ApiPrivileges.PRIVILEGE_ADMIN));
         flags.put(ApiPrivileges.CONFIG_ADMIN, privileges.has(ApiPrivileges.CONFIG_ADMIN));
         flags.put(ApiPrivileges.AUDIT_ADMIN, privileges.has(ApiPrivileges.AUDIT_ADMIN));
         flags.put(ApiPrivileges.MEDIA_ADMIN, privileges.has(ApiPrivileges.MEDIA_ADMIN));
-        flags.put(ApiPrivileges.EMAIL_ADMIN, privileges.has(ApiPrivileges.EMAIL_ADMIN));
         flags.put(ApiPrivileges.SITE_DEPLOYER, privileges.has(ApiPrivileges.SITE_DEPLOYER));
-        flags.put(ApiPrivileges.ADD_TRIP, privileges.has(ApiPrivileges.ADD_TRIP));
         return flags;
     }
 

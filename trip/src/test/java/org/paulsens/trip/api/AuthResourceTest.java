@@ -237,7 +237,10 @@ public class AuthResourceTest extends ResourceTestSupport {
         Assert.assertEquals(body.get("siteAdmin"), false);
         @SuppressWarnings("unchecked")
         final Map<String, Boolean> flags = (Map<String, Boolean>) body.get("privileges");
-        Assert.assertEquals(flags.get(ApiPrivileges.PEOPLE_ADMIN), Boolean.FALSE);
+        // peopleAdmin/emailAdmin/addTrip are org-scoped now (org migration, 2026-08): their global flags
+        // are gone, and old clients correctly read an absent flag as false.
+        Assert.assertFalse(flags.containsKey(ApiPrivileges.PEOPLE_ADMIN));
+        Assert.assertFalse(flags.containsKey(ApiPrivileges.EMAIL_ADMIN));
         Assert.assertTrue(flags.containsKey(ApiPrivileges.SITE_DEPLOYER));
     }
 

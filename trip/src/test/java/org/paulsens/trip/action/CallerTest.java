@@ -91,16 +91,15 @@ public class CallerTest {
     }
 
     @Test
-    public void adminSetPassRefusesWithoutThePrivilegeAndDoesNotConsultShowAll() {
-        // The legacy path reads viewScope.showAll, which does not exist off a Faces thread. The Caller form
-        // asks for peopleAdmin instead -- and must refuse a caller who lacks it rather than falling back.
-        final PrivilegeCommands refusing = Mockito.mock(PrivilegeCommands.class);
-        Mockito.when(refusing.check(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(false);
-        final Caller nobody = new Caller(ME, false, AuditActor.from(null), refusing);
-
-        Assert.assertFalse(new PassCommands().adminSetPass("someone@example.com", "hunter2", nobody));
-        Assert.assertFalse(new PassCommands().adminSetPass("someone@example.com", "hunter2", null),
-                "A null caller must be refused, not treated as trusted.");
+    public void orgScopedAnswersAreMemoizedPerScope() {
+        // The scope id rides in the memo key, so a grant in one org never answers for another.
+        final PrivilegeCommands privs = Mockito.mock(PrivilegeCommands.class);
+        Mockito.when(privs.check(Mockito.eq("peopleAdmin"), Mockito.eq("org-a"), Mockito.any()))
+                .thenReturn(true);
+        final Caller caller = new Caller(ME, false, AuditActor.from(null), privs);
+        Assert.assertTrue(caller.has("peopleAdmin", "org-a"));
+        Assert.assertFalse(caller.has("peopleAdmin", "org-b"));
+        Assert.assertFalse(caller.has("peopleAdmin"));
     }
 
     private static HttpSession sessionWith(final Person.Id id, final String role) {

@@ -18,6 +18,13 @@ import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 @Slf4j
 public class CredentialsDAO {
     public static final String IS_ADMIN = "showAll";
+    /**
+     * View flag a people-admin page sets AFTER its own reach check passes ({@code org.canAdminPerson} --
+     * org-scoped {@code peopleAdmin} holders, who are not site admins and so never get {@code showAll}).
+     * The org-migration analogue of the template-set {@link #IS_ADMIN} flag: both mark "this rendered view
+     * was admitted by a server-side admin gate", which is what the credential read requires.
+     */
+    public static final String CREDS_ADMIN_VIEW = "credsAdminView";
     static final String PASS_TABLE = "pass";
     static final String EMAIL = "email";
     static final String PRIV = "priv";
@@ -40,14 +47,16 @@ public class CredentialsDAO {
         this.hasher = hasher;
     }
 
-    // Only available to super admins
+    // Only available to admin-gated views: site admins (showAll) or a people-admin page's own flag.
     protected Creds adminGetCredsByEmail(final String email) {
         final FacesContext facesContext = FacesContext.getCurrentInstance();
         if ((email == null) || email.isEmpty() || facesContext == null) {
             return null;
         }
         final Map<String, Object> viewMap = facesContext.getViewRoot().getViewMap(false);
-        if (viewMap == null || !Boolean.parseBoolean(viewMap.getOrDefault(IS_ADMIN, false).toString())) {
+        if (viewMap == null
+                || (!Boolean.parseBoolean(viewMap.getOrDefault(IS_ADMIN, false).toString())
+                        && !Boolean.parseBoolean(viewMap.getOrDefault(CREDS_ADMIN_VIEW, false).toString()))) {
             return null;
         }
         try {

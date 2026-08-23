@@ -563,6 +563,341 @@ public class OrgCommandsTest {
                 new AuditActor(person.getEmail(), person.getId().getValue()), grantsNothing());
     }
 
+    // ------------------------------------------------------------------ org-scoped privileges
+
+    @Test
+    public void orgAdminGrantsAnOrgScopedPrivilegeToAMember() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person member = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+        assertTrue(admin().addMember(orgId, member.getId()));
+
+        assertTrue(realPrivs(orgAdmin).grantOrgPrivilege(orgId, member.getId(), PrivilegeCommands.PEOPLE_ADMIN));
+        assertTrue(new PrivilegeCommands().check(PrivilegeCommands.PEOPLE_ADMIN, orgId, member.getId()),
+                "The grantee holds peopleAdmin@org without being an org admin");
+    }
+
+    @Test
+    public void grantsAreRefusedForNonMembersOutsidersAndWrongScopeKinds() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person stranger = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+
+        assertFalse(realPrivs(orgAdmin).grantOrgPrivilege(orgId, stranger.getId(),
+                PrivilegeCommands.PEOPLE_ADMIN), "Grantee must be a member");
+        assertFalse(realPrivs(stranger).grantOrgPrivilege(orgId, orgAdmin.getId(),
+                PrivilegeCommands.PEOPLE_ADMIN), "Only org admins grant");
+        assertFalse(realPrivs(orgAdmin).grantOrgPrivilege(orgId, orgAdmin.getId(),
+                PrivilegeCommands.TRIP_MGR), "Trip-scoped bases are not org-grantable");
+    }
+
+    @Test
+    public void allowListBoundsOrgGrantsButNotSiteAdminsOrRevocations() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person member = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+        assertTrue(admin().addMember(orgId, member.getId()));
+        assertTrue(admin().setGrantablePrivileges(orgId, List.of(PrivilegeCommands.ADD_TRIP)));
+
+        assertFalse(realPrivs(orgAdmin).grantOrgPrivilege(orgId, member.getId(),
+                PrivilegeCommands.PEOPLE_ADMIN), "The allow-list bounds org-side grants");
+        assertTrue(admin().grantOrgPrivilege(orgId, member.getId(), PrivilegeCommands.PEOPLE_ADMIN),
+                "Site admins bypass the allow-list");
+        assertTrue(realPrivs(orgAdmin).revokeOrgPrivilege(orgId, member.getId(),
+                PrivilegeCommands.PEOPLE_ADMIN), "Revocation works even when the allow-list forbids granting");
+        assertFalse(new PrivilegeCommands().check(PrivilegeCommands.PEOPLE_ADMIN, orgId, member.getId()));
+        assertTrue(realPrivs(orgAdmin).revokeOrgPrivilege(orgId, member.getId(),
+                PrivilegeCommands.PEOPLE_ADMIN), "Revoking a non-holder is a quiet success");
+    }
+
+    @Test
+    public void setGrantablePrivilegesIsSiteAdminOnlyAndValidatesNames() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+
+        assertFalse(realPrivs(orgAdmin).setGrantablePrivileges(orgId, List.of(PrivilegeCommands.TRIP_MGR)),
+                "Org admins cannot edit their own allow-list");
+        assertFalse(admin().setGrantablePrivileges(orgId, List.of("notAPrivilege")));
+        assertTrue(admin().setGrantablePrivileges(orgId, List.of(PrivilegeCommands.TRIP_MGR)));
+        assertEquals(dao.getOrganization(acme.getId(), Cached.NO).orElseThrow().getGrantablePrivileges(),
+                List.of(PrivilegeCommands.TRIP_MGR));
+        assertTrue(admin().setGrantablePrivileges(orgId, null), "null resets to never-restricted");
+        assertNull(dao.getOrganization(acme.getId(), Cached.NO).orElseThrow().getGrantablePrivileges());
+    }
+
+    @Test
+    public void canAdminPersonMatrix() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person deputy = savedPerson();
+        final Person subject = savedPerson();
+        final Person outsideSubject = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final Organization other = orgWithAdmin(savedPerson());
+        final String orgId = acme.getId().getValue();
+        assertTrue(admin().addMember(orgId, deputy.getId()));
+        assertTrue(admin().addMember(orgId, subject.getId()));
+        assertTrue(admin().addMember(other.getId().getValue(), outsideSubject.getId()));
+        assertTrue(realPrivs(orgAdmin).grantOrgPrivilege(orgId, deputy.getId(),
+                PrivilegeCommands.PEOPLE_ADMIN));
+
+        assertTrue(admin().canAdminPerson(subject.getId()), "Site admin reaches everyone");
+        assertTrue(realPrivs(deputy).canAdminPerson(subject.getId()), "peopleAdmin@shared-org reaches them");
+        assertFalse(realPrivs(deputy).canAdminPerson(outsideSubject.getId()),
+                "...but never a person from a disjoint org");
+        assertFalse(realPrivs(subject).canAdminPerson(deputy.getId()), "No privilege, no reach");
+        assertFalse(realPrivs(deputy).canAdminPerson(null));
+    }
+
+    @Test
+    public void holdersSeeTheirOrgDoorsAndViewGatesAgree() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person deputy = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+        assertTrue(admin().addMember(orgId, deputy.getId()));
+        assertTrue(realPrivs(orgAdmin).grantOrgPrivilege(orgId, deputy.getId(),
+                PrivilegeCommands.PEOPLE_ADMIN));
+
+        final OrgCommands deputyCmds = realPrivs(deputy);
+        assertTrue(deputyCmds.holdsAnywhere(PrivilegeCommands.PEOPLE_ADMIN));
+        assertFalse(deputyCmds.holdsAnywhere(PrivilegeCommands.EMAIL_ADMIN));
+        assertTrue(deputyCmds.orgsWithPriv(PrivilegeCommands.PEOPLE_ADMIN).contains(acme));
+        assertTrue(deputyCmds.canViewOrgHub(orgId), "An org-scoped privilege opens the hub");
+        assertTrue(deputyCmds.canViewOrgPeople(orgId));
+        assertFalse(deputyCmds.canViewOrgTrips(orgId), "peopleAdmin does not open the Trips page");
+        assertFalse(deputyCmds.canManageOrg(orgId), "...and never implies org admin");
+        assertTrue(deputyCmds.visibleOrgs().contains(acme));
+        assertFalse(realPrivs(savedPerson()).canViewOrgHub(orgId));
+    }
+
+    @Test
+    public void canCreateTripForMatrix() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person builder = savedPerson();
+        final Person member = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+        assertTrue(admin().addMember(orgId, builder.getId()));
+        assertTrue(admin().addMember(orgId, member.getId()));
+        assertTrue(realPrivs(orgAdmin).grantOrgPrivilege(orgId, builder.getId(), PrivilegeCommands.ADD_TRIP));
+
+        assertTrue(realPrivs(orgAdmin).canCreateTripFor(orgId));
+        assertTrue(realPrivs(builder).canCreateTripFor(orgId), "addTrip@org suffices");
+        assertTrue(realPrivs(builder).canViewOrgTrips(orgId));
+        assertFalse(realPrivs(member).canCreateTripFor(orgId));
+        assertFalse(realPrivs(orgAdmin).canCreateTripFor(null));
+    }
+
+    @Test
+    public void grantableListsFollowTheAllowList() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+        final OrgCommands cmds = realPrivs(orgAdmin);
+
+        assertEquals(cmds.grantableOrgPrivileges(orgId), PrivilegeCommands.ORG_SCOPED_BASES,
+                "Never-restricted means every org base");
+        assertTrue(admin().setGrantablePrivileges(orgId,
+                List.of(PrivilegeCommands.TRIP_MGR, PrivilegeCommands.ADD_TRIP)));
+        assertEquals(cmds.grantableOrgPrivileges(orgId), List.of(PrivilegeCommands.ADD_TRIP));
+        assertEquals(realPrivs(savedPerson()).grantableOrgPrivileges(orgId), List.of(),
+                "No view access, no list");
+
+        final org.paulsens.trip.model.Trip trip = org.paulsens.trip.model.Trip.builder()
+                .title("Acme Trip " + unique()).build();
+        trip.setOrgId(orgId);
+        assertTrue(dao.saveTrip(trip));
+        assertEquals(cmds.grantableTripBases(trip), List.of(PrivilegeCommands.TRIP_MGR));
+        assertEquals(admin().grantableTripBases(trip), PrivilegeCommands.TRIP_SCOPED_BASES,
+                "Site admins are unfiltered");
+        assertEquals(cmds.allGrantableBases().size(),
+                PrivilegeCommands.TRIP_SCOPED_BASES.size() + PrivilegeCommands.ORG_SCOPED_BASES.size());
+        assertEquals(cmds.tripRoleDefs(trip), List.of(java.util.Map.of("name", "Editor Admin",
+                        "desc", trip.getTitle() + " - Editor Admin", "base", PrivilegeCommands.TRIP_MGR)),
+                "Role defs mirror the allow-list filter with the editor's display names");
+        assertEquals(admin().tripRoleDefs(trip).size(), PrivilegeCommands.TRIP_SCOPED_BASES.size());
+        assertEquals(cmds.effectiveGrantable(orgId),
+                List.of(PrivilegeCommands.TRIP_MGR, PrivilegeCommands.ADD_TRIP));
+        assertEquals(cmds.allTripRoleBases(), PrivilegeCommands.TRIP_SCOPED_BASES);
+    }
+
+    @Test
+    public void setTripRoleEnforcesOrgAdminAndAllowList() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person manager = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+        assertTrue(admin().addMember(orgId, manager.getId()));
+        final org.paulsens.trip.model.Trip trip = org.paulsens.trip.model.Trip.builder()
+                .title("Role Trip " + unique()).build();
+        trip.setOrgId(orgId);
+        assertTrue(dao.saveTrip(trip));
+
+        assertTrue(realPrivs(orgAdmin).setTripRole(trip.getId(), manager.getId(),
+                PrivilegeCommands.TRIP_MGR, true), "An org admin assigns trip roles on their org's trips");
+        assertTrue(new PrivilegeCommands().check(PrivilegeCommands.TRIP_MGR, trip.getId(), manager.getId()));
+        assertFalse(realPrivs(manager).setTripRole(trip.getId(), manager.getId(),
+                PrivilegeCommands.TRIP_VIEW, true), "A non-admin cannot self-assign");
+
+        assertTrue(admin().setGrantablePrivileges(orgId, List.of(PrivilegeCommands.TRIP_MGR)));
+        assertFalse(realPrivs(orgAdmin).setTripRole(trip.getId(), manager.getId(),
+                PrivilegeCommands.TRIP_FIN_ADMIN, true), "The allow-list bounds trip roles too");
+        assertTrue(admin().setTripRole(trip.getId(), manager.getId(),
+                PrivilegeCommands.TRIP_FIN_ADMIN, true), "Site admins bypass the allow-list");
+        assertTrue(realPrivs(orgAdmin).setTripRole(trip.getId(), manager.getId(),
+                PrivilegeCommands.TRIP_MGR, false), "Revoke through the same path");
+        assertFalse(new PrivilegeCommands().check(PrivilegeCommands.TRIP_MGR, trip.getId(), manager.getId()));
+    }
+
+    @Test
+    public void removalIsBlockedByAnOrgTripAndStripsOrgPrivileges() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person member = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final Organization other = orgWithAdmin(savedPerson());
+        final String orgId = acme.getId().getValue();
+        assertTrue(admin().addMember(orgId, member.getId()));
+        assertTrue(admin().addMember(other.getId().getValue(), member.getId()));
+        assertTrue(realPrivs(orgAdmin).grantOrgPrivilege(orgId, member.getId(),
+                PrivilegeCommands.EMAIL_ADMIN));
+
+        final org.paulsens.trip.model.Trip acmeTrip = org.paulsens.trip.model.Trip.builder()
+                .title("Removal Trip " + unique()).people(new java.util.ArrayList<>(List.of(member.getId())))
+                .build();
+        acmeTrip.setOrgId(orgId);
+        assertTrue(dao.saveTrip(acmeTrip));
+
+        assertTrue(realPrivs(orgAdmin).isOnAnyOrgTrip(orgId, member.getId()));
+        assertFalse(realPrivs(orgAdmin).removeMember(orgId, member.getId()),
+                "A member on an org trip cannot be removed from the org");
+
+        acmeTrip.getPeople().remove(member.getId());
+        assertTrue(dao.saveTrip(acmeTrip));
+        assertFalse(realPrivs(orgAdmin).isOnAnyOrgTrip(orgId, member.getId()),
+                "An unrelated org's trips never block");
+        assertTrue(realPrivs(orgAdmin).removeMember(orgId, member.getId()));
+        assertFalse(new PrivilegeCommands().check(PrivilegeCommands.EMAIL_ADMIN, orgId, member.getId()),
+                "Leaving the org revokes its org-scoped privileges");
+    }
+
+    // ------------------------------------------------------------------ org-bounded mail merge
+
+    @Test
+    public void mailMergeIsBoundedToTheEmailAdminOrgs() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person sender = savedPerson();
+        final Person member = savedPerson();
+        final Person outsider = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final Organization other = orgWithAdmin(savedPerson());
+        final String orgId = acme.getId().getValue();
+        assertTrue(admin().addMember(orgId, sender.getId()));
+        assertTrue(admin().addMember(orgId, member.getId()));
+        assertTrue(admin().addMember(other.getId().getValue(), outsider.getId()));
+        assertTrue(realPrivs(orgAdmin).grantOrgPrivilege(orgId, sender.getId(),
+                PrivilegeCommands.EMAIL_ADMIN));
+        final org.paulsens.trip.model.Trip acmeTrip = org.paulsens.trip.model.Trip.builder()
+                .title("Mail Trip " + unique())
+                .people(new java.util.ArrayList<>(List.of(outsider.getId()))).build();
+        acmeTrip.setOrgId(orgId);
+        assertTrue(dao.saveTrip(acmeTrip));
+
+        final OrgCommands asSender = realPrivs(sender);
+        assertTrue(asSender.canMail());
+        assertFalse(realPrivs(member).canMail(), "emailAdmin is the door, membership is not");
+        assertNull(admin().allowedRecipientEmails(), "site admins are unrestricted");
+        final java.util.Set<String> allowed = asSender.allowedRecipientEmails();
+        assertTrue(allowed.contains(member.getEmail().toLowerCase(java.util.Locale.ROOT)),
+                "org members are mailable");
+        assertTrue(allowed.contains(outsider.getEmail().toLowerCase(java.util.Locale.ROOT)),
+                "an org trip's roster is mailable even when the person belongs to another org");
+
+        assertTrue(asSender.canMailTrip(acmeTrip.getId()));
+        assertFalse(asSender.canMailTrip("no-such-trip"));
+        assertFalse(realPrivs(member).canMailTrip(acmeTrip.getId()));
+        assertTrue(asSender.mailableTrips(100).stream()
+                .anyMatch(trip -> trip.getId().equals(acmeTrip.getId())));
+        assertTrue(admin().mailableTrips(100).size() >= asSender.mailableTrips(100).size());
+
+        final List<Person.Id> hits = asSender.searchMailablePeople(member.getLast(), 25).stream()
+                .map(Person::getId).toList();
+        assertTrue(hits.contains(member.getId()));
+        assertEquals(realPrivs(member).searchMailablePeople(member.getLast(), 25), List.of());
+
+        assertEquals(asSender.orgMailFrom(), acme.getContactEmail() == null ? null : acme.getContactEmail());
+        assertTrue(admin().saveOrgEdits(orgId, acme.getName(), null, "contact@acme.example"));
+        assertEquals(asSender.orgMailFrom(), "contact@acme.example");
+
+        // A true stranger: another org's member who is on NO Acme trip (the roster made outsider mailable).
+        final Person stranger = savedPerson();
+        assertTrue(admin().addMember(other.getId().getValue(), stranger.getId()));
+        assertFalse(allowed.contains(stranger.getEmail().toLowerCase(java.util.Locale.ROOT)));
+        assertEquals(admin().boundedBcc("anyone@anywhere.example"), "anyone@anywhere.example",
+                "site-admin bcc passes through");
+        assertEquals(asSender.boundedBcc(member.getEmail() + ", " + stranger.getEmail()),
+                member.getEmail(), "out-of-org bcc entries are dropped");
+        assertNull(asSender.boundedBcc(stranger.getEmail()), "nothing in-org leaves no bcc at all");
+        assertNull(asSender.boundedBcc(null));
+    }
+
+    @Test
+    public void sendMergeDropsOutOfOrgRecipientsAndRefusesAnEmptySend() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person sender = savedPerson();
+        final Person member = savedPerson();
+        final Person outsider = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final Organization other = orgWithAdmin(savedPerson());
+        final String orgId = acme.getId().getValue();
+        assertTrue(admin().addMember(orgId, sender.getId()));
+        assertTrue(admin().addMember(orgId, member.getId()));
+        assertTrue(admin().addMember(other.getId().getValue(), outsider.getId()));
+        assertTrue(realPrivs(orgAdmin).grantOrgPrivilege(orgId, sender.getId(),
+                PrivilegeCommands.EMAIL_ADMIN));
+
+        final MailCommands mail = Mockito.mock(MailCommands.class);
+        Mockito.when(mail.emailsToPeople(Mockito.anyList())).thenReturn(List.of(member));
+        final OrgCommands asSender = new OrgCommands(() -> new Caller(sender.getId(), false,
+                new AuditActor(sender.getEmail(), sender.getId().getValue()), new PrivilegeCommands()),
+                () -> mail);
+        assertTrue(asSender.sendMerge("from@x", List.of(member.getEmail(), outsider.getEmail()),
+                outsider.getEmail(), "reply@x", "Subj", "Body"));
+        // The out-of-org recipient AND the out-of-org bcc were dropped before the send.
+        Mockito.verify(mail).emailsToPeople(List.of(member.getEmail()));
+        Mockito.verify(mail).sendTemplate("from@x", List.of(member), null, "reply@x", "Subj", "Body");
+
+        assertFalse(asSender.sendMerge("from@x", List.of(outsider.getEmail()), null, "r", "S", "B"),
+                "nothing in-org to mail is a refusal");
+        assertFalse(new OrgCommands(() -> new Caller(member.getId(), false,
+                        new AuditActor(member.getEmail(), member.getId().getValue()),
+                        new PrivilegeCommands()), () -> mail)
+                .sendMerge("from@x", List.of(member.getEmail()), null, "r", "S", "B"),
+                "no emailAdmin anywhere, no sending");
+    }
+
+    @Test
+    public void addCreatedPersonAdmitsPeopleAdminsAndRefusesEveryoneElse() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person deputy = savedPerson();
+        final Person fresh = savedPerson();
+        final Person fresh2 = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+        assertTrue(admin().addMember(orgId, deputy.getId()));
+        assertTrue(realPrivs(orgAdmin).grantOrgPrivilege(orgId, deputy.getId(),
+                PrivilegeCommands.PEOPLE_ADMIN));
+
+        assertTrue(realPrivs(deputy).addCreatedPerson(orgId, fresh.getId()),
+                "peopleAdmin@org tenants the people they create");
+        assertTrue(reload(fresh).getOrgIds().contains(acme.getId()));
+        assertFalse(realPrivs(savedPerson()).addCreatedPerson(orgId, fresh2.getId()));
+        assertFalse(realPrivs(deputy).addCreatedPerson(orgId, null));
+    }
+
     // ------------------------------------------------------------------ helpers
 
     /** A fresh org whose only admin (and member) is the given person -- the standard tenant fixture. */
@@ -589,6 +924,12 @@ public class OrgCommandsTest {
     private OrgCommands commandsFor(final Person person) {
         return new OrgCommands(() -> new Caller(person.getId(), false,
                 new AuditActor(person.getEmail(), person.getId().getValue()), grantsNothing()));
+    }
+
+    /** Like {@link #commandsFor}, but with REAL privilege checks -- for the org-scoped grant matrix. */
+    private OrgCommands realPrivs(final Person person) {
+        return new OrgCommands(() -> new Caller(person.getId(), false,
+                new AuditActor(person.getEmail(), person.getId().getValue()), new PrivilegeCommands()));
     }
 
     /** A site-admin caller; {@code Caller.isSiteAdmin} short-circuits, so no privilege rows are needed. */

@@ -18,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.api.dto.TripDto;
 import org.paulsens.trip.api.dto.TripEventDto;
@@ -175,6 +176,11 @@ public class TripsResource extends BaseResource {
                 .toList());
     }
 
+    /**
+     * Creates a trip. BREAKING CHANGE (org migration, 2026-08): {@code orgId} is required in the body, and
+     * authorization is org-scoped -- site admin, an admin of that org, or a holder of {@code addTrip@org}.
+     * The old global {@code addTrip} privilege no longer grants anything.
+     */
     @POST
     @Consumes({V1, MediaType.APPLICATION_JSON})
     @Produces({V1, MediaType.APPLICATION_JSON})
@@ -182,8 +188,13 @@ public class TripsResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        if (!privileges().has(ApiPrivileges.ADD_TRIP)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to create trips.");
+        final String orgId = (body == null) ? null : body.orgId();
+        if (orgId == null || orgId.isBlank()) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "orgId is required to create a trip.");
+        }
+        // OrgCommands with THIS request's caller, so the page rule and the REST rule are one rule.
+        if (!new OrgCommands(this::caller).canCreateTripFor(orgId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Not permitted to create trips for this organization.");
         }
         final TripCommands trips = Beans.get(TripCommands.class);
         final Trip trip = trips.createTrip();

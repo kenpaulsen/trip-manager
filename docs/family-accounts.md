@@ -28,7 +28,11 @@ subject resolution, the registration party flow, or MAIL templates.
 
 Self-service is **create-and-link only**: `createFamilyMember` builds the new Person itself, so a
 non-admin can never link an id they did not just create. Linking an EXISTING person (spouse with their
-own login) is `adminLink`, on the Manage People page. Everything is audited (`AuditAction.FAMILY`).
+own login) is `adminLink`, on the Manage People page (the Person-2 compare column, or its "Link Family
+Member" search dialog). Admin family operations are gated per SUBJECT since the org migration (2026-08):
+`requirePeopleAdminFor` asks `OrgCommands.canAdminPerson` — site admin, or `peopleAdmin` scoped to an org
+the subject belongs to — and `adminLink` requires reach over BOTH ends, so an org's people admin can never
+relink another tenant's people. Everything is audited (`AuditAction.FAMILY`).
 
 Write order everywhere: person row that must exist → versioned family put → derived `managedUsers`
 sync computed from the IN-MEMORY objects just saved (a re-read can be stale in production) → audit.

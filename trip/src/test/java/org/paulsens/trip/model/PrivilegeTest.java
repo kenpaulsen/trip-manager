@@ -46,6 +46,34 @@ public class PrivilegeTest {
     }
 
     @Test
+    public void orgScopedPrivilegeRoundTripsLikeATripScopedOne() {
+        // Org ids are canonical UUIDs by construction, so the same suffix parse must serve both scope kinds.
+        final Organization.Id orgId = Organization.Id.newInstance();
+        final Privilege priv = new Privilege(Privilege.idFor("peopleAdmin", orgId.getValue()), "desc", List.of());
+        assertEquals(priv.getScopeId(), orgId.getValue());
+        assertEquals(priv.getName(), "peopleAdmin");
+        assertFalse(priv.isGlobal());
+    }
+
+    @Test
+    public void tripIdIsAnAliasOfScopeId() {
+        final String scopeId = java.util.UUID.randomUUID().toString();
+        final Privilege scoped = new Privilege("tripMgr" + scopeId, "desc", List.of());
+        assertEquals(scoped.getTripId(), scoped.getScopeId());
+        final Privilege global = new Privilege("privilegeAdmin", "desc", List.of());
+        assertNull(global.getScopeId());
+        assertEquals(global.getTripId(), global.getScopeId());
+    }
+
+    @Test
+    public void requireStorableScopeRefusesNonUuidScopes() {
+        Privilege.requireStorableScope(null);
+        Privilege.requireStorableScope("");
+        Privilege.requireStorableScope(java.util.UUID.randomUUID().toString());
+        assertThrows(IllegalArgumentException.class, () -> Privilege.requireStorableScope("not-a-uuid"));
+    }
+
+    @Test
     public void testGetDescription() {
         final String desc = RandomData.genAlpha(14);
         final Privilege priv = new Privilege(

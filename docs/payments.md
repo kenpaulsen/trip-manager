@@ -18,8 +18,10 @@ Design every new data holder along this boundary.
 - Org ids are canonical UUIDs on purpose (privilege scope suffixes must round-trip).
 - Site admins create/rename orgs (`admin/organizations.jsf`) and get the topbar **org switcher**
   (`sessionScope.currentOrgId`, a session preference, not an identity swap). Org admins manage their own
-  org on `admin/orgSettings.jsf?orgId=…` (roster-gated in the page, NOT defaultAuth — org admins have no
-  role or privilege row).
+  org from the **org hub** `admin/orgSettings.jsf?orgId=…` (a dashboard of cards; Profile, Trips, People
+  and Payment Processors live on their own `admin/org*.jsf` pages behind the same self-gating pattern —
+  roster-gated in the page, NOT defaultAuth). See `docs/org-admin.md` for the full org-admin area,
+  org-scoped privileges, and the per-org allow-list.
 - Org pickers are `p:autoComplete` (contains, case-insensitive) — never a plain dropdown; 100+ orgs is a
   design constraint.
 
@@ -82,7 +84,10 @@ sandbox.
 
 ## Sandbox mode
 
-The global `paymentsAdmin` privilege (site admins implicitly qualify) shows a toggle on the payment page:
+The ORG-scoped `paymentsAdmin` privilege — `paymentsAdmin@the-trip's-org`, granted on the org People page;
+site admins implicitly qualify, and the retired global variant grants nothing — shows a toggle on the
+payment page (`PaymentCommands.isSandboxAllowed(trip)`; an org-less legacy trip offers sandbox to site
+admins only):
 sandbox runs the SAME pipeline against the config's sandbox credential set, but the recorder **dry-runs** —
 no ledger rows, no mail, and the would-have-written rows render in the result panel. Sandbox payments are
 excluded from balances and the reconciliation list.
@@ -112,6 +117,7 @@ Kevin/user3 as its NON-site-admin org admin is the tenant-isolation demo.
 5. `scripts/install-starter-templates.sh` (the `payment-confirmation` MAIL starter).
 6. Grant org admins on `/admin/organizations.jsf`; enter processor configs + paste credentials on the org
    settings page; Test connection; set the trip/org payment config; Send Test Email.
-7. Create the `paymentsAdmin` privilege row on `/admin/editPrivs.jsf` if non-site-admins need sandbox.
+7. Grant `paymentsAdmin` to org members on the org People page (`/admin/orgPeople.jsf?orgId=…`) if
+   non-site-admins need sandbox (bounded by the org's allow-list — `docs/org-admin.md`).
 
 Recurring cost: ≈$0.45/mo (one secret + four KB-scale tables) — under the $1 approval line.

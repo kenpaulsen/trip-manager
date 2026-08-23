@@ -221,6 +221,59 @@ public class FakeData {
         seedFakeProcessor(CFPW_PROCESSOR_ID, CFPW_ORG_ID, "CFPW Test Processor", admin.getId());
         seedFakeProcessor(ACME_PROCESSOR_ID, ACME_ORG_ID, "Acme Test Processor", kevin.getId());
         seedCfpwPaymentDefaults();
+        seedOrgScopedPrivileges(commands, kevin);
+    }
+
+    /** Fixed id of the seeded Acme trip, so webtests and re-seeds agree (the fixed-UUID convention). */
+    public static final String ACME_TRIP_ID = "3f7a9c15-6d28-4e0b-8a54-1c9e7b3d5f82";
+
+    /**
+     * The org-scoped privilege fixtures (org migration, 2026-08), granted through the REAL writers so the
+     * seeds exercise the same enforcement the pages do:
+     * <ul><li>an Acme trip with Kevin on the roster -- the org Trips page has content, and removing Kevin
+     *         from Acme demonstrates the on-an-org-trip removal guard;</li>
+     *     <li>{@code emailAdmin@CFPW} for user2 and {@code peopleAdmin@CFPW} for user4 -- non-admin members
+     *         holding delegated org privileges (menu entries, bounded people/mail pages);</li>
+     *     <li>Acme's allow-list restricted to everything EXCEPT {@code paymentsAdmin} -- the site-admin
+     *         restriction feature is demoable (Kevin cannot grant what Acme does not have).</li></ul>
+     */
+    private static void seedOrgScopedPrivileges(final org.paulsens.trip.action.OrgCommands commands,
+            final Person kevin) {
+        final Trip acmeTrip = Trip.builder()
+                .id(ACME_TRIP_ID)
+                .title("2027 Jun: Acme Retreat")
+                .description("Acme Inc's demo pilgrimage (tenant-isolation fixture).")
+                .startDate(LocalDateTime.of(2027, 6, 10, 9, 0))
+                .endDate(LocalDateTime.of(2027, 6, 20, 17, 0))
+                .people(new ArrayList<>(List.of(kevin.getId())))
+                .build();
+        acmeTrip.setOrgId(ACME_ORG_ID);
+        try {
+            if (!DAO.getInstance().saveTrip(acmeTrip)) {
+                throw new IllegalStateException("Fake org seed: could not save the Acme trip");
+            }
+        } catch (final IOException ex) {
+            throw new IllegalStateException("Fake org seed: could not save the Acme trip", ex);
+        }
+        final Person user2 = DAO.getInstance().getPersonByEmail(localEmail("user2"), Cached.NO);
+        final Person user4 = DAO.getInstance().getPersonByEmail(localEmail("user4"), Cached.NO);
+        if (user2 == null || user4 == null) {
+            throw new IllegalStateException("Fake org seed: user2/user4 personas are missing");
+        }
+        if (!commands.grantOrgPrivilege(CFPW_ORG_ID, user2.getId(),
+                org.paulsens.trip.action.PrivilegeCommands.EMAIL_ADMIN)) {
+            throw new IllegalStateException("Fake org seed: could not grant emailAdmin@CFPW to user2");
+        }
+        if (!commands.grantOrgPrivilege(CFPW_ORG_ID, user4.getId(),
+                org.paulsens.trip.action.PrivilegeCommands.PEOPLE_ADMIN)) {
+            throw new IllegalStateException("Fake org seed: could not grant peopleAdmin@CFPW to user4");
+        }
+        final List<String> acmeAllowed = commands.allGrantableBases().stream()
+                .filter(base -> !org.paulsens.trip.action.PrivilegeCommands.PAYMENTS_ADMIN.equals(base))
+                .toList();
+        if (!commands.setGrantablePrivileges(ACME_ORG_ID, acmeAllowed)) {
+            throw new IllegalStateException("Fake org seed: could not restrict Acme's allow-list");
+        }
     }
 
     /**

@@ -19,10 +19,11 @@ import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.cache.Cached;
 
 /**
- * Developer-facing privilege API. Every accessor takes the privilege's base {@code name} plus a {@code tripId}
- * ({@code null}/blank == a global, non-trip privilege). The combined DynamoDB key (base name + trip id) is an
- * implementation detail built internally via {@link Privilege#idFor(String, String)} -- callers never construct or
- * pass it.
+ * Developer-facing privilege API. Every accessor takes the privilege's base {@code name} plus a {@code scopeId}
+ * ({@code null}/blank == a global privilege; otherwise a Trip or Organization id -- the base name decides which
+ * kind, see {@link #TRIP_SCOPED_BASES} / {@link #ORG_SCOPED_BASES}). The combined DynamoDB key (base name +
+ * scope id) is an implementation detail built internally via {@link Privilege#idFor(String, String)} -- callers
+ * never construct or pass it.
  */
 @Slf4j
 @Named("priv")
@@ -55,22 +56,39 @@ public class PrivilegeCommands {
     public static final String TRIP_VIEW = "tripView";
     public static final String TRIP_FIN_VIEW = "tripFinView";
     public static final String TRIP_FIN_ADMIN = "tripFinAdmin";
+    /** Moderates a trip's chat (delete messages, manage members). Trip-scoped. */
+    public static final String CHAT_MGR = "chatMgr";
     public static final String ADD_TRIP = "addTrip";
-    public static final String ADD_TX = "addTx";
-    /** May flip the payment page into SANDBOX mode (sandbox APIs, no real ledger writes). Global. */
+    /** May flip the payment page into SANDBOX mode (sandbox APIs, no real ledger writes). Org-scoped:
+     *  sandbox mode exercises the trip's org's sandbox credentials, so the grant follows the org. */
     public static final String PAYMENTS_ADMIN = "paymentsAdmin";
+
+    /**
+     * The scope each base name is used with. A privilege row does not record what kind of thing its scope UUID
+     * names ({@link Privilege}'s suffix parse is kind-blind), so these lists ARE the authority: org pages offer
+     * {@link #ORG_SCOPED_BASES}, the trip-manager panel offers {@link #TRIP_SCOPED_BASES}, and an
+     * {@code Organization}'s allow-list draws from both. {@link #GLOBAL_BASES} exists for the privilege editor's
+     * name dropdown -- content containers may still reference arbitrary names beyond it.
+     */
+    public static final List<String> TRIP_SCOPED_BASES =
+            List.of(TRIP_MGR, TRIP_FIN_ADMIN, TRIP_FIN_VIEW, TRIP_VIEW, CHAT_MGR);
+    public static final List<String> ORG_SCOPED_BASES =
+            List.of(PEOPLE_ADMIN, ADD_TRIP, EMAIL_ADMIN, PAYMENTS_ADMIN);
+    public static final List<String> GLOBAL_BASES = List.of(PRIVILEGE_ADMIN, CONFIG_ADMIN, AUDIT_ADMIN,
+            SITE_DEPLOYER, CONTENT_ADMIN, MEDIA_ADMIN, EVENT_ADMIN);
 
     private static final long TIMEOUT = 5_000;
     private final DAO dao = DAO.getInstance();
 
     /**
-     * Creates a privilege from an explicit scope. {@code tripId} null/blank makes it global; otherwise the trip id
-     * is appended to {@code name} to form the identity. The editPrivs page passes the scope chosen in its selector.
+     * Creates a privilege from an explicit scope. {@code scopeId} null/blank makes it global; otherwise the trip
+     * or org id is appended to {@code name} to form the identity. The privilege-editor pages pass the scope
+     * chosen in their selector.
      */
     public Privilege createPrivilege(
-            final String name, final String description, final String tripId, final List<Person.Id> people) {
-        Privilege.requireStorableTripScope(tripId);
-        return new Privilege(Privilege.idFor(name, tripId), description, people);
+            final String name, final String description, final String scopeId, final List<Person.Id> people) {
+        Privilege.requireStorableScope(scopeId);
+        return new Privilege(Privilege.idFor(name, scopeId), description, people);
     }
 
     /** Global (non-trip) privileges, name-sorted. */
@@ -78,27 +96,30 @@ public class PrivilegeCommands {
         return sorted(dao.getGlobalPrivileges(Cached.NO));
     }
 
-    /** Privileges scoped to the given trip (blank/null == the global partition), name-sorted. */
-    public List<Privilege> getTripPrivileges(final String tripId) {
-        final String scope = blankToNull(tripId);
+    /**
+     * Privileges in the given scope's partition (blank/null == the global partition), name-sorted. The name
+     * says "trip" for EL-compatibility reasons, but any scope id works -- an org id lists that org's partition.
+     */
+    public List<Privilege> getTripPrivileges(final String scopeId) {
+        final String scope = blankToNull(scopeId);
         return sorted(scope == null ? dao.getGlobalPrivileges(Cached.NO) : dao.getTripPrivileges(scope, Cached.NO));
     }
 
     /**
-     * The named privilege, or {@link Privilege#NONE} if it does not exist. {@code tripId} null/blank looks up the
-     * global privilege; otherwise the trip-scoped one.
+     * The named privilege, or {@link Privilege#NONE} if it does not exist. {@code scopeId} null/blank looks up
+     * the global privilege; otherwise the trip- or org-scoped one.
      */
-    public Privilege getPrivilege(final String name, final String tripId) {
+    public Privilege getPrivilege(final String name, final String scopeId) {
         if (name == null) {
             return Privilege.NONE;
         }
-        return getPrivilegeById(Privilege.idFor(name, blankToNull(tripId))).orElse(Privilege.NONE);
+        return getPrivilegeById(Privilege.idFor(name, blankToNull(scopeId))).orElse(Privilege.NONE);
     }
 
     /** The named privilege if it exists, otherwise a new (unsaved) one with the given description. */
-    public Privilege getOrCreate(final String name, final String tripId, final String description) {
-        Privilege.requireStorableTripScope(blankToNull(tripId));
-        final String id = Privilege.idFor(name, blankToNull(tripId));
+    public Privilege getOrCreate(final String name, final String scopeId, final String description) {
+        Privilege.requireStorableScope(blankToNull(scopeId));
+        final String id = Privilege.idFor(name, blankToNull(scopeId));
         return getPrivilegeById(id).orElseGet(() -> new Privilege(id, description, List.of()));
     }
 
@@ -159,12 +180,53 @@ public class PrivilegeCommands {
         return msg.toString();
     }
 
-    /** True if {@code personId} holds the named privilege ({@code tripId} null/blank == global). */
-    public boolean check(final String name, final String tripId, final Person.Id personId) {
+    /** The canonical base names for one scope kind -- the privilege editor's name dropdown. */
+    public List<String> knownBases(final String scopeKind) {
+        if ("TRIP".equalsIgnoreCase(scopeKind)) {
+            return TRIP_SCOPED_BASES;
+        }
+        if ("ORG".equalsIgnoreCase(scopeKind)) {
+            return ORG_SCOPED_BASES;
+        }
+        return GLOBAL_BASES;
+    }
+
+    /**
+     * Hard-deletes one privilege row, holders and all -- how the editor retires an obsolete or mistyped row
+     * (and, post-org-migration, the inert global rows of the migrated names). The audit record names every
+     * holder at deletion time, because "who LOST access" is exactly what the trail gets asked later.
+     */
+    public boolean deletePrivilege(final String name, final String scopeId) {
+        if (name == null || name.isBlank()) {
+            return false;
+        }
+        final String id = Privilege.idFor(name, blankToNull(scopeId));
+        final Privilege stored = getPrivilegeById(id).orElse(null);
+        if (stored == null) {
+            return false;
+        }
+        boolean deleted;
+        try {
+            deleted = Boolean.TRUE.equals(dao.deletePrivilege(id));
+        } catch (final RuntimeException ex) {
+            deleted = logAndReturn(ex, false);
+        }
+        final List<String> holders = stored.getPeople().stream().map(Person.Id::getValue).toList();
+        Audit.builder(AuditAction.PRIVILEGE, AuditOutcome.of(deleted))
+                .actor(AuditActor.current())
+                .target(AuditEventBuilder.TARGET_PRIVILEGE, id)
+                .message("DELETED privilege '" + id + "'"
+                        + (holders.isEmpty() ? " (no holders)" : "; held by " + String.join(", ", holders)))
+                .log();
+        return deleted;
+    }
+
+    /** True if {@code personId} holds the named privilege ({@code scopeId} null/blank == global). */
+    public boolean check(final String name, final String scopeId, final Person.Id personId) {
         if (name == null || personId == null) {
             return false;
         }
-        return getPrivilegeById(Privilege.idFor(name, blankToNull(tripId)))
+        return getPrivilegeById(Privilege.idFor(name, blankToNull(scopeId)))
                 .map(priv -> priv.getPeople().contains(personId))
                 .orElse(false);
     }
@@ -177,12 +239,12 @@ public class PrivilegeCommands {
      *         only stored rows) -- that case is a failed grant, so it is logged as an error and audited as a
      *         failure rather than returned as a quiet false a caller would read as "already held".
      */
-    public boolean add(final String name, final String tripId, final Person.Id personId) {
-        Privilege.requireStorableTripScope(blankToNull(tripId));
-        if (check(name, tripId, personId)) {
+    public boolean add(final String name, final String scopeId, final Person.Id personId) {
+        Privilege.requireStorableScope(blankToNull(scopeId));
+        if (check(name, scopeId, personId)) {
             return false;
         }
-        final String id = Privilege.idFor(name, blankToNull(tripId));
+        final String id = Privilege.idFor(name, blankToNull(scopeId));
         final Privilege stored = getPrivilegeById(id).orElse(null);
         if (stored == null) {
             log.error("Grant of '{}' to {} did NOT happen: no privilege named '{}' has been saved.",
@@ -201,8 +263,8 @@ public class PrivilegeCommands {
      * held it re-saves the unchanged row and reports the SAVE -- {@code true} means "they do not hold it now",
      * not "they held it a moment ago". False means the privilege itself does not exist.
      */
-    public boolean remove(final String name, final String tripId, final Person.Id personId) {
-        return getPrivilegeById(Privilege.idFor(name, blankToNull(tripId)))
+    public boolean remove(final String name, final String scopeId, final Person.Id personId) {
+        return getPrivilegeById(Privilege.idFor(name, blankToNull(scopeId)))
                 .map(priv -> priv.withoutPerson(personId))
                 .map(this::savePrivilege)
                 .orElse(false);
@@ -219,11 +281,11 @@ public class PrivilegeCommands {
      * @param role          The role... this can be a blank string b/c of how EL evaluates, we will treat this as null.
      * @param requiredUser  The user ID.
      * @param privName      The privilege base name... blank (from EL) is treated as null.
-     * @param privTripId    The trip the privilege is scoped to, or null/blank for a global privilege.
+     * @param privScopeId   The trip or org the privilege is scoped to, or null/blank for a global privilege.
      * @return  True if the user is authorized.
      */
     public boolean isAuthorized(
-            final String role, final Person.Id requiredUser, final String privName, final String privTripId) {
+            final String role, final Person.Id requiredUser, final String privName, final String privScopeId) {
         final PersonCommands personCommands = PersonCommands.getPersonCommands();
         final Person currUser = personCommands.getCurrentPerson();
         final boolean result;
@@ -234,7 +296,7 @@ public class PrivilegeCommands {
         } else if (personCommands.canAccessUserId(currUser, requiredUser)) {
             result = true;
         } else if (requiredPriv != null) {
-            result = check(requiredPriv, privTripId, currUser.getId());
+            result = check(requiredPriv, privScopeId, currUser.getId());
         } else {
             result = requiredRole == null && requiredUser == null;
         }
@@ -242,12 +304,12 @@ public class PrivilegeCommands {
     }
 
     /**
-     * All people who hold any of the named privileges within {@code tripId} (null/blank == global), de-duplicated
-     * and sorted by "last, preferred name".
+     * All people who hold any of the named privileges within {@code scopeId} (null/blank == global),
+     * de-duplicated and sorted by "last, preferred name".
      */
-    public List<Person.Id> getPeopleWithPriv(final List<String> names, final String tripId) {
+    public List<Person.Id> getPeopleWithPriv(final List<String> names, final String scopeId) {
         final PersonCommands people = PersonCommands.getPersonCommands();
-        final String scope = blankToNull(tripId);
+        final String scope = blankToNull(scopeId);
         return names.stream()
                 .map(name -> Privilege.idFor(name, scope))
                 .map(this::getPrivilegeById)

@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.AuditCommands;
+import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.action.PersonDataValueCommands;
 import org.paulsens.trip.action.ProfilePhotos;
@@ -54,26 +55,35 @@ public class PeopleResource extends BaseResource {
     }
 
     /**
-     * Free-text search across everyone.
+     * Free-text search, bounded by people-admin reach.
      *
      * <p>Gated on {@code peopleAdmin} rather than offered to any signed-in user. This is a bulk-disclosure
-     * endpoint: a member with it can enumerate the whole database a page at a time, which is a different thing
+     * endpoint: a member with it can enumerate a whole tenant a page at a time, which is a different thing
      * from the roster access a traveller legitimately has. A client that wants "who else is on my trip" asks the
      * trip for its roster, where trip membership is what authorizes the answer.
+     *
+     * <p>{@code peopleAdmin} is ORG-scoped (org migration, 2026-08): hits are filtered to the caller's
+     * people-admin reach, so an org's people admin enumerates their own org only -- which also means result
+     * COUNTS can be smaller than pre-migration clients expect. Site admins still see everyone.
      */
     @GET
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response search(
             @QueryParam("q") final String query,
             @QueryParam("limit") @DefaultValue("25") final int limit) {
-        final ApiPrivileges privileges = privileges();
-        if (!privileges.has(ApiPrivileges.PEOPLE_ADMIN)) {
+        final OrgCommands orgs = new OrgCommands(this::caller);
+        if (!privileges().isSiteAdmin() && !orgs.holdsAnywhere(ApiPrivileges.PEOPLE_ADMIN)) {
             return error(403, ApiErrors.FORBIDDEN, "Not permitted to search people.");
         }
+        final int capped = Math.min(Math.max(limit, 1), MAX_SEARCH_RESULTS);
+        // Over-fetch before the tenancy filter, so a page of out-of-org hits cannot mask permitted ones.
         final List<Person> found = Beans.get(PersonCommands.class)
-                .searchPeople(query == null ? "" : query, Math.min(Math.max(limit, 1), MAX_SEARCH_RESULTS));
-        // peopleAdmin implies the full record; mapping each through SITE_ADMIN keeps the redaction call on
-        // every path out of here rather than making this one an exception that later gets copied.
+                .searchPeople(query == null ? "" : query, capped * 4).stream()
+                .filter(person -> orgs.canAdminPerson(person.getId()))
+                .limit(capped)
+                .toList();
+        // People-admin reach implies the full record; mapping each through SITE_ADMIN keeps the redaction
+        // call on every path out of here rather than making this one an exception that later gets copied.
         return ok(found.stream().map(person -> dto(person, AccessLevel.SITE_ADMIN)).toList());
     }
 
@@ -95,15 +105,26 @@ public class PeopleResource extends BaseResource {
         return ok(dto(person, levelFor(personId, tripId)));
     }
 
+    /**
+     * Creates a person. BREAKING CHANGE (org migration, 2026-08): {@code org} names the organization the new
+     * person belongs to and is REQUIRED for non-site-admin callers, who must hold {@code peopleAdmin} there
+     * (every person must belong to an org). Site admins may omit it for legacy parity.
+     */
     @POST
     @Consumes({V1, MediaType.APPLICATION_JSON})
     @Produces({V1, MediaType.APPLICATION_JSON})
-    public Response create(@HeaderParam(CSRF_HEADER) final String csrf, final PersonDto body) {
+    public Response create(@HeaderParam(CSRF_HEADER) final String csrf,
+            @QueryParam("org") final String orgId, final PersonDto body) {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        if (!privileges().has(ApiPrivileges.PEOPLE_ADMIN)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to create people.");
+        final OrgCommands orgs = new OrgCommands(this::caller);
+        final boolean siteAdmin = privileges().isSiteAdmin();
+        if (!siteAdmin && (orgId == null || orgId.isBlank())) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "org is required to create a person.");
+        }
+        if (!siteAdmin && !caller().has(ApiPrivileges.PEOPLE_ADMIN, orgId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Not permitted to create people in this organization.");
         }
         final PersonCommands people = Beans.get(PersonCommands.class);
         final Person person = people.createPerson();
@@ -116,6 +137,11 @@ public class PeopleResource extends BaseResource {
         }
         // savePerson does not audit -- the XHTML pages call audit.person() themselves, so this edge must too.
         Beans.get(AuditCommands.class).person(person, "CREATED", actor());
+        if (orgId != null && !orgId.isBlank() && !orgs.addCreatedPerson(orgId, person.getId())) {
+            // The person exists but is untenanted; report it rather than silently succeeding.
+            return error(500, ApiErrors.STORE_FAILED, "Person created, but adding them to the organization "
+                    + "failed.");
+        }
         return ok(dto(person, AccessLevel.SITE_ADMIN));
     }
 
@@ -305,11 +331,12 @@ public class PeopleResource extends BaseResource {
     }
 
     private AccessLevel levelFor(final Person.Id subject, final String tripId) {
-        final ApiPrivileges privileges = privileges();
-        if (privileges.has(ApiPrivileges.PEOPLE_ADMIN)) {
+        // People-admin reach is per-SUBJECT now (org-scoped peopleAdmin): the full record for people in the
+        // caller's people-admin orgs, the ordinary relationship-derived level for everyone else.
+        if (new OrgCommands(this::caller).canAdminPerson(subject)) {
             return AccessLevel.SITE_ADMIN;
         }
-        return privileges.levelFor(findPerson(personId()), subject, tripId);
+        return privileges().levelFor(findPerson(personId()), subject, tripId);
     }
 
     private static PersonDto dto(final Person person, final AccessLevel level) {
