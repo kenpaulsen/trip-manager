@@ -91,9 +91,11 @@ public class TripTest {
 
     @Test
     void newIsNotOpenToPublic() {
+        // FALSE since 2026-08-24: "Show on homepage?" is opt-in; the old TRUE default put half-written
+        // trips on the public landing page.
         final Trip trip = Trip.builder().build();
         assertNotNull(trip.getOpenToPublic());
-        assertTrue(trip.getOpenToPublic());
+        assertFalse(trip.getOpenToPublic());
     }
 
     @Test
@@ -129,7 +131,7 @@ public class TripTest {
         final Trip newBlankTrip = Trip.builder().build();
         assertNotNull(newBlankTrip.getId());
         assertFalse(newBlankTrip.getId().isBlank());
-        assertTrue(newBlankTrip.getOpenToPublic());
+        assertFalse(newBlankTrip.getOpenToPublic(), "homepage visibility is opt-in for new trips");
         assertEquals(newBlankTrip.getStartDate().minusDays(90).getDayOfMonth(), now.getDayOfMonth());
         assertEquals(newBlankTrip.getEndDate().minusDays(100).getDayOfMonth(), now.getDayOfMonth());
         assertEquals(newBlankTrip.getPeople(), List.of());

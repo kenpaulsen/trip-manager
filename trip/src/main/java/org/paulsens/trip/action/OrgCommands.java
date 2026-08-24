@@ -53,6 +53,7 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
 public class OrgCommands {
     private final Supplier<Caller> callerSource;
     private final Supplier<MailCommands> mailSource;
+    private final Supplier<SupportChatCommands> supportSource;
 
     public OrgCommands() {
         this(Caller::current);
@@ -63,10 +64,23 @@ public class OrgCommands {
         this(callerSource, () -> org.paulsens.trip.api.Beans.get(MailCommands.class));
     }
 
-    /** Full test seam: mail too ({@code Beans.get} needs a CDI container unit tests do not have). */
+    /**
+     * Test seam: mail too ({@code Beans.get} needs a CDI container unit tests do not have). The default
+     * support-channel commands are built over THIS caller source, so a notice filed from here is authored
+     * by the same caller the command ran as.
+     */
     public OrgCommands(final Supplier<Caller> callerSource, final Supplier<MailCommands> mailSource) {
+        this(callerSource, mailSource, () -> new SupportChatCommands(
+                new org.paulsens.trip.chat.ChatRateLimiter(DAO.getInstance().getCacheClient()),
+                new ConfigCommands(), new MailCommands(), callerSource));
+    }
+
+    /** Full test seam: the support channel too ({@link #grantCreatorTripRoles}' missing-roles notice). */
+    public OrgCommands(final Supplier<Caller> callerSource, final Supplier<MailCommands> mailSource,
+            final Supplier<SupportChatCommands> supportSource) {
         this.callerSource = callerSource;
         this.mailSource = mailSource;
+        this.supportSource = supportSource;
     }
 
     // ------------------------------------------------------------------ reads
@@ -685,6 +699,49 @@ public class OrgCommands {
                 .filter(base -> !priv.check(base, trip.getId(), personId))
                 .map(base -> roleDef(trip, base))
                 .toList();
+    }
+
+    /** The standard roles a creator receives on their just-created trip. */
+    private static final List<String> CREATOR_TRIP_BASES = List.of(PrivilegeCommands.TRIP_MGR,
+            PrivilegeCommands.TRIP_VIEW, PrivilegeCommands.REGISTRATION_ADMIN);
+
+    /**
+     * Grants the caller their standard roles on a trip they JUST created -- call only from the create
+     * paths (page save, REST POST), never as a general grant API: it deliberately skips the org-admin
+     * gate ({@link #setTripRole}) because an {@code addTrip@org} creator is usually not an org admin,
+     * and creation without the ability to edit would be useless.
+     *
+     * <p>The org's allow-list still bounds it (user decision 2026-08-24: no bypass). Withheld roles come
+     * back as DISPLAY names for the page's warning dialog, a notice is filed to the support channel so a
+     * site admin can follow up, and the {@code showRoleWarning} ajax callback param is published for the
+     * page's oncomplete. An empty result means every role landed.
+     */
+    public List<String> grantCreatorTripRoles(final Trip trip) {
+        final Caller current = caller();
+        if (trip == null || trip.getOrgId() == null || !current.isAuthenticated()) {
+            return List.of();
+        }
+        final Organization owner = findOrganization(trip.getOrgId());
+        if (owner == null) {
+            return List.of();
+        }
+        final PrivilegeCommands priv = privCommands();
+        final List<String> missing = new ArrayList<>();
+        for (final String base : CREATOR_TRIP_BASES) {
+            if (current.isSiteAdmin() || owner.mayGrant(base)) {
+                final Privilege row = priv.getOrCreate(base, trip.getId(),
+                        trip.getTitle() + " - " + TRIP_ROLE_NAMES.getOrDefault(base, base));
+                priv.savePrivilege(row.withNewPerson(current.personId()), current.auditActor());
+            } else {
+                missing.add(TRIP_ROLE_NAMES.getOrDefault(base, base));
+            }
+        }
+        if (!missing.isEmpty()) {
+            supportSource.get().fileMissingTripRolesNotice(trip.getId(), trip.getTitle(),
+                    owner.getName(), missing);
+            publishParam("showRoleWarning", true);
+        }
+        return missing;
     }
 
     /** The trip-scoped role bases the given trip's org may grant (site admin: unfiltered). */

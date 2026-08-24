@@ -74,6 +74,9 @@ public class TripCommands {
         }
         final Trip trip = Trip.builder().build();
         trip.setOrgId(orgId.trim());
+        // "Show on homepage?" starts OFF: a half-written trip must never appear on the public landing
+        // page because its creator missed a toggle (user decision 2026-08-24).
+        trip.setOpenToPublic(false);
         return trip;
     }
 

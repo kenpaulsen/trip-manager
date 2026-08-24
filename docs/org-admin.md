@@ -55,6 +55,19 @@ whole `admin/tripRegistrations.jsf` page — approve, move, rooms, approval mail
 `reqPriv` door, and the REST roster (`RegistrationsResource.isTripStaff`) all honor it; it deliberately
 does NOT light up the other trip tabs, the way an invited chat guest gets exactly the Chat tab.
 
+**Creating a trip** stamps `openToPublic=false` (never public until chosen) and auto-grants the creator
+their standard roles on the new trip -- `tripMgr` (Editor Admin), `tripView` (Viewer), and
+`registrationAdmin` -- via `OrgCommands.grantCreatorTripRoles`, called only from the create paths (page
+save, REST POST). It deliberately skips the org-admin gate (an `addTrip@org` creator is usually not an org
+admin) but the org's allow-list still bounds it: withheld roles surface in a warning dialog on the create
+page, and a `[support:trip-roles]` notice (no duplicate guard -- one per trip) goes to the support channel
+so a site admin can grant them or adjust the allow-list. A create-save then continues to
+`/trip/edit.jsf?id=` (or the itinerary when Editor Admin itself was withheld). On that editor, the
+settings rows answer to per-trip roles rather than `showAll`: "Show on homepage?" (`tripMgr`), Edit
+Registration Options (`registrationAdmin`), Payment Settings (`tripFinAdmin`), "Enable Trip Chat?"
+(`chatMgr`) -- the dialogs themselves render only for their gate's holders, which is also the decode-time
+refusal for forged submits.
+
 **Adding members** (org People page): site admins keep the whole-directory autocomplete; org admins add
 by EXACT email address instead (`OrgCommands.addMemberByEmail`) — a name typeahead across every account
 leaked other tenants' people. An address with no account offers an invite dialog: `sendOrgInvite` mails

@@ -338,6 +338,34 @@ public class SupportChatCommandsTest {
                 "The other account's id must not ride along: " + body);
     }
 
+    // ------------------------------------------------------------------ trip-roles notices
+
+    @Test
+    public void aMissingRolesNoticePostsPerTripWithoutTheDuplicateGuard() throws IOException {
+        final Person creator = savedPerson("creator");
+        final SupportChatCommands commands = supportFor(creator, false);
+
+        assertTrue(commands.fileMissingTripRolesNotice("trip-a", "Fall Trip", "Acme Inc",
+                List.of("Editor Admin", "Registration Admin")));
+        // A second created trip inside the cooldown window still gets its own notice: notices are
+        // per-trip facts, not user-filed requests, so the one-open-request guard must not swallow them.
+        assertTrue(commands.fileMissingTripRolesNotice("trip-b", "Spring Trip", "Acme Inc",
+                List.of("Editor Admin")));
+
+        final List<String> bodies = asReader().recentMessages(10).stream()
+                .map(SupportChatCommands.SupportMessage::body)
+                .toList();
+        assertTrue(bodies.get(0).startsWith(SupportChatCommands.TRIP_ROLES_MARKER), bodies.get(0));
+        assertTrue(bodies.get(0).contains("Spring Trip"), bodies.get(0));
+        assertTrue(bodies.get(1).contains("Editor Admin, Registration Admin"), bodies.get(1));
+        assertTrue(bodies.get(1).contains("/trip/edit.jsf?id=trip-a"), "the admin grant link: "
+                + bodies.get(1));
+
+        assertFalse(commands.fileMissingTripRolesNotice("trip-c", "T", "O", List.of()),
+                "nothing missing means nothing to report");
+        assertFalse(commands.fileMissingTripRolesNotice(null, "T", "O", List.of("Viewer")));
+    }
+
     private SupportChatCommands supportFor(final Person person, final boolean siteAdmin) {
         return new SupportChatCommands(allowingLimiter(), new ConfigCommands(),
                 Mockito.mock(MailCommands.class), () -> callerFor(person, siteAdmin));

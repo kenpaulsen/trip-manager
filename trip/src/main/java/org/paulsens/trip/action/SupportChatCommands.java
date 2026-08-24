@@ -57,6 +57,7 @@ public class SupportChatCommands {
     static final String REMOVAL_MARKER = "[support:family-removal]";
     static final String LIMIT_MARKER = "[support:family-limit]";
     static final String EMAIL_CONFLICT_MARKER = "[support:email-conflict]";
+    static final String TRIP_ROLES_MARKER = "[support:trip-roles]";
 
     private final ChatRateLimiter rateLimiter;
     private final ConfigCommands config;
@@ -369,13 +370,51 @@ public class SupportChatCommands {
                         + subjectId.getValue() + "\">open their Manage People page</a>.</p>");
     }
 
+    /**
+     * Posts a NOTICE to the support channel: a trip creator could not receive some of the standard creator
+     * roles because the owning org's allow-list withholds them ({@code OrgCommands.grantCreatorTripRoles}).
+     * Unlike the user-filed requests above, there is no duplicate guard -- each created trip deserves its
+     * own notice -- but the rate limiter still applies. The message is authored by the CREATOR (accurate
+     * attribution, the postRequest contract).
+     */
+    public boolean fileMissingTripRolesNotice(final String tripId, final String tripTitle,
+            final String orgName, final List<String> missingRoles) {
+        final Caller caller = callerSource.get();
+        final Person me = personOf(caller);
+        if (me == null || tripId == null || missingRoles == null || missingRoles.isEmpty()) {
+            return false;
+        }
+        final String roles = String.join(", ", missingRoles);
+        final String title = (tripTitle == null || tripTitle.isBlank()) ? tripId : tripTitle;
+        final String chatBody = TRIP_ROLES_MARKER + "\n@all " + describe(me) + " created trip '" + title
+                + "' (" + orgName + ") but could not be granted: " + roles
+                + " -- withheld by the organization's grantable-privileges allow-list."
+                + "\n\nAdmin: grant the roles on /trip/edit.jsf?id=" + tripId
+                + " or adjust the allow-list on /admin/organizations.jsf.";
+        return postRequest(me, caller, TRIP_ROLES_MARKER, chatBody,
+                "Trip created without full creator roles: " + title,
+                "<p><b>" + MailTemplates.escape(describe(me)) + "</b> created trip <b>"
+                        + MailTemplates.escape(title) + "</b> (" + MailTemplates.escape(orgName)
+                        + ") but could not be granted: <b>" + MailTemplates.escape(roles)
+                        + "</b> &mdash; withheld by the organization's allow-list.</p>"
+                        + "<p><a href=\"" + baseUrl() + "/trip/edit.jsf?id=" + tripId
+                        + "\">Grant the roles on the trip</a> or adjust the allow-list on <a href=\""
+                        + baseUrl() + "/admin/organizations.jsf\">the Organizations page</a>.</p>",
+                false);
+    }
+
     // ------------------------------------------------------------------ internals
 
     private boolean postRequest(final Person me, final Caller caller, final String marker,
             final String chatBody, final String mailSubject, final String mailHtml) {
+        return postRequest(me, caller, marker, chatBody, mailSubject, mailHtml, true);
+    }
+
+    private boolean postRequest(final Person me, final Caller caller, final String marker,
+            final String chatBody, final String mailSubject, final String mailHtml, final boolean dedup) {
         final Instant now = Instant.now();
         final ChatChannel channel = ensureSupportChannel(caller.auditActor());
-        if (hasOpenRequest(channel, me.getId(), marker, now)) {
+        if (dedup && hasOpenRequest(channel, me.getId(), marker, now)) {
             return fail("Already requested", "You already sent this request recently. An administrator "
                     + "will follow up -- there is no need to send it again.");
         }

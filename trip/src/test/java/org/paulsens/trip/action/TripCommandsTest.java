@@ -37,6 +37,8 @@ public class TripCommandsTest {
         final String orgId = java.util.UUID.randomUUID().toString();
         final Trip created = asSiteAdmin().createTripFor(orgId);
         assertEquals(created.getOrgId(), orgId, "The new trip belongs to the requested org");
+        assertEquals(created.getOpenToPublic(), Boolean.FALSE,
+                "Show on homepage starts OFF for every new trip");
         assertNull(asNobody().createTripFor(orgId), "No org authority, no trip");
         assertNull(asSiteAdmin().createTripFor(null), "A new trip must name its org");
     }

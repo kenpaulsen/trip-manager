@@ -487,7 +487,9 @@ public final class Trip implements Serializable {
     public static class TripBuilder {
         // Set TripBuilder values here to provide a default values
         private String id = UUID.randomUUID().toString();   // Trip ID
-        private Boolean openToPublic = Boolean.TRUE;        // True if people can register themselves
+        // FALSE since 2026-08-24: a trip shows on the homepage only when someone turns it on. The old
+        // TRUE default put half-written trips on the public landing page.
+        private Boolean openToPublic = Boolean.FALSE;       // "Show on homepage?"
         private LocalDateTime startDate = LocalDateTime.now().plusDays(90);     // Start of trip
         private LocalDateTime endDate = LocalDateTime.now().plusDays(100);      // Start of trip
         private List<Person.Id> people = new ArrayList<>();

@@ -199,9 +199,15 @@ public class TripsResource extends BaseResource {
         final TripCommands trips = Beans.get(TripCommands.class);
         final Trip trip = trips.createTrip();
         apply(body, trip);
+        if (trip.getOpenToPublic() == null) {
+            // Same default the page's create path stamps: never public until someone chooses it.
+            trip.setOpenToPublic(false);
+        }
         if (!trips.saveTrip(trip)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the trip.");
         }
+        // Creator roles, allow-list-bounded; withheld roles were already reported to the support channel.
+        new OrgCommands(this::caller).grantCreatorTripRoles(trip);
         return ok(TripMapper.INSTANCE.toDto(trip).withoutEvents());
     }
 

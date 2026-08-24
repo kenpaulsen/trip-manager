@@ -563,6 +563,78 @@ public class OrgCommandsTest {
                 new AuditActor(person.getEmail(), person.getId().getValue()), grantsNothing());
     }
 
+    // ------------------------------------------------------------------ creator trip roles
+
+    @Test
+    public void creatorRolesAllLandWhenTheOrgIsUnrestricted() throws IOException {
+        final Person creator = savedPerson();
+        final Organization acme = orgWithAdmin(creator);   // null allow-list: everything grantable
+        final org.paulsens.trip.model.Trip trip = tripOwnedBy(acme);
+        final SupportChatCommands support = Mockito.mock(SupportChatCommands.class);
+        final OrgCommands cmds = new OrgCommands(callerOf(creator),
+                () -> Mockito.mock(org.paulsens.trip.action.MailCommands.class), () -> support);
+
+        assertEquals(cmds.grantCreatorTripRoles(trip), List.of(), "nothing withheld");
+        final PrivilegeCommands priv = new PrivilegeCommands();
+        assertTrue(priv.check(PrivilegeCommands.TRIP_MGR, trip.getId(), creator.getId()));
+        assertTrue(priv.check(PrivilegeCommands.TRIP_VIEW, trip.getId(), creator.getId()));
+        assertTrue(priv.check("registrationAdmin", trip.getId(), creator.getId()),
+                "the creator holds registrationAdmin on their new trip");
+        Mockito.verifyNoInteractions(support);
+    }
+
+    @Test
+    public void withheldCreatorRolesWarnAndNoticeTheSupportChannel() throws IOException {
+        final Person creator = savedPerson();
+        final Organization acme = orgWithAdmin(creator);
+        final String orgId = acme.getId().getValue();
+        assertTrue(admin().setGrantablePrivileges(orgId, List.of(PrivilegeCommands.TRIP_VIEW)),
+                "restrict the org to Viewer only");
+        final org.paulsens.trip.model.Trip trip = tripOwnedBy(dao.getOrganization(acme.getId(),
+                Cached.NO).orElseThrow());
+        final SupportChatCommands support = Mockito.mock(SupportChatCommands.class);
+        final OrgCommands cmds = new OrgCommands(callerOf(creator),
+                () -> Mockito.mock(org.paulsens.trip.action.MailCommands.class), () -> support);
+
+        final List<String> missing = cmds.grantCreatorTripRoles(trip);
+        assertEquals(missing.size(), 2, "Editor Admin and Registration Admin are withheld: " + missing);
+        assertTrue(missing.contains("Editor Admin"), "" + missing);
+        final PrivilegeCommands priv = new PrivilegeCommands();
+        assertTrue(priv.check(PrivilegeCommands.TRIP_VIEW, trip.getId(), creator.getId()),
+                "the allowed role still lands");
+        assertFalse(priv.check(PrivilegeCommands.TRIP_MGR, trip.getId(), creator.getId()),
+                "the withheld role must NOT be granted (no allow-list bypass)");
+        Mockito.verify(support).fileMissingTripRolesNotice(trip.getId(), trip.getTitle(),
+                acme.getName(), missing);
+    }
+
+    @Test
+    public void creatorRolesRefuseGarbageQuietly() throws IOException {
+        final Person creator = savedPerson();
+        final SupportChatCommands support = Mockito.mock(SupportChatCommands.class);
+        final OrgCommands cmds = new OrgCommands(callerOf(creator),
+                () -> Mockito.mock(org.paulsens.trip.action.MailCommands.class), () -> support);
+        assertEquals(cmds.grantCreatorTripRoles(null), List.of());
+        final org.paulsens.trip.model.Trip orgless = org.paulsens.trip.model.Trip.builder()
+                .id("orgless-" + unique()).title("No Org").build();
+        assertEquals(cmds.grantCreatorTripRoles(orgless), List.of(), "no org, no grants, no notice");
+        final org.paulsens.trip.model.Trip ghost = org.paulsens.trip.model.Trip.builder()
+                .id("ghost-" + unique()).title("Ghost Org").build();
+        ghost.setOrgId("no-such-org");
+        assertEquals(cmds.grantCreatorTripRoles(ghost), List.of());
+        Mockito.verifyNoInteractions(support);
+    }
+
+    /** A saved trip owned by the given org -- the create paths call the grant AFTER the first save.
+     *  The id must be a canonical UUID: privilege scope suffixes refuse anything else. */
+    private org.paulsens.trip.model.Trip tripOwnedBy(final Organization owner) throws IOException {
+        final org.paulsens.trip.model.Trip trip = org.paulsens.trip.model.Trip.builder()
+                .id(java.util.UUID.randomUUID().toString()).title("Roles " + unique()).build();
+        trip.setOrgId(owner.getId().getValue());
+        assertTrue(dao.saveTrip(trip));
+        return trip;
+    }
+
     // ------------------------------------------------------------------ add-by-email + invite
 
     @Test
