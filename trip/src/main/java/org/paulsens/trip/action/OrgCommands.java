@@ -1308,15 +1308,20 @@ public class OrgCommands {
 
     /**
      * The trip-editor dialog's "Send test email": renders the trip's EFFECTIVE confirmation template with
-     * sample values and mails it to the signed-in admin -- the one thing that must work before a real payer
-     * hits it. The trip passed in is the edit DRAFT, so unsaved dialog choices are what get tested.
+     * sample values and mails it to the given address (the dialog's To field, prefilled with the signed-in
+     * admin's own address -- user request 2026-08-24: prompt, never assume). The trip passed in is the edit
+     * DRAFT, so unsaved dialog choices are what get tested.
      */
-    public boolean sendPaymentTestMail(final Trip trip) {
+    public boolean sendPaymentTestMail(final Trip trip, final String to) {
         final Caller current = caller();
         final Person me = (current.isAuthenticated())
                 ? DAO.getInstance().getPerson(current.personId(), Cached.NO).orElse(null) : null;
-        if (me == null || me.getEmail() == null || me.getEmail().isBlank()) {
-            return fail("No address", "Your account has no email address to send the test to.");
+        if (me == null) {
+            return fail("Not signed in", "Sign in to send a test email.");
+        }
+        final String addr = normalizeEmail(to);
+        if (addr == null) {
+            return fail("No address", "Enter the email address to send the test to.");
         }
         final TripPaymentConfig effective = effectivePaymentConfig(trip);
         if (effective.getConfirmationTemplateId() == null) {
@@ -1327,14 +1332,46 @@ public class OrgCommands {
                     + "site settings.");
         }
         final boolean sent = mailSource.get().sendManagedTemplate(effective.getConfirmationTemplateId(),
-                samplePaymentValues(trip, me, effective), me.getEmail(), effective.getMailFrom(),
+                samplePaymentValues(trip, me, effective), addr, effective.getMailFrom(),
                 effective.getReplyTo(), current.auditActor());
         if (!sent) {
             return fail("Not sent", "The test email could not be sent; is the template installed?");
         }
         TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO,
-                "Test email sent to " + me.getEmail(), null);
+                "Test email sent to " + addr, null);
         return true;
+    }
+
+    /**
+     * The payment dialog's template PREVIEW: subject and body of the trip's effective confirmation mail
+     * rendered with the same sample values the test send uses. "" when no template resolves anywhere or
+     * the render fails -- a preview must show its empty state, never error. Two EL faces rather than the
+     * {@code ManagedMail} record (viewScope/EL should not depend on record-accessor resolution).
+     */
+    public String previewPaymentMailSubject(final Trip trip) {
+        final MailCommands.ManagedMail rendered = renderSamplePaymentMail(trip);
+        return (rendered == null) ? "" : rendered.subject();
+    }
+
+    /** The rendered body HTML for the preview pane; see {@link #previewPaymentMailSubject}. */
+    public String previewPaymentMailBody(final Trip trip) {
+        final MailCommands.ManagedMail rendered = renderSamplePaymentMail(trip);
+        return (rendered == null) ? "" : rendered.body();
+    }
+
+    private MailCommands.ManagedMail renderSamplePaymentMail(final Trip trip) {
+        final Caller current = caller();
+        final Person me = (current.isAuthenticated())
+                ? DAO.getInstance().getPerson(current.personId(), Cached.NO).orElse(null) : null;
+        if (trip == null || me == null) {
+            return null;
+        }
+        final TripPaymentConfig effective = effectivePaymentConfig(trip);
+        if (effective.getConfirmationTemplateId() == null) {
+            return null;
+        }
+        return mailSource.get().renderManagedTemplate(effective.getConfirmationTemplateId(),
+                samplePaymentValues(trip, me, effective));
     }
 
     /** Sample token values for the test send (the real flow's PaymentMailer fills these from a Payment). */

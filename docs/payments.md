@@ -46,7 +46,9 @@ editor's **Payment Settings** dialog against the TripEditDrafts draft) AND on th
 **trip → org → site settings** (`payment.*` in `KnownSettings`). Fields: processorConfigId, feesPaidBy,
 donation toggle+label, confirmation template id (MAIL kind; installed starter `payment-confirmation`),
 mailFrom/replyTo/bcc (**no cc — the SES wrapper has none**), extraTokens. The dialog's **Send Test Email**
-renders the effective template with sample values to the signed-in admin.
+renders the effective template with sample values to a PROMPTED address (prefilled with the signed-in
+admin's own; never assumed), and its **Preview** button shows the same render in-page
+(`OrgCommands.previewPaymentMailSubject/Body`).
 
 ## The money rules (user-locked; the golden test is `PaymentRecorderTest`)
 

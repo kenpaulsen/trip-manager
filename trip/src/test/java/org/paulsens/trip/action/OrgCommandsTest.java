@@ -542,20 +542,39 @@ public class OrgCommandsTest {
         final org.paulsens.trip.model.Trip trip = org.paulsens.trip.model.Trip.builder()
                 .id("mailtest-" + unique()).title("Mail Test Trip").build();
         trip.setOrgId(acme.getId().getValue());
-        assertFalse(cmds.sendPaymentTestMail(trip),
+        assertFalse(cmds.sendPaymentTestMail(trip, acmeAdmin.getEmail()),
                 "No From address anywhere resolves to a loud refusal, not a broken send");
 
         trip.getPaymentConfig().setMailFrom("Trip <no-reply@acme.example>");
-        assertTrue(cmds.sendPaymentTestMail(trip));
+        assertTrue(cmds.sendPaymentTestMail(trip, "  tester@example.org  "),
+                "The test goes to the PROMPTED address, trimmed");
         Mockito.verify(mail).sendManagedTemplate(Mockito.eq("payment-confirmation"), Mockito.anyMap(),
-                Mockito.eq(acmeAdmin.getEmail()), Mockito.eq("Trip <no-reply@acme.example>"),
+                Mockito.eq("tester@example.org"), Mockito.eq("Trip <no-reply@acme.example>"),
                 Mockito.any(), Mockito.any());
 
-        final Person noEmail = savedPerson();
-        noEmail.setEmail(null);
-        assertTrue(dao.savePerson(noEmail));
-        assertFalse(new OrgCommands(callerOf(noEmail), () -> mail).sendPaymentTestMail(trip),
-                "An admin with no address cannot receive the test");
+        assertFalse(cmds.sendPaymentTestMail(trip, "not-an-address"), "A bogus To is refused");
+        assertFalse(cmds.sendPaymentTestMail(trip, null), "A blank To is refused, never defaulted");
+    }
+
+    @Test
+    public void paymentMailPreviewRendersTheEffectiveTemplateWithSampleValues() throws IOException {
+        final Person acmeAdmin = savedPerson();
+        final Organization acme = orgWithAdmin(acmeAdmin);
+        final org.paulsens.trip.action.MailCommands mail =
+                Mockito.mock(org.paulsens.trip.action.MailCommands.class);
+        Mockito.when(mail.renderManagedTemplate(Mockito.anyString(), Mockito.anyMap()))
+                .thenReturn(new org.paulsens.trip.action.MailCommands.ManagedMail(
+                        "Payment received - Preview Trip", "<p>Dear Sample</p>"));
+        final OrgCommands cmds = new OrgCommands(callerOf(acmeAdmin), () -> mail);
+
+        final org.paulsens.trip.model.Trip trip = org.paulsens.trip.model.Trip.builder()
+                .id("preview-" + unique()).title("Preview Trip").build();
+        trip.setOrgId(acme.getId().getValue());
+        assertEquals(cmds.previewPaymentMailSubject(trip), "Payment received - Preview Trip");
+        assertEquals(cmds.previewPaymentMailBody(trip), "<p>Dear Sample</p>");
+
+        assertEquals(cmds.previewPaymentMailSubject(null), "", "no trip previews as empty, never errors");
+        assertEquals(anonymous().previewPaymentMailBody(trip), "", "anonymous previews empty");
     }
 
     private java.util.function.Supplier<Caller> callerOf(final Person person) {
