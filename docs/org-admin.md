@@ -86,6 +86,28 @@ Reply-To the org's contact email). Invites are STATELESS by design — nothing i
 is pre-granted; the admin adds the address again once the account exists, and an account that appears
 between check and send folds into a plain add.
 
+## Email addresses (the Settings section, 2026-08-24)
+
+Every address the application sends **with** (From) or **to** (recipient / Reply-To) is a
+`KnownSettings` slot resolved by `MailAddressCommands` (`#{mailAddr}`). A slot's stored value is either
+the sentinel `site` (the Site email setting), the sentinel `org` (the owning organization's contact
+email from its org Profile page, **falling back to the Site email**; only slots with a trip in hand),
+or a literal address. The admin Settings page renders the "Email addresses" section with a mode widget
+instead of raw text; its From composer is display-name + local-part + a domain dropdown fed by
+`MailCommands.verifiedSendingDomains()` (live from SES, ten-minute memo, fixed fake list in local
+mode; needs `ses:ListIdentities` + `ses:GetIdentityVerificationAttributes` on the task role).
+
+Rules that outlast the UI:
+
+- **From is never `org`**: SES only sends from verified identities, so an arbitrary org domain as From
+  would fail every send. From slots resolve `org` as `site` defensively.
+- **Recipients/Reply-To take any well-formed address** — an org's contact email is often external.
+- Senders resolve through `MailAddressCommands.from(def)` / `.recipient(def, trip)` /
+  `.replyTo(def, trip)` (pages: `mailAddr.fromFor/recipientFor/replyToFor` with the setting key) —
+  **never read these settings raw**: the value may be a sentinel, not an address.
+- Slot registry: `MailAddressCommands.SLOTS`. Adding a sendable address = a `SettingDef` in the
+  Email addresses section + one `Slot` entry; the page renders it automatically.
+
 ## The per-org allow-list
 
 `Organization.grantablePrivileges` bounds what an org may grant (both trip roles and org-scoped bases):

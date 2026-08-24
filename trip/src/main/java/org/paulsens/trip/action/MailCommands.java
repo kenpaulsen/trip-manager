@@ -9,6 +9,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -63,6 +64,76 @@ public class MailCommands {
     /** Test seam: the SES path (request shape, audit attribution, error mapping) is untestable without it. */
     MailCommands(final SesClient client) {
         this.client = client;
+    }
+
+    /** {@link #verifiedSendingDomains()} memo. Instance-level: resolution paths never call this -- only
+     *  the Settings page does, through the ONE CDI instance -- so per-instance is one SES call per window. */
+    private volatile List<String> verifiedDomains;
+    private volatile long verifiedDomainsLoadedAt;
+    private static final long VERIFIED_DOMAINS_TTL_MS = 10 * 60 * 1000L;
+
+    /**
+     * The domain identities SES has VERIFIED for sending, sorted -- the Settings page's From-address
+     * domain dropdown. Local mode answers a fixed fake list (SES stays untouched off AWS, the same stance
+     * as {@link #send}); production memoizes for ten minutes, and an SES failure answers the previous
+     * result when there is one rather than emptying the dropdown mid-edit. Needs {@code
+     * ses:ListIdentities} + {@code ses:GetIdentityVerificationAttributes} on the task role.
+     */
+    public List<String> verifiedSendingDomains() {
+        if (FakeData.isLocal()) {
+            return List.of("centerforpeacewest.com", "example.com", "visitqueenofpeace.com");
+        }
+        return memoizedVerifiedDomains();
+    }
+
+    /** Package-private: the whole suite runs local, so the SES path is only reachable by a direct call. */
+    synchronized List<String> memoizedVerifiedDomains() {
+        final long now = System.currentTimeMillis();
+        if (verifiedDomains != null && now - verifiedDomainsLoadedAt < verifiedDomainsTtlMs()) {
+            return verifiedDomains;
+        }
+        try {
+            verifiedDomains = fetchVerifiedDomains();
+            verifiedDomainsLoadedAt = now;
+        } catch (final RuntimeException ex) {
+            log.error("Unable to list verified SES domains{}",
+                    verifiedDomains != null ? " (serving stale)" : "", ex);
+            return verifiedDomains != null ? verifiedDomains : List.of();
+        }
+        return verifiedDomains;
+    }
+
+    /** Seam: tests shrink the window to force a refresh (and the serve-stale-on-failure branch). */
+    long verifiedDomainsTtlMs() {
+        return VERIFIED_DOMAINS_TTL_MS;
+    }
+
+    private List<String> fetchVerifiedDomains() {
+        final List<String> identities = new ArrayList<>();
+        String token = null;
+        do {
+            final String nextToken = token;
+            final var page = client.listIdentities(b -> b
+                    .identityType(software.amazon.awssdk.services.ses.model.IdentityType.DOMAIN)
+                    .nextToken(nextToken));
+            identities.addAll(page.identities());
+            token = page.nextToken();
+        } while (token != null && !token.isBlank());
+        final List<String> verified = new ArrayList<>();
+        // The verification-attributes call caps at 100 identities per request.
+        for (int i = 0; i < identities.size(); i += 100) {
+            final List<String> chunk = identities.subList(i, Math.min(i + 100, identities.size()));
+            final var attrs = client.getIdentityVerificationAttributes(b -> b.identities(chunk))
+                    .verificationAttributes();
+            for (final var entry : attrs.entrySet()) {
+                if (entry.getValue().verificationStatus()
+                        == software.amazon.awssdk.services.ses.model.VerificationStatus.SUCCESS) {
+                    verified.add(entry.getKey().toLowerCase(java.util.Locale.ROOT));
+                }
+            }
+        }
+        Collections.sort(verified);
+        return verified;
     }
 
     /**

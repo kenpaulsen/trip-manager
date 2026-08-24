@@ -110,8 +110,9 @@ public class LoginCodeCommands {
         if (FakeData.isLocal()) {
             log.info("LOCAL MODE: login code for {} is {}", lowEmail, code);
         }
-        mail.send(config.getString(KnownSettings.LOGIN_MAIL_FROM), lowEmail, null,
-                config.getString(KnownSettings.LOGIN_MAIL_REPLY_TO), "Your sign-in code",
+        final MailAddressCommands addresses = new MailAddressCommands(config);
+        mail.send(addresses.from(KnownSettings.LOGIN_MAIL_FROM), lowEmail, null,
+                addresses.replyTo(KnownSettings.LOGIN_MAIL_REPLY_TO, null), "Your sign-in code",
                 codeEmail(code, ttl), AuditActor.current());
         Audit.builder(AuditAction.CODE_REQUEST, AuditOutcome.SUCCESS)
                 .actor(lowEmail, person.getId().getValue())

@@ -248,7 +248,7 @@ public class ChatDigestSender {
         // recipient behind it.
         // System, not an empty actor: nobody asked for this send, the scheduler did. An unknown actor would
         // read as "we lost track of who did this"; System is an answer.
-        final SendEmailResponse response = mail.send(from(), to, null, replyTo(),
+        final SendEmailResponse response = mail.send(from(), to, null, replyTo(candidate),
                 "New messages in the " + tripTitle(candidate) + " chat", body, AuditActor.system());
         if (response == null) {
             return false;
@@ -339,10 +339,13 @@ public class ChatDigestSender {
     }
 
     private String from() {
-        return config.getString(KnownSettings.CHAT_MAIL_FROM);
+        return new org.paulsens.trip.action.MailAddressCommands(config)
+                .from(KnownSettings.CHAT_MAIL_FROM);
     }
 
-    private String replyTo() {
-        return config.getString(KnownSettings.CHAT_MAIL_REPLY_TO);
+    /** Per candidate: in org mode the Reply-To is the digest trip's owning-org contact email. */
+    private String replyTo(final Candidate candidate) {
+        return new org.paulsens.trip.action.MailAddressCommands(config)
+                .replyTo(KnownSettings.CHAT_MAIL_REPLY_TO, candidate == null ? null : candidate.trip());
     }
 }

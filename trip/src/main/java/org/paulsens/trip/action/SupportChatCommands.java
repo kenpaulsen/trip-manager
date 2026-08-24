@@ -497,9 +497,10 @@ public class SupportChatCommands {
                 continue;
             }
             try {
-                mail.send(config.getString(KnownSettings.CHAT_MAIL_FROM), mail.formatEmail(admin), null,
-                        config.getString(KnownSettings.CHAT_MAIL_REPLY_TO), finalSubject, finalBody,
-                        AuditActor.system());
+                final MailAddressCommands addresses = new MailAddressCommands(config);
+                mail.send(addresses.from(KnownSettings.SUPPORT_MAIL_FROM), mail.formatEmail(admin), null,
+                        addresses.replyTo(KnownSettings.SUPPORT_MAIL_REPLY_TO, null), finalSubject,
+                        finalBody, AuditActor.system());
             } catch (final RuntimeException ex) {
                 log.warn("Support-request mail to {} failed", admin.getId(), ex);
             }

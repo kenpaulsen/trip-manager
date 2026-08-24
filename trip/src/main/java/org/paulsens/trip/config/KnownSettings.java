@@ -77,13 +77,26 @@ public final class KnownSettings {
             "The master switch for every chat email, including mentions and the daily digest. Off means chat "
                     + "sends no mail at all, whatever anyone's own preferences say.");
 
+    /**
+     * The mail-address slots below share one value shape, resolved by {@code MailAddressCommands}: the
+     * sentinel {@code site} means the Site email setting; {@code org} (recipient/reply-to slots that have a
+     * trip in hand only) means the owning organization's contact email, falling back to the Site email; any
+     * other value is a literal address. The Email addresses section of the Settings page renders these with
+     * a mode widget instead of the generic text box.
+     */
+    private static final String MODE_NOTE = " Value shape: 'site' = the Site email, 'org' = the owning "
+            + "organization's contact email (falling back to the Site email), anything else = that literal "
+            + "address.";
+
     public static final SettingDef CHAT_MAIL_FROM = new SettingDef(
             "chat.mail.from", Config.Type.STRING, "Trip Chat <no-reply@visitqueenofpeace.com>", "From address",
-            "Must be an address SES is verified to send from, or every chat email fails.");
+            "Chat email's From. Must be an address SES is verified to send from, or every chat email fails."
+                    + MODE_NOTE);
 
     public static final SettingDef CHAT_MAIL_REPLY_TO = new SettingDef(
             "chat.mail.replyTo", Config.Type.STRING, "no-reply@visitqueenofpeace.com", "Reply-to address",
-            "Where a reply goes. Chat email is not a mailing list, so replies are not delivered to the chat.");
+            "Where a reply goes. Chat email is not a mailing list, so replies are not delivered to the chat."
+                    + MODE_NOTE);
 
     public static final SettingDef CHAT_MAIL_BASE_URL = new SettingDef(
             "chat.mail.baseUrl", Config.Type.STRING, "https://my.centermirmedjugorje.com", "Site address in links",
@@ -232,14 +245,15 @@ public final class KnownSettings {
                     + "not a realistic attack.");
 
     public static final SettingDef LOGIN_MAIL_FROM = new SettingDef(
-            "login.mail.from", Config.Type.STRING, "Visit Queen of Peace <no-reply@visitqueenofpeace.com>",
+            "login.mail.from", Config.Type.STRING, "site",
             "From address",
-            "Must be an address SES is verified to send from, or login-code email fails.");
+            "Login-code email's From. Must be an address SES is verified to send from, or login-code email "
+                    + "fails." + MODE_NOTE);
 
     public static final SettingDef LOGIN_MAIL_REPLY_TO = new SettingDef(
             "login.mail.replyTo", Config.Type.STRING, "ken@visitqueenofpeace.com", "Reply-to address",
             "Where a reply to a login-code email goes -- someone stuck at the login page tends to reply to "
-                    + "the mail in front of them, so this should be an address a human reads.");
+                    + "the mail in front of them, so this should be an address a human reads." + MODE_NOTE);
 
     public static final SettingDef LOGIN_PASSKEY_ENABLED = new SettingDef(
             "login.passkey.enabled", Config.Type.BOOLEAN, "false", "Offer passkeys",
@@ -279,19 +293,74 @@ public final class KnownSettings {
     // --- registration email ---
 
     public static final SettingDef REG_MAIL_FROM = new SettingDef(
-            "reg.mail.from", Config.Type.STRING, "Visit Queen of Peace <no-reply@visitqueenofpeace.com>",
+            "reg.mail.from", Config.Type.STRING, "site",
             "From address",
             "Registrant-facing registration emails (received/approved). Must be an address SES is verified "
-                    + "to send from, or every registration email fails.");
+                    + "to send from, or every registration email fails." + MODE_NOTE);
 
     public static final SettingDef REG_MAIL_REPLY_TO = new SettingDef(
-            "reg.mail.replyTo", Config.Type.STRING, "ken@visitqueenofpeace.com", "Reply-To address",
+            "reg.mail.replyTo", Config.Type.STRING, "org", "Reply-To address",
             "Where a registrant's reply lands. The emails invite questions, so this should be a mailbox "
-                    + "somebody reads.");
+                    + "somebody reads." + MODE_NOTE);
 
     public static final SettingDef REG_MAIL_BASE_URL = new SettingDef(
             "reg.mail.baseUrl", Config.Type.STRING, "https://www.visitqueenofpeace.com", "Link base URL",
             "Prefixes the trip/profile links inside registration emails.");
+
+    // --- email addresses (rendered by the Settings page's Email addresses section with a mode widget) ---
+
+    public static final SettingDef SITE_MAIL_EMAIL = new SettingDef(
+            "site.mail.email", Config.Type.STRING, "Visit Queen of Peace <no-reply@visitqueenofpeace.com>",
+            "Site email",
+            "The site's own address: what 'Site email' means for every slot below, and the fallback when an "
+                    + "organization has no contact email. Used as a From, so its domain must be one SES is "
+                    + "verified to send from.");
+
+    public static final SettingDef REG_NOTIFY_EMAIL = new SettingDef(
+            "reg.notify.email", Config.Type.STRING, "org",
+            "Registration notice recipient",
+            "Who receives the internal registration notices (new/moved/cancelled)." + MODE_NOTE);
+
+    public static final SettingDef REG_NOTIFY_FROM = new SettingDef(
+            "reg.notify.from", Config.Type.STRING, "site",
+            "Registration notice From",
+            "The From on the internal registration notices. Must be SES-verified." + MODE_NOTE);
+
+    public static final SettingDef ACCOUNT_NOTIFY_EMAIL = new SettingDef(
+            "account.notify.email", Config.Type.STRING,
+            "registration-notifications@centerforpeacewest.com",
+            "Account notice recipient",
+            "Who receives the internal new-account notices. No organization exists at account creation, so "
+                    + "there is no org option here. The default preserves the address the page used to "
+                    + "hardcode." + MODE_NOTE);
+
+    public static final SettingDef ACCOUNT_NOTIFY_FROM = new SettingDef(
+            "account.notify.from", Config.Type.STRING, "site",
+            "Account notice From",
+            "The From on the internal new-account notices. Must be SES-verified." + MODE_NOTE);
+
+    public static final SettingDef TX_NOTIFY_EMAIL = new SettingDef(
+            "tx.notify.email", Config.Type.STRING, "ken@visitqueenofpeace.com",
+            "Transaction notice recipient",
+            "Who receives the internal transaction-saved notices. The default preserves the address the "
+                    + "page used to hardcode." + MODE_NOTE);
+
+    public static final SettingDef TX_NOTIFY_FROM = new SettingDef(
+            "tx.notify.from", Config.Type.STRING, "site",
+            "Transaction notice From",
+            "The From on the internal transaction-saved notices. Must be SES-verified." + MODE_NOTE);
+
+    public static final SettingDef SUPPORT_MAIL_FROM = new SettingDef(
+            "support.mail.from", Config.Type.STRING, "site",
+            "Support request From",
+            "The From on support-request email to the support channel admins. Must be SES-verified."
+                    + MODE_NOTE);
+
+    public static final SettingDef SUPPORT_MAIL_REPLY_TO = new SettingDef(
+            "support.mail.replyTo", Config.Type.STRING, "site",
+            "Support request Reply-To",
+            "Where a reply to a support-request email goes. The recipients are the support channel admins "
+                    + "themselves (configured below), so this is rarely load-bearing." + MODE_NOTE);
 
     // --- support requests ---
 
@@ -374,9 +443,24 @@ public final class KnownSettings {
                     + "for ordinary writes from OTHER JVMs (CLI tools with the cache configured, a second "
                     + "instance) and for missed broadcasts.");
 
+    /**
+     * The Settings page renders this section with a purpose-built mode widget (org/site/custom + a
+     * local-part/domain composer for From addresses) instead of the generic text boxes -- it skips the
+     * section in its generic loop BY THIS TITLE, so rename both together.
+     */
+    public static final String EMAIL_ADDRESSES_SECTION = "Email addresses";
+
     private static final List<SettingSection> SECTIONS = List.of(
             new SettingSection("Site", null,
                     List.of(SITE_ORG_NAME)),
+            new SettingSection(EMAIL_ADDRESSES_SECTION,
+                    "Every address the application sends with or to. From addresses must be on an "
+                            + "SES-verified domain; recipients and Reply-To may be any address.",
+                    List.of(SITE_MAIL_EMAIL,
+                            REG_MAIL_FROM, REG_MAIL_REPLY_TO, REG_NOTIFY_EMAIL, REG_NOTIFY_FROM,
+                            ACCOUNT_NOTIFY_EMAIL, ACCOUNT_NOTIFY_FROM, TX_NOTIFY_EMAIL, TX_NOTIFY_FROM,
+                            LOGIN_MAIL_FROM, LOGIN_MAIL_REPLY_TO, CHAT_MAIL_FROM, CHAT_MAIL_REPLY_TO,
+                            SUPPORT_MAIL_FROM, SUPPORT_MAIL_REPLY_TO)),
             new SettingSection("Performance",
                     "The in-JVM near-cache in front of the shared Valkey cache. Only reads whose call site "
                             + "declared Cached.YES (public/render paths) are served from it; auth, payments "
@@ -392,7 +476,7 @@ public final class KnownSettings {
             new SettingSection("Chat email",
                     "Nothing here sends mail on its own. \"Send chat email\" is the master switch; with it off "
                             + "the rest is inert.",
-                    List.of(CHAT_MAIL_ENABLED, CHAT_MAIL_FROM, CHAT_MAIL_REPLY_TO, CHAT_MAIL_BASE_URL)),
+                    List.of(CHAT_MAIL_ENABLED, CHAT_MAIL_BASE_URL)),
             new SettingSection("Chat daily digest", null,
                     List.of(CHAT_DIGEST_ENABLED, CHAT_DIGEST_HOUR, CHAT_DIGEST_ZONE)),
             new SettingSection("Chat limits",
@@ -417,8 +501,8 @@ public final class KnownSettings {
                     "Email login codes double as the forgot-password flow. The mail addresses here are used "
                             + "for those codes.",
                     List.of(LOGIN_CODE_ENABLED, LOGIN_CODE_LENGTH, LOGIN_CODE_TTL_SECONDS, LOGIN_CODE_MAX_SENDS,
-                            LOGIN_CODE_SEND_WINDOW_SECONDS, LOGIN_CODE_MAX_ATTEMPTS, LOGIN_MAIL_FROM,
-                            LOGIN_MAIL_REPLY_TO, LOGIN_REMEMBER_ENABLED, LOGIN_REMEMBER_DAYS,
+                            LOGIN_CODE_SEND_WINDOW_SECONDS, LOGIN_CODE_MAX_ATTEMPTS,
+                            LOGIN_REMEMBER_ENABLED, LOGIN_REMEMBER_DAYS,
                             LOGIN_PASSKEY_ENABLED, LOGIN_PASSWORD_MAX_FAILS,
                             LOGIN_PASSWORD_FAIL_WINDOW_SECONDS)),
             new SettingSection("Family accounts", null,
@@ -428,7 +512,7 @@ public final class KnownSettings {
             new SettingSection("Registration email",
                     "The registrant-facing emails themselves are runtime-editable MAIL templates on the "
                             + "Templates page (registration-received / registration-approved).",
-                    List.of(REG_MAIL_FROM, REG_MAIL_REPLY_TO, REG_MAIL_BASE_URL)),
+                    List.of(REG_MAIL_BASE_URL)),
             new SettingSection("Support requests",
                     "Who receives them is managed in the \"Support channel admins\" panel below the settings.",
                     List.of(SUPPORT_MAIL_ENABLED)),

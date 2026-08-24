@@ -368,11 +368,14 @@ public class OrgCommands {
                 "orgName", org.getName(),
                 "createAccountUrl", config.getString(KnownSettings.REG_MAIL_BASE_URL)
                         + "/account/createAccount.jsf");
+        // The invite already has its org in hand, so org-first directly; the site email is the fallback
+        // (REG_MAIL_REPLY_TO may hold the 'org' sentinel now, so it is resolved, never read raw).
+        final MailAddressCommands addresses = new MailAddressCommands(config);
         final String replyTo = (org.getContactEmail() == null || org.getContactEmail().isBlank())
-                ? config.getString(KnownSettings.REG_MAIL_REPLY_TO) : org.getContactEmail();
+                ? addresses.replyTo(KnownSettings.REG_MAIL_REPLY_TO, null) : org.getContactEmail();
         final boolean sent = mailSource.get().sendManagedTemplate(
                 StarterTemplates.ORG_INVITE_ID, values, addr,
-                config.getString(KnownSettings.REG_MAIL_FROM), replyTo, current.auditActor());
+                addresses.from(KnownSettings.REG_MAIL_FROM), replyTo, current.auditActor());
         if (!sent) {
             return fail("Not sent", "The invitation could not be sent; is the org-invite template "
                     + "installed?");
