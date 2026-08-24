@@ -927,6 +927,7 @@ public class OrgCommandsTest {
         final Person manager = savedPerson();
         final Organization acme = orgWithAdmin(orgAdmin);
         final String orgId = acme.getId().getValue();
+        assertTrue(admin().addMember(orgId, manager.getId()), "Roles require membership now");
         final org.paulsens.trip.model.Trip trip = org.paulsens.trip.model.Trip.builder()
                 .title("Roster Trip " + unique()).build();
         trip.setOrgId(orgId);
@@ -961,6 +962,70 @@ public class OrgCommandsTest {
 
         assertEquals(cmds.heldTripRoles(null, manager.getId()), List.of());
         assertEquals(cmds.addableTripRoles(trip, null), List.of());
+    }
+
+    /**
+     * Tenancy on the manager surfaces (2026-08-24): the Add Manager autocomplete offers the trip's org
+     * members ONLY, and {@code setTripRole} refuses to grant across the boundary -- site admins included,
+     * the {@code grantOrgPrivilege} stance. Revokes stay open so a departed member's stale role is
+     * removable.
+     */
+    @Test
+    public void tripRolesAndTheManagerPickerAreOrgMembershipBounded() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person member = savedPerson();
+        final Person outsider = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+        assertTrue(admin().addMember(orgId, member.getId()));
+        final org.paulsens.trip.model.Trip trip = org.paulsens.trip.model.Trip.builder()
+                .title("Picker Trip " + unique()).build();
+        trip.setOrgId(orgId);
+        assertTrue(dao.saveTrip(trip));
+
+        final OrgCommands onPage = realPrivsOnPage(orgAdmin, trip);
+        final List<Person> everyone = onPage.completeTripManagerCandidates("");
+        assertTrue(listed(everyone, member), "An empty query offers the whole org roster");
+        assertTrue(listed(everyone, orgAdmin));
+        assertFalse(listed(everyone, outsider), "People outside the org are NEVER offered");
+        final List<Person> narrowed = onPage.completeTripManagerCandidates(
+                member.getLast().toLowerCase(java.util.Locale.ROOT));
+        assertTrue(listed(narrowed, member), "The query filters by name");
+        assertFalse(listed(narrowed, orgAdmin));
+        assertEquals(realPrivsOnPage(member, trip).completeTripManagerCandidates("").size(), 0,
+                "A caller who may not manage roles gets nothing from the completion endpoint");
+        assertEquals(realPrivsOnPage(orgAdmin, null).completeTripManagerCandidates("").size(), 0,
+                "No pinned trip, no candidates");
+
+        assertEquals(onPage.addableRolesFor(trip, null), List.of());
+        assertEquals(onPage.addableRolesFor(trip, "  "), List.of());
+        assertEquals(onPage.addableRolesFor(trip, member.getId().getValue()),
+                onPage.addableTripRoles(trip, member.getId()),
+                "The string-id form answers exactly what the typed form does");
+
+        assertFalse(realPrivs(orgAdmin).setTripRole(trip.getId(), outsider.getId(),
+                PrivilegeCommands.TRIP_MGR, true), "An org's trip roles only go to its members");
+        assertFalse(admin().setTripRole(trip.getId(), outsider.getId(),
+                PrivilegeCommands.TRIP_MGR, true), "No site-admin bypass on the tenancy boundary");
+        assertTrue(realPrivs(orgAdmin).setTripRole(trip.getId(), member.getId(),
+                PrivilegeCommands.TRIP_MGR, true));
+        // A second org so the departure passes the last-organization guard.
+        assertTrue(admin().addMember(orgWithAdmin(savedPerson()).getId().getValue(), member.getId()));
+        assertTrue(admin().removeMember(orgId, member.getId()));
+        assertTrue(realPrivs(orgAdmin).setTripRole(trip.getId(), member.getId(),
+                PrivilegeCommands.TRIP_MGR, false), "A departed member's stale role is still removable");
+
+        // An org-less trip has no boundary: it is site-admin territory (grantableTripBases), and only
+        // there does the picker still search globally.
+        final org.paulsens.trip.model.Trip orgless = org.paulsens.trip.model.Trip.builder()
+                .title("Orgless Trip " + unique()).build();
+        assertTrue(dao.saveTrip(orgless));
+        assertTrue(listed(adminOnPage(orgless).completeTripManagerCandidates(outsider.getLast()),
+                outsider), "Site admins on an org-less trip fall back to the global search");
+        assertEquals(realPrivsOnPage(orgAdmin, orgless).completeTripManagerCandidates("").size(), 0,
+                "A non-site-admin cannot manage an org-less trip, so no candidates either");
+        assertTrue(admin().setTripRole(orgless.getId(), outsider.getId(),
+                PrivilegeCommands.TRIP_MGR, true), "No org, no membership requirement");
     }
 
     @Test
@@ -1140,6 +1205,32 @@ public class OrgCommandsTest {
     private OrgCommands realPrivs(final Person person) {
         return new OrgCommands(() -> new Caller(person.getId(), false,
                 new AuditActor(person.getEmail(), person.getId().getValue()), new PrivilegeCommands()));
+    }
+
+    /** {@link #realPrivs} standing on the trip editor: {@code tripFromView} answers the given trip. */
+    private OrgCommands realPrivsOnPage(final Person person, final org.paulsens.trip.model.Trip trip) {
+        return new OrgCommands(() -> new Caller(person.getId(), false,
+                new AuditActor(person.getEmail(), person.getId().getValue()), new PrivilegeCommands())) {
+            @Override
+            protected org.paulsens.trip.model.Trip tripFromView() {
+                return trip;
+            }
+        };
+    }
+
+    /** {@link #admin} standing on the trip editor. */
+    private OrgCommands adminOnPage(final org.paulsens.trip.model.Trip trip) {
+        return new OrgCommands(() -> new Caller(Person.Id.from("admin-" + unique()), true,
+                new AuditActor("admin@test", "admin"), grantsNothing())) {
+            @Override
+            protected org.paulsens.trip.model.Trip tripFromView() {
+                return trip;
+            }
+        };
+    }
+
+    private static boolean listed(final List<Person> people, final Person who) {
+        return people.stream().anyMatch(person -> person.getId().equals(who.getId()));
     }
 
     /** A site-admin caller; {@code Caller.isSiteAdmin} short-circuits, so no privilege rows are needed. */

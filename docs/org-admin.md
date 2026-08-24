@@ -47,7 +47,17 @@ Finance Viewer, Viewer, Chat Admin, Registration Admin) are granted on `trip/edi
 the owning org's admins, through `OrgCommands.setTripRole`. Since 2026-08-24 that page's Trip Managers
 section is a chip roster: one row per role holder, a chip per held role with a remove control (rendered
 only when `setTripRole` would accept the revoke — `OrgCommands.heldTripRoles`' `grantable` flag), a
-per-row "Add role" menu (`addableTripRoles`), and an Add Manager dialog (person autocomplete + role).
+per-row "+ Add role" chip opening a shared role-picker overlay (`addableTripRoles`/`addableRolesFor`),
+and an Add Manager dialog (person autocomplete + role).
+
+**Tenancy on the manager surfaces** (2026-08-24): the Add Manager autocomplete is
+`OrgCommands.completeTripManagerCandidates` — the trip's org MEMBERS only, resolved from the page's
+pinned `viewScope.theTripId`, and empty for callers who may not manage the trip's roles (the completion
+endpoint is POSTable without the dialog, so authorization lives on the data source). Never wire a
+people picker on an org-owned page to the global `people.searchPeople`. `setTripRole` enforces the same
+boundary server-side: grants require membership in the trip's org (site admins included, the
+`grantOrgPrivilege` stance); revokes stay open so a departed member's stale role remains removable.
+Org-less trips are site-admin-only and keep the global search.
 
 `registrationAdmin@trip` (display name "Registration Admin") opens the trip's Registrations tab and the
 whole `admin/tripRegistrations.jsf` page — approve, move, rooms, approval mail — for non-site-admins

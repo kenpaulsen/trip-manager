@@ -744,6 +744,72 @@ public class OrgCommands {
         return missing;
     }
 
+    /**
+     * {@link #addableTripRoles} for the role-picker overlay, whose subject arrives as the raw id string the
+     * opening click stashed in the view (null before any row has been clicked). A distinct name, not an
+     * overload: EL resolves overloads by runtime argument type and a null string would match either.
+     */
+    public List<java.util.Map<String, String>> addableRolesFor(final Trip trip, final String personId) {
+        if (personId == null || personId.isBlank()) {
+            return List.of();
+        }
+        return addableTripRoles(trip, Person.Id.from(personId));
+    }
+
+    /** Result cap for {@link #completeTripManagerCandidates}, matching the people pickers' default. */
+    private static final int MANAGER_PICKER_LIMIT = 25;
+
+    /**
+     * Autocomplete for the trip editor's Add Manager picker: members of the trip's owning org ONLY --
+     * tenancy: an org admin must never see (or be able to search) people outside their org, so the global
+     * people search is off limits here. The subject trip resolves from the page's pinned id
+     * ({@code viewScope.theTripId}, the {@link BadgePhotoCommands} pattern) because an autocomplete query
+     * request carries nothing else. Answers empty when the viewer may not manage the trip's roles: the
+     * completion endpoint is POSTable without ever opening the dialog, so the authorization lives on the
+     * data source, not the button. An org-less trip is site-admin-only territory (see
+     * {@link #grantableTripBases}), and only there does the global search still back the picker.
+     */
+    public List<Person> completeTripManagerCandidates(final String query) {
+        final Trip trip = tripFromView();
+        if (trip == null || grantableTripBases(trip).isEmpty()) {
+            return List.of();
+        }
+        final Organization owner = (trip.getOrgId() == null) ? null : findOrganization(trip.getOrgId());
+        if (owner == null) {
+            return caller().isSiteAdmin()
+                    ? DAO.getInstance().searchPeople(query, MANAGER_PICKER_LIMIT, Cached.NO) : List.of();
+        }
+        final String needle = (query == null) ? "" : query.trim().toLowerCase(Locale.ROOT);
+        return getMembers(owner).stream()
+                .filter(member -> matchesPicker(member, needle))
+                .sorted(Comparator.comparing(OrgCommands::rosterSortKey))
+                .limit(MANAGER_PICKER_LIMIT)
+                .toList();
+    }
+
+    /** Case-insensitive substring over the names and email the picker's row label shows. */
+    private static boolean matchesPicker(final Person person, final String lowerNeedle) {
+        if (lowerNeedle.isEmpty()) {
+            return true;
+        }
+        final String haystack = (person.getPreferredName() + " " + person.getFirst() + " "
+                + person.getLast() + " " + person.getEmail()).toLowerCase(Locale.ROOT);
+        return haystack.contains(lowerNeedle);
+    }
+
+    private static String rosterSortKey(final Person person) {
+        return (person.getLast() + " " + person.getPreferredName()).toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * The trip the editor page pins in the view, or null off-page. Seam: tests hand the trip back directly
+     * ({@code ScopeUtil} needs a FacesContext).
+     */
+    protected Trip tripFromView() {
+        final Object id = org.paulsens.trip.util.ScopeUtil.getInstance().getViewMap("theTripId");
+        return (id == null) ? null : DAO.getInstance().getTrip(id.toString(), Cached.YES).orElse(null);
+    }
+
     /** The trip-scoped role bases the given trip's org may grant (site admin: unfiltered). */
     public List<String> grantableTripBases(final Trip trip) {
         if (trip == null) {
@@ -823,6 +889,14 @@ public class OrgCommands {
         }
         if (!grantableTripBases(trip).contains(base)) {
             return fail("Not available", "'" + base + "' is not a role this organization can grant.");
+        }
+        // Tenancy: an org's trip roles go to that org's members, period (the same stance as
+        // grantOrgPrivilege, site admins included). Revokes stay unchecked so a departed member's
+        // stale role is still removable. Org-less trips have no boundary to enforce.
+        if (granted && trip.getOrgId() != null && !trip.getOrgId().isBlank()
+                && !isMember(trip.getOrgId(), personId)) {
+            return fail("Not a member", "Trip roles can only be granted to members of the trip's "
+                    + "organization. Add the person to the organization first.");
         }
         final PrivilegeCommands priv = privCommands();
         final Privilege row = priv.getOrCreate(base, trip.getId(),

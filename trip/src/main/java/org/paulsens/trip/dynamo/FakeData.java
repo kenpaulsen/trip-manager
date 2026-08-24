@@ -234,6 +234,9 @@ public class FakeData {
      *         from Acme demonstrates the on-an-org-trip removal guard;</li>
      *     <li>{@code emailAdmin@CFPW} for user2 and {@code peopleAdmin@CFPW} for user4 -- non-admin members
      *         holding delegated org privileges (menu entries, bounded people/mail pages);</li>
+     *     <li>Matt (user6) as a plain Acme member -- the trip editor's Add Manager picker and
+     *         {@code setTripRole} are org-membership-bounded, so the manager-roster fixture needs a
+     *         non-admin member to appoint (Dave/user5 deliberately stays outside Acme as the negative);</li>
      *     <li>Acme's allow-list restricted to everything EXCEPT {@code paymentsAdmin} -- the site-admin
      *         restriction feature is demoable (Kevin cannot grant what Acme does not have).</li></ul>
      */
@@ -267,6 +270,10 @@ public class FakeData {
         if (!commands.grantOrgPrivilege(CFPW_ORG_ID, user4.getId(),
                 org.paulsens.trip.action.PrivilegeCommands.PEOPLE_ADMIN)) {
             throw new IllegalStateException("Fake org seed: could not grant peopleAdmin@CFPW to user4");
+        }
+        final Person matt = DAO.getInstance().getPersonByEmail(localEmail("user6"), Cached.NO);
+        if (matt == null || !commands.addMember(ACME_ORG_ID, matt.getId())) {
+            throw new IllegalStateException("Fake org seed: could not add Matt to Acme");
         }
         final List<String> acmeAllowed = commands.allGrantableBases().stream()
                 .filter(base -> !org.paulsens.trip.action.PrivilegeCommands.PAYMENTS_ADMIN.equals(base))
