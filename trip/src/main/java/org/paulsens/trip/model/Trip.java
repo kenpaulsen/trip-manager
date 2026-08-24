@@ -413,10 +413,15 @@ public final class Trip implements Serializable {
         return nonHostedTripUrl != null && !nonHostedTripUrl.isBlank();
     }
 
-    /** The registration count to display: the externally-reported number when set, else our roster size. */
+    /**
+     * The registration count to display: the externally-reported number on an external pilgrimage, else our
+     * roster size. The {@link #isExternal()} guard matters: a reg count left over from a removed External
+     * Trip URL is deliberately KEPT on the row (user decision 2026-08-24) but must not override the real
+     * roster count on the public listing.
+     */
     @JsonIgnore
     public int getShownRegCount() {
-        return nonHostedRegNumber != null ? nonHostedRegNumber : getPeople().size();
+        return (nonHostedRegNumber != null && isExternal()) ? nonHostedRegNumber : getPeople().size();
     }
 
     /**

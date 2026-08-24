@@ -38,12 +38,21 @@ public class TripPublicHelpersTest {
     }
 
     @Test
-    public void shownRegCountPrefersTheReportedNumber() {
-        final Trip hosted = titled("t");
-        hosted.getPeople().add(Person.Id.newInstance());
-        Assert.assertEquals(hosted.getShownRegCount(), 1);
-        hosted.setNonHostedRegNumber(35);
-        Assert.assertEquals(hosted.getShownRegCount(), 35);
+    public void shownRegCountPrefersTheReportedNumberOnlyWhenExternal() {
+        final Trip trip = titled("t");
+        trip.getPeople().add(Person.Id.newInstance());
+        Assert.assertEquals(trip.getShownRegCount(), 1);
+        // A reg count without a URL is ignored: a stale number left over from a removed External Trip URL
+        // is kept on the row but must not override the real roster count (user decision 2026-08-24).
+        trip.setNonHostedRegNumber(35);
+        Assert.assertEquals(trip.getShownRegCount(), 1, "a count with no URL must not override the roster");
+        trip.setNonHostedTripUrl("https://example.com/reg");
+        Assert.assertEquals(trip.getShownRegCount(), 35, "external + count: the reported number wins");
+        trip.setNonHostedTripUrl("   ");
+        Assert.assertEquals(trip.getShownRegCount(), 1, "a blank URL reads as not external");
+        trip.setNonHostedTripUrl("https://example.com/reg");
+        trip.setNonHostedRegNumber(null);
+        Assert.assertEquals(trip.getShownRegCount(), 1, "external with no count falls back to the roster");
     }
 
     @Test
