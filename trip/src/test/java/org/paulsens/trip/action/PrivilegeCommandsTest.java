@@ -47,6 +47,21 @@ public class PrivilegeCommandsTest {
     }
 
     @Test
+    public void everyCanonicalBaseHasADescriptionAndCustomNamesHaveNone() {
+        for (final String base : privCmds.knownBases("GLOBAL")) {
+            assertFalse(privCmds.baseDescription(base).isBlank(), "Missing description: " + base);
+        }
+        for (final String base : privCmds.knownBases("TRIP")) {
+            assertFalse(privCmds.baseDescription(base).isBlank(), "Missing description: " + base);
+        }
+        for (final String base : privCmds.knownBases("ORG")) {
+            assertFalse(privCmds.baseDescription(" " + base + " ").isBlank(), "Untrimmed lookup: " + base);
+        }
+        assertEquals(privCmds.baseDescription("someCustomEditorPriv"), "");
+        assertEquals(privCmds.baseDescription(null), "");
+    }
+
+    @Test
     public void badGetPrivNameReturnsNull() {
         final String name = RandomData.genAlpha(15);
         privCmds.getPrivilege(name, null);

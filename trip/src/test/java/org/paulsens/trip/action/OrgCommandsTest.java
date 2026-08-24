@@ -563,6 +563,101 @@ public class OrgCommandsTest {
                 new AuditActor(person.getEmail(), person.getId().getValue()), grantsNothing());
     }
 
+    // ------------------------------------------------------------------ add-by-email + invite
+
+    @Test
+    public void addMemberByEmailAddsAMatchedAccount() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person existing = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+
+        assertNull(commandsFor(orgAdmin).addMemberByEmail(orgId, "  " + existing.getEmail() + "  "),
+                "A matched address is handled here (added) -- nothing left to invite");
+        assertTrue(dao.getOrgMember(acme.getId(), existing.getId(), Cached.NO).isPresent());
+    }
+
+    @Test
+    public void addMemberByEmailOffersAnInviteOnlyForPlausibleUnknownAddresses() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+        final OrgCommands cmds = commandsFor(orgAdmin);
+
+        final String unknown = "nobody-" + unique() + "@example.org";
+        assertEquals(cmds.addMemberByEmail(orgId, " " + unknown + " "), unknown,
+                "An unknown address comes back trimmed so the page can offer the invite dialog");
+        assertNull(cmds.addMemberByEmail(orgId, "not-an-address"), "No @: refused, no invite");
+        assertNull(cmds.addMemberByEmail(orgId, "@nope"), "No local part: refused");
+        assertNull(cmds.addMemberByEmail(orgId, "nope@"), "No domain: refused");
+        assertNull(cmds.addMemberByEmail(orgId, null));
+        assertNull(cmds.addMemberByEmail("no-such-org", unknown));
+    }
+
+    @Test
+    public void addMemberByEmailIsOrgAdminOnly() throws IOException {
+        final Person outsider = savedPerson();
+        final Person existing = savedPerson();
+        final Organization acme = orgWithAdmin(savedPerson());
+        final String orgId = acme.getId().getValue();
+
+        assertNull(commandsFor(outsider).addMemberByEmail(orgId, existing.getEmail()));
+        assertFalse(dao.getOrgMember(acme.getId(), existing.getId(), Cached.NO).isPresent(),
+                "A refused add must not write membership");
+    }
+
+    @Test
+    public void sendOrgInviteMailsTheTemplateWithOrgTokens() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+        final org.paulsens.trip.action.MailCommands mail =
+                Mockito.mock(org.paulsens.trip.action.MailCommands.class);
+        Mockito.when(mail.sendManagedTemplate(Mockito.anyString(), Mockito.anyMap(), Mockito.anyString(),
+                Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(true);
+        final OrgCommands cmds = new OrgCommands(callerOf(orgAdmin), () -> mail);
+
+        final String unknown = "invitee-" + unique() + "@example.org";
+        assertTrue(cmds.sendOrgInvite(orgId, unknown));
+
+        @SuppressWarnings("unchecked")
+        final org.mockito.ArgumentCaptor<java.util.Map<String, Object>> values =
+                org.mockito.ArgumentCaptor.forClass(java.util.Map.class);
+        Mockito.verify(mail).sendManagedTemplate(
+                Mockito.eq(org.paulsens.trip.content.StarterTemplates.ORG_INVITE_ID), values.capture(),
+                Mockito.eq(unknown), Mockito.any(), Mockito.any(), Mockito.any());
+        assertEquals(values.getValue().get("orgName"), acme.getName());
+        assertTrue(values.getValue().get("createAccountUrl").toString()
+                .endsWith("/account/createAccount.jsf"));
+    }
+
+    @Test
+    public void sendOrgInviteRefusalsAndTheRaceFold() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person outsider = savedPerson();
+        final Person existing = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+        final org.paulsens.trip.action.MailCommands mail =
+                Mockito.mock(org.paulsens.trip.action.MailCommands.class);
+        Mockito.when(mail.sendManagedTemplate(Mockito.anyString(), Mockito.anyMap(), Mockito.anyString(),
+                Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(false);
+        final OrgCommands cmds = new OrgCommands(callerOf(orgAdmin), () -> mail);
+
+        assertFalse(new OrgCommands(callerOf(outsider), () -> mail).sendOrgInvite(orgId, "x@example.org"),
+                "Org-admin only");
+        assertFalse(cmds.sendOrgInvite(orgId, "bogus"), "Invalid address");
+        assertFalse(cmds.sendOrgInvite("no-such-org", "x@example.org"));
+        assertFalse(cmds.sendOrgInvite(orgId, "fails-" + unique() + "@example.org"),
+                "A failed send refuses loudly rather than pretending the invite went out");
+
+        assertTrue(cmds.sendOrgInvite(orgId, existing.getEmail()),
+                "An account that appeared since the check folds into a plain add");
+        assertTrue(dao.getOrgMember(acme.getId(), existing.getId(), Cached.NO).isPresent());
+        Mockito.verify(mail, Mockito.never()).sendManagedTemplate(Mockito.anyString(), Mockito.anyMap(),
+                Mockito.eq(existing.getEmail()), Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
     // ------------------------------------------------------------------ org-scoped privileges
 
     @Test

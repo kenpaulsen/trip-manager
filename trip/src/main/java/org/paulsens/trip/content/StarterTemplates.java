@@ -26,12 +26,13 @@ public final class StarterTemplates {
     public static final String REGISTRATION_APPROVED_ID = "registration-approved";
     public static final String SUPPORT_REQUEST_ID = "support-request";
     public static final String PAYMENT_CONFIRMATION_ID = "payment-confirmation";
+    public static final String ORG_INVITE_ID = "org-invite";
 
     /** Ids never deleted by the cleanup script without {@code --include-starters}. */
     public static final List<String> IDS = List.of(YOUTUBE_VIDEO_ID, IMAGE_ID, TEXT_ONLY_ID,
             CONTAINER_ID, PILGRIMAGES_ID, PHOTO_ALBUMS_ID, FILE_ID,
             REGISTRATION_RECEIVED_ID, REGISTRATION_APPROVED_ID, SUPPORT_REQUEST_ID,
-            PAYMENT_CONFIRMATION_ID);
+            PAYMENT_CONFIRMATION_ID, ORG_INVITE_ID);
 
     private StarterTemplates() {
     }
@@ -39,7 +40,22 @@ public final class StarterTemplates {
     public static List<ContentTemplate> all() {
         return List.of(youtubeVideo(), image(), textOnly(), container(), pilgrimages(), photoAlbums(),
                 file(), registrationReceived(), registrationApproved(), supportRequest(),
-                paymentConfirmation());
+                paymentConfirmation(), orgInvite());
+    }
+
+    /** Sent when an org admin invites an email address that has no account yet ({@code OrgCommands}). */
+    private static ContentTemplate orgInvite() {
+        final String body = """
+                <p><b>{{orgName}}</b> has invited you to join them on Visit Queen of Peace.</p>
+                <p><a href="{{createAccountUrl}}">Create your account</a> to get started.</p>
+                <p>Once your account is created, {{orgName}}'s administrator will be able to add you as a
+                member, and you will see your organization's pilgrimages and information when you sign in.</p>
+                <p>Questions? Just reply to this email.</p>
+                """;
+        return mail(ORG_INVITE_ID, "{{orgName}} invites you to visitqueenofpeace.com",
+                "Sent when an organization admin invites an email address that has no account yet. "
+                        + "Tokens: orgName, createAccountUrl.",
+                body);
     }
 
     /** Sent to the registering account owner the moment a registration (or family party) is submitted. */

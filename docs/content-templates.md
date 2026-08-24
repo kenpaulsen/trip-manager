@@ -18,7 +18,8 @@ strand instances; `saveTemplate` rejects it):
 | `MAIL` | an EMAIL body with `{{token}}` placeholders; the template NAME doubles as the subject line | none — mail templates have no instances | never on a page; rendered by `MailCommands.sendManagedTemplate`, tokens filled by JAVA only (no EL — runtime-editable EL would be code execution) |
 
 MAIL templates are excluded from every content picker; the shipped ones are `registration-received`,
-`registration-approved` and `support-request` (see `docs/family-accounts.md`). They are edited on the
+`registration-approved`, `support-request`, `payment-confirmation`, and `org-invite` (the org-admin
+"invite by email" flow -- see `docs/org-admin.md`). They are edited on the
 same `/admin/templates.jsf` manager as everything else (contentAdmin): the page has a kind filter
 (`TemplateCommands.getTemplates(kind)`, fails open to the full list on blank/bogus values) and the
 admin menu carries a dedicated "Email Templates" entry deep-linking `?kind=MAIL` — the discoverability

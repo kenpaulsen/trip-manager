@@ -77,6 +77,34 @@ public class PrivilegeCommands {
     public static final List<String> GLOBAL_BASES = List.of(PRIVILEGE_ADMIN, CONFIG_ADMIN, AUDIT_ADMIN,
             SITE_DEPLOYER, CONTENT_ADMIN, MEDIA_ADMIN, EVENT_ADMIN);
 
+    /**
+     * One-line description per canonical base, defaulted into a new row's description by the privilege
+     * editors (a picked name says what the description would say; nobody should have to retype it). Stored
+     * rows keep whatever description they were saved with -- this map only fills blanks at create time.
+     */
+    private static final java.util.Map<String, String> BASE_DESCRIPTIONS = java.util.Map.ofEntries(
+            java.util.Map.entry(TRIP_MGR, "Edit the trip: details, itinerary, roster"),
+            java.util.Map.entry(TRIP_FIN_ADMIN, "Record and edit the trip's financial transactions"),
+            java.util.Map.entry(TRIP_FIN_VIEW, "View the trip's finances (read-only)"),
+            java.util.Map.entry(TRIP_VIEW, "View the trip's admin pages (read-only)"),
+            java.util.Map.entry(CHAT_MGR, "Moderate the trip's chat"),
+            java.util.Map.entry(PEOPLE_ADMIN, "Manage the organization's people"),
+            java.util.Map.entry(ADD_TRIP, "Create new trips for the organization"),
+            java.util.Map.entry(EMAIL_ADMIN, "Send email to the organization's members"),
+            java.util.Map.entry(PAYMENTS_ADMIN, "Use payment sandbox mode on the organization's trips"),
+            java.util.Map.entry(PRIVILEGE_ADMIN, "See and edit privileges"),
+            java.util.Map.entry(CONFIG_ADMIN, "See and manage site settings"),
+            java.util.Map.entry(AUDIT_ADMIN, "See audit logs"),
+            java.util.Map.entry(SITE_DEPLOYER, "Deploy committed changes to AWS"),
+            java.util.Map.entry(CONTENT_ADMIN, "Edit templates and template-driven page content"),
+            java.util.Map.entry(MEDIA_ADMIN, "Manage the media library"),
+            java.util.Map.entry(EVENT_ADMIN, "Edit the home page's Events section"));
+
+    /** The canonical description for a base name, or "" for custom names -- see {@link #BASE_DESCRIPTIONS}. */
+    public String baseDescription(final String baseName) {
+        return baseName == null ? "" : BASE_DESCRIPTIONS.getOrDefault(baseName.trim(), "");
+    }
+
     private static final long TIMEOUT = 5_000;
     private final DAO dao = DAO.getInstance();
 

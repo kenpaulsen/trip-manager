@@ -14,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
@@ -289,6 +290,101 @@ public class OrgCommands {
                     + "organization.");
         }
         return writeMembership(orgId, personId);
+    }
+
+    /**
+     * The org-people page's add-by-email path: an exact-address lookup, so an org admin can add a person
+     * they already know without a directory typeahead (the name autocomplete is site-admin-only -- search
+     * across every account leaked other tenants' people to org admins). Returns {@code null} when the
+     * request was fully handled here (person found and added, or refused with a growl); returns the
+     * trimmed address when it belongs to NO account, publishing the {@code showInvite} ajax callback
+     * param so the page can open its "invite by email?" dialog ({@link #sendOrgInvite}).
+     */
+    public String addMemberByEmail(final String orgId, final String email) {
+        if (findOrganization(orgId) == null) {
+            fail("Unable to add", "Unknown organization.");
+            return null;
+        }
+        if (!canManageOrg(orgId)) {
+            fail("Not allowed", "Only this organization's admins can add members.");
+            return null;
+        }
+        final String addr = normalizeEmail(email);
+        if (addr == null) {
+            fail("Email required", "Enter the person's email address.");
+            return null;
+        }
+        final Person match = DAO.getInstance().getPersonByEmail(addr, Cached.NO);
+        if (match == null) {
+            publishParam("showInvite", true);
+            return addr;
+        }
+        if (writeMembership(orgId, match.getId())) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO,
+                    "Added " + match.getPreferredName() + " " + match.getLast() + ".", null);
+        }
+        return null;
+    }
+
+    /**
+     * Emails an account invitation ({@code org-invite} MAIL template) to an address
+     * {@link #addMemberByEmail} found no account for. Stateless by design: nothing is recorded and no
+     * membership is pre-granted -- the admin adds the address again once the account exists. An account
+     * that appears between the check and the send folds into a plain add, which is what the admin wanted.
+     */
+    public boolean sendOrgInvite(final String orgId, final String email) {
+        final Caller current = caller();
+        final Organization org = findOrganization(orgId);
+        if (org == null) {
+            return fail("Unable to invite", "Unknown organization.");
+        }
+        if (!canManageOrg(orgId)) {
+            return fail("Not allowed", "Only this organization's admins can invite members.");
+        }
+        final String addr = normalizeEmail(email);
+        if (addr == null) {
+            return fail("Email required", "Enter the person's email address.");
+        }
+        final Person match = DAO.getInstance().getPersonByEmail(addr, Cached.NO);
+        if (match != null) {
+            return writeMembership(orgId, match.getId());
+        }
+        final ConfigCommands config = new ConfigCommands();
+        final java.util.Map<String, Object> values = java.util.Map.of(
+                "orgName", org.getName(),
+                "createAccountUrl", config.getString(KnownSettings.REG_MAIL_BASE_URL)
+                        + "/account/createAccount.jsf");
+        final String replyTo = (org.getContactEmail() == null || org.getContactEmail().isBlank())
+                ? config.getString(KnownSettings.REG_MAIL_REPLY_TO) : org.getContactEmail();
+        final boolean sent = mailSource.get().sendManagedTemplate(
+                StarterTemplates.ORG_INVITE_ID, values, addr,
+                config.getString(KnownSettings.REG_MAIL_FROM), replyTo, current.auditActor());
+        if (!sent) {
+            return fail("Not sent", "The invitation could not be sent; is the org-invite template "
+                    + "installed?");
+        }
+        audit(current, org, "Invited " + addr + " to organization '" + org.getName() + "'");
+        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO, "Invitation sent to " + addr + ".",
+                null);
+        return true;
+    }
+
+    /** Trimmed address, or null unless it has at least one char on each side of an {@code @}. */
+    private static String normalizeEmail(final String email) {
+        final String addr = (email == null) ? "" : email.trim();
+        final int at = addr.indexOf('@');
+        return (at < 1 || at == addr.length() - 1) ? null : addr;
+    }
+
+    /** One named ajax callback param; a no-op outside a Faces ajax request (unit tests, REST). */
+    private static void publishParam(final String name, final Object value) {
+        if (jakarta.faces.context.FacesContext.getCurrentInstance() == null) {
+            return;
+        }
+        final org.primefaces.PrimeFaces pf = org.primefaces.PrimeFaces.current();
+        if (pf.isAjaxRequest()) {
+            pf.ajax().addCallbackParam(name, value);
+        }
     }
 
     private boolean writeMembership(final String orgId, final Person.Id personId) {
@@ -588,7 +684,9 @@ public class OrgCommands {
             return fail("Not a member", "Privileges can only be granted to members of the organization.");
         }
         final PrivilegeCommands priv = privCommands();
-        final Privilege row = priv.getOrCreate(base, org.getId().getValue(), org.getShortName() + " " + base);
+        // Canonical description (org bases always have one): what the row MEANS beats "Acme peopleAdmin"
+        // in the editor's Description column, and matches what the privilege editors themselves stamp.
+        final Privilege row = priv.getOrCreate(base, org.getId().getValue(), priv.baseDescription(base));
         return priv.savePrivilege(row.withNewPerson(personId), caller().auditActor());
     }
 

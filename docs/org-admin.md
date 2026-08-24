@@ -45,6 +45,14 @@ server-side enforcement point. Leaving an org revokes its org-scoped privileges 
 member on one of the org's trips cannot be removed at all. Trip roles (Editor Admin … Chat Admin) are
 granted on `trip/edit.jsf` by site admins OR the owning org's admins, through `OrgCommands.setTripRole`.
 
+**Adding members** (org People page): site admins keep the whole-directory autocomplete; org admins add
+by EXACT email address instead (`OrgCommands.addMemberByEmail`) — a name typeahead across every account
+leaked other tenants' people. An address with no account offers an invite dialog: `sendOrgInvite` mails
+the `org-invite` MAIL template (create-account link; From/base-URL from the `reg.mail.*` settings,
+Reply-To the org's contact email). Invites are STATELESS by design — nothing is recorded, no membership
+is pre-granted; the admin adds the address again once the account exists, and an account that appears
+between check and send folds into a plain add.
+
 ## The per-org allow-list
 
 `Organization.grantablePrivileges` bounds what an org may grant (both trip roles and org-scoped bases):
@@ -63,8 +71,10 @@ granted on `trip/edit.jsf` by site admins OR the owning org's admins, through `O
 `admin/editPrivs.jsf` (Global) / `editTripPrivs.jsf` / `editOrgPrivs.jsf` — three structurally identical
 pages (shared `WEB-INF/privEditor.xhtml`, nav via `WEB-INF/privTabs.xhtml`), all site-admin/privilegeAdmin
 gated. Names come from a canonical dropdown per scope kind (+ an "Other…" escape for content-container
-`editorPrivileges` names); a picked row's name+scope are locked (renaming used to orphan rows silently);
-**Delete** hard-deletes a row, auditing its holder list.
+`editorPrivileges` names); picking a canonical name pre-fills its one-line description
+(`PrivilegeCommands.baseDescription`, also defaulted at save when left blank); a picked row's name+scope
+are locked (renaming used to orphan rows silently); **Delete** hard-deletes a row, auditing its holder
+list.
 
 ## REST changes (deliberate breaks)
 
