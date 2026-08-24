@@ -250,10 +250,11 @@ public class RegistrationsResource extends BaseResource {
         }
     }
 
-    /** Staff on this trip: a manager, a viewer, or a site admin. */
+    /** Staff on this trip: a manager, a viewer, a registration admin, or a site admin. */
     private boolean isTripStaff(final String tripId) {
         final ApiPrivileges privileges = privileges();
-        return privileges.has(ApiPrivileges.TRIP_MGR, tripId) || privileges.has(ApiPrivileges.TRIP_VIEW, tripId);
+        return privileges.has(ApiPrivileges.TRIP_MGR, tripId) || privileges.has(ApiPrivileges.TRIP_VIEW, tripId)
+                || privileges.has(ApiPrivileges.REGISTRATION_ADMIN, tripId);
     }
 
     /** The traveller themselves, whoever manages their booking, or trip staff. */

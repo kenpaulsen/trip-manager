@@ -42,8 +42,18 @@ did). `privilegeAdmin`, `configAdmin`, `auditAdmin`, `siteDeployer`, `contentAdm
 **Granting**: org admins grant/revoke org-scoped privileges to their MEMBERS on the org People page
 (grantee need not be an org admin), through `OrgCommands.grantOrgPrivilege`/`revokeOrgPrivilege` — the
 server-side enforcement point. Leaving an org revokes its org-scoped privileges (`removeMember`), and a
-member on one of the org's trips cannot be removed at all. Trip roles (Editor Admin … Chat Admin) are
-granted on `trip/edit.jsf` by site admins OR the owning org's admins, through `OrgCommands.setTripRole`.
+member on one of the org's trips cannot be removed at all. Trip roles (Editor Admin, Finance Admin,
+Finance Viewer, Viewer, Chat Admin, Registration Admin) are granted on `trip/edit.jsf` by site admins OR
+the owning org's admins, through `OrgCommands.setTripRole`. Since 2026-08-24 that page's Trip Managers
+section is a chip roster: one row per role holder, a chip per held role with a remove control (rendered
+only when `setTripRole` would accept the revoke — `OrgCommands.heldTripRoles`' `grantable` flag), a
+per-row "Add role" menu (`addableTripRoles`), and an Add Manager dialog (person autocomplete + role).
+
+`registrationAdmin@trip` (display name "Registration Admin") opens the trip's Registrations tab and the
+whole `admin/tripRegistrations.jsf` page — approve, move, rooms, approval mail — for non-site-admins
+(user decision 2026-08-24: visibility means full page use). The tab gate (`tripTabs.xhtml`), the page's
+`reqPriv` door, and the REST roster (`RegistrationsResource.isTripStaff`) all honor it; it deliberately
+does NOT light up the other trip tabs, the way an invited chat guest gets exactly the Chat tab.
 
 **Adding members** (org People page): site admins keep the whole-directory autocomplete; org admins add
 by EXACT email address instead (`OrgCommands.addMemberByEmail`) — a name typeahead across every account

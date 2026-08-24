@@ -34,6 +34,7 @@ public final class ApiPrivileges {
     public static final String TRIP_VIEW = PrivilegeCommands.TRIP_VIEW;
     public static final String TRIP_FIN_VIEW = PrivilegeCommands.TRIP_FIN_VIEW;
     public static final String TRIP_FIN_ADMIN = PrivilegeCommands.TRIP_FIN_ADMIN;
+    public static final String REGISTRATION_ADMIN = PrivilegeCommands.REGISTRATION_ADMIN;
     public static final String ADD_TRIP = PrivilegeCommands.ADD_TRIP;
 
     private final Caller caller;

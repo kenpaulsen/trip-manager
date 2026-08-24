@@ -624,7 +624,8 @@ public class OrgCommands {
             PrivilegeCommands.TRIP_FIN_ADMIN, "Finance Admin",
             PrivilegeCommands.TRIP_FIN_VIEW, "Finance Viewer",
             PrivilegeCommands.TRIP_VIEW, "Viewer",
-            PrivilegeCommands.CHAT_MGR, "Chat Admin");
+            PrivilegeCommands.CHAT_MGR, "Chat Admin",
+            PrivilegeCommands.REGISTRATION_ADMIN, "Registration Admin");
 
     /**
      * The trip editor's manager-role definitions ({@code name} / {@code desc} / {@code base} maps), built
@@ -644,6 +645,46 @@ public class OrgCommands {
     /** ALL trip-scoped role bases, unfiltered -- the display list for who-holds-what (never a grant list). */
     public List<String> allTripRoleBases() {
         return PrivilegeCommands.TRIP_SCOPED_BASES;
+    }
+
+    /**
+     * The roles this person holds on the trip, spanning ALL bases (a role outside the org's allow-list must
+     * still show on its holder), each as a role-def map plus a {@code grantable} flag ("true"/"false") --
+     * the flag drives whether the manager roster renders the chip's remove control, mirroring
+     * {@link #setTripRole}'s enforcement so a rendered X can never be a refused click.
+     */
+    public List<java.util.Map<String, String>> heldTripRoles(final Trip trip, final Person.Id personId) {
+        if (trip == null || personId == null) {
+            return List.of();
+        }
+        final PrivilegeCommands priv = privCommands();
+        final List<String> grantable = grantableTripBases(trip);
+        return allTripRoleBases().stream()
+                .filter(base -> priv.check(base, trip.getId(), personId))
+                .map(base -> heldRoleDef(trip, base, grantable.contains(base)))
+                .toList();
+    }
+
+    private java.util.Map<String, String> heldRoleDef(final Trip trip, final String base,
+            final boolean grantable) {
+        final String name = TRIP_ROLE_NAMES.getOrDefault(base, base);
+        return java.util.Map.of("name", name, "desc", trip.getTitle() + " - " + name, "base", base,
+                "grantable", Boolean.toString(grantable));
+    }
+
+    /**
+     * The roles the viewer may still grant this person on the trip: the allow-list-filtered grant list minus
+     * what they already hold -- the manager roster's per-row "Add role" menu items.
+     */
+    public List<java.util.Map<String, String>> addableTripRoles(final Trip trip, final Person.Id personId) {
+        if (trip == null || personId == null) {
+            return List.of();
+        }
+        final PrivilegeCommands priv = privCommands();
+        return grantableTripBases(trip).stream()
+                .filter(base -> !priv.check(base, trip.getId(), personId))
+                .map(base -> roleDef(trip, base))
+                .toList();
     }
 
     /** The trip-scoped role bases the given trip's org may grant (site admin: unfiltered). */

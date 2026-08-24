@@ -9,6 +9,7 @@ import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.paulsens.trip.action.AuditCommands;
 import org.paulsens.trip.action.PersonCommands;
+import org.paulsens.trip.action.PrivilegeCommands;
 import org.paulsens.trip.action.RegistrationCommands;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.api.dto.RegistrationDto;
@@ -80,6 +81,23 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         assertError(resource.list(TRIP_ID), 403, ApiErrors.FORBIDDEN);
         assertError(resource.pendingCount(TRIP_ID), 403, ApiErrors.FORBIDDEN);
         Mockito.verifyNoInteractions(registrations);
+    }
+
+    /** registrationAdmin@trip is trip staff: the page's tab privilege and the API agree (2026-08-24). */
+    @Test
+    public void aRegistrationAdminIsTripStaff() {
+        // A UUID trip id: trip-scoped privilege rows anchor their scope parse on a canonical-UUID suffix.
+        final String tripId = java.util.UUID.randomUUID().toString();
+        Mockito.when(trips.getTrip(tripId)).thenReturn(Trip.builder().id(tripId).build());
+        Mockito.when(registrations.getRegistrations(tripId))
+                .thenReturn(List.of(new Registration(tripId, OTHER, null,
+                        Registration.Status.PENDING, Map.of())));
+        final PrivilegeCommands priv = new PrivilegeCommands();
+        Assert.assertTrue(priv.savePrivilege(priv.createPrivilege(
+                "registrationAdmin", "Works the registrations page", tripId, List.of(ME)), null));
+
+        signedInAs(ME);
+        assertOk(resource.list(tripId));
     }
 
     /** The roster strips answers: a list endpoint is where a hundred people's medical notes leak at once. */

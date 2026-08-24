@@ -848,6 +848,49 @@ public class OrgCommandsTest {
         assertFalse(new PrivilegeCommands().check(PrivilegeCommands.TRIP_MGR, trip.getId(), manager.getId()));
     }
 
+    /** The manager-roster helpers behind the trip editor's chips: held vs addable, and the grantable flag. */
+    @Test
+    public void rosterHelpersMirrorHeldRolesAndTheAllowList() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person manager = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+        final org.paulsens.trip.model.Trip trip = org.paulsens.trip.model.Trip.builder()
+                .title("Roster Trip " + unique()).build();
+        trip.setOrgId(orgId);
+        assertTrue(dao.saveTrip(trip));
+        final OrgCommands cmds = realPrivs(orgAdmin);
+
+        assertEquals(cmds.heldTripRoles(trip, manager.getId()), List.of(), "Nothing held yet");
+        assertTrue(cmds.addableTripRoles(trip, manager.getId()).stream()
+                        .anyMatch(def -> def.get("base").equals(PrivilegeCommands.REGISTRATION_ADMIN)),
+                "The new registrationAdmin role is offered");
+
+        assertTrue(cmds.setTripRole(trip.getId(), manager.getId(),
+                PrivilegeCommands.REGISTRATION_ADMIN, true));
+        final List<java.util.Map<String, String>> held = cmds.heldTripRoles(trip, manager.getId());
+        assertEquals(held.size(), 1);
+        assertEquals(held.get(0).get("name"), "Registration Admin");
+        assertEquals(held.get(0).get("base"), PrivilegeCommands.REGISTRATION_ADMIN);
+        assertEquals(held.get(0).get("grantable"), "true");
+        assertFalse(cmds.addableTripRoles(trip, manager.getId()).stream()
+                        .anyMatch(def -> def.get("base").equals(PrivilegeCommands.REGISTRATION_ADMIN)),
+                "A held role leaves the addable list");
+
+        // Restricting the allow-list must keep the holder VISIBLE but take away the org admin's remove
+        // control (setTripRole would refuse the revoke) -- the flag mirrors that, so no rendered X can 403.
+        assertTrue(admin().setGrantablePrivileges(orgId, List.of(PrivilegeCommands.TRIP_MGR)));
+        final List<java.util.Map<String, String>> restricted =
+                realPrivs(orgAdmin).heldTripRoles(trip, manager.getId());
+        assertEquals(restricted.size(), 1, "Holders never vanish on an allow-list change");
+        assertEquals(restricted.get(0).get("grantable"), "false");
+        assertEquals(admin().heldTripRoles(trip, manager.getId()).get(0).get("grantable"), "true",
+                "Site admins may always revoke");
+
+        assertEquals(cmds.heldTripRoles(null, manager.getId()), List.of());
+        assertEquals(cmds.addableTripRoles(trip, null), List.of());
+    }
+
     @Test
     public void removalIsBlockedByAnOrgTripAndStripsOrgPrivileges() throws IOException {
         final Person orgAdmin = savedPerson();
