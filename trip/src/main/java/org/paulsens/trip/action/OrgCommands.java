@@ -513,6 +513,12 @@ public class OrgCommands {
         if (fresh == null) {
             return fail("Unable to save", "Unknown organization.");
         }
+        // Checked on the fresh row (the one being saved): revoking the ONLY admin would lock every
+        // non-site-admin out of managing the org (user decision 2026-08-25).
+        if (!admin && fresh.isAdmin(personId) && fresh.getAdminIds().size() <= 1) {
+            return fail("Last admin", "This is the organization's only admin. "
+                    + "Appoint another admin before revoking this one.");
+        }
         if (admin) {
             fresh.getAdminIds().add(personId);
         } else {
@@ -874,6 +880,65 @@ public class OrgCommands {
             return true;
         }
         return priv.savePrivilege(row.withoutPerson(personId), caller().auditActor());
+    }
+
+    /** Display names for the org-scoped privilege bases, matching the trip roster's friendly labels. */
+    private static final java.util.Map<String, String> ORG_PRIV_NAMES = java.util.Map.of(
+            PrivilegeCommands.PEOPLE_ADMIN, "People Admin",
+            PrivilegeCommands.ADD_TRIP, "Create Trips",
+            PrivilegeCommands.EMAIL_ADMIN, "Email Admin",
+            PrivilegeCommands.PAYMENTS_ADMIN, "Payments Admin");
+
+    /**
+     * The org-scoped privileges this person holds here, each as a {@code name}/{@code desc}/{@code base}
+     * map -- the People page's chip row. Spans ALL org bases (a grant outside the current allow-list must
+     * still show on its holder) and carries no grantable flag, because {@link #revokeOrgPrivilege} is
+     * deliberately not allow-list-checked: every rendered chip is removable by an org admin.
+     */
+    public List<java.util.Map<String, String>> heldOrgPrivs(final String orgId, final Person.Id personId) {
+        if (personId == null || !canViewOrgPeople(orgId)) {
+            return List.of();
+        }
+        final PrivilegeCommands priv = privCommands();
+        return PrivilegeCommands.ORG_SCOPED_BASES.stream()
+                .filter(base -> priv.check(base, orgId, personId))
+                .map(this::orgPrivDef)
+                .toList();
+    }
+
+    /**
+     * The org-scoped privileges an admin may still grant this person: {@link #grantableOrgPrivileges}
+     * (the allow-list filter) minus what they already hold -- the chip row's "+ Add privilege" menu.
+     */
+    public List<java.util.Map<String, String>> addableOrgPrivs(final String orgId,
+            final Person.Id personId) {
+        if (personId == null) {
+            return List.of();
+        }
+        final PrivilegeCommands priv = privCommands();
+        return grantableOrgPrivileges(orgId).stream()
+                .filter(base -> !priv.check(base, orgId, personId))
+                .map(this::orgPrivDef)
+                .toList();
+    }
+
+    /**
+     * {@link #addableOrgPrivs} for the privilege-picker overlay, whose subject arrives as the raw id
+     * string the opening click stashed in the view (null before any row has been clicked). A distinct
+     * name, not an overload: EL resolves overloads by runtime argument type and a null string would
+     * match either.
+     */
+    public List<java.util.Map<String, String>> addableOrgPrivsFor(final String orgId,
+            final String personId) {
+        if (personId == null || personId.isBlank()) {
+            return List.of();
+        }
+        return addableOrgPrivs(orgId, Person.Id.from(personId));
+    }
+
+    private java.util.Map<String, String> orgPrivDef(final String base) {
+        return java.util.Map.of("name", ORG_PRIV_NAMES.getOrDefault(base, base),
+                "desc", privCommands().baseDescription(base), "base", base);
     }
 
     /**

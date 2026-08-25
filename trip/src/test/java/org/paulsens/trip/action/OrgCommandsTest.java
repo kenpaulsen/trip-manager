@@ -166,6 +166,8 @@ public class OrgCommandsTest {
     public void removingAnOrgAdminRequiresRevokingFirst() throws IOException {
         final Person acmeAdmin = savedPerson();
         final Organization acme = orgWithAdmin(acmeAdmin);
+        // A second admin, so revoking the first is not blocked by the last-admin rule below.
+        assertTrue(admin().setOrgAdmin(acme.getId().getValue(), savedPerson().getId(), true));
 
         assertFalse(admin().removeMember(acme.getId().getValue(), acmeAdmin.getId()),
                 "An admin member cannot be removed while still an admin");
@@ -174,6 +176,23 @@ public class OrgCommandsTest {
         // Still refused: last-org rule (the admin only belongs to acme). The refusal ORDER matters --
         // admin-ness is checked first, so this now trips the other rule.
         assertFalse(admin().removeMember(acme.getId().getValue(), acmeAdmin.getId()));
+    }
+
+    @Test
+    public void theLastAdminCannotBeRevoked() throws IOException {
+        final Person acmeAdmin = savedPerson();
+        final Organization acme = orgWithAdmin(acmeAdmin);
+        final String orgId = acme.getId().getValue();
+
+        assertFalse(admin().setOrgAdmin(orgId, acmeAdmin.getId(), false),
+                "Revoking the org's ONLY admin would lock every non-site-admin out");
+        assertTrue(dao.getOrganization(acme.getId(), Cached.NO).orElseThrow().isAdmin(acmeAdmin.getId()));
+
+        final Person second = savedPerson();
+        assertTrue(admin().setOrgAdmin(orgId, second.getId(), true));
+        assertTrue(commandsFor(acmeAdmin).setOrgAdmin(orgId, acmeAdmin.getId(), false),
+                "Self-demotion is fine once another admin exists");
+        assertFalse(dao.getOrganization(acme.getId(), Cached.NO).orElseThrow().isAdmin(acmeAdmin.getId()));
     }
 
     @Test
@@ -797,6 +816,46 @@ public class OrgCommandsTest {
         assertFalse(new PrivilegeCommands().check(PrivilegeCommands.PEOPLE_ADMIN, orgId, member.getId()));
         assertTrue(realPrivs(orgAdmin).revokeOrgPrivilege(orgId, member.getId(),
                 PrivilegeCommands.PEOPLE_ADMIN), "Revoking a non-holder is a quiet success");
+    }
+
+    @Test
+    public void heldAndAddablePrivsDriveTheChipRow() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person member = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+        assertTrue(admin().addMember(orgId, member.getId()));
+        final OrgCommands cmds = realPrivs(orgAdmin);
+
+        assertEquals(cmds.heldOrgPrivs(orgId, member.getId()), List.of(), "nothing held yet");
+        assertEquals(cmds.addableOrgPrivs(orgId, member.getId()).size(),
+                PrivilegeCommands.ORG_SCOPED_BASES.size(), "null allow-list: everything addable");
+
+        assertTrue(cmds.grantOrgPrivilege(orgId, member.getId(), PrivilegeCommands.ADD_TRIP));
+        final List<java.util.Map<String, String>> held = cmds.heldOrgPrivs(orgId, member.getId());
+        assertEquals(held.size(), 1);
+        assertEquals(held.get(0).get("base"), PrivilegeCommands.ADD_TRIP);
+        assertEquals(held.get(0).get("name"), "Create Trips", "chips show the friendly display name");
+        assertFalse(held.get(0).get("desc").isBlank(), "the chip tooltip carries the description");
+        assertFalse(cmds.addableOrgPrivs(orgId, member.getId()).stream()
+                .anyMatch(def -> PrivilegeCommands.ADD_TRIP.equals(def.get("base"))),
+                "a held base leaves the + Add menu");
+
+        // Restrict the allow-list to exclude the held base: the chip must STAY (revocation is not
+        // allow-list-checked), and the addable menu shrinks to the allow-list minus held.
+        assertTrue(admin().setGrantablePrivileges(orgId, List.of(PrivilegeCommands.EMAIL_ADMIN)));
+        assertEquals(cmds.heldOrgPrivs(orgId, member.getId()).get(0).get("base"),
+                PrivilegeCommands.ADD_TRIP, "a grant outside the allow-list still shows on its holder");
+        assertEquals(cmds.addableOrgPrivsFor(orgId, member.getId().getValue()).stream()
+                .map(def -> def.get("base")).toList(), List.of(PrivilegeCommands.EMAIL_ADMIN),
+                "the string-id overlay variant agrees with the typed one");
+
+        assertEquals(cmds.addableOrgPrivsFor(orgId, null), List.of(), "no subject picked yet: empty");
+        assertEquals(cmds.addableOrgPrivsFor(orgId, "  "), List.of());
+        assertEquals(cmds.heldOrgPrivs(orgId, null), List.of());
+        assertEquals(cmds.addableOrgPrivs(orgId, null), List.of());
+        assertEquals(realPrivs(savedPerson()).heldOrgPrivs(orgId, member.getId()), List.of(),
+                "an outsider cannot read the chip row");
     }
 
     @Test

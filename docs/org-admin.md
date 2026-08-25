@@ -41,7 +41,14 @@ did). `privilegeAdmin`, `configAdmin`, `auditAdmin`, `siteDeployer`, `contentAdm
 
 **Granting**: org admins grant/revoke org-scoped privileges to their MEMBERS on the org People page
 (grantee need not be an org admin), through `OrgCommands.grantOrgPrivilege`/`revokeOrgPrivilege` — the
-server-side enforcement point. Leaving an org revokes its org-scoped privileges (`removeMember`), and a
+server-side enforcement point. Since 2026-08-25 the page uses the trip-editor chip pattern: each member
+row shows a chip per held privilege (friendly names — `OrgCommands.heldOrgPrivs`; every chip carries a
+remove X because revocation is deliberately not allow-list-checked) plus a "+ Add privilege" overlay
+(`addableOrgPrivs`/`addableOrgPrivsFor` — allow-list minus held). Losing the last chip never drops the
+row: org membership is explicit, ended only by the Remove link under the member's name, which renders
+only when removal can succeed (not an org admin, on none of the org's trips) and confirms first. Org
+admin itself is a confirmed checkbox in its own column; `setOrgAdmin` refuses to revoke the org's LAST
+admin. Leaving an org revokes its org-scoped privileges (`removeMember`), and a
 member on one of the org's trips cannot be removed at all. Trip roles (Editor Admin, Finance Admin,
 Finance Viewer, Viewer, Chat Admin, Registration Admin) are granted on `trip/edit.jsf` by site admins OR
 the owning org's admins, through `OrgCommands.setTripRole`. Since 2026-08-24 that page's Trip Managers
