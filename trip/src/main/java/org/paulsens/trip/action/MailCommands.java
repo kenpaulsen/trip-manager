@@ -197,17 +197,35 @@ public class MailCommands {
             log.warn("Not sending '{}': no usable recipient address in '{}'", subjectStr, to);
             return SendEmailResponse.builder().build();
         }
+        if (from == null || from.isBlank()) {
+            // Same reasoning as the empty destination above: a blank From is a configuration problem, and
+            // SES answers it with "Invalid email address ." -- a message that says nothing about which of
+            // the addresses was blank. Fail here, where the log can name the slot.
+            log.warn("Not sending '{}' to '{}': no From address configured", subjectStr, to);
+            return SendEmailResponse.builder().build();
+        }
         final Destination dest = Destination.builder()
                 .toAddresses(toAddresses)
                 .bccAddresses(splitEmail(bcc))
                 .build();
-        final SendEmailRequest req = SendEmailRequest.builder()
+        // Reply-To is OPTIONAL, and it must be filtered rather than passed through. replyToAddresses(null)
+        // does not mean "no Reply-To": it builds a ONE-element list holding null, which SES rejects as
+        // "Invalid email address ." and the whole send fails over a header nobody asked for. Every internal
+        // notice (registration moved/cancelled, new registration, transaction, account created) passes null
+        // here, because those slots have a From and a recipient setting but no Reply-To setting to read --
+        // so this one line is what decides whether those five notices send at all.
+        final Collection<String> replyToAddresses = splitEmail(replyTo);
+        final SendEmailRequest.Builder builder = SendEmailRequest.builder()
                 .source(from.trim())
                 .destination(dest)
                 .message(Message.builder().body(body).subject(subject).build())
-                .replyToAddresses(replyTo)
-                .returnPath(replyTo)
-                .build();
+                .replyToAddresses(replyToAddresses);
+        if (!replyToAddresses.isEmpty()) {
+            // The envelope sender, which is where bounces go. Left UNSET when there is no Reply-To so SES
+            // uses the identity's own MAIL FROM domain -- setting it to "" would fail the send the same way.
+            builder.returnPath(replyToAddresses.iterator().next());
+        }
+        final SendEmailRequest req = builder.build();
         // The explicit parameter wins; current() is only the fallback. It resolves correctly here because the
         // send now blocks on the calling thread -- the audit below is written on this same thread, so the
         // capture-before-the-async-boundary dance the CF era needed (and once got wrong, anonymizing every

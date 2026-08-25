@@ -88,6 +88,63 @@ public class MailSendSesPathTest {
         Mockito.verify(ses, Mockito.never()).sendEmail(ArgumentMatchers.any(SendEmailRequest.class));
     }
 
+    /**
+     * The bug that stopped every internal notice on 2026-08-24: a null Reply-To must OMIT the header, not
+     * send an empty one.
+     *
+     * <p>{@code replyToAddresses((String) null)} does not mean "unset" -- it builds a one-element list
+     * holding null, and {@code hasReplyToAddresses()} then answers true, so SES is handed one blank address
+     * and rejects the entire request with "Invalid email address .". Nothing about the failure names
+     * Reply-To, and the notice it killed had a perfectly valid From and recipient.
+     *
+     * <p>Every internal-notice caller passes null here (registration moved/cancelled, new registration,
+     * transaction, account created) because those setting slots have a From and a recipient but no Reply-To
+     * to read. The tests above all passed a real address, which is why this went out.
+     */
+    @Test
+    public void aNullReplyToOmitsTheHeaderRatherThanSendingAnEmptyOne() {
+        Mockito.clearInvocations(ses);
+        Mockito.when(ses.sendEmail(ArgumentMatchers.any(SendEmailRequest.class))).thenReturn(okResponse());
+
+        Assert.assertNotNull(mail.send("f@example.org", "to@example.org", null, null,
+                "S", "B", AuditActor.system()), "a notice with no Reply-To must still send");
+
+        final ArgumentCaptor<SendEmailRequest> req = ArgumentCaptor.forClass(SendEmailRequest.class);
+        Mockito.verify(ses).sendEmail(req.capture());
+        Assert.assertTrue(req.getValue().replyToAddresses().isEmpty(),
+                "a null Reply-To must produce NO addresses, not one null one");
+        Assert.assertNull(req.getValue().returnPath(),
+                "and no envelope sender either -- an empty returnPath fails the send the same way, and "
+                        + "leaving it unset lets SES use the identity's own MAIL FROM domain");
+    }
+
+    /** An unusable Reply-To is dropped like an unusable recipient, rather than failing the whole send. */
+    @Test
+    public void anUnusableReplyToIsDroppedRatherThanFailingTheSend() {
+        Mockito.clearInvocations(ses);
+        Mockito.when(ses.sendEmail(ArgumentMatchers.any(SendEmailRequest.class))).thenReturn(okResponse());
+
+        Assert.assertNotNull(mail.send("f@example.org", "to@example.org", null, "   ",
+                "S", "B", AuditActor.system()));
+
+        final ArgumentCaptor<SendEmailRequest> req = ArgumentCaptor.forClass(SendEmailRequest.class);
+        Mockito.verify(ses).sendEmail(req.capture());
+        Assert.assertTrue(req.getValue().replyToAddresses().isEmpty(), "blank Reply-To is no Reply-To");
+    }
+
+    /**
+     * A blank From short-circuits like a blank recipient. SES answers a blank source with the SAME opaque
+     * "Invalid email address ." as a blank Reply-To, so failing here is what makes the log say which one.
+     */
+    @Test
+    public void aBlankFromShortCircuitsWithoutCallingSes() {
+        Mockito.clearInvocations(ses);
+
+        Assert.assertNotNull(mail.send("  ", "to@example.org", null, "r@example.org",
+                "S", "B", AuditActor.system()));
+        Mockito.verify(ses, Mockito.never()).sendEmail(ArgumentMatchers.any(SendEmailRequest.class));
+    }
+
     /** An SES failure maps to a NULL response -- the signal the digest sender treats as retry-worthy. */
     @Test
     public void anSesFailureAnswersNullRatherThanThrowing() {
