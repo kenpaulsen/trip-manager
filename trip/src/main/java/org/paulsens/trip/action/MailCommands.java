@@ -77,7 +77,7 @@ public class MailCommands {
      * resolving this bean through CDI, which the test JVM has no container for.
      */
     public static final List<String> LOCAL_SENDING_DOMAINS =
-            List.of("centerforpeacewest.com", "example.com", "visitqueenofpeace.com");
+            List.of("centerforpeacewest.com", "example.com", "unitetrip.com", "visitqueenofpeace.com");
 
     /**
      * The domain identities SES has VERIFIED for sending, sorted -- the Settings page's From-address

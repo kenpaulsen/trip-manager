@@ -26,7 +26,7 @@ public class MailVerifiedDomainsTest {
     @Test
     public void localModeAnswersTheFixedFakeList() {
         Assert.assertEquals(new MailCommands().verifiedSendingDomains(),
-                List.of("centerforpeacewest.com", "example.com", "visitqueenofpeace.com"),
+                List.of("centerforpeacewest.com", "example.com", "unitetrip.com", "visitqueenofpeace.com"),
                 "local mode never touches SES and the webtests rely on these domains");
     }
 
