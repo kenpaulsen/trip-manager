@@ -78,6 +78,14 @@ Registration Options (`registrationAdmin`), Payment Settings (`tripFinAdmin`), "
 (`chatMgr`) -- the dialogs themselves render only for their gate's holders, which is also the decode-time
 refusal for forged submits.
 
+**Trip staff are people** (2026-08-24): `Trip.facilitatorIds`/`directorIds` (lists of `Person.Id`)
+supersede the deprecated free-form `facilitators`/`director` strings. The hand-written
+`getFacilitators()`/`getDirector()` resolve ids to comma-joined names (legacy string only when no ids),
+and are `@JsonIgnore` so the stored legacy string never gets overwritten by resolved names on save. The
+registration popup (`joinTrip.xhtml`) renders the facilitators' name/phone/email as its contact block --
+no hardcoded tenant contact -- and its OK returns to the trip. No editor UI for the id lists yet
+(provisioned via data/JSON by decision).
+
 **Adding members** (org People page): site admins keep the whole-directory autocomplete; org admins add
 by EXACT email address instead (`OrgCommands.addMemberByEmail`) — a name typeahead across every account
 leaked other tenants' people. An address with no account offers an invite dialog: `sendOrgInvite` mails

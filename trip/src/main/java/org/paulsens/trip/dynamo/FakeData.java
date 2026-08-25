@@ -581,6 +581,13 @@ public class FakeData {
         charter.getParticipants().add(allPeople.get(3));
         charter.getParticipants().add(allPeople.get(0));
         events.add(charter);
+        // Person-modeled trip staff (2026-08-24): Ken and Trinity carry REAL @example.com addresses, so
+        // the registration popup's facilitator contact block has something to show locally.
+        final List<Person.Id> tripStaff = getFakePeople().stream()
+                .filter(person -> localEmail("user2").equals(person.getEmail())
+                        || localEmail("user4").equals(person.getEmail()))
+                .map(Person::getId)
+                .collect(Collectors.toList());
         trips.add(Trip.builder()
                 .id("faketrip")
                 .title("Spring Demo Trip")
@@ -592,6 +599,8 @@ public class FakeData {
                 .people(allPeople)
                 .tripEvents(events)
                 .regOptions(getDefaultOptions())
+                .facilitatorIds(tripStaff)
+                .directorIds(List.of(tripStaff.get(0)))
                 .build());
 
         // Trip 2
@@ -611,6 +620,10 @@ public class FakeData {
                 .title("Summer Demo Trip")
                 .orgId(CFPW_ORG_ID)
                 .openToPublic(true)
+                // Legacy free-form staff strings, NO id lists: keeps the deprecated fallback branch of
+                // getFacilitators()/getDirector() rendering somewhere locally.
+                .facilitators("The Legacy Organizer Team")
+                .director("Fr. Legacy")
                 .description("Trip Description")
                 .startDate(LocalDateTime.now().minusDays(4))
                 .endDate(LocalDateTime.now().plusDays(7))
@@ -659,6 +672,9 @@ public class FakeData {
                 .regLimit(40)
                 .regOptions(getDefaultOptions())
                 .tripEvents(seedEvents("pub-es-1", 100))
+                // The registration webtests submit against THIS trip (joinable: future start, no seeded
+                // roster), so it needs facilitators for the confirmation popup's contact block.
+                .facilitatorIds(tripStaff)
                 .build());
         trips.add(Trip.builder()
                 .id("pub-ext-1")

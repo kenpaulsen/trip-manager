@@ -72,12 +72,28 @@ public final class Trip implements Serializable {
     private Language language;                          // Language of the pilgrimage
     @JsonProperty("estPrice")
     private String estimatedPrice;                      // Estimated price (non-binding)
+    /** @deprecated display text only; {@link #directorIds} wins when set -- see {@link #getDirector()}. */
+    @Deprecated
     @JsonProperty("director")
+    @Getter(AccessLevel.NONE)
     private String director;                            // The leader of the trip (i.e. Spiritual Director)
+    /**
+     * The director(s) as PEOPLE (2026-08-24): rows that have this list render resolved names (and the
+     * registration popup shows their contact info); the legacy free-form string above only serves rows
+     * that predate it. Nullable on purpose -- stored rows simply lack the field, no migration.
+     */
+    @JsonProperty("directorIds")
+    private List<Person.Id> directorIds;
     @JsonProperty("guide")
     private String localGuide;                          // The local guide of the trip
+    /** @deprecated display text only; {@link #facilitatorIds} wins when set -- see {@link #getFacilitators()}. */
+    @Deprecated
     @JsonProperty("facilitators")
+    @Getter(AccessLevel.NONE)
     private String facilitators;                        // The facilitators or "organizers" of the trip;
+    /** The facilitators as PEOPLE -- the {@link #directorIds} conversion, same rules. */
+    @JsonProperty("facilitatorIds")
+    private List<Person.Id> facilitatorIds;
     @JsonProperty("flyerUrl")
     private String flyerUrl;                            // Optional printable flyer (PDF or image) for the trip
     @JsonProperty("nonHostedTripUrl")
@@ -165,6 +181,35 @@ public final class Trip implements Serializable {
 
     public void setOrganization(final Organization organization) {
         this.orgId = (organization == null) ? null : organization.getId().getValue();
+    }
+
+    /**
+     * The facilitators as display text: the RESOLVED names of {@link #facilitatorIds} when that list is
+     * non-empty (comma-joined, unresolvable ids skipped), else the legacy free-form string. Hand-written
+     * over a {@code @Getter(NONE)} field (the {@link #getChatEnabled()} pattern), so Jackson keeps
+     * serializing the stored legacy STRING while every EL/Java reader of {@code theTrip.facilitators}
+     * sees the person-derived names. Point-cached person reads (the {@link #getOrganization()} precedent).
+     */
+    @JsonIgnore     // Jackson serializes via getters here; without this the RESOLVED names would
+    public String getFacilitators() {   // overwrite the stored legacy string on every save (test-caught).
+        return resolveNames(facilitatorIds, facilitators);
+    }
+
+    /** The director(s) as display text -- {@link #getFacilitators()}'s rules over {@link #directorIds}. */
+    @JsonIgnore
+    public String getDirector() {
+        return resolveNames(directorIds, director);
+    }
+
+    private static String resolveNames(final List<Person.Id> ids, final String legacy) {
+        if (ids == null || ids.isEmpty()) {
+            return legacy;
+        }
+        return ids.stream()
+                .map(id -> DAO.getInstance().getPerson(id, Cached.YES).orElse(null))
+                .filter(Objects::nonNull)
+                .map(person -> person.getPreferredName() + " " + person.getLast())
+                .collect(Collectors.joining(", "));
     }
 
     public TripPaymentConfig getPaymentConfig() {
