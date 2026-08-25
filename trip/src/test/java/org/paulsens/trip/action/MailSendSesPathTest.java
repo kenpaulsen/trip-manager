@@ -10,6 +10,7 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.RequestContext;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.LocalMode;
 import org.paulsens.trip.model.Person;
 import org.testng.Assert;
@@ -36,12 +37,59 @@ public class MailSendSesPathTest {
 
     @BeforeClass
     public void goProductionWithAMockedClient() throws Exception {
+        // Resolve the DAO FIRST, while local mode is still on. This is load-bearing, not tidiness.
+        //
+        // DAO.inst is a JVM-wide singleton whose Persistence is chosen ONCE, at construction, from
+        // FakeData.isLocal(). Flipping local mode below and letting something else touch the DAO afterwards
+        // builds a PRODUCTION DAO -- and the audit trail is exactly such a thing: every send() here writes an
+        // EMAIL record, DynamoAuditSink drains its queue on a background thread, and that thread calls
+        // DAO.getInstance(). Get the order wrong and this test writes its fixtures ("Email 'S' sent") into
+        // the real audit table, then leaves the singleton pointing at production for every test that follows
+        // in the same JVM. It did exactly that on 2026-08-24; thirteen rows had to be deleted by hand.
+        //
+        // Touching it here latches the fake Persistence before the flip, so the singleton is already safe no
+        // matter what order the classes run in -- which is why this cannot be left to whichever test happens
+        // to go first.
+        DAO.getInstance();
+        assertPersistenceIsFake("before flipping local mode");
+
         final Field resolved = LocalMode.class.getDeclaredField("resolved");
         resolved.setAccessible(true);
         savedResolved = resolved.get(null);
         resolved.set(null, Boolean.FALSE);
+
+        // And again after, because the assertion above only proves the ordering was right -- this one proves
+        // the flip did not somehow rebuild it. If this ever fails, STOP: the next send writes to production.
+        assertPersistenceIsFake("after flipping local mode");
+
         ses = Mockito.mock(SesClient.class);
         mail = new MailCommands(ses);
+    }
+
+    /**
+     * Fails when the DAO singleton is holding a real {@code DynamoPersistence} -- the one state in which this
+     * class's audit records leave the JVM. Checked by type rather than by asking {@code FakeData.isLocal()},
+     * because the whole point here is that local mode is about to say "production" while the persistence
+     * underneath must not.
+     */
+    private static void assertPersistenceIsFake(final String when) throws Exception {
+        final Field inst = DAO.class.getDeclaredField("inst");
+        inst.setAccessible(true);
+        final Object dao = inst.get(null);
+        Assert.assertNotNull(dao, "the DAO singleton must already be resolved " + when);
+        // Read it off auditDao specifically: that is the exact object this class's records travel through,
+        // so it is the one whose Persistence decides whether they leave the JVM. DAO keeps no persistence
+        // field of its own -- it hands the one instance to each sub-DAO at construction.
+        final Field auditDao = DAO.class.getDeclaredField("auditDao");
+        auditDao.setAccessible(true);
+        final Object audit = auditDao.get(dao);
+        final Field persistence = audit.getClass().getDeclaredField("persistence");
+        persistence.setAccessible(true);
+        final String type = persistence.get(audit).getClass().getName();
+        Assert.assertFalse(type.contains("DynamoPersistence"),
+                "DAO persistence is " + type + " " + when + " -- this test would write audit records to the "
+                        + "REAL DynamoDB audit table, and leave the singleton pointing there for the rest of "
+                        + "the suite. Resolve the DAO before flipping local mode.");
     }
 
     @AfterClass(alwaysRun = true)
