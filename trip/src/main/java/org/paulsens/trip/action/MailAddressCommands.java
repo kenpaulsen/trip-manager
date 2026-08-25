@@ -307,22 +307,79 @@ public class MailAddressCommands {
     /** "Name &lt;local@domain&gt;" from the trio of edit fields, or null (growled) when invalid. */
     private String composeFrom(final Map<String, String> edit, final String prefix, final String where,
             final List<String> domains) {
-        final String name = get(edit, prefix + ".name");
-        final String local = get(edit, prefix + ".local");
-        final String domain = get(edit, prefix + ".domain");
-        if (!LOCAL_PART.matcher(local).matches()) {
+        return composeAddress(get(edit, prefix + ".name"), get(edit, prefix + ".local"),
+                get(edit, prefix + ".domain"), domains, where);
+    }
+
+    // ------------------------------------------------------------------ the shared From composer
+    //
+    // Every page that edits a From address uses the same three inputs (display name, local part, and a
+    // dropdown of allowed domains) rendered by /WEB-INF/mailFromComposer.xhtml. These are its seed and
+    // validate halves: a From box that lets an admin type an unverified domain only produces a send that
+    // SES silently refuses later, which is the confusion this replaces.
+
+    /**
+     * "Name &lt;local@domain&gt;" from a composer's three fields, or null (with a growl naming
+     * {@code where}) when the local part is malformed, the domain is not in {@code allowed}, or the
+     * display name carries angle brackets. {@code allowed} is the caller's domain list -- the site's
+     * verified domains for site-wide slots, an organization's narrower allow-list for its own pages.
+     */
+    public String composeAddress(final String name, final String local, final String domain,
+            final List<String> allowed, final String where) {
+        final String cleanName = (name == null) ? "" : name.trim();
+        final String cleanLocal = (local == null) ? "" : local.trim();
+        final String cleanDomain = (domain == null) ? "" : domain.trim().toLowerCase(Locale.ROOT);
+        if (!LOCAL_PART.matcher(cleanLocal).matches()) {
             return fail(where, "needs the part before the @ (letters, digits, . _ % + -).");
         }
-        if (!domains.contains(domain)) {
-            return fail(where, domains.isEmpty()
-                    ? "cannot be saved: the SES verified-domain list could not be loaded."
-                    : "needs one of the verified sending domains (" + String.join(", ", domains) + ").");
+        if (allowed == null || !allowed.contains(cleanDomain)) {
+            return fail(where, (allowed == null || allowed.isEmpty())
+                    ? "cannot be saved: no verified sending domain is available (check the SES verified "
+                            + "domains, and the organization's allowed domains when this is an org page)."
+                    : "needs one of the verified sending domains (" + String.join(", ", allowed) + ").");
         }
-        if (name.indexOf('<') >= 0 || name.indexOf('>') >= 0) {
+        if (cleanName.indexOf('<') >= 0 || cleanName.indexOf('>') >= 0) {
             return fail(where, "display name cannot contain '<' or '>'.");
         }
-        final String address = local + "@" + domain;
-        return name.isEmpty() ? address : name + " <" + address + ">";
+        final String address = cleanLocal + "@" + cleanDomain;
+        return cleanName.isEmpty() ? address : cleanName + " <" + address + ">";
+    }
+
+    /** True when {@code value} is a usable From for {@code allowed} -- the seeders' "keep it" test. */
+    public boolean isSendable(final String value, final List<String> allowed) {
+        final String domain = domainOf(value);
+        return !domain.isEmpty() && allowed != null && allowed.contains(domain)
+                && LOCAL_PART.matcher(localOf(value)).matches();
+    }
+
+    /** A composer's display-name seed: the value's own name, else the Site email's. */
+    public String composerName(final String value) {
+        final String name = displayNameOf(value);
+        return name.isEmpty() ? displayNameOf(siteFrom()) : name;
+    }
+
+    /** A composer's local-part seed: the value's own, else the house-style "no-reply". */
+    public String composerLocal(final String value) {
+        final String local = localOf(value);
+        return local.isEmpty() ? "no-reply" : local;
+    }
+
+    /**
+     * A composer's domain seed: the value's own domain when {@code allowed} still permits it, else
+     * {@code preferred} (the org's default domain) when allowed, else the first allowed domain. Never
+     * seeds a domain the dropdown does not offer -- a preselected-but-absent item silently posts back as
+     * the first option, which is how a From address changes without anyone touching it.
+     */
+    public String composerDomain(final String value, final String preferred, final List<String> allowed) {
+        if (allowed == null || allowed.isEmpty()) {
+            return "";
+        }
+        final String own = domainOf(value);
+        if (allowed.contains(own)) {
+            return own;
+        }
+        final String want = (preferred == null) ? "" : preferred.trim().toLowerCase(Locale.ROOT);
+        return allowed.contains(want) ? want : allowed.get(0);
     }
 
     private static String fail(final String where, final String problem) {
@@ -383,7 +440,7 @@ public class MailAddressCommands {
     }
 
     /** The display name outside "Name &lt;addr&gt;", or "" for a bare address. */
-    static String displayNameOf(final String value) {
+    public static String displayNameOf(final String value) {
         if (value == null) {
             return "";
         }
@@ -391,13 +448,13 @@ public class MailAddressCommands {
         return open > 0 ? value.substring(0, open).trim() : "";
     }
 
-    static String localOf(final String value) {
+    public static String localOf(final String value) {
         final String address = addressOf(value);
         final int at = address.indexOf('@');
         return at > 0 ? address.substring(0, at) : address;
     }
 
-    static String domainOf(final String value) {
+    public static String domainOf(final String value) {
         final String address = addressOf(value);
         final int at = address.indexOf('@');
         return at >= 0 ? address.substring(at + 1).toLowerCase(Locale.ROOT) : "";

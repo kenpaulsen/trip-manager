@@ -50,6 +50,13 @@ renders the effective template with sample values to a PROMPTED address (prefill
 admin's own; never assumed), and its **Preview** button shows the same render in-page
 (`OrgCommands.previewPaymentMailSubject/Body`).
 
+`mailFrom` is **not a text box** (2026-08-25): the dialog's From row is an Inherit/Custom menu plus the
+shared `/WEB-INF/mailFromComposer.xhtml` — mailbox typed, domain picked from the owning org's allowed
+SES-verified domains. `OrgCommands.applyPaymentFrom` composes and validates it on Done / Send Test /
+Preview, refusing (growl, config untouched, dialog stays open via the `payFromOk` callback param) rather
+than storing an address SES will bounce. `replyTo` and `bcc` stay free text — they are not SES-bound.
+See the sending-domain section of `org-admin.md` for the allow-list itself.
+
 ## The money rules (user-locked; the golden test is `PaymentRecorderTest`)
 
 Entered amounts are ALWAYS the amounts credited. All math in **long cents** (`pay/MoneyMath`);

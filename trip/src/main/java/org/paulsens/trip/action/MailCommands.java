@@ -71,6 +71,13 @@ public class MailCommands {
     private volatile List<String> verifiedDomains;
     private volatile long verifiedDomainsLoadedAt;
     private static final long VERIFIED_DOMAINS_TTL_MS = 10 * 60 * 1000L;
+    /**
+     * The local-mode stand-in for SES's verified domains. Public because callers that need the list off
+     * AWS (every unit test, and {@code OrgCommands.siteSendingDomains}) must be able to answer it WITHOUT
+     * resolving this bean through CDI, which the test JVM has no container for.
+     */
+    public static final List<String> LOCAL_SENDING_DOMAINS =
+            List.of("centerforpeacewest.com", "example.com", "visitqueenofpeace.com");
 
     /**
      * The domain identities SES has VERIFIED for sending, sorted -- the Settings page's From-address
@@ -81,7 +88,7 @@ public class MailCommands {
      */
     public List<String> verifiedSendingDomains() {
         if (FakeData.isLocal()) {
-            return List.of("centerforpeacewest.com", "example.com", "visitqueenofpeace.com");
+            return LOCAL_SENDING_DOMAINS;
         }
         return memoizedVerifiedDomains();
     }

@@ -237,6 +237,58 @@ public class MailAddressCommandsTest {
         return trip;
     }
 
+    // ------------------------------------------------------------------ the shared From composer
+
+    @Test
+    public void composeAddressBuildsOnlyDeliverableFromAddresses() {
+        final MailAddressCommands mailAddr = commands();
+        assertEquals(mailAddr.composeAddress("Queen of Peace", "no-reply", "visitqueenofpeace.com",
+                DOMAINS, "The From address"), "Queen of Peace <no-reply@visitqueenofpeace.com>");
+        assertEquals(mailAddr.composeAddress(" ", " info ", " EXAMPLE.ORG ", DOMAINS, "x"),
+                "info@example.org", "trimmed, and the domain lower-cased to match the dropdown");
+
+        assertNull(mailAddr.composeAddress("Q", "no reply", "example.org", DOMAINS, "x"),
+                "a space is not a mailbox");
+        assertNull(mailAddr.composeAddress("Q", "", "example.org", DOMAINS, "x"));
+        assertNull(mailAddr.composeAddress("Q", "info", "elsewhere.com", DOMAINS, "x"),
+                "an unverified domain is the whole point of the dropdown");
+        assertNull(mailAddr.composeAddress("Q", "info", "", DOMAINS, "x"));
+        assertNull(mailAddr.composeAddress("a <b>", "info", "example.org", DOMAINS, "x"),
+                "angle brackets in the display name would forge a second address");
+        assertNull(mailAddr.composeAddress("Q", "info", "example.org", List.of(), "x"),
+                "no domains at all is a refusal, not a free pass");
+        assertNull(mailAddr.composeAddress("Q", "info", "example.org", null, "x"));
+    }
+
+    @Test
+    public void isSendableAnswersWhetherSesCouldSendAsAnAddress() {
+        final MailAddressCommands mailAddr = commands();
+        assertTrue(mailAddr.isSendable("info@example.org", DOMAINS));
+        assertTrue(mailAddr.isSendable("Name <info@example.org>", DOMAINS));
+        assertFalse(mailAddr.isSendable("info@gmail.com", DOMAINS), "the parish-gmail case");
+        assertFalse(mailAddr.isSendable("not-an-address", DOMAINS));
+        assertFalse(mailAddr.isSendable(null, DOMAINS));
+        assertFalse(mailAddr.isSendable("info@example.org", List.of()));
+        assertFalse(mailAddr.isSendable("info@example.org", null));
+    }
+
+    @Test
+    public void composerSeedsNeverPreselectADomainTheDropdownLacks() {
+        final MailAddressCommands mailAddr = commands();
+        assertEquals(mailAddr.composerName("Queen of Peace <a@b.com>"), "Queen of Peace");
+        assertEquals(mailAddr.composerLocal("Queen of Peace <hello@b.com>"), "hello");
+        assertEquals(mailAddr.composerLocal(""), "no-reply", "the house-style starting point");
+
+        assertEquals(mailAddr.composerDomain("a@example.org", "visitqueenofpeace.com", DOMAINS),
+                "example.org", "the address's own domain wins while it is still allowed");
+        assertEquals(mailAddr.composerDomain("a@gone.com", "EXAMPLE.ORG", DOMAINS), "example.org",
+                "else the org's preferred domain");
+        assertEquals(mailAddr.composerDomain("a@gone.com", "also-gone.com", DOMAINS),
+                DOMAINS.get(0), "else the first the dropdown offers, never a phantom selection");
+        assertEquals(mailAddr.composerDomain("a@example.org", null, List.of()), "");
+        assertEquals(mailAddr.composerDomain(null, null, null), "");
+    }
+
     private static String unique() {
         return RandomData.genAlpha(10);
     }

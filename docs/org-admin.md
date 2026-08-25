@@ -123,6 +123,44 @@ Rules that outlast the UI:
 - Slot registry: `MailAddressCommands.SLOTS`. Adding a sendable address = a `SettingDef` in the
   Email addresses section + one `Slot` entry; the page renders it automatically.
 
+## Sending domains: every From is composed, never typed (2026-08-25)
+
+The Settings section's composer shape is now the **only** way a From address is entered anywhere.
+`/WEB-INF/mailFromComposer.xhtml` is that one editor — display name, mailbox, and a **dropdown** of
+allowed domains — used by the admin Settings section, the mail merge (`admin/mailMerge.xhtml`), and the
+trip Payment Settings dialog (`WEB-INF/tripPaymentDialog.xhtml`). The free-text From boxes those last
+two carried are gone: they accepted any domain and the send then failed at SES with nothing on screen
+explaining why.
+
+Which domains the dropdown offers is a **per-org allow-list**, `Organization.mailDomains`:
+
+- `null` OR **empty** = never restricted: every SES-verified domain is offered. Unlike
+  `grantablePrivileges`, empty is NOT "nothing allowed" — an org that may send from no domain cannot
+  send at all, so restriction is only ever expressed by listing the domains that ARE allowed. No
+  migration was needed and no existing org changed behavior.
+- The list is **site-admin only** (it decides which tenant may send as which domain). It is edited on
+  `admin/organizations.jsf`, and rendered-but-disabled on `admin/orgProfile.jsf`; both pages share
+  `/WEB-INF/orgProfileFields.xhtml`, and `OrgCommands.saveOrgEdits` silently **ignores** the field for a
+  non-site-admin rather than refusing the post — that is what makes one shared include safe for both.
+- `Organization.defaultMailDomain` is the org admins' own choice among what they are allowed; it only
+  preselects a dropdown, so it is not an authorization control. It is dropped whenever the allow-list
+  stops permitting it — a preselected item the dropdown does not offer silently posts back as the first
+  option, which is how a From address changes with nobody touching it.
+- Effective list = the allow-list narrowed to what SES verifies **right now**
+  (`OrgCommands.mailDomains(orgId)` / `.mailDomainsForTrip(trip)`); a domain dropped in SES stops being
+  offered even while still listed.
+
+Enforcement is server-side, not just in the widget: `OrgCommands.sendMerge` refuses a From outside
+`mergeMailDomains()`, and `applyPaymentFrom` refuses one outside the owning org's list, leaving the
+working config untouched rather than half-applied.
+
+**Mail merge seeding.** The org's contact address seeds the **From** only when SES could actually send
+as it (`MailAddressCommands.isSendable`). Otherwise — the common case of a parish gmail or an unverified
+domain — the Site email seeds the From and the contact address seeds **Reply-To** instead, so replies
+still reach the org. A site admin gets no org seeding at all (`mailingOrg()` returns null for them
+deliberately: holding emailAdmin everywhere would otherwise make one arbitrary tenant stand in for the
+whole site).
+
 ## The per-org allow-list
 
 `Organization.grantablePrivileges` bounds what an org may grant (both trip roles and org-scoped bases):

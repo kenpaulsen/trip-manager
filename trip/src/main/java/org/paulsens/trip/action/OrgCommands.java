@@ -2,6 +2,7 @@ package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.application.FacesMessage;
+import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -16,6 +17,7 @@ import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.config.KnownSettings;
@@ -28,6 +30,7 @@ import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.ProcessorType;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPaymentConfig;
+import org.primefaces.PrimeFaces;
 import org.paulsens.trip.pay.ProcessorPing;
 import org.paulsens.trip.security.ProcessorSecrets;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
@@ -54,6 +57,8 @@ public class OrgCommands {
     private final Supplier<Caller> callerSource;
     private final Supplier<MailCommands> mailSource;
     private final Supplier<SupportChatCommands> supportSource;
+    /** Lazily built (never in a constructor: {@link MailAddressCommands} reads settings). */
+    private volatile MailAddressCommands mailAddrCache;
 
     public OrgCommands() {
         this(Caller::current);
@@ -262,11 +267,7 @@ public class OrgCommands {
      */
     public boolean saveOrgEdits(final String orgId, final String name, final String abbreviation,
             final String contactEmail) {
-        if (orgId == null || orgId.isBlank()) {
-            return fail("Unable to save", "Unknown organization.");
-        }
-        final Organization fresh = DAO.getInstance()
-                .getOrganization(Organization.Id.from(orgId.trim()), Cached.NO).orElse(null);
+        final Organization fresh = freshOrg(orgId);
         if (fresh == null) {
             return fail("Unable to save", "Unknown organization.");
         }
@@ -274,6 +275,15 @@ public class OrgCommands {
         fresh.setAbbreviation(abbreviation);
         fresh.setContactEmail(contactEmail);
         return saveOrganization(fresh);
+    }
+
+    /** An uncached read of the org to edit -- an edit seed must never come from the shared cache. */
+    private Organization freshOrg(final String orgId) {
+        if (orgId == null || orgId.isBlank()) {
+            return null;
+        }
+        return DAO.getInstance()
+                .getOrganization(Organization.Id.from(orgId.trim()), Cached.NO).orElse(null);
     }
 
     /**
@@ -1065,20 +1075,196 @@ public class OrgCommands {
         if (accepted.isEmpty()) {
             return fail("Nobody to mail", "No recipients are within your organization(s).");
         }
+        // The composer can only produce an allowed domain, so this is the forged-post guard: a From on a
+        // domain SES has not verified for this tenant is refused HERE rather than silently at SES.
+        if (!mailAddr().isSendable(from, mergeMailDomains())) {
+            return fail("Invalid From", "The From address must use one of your verified sending domains.");
+        }
         final String boundedBcc = boundBcc(bcc, allowed);
         final MailCommands mail = mailSource.get();
         mail.sendTemplate(from, mail.emailsToPeople(accepted), boundedBcc, replyTo, subject, body);
         return true;
     }
 
-    /** The org's contact address as the mail page's default From, or null when none of the caller's
-     *  email-orgs has one (the page falls back to the site default). */
-    public String orgMailFrom() {
-        return orgsWithPriv(PrivilegeCommands.EMAIL_ADMIN).stream()
-                .map(Organization::getContactEmail)
-                .filter(email -> email != null && !email.isBlank())
-                .findFirst()
-                .orElse(null);
+    // ------------------------------------------------------------------ sending domains
+    //
+    // SES only accepts a From on a domain it has verified, so every From box in the app is a domain
+    // DROPDOWN plus a typed mailbox (/WEB-INF/mailFromComposer.xhtml). What the dropdown offers is the
+    // org's allow-list: site admins narrow an org to the domains it owns, so one tenant can never send as
+    // another's. An org that has never been narrowed (null or empty list) is unrestricted -- every
+    // existing org keeps working with no migration.
+
+    /** Every domain SES has verified for sending, sorted; empty when SES is unreachable. */
+    public List<String> siteSendingDomains() {
+        // Local mode answers the fixed fake list without resolving the mail bean: SES is unreachable off
+        // AWS anyway, and Beans.get needs a CDI container the unit-test JVM does not have.
+        return FakeData.isLocal() ? MailCommands.LOCAL_SENDING_DOMAINS
+                : mailSource.get().verifiedSendingDomains();
+    }
+
+    /** The address composer/splitter, over THIS bean's domain source so a test seam reaches it too. */
+    private MailAddressCommands mailAddr() {
+        MailAddressCommands addr = mailAddrCache;
+        if (addr == null) {
+            addr = new MailAddressCommands(this::siteSendingDomains);
+            mailAddrCache = addr;
+        }
+        return addr;
+    }
+
+    /** The domains this organization's From addresses may use -- its allow-list narrowed to what SES
+     *  currently verifies (a domain dropped in SES stops being offered even if still listed here). */
+    public List<String> mailDomains(final String orgId) {
+        return allowedDomains(findOrganization(orgId));
+    }
+
+    /** {@link #mailDomains} for the org that owns a trip; an org-less trip gets the site-wide list. */
+    public List<String> mailDomainsForTrip(final Trip trip) {
+        return allowedDomains(ownerOf(trip));
+    }
+
+    /** The org's preferred domain when it is still allowed, else "" (the composer picks the first). */
+    public String defaultMailDomain(final String orgId) {
+        return preferredDomain(findOrganization(orgId));
+    }
+
+    /** {@link #defaultMailDomain} for the org that owns a trip. */
+    public String defaultMailDomainForTrip(final Trip trip) {
+        return preferredDomain(ownerOf(trip));
+    }
+
+    /** The allow-list as one display string for the Organizations table -- "any verified" when unset. */
+    public String mailDomainsLabel(final Organization org) {
+        final List<String> stored = (org == null) ? null : org.getMailDomains();
+        return (stored == null || stored.isEmpty()) ? "any verified" : String.join(", ", stored);
+    }
+
+    /** The raw allow-list for the site-admin editor: what IS checked, empty meaning "not restricted". */
+    public List<String> storedMailDomains(final String orgId) {
+        final Organization org = findOrganization(orgId);
+        final List<String> stored = (org == null) ? null : org.getMailDomains();
+        return (stored == null) ? List.of() : List.copyOf(stored);
+    }
+
+    private Organization ownerOf(final Trip trip) {
+        return (trip == null) ? null : findOrganization(trip.getOrgId());
+    }
+
+    private List<String> allowedDomains(final Organization org) {
+        final List<String> verified = siteSendingDomains();
+        final List<String> restricted = (org == null) ? null : org.getMailDomains();
+        if (restricted == null || restricted.isEmpty()) {
+            return verified;
+        }
+        final java.util.Set<String> wanted = restricted.stream()
+                .filter(domain -> domain != null && !domain.isBlank())
+                .map(domain -> domain.trim().toLowerCase(Locale.ROOT))
+                .collect(java.util.stream.Collectors.toSet());
+        return verified.stream().filter(wanted::contains).toList();
+    }
+
+    private String preferredDomain(final Organization org) {
+        final String wanted = (org == null || org.getDefaultMailDomain() == null) ? ""
+                : org.getDefaultMailDomain().trim().toLowerCase(Locale.ROOT);
+        return allowedDomains(org).contains(wanted) ? wanted : "";
+    }
+
+    /**
+     * Page-facing profile save with the mail-domain rows: {@code domains} (the site-admin allow-list) is
+     * applied ONLY for a site admin -- an org admin's post carries the same field, and silently ignoring
+     * it is what keeps the shared include safe to render for both. {@code defaultDomain} is an org-admin
+     * choice, kept only while the allow-list still permits it.
+     */
+    public boolean saveOrgEdits(final String orgId, final String name, final String abbreviation,
+            final String contactEmail, final List<String> domains, final String defaultDomain) {
+        final Organization fresh = freshOrg(orgId);
+        if (fresh == null) {
+            return fail("Unable to save", "Unknown organization.");
+        }
+        fresh.setName(name);
+        fresh.setAbbreviation(abbreviation);
+        fresh.setContactEmail(contactEmail);
+        if (caller().isSiteAdmin()) {
+            fresh.setMailDomains(cleanDomains(domains));
+        }
+        fresh.setDefaultMailDomain(chosenDefault(fresh, defaultDomain));
+        return saveOrganization(fresh);
+    }
+
+    /** Null (never restricted) for an empty pick, else the lower-cased, de-duplicated list. */
+    private static List<String> cleanDomains(final List<String> domains) {
+        if (domains == null) {
+            return null;
+        }
+        final List<String> clean = domains.stream()
+                .filter(domain -> domain != null && !domain.isBlank())
+                .map(domain -> domain.trim().toLowerCase(Locale.ROOT))
+                .distinct()
+                .sorted()
+                .toList();
+        return clean.isEmpty() ? null : clean;
+    }
+
+    /** The submitted default domain, kept only when the org's (just-updated) allow-list permits it. */
+    private String chosenDefault(final Organization org, final String defaultDomain) {
+        if (defaultDomain == null || defaultDomain.isBlank()) {
+            return null;
+        }
+        final String wanted = defaultDomain.trim().toLowerCase(Locale.ROOT);
+        return allowedDomains(org).contains(wanted) ? wanted : null;
+    }
+
+    /**
+     * The organization whose mail settings drive the merge page for this caller, or null. Deliberately
+     * null for a SITE admin: they hold emailAdmin everywhere, so "the first org alphabetically" would be
+     * an arbitrary tenant's contact address and allow-list standing in for the whole site.
+     */
+    public Organization mailingOrg() {
+        return caller().isSiteAdmin() ? null
+                : orgsWithPriv(PrivilegeCommands.EMAIL_ADMIN).stream().findFirst().orElse(null);
+    }
+
+    /** The domains the mail-merge From composer offers: the caller's org allow-list, or all verified. */
+    public List<String> mergeMailDomains() {
+        return allowedDomains(mailingOrg());
+    }
+
+    /** The org's preferred domain for the merge composer, or "" when none applies. */
+    public String mergeDefaultDomain() {
+        return preferredDomain(mailingOrg());
+    }
+
+    /**
+     * The mail-merge From seed. The org's contact address when SES can actually SEND as it -- that is the
+     * address people expect to see, and it needs no Reply-To to work. Otherwise (the common case: a parish
+     * gmail or an unverified domain) the Site email seeds the composer and the contact address becomes the
+     * Reply-To instead, via {@link #mergeReplyToSeed}. Typing an unverified From here used to be accepted
+     * by the page and then refused by SES at send time, with nothing explaining why.
+     */
+    public String mergeFromSeed() {
+        final Organization org = mailingOrg();
+        final String contact = (org == null) ? null : org.getContactEmail();
+        final MailAddressCommands addr = mailAddr();
+        return addr.isSendable(contact, allowedDomains(org)) ? contact : addr.siteFrom();
+    }
+
+    /** The merge Reply-To seed: the org's contact address when it could NOT be the From, else the From. */
+    public String mergeReplyToSeed() {
+        final Organization org = mailingOrg();
+        final String contact = (org == null) ? null : org.getContactEmail();
+        final MailAddressCommands addr = mailAddr();
+        if (contact != null && !contact.isBlank() && !addr.isSendable(contact, allowedDomains(org))) {
+            return MailAddressCommands.addressOf(contact);
+        }
+        return MailAddressCommands.addressOf(mergeFromSeed());
+    }
+
+    /**
+     * Composes the merge page's From from its composer fields, growling and answering null when the
+     * mailbox is malformed or the domain is not one this caller may send from.
+     */
+    public String composeMergeFrom(final String name, final String local, final String domain) {
+        return mailAddr().composeAddress(name, local, domain, mergeMailDomains(), "The From address");
     }
 
     private List<Trip> orgTrips(final String orgId) {
@@ -1354,6 +1540,57 @@ public class OrgCommands {
                 ? siteDefaults()
                 : owner.getPaymentDefaults().overlayOn(siteDefaults());
         return trip.getPaymentConfig().overlayOn(orgRung);
+    }
+
+    // ------------------------------------------------------------------ the payment dialog's From composer
+
+    /** "custom" when the trip overrides the From, "" when it inherits -- the dialog's mode menu value. */
+    public String paymentFromMode(final Trip trip) {
+        final String own = (trip == null) ? null : trip.getPaymentConfig().getMailFrom();
+        return (own == null || own.isBlank()) ? "" : "custom";
+    }
+
+    /** What the dialog's From composer seeds from: the trip's own override, else the inherited value. */
+    public String paymentFromSeed(final Trip trip) {
+        final String own = (trip == null) ? null : trip.getPaymentConfig().getMailFrom();
+        if (own != null && !own.isBlank()) {
+            return own;
+        }
+        final String inherited = effectivePaymentConfig(trip).getMailFrom();
+        return (inherited == null || inherited.isBlank()) ? mailAddr().siteFrom() : inherited;
+    }
+
+    /**
+     * Writes the dialog's From composer back onto the working payment config: blank mode clears the
+     * override (inherit from the org, then the site), "custom" composes and VALIDATES against the owning
+     * org's allowed domains. Returns false -- with a growl and the config untouched -- on an invalid
+     * entry, so the dialog's Done/Send-Test can abort instead of storing an address SES will refuse.
+     */
+    public boolean applyPaymentFrom(final Trip trip, final String mode, final String name,
+            final String local, final String domain) {
+        if (trip == null) {
+            return false;
+        }
+        if (mode == null || mode.isBlank()) {
+            trip.getPaymentConfig().setMailFrom(null);
+            return publishFromOk(true);
+        }
+        final String composed = mailAddr()
+                .composeAddress(name, local, domain, mailDomainsForTrip(trip), "The From address");
+        if (composed == null) {
+            return publishFromOk(false);
+        }
+        trip.getPaymentConfig().setMailFrom(composed);
+        return publishFromOk(true);
+    }
+
+    /** Mirrors the outcome to the client so the dialog stays OPEN on a bad address (the growl alone,
+     *  with the dialog closing, reads as "saved anyway"). Seam-safe: no FacesContext in unit tests. */
+    private boolean publishFromOk(final boolean ok) {
+        if (FacesContext.getCurrentInstance() != null && PrimeFaces.current().isAjaxRequest()) {
+            PrimeFaces.current().ajax().addCallbackParam("payFromOk", ok);
+        }
+        return ok;
     }
 
     /**

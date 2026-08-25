@@ -15,6 +15,7 @@ import org.testng.annotations.Test;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
@@ -1181,9 +1182,14 @@ public class OrgCommandsTest {
         assertTrue(hits.contains(member.getId()));
         assertEquals(realPrivs(member).searchMailablePeople(member.getLast(), 25), List.of());
 
-        assertEquals(asSender.orgMailFrom(), acme.getContactEmail() == null ? null : acme.getContactEmail());
+        // The merge From is COMPOSED against verified domains, so an unverified contact address (the
+        // common case: a parish gmail) seeds Reply-To instead of From, and the site address seeds From.
         assertTrue(admin().saveOrgEdits(orgId, acme.getName(), null, "contact@acme.example"));
-        assertEquals(asSender.orgMailFrom(), "contact@acme.example");
+        assertEquals(asSender.mergeReplyToSeed(), "contact@acme.example");
+        assertNotEquals(asSender.mergeFromSeed(), "contact@acme.example");
+        assertTrue(admin().saveOrgEdits(orgId, acme.getName(), null, "hello@example.com"));
+        assertEquals(asSender.mergeFromSeed(), "hello@example.com", "a verified contact IS the From");
+        assertEquals(asSender.mergeReplyToSeed(), "hello@example.com");
 
         // A true stranger: another org's member who is on NO Acme trip (the roster made outsider mailable).
         final Person stranger = savedPerson();
@@ -1217,18 +1223,25 @@ public class OrgCommandsTest {
         final OrgCommands asSender = new OrgCommands(() -> new Caller(sender.getId(), false,
                 new AuditActor(sender.getEmail(), sender.getId().getValue()), new PrivilegeCommands()),
                 () -> mail);
-        assertTrue(asSender.sendMerge("from@x", List.of(member.getEmail(), outsider.getEmail()),
+        // A From must be on a verified sending domain; the composer can only produce one, so this is the
+        // forged-post guard. "from@x" is what the old free-text box happily accepted and SES then refused.
+        assertFalse(asSender.sendMerge("from@x", List.of(member.getEmail()), null, "r", "S", "B"),
+                "an unverified From domain is refused here, not silently at SES");
+        Mockito.verifyNoInteractions(mail);
+
+        final String from = "no-reply@example.com";
+        assertTrue(asSender.sendMerge(from, List.of(member.getEmail(), outsider.getEmail()),
                 outsider.getEmail(), "reply@x", "Subj", "Body"));
         // The out-of-org recipient AND the out-of-org bcc were dropped before the send.
         Mockito.verify(mail).emailsToPeople(List.of(member.getEmail()));
-        Mockito.verify(mail).sendTemplate("from@x", List.of(member), null, "reply@x", "Subj", "Body");
+        Mockito.verify(mail).sendTemplate(from, List.of(member), null, "reply@x", "Subj", "Body");
 
-        assertFalse(asSender.sendMerge("from@x", List.of(outsider.getEmail()), null, "r", "S", "B"),
+        assertFalse(asSender.sendMerge(from, List.of(outsider.getEmail()), null, "r", "S", "B"),
                 "nothing in-org to mail is a refusal");
         assertFalse(new OrgCommands(() -> new Caller(member.getId(), false,
                         new AuditActor(member.getEmail(), member.getId().getValue()),
                         new PrivilegeCommands()), () -> mail)
-                .sendMerge("from@x", List.of(member.getEmail()), null, "r", "S", "B"),
+                .sendMerge(from, List.of(member.getEmail()), null, "r", "S", "B"),
                 "no emailAdmin anywhere, no sending");
     }
 
@@ -1325,6 +1338,122 @@ public class OrgCommandsTest {
         final PrivilegeCommands none = Mockito.mock(PrivilegeCommands.class);
         Mockito.when(none.check(Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(false);
         return none;
+    }
+
+    // ------------------------------------------------------------------ sending domains
+
+    @Test
+    public void anUnrestrictedOrgMayUseEveryVerifiedDomain() throws IOException {
+        final Organization acme = orgWithAdmin(savedPerson());
+        final String orgId = acme.getId().getValue();
+        assertEquals(admin().storedMailDomains(orgId), List.of(), "a new org is never restricted");
+        assertEquals(admin().mailDomains(orgId), MailCommands.LOCAL_SENDING_DOMAINS);
+        assertEquals(admin().mailDomainsLabel(acme), "any verified");
+        assertEquals(admin().defaultMailDomain(orgId), "", "nothing preferred yet");
+        // An unknown org is not a hole: it falls back to the site-wide list, never to "anything goes".
+        assertEquals(admin().mailDomains("no-such-org"), MailCommands.LOCAL_SENDING_DOMAINS);
+    }
+
+    @Test
+    public void onlyASiteAdminNarrowsTheAllowList() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+
+        assertTrue(admin().saveOrgEdits(orgId, acme.getName(), null, null,
+                List.of("EXAMPLE.com", " example.com ", "nope.invalid"), null));
+        assertEquals(admin().storedMailDomains(orgId), List.of("example.com", "nope.invalid"),
+                "lower-cased, trimmed, de-duplicated");
+        assertEquals(admin().mailDomains(orgId), List.of("example.com"),
+                "a listed domain SES does not verify is not offered");
+        assertEquals(admin().mailDomainsLabel(admin().findOrganization(orgId)),
+                "example.com, nope.invalid", "the table shows what was ALLOWED, not what SES has");
+
+        // The org admin posts the same form; the field rides along and is ignored rather than refused,
+        // which is what makes one shared include safe to render for both kinds of admin.
+        assertTrue(realPrivs(orgAdmin).saveOrgEdits(orgId, acme.getName(), "ACME", null,
+                List.of("centerforpeacewest.com"), null));
+        assertEquals(admin().storedMailDomains(orgId), List.of("example.com", "nope.invalid"));
+        assertEquals(admin().findOrganization(orgId).getAbbreviation(), "ACME", "the rest still saved");
+
+        assertTrue(admin().saveOrgEdits(orgId, acme.getName(), null, null, List.of(), null));
+        assertEquals(admin().storedMailDomains(orgId), List.of(), "checking none is unrestricted again");
+        assertTrue(admin().saveOrgEdits(orgId, acme.getName(), null, null, null, null));
+        assertEquals(admin().storedMailDomains(orgId), List.of(), "a null list leaves it unrestricted");
+    }
+
+    @Test
+    public void anOrgAdminPicksTheDefaultDomainWithinWhatIsAllowed() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+        final org.paulsens.trip.model.Trip trip = tripOwnedBy(acme);
+
+        assertTrue(realPrivs(orgAdmin).saveOrgEdits(orgId, acme.getName(), null, null, null,
+                "EXAMPLE.com"));
+        assertEquals(admin().defaultMailDomain(orgId), "example.com");
+        assertEquals(admin().defaultMailDomainForTrip(trip), "example.com");
+        assertEquals(admin().mailDomainsForTrip(trip), MailCommands.LOCAL_SENDING_DOMAINS);
+
+        // Narrowing the allow-list past the preferred domain drops it rather than leaving a default the
+        // dropdown cannot offer (a preselected-but-absent item silently posts back as the first option).
+        assertTrue(admin().saveOrgEdits(orgId, acme.getName(), null, null,
+                List.of("centerforpeacewest.com"), "example.com"));
+        assertEquals(admin().defaultMailDomain(orgId), "");
+        assertEquals(admin().mailDomainsForTrip(trip), List.of("centerforpeacewest.com"));
+        assertEquals(admin().defaultMailDomainForTrip(null), "", "an org-less trip has no preference");
+        assertEquals(admin().mailDomainsForTrip(null), MailCommands.LOCAL_SENDING_DOMAINS);
+    }
+
+    @Test
+    public void composeMergeFromRefusesAnythingSesWouldRefuse() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person sender = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+        assertTrue(admin().addMember(orgId, sender.getId()));
+        assertTrue(realPrivs(orgAdmin).grantOrgPrivilege(orgId, sender.getId(),
+                PrivilegeCommands.EMAIL_ADMIN));
+        assertTrue(admin().saveOrgEdits(orgId, acme.getName(), null, null, List.of("example.com"), null));
+
+        final OrgCommands asSender = realPrivs(sender);
+        assertEquals(asSender.mailingOrg().getId(), acme.getId());
+        assertNull(admin().mailingOrg(), "a site admin is not standing in any one tenant");
+        assertEquals(asSender.mergeMailDomains(), List.of("example.com"));
+        assertEquals(admin().mergeMailDomains(), MailCommands.LOCAL_SENDING_DOMAINS);
+
+        assertEquals(asSender.composeMergeFrom("Acme", "no-reply", "example.com"),
+                "Acme <no-reply@example.com>");
+        assertEquals(asSender.composeMergeFrom("", "no-reply", "example.com"), "no-reply@example.com");
+        assertNull(asSender.composeMergeFrom("Acme", "no reply", "example.com"), "bad mailbox");
+        assertNull(asSender.composeMergeFrom("Acme", "no-reply", "visitqueenofpeace.com"),
+                "verified by SES, but not allowed for THIS org");
+    }
+
+    @Test
+    public void thePaymentDialogsFromComposesOnlyAllowedDomains() throws IOException {
+        final Organization acme = orgWithAdmin(savedPerson());
+        final String orgId = acme.getId().getValue();
+        final org.paulsens.trip.model.Trip trip = tripOwnedBy(acme);
+        assertTrue(admin().saveOrgEdits(orgId, acme.getName(), null, null, List.of("example.com"), null));
+
+        assertEquals(admin().paymentFromMode(trip), "", "nothing overridden yet");
+        assertEquals(admin().paymentFromMode(null), "");
+        assertFalse(admin().paymentFromSeed(trip).isBlank(), "the site address seeds an empty composer");
+
+        assertTrue(admin().applyPaymentFrom(trip, "custom", "Acme", "no-reply", "example.com"));
+        assertEquals(trip.getPaymentConfig().getMailFrom(), "Acme <no-reply@example.com>");
+        assertEquals(admin().paymentFromMode(trip), "custom");
+        assertEquals(admin().paymentFromSeed(trip), "Acme <no-reply@example.com>");
+
+        assertFalse(admin().applyPaymentFrom(trip, "custom", "Acme", "no-reply", "visitqueenofpeace.com"),
+                "a domain outside the org's allow-list is refused");
+        assertEquals(trip.getPaymentConfig().getMailFrom(), "Acme <no-reply@example.com>",
+                "and the working config is left untouched, never half-applied");
+
+        assertTrue(admin().applyPaymentFrom(trip, "", "Acme", "no-reply", "example.com"));
+        assertNull(trip.getPaymentConfig().getMailFrom(), "blank mode means inherit");
+        assertFalse(admin().applyPaymentFrom(null, "custom", "a", "b", "example.com"));
     }
 
     private static String unique() {

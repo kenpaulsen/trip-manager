@@ -48,6 +48,23 @@ public final class Organization implements Serializable {
      */
     private TripPaymentConfig paymentDefaults;
     /**
+     * The SES-verified sending domains this org's From addresses may use -- the site-admin allow-list
+     * behind every From composer on the org's pages (mail merge, trip payment settings). {@code null} OR
+     * empty means "never restricted": the composer offers every domain SES has verified. Unlike
+     * {@link #grantablePrivileges}, empty is NOT "nothing allowed" -- an org that may send from no domain
+     * cannot send at all, which is a footgun rather than a useful state, so restriction is expressed only
+     * by listing the domains that ARE allowed. Setter-populated, outside the 8-arg creator like
+     * {@link #paymentDefaults}.
+     */
+    private List<String> mailDomains;
+    /**
+     * The org admins' preferred domain among {@link #mailDomains} -- what a From composer preselects. Not
+     * an authorization control (the allow-list is), just the default choice, which is why an ORG admin may
+     * set it while only a site admin may edit the list itself. Ignored when it is not currently allowed.
+     */
+    private String defaultMailDomain;
+
+    /**
      * The privilege base names this org may grant (site-admin controlled allow-list, bounding both the
      * trip-scoped roles on the trip editor and the org-scoped grants on the org People page). {@code null}
      * means "never restricted" == everything allowed, so existing rows need no migration and restriction is
