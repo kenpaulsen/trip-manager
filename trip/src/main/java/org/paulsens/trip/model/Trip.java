@@ -201,6 +201,87 @@ public final class Trip implements Serializable {
         return resolveNames(directorIds, director);
     }
 
+    /**
+     * RAW legacy strings for the hand-migration UI on trip/edit.jsf: the deprecated inputs bind here so
+     * a migrated trip still shows what is STORED in the old field, where the resolving
+     * {@link #getFacilitators()} would show the id-derived names and hide it. Remove with the fields.
+     */
+    @Deprecated
+    @JsonIgnore
+    public String getLegacyFacilitators() {
+        return facilitators;
+    }
+
+    @Deprecated
+    public void setLegacyFacilitators(final String value) {
+        this.facilitators = value;
+    }
+
+    @Deprecated
+    @JsonIgnore
+    public String getLegacyDirector() {
+        return director;
+    }
+
+    @Deprecated
+    public void setLegacyDirector(final String value) {
+        this.director = value;
+    }
+
+    /**
+     * Names resolved from the ID LIST alone ("" when unset) -- the migration UI's new rows, which must
+     * show exactly what the id list carries; the resolving getters' legacy fallback would blur which
+     * field feeds the display.
+     */
+    @JsonIgnore
+    public String getFacilitatorNames() {
+        return resolveNames(facilitatorIds, "");
+    }
+
+    /** See {@link #getFacilitatorNames()}. */
+    @JsonIgnore
+    public String getDirectorNames() {
+        return resolveNames(directorIds, "");
+    }
+
+    /** Null-safe, idempotent add -- the staff-picker dialogs mutate the page's edit DRAFT through these. */
+    public void addFacilitatorId(final Person.Id personId) {
+        facilitatorIds = addedTo(facilitatorIds, personId);
+    }
+
+    public void removeFacilitatorId(final Person.Id personId) {
+        facilitatorIds = removedFrom(facilitatorIds, personId);
+    }
+
+    public void addDirectorId(final Person.Id personId) {
+        directorIds = addedTo(directorIds, personId);
+    }
+
+    public void removeDirectorId(final Person.Id personId) {
+        directorIds = removedFrom(directorIds, personId);
+    }
+
+    // Both copy before mutating: seeds and callers hand in List.of(...) lists, which throw on mutation.
+    private static List<Person.Id> addedTo(final List<Person.Id> ids, final Person.Id personId) {
+        if (personId == null) {
+            return ids;
+        }
+        final List<Person.Id> result = (ids == null) ? new ArrayList<>() : new ArrayList<>(ids);
+        if (!result.contains(personId)) {
+            result.add(personId);
+        }
+        return result;
+    }
+
+    private static List<Person.Id> removedFrom(final List<Person.Id> ids, final Person.Id personId) {
+        if (ids == null || personId == null) {
+            return ids;
+        }
+        final List<Person.Id> result = new ArrayList<>(ids);
+        result.remove(personId);
+        return result;
+    }
+
     private static String resolveNames(final List<Person.Id> ids, final String legacy) {
         if (ids == null || ids.isEmpty()) {
             return legacy;

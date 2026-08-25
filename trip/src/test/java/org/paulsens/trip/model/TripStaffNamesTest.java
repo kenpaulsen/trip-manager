@@ -69,6 +69,35 @@ public class TripStaffNamesTest {
         Assert.assertEquals(reread.getFacilitators(), "Ann Alpha", "the reread trip resolves too");
     }
 
+    @Test
+    public void migrationAccessorsSeparateLegacyTextFromIdNames() throws IOException {
+        final Person ann = savedPerson("Ann", "Alpha");
+        final Trip trip = Trip.builder().title("migration").build();
+        trip.setLegacyFacilitators("Ken + Audie");
+        Assert.assertEquals(trip.getLegacyFacilitators(), "Ken + Audie");
+        Assert.assertEquals(trip.getFacilitatorNames(), "", "no ids: the NAMES row is empty, not legacy");
+
+        trip.addFacilitatorId(ann.getId());
+        trip.addFacilitatorId(ann.getId());                 // idempotent
+        trip.addFacilitatorId(null);                        // null-safe
+        Assert.assertEquals(trip.getFacilitatorNames(), "Ann Alpha");
+        Assert.assertEquals(trip.getLegacyFacilitators(), "Ken + Audie",
+                "the raw accessor never resolves -- migrated trips still show what is stored");
+        Assert.assertEquals(trip.getFacilitatorIds(), List.of(ann.getId()));
+
+        trip.removeFacilitatorId(ann.getId());
+        Assert.assertEquals(trip.getFacilitatorNames(), "");
+        trip.removeFacilitatorId(ann.getId());              // removing again is a no-op
+
+        final Trip director = Trip.builder().title("dir").build();
+        director.setLegacyDirector("Fr. Legacy");
+        director.addDirectorId(ann.getId());
+        Assert.assertEquals(director.getDirectorNames(), "Ann Alpha");
+        Assert.assertEquals(director.getLegacyDirector(), "Fr. Legacy");
+        director.removeDirectorId(ann.getId());
+        Assert.assertEquals(director.getDirectorNames(), "");
+    }
+
     private static Person savedPerson(final String first, final String last) throws IOException {
         final Person person = Person.builder()
                 .first(first).last(last)
