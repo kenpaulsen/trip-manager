@@ -15,7 +15,6 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.AuditCommands;
 import org.paulsens.trip.action.RegistrationCommands;
-import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.api.dto.RegistrationDto;
 import org.paulsens.trip.api.mapper.RegistrationMapper;
 import org.paulsens.trip.model.Person;

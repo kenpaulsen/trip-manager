@@ -212,7 +212,7 @@ final class LocalRedisCluster {
     private static void discard(final BufferedReader reader) {
         try {
             while (reader.readLine() != null) {
-                // discard
+                continue;   // discard
             }
         } catch (final IOException ignored) {
             // Server stopped; nothing to do.

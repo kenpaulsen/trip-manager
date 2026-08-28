@@ -37,7 +37,10 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
 import org.paulsens.trip.cache.Cached;
 
-public class FakeData {
+public final class FakeData {
+
+    private FakeData() {
+    }
 
     @Getter
     private static List<Person> fakePeople;
@@ -115,6 +118,9 @@ public class FakeData {
         }
     }
 
+    /** The ceiling {@code ChatCommands.validate} enforces on a channel's burst/sustained limits. */
+    private static final int MAX_CHAT_RATE_LIMIT = 10_000;
+
     /**
      * Gives the demo trips' chat channels limits no test run can trip.
      *
@@ -129,9 +135,6 @@ public class FakeData {
      *
      * <p>LOCAL MODE ONLY, like every other seed in this class: production channels keep the shipped defaults.
      */
-    /** The ceiling {@code ChatCommands.validate} enforces on a channel's burst/sustained limits. */
-    private static final int MAX_CHAT_RATE_LIMIT = 10_000;
-
     private static void relaxChatLimitsForFakeTrips() {
         final ChatCommands chat = new ChatCommands();
         for (final String tripId : List.of("faketrip", "Fake2")) {
@@ -631,8 +634,16 @@ public class FakeData {
                 .tripEvents(events2)
                 .regOptions(getDefaultOptions())
                 .build());
-        // Landing-page seeds: one trip per public-listing rule, so the data-driven home page renders every
-        // branch locally (language sections, CFPW sidebar filter, countdown rules, 7-day removal, galleria).
+        addLandingPageSeeds(trips, allPeople, tripStaff);
+        return trips;
+    }
+
+    /**
+     * Landing-page seeds: one trip per public-listing rule, so the data-driven home page renders every
+     * branch locally (language sections, CFPW sidebar filter, countdown rules, 7-day removal, galleria).
+     */
+    private static void addLandingPageSeeds(final List<Trip> trips, final List<Person.Id> allPeople,
+            final List<Person.Id> tripStaff) {
         trips.add(Trip.builder()
                 .id("pub-en-1")
                 .title("2026 Sep: Holy Angels Demo")     // prefixed title exercises getShortTitle
@@ -721,7 +732,6 @@ public class FakeData {
                 .endDate(LocalDateTime.now().plusDays(97))
                 .tripEvents(seedEvents("pub-hidden", 90))
                 .build());
-        return trips;
     }
 
     /** One minimal event per seed trip (a FakeData invariant: every fake trip has at least one). */

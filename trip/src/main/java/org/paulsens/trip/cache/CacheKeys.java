@@ -19,7 +19,8 @@ public final class CacheKeys {
 
     // Privileges are partitioned by trip: one hash per partition (PRIV_PREFIX + partition), field = base priv name,
     // value = Privilege JSON. The partition is the tripId for trip-scoped privileges, or PRIV_GLOBAL_PARTITION.
-    // A single loaded marker (PRIV_LOADED) covers all partitions -- one scan rebuilds them together. See PrivilegeIndex.
+    // A single loaded marker (PRIV_LOADED) covers all partitions -- one scan rebuilds them together. See
+    // PrivilegeIndex.
     public static final String PRIV_PREFIX = FORMAT_VERSION + "priv:";
     public static final String PRIV_GLOBAL_PARTITION = "__global__";
     public static final String PRIV_LOADED = FORMAT_VERSION + "priv_loaded";

@@ -106,7 +106,11 @@ public class AuditAndTransactionsTailTest {
         final long deadline = System.currentTimeMillis() + 5_000L;
         while (transactions.getGroupTransactionForUser(bob.getId(), groupId).isPresent()
                 && System.currentTimeMillis() < deadline) {
-            try { Thread.sleep(100L); } catch (final InterruptedException ex) { break; }
+            try {
+                Thread.sleep(100L);
+            } catch (final InterruptedException ex) {
+                break;
+            }
         }
         Assert.assertTrue(transactions.getGroupTransactionForUser(bob.getId(), groupId).isEmpty(),
                 "A dropped member's row must disappear from reads");
@@ -118,7 +122,11 @@ public class AuditAndTransactionsTailTest {
         final long deadline = System.currentTimeMillis() + 5_000L;
         while (transactions.getGroupTransactionForUser(who, groupId).isEmpty()
                 && System.currentTimeMillis() < deadline) {
-            try { Thread.sleep(100L); } catch (final InterruptedException ex) { break; }
+            try {
+                Thread.sleep(100L);
+            } catch (final InterruptedException ex) {
+                break;
+            }
         }
         Assert.assertTrue(transactions.getGroupTransactionForUser(who, groupId).isPresent(),
                 "The group row never became visible for " + who);
@@ -242,7 +250,11 @@ public class AuditAndTransactionsTailTest {
         String csv = "";
         for (int attempt = 0; attempt < 5 && !csv.contains("csv row"); attempt++) {
             audit.log("csv@audit.example", "CONFIG", "csv row, with a comma");
-            try { Thread.sleep(50L); } catch (final InterruptedException ex) { break; }
+            try {
+                Thread.sleep(50L);
+            } catch (final InterruptedException ex) {
+                break;
+            }
             csv = auditView.toCsv(null, "csv@audit.example", null, null, null);
         }
 

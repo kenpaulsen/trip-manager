@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.faces.context.FacesContext;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import org.mockito.AdditionalAnswers;
 import org.mockito.ArgumentMatchers;
 import org.mockito.MockedStatic;
@@ -393,8 +392,8 @@ public class DAOFailureTailsTest {
                     "a non-admin view: refused");
 
             viewMap.put(CredentialsDAO.IS_ADMIN, "true");
-            Assert.assertNull(dao.adminGetCredsByEmail("missing-" + RandomData.genAlpha(6) + "@x.org")
-                    , "admin, but no such account: null rather than an invented Creds");
+            Assert.assertNull(dao.adminGetCredsByEmail("missing-" + RandomData.genAlpha(6) + "@x.org"),
+                    "admin, but no such account: null rather than an invented Creds");
         }
     }
 

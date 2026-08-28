@@ -6,7 +6,6 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
@@ -113,7 +112,7 @@ public class CredentialsDAO {
             final GetItemResponse item =
                     persistence.getItem(b -> b.key(getCredQueryKey(email)).tableName(PASS_TABLE).build());
             final Creds creds = item.hasItem() ? credsFromResponse(item) : null;
-            return 
+            return
                     (creds == null || creds.getUserId().equals(id)) ? creds : null;
         } catch (final RuntimeException ex) {
             throw ex;
@@ -169,7 +168,7 @@ public class CredentialsDAO {
             map.put(LAST_LOGIN, AttributeValue.builder().n("" + creds.getLastLogin()).build());
         }
         try {
-            return 
+            return
                     persistence.putItem(b -> b.tableName(PASS_TABLE).item(map)).sdkHttpResponse().isSuccessful();
         } catch (final RuntimeException ex) {
             log.error("Failed to save credentials!", ex);
@@ -190,7 +189,7 @@ public class CredentialsDAO {
         log.info("Removing Credentials for user ({}).", email);
         final Map<String, AttributeValue> primaryKey = getCredQueryKey(email);
         try {
-            return 
+            return
                     persistence.deleteItem(b -> b.tableName(PASS_TABLE).key(primaryKey))
                             .sdkHttpResponse().isSuccessful();
         } catch (final RuntimeException ex) {

@@ -2,7 +2,6 @@ package org.paulsens.trip.cache;
 
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.testng.Assert;
@@ -167,7 +166,8 @@ public class TripIndexTest {
     public void aSoftStaleRebuildReconcilesBothIndexes() throws Exception {
         final TripIndex index = index();
         index.allTripIds(50); // warm
-        entries = List.of( // "past" deleted behind the cache's back
+        // "past" deleted behind the cache's back
+        entries = List.of(
                 new TripIndex.Entry("future", 2_000_000L, Set.of("alice", "bob")),
                 new TripIndex.Entry("further", 3_000_000L, Set.of("bob")));
         now.addAndGet(java.time.Duration.ofHours(25).toMillis());

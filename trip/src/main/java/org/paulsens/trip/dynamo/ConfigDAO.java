@@ -96,7 +96,7 @@ public class ConfigDAO {
             return Optional.empty();
         }
         try {
-            return 
+            return
                     cache.getOne(CacheKeys.CONFIG_PARTITION, name, () -> pointReadConfig(name));
         } catch (final RuntimeException ex) {
             throw ex;

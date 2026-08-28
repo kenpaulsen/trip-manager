@@ -114,7 +114,7 @@ public class MediaDAO {
             return Optional.empty();
         }
         try {
-            return 
+            return
                     cache.getOne(CacheKeys.MEDIA_PARTITION, id, () -> pointReadMedia(id));
         } catch (final RuntimeException ex) {
             throw ex;

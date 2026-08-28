@@ -93,7 +93,7 @@ public class PersonDataValueDAO {
 
     protected Optional<PersonDataValue> getPersonDataValue(final Person.Id pid, final DataId pdvId) {
         try {
-            return 
+            return
                     cache.getOne(pid.getValue(), pdvId, () -> loadPersonDataValues(pid));
         } catch (final RuntimeException ex) {
             throw ex;

@@ -12,10 +12,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
@@ -139,8 +137,8 @@ public class TransactionsCommands {
                 final Transaction.TransactionType txType, final LocalDateTime date, final Float amount,
                 final String cat, final String note, final String tripId, final String eventId,
                 final Object... objArr) {
-        final List<Person.Id> txPeople = (objArr == null) ? Collections.emptyList() :
-                Arrays.stream(objArr).flatMap(this::castToPersonId).toList();
+        final List<Person.Id> txPeople = (objArr == null) ? Collections.emptyList()
+                : Arrays.stream(objArr).flatMap(this::castToPersonId).toList();
         return saveGroupTransaction(gid, origPeople, type, txType, date, amount, cat, note, tripId, eventId,
                 txPeople);
     }

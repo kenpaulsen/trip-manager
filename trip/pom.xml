@@ -616,6 +616,42 @@
                 </executions>
             </plugin>
             <plugin>
+                <!--
+                    Style gate: Oracle/Sun conventions adapted for this codebase (120-column lines, no
+                    mandatory Javadoc, tabs banned) - the rules live in ../checkstyle.xml. Bound to
+                    `validate` with failOnViolation=true, so a violation stops the build before anything
+                    compiles, locally and in CI alike. Skip in an emergency with -Dcheckstyle.skip=true.
+                    Test sources are held to the same rules as main sources.
+                -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>3.6.0</version>
+                <dependencies>
+                    <!-- The plugin's default checkstyle runtime is ancient; pin a current one. -->
+                    <dependency>
+                        <groupId>com.puppycrawl.tools</groupId>
+                        <artifactId>checkstyle</artifactId>
+                        <version>13.11.0</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <configLocation>${project.basedir}/../checkstyle.xml</configLocation>
+                    <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                    <consoleOutput>true</consoleOutput>
+                    <failOnViolation>true</failOnViolation>
+                    <violationSeverity>warning</violationSeverity>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>checkstyle-check</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-war-plugin</artifactId>
                 <version>3.5.1</version>

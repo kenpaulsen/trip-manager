@@ -1,0 +1,130 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+        "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+        "https://checkstyle.org/dtds/configuration_1_3.dtd">
+
+<!--
+    Checkstyle configuration for the trip module, based on the Oracle/Sun Code Conventions
+    (sun_checks.xml) with deliberate adaptations:
+
+      - Line length is 120 (not 80) to match how the codebase is actually written.
+      - Tabs are banned everywhere (FileTabCharacter checks every line).
+      - Mandatory-Javadoc checks (JavadocMethod/Type/Variable, MissingJavadoc*) are omitted;
+        Javadoc that exists must still be well-placed (InvalidJavadocPosition).
+      - The noisiest Sun design checks (DesignForExtension, FinalParameters, MagicNumber,
+        HiddenField, VisibilityModifier) are omitted: they fight Lombok-generated code and
+        idiomatic setters, and enforcing them would mean rewriting, not formatting.
+      - ParameterNumber is omitted: every hit is a Jackson @JsonCreator constructor (this repo
+        hand-writes builders on purpose - see CLAUDE.md on Lombok @Builder) or a JAX-RS method
+        whose parameters ARE the query contract; neither is fixable by style edits.
+      - FileLength is raised to 3000 (ChatCommands.java is ~2700 lines; splitting it is a
+        refactor, not a formatting fix).
+
+    Escape hatch: @SuppressWarnings("checkstyle:RuleName") on the member, via
+    SuppressWarningsHolder/SuppressWarningsFilter below. Use sparingly.
+-->
+
+<module name="Checker">
+    <property name="severity" value="error"/>
+    <property name="fileExtensions" value="java"/>
+
+    <module name="NewlineAtEndOfFile"/>
+    <module name="FileLength">
+        <property name="max" value="3000"/>
+    </module>
+    <module name="FileTabCharacter">
+        <property name="eachLine" value="true"/>
+    </module>
+    <module name="LineLength">
+        <property name="max" value="120"/>
+        <property name="ignorePattern" value="^ *\* *[^ ]+$"/>
+    </module>
+    <module name="RegexpSingleline">
+        <property name="format" value="\s+$"/>
+        <property name="message" value="Line has trailing whitespace."/>
+    </module>
+
+    <module name="SuppressWarningsFilter"/>
+
+    <!--
+        DynamicResourceMapTest deliberately imports sun.reflect.ReflectionFactory: it stands in for the
+        no-constructor allocation Kryo/Objenesis perform on a Valkey-stored session (the test's own Javadoc
+        explains why nothing else can). @SuppressWarnings cannot reach an import statement, hence this filter.
+    -->
+    <module name="SuppressionSingleFilter">
+        <property name="checks" value="IllegalImport"/>
+        <property name="files" value="DynamicResourceMapTest\.java"/>
+    </module>
+
+    <module name="TreeWalker">
+        <module name="SuppressWarningsHolder"/>
+
+        <!-- Javadoc that exists must be well-placed; none is required. -->
+        <module name="InvalidJavadocPosition"/>
+
+        <!-- Naming (Sun conventions) -->
+        <module name="ConstantName"/>
+        <module name="LocalFinalVariableName"/>
+        <module name="LocalVariableName"/>
+        <module name="MemberName"/>
+        <module name="MethodName"/>
+        <module name="PackageName"/>
+        <module name="ParameterName"/>
+        <module name="StaticVariableName"/>
+        <module name="TypeName"/>
+
+        <!-- Imports -->
+        <module name="AvoidStarImport"/>
+        <module name="IllegalImport"/>
+        <module name="RedundantImport"/>
+        <module name="UnusedImports"/>
+
+        <!-- Size violations -->
+        <module name="MethodLength"/>
+
+        <!-- Whitespace -->
+        <module name="EmptyForIteratorPad"/>
+        <module name="GenericWhitespace"/>
+        <module name="MethodParamPad"/>
+        <module name="NoWhitespaceAfter"/>
+        <module name="NoWhitespaceBefore"/>
+        <module name="OperatorWrap"/>
+        <module name="ParenPad"/>
+        <module name="TypecastParenPad"/>
+        <module name="WhitespaceAfter"/>
+        <module name="WhitespaceAround">
+            <property name="allowEmptyLambdas" value="true"/>
+            <property name="allowEmptyTypes" value="true"/>
+        </module>
+
+        <!-- Modifiers -->
+        <module name="ModifierOrder"/>
+        <module name="RedundantModifier"/>
+
+        <!-- Blocks -->
+        <module name="AvoidNestedBlocks"/>
+        <module name="EmptyBlock"/>
+        <module name="LeftCurly"/>
+        <module name="NeedBraces"/>
+        <module name="RightCurly"/>
+
+        <!-- Common coding problems -->
+        <module name="EmptyStatement"/>
+        <module name="EqualsHashCode"/>
+        <module name="IllegalInstantiation"/>
+        <module name="InnerAssignment"/>
+        <module name="MissingSwitchDefault"/>
+        <module name="MultipleVariableDeclarations"/>
+        <module name="SimplifyBooleanExpression"/>
+        <module name="SimplifyBooleanReturn"/>
+
+        <!-- Class design -->
+        <module name="FinalClass"/>
+        <module name="HideUtilityClassConstructor"/>
+        <module name="InterfaceIsType"/>
+
+        <!-- Miscellaneous -->
+        <module name="ArrayTypeStyle"/>
+        <module name="UpperEll"/>
+    </module>
+</module>

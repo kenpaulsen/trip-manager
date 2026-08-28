@@ -24,7 +24,7 @@ import org.paulsens.trip.cache.Cached;
 
 @Data
 public final class Person implements Serializable, Comparable<Person> {
-    public static final Comparator<Person> peopleSorter = (a, b) ->
+    public static final Comparator<Person> PEOPLE_SORTER = (a, b) ->
             getPersonSortStr(a).compareToIgnoreCase(getPersonSortStr(b));
     private Person.Id id;
     private String nickname;
@@ -165,7 +165,7 @@ public final class Person implements Serializable, Comparable<Person> {
     }
 
     public int compareTo(final Person other) {
-        return peopleSorter.compare(this, other);
+        return PEOPLE_SORTER.compare(this, other);
     }
 
     private static String getPersonSortStr(final Person person) {

@@ -2,15 +2,12 @@ package org.paulsens.trip.action;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
-import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Registration;
-import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.testng.Assert;

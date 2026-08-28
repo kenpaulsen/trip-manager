@@ -11,11 +11,11 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 public class PassportTest {
-    private final static String NUMBER = "2305 NE 16th St.";
-    private final static String COUNTRY = "Brush Prairie";
-    private final static LocalDate EXPIRES = LocalDate.now();
-    private final static LocalDate ISSUED = LocalDate.now();
-    private final static String PLACE_OF_BIRTH = RandomData.genAlpha(22);
+    private static final String NUMBER = "2305 NE 16th St.";
+    private static final String COUNTRY = "Brush Prairie";
+    private static final LocalDate EXPIRES = LocalDate.now();
+    private static final LocalDate ISSUED = LocalDate.now();
+    private static final String PLACE_OF_BIRTH = RandomData.genAlpha(22);
 
     @Test
     public void equalsTest() {

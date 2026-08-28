@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditEvent;
 import org.paulsens.trip.model.AuditOutcome;
@@ -88,10 +87,8 @@ public class AuditDAOTest {
     @Test
     public void resultsAreNewestFirstAcrossDays() {
         final Instant now = Instant.parse("2026-07-26T12:00:00Z");
-        dao.saveAuditEvent(event(now.minus(3, ChronoUnit.DAYS), AuditAction.LOGIN, AuditOutcome.SUCCESS, "old@x"))
-                ;
-        dao.saveAuditEvent(event(now.minus(1, ChronoUnit.DAYS), AuditAction.LOGIN, AuditOutcome.SUCCESS, "mid@x"))
-                ;
+        dao.saveAuditEvent(event(now.minus(3, ChronoUnit.DAYS), AuditAction.LOGIN, AuditOutcome.SUCCESS, "old@x"));
+        dao.saveAuditEvent(event(now.minus(1, ChronoUnit.DAYS), AuditAction.LOGIN, AuditOutcome.SUCCESS, "mid@x"));
         dao.saveAuditEvent(event(now, AuditAction.LOGIN, AuditOutcome.SUCCESS, "new@x"));
 
         final List<AuditEvent> events = page(queryAt(now.plusMillis(1))).getEvents();
@@ -103,8 +100,7 @@ public class AuditDAOTest {
     public void limitIsRespectedAndCursorContinues() {
         final Instant base = Instant.parse("2026-07-26T12:00:00Z");
         for (int i = 0; i < 10; i++) {
-            dao.saveAuditEvent(event(base.minusSeconds(i), AuditAction.LOGIN, AuditOutcome.SUCCESS, "u" + i + "@x"))
-                    ;
+            dao.saveAuditEvent(event(base.minusSeconds(i), AuditAction.LOGIN, AuditOutcome.SUCCESS, "u" + i + "@x"));
         }
 
         final AuditPage first = page(AuditQuery.builder().before(base.plusMillis(1)).limit(4).build());
@@ -215,8 +211,7 @@ public class AuditDAOTest {
     @Test
     public void sinceStopsTheWalkEarly() {
         final Instant now = Instant.parse("2026-07-26T12:00:00Z");
-        dao.saveAuditEvent(event(now.minus(10, ChronoUnit.DAYS), AuditAction.LOGIN, AuditOutcome.SUCCESS, "old@x"))
-                ;
+        dao.saveAuditEvent(event(now.minus(10, ChronoUnit.DAYS), AuditAction.LOGIN, AuditOutcome.SUCCESS, "old@x"));
         dao.saveAuditEvent(event(now, AuditAction.LOGIN, AuditOutcome.SUCCESS, "new@x"));
 
         final List<AuditEvent> found = page(AuditQuery.builder()

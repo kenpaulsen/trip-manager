@@ -44,29 +44,29 @@ import static org.testng.Assert.assertTrue;
 import org.paulsens.trip.cache.Cached;
 
 public class DAOTest {
-    private static DAO DB_UTILS;
+    private static DAO dbUtils;
     private static final long MONTH_IN_MILLIS = 86_400L * 31L * 1_000L;
 
     @BeforeClass
     public void initTests() {
-        DB_UTILS = DAO.getInstance();
+        dbUtils = DAO.getInstance();
         FakeData.initFakeData();
         FakeData.addFakeData();
     }
 
     @BeforeMethod
     public void setupTest() {
-        DB_UTILS.clearAllCaches();;
+        dbUtils.clearAllCaches();
     }
 
     /** Scope invalidation clears the owning DAO's namespaces and broadcasts exactly one event. */
     @Test
     public void invalidateClearsTheScopeAndBroadcastsOnce() throws Exception {
-        final CacheClient client = DB_UTILS.getCacheClient();
+        final CacheClient client = dbUtils.getCacheClient();
         final List<String> events = new ArrayList<>();
         try (AutoCloseable ignored = client.subscribe(
                 List.of(org.paulsens.trip.cache.CacheKeys.CACHE_INVAL_CHANNEL), (ch, p) -> events.add(p))) {
-            final List<String> cleared = DB_UTILS.invalidate(DAO.CacheScope.TRIP);
+            final List<String> cleared = dbUtils.invalidate(DAO.CacheScope.TRIP);
             assertTrue(cleared.contains(org.paulsens.trip.cache.CacheKeys.TRIP_PREFIX), "cleared: " + cleared);
             assertEquals(events.size(), 1, "exactly one broadcast per invalidation");
             assertTrue(events.get(0).contains(org.paulsens.trip.cache.CacheKeys.TRIP_PREFIX));
@@ -77,7 +77,7 @@ public class DAOTest {
     @Test
     public void everyScopeClearsSomething() {
         for (final DAO.CacheScope scope : DAO.CacheScope.values()) {
-            assertTrue(!DB_UTILS.invalidate(scope).isEmpty(), "scope " + scope + " cleared nothing");
+            assertTrue(!dbUtils.invalidate(scope).isEmpty(), "scope " + scope + " cleared nothing");
         }
     }
 
@@ -88,8 +88,8 @@ public class DAOTest {
         final String last = RandomData.genAlpha(9);
         final Person person = new Person(id, null, first, null, last, null,
                 null, null, null, null, null, null, null, null, null, null, null);
-        assertTrue(DB_UTILS.savePerson(person));
-        final Person samePerson = DB_UTILS.getPerson(id, Cached.NO).orElse(null);
+        assertTrue(dbUtils.savePerson(person));
+        final Person samePerson = dbUtils.getPerson(id, Cached.NO).orElse(null);
         assertEquals(samePerson, person);
     }
 
@@ -101,11 +101,11 @@ public class DAOTest {
                 null, null, null, null, null, null, null, null, null, null);
         final Person person3 = new Person(Person.Id.from("3"), "n3", "n3", null, "l3", null, null,
                 null, null, null, null, null, null, null, null, null, null);
-        assertTrue(DB_UTILS.savePerson(person2));
-        assertTrue(DB_UTILS.savePerson(person1));
-        assertTrue(DB_UTILS.savePerson(person3));
+        assertTrue(dbUtils.savePerson(person2));
+        assertTrue(dbUtils.savePerson(person1));
+        assertTrue(dbUtils.savePerson(person3));
         // No list-all anymore: find them via prefix search (last names all start with "l")
-        final List<Person> people = DB_UTILS.searchPeople("l", 10, Cached.NO);
+        final List<Person> people = dbUtils.searchPeople("l", 10, Cached.NO);
         assertEquals(people.size(), 3);
         final Person person = people.stream().filter(p -> Person.Id.from("1").equals(p.getId())).findAny().orElse(null);
         assertEquals(person, person1);
@@ -134,19 +134,19 @@ public class DAOTest {
                 .regOptions(FakeData.getDefaultOptions())
                 .build();
 
-        assertEquals(DB_UTILS.getRecentTrips(100, Cached.NO).size(), 0, "Should start w/ no trips.");
-        assertTrue(DB_UTILS.saveTrip(trip));
-        assertEquals(DB_UTILS.getRecentTrips(100, Cached.NO).size(), 1, "Expected 1 to be added.");
-        assertTrue(DB_UTILS.saveTrip(trip)); // Verify idempotency, should still be 1
-        assertEquals(DB_UTILS.getRecentTrips(100, Cached.NO).size(), 1, "Expected only 1 still.");
+        assertEquals(dbUtils.getRecentTrips(100, Cached.NO).size(), 0, "Should start w/ no trips.");
+        assertTrue(dbUtils.saveTrip(trip));
+        assertEquals(dbUtils.getRecentTrips(100, Cached.NO).size(), 1, "Expected 1 to be added.");
+        assertTrue(dbUtils.saveTrip(trip)); // Verify idempotency, should still be 1
+        assertEquals(dbUtils.getRecentTrips(100, Cached.NO).size(), 1, "Expected only 1 still.");
         trip.setId(RandomData.genAlpha(10));
-        assertTrue(DB_UTILS.saveTrip(trip)); // Verify idempotency, should still be 1
-        assertEquals(DB_UTILS.getRecentTrips(100, Cached.NO).size(), 2, "Expected 2 now.");
-        final Trip newTrip = DB_UTILS.getTrip(trip.getId(), Cached.NO).orElse(null);
+        assertTrue(dbUtils.saveTrip(trip)); // Verify idempotency, should still be 1
+        assertEquals(dbUtils.getRecentTrips(100, Cached.NO).size(), 2, "Expected 2 now.");
+        final Trip newTrip = dbUtils.getTrip(trip.getId(), Cached.NO).orElse(null);
         assertEquals(newTrip, trip, "Getting trip should be equal.");
         // Reads return the saved snapshot, not a shared mutable instance: the original id still resolves to the
         // trip as it was saved under that id (before setId() above).
-        final Trip origTrip = DB_UTILS.getTrip(id, Cached.NO).orElse(null);
+        final Trip origTrip = dbUtils.getTrip(id, Cached.NO).orElse(null);
         assertNotNull(origTrip, "The original id should still resolve to its own trip.");
         assertEquals(origTrip.getId(), id, "The original trip snapshot keeps its own id.");
     }
@@ -158,8 +158,8 @@ public class DAOTest {
                 .dataId(DataId.newInstance())
                 .description(RandomData.genAlpha(19))
                 .build();
-        assertTrue(DB_UTILS.saveTodo(todo));
-        final TodoItem restoredItem = DB_UTILS.getTodoItem(todo.getTripId(), todo.getDataId(), Cached.NO).orElse(null);
+        assertTrue(dbUtils.saveTodo(todo));
+        final TodoItem restoredItem = dbUtils.getTodoItem(todo.getTripId(), todo.getDataId(), Cached.NO).orElse(null);
         assertEquals(restoredItem, todo);
     }
 
@@ -188,7 +188,7 @@ public class DAOTest {
                 .peek(this::saveTodo)
                 .forEach(goodValues::add);
         assertEquals(goodValues.size(), todoInsertSize);
-        final List<TodoItem> result = DB_UTILS.getTodoItems(tripId, Cached.NO);
+        final List<TodoItem> result = dbUtils.getTodoItems(tripId, Cached.NO);
         assertEquals(goodValues.size(), result.size());
         for (int idx = 0; idx < todoInsertSize; idx++) {
             assertTrue(goodValues.contains(result.get(idx)));
@@ -203,9 +203,9 @@ public class DAOTest {
                 .type(RandomData.genAlpha(13))
                 .content(Map.of(RandomData.genAlpha(3), RandomData.genAlpha(33)))
                 .build();
-        assertEquals(DB_UTILS.getPersonDataValue(pdv.getUserId(), pdv.getDataId(), Cached.NO), Optional.empty());
-        DB_UTILS.savePersonDataValue(pdv);
-        final PersonDataValue restoredPDV = DB_UTILS.getPersonDataValue(pdv.getUserId(), pdv.getDataId(), Cached.NO)
+        assertEquals(dbUtils.getPersonDataValue(pdv.getUserId(), pdv.getDataId(), Cached.NO), Optional.empty());
+        dbUtils.savePersonDataValue(pdv);
+        final PersonDataValue restoredPDV = dbUtils.getPersonDataValue(pdv.getUserId(), pdv.getDataId(), Cached.NO)
                 .orElse(null);
         assertEquals(restoredPDV, pdv);
     }
@@ -234,7 +234,7 @@ public class DAOTest {
                 .peek(this::savePersonDataValue)
                 .forEach(goodValues::add);
         assertEquals(goodValues.size(), pdvInsertSize);
-        final Map<DataId, PersonDataValue> result = DB_UTILS.getPersonDataValues(pid, Cached.NO);
+        final Map<DataId, PersonDataValue> result = dbUtils.getPersonDataValues(pid, Cached.NO);
         assertEquals(goodValues.size(), result.size());
         for (final PersonDataValue good : goodValues) {
             assertTrue(result.containsKey(good.getDataId()));
@@ -243,23 +243,23 @@ public class DAOTest {
 
     @Test
     public void nullEmailOrPassReturnsNothing() {
-        assertNull(DB_UTILS.getCredsByEmailAndPass(null, RandomData.genAlpha(5), Cached.NO));
-        assertNull(DB_UTILS.getCredsByEmailAndPass(RandomData.genAlpha(5), null, Cached.NO));
-        assertNull(DB_UTILS.getCredsByEmailAndPass(null, null, Cached.NO));
-        assertNull(DB_UTILS.getCredsByEmailAndPass(RandomData.genAlpha(5), RandomData.genAlpha(4), Cached.NO));
+        assertNull(dbUtils.getCredsByEmailAndPass(null, RandomData.genAlpha(5), Cached.NO));
+        assertNull(dbUtils.getCredsByEmailAndPass(RandomData.genAlpha(5), null, Cached.NO));
+        assertNull(dbUtils.getCredsByEmailAndPass(null, null, Cached.NO));
+        assertNull(dbUtils.getCredsByEmailAndPass(RandomData.genAlpha(5), RandomData.genAlpha(4), Cached.NO));
     }
 
     @Test
     public void adminCanLogin() {
         final String adminUN = "admin" + RandomData.genAlpha(8);
-        final Creds creds = DB_UTILS.getCredsByEmailAndPass(adminUN, "admin", Cached.NO);
+        final Creds creds = dbUtils.getCredsByEmailAndPass(adminUN, "admin", Cached.NO);
         assertEquals(creds.getPriv(), "admin");
     }
 
     @Test
     public void userCanLogin() {
         final String userUN = "user" + RandomData.genAlpha(8);
-        final Creds creds = DB_UTILS.getCredsByEmailAndPass(userUN, "user", Cached.NO);
+        final Creds creds = dbUtils.getCredsByEmailAndPass(userUN, "user", Cached.NO);
         assertEquals(creds.getPriv(), "user");
     }
 
@@ -267,14 +267,14 @@ public class DAOTest {
     public void adminPasswordIsChecked() {
         final String adminUN = "admin" + RandomData.genAlpha(8);
         final String adminPW = RandomData.genAlpha(4);
-        assertNull(DB_UTILS.getCredsByEmailAndPass(adminUN, adminPW, Cached.NO));
+        assertNull(dbUtils.getCredsByEmailAndPass(adminUN, adminPW, Cached.NO));
     }
 
     @Test
     public void userPasswordIsChecked() {
         final String userUN = "user" + RandomData.genAlpha(8);
         final String userPW = RandomData.genAlpha(4);
-        assertNull(DB_UTILS.getCredsByEmailAndPass(userUN, userPW, Cached.NO));
+        assertNull(dbUtils.getCredsByEmailAndPass(userUN, userPW, Cached.NO));
     }
 
     @Test
@@ -288,14 +288,14 @@ public class DAOTest {
         final Transaction tx = new Transaction(
                 id, userId, groupId, Type.Shared, Transaction.TransactionType.Bill, txDate, 0.45f, category, note);
         final Transaction tx2 = new Transaction(userId, groupId, Type.Shared);
-        assertEquals(DB_UTILS.getTransactions(userId, Cached.NO).size(), 0, "Should start w/ no txs.");
-        assertTrue(DB_UTILS.saveTransaction(tx));
-        assertEquals(DB_UTILS.getTransactions(userId, Cached.NO).size(), 1, "Expected 1 to be added.");
-        assertTrue(DB_UTILS.saveTransaction(tx)); // Verify idempotency, should be 1
-        assertEquals(DB_UTILS.getTransactions(userId, Cached.NO).size(), 1, "Expected only 1 still.");
-        assertTrue(DB_UTILS.saveTransaction(tx2)); // Now should be 2
-        assertEquals(DB_UTILS.getTransactions(userId, Cached.NO).size(), 2, "Expected 2 now.");
-        final Transaction sameTx = DB_UTILS.getTransaction(userId, id, Cached.NO).orElse(null);
+        assertEquals(dbUtils.getTransactions(userId, Cached.NO).size(), 0, "Should start w/ no txs.");
+        assertTrue(dbUtils.saveTransaction(tx));
+        assertEquals(dbUtils.getTransactions(userId, Cached.NO).size(), 1, "Expected 1 to be added.");
+        assertTrue(dbUtils.saveTransaction(tx)); // Verify idempotency, should be 1
+        assertEquals(dbUtils.getTransactions(userId, Cached.NO).size(), 1, "Expected only 1 still.");
+        assertTrue(dbUtils.saveTransaction(tx2)); // Now should be 2
+        assertEquals(dbUtils.getTransactions(userId, Cached.NO).size(), 2, "Expected 2 now.");
+        final Transaction sameTx = dbUtils.getTransaction(userId, id, Cached.NO).orElse(null);
         assertEquals(sameTx, tx, "Getting tx should be equal.");
     }
 
@@ -307,7 +307,7 @@ public class DAOTest {
                 .limit(20)
                 .peek(this::saveTransaction)
                 .forEach(tx -> txs.put(tx.getTxId(), tx));
-        final List<Transaction> sortedTxs = DB_UTILS.getTransactions(person, Cached.NO);
+        final List<Transaction> sortedTxs = dbUtils.getTransactions(person, Cached.NO);
         assertEquals(sortedTxs.size(), 20, "Should have 20 txs.");
         for (int idx = 0; idx < sortedTxs.size() - 1; idx++) {
             final Transaction currTx = sortedTxs.get(idx);
@@ -321,7 +321,7 @@ public class DAOTest {
 
     private void saveTodo(final TodoItem todo) {
         try {
-            DB_UTILS.saveTodo(todo);
+            dbUtils.saveTodo(todo);
         } catch (final IOException ex) {
             throw new RuntimeException("failed to save TodoItem: " + todo, ex);
         }
@@ -329,7 +329,7 @@ public class DAOTest {
 
     private void savePersonDataValue(final PersonDataValue pdv) {
         try {
-            DB_UTILS.savePersonDataValue(pdv);
+            dbUtils.savePersonDataValue(pdv);
         } catch (final IOException ex) {
             throw new RuntimeException("failed to save PersonDataValue: " + pdv, ex);
         }
@@ -337,7 +337,7 @@ public class DAOTest {
 
     private void saveTransaction(final Transaction tx) {
         try {
-            DB_UTILS.saveTransaction(tx);
+            dbUtils.saveTransaction(tx);
         } catch (final IOException ex) {
             throw new RuntimeException("failed to save tx", ex);
         }
@@ -351,21 +351,21 @@ public class DAOTest {
                 .id("all-te-" + RandomData.genAlpha(6)).title("All Events")
                 .tripEvents(new ArrayList<>(List.of(one, two)))
                 .build();
-        assertTrue(DB_UTILS.saveAllTripEvents(trip));
-        assertEquals(DB_UTILS.getTripEvent(one.getId(), Cached.NO).getId(), one.getId());
-        assertEquals(DB_UTILS.getTripEvent(two.getId(), Cached.NO).getId(), two.getId());
+        assertTrue(dbUtils.saveAllTripEvents(trip));
+        assertEquals(dbUtils.getTripEvent(one.getId(), Cached.NO).getId(), one.getId());
+        assertEquals(dbUtils.getTripEvent(two.getId(), Cached.NO).getId(), two.getId());
     }
 
     /** The near-cache tuning reader: a stored value parses (trimmed); garbage falls back to the default. */
     @Test
     public void nearCacheTuningParsesSettingsAndFallsBackOnGarbage() {
         final SettingDef ttl = KnownSettings.CACHE_NEAR_TTL_SECONDS;
-        final Optional<Config> original = DB_UTILS.getConfig(ttl.getName(), Cached.NO);
+        final Optional<Config> original = dbUtils.getConfig(ttl.getName(), Cached.NO);
         try {
-            assertTrue(DB_UTILS.saveConfig(new Config(ttl.getName(), " 123 ", Config.Type.INT,
+            assertTrue(dbUtils.saveConfig(new Config(ttl.getName(), " 123 ", Config.Type.INT,
                     null, null, null)));
             assertEquals(DAO.settingSeconds(ttl), 123L, "A stored value wins, whitespace tolerated");
-            assertTrue(DB_UTILS.saveConfig(new Config(ttl.getName(), "not-a-number", Config.Type.INT,
+            assertTrue(dbUtils.saveConfig(new Config(ttl.getName(), "not-a-number", Config.Type.INT,
                     null, null, null)));
             assertEquals(DAO.settingSeconds(ttl), ttl.longDefault(),
                     "Unparseable settings fall back to the declared default, never throw");
@@ -375,7 +375,7 @@ public class DAOTest {
             assertEquals(tuning[1], DAO.settingSeconds(KnownSettings.CACHE_NEAR_CHECK_SECONDS));
         } finally {
             // Put the row back so no later test reads this test's garbage.
-            DB_UTILS.saveConfig(original.orElse(new Config(ttl.getName(), ttl.getDefaultValue(),
+            dbUtils.saveConfig(original.orElse(new Config(ttl.getName(), ttl.getDefaultValue(),
                     Config.Type.INT, null, null, null)));
         }
     }

@@ -16,7 +16,7 @@ public class StructuredConcurrencySmokeTest {
 
     @Test
     public void forkedSubtasksRunAndJoin() throws InterruptedException {
-        try (final var scope = StructuredTaskScope.open()) {
+        try (var scope = StructuredTaskScope.open()) {
             final var left = scope.fork(this::left);
             final var right = scope.fork(this::right);
             scope.join();
@@ -44,7 +44,7 @@ public class StructuredConcurrencySmokeTest {
     }
 
     private String readContextInFork() throws InterruptedException {
-        try (final var scope = StructuredTaskScope.open()) {
+        try (var scope = StructuredTaskScope.open()) {
             final var subtask = scope.fork(this::readContext);
             scope.join();
             return subtask.get();

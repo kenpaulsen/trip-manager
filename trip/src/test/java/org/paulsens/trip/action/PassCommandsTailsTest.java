@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.faces.context.FacesContext;
-import jakarta.servlet.http.HttpServletRequest;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.paulsens.trip.model.Creds;

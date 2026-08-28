@@ -330,12 +330,12 @@ public class TripUtilCommands {
             throw new IllegalArgumentException(
                     "'labels' and 'values' size must be equal length!");
         }
-        SelectItem[] options = (SelectItem []) Array.newInstance(SelectItem.class, len);
+        SelectItem[] options = (SelectItem[]) Array.newInstance(SelectItem.class, len);
 
         // Iterate through and create the SelectItems
         final Iterator<String> labelIT = labels.iterator();
         final Iterator<Object> valueIT = values.iterator();
-        for (int idx=0; idx < len; idx++) {
+        for (int idx = 0; idx < len; idx++) {
             options[idx] = new SelectItem(valueIT.next(), labelIT.next());
         }
 

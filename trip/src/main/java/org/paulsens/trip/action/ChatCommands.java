@@ -19,7 +19,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
@@ -204,12 +203,6 @@ public class ChatCommands {
     }
 
     /**
-     * Gate for every moderation operation. Enforced <b>here, in the bean</b>, not only at the REST resource and
-     * certainly not only by an XHTML {@code rendered=} attribute -- that hides a button, it does not stop a
-     * postback. Every mutating admin method below calls this before touching anything, so a caller that forgets
-     * cannot escalate. Denials are audited as failures, because an attempted moderation is worth seeing.
-     */
-    /**
      * The actor a {@link Caller} represents.
      *
      * <p>These methods used to take an {@code AuditActor} AND a {@code Caller}, which is the same person asked
@@ -226,6 +219,12 @@ public class ChatCommands {
         return caller == null ? AuditActor.current() : caller.auditActor();
     }
 
+    /**
+     * Gate for every moderation operation. Enforced <b>here, in the bean</b>, not only at the REST resource and
+     * certainly not only by an XHTML {@code rendered=} attribute -- that hides a button, it does not stop a
+     * postback. Every mutating admin method below calls this before touching anything, so a caller that forgets
+     * cannot escalate. Denials are audited as failures, because an attempted moderation is worth seeing.
+     */
     private boolean denyUnlessAdmin(
             final String tripId, final String what, final Caller caller) {
         final AuditActor who = actorOf(caller);
@@ -480,7 +479,6 @@ public class ChatCommands {
         return !now.isBefore(start) && now.isBefore(end.toLocalDate().plusDays(1).atStartOfDay());
     }
 
-    /** The look this person gets for this chat: their override per field, else the channel's default. */
     // --- appearance choices and the mention roster ---
 
     /**
@@ -637,6 +635,7 @@ public class ChatCommands {
         }
     }
 
+    /** The look this person gets for this chat: their override per field, else the channel's default. */
     public ChatAppearance appearanceForTrip(final String tripId, final Person.Id personId) {
         final ChatChannel channel = channelForPage(tripId);
         if (channel == null) {
@@ -1252,13 +1251,6 @@ public class ChatCommands {
 
     // --- notification preferences ---
 
-    /**
-     * Sets this person's email preference for a channel, materialising their membership row if they were only ever
-     * an implicit member.
-     *
-     * <p>Materialising is required, not incidental: an absent row means JOINED with defaults, and the default is
-     * {@code OFF} — so without writing a row the opt-in would appear to work and then silently not.
-     */
     // --- the digest choice taken at registration ---
 
     /**
@@ -1358,6 +1350,10 @@ public class ChatCommands {
      * <p>Still gated on {@link #canRead}: this writes a membership row, and a row is what puts someone in the
      * channel. Registration deliberately does not, which is why the answer given there is parked on the
      * registration and only applied at approval.
+     *
+     * <p>Materialising an implicit member's row is required, not incidental: an absent row means JOINED with
+     * defaults, and the default is {@code OFF} — so without writing a row the opt-in would appear to work and
+     * then silently not.
      */
     public boolean setEmailPrefs(
             final String tripId, final Person.Id me, final boolean mentionEmail, final boolean dailyDigest) {
@@ -1370,8 +1366,7 @@ public class ChatCommands {
         }
         final ChatMembership row = membershipRow(channel.getId(), me)
                 .orElseGet(() -> ChatMembership.joining(channel.getId(), me, channel.getCreated()));
-        return dao().saveChatMembership(row.withNotify(row.getNotify().withEmail(mentionEmail, dailyDigest)))
-                ;
+        return dao().saveChatMembership(row.withNotify(row.getNotify().withEmail(mentionEmail, dailyDigest)));
     }
 
     /** Whether this person gets a mail when named. Implicit members hold the defaults, so this is on by default. */
@@ -2275,8 +2270,9 @@ public class ChatCommands {
 
     /**
      * Admin add/re-add. {@code acknowledgement} is recorded verbatim in the audit trail.
+     *
+     * @see #mute(String, Person.Id, Instant, String, AuditActor, boolean) for why the hint exists.
      */
-    /** @see #mute(String, Person.Id, Instant, String, AuditActor, boolean) for why the hint exists. */
     public boolean addMember(
             final String tripId, final Person.Id target, final String acknowledgement,
             final Caller caller) {

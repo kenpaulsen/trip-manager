@@ -28,7 +28,7 @@ public class PrivilegesDAO {
     private static final String NAME = "name";
     private static final String CONTENT = "content";
     private static final String PRIVILEGE_TABLE = "privs";
-    protected static final Comparator<Privilege> privSorter = (a, b) ->
+    protected static final Comparator<Privilege> PRIV_SORTER = (a, b) ->
             a.getName().compareToIgnoreCase(b.getName());
 
     private final ObjectMapper mapper;
@@ -119,7 +119,7 @@ public class PrivilegesDAO {
             return Optional.empty();
         }
         try {
-            return 
+            return
                     cache.getOne(partitionOf(id), baseNameOf(id), () -> pointReadPrivilege(id));
         } catch (final RuntimeException ex) {
             throw ex;

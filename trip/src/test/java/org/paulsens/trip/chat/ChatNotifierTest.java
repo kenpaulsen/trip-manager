@@ -3,7 +3,6 @@ package org.paulsens.trip.chat;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.ConfigCommands;

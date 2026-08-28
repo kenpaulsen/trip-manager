@@ -120,7 +120,7 @@ public class TripDAO {
     /** Active trips (endDate at/after {@code cutoff}), in display order. */
     protected List<Trip> getActiveTrips(final LocalDateTime cutoff) {
         try {
-            return 
+            return
                     resolveTrips(index.activeTripIds(toEpochMillis(cutoff), 0), true);
         } catch (final RuntimeException ex) {
             throw ex;
@@ -130,7 +130,7 @@ public class TripDAO {
     /** Up to {@code limit} most-recent inactive trips (endDate before {@code cutoff}), newest first. */
     protected List<Trip> getInactiveTrips(final LocalDateTime cutoff, final int limit) {
         try {
-            return 
+            return
                     resolveTrips(index.inactiveTripIds(toEpochMillis(cutoff), limit), false);
         } catch (final RuntimeException ex) {
             throw ex;
@@ -152,7 +152,7 @@ public class TripDAO {
             return List.of();
         }
         try {
-            return 
+            return
                     resolveTrips(index.tripIdsForUser(userId.getValue(), 0), true);
         } catch (final RuntimeException ex) {
             throw ex;

@@ -378,7 +378,6 @@ public class BadgePhotoCommands {
         return true;
     }
 
-    /** Deletes a stored object and (privacy, not correctness) invalidates its CDN path. */
     /**
      * The trip-delete cascade for badge images: every image the trip row lists, then a store sweep of
      * anything left under {@code badgeImages/{tripId}/} (superseded versions, uploads that never got saved
@@ -419,6 +418,7 @@ public class BadgePhotoCommands {
         return removed;
     }
 
+    /** Deletes a stored object and (privacy, not correctness) invalidates its CDN path. */
     private void removeStored(final String key) {
         if (media.isUploadEnabled()) {
             media.deleteObject(key);

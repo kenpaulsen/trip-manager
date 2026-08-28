@@ -5,8 +5,11 @@ import java.util.Base64;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
 
-public class RandomData {
-    private static final Random rand = new Random();
+public final class RandomData {
+    private RandomData() {
+    }
+
+    private static final Random RAND = new Random();
     // Anything an attacker could profit from predicting (login codes, remember-me tokens) must come from
     // here, never from the shared java.util.Random above.
     private static final SecureRandom SECURE = new SecureRandom();
@@ -53,7 +56,7 @@ public class RandomData {
     public static String genString(final int len, final char[] chars) {
         final StringBuilder buf = new StringBuilder();
         for (int count = 0; count < len; count++) {
-            buf.append(chars[rand.nextInt(chars.length)]);
+            buf.append(chars[RAND.nextInt(chars.length)]);
         }
         return buf.toString();
     }

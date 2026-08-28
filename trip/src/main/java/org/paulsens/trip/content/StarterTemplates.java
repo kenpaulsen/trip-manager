@@ -105,7 +105,8 @@ public final class StarterTemplates {
                 body);
     }
 
-    /** A mail starter: the NAME is the subject-line template, the body is HTML with {{tokens}}. */
+    // A mail starter: the NAME is the subject-line template, the body is HTML with {{tokens}}.
+
     /**
      * Sent to the payer when a payment completes. Tokens (filled by PaymentMailer, never authors):
      * payerName, tripTitle, totalPaid, feeNote, donationAmount, donationNote, captureId, processorName,

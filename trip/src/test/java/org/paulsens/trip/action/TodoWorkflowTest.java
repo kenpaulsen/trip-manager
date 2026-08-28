@@ -245,7 +245,8 @@ public class TodoWorkflowTest {
     public void statusesForANullOrOrphanedTodoAreEmpty() {
         Assert.assertEquals(todos.getTodoStatusesForTodo(null), List.of());
 
-        final TodoItem orphan = TodoItem.builder().tripId("no-such-trip").dataId(DataId.from("d")).description("d").build();
+        final TodoItem orphan = TodoItem.builder().tripId("no-such-trip").dataId(DataId.from("d"))
+                .description("d").build();
         Assert.assertEquals(todos.getTodoStatusesForTodo(orphan), List.of(),
                 "getTrip mints a blank trip on a miss; the id comparison must catch it");
     }

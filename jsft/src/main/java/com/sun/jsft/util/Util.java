@@ -106,8 +106,8 @@ public final class Util {
      *     <code>ClassLoader</code> or any other one.</p>
      */
     private static ClassLoader getCustomClassLoader(ClassLoader parent) {
-	// Figure out the parent ClassLoader
-	parent = (parent == null) ? ClassLoader.getSystemClassLoader() : parent;
+        // Figure out the parent ClassLoader
+        parent = (parent == null) ? ClassLoader.getSystemClassLoader() : parent;
 
         // Check to see if we've calculated the ClassLoader for this parent
         final FacesContext ctx = FacesContext.getCurrentInstance();

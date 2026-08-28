@@ -1,6 +1,5 @@
 package org.paulsens.trip.api;
 
-import jakarta.servlet.http.HttpSession;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.action.PrivilegeCommands;

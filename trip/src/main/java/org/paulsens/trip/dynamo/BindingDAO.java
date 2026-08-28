@@ -95,7 +95,7 @@ public class BindingDAO {
 
     private List<String> getBindings(final TypeAndId key, final BindingType dest) {
         try {
-            return 
+            return
                     cache.get(key.getValue(), destTypeId(dest), () -> loadBindings(key));
         } catch (final RuntimeException ex) {
             throw ex;
@@ -133,7 +133,7 @@ public class BindingDAO {
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(BINDINGS_TABLE).item(map))
                     .sdkHttpResponse().isSuccessful();
-            return 
+            return
                     saved && cache.add(key.getValue(), destTypeId(destKey.getType()), destKey.getId());
         } catch (final RuntimeException ex) {
             throw ex;
@@ -150,7 +150,7 @@ public class BindingDAO {
         try {
             final boolean deleted = persistence.deleteItem(b -> b.tableName(BINDINGS_TABLE).key(primaryKey))
                     .sdkHttpResponse().isSuccessful();
-            return 
+            return
                     deleted && cache.remove(key.getValue(), destTypeId(destKey.getType()), destKey.getId());
         } catch (final RuntimeException ex) {
             throw ex;

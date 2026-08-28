@@ -1,6 +1,5 @@
 package org.paulsens.trip.web;
 
-import java.util.List;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.dynamo.DAO;

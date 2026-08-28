@@ -9,7 +9,6 @@ import java.time.Duration;
 import java.util.Base64;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.PaymentProcessorConfig;
-import org.paulsens.trip.model.ProcessorType;
 
 /**
  * The "Test connection" button behind a processor config: proves the stored credentials actually

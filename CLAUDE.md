@@ -18,6 +18,11 @@ mvn test -pl trip -Dtest=TripCommandsTest#method   # one method
 - Coverage gate: JaCoCo runs with `test` — bundle ≥ 90% line AND ≥ 90% per class. It only halts the build in
   CI (`-Djacoco.check.halt=true`); locally it just reports (`trip/target/site/jacoco/index.html`). Excluding a
   class from the gate requires the owner's approval first.
+- Style gate: checkstyle (adapted Oracle/Sun rules, `checkstyle.xml` at the repo root — 120-column lines, no
+  tabs, no mandatory Javadoc; the file's header comment lists every adaptation) runs at `validate` on the
+  `trip` module, main AND test sources, and any violation fails the build immediately, locally and in CI
+  alike. Escape hatch for a genuine exception: `@SuppressWarnings("checkstyle:RuleName")`, used sparingly and
+  with a comment saying why. Emergency skip: `-Dcheckstyle.skip=true`.
 - Browser/integration tests are NOT here — they are in `../medjugorje/webtest/` (Playwright).
 
 ## Modules & stack
