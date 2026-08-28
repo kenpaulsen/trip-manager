@@ -14,6 +14,7 @@ import java.lang.reflect.Field;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
+import org.paulsens.trip.dynamo.LocalMode;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -289,14 +290,30 @@ public class WebFiltersTest {
 
     /** It must do exactly one thing, so there is never a reason to move it later in the listener order. */
     @Test
-    public void theBootstrapListenerResolvesTheModeAndNothingElse() {
+    public void theBootstrapListenerResolvesTheModeAndNothingElse() throws Exception {
         final ServletContext context = Mockito.mock(ServletContext.class);
         final ServletContextEvent event = Mockito.mock(ServletContextEvent.class);
         Mockito.when(event.getServletContext()).thenReturn(context);
 
-        new TripBootstrapListener().contextInitialized(event);
+        // The listener resolves LocalMode for the WHOLE JVM, and a Faces-less mock context resolves to
+        // PRODUCTION. Left in place, that answer outranks surefire's trip.local.mode property until
+        // LocalModeTest happens to reset it, and every isLocal()-gated behavior in between silently changes
+        // -- FakeData.addFakeData() no-ops, so any class that reseeds in @BeforeClass finds nothing. Which
+        // classes those are depends on surefire's filesystem-dependent run order, so the suite passed on one
+        // machine and failed 41 tests on another. Save and restore the resolved slot around the call, the
+        // same way MailSendSesPathTest does.
+        final Field resolved = LocalMode.class.getDeclaredField("resolved");
+        resolved.setAccessible(true);
+        final Object saved = resolved.get(null);
+        try {
+            new TripBootstrapListener().contextInitialized(event);
 
-        Mockito.verify(event).getServletContext();
-        Mockito.verifyNoMoreInteractions(event);
+            Mockito.verify(event).getServletContext();
+            Mockito.verifyNoMoreInteractions(event);
+            Assert.assertFalse(LocalMode.isLocal(),
+                    "a context without a Faces Servlet 'local' init-param must resolve to production");
+        } finally {
+            resolved.set(null, saved);
+        }
     }
 }
