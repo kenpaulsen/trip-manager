@@ -46,7 +46,7 @@ public class TodoStatusTest {
     }
 
     @Test
-    public void StatusCanBeStringOrObjectOrMap() throws IOException {
+    public void statusCanBeStringOrObjectOrMap() throws IOException {
         final Person.Id userId = Person.Id.from(RandomData.genAlpha(15));
         final DataId dataId = DataId.newInstance();
         final String type = TodoStatus.TODO_PERSON_DATA_VALUE_TYPE;

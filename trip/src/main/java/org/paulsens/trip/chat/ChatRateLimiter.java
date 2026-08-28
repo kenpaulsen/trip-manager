@@ -9,7 +9,6 @@ import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.audit.Audit;
-import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;

@@ -55,7 +55,7 @@ public class PrivacyViewTest {
     }
 
     @Test
-    public void aFamilyManagerIsNeverLockedOut_exceptFromStaffNotes() {
+    public void aFamilyManagerIsNeverLockedOutExceptFromStaffNotes() {
         final Person subject = person("kid");
         subject.setPrivacy(new PrivacySettings(
                 Visibility.PRIVATE, Visibility.PRIVATE, Visibility.PRIVATE, Visibility.PRIVATE));

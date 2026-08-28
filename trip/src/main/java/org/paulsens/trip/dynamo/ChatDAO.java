@@ -104,7 +104,7 @@ public class ChatDAO {
         try {
             final boolean saved = persistence.putItem(b -> b.tableName(CHANNELS_TABLE).item(item))
                     .sdkHttpResponse().isSuccessful();
-            return 
+            return
                     saved && channelCache.put(channel.getId().getValue(), channel);
         } catch (final RuntimeException ex) {
             throw ex;
@@ -116,7 +116,7 @@ public class ChatDAO {
             return Optional.empty();
         }
         try {
-            return 
+            return
                     channelCache.get(id.getValue(), missed -> pointReadChannel(missed).orElse(null));
         } catch (final RuntimeException ex) {
             throw ex;
@@ -187,7 +187,7 @@ public class ChatDAO {
         try {
             final String cached = cacheClient.getHashFields(CacheKeys.chatMembersKey(cId), List.of(pId)).get(pId);
             final ChatMembership hit = cached == null ? null : parseMembership(cached);
-            return 
+            return
                     hit == null ? pointReadMembership(cId, pId) : Optional.of(hit);
         } catch (final RuntimeException ex) {
             throw ex;
@@ -509,7 +509,7 @@ public class ChatDAO {
                 ATTR_CHANNEL_ID, AttributeValue.builder().s(cId).build(),
                 ATTR_MSG_ID, AttributeValue.builder().s(mId).build());
         try {
-            return 
+            return
                     messageFrom(persistence.getItem(b -> b.tableName(MESSAGES_TABLE).key(key).build()));
         } catch (final RuntimeException ex) {
             throw ex;
@@ -706,7 +706,7 @@ public class ChatDAO {
         if (channelId == null || personId == null) {
             return Optional.empty();
         }
-        return 
+        return
                 cacheClient.getValue(CacheKeys.chatCursorKey(channelId.getValue(), personId.getValue()))
                         .map(ChatMessage.Id::from);
     }

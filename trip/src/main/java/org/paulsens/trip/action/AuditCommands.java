@@ -56,16 +56,6 @@ import org.paulsens.trip.util.Util;
 public class AuditCommands {
 
     /**
-     * Records an arbitrary message with a free-text type.
-     *
-     * @deprecated Prefer a typed method below. This exists for pages not yet converted and for genuinely
-     *         one-off events; an unrecognised type is recorded as {@code UNKNOWN} with the original text kept,
-     *         so nothing is lost, but such records cannot be filtered on properly.
-     * @param userEmail The user (email) this message pertains to.
-     * @param auditType The TYPE of message (i.e. LOGIN, CREATE_CREDS, etc).
-     * @param msg       The "message" to write to the audit log.
-     */
-    /**
      * The signed-in user as an {@link AuditActor}, for pages that must hand one to a bean.
      *
      * <p>Exists so an XHTML page can pass the actor EXPLICITLY -- {@code mail.send(..., audit.currentActor)} --
@@ -80,6 +70,16 @@ public class AuditCommands {
         return AuditActor.current();
     }
 
+    /**
+     * Records an arbitrary message with a free-text type.
+     *
+     * @deprecated Prefer a typed method below. This exists for pages not yet converted and for genuinely
+     *         one-off events; an unrecognised type is recorded as {@code UNKNOWN} with the original text kept,
+     *         so nothing is lost, but such records cannot be filtered on properly.
+     * @param userEmail The user (email) this message pertains to.
+     * @param auditType The TYPE of message (i.e. LOGIN, CREATE_CREDS, etc).
+     * @param msg       The "message" to write to the audit log.
+     */
     @Deprecated
     public void log(final String userEmail, final String auditType, final String msg) {
         Audit.log(Util.orDefault(userEmail, ""), Util.orDefault(auditType, ""),
@@ -103,12 +103,6 @@ public class AuditCommands {
     }
 
     /**
-     * A family-account membership change. The message is fully formed by the caller ({@code FamilyCommands}
-     * builds it from the specific mutation: created/linked/unlinked/manager granted/...), because the verbs
-     * vary too much for a prefix helper; the target is the person the change is ABOUT (the member), while the
-     * actor identifies who did it.
-     */
-    /**
      * Payment lifecycle events (start / completion / failure), targeted at the PAYMENT id so a payment's
      * whole story lines up under one target. The message returns to the caller (pages reuse audit text).
      * The actor is passed explicitly everywhere: captures complete on return requests and retries can run
@@ -124,6 +118,12 @@ public class AuditCommands {
         return msg;
     }
 
+    /**
+     * A family-account membership change. The message is fully formed by the caller ({@code FamilyCommands}
+     * builds it from the specific mutation: created/linked/unlinked/manager granted/...), because the verbs
+     * vary too much for a prefix helper; the target is the person the change is ABOUT (the member), while the
+     * actor identifies who did it.
+     */
     public String family(final Person target, final String msg) {
         return family(target, msg, AuditActor.current());
     }

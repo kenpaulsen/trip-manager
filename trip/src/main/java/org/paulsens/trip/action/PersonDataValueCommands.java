@@ -6,8 +6,6 @@ import jakarta.inject.Named;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.DataId;
@@ -18,6 +16,9 @@ import org.paulsens.trip.cache.Cached;
 @Slf4j
 @Named("pdv")
 @ApplicationScoped
+// Not a utility class despite the all-static members: it is a CDI bean, and @ApplicationScoped proxying
+// requires a public no-arg constructor, so the private constructor the check wants is impossible here.
+@SuppressWarnings("checkstyle:HideUtilityClassConstructor")
 public class PersonDataValueCommands {
     private static final long DYNAMO_TIMEOUT = 5_000L;
 

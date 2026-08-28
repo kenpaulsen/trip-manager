@@ -143,7 +143,8 @@ public class ContentCommands {
         }
         if (!saved) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved",
-                    "The content could not be saved. It may have been edited by someone else; reopen it and try again.");
+                    "The content could not be saved. It may have been edited by someone else; reopen it and try "
+                            + "again.");
         }
         if (saved) {
             audit(caller, instance.getId(),

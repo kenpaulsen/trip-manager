@@ -37,7 +37,7 @@ public class AuditActorRestTest {
     }
 
     @Test
-    public void anIdWithoutAnEmailStillReportsKnown_whichIsWhyIsKnownIsNotTheAssertionToMake() {
+    public void anIdWithoutAnEmailStillReportsKnownWhichIsWhyIsKnownIsNotTheAssertionToMake() {
         // Pinning the trap itself: this is exactly what a login endpoint that forgets loginEmail produces,
         // and isKnown() cheerfully returns true for it.
         final AuditActor actor = AuditActor.from(sessionWith(null, USER));

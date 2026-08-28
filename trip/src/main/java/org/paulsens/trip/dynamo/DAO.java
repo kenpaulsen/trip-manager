@@ -64,7 +64,7 @@ import org.paulsens.trip.security.PasswordHasher;
 import org.paulsens.trip.security.Pepper;
 
 @Slf4j
-public class DAO {
+public final class DAO {
     @Getter
     private final ObjectMapper mapper;
     private final CacheClient cacheClient;

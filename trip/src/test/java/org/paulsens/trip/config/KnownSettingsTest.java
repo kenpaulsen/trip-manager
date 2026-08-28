@@ -34,6 +34,7 @@ public class KnownSettingsTest {
                                 + def.getDefaultValue());
                 case STRING -> Assert.assertNotNull(def.getDefaultValue(),
                         def.getName() + " must declare a default, using \"\" for none");
+                default -> Assert.fail(def.getName() + " has a type this test does not cover: " + def.getType());
             }
         }
     }

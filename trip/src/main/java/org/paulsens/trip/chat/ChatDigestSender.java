@@ -23,7 +23,6 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMessage;
-import org.paulsens.trip.model.chat.ChatNotifyPref;
 import org.paulsens.trip.model.chat.ChatPage;
 import org.paulsens.trip.model.chat.ChatVisibility;
 import org.paulsens.trip.util.EmailAddresses;

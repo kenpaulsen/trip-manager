@@ -1,9 +1,7 @@
 package org.paulsens.trip.dynamo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.net.URI;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import org.mockito.AdditionalAnswers;
 import org.mockito.ArgumentMatchers;
 import org.mockito.MockedStatic;

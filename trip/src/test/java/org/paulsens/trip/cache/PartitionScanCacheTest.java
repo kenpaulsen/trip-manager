@@ -2,10 +2,8 @@ package org.paulsens.trip.cache;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.testng.Assert;
@@ -98,7 +96,9 @@ public class PartitionScanCacheTest {
         scan.getPartition("pa");
 
         final Optional<String> found = scan.getOne("pa", "one",
-                () -> { throw new AssertionError("a warm hit must not consult the point loader"); });
+                () -> {
+                    throw new AssertionError("a warm hit must not consult the point loader");
+                });
 
         Assert.assertEquals(found, Optional.of(A1));
     }
@@ -110,7 +110,9 @@ public class PartitionScanCacheTest {
         scan.getPartition("pa");
 
         final Optional<String> found = scan.getOne("pa", "no-such-field",
-                () -> { throw new AssertionError("marker present: the database must not be consulted"); });
+                () -> {
+                    throw new AssertionError("marker present: the database must not be consulted");
+                });
 
         Assert.assertEquals(found, Optional.empty());
     }
@@ -125,7 +127,9 @@ public class PartitionScanCacheTest {
         Assert.assertEquals(found, Optional.of(A1));
         // The point result was cached: a repeat lookup is a hash hit, no loader involved.
         Assert.assertEquals(scan.getOne("pa", "one",
-                () -> { throw new AssertionError("cached by the first lookup"); }), Optional.of(A1));
+                () -> {
+                    throw new AssertionError("cached by the first lookup");
+                }), Optional.of(A1));
     }
 
     @Test

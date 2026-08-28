@@ -4,7 +4,6 @@ import jakarta.faces.component.UIComponent;
 import jakarta.faces.context.FacesContext;
 import jakarta.faces.convert.Converter;
 import jakarta.faces.convert.FacesConverter;
-import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
@@ -16,8 +15,8 @@ public class PersonConverter implements Converter {
     @Override
     public Object getAsObject(FacesContext ctx, UIComponent comp, String value) {
         final Person person = DAO.getInstance().getPerson(Person.Id.from(value), Cached.YES)
-                
-                
+
+
                 .orElse(null);
         if (person == null) {
             log.warn("Unable to find person: {}", value);

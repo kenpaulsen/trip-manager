@@ -6,7 +6,9 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.Test;
 
-import static org.testng.Assert.*;
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertNull;
+import static org.testng.Assert.assertTrue;
 
 public class StatusTest {
 

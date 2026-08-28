@@ -11,7 +11,9 @@ import org.mockito.Mockito;
 import org.paulsens.trip.web.Sessions;
 import org.testng.annotations.Test;
 
-import static org.testng.Assert.*;
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertNull;
+import static org.testng.Assert.assertTrue;
 
 public class TripUtilCommandsTest {
     private final TripUtilCommands tripUtil = new TripUtilCommands();

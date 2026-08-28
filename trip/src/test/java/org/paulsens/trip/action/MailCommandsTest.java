@@ -59,7 +59,7 @@ public class MailCommandsTest {
     }
 
     @Test
-    void sendTemplateFile_existingTemplate_isFoundAndLoaded() {
+    void sendTemplateFileExistingTemplateIsFoundAndLoaded() {
         // Passing an empty "to" list keeps the SES client from being invoked, so this exercises
         // only the template lookup path. Success here means the .tpl file was located on the classpath.
         final List<SendEmailResponse> result = new MailCommands().sendTemplateFile(
@@ -69,7 +69,7 @@ public class MailCommandsTest {
     }
 
     @Test
-    void sendTemplateFile_missingTemplate_failsWithFileNotFound() {
+    void sendTemplateFileMissingTemplateFailsWithFileNotFound() {
         try {
             new MailCommands().sendTemplateFile(
                     "from@example.com", List.of(), "", "reply@example.com", "Subject",

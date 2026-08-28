@@ -139,7 +139,7 @@ public class PersonDAO {
         }
         final String prefix = words.stream().reduce((a, b) -> b.length() > a.length() ? b : a).get();
         try {
-            return 
+            return
                     resolvePeople(searchIndex.searchIds(prefix, limit * 3)).stream()
                             .filter(person -> matchesAllWords(person, words))
                             .sorted()

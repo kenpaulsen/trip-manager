@@ -9,10 +9,10 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 public class AddressTest {
-    private final static String STREET = "2305 NE 16th St.";
-    private final static String CITY = "Brush Prairie";
-    private final static String STATE = "WA";
-    private final static String ZIP = "98606";
+    private static final String STREET = "2305 NE 16th St.";
+    private static final String CITY = "Brush Prairie";
+    private static final String STATE = "WA";
+    private static final String ZIP = "98606";
 
     @Test
     public void equalsTest() {

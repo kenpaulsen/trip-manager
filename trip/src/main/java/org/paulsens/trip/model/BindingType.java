@@ -17,11 +17,11 @@ public enum BindingType {
     private final int typeId;
     private final boolean composite;
 
-    private static final Map<Integer, BindingType> values = new HashMap<>();
+    private static final Map<Integer, BindingType> BY_TYPE_ID = new HashMap<>();
 
     static {
         for (BindingType value : values()) {
-            values.put(value.getTypeId(), value);
+            BY_TYPE_ID.put(value.getTypeId(), value);
         }
     }
 
@@ -31,6 +31,6 @@ public enum BindingType {
     }
 
     public static BindingType from(final int typeId) {
-        return values.get(typeId);
+        return BY_TYPE_ID.get(typeId);
     }
 }

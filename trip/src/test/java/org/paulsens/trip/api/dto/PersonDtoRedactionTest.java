@@ -67,7 +67,7 @@ public class PersonDtoRedactionTest {
     }
 
     @Test
-    public void anOptedInStreetReachesACoTraveller_butNeverWithoutTheCity() {
+    public void anOptedInStreetReachesACoTravellerButNeverWithoutTheCity() {
         final Person shared = fullPerson();
         shared.getPrivacy().setStreet(Visibility.LOGGED_IN);
         final PersonDto full = dtoFor(shared, AccessLevel.PEER);

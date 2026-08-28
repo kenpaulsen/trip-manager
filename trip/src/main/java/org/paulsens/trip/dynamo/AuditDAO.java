@@ -3,7 +3,6 @@ package org.paulsens.trip.dynamo;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.time.Duration;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -95,7 +94,7 @@ public class AuditDAO {
         item.put(CONTENT, persistence.toStrAttr(json));
 
         try {
-            return 
+            return
                     persistence.putItem(b -> b.tableName(AUDIT_TABLE)
                                     .item(item)
                                     // The whole reason writes are conditional: without this, a same-millisecond
@@ -149,7 +148,7 @@ public class AuditDAO {
                     : collected;
             // "Searched back to" is the honest part: with a bounded walk, an empty page means "nothing in this
             // window", and the caller must be able to tell that apart from "nothing at all".
-            return 
+            return
                     new AuditPage(page, day.plusDays(1), !exhausted, failures.get());
         }
         collected.addAll(queryDay(query, day, failures));

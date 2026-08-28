@@ -3,7 +3,6 @@ package org.paulsens.trip.action;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
-import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serializable;
 import java.time.LocalDateTime;

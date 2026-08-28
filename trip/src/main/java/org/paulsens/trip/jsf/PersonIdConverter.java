@@ -17,7 +17,7 @@ public class PersonIdConverter implements Converter {
     public String getAsString(FacesContext ctx, UIComponent comp, Object value) {
         if (value instanceof Person.Id) {
             return ((Person.Id) value).getValue();
-        } if (value instanceof Person) {
+        } else if (value instanceof Person) {
             return ((Person) value).getId().getValue();
         } else if (value instanceof String) {
             return (String) value;

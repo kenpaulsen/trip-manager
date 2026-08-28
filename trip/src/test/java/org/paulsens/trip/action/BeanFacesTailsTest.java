@@ -7,7 +7,6 @@ import java.util.Map;
 import java.util.Set;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
-import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;

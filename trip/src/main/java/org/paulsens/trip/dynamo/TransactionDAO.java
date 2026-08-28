@@ -63,7 +63,7 @@ public class TransactionDAO {
 
     protected Optional<Transaction> getTransaction(final Person.Id userId, final String txId) {
         try {
-            return 
+            return
                     cache.getOne(userId.getValue(), txId, () -> loadUserTxData(userId));
         } catch (final RuntimeException ex) {
             throw ex;

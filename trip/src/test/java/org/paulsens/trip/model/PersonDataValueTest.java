@@ -105,7 +105,9 @@ public class PersonDataValueTest {
                 .dataId(DataId.newInstance())
                 .type(RandomData.genAlpha(5))
                 .content(content).build();
-        assertThrows(ClassCastException.class, () -> { long l = pdv.castContent(); });
+        assertThrows(ClassCastException.class, () -> {
+            long l = pdv.castContent();
+        });
     }
 
     @Test

@@ -21,7 +21,7 @@ import org.paulsens.trip.model.AuditOutcome;
  * destroyed the history -- production was found holding a single day of records. Nothing that claims to be an
  * audit log may depend on container-local storage.
  */
-public class Audit {
+public final class Audit {
     public static final ZoneId ZONE_ID = ZoneId.of("UTC");
     /** Names the CloudWatch log group to ship to; unset means stdout (local/tests). Set by the task definition. */
     static final String LOG_GROUP_VAR = "TRIP_AUDIT_LOG_GROUP";

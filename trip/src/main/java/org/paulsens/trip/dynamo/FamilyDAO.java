@@ -92,7 +92,10 @@ public class FamilyDAO {
         return cache.get(id.getValue(), this::loadFamilyById);
     }
 
-    /** Removes the row (used when the last member is unlinked). No version condition: deleting a family twice is idempotent. */
+    /**
+     * Removes the row (used when the last member is unlinked). No version condition: deleting a family twice
+     * is idempotent.
+     */
     protected Boolean deleteFamily(final Family.Id id) {
         final Map<String, AttributeValue> key = Map.of(ID, AttributeValue.builder().s(id.getValue()).build());
         final boolean deleted = persistence.deleteItem(b -> b.tableName(FAMILY_TABLE).key(key))

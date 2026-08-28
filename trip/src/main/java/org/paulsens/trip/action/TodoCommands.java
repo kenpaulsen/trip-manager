@@ -12,7 +12,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +24,6 @@ import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.TodoStatus;
 import org.paulsens.trip.model.Trip;
 import org.primefaces.model.dashboard.DashboardModel;
-import org.primefaces.model.dashboard.DashboardWidget;
 import org.primefaces.model.dashboard.DefaultDashboardModel;
 import org.primefaces.model.dashboard.DefaultDashboardWidget;
 import org.paulsens.trip.cache.Cached;
@@ -48,7 +46,8 @@ public class TodoCommands {
     }
 
 // FIXME: Create an admin feature that lists todo's by:
-//          - All todo's for a trip (filter by person?) (maybe page loops through todoItem's lists description w/ 3 columns for people by status)
+//          - All todo's for a trip (filter by person?) (maybe page loops through todoItem's lists description
+//            w/ 3 columns for people by status)
 // FIXME: Create a person page that lists all their todo's regardless of trip
 // FIXME: Add "public" tasks where I can show my tasks so others know what I'm doing
 // FIXME: Add deadlines

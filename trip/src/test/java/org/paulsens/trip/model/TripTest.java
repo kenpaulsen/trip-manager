@@ -103,8 +103,8 @@ public class TripTest {
         final Trip trip = Trip.builder().build();
         assertNotNull(trip.getStartDate());
         assertNotNull(trip.getEndDate());
-        assertTrue(trip.getEndDate().toInstant(ZoneOffset.UTC).toEpochMilli() >
-                trip.getStartDate().toInstant(ZoneOffset.UTC).toEpochMilli());
+        assertTrue(trip.getEndDate().toInstant(ZoneOffset.UTC).toEpochMilli()
+                > trip.getStartDate().toInstant(ZoneOffset.UTC).toEpochMilli());
     }
 
     @Test

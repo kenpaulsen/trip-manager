@@ -206,7 +206,6 @@ public final class PhotoProcessor {
                 Math.clamp(rect.height(), 1, imgHeight - y));
     }
 
-    /** The profile crop is square by force — {@code min(w, h)} of the clamped rect, never a stretch. */
     /**
      * The side, in source pixels, of the square {@link #processSquare} would actually cut for this request —
      * how callers judge "is the chosen area big enough to print well" against the SAME clamping the crop
@@ -216,6 +215,7 @@ public final class PhotoProcessor {
         return squareRect(rect, imgWidth, imgHeight).width();
     }
 
+    /** The profile crop is square by force — {@code min(w, h)} of the clamped rect, never a stretch. */
     static CropRect squareRect(final CropRect rect, final int imgWidth, final int imgHeight) {
         if (rect == null) {
             final int side = Math.min(imgWidth, imgHeight);

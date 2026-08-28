@@ -172,16 +172,16 @@ public final class TodoStatus implements Serializable {
         final Object owner = statusMap.get("owner");
         final Object lastUpdate = statusMap.get("lastUpdate");
         return Status.builder()
-                .value((value instanceof Status.StatusValue) ?
-                        (Status.StatusValue) value : Status.StatusValue.valueOf(String.valueOf(value)))
-                .priority((priority instanceof Status.Priority) ?
-                        (Status.Priority) priority : Status.Priority.valueOf(String.valueOf(priority)))
-                .visibility((visibility instanceof Status.Visibility) ?
-                        (Status.Visibility) visibility : Status.Visibility.valueOf(String.valueOf(visibility)))
+                .value((value instanceof Status.StatusValue)
+                        ? (Status.StatusValue) value : Status.StatusValue.valueOf(String.valueOf(value)))
+                .priority((priority instanceof Status.Priority)
+                        ? (Status.Priority) priority : Status.Priority.valueOf(String.valueOf(priority)))
+                .visibility((visibility instanceof Status.Visibility)
+                        ? (Status.Visibility) visibility : Status.Visibility.valueOf(String.valueOf(visibility)))
                 .owner((owner instanceof Person.Id) ? (Person.Id) owner
                         : (owner == null) ? null : Person.Id.from(String.valueOf(owner)))
-                .lastUpdate((lastUpdate instanceof LocalDateTime) ?
-                        (LocalDateTime) lastUpdate : LocalDateTime.parse(String.valueOf(lastUpdate)))
+                .lastUpdate((lastUpdate instanceof LocalDateTime)
+                        ? (LocalDateTime) lastUpdate : LocalDateTime.parse(String.valueOf(lastUpdate)))
                 .notes(notes)
                 .build();
     }

@@ -8,7 +8,6 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.time.format.TextStyle;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -383,12 +382,6 @@ public final class Trip implements Serializable {
     }
 
     /**
-     * The JSON property {@code "tripEvents"}: ids only, exactly the shape the row and cache blobs have
-     * always had (no data migration). An untouched instance round-trips its stored ids unchanged; a
-     * resolved instance serializes its current events' ids PLUS any ids whose read failed -- the old
-     * converter dropped those silently, and the next save made the loss permanent.
-     */
-    /**
      * The raw event-row ids, resolved or not. The delete cascade needs these BEFORE the trip row goes --
      * {@code trip_events} rows carry no tripId, so this list is the only way to ever find them again.
      */
@@ -397,6 +390,12 @@ public final class Trip implements Serializable {
         return serializedEventIds().stream().toList();
     }
 
+    /**
+     * The JSON property {@code "tripEvents"}: ids only, exactly the shape the row and cache blobs have
+     * always had (no data migration). An untouched instance round-trips its stored ids unchanged; a
+     * resolved instance serializes its current events' ids PLUS any ids whose read failed -- the old
+     * converter dropped those silently, and the next save made the loss permanent.
+     */
     @JsonProperty("tripEvents")
     private List<String> serializedEventIds() {
         if (resolvedEvents == null) {
@@ -578,8 +577,8 @@ public final class Trip implements Serializable {
     public String getTripDateRange() {
         final Locale locale = Util.getLocale(FacesContext.getCurrentInstance());
         final String startMonth = startDate.getMonth().getDisplayName(TextStyle.SHORT, locale) + ' ';
-        final String endMonth = (startDate.getMonth() == endDate.getMonth()) ? "" :
-                endDate.getMonth().getDisplayName(TextStyle.SHORT, locale) + ' ';
+        final String endMonth = (startDate.getMonth() == endDate.getMonth()) ? ""
+                : endDate.getMonth().getDisplayName(TextStyle.SHORT, locale) + ' ';
         return startMonth + startDate.getDayOfMonth() + " - "
                 + endMonth + endDate.getDayOfMonth() + ", " + endDate.getYear();
     }

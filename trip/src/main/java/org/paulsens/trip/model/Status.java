@@ -34,8 +34,8 @@ public class Status implements Serializable {
     private Visibility visibility = Visibility.USER;
 
     public void setValue(final Object statusValue) {
-        final StatusValue newVal = (statusValue instanceof StatusValue) ?
-                (StatusValue) statusValue : StatusValue.valueOf(String.valueOf(statusValue));
+        final StatusValue newVal = (statusValue instanceof StatusValue)
+                ? (StatusValue) statusValue : StatusValue.valueOf(String.valueOf(statusValue));
         if (!value.equals(newVal)) {
             value = newVal;
             lastUpdate = LocalDateTime.now();

@@ -12,7 +12,6 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Locale;
-import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.cache.CacheKeys;
@@ -299,7 +298,7 @@ public class PassCommands {
             person.setEmail(oldEmail);
             try {
                 if (!DAO.getInstance().savePerson(person)
-                        
+
                         ) {
                     throw new IOException("Failed to revert email!");
                 }

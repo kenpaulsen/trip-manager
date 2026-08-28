@@ -519,13 +519,6 @@ public class PhotoChatCommands {
     // --- mention search (the all-users typeahead) ---
 
     /**
-     * Typeahead candidates for mentioning ANY user, used from the album and landing-page surfaces (chat's own
-     * composer stays roster-scoped). Guardrails, in order of what they protect against: signed-in only and a
-     * 2-character minimum (the resource enforces both) plus the result cap defeat bulk directory enumeration;
-     * and colliding display names are disambiguated with MASKED addresses only — the full address never leaves
-     * the server, and the picked label is swapped for {@code @{id}} at send anyway.
-     */
-    /**
      * The typeahead's harvest brake: 30 lookups a minute per person — generous for typing, hostile to
      * scripted directory harvesting. Fails open on cache trouble, like every other rate limiter here.
      */
@@ -539,6 +532,13 @@ public class PhotoChatCommands {
         return count.isEmpty() || count.get() <= 30;
     }
 
+    /**
+     * Typeahead candidates for mentioning ANY user, used from the album and landing-page surfaces (chat's own
+     * composer stays roster-scoped). Guardrails, in order of what they protect against: signed-in only and a
+     * 2-character minimum (the resource enforces both) plus the result cap defeat bulk directory enumeration;
+     * and colliding display names are disambiguated with MASKED addresses only — the full address never leaves
+     * the server, and the picked label is swapped for {@code @{id}} at send anyway.
+     */
     public List<Map<String, String>> mentionSearch(final String query, final int maxResults) {
         final String q = query == null ? "" : query.strip();
         if (q.length() < 2) {
