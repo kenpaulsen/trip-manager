@@ -203,6 +203,20 @@ public class AuditCommands {
         return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who);
     }
 
+    /** A registration status change with no dedicated event: un-approve, or reviving a removed row. */
+    public String registrationStatusChanged(final Person target, final Trip trip, final String from,
+            final String to) {
+        return registrationStatusChanged(target, trip, from, to, AuditActor.current());
+    }
+
+    /** @see #registrationStatusChanged(Person, Trip, String, String) */
+    public String registrationStatusChanged(final Person target, final Trip trip, final String from,
+            final String to, final AuditActor who) {
+        final String msg = actorEmail(who) + " changed " + describe(target) + "'s registration on '"
+                + titleOf(trip) + "' from " + from + " to " + to + ".";
+        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who);
+    }
+
     /** A todo item's status changed for someone. */
     public String todoStatus(final Person target, final String description, final String status) {
         return todoStatus(target, description, status, AuditActor.current());

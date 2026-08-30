@@ -89,6 +89,18 @@ public class AuditCommandsTest {
     }
 
     @Test
+    public void statusChangesRecordBothEndsOfTheTransition() {
+        // The admin status menu's un-approve/revive transitions have no dedicated event; the generic
+        // record must still say exactly what moved where.
+        final Person target = person("Ann", null, "Jones", "ann@example.com");
+        final String out = captureStdout(() ->
+                audit.registrationStatusChanged(target, trip("Medjugorje 2026"), "Confirmed", "Pending"));
+        Assert.assertTrue(out.contains("REGISTRATION"), out);
+        Assert.assertTrue(out.contains("from Confirmed to Pending"), out);
+        Assert.assertTrue(out.contains("Ann Jones") && out.contains("Medjugorje 2026"), out);
+    }
+
+    @Test
     public void passwordResetRecordsOutcomeRatherThanProse() {
         final String failed = captureStdout(() -> audit.passwordReset("a@x.com", false, "last name did not match"));
         Assert.assertTrue(failed.contains("outcome=FAILURE"),

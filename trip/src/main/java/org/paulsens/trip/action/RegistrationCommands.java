@@ -28,6 +28,10 @@ public class RegistrationCommands {
     private static final String ROOM = "room";
 
     private final java.util.function.Supplier<Caller> callerSource;
+    private final java.util.function.Supplier<TripCommands> tripSource;
+    private final java.util.function.Supplier<AuditCommands> auditSource;
+    private final java.util.function.Supplier<MailCommands> mailSource;
+    private final java.util.function.Supplier<MailAddressCommands> mailAddrSource;
 
     public RegistrationCommands() {
         this(Caller::current);
@@ -35,7 +39,20 @@ public class RegistrationCommands {
 
     /** Test seam (the FamilyCommands pattern): {@code Caller.current()} needs a FacesContext tests lack. */
     public RegistrationCommands(final java.util.function.Supplier<Caller> callerSource) {
+        this(callerSource, TripCommands::new, AuditCommands::new, MailCommands::new, MailAddressCommands::new);
+    }
+
+    /** Full-collaborator seam for {@link #applyStatusChange}'s trip/audit/mail side effects. */
+    RegistrationCommands(final java.util.function.Supplier<Caller> callerSource,
+            final java.util.function.Supplier<TripCommands> tripSource,
+            final java.util.function.Supplier<AuditCommands> auditSource,
+            final java.util.function.Supplier<MailCommands> mailSource,
+            final java.util.function.Supplier<MailAddressCommands> mailAddrSource) {
         this.callerSource = callerSource;
+        this.tripSource = tripSource;
+        this.auditSource = auditSource;
+        this.mailSource = mailSource;
+        this.mailAddrSource = mailAddrSource;
     }
 
     public Registration createRegistration(final String tripId, final Person.Id userId) {
@@ -469,6 +486,140 @@ public class RegistrationCommands {
                     reg.getStatus().getDescription(), reg.getParty()));
         }
         return rows;
+    }
+
+    /**
+     * The statuses the admin table's status menu offers for a row currently showing {@code current} --
+     * the current status first (so the menu renders it selected), then every state it may move to.
+     * Direct Not Registered -> Confirmed is deliberately absent: approval must pass through Pending so
+     * the canJoin check and the approval email always ride the same transition.
+     */
+    public List<String> allowedStatuses(final String current) {
+        final Registration.Status status =
+                (current == null) ? null : Registration.Status.fromDescription(current);
+        if (status == null) {
+            return List.of(current == null ? "" : current);
+        }
+        return switch (status) {
+            case PENDING -> List.of(Registration.Status.PENDING.getDescription(),
+                    Registration.Status.CONFIRMED.getDescription(),
+                    Registration.Status.NOT_REGISTERED.getDescription());
+            case CONFIRMED -> List.of(Registration.Status.CONFIRMED.getDescription(),
+                    Registration.Status.PENDING.getDescription(),
+                    Registration.Status.NOT_REGISTERED.getDescription());
+            case NOT_REGISTERED -> List.of(Registration.Status.NOT_REGISTERED.getDescription(),
+                    Registration.Status.PENDING.getDescription());
+        };
+    }
+
+    /**
+     * Applies one admin status change from the trip-registrations page, re-reading the stored row FRESH
+     * (the row the admin clicked may have been approved or removed from another tab) and running the same
+     * checks the old per-status buttons ran: {@code canJoin} gates every approval, roster membership
+     * follows CONFIRMED (added on approve, removed on leaving it), the digest answer becomes a chat
+     * preference at approval, every change is audited, and a cancellation sends the internal notice.
+     * The registrant-facing approval email is sent only when the admin left the dialog's box checked.
+     *
+     * @return true when the store changed; false for a no-op (the row already moved on), a disallowed
+     *         transition, or a refused approval -- each with its faces message where the admin needs one.
+     */
+    public boolean applyStatusChange(final String tripId, final Person.Id userId, final String newStatus,
+            final boolean sendApprovalEmail) {
+        final Registration current = getRegistration(tripId, userId);
+        final Registration.Status to = Registration.Status.fromDescription(newStatus);
+        if (current == null || to == null || current.getStatus() == to) {
+            return false;   // the row already moved on (or a bad status name): nothing to do
+        }
+        if (!allowedStatuses(current.getStatus().getDescription()).contains(newStatus)) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN,
+                    "Cannot change " + current.getStatus().getDescription() + " to " + newStatus + ".", null);
+            return false;
+        }
+        return switch (to) {
+            case CONFIRMED -> approvePending(current, sendApprovalEmail);
+            case PENDING -> returnToPending(current);
+            case NOT_REGISTERED -> cancelRegistration(current);
+        };
+    }
+
+    /** Pending -> Confirmed: the old Approve button's flow, checks and side effects unchanged. */
+    private boolean approvePending(final Registration reg, final boolean sendApprovalEmail) {
+        final TripCommands trips = tripSource.get();
+        final org.paulsens.trip.model.Trip trip = trips.getTripForEdit(reg.getTripId());
+        if (!trip.canJoin(reg.getUserId())) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN,
+                    "User lacks permission to join: " + reg.getUserId().getValue(), null);
+            return false;
+        }
+        final Registration confirmed = reg.withStatus(Registration.Status.CONFIRMED);
+        trip.getPeople().add(reg.getUserId());
+        if (!saveRegistration(confirmed)) {
+            return false;
+        }
+        trips.saveTrip(trip);
+        // Approval is when the digest answer given at registration becomes a real preference. Handed the
+        // trip itself, not its id: the roster just changed and a re-read can still see the old one while
+        // the cache invalidation is in flight.
+        new ChatCommands().applyRegistrationDigestChoice(trip, confirmed);
+        final Person person = PersonCommands.getPersonCommands().getPerson(reg.getUserId());
+        auditSource.get().registrationApproved(person, trip);
+        // The email goes to the person, or to their family's mailable managers, and a missing
+        // template/address never blocks the approval itself.
+        if (sendApprovalEmail && canEmailApproval(person)) {
+            final MailAddressCommands addresses = mailAddrSource.get();
+            mailSource.get().sendManagedTemplate(
+                    org.paulsens.trip.content.StarterTemplates.REGISTRATION_APPROVED_ID,
+                    approvedMailValues(trip, person), approvalRecipients(person),
+                    addresses.fromFor(org.paulsens.trip.config.KnownSettings.REG_MAIL_FROM.getName()),
+                    addresses.replyToFor(
+                            org.paulsens.trip.config.KnownSettings.REG_MAIL_REPLY_TO.getName(), trip),
+                    org.paulsens.trip.audit.AuditActor.current());
+        }
+        return true;
+    }
+
+    /** Confirmed -> Pending (un-approve, leaving the roster) or Not Registered -> Pending (revive). */
+    private boolean returnToPending(final Registration reg) {
+        final TripCommands trips = tripSource.get();
+        final org.paulsens.trip.model.Trip trip = trips.getTripForEdit(reg.getTripId());
+        if (reg.getStatus() == Registration.Status.CONFIRMED && trip.getPeople().remove(reg.getUserId())) {
+            trips.saveTrip(trip);
+        }
+        if (!saveRegistration(reg.withStatus(Registration.Status.PENDING))) {
+            return false;
+        }
+        final Person person = PersonCommands.getPersonCommands().getPerson(reg.getUserId());
+        auditSource.get().registrationStatusChanged(person, trip, reg.getStatus().getDescription(),
+                Registration.Status.PENDING.getDescription());
+        return true;
+    }
+
+    /**
+     * Pending/Confirmed -> Not Registered: the old Remove button's flow, now reachable from Pending too.
+     * The roster only changes when leaving CONFIRMED -- a Pending row was never on it, and a hand-managed
+     * roster entry must not be cascaded away by cancelling a mere filing.
+     */
+    private boolean cancelRegistration(final Registration reg) {
+        final TripCommands trips = tripSource.get();
+        final org.paulsens.trip.model.Trip trip = trips.getTripForEdit(reg.getTripId());
+        if (reg.getStatus() == Registration.Status.CONFIRMED && trip.getPeople().remove(reg.getUserId())) {
+            trips.saveTrip(trip);
+        }
+        if (!saveRegistration(reg.withStatus(Registration.Status.NOT_REGISTERED))) {
+            return false;
+        }
+        final Person person = PersonCommands.getPersonCommands().getPerson(reg.getUserId());
+        final String msg = auditSource.get().registrationRemoved(person, trip);
+        final MailAddressCommands addresses = mailAddrSource.get();
+        // Internal notice only (there is no registrant-facing removal template, by decision 2026-08-30):
+        // addresses resolve through the Email addresses settings section (org/site/custom).
+        mailSource.get().send(
+                addresses.fromFor(org.paulsens.trip.config.KnownSettings.REG_NOTIFY_FROM.getName()),
+                addresses.recipientFor(
+                        org.paulsens.trip.config.KnownSettings.REG_NOTIFY_EMAIL.getName(), trip),
+                null, null, "Registration Cancelled - " + trip.getTitle(), msg,
+                org.paulsens.trip.audit.AuditActor.current());
+        return true;
     }
 
     /**
