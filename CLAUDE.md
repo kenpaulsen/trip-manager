@@ -33,7 +33,8 @@ mvn test -pl trip -Dtest=TripCommandsTest#method   # one method
 | `trip/` | Main WAR (finalName `ROOT`): models, DAOs, cache, CDI beans, REST API |
 
 Java 25 · Jakarta EE 10 (Servlet 6.1, Faces 4.1 / Mojarra, CDI 4.1 / Weld) · PrimeFaces 15 + extensions
-(`jakarta` classifier) · Jersey 3.1 (REST) · MapStruct · Lombok · Jackson · AWS SDK v2 async (DynamoDB, SES,
+(`jakarta` classifier) · Jersey 3.1 (REST) · MapStruct · Lombok · Jackson · AWS SDK v2, sync clients blocking
+on virtual threads (DynamoDB, SES,
 Secrets Manager, CloudWatch Logs, S3, CloudFront, CodePipeline) · Lettuce (**must stay 6.x** — the build pins
 Netty 4.1; Lettuce 7 needs Netty 4.2) · BCrypt (`at.favre.lib`) · PayPal server SDK · Apache POI · TestNG ·
 NightMonkeys `imageio-heif` (chat-photo HEIC decode over the SYSTEM libheif via FFM — needs
@@ -41,6 +42,29 @@ NightMonkeys `imageio-heif` (chat-photo HEIC decode over the SYSTEM libheif via 
 a clean "convert to JPEG" rejection and everything else works) · metadata-extractor (EXIF orientation).
 
 ## Architecture
+
+### Threading model
+
+Blocking-first on virtual threads (the section `../medjugorje/CLAUDE.md` points at). Requests run one virtual
+thread each (Tomcat's `StandardVirtualThreadExecutor`, thread prefix `peace-`; the webtest `EmbeddedApp` wires
+the same executor), and every DAO, cache and AWS call **blocks its calling thread** — sync AWS clients, no
+reactive layer. The ONLY `CompletableFuture` in the main tree is Lettuce's, consumed inside
+`ValkeyCacheClient`'s single interruptible await point; `ArchitectureTest` greps these invariants into the
+build (no CF import elsewhere, no future `join()`, no cached platform pools). There is deliberately no
+`maxThreads`-style cap: admission control lives where load lands — the DynamoDB connection pool (100),
+the two Lettuce request queues (5000 foreground / 500 background via `CacheLane`), `RefreshPermits`, and
+per-feature gates (e.g. `BackgroundRemover.GATE`).
+
+- Fan-out uses `StructuredTaskScope` (a preview API — `--enable-preview` is set in the compiler args, the
+  surefire argLine, the container's `CATALINA_OPTS` AND `ci/buildspec-integtest.yml`): trip-event resolve,
+  mail-merge sends, password migration (semaphore-bounded). Forks inherit ScopedValues.
+- Fire-and-forget background work spawns via `TripThreads.start`/`startAs` (named virtual threads, bound to
+  the background cache lane). Plain spawns do NOT inherit ScopedValues — work that outlives its request
+  re-binds identity via `startAs` (`RequestContext`/`AuditActor`); schedulers bind `RequestContext.system()`.
+- Never run caller code on a Lettuce/Netty event loop (pub/sub listeners hand off to a fresh virtual thread)
+  and never block a request on delivery backends: the audit sinks queue to dedicated daemon writer threads.
+- The few remaining platform threads are deliberate singletons: the two audit-sink writers, the
+  `ChatDigestScheduler` and `BackgroundRemover` reaper timer threads, and the shutdown hook.
 
 ### Persistence (`org.paulsens.trip.dynamo`)
 

@@ -145,6 +145,21 @@ public class ValkeyCacheClientTest {
         Assert.assertEquals(client.getValue("other:c").orElse(null), "3");
     }
 
+    /**
+     * clearNamespace is the one blocking path outside await(); an interrupt must be re-asserted for the
+     * caller (structured-concurrency cancellation, servlet aborts), never swallowed.
+     */
+    @Test
+    public void namespaceClearPreservesTheInterruptFlag() {
+        try {
+            Thread.currentThread().interrupt();
+            Assert.assertFalse(client.clearNamespace("int:"), "an interrupted clear must report failure");
+            Assert.assertTrue(Thread.currentThread().isInterrupted(), "the interrupt flag must be re-asserted");
+        } finally {
+            Thread.interrupted(); // clear the flag so it cannot leak into later tests
+        }
+    }
+
     @Test
     public void scoredRangesQueryBothDirectionsAndHonourInfinities() {
         client.addScoredEntries("z3", Map.of("old", 100.0, "mid", 200.0, "new", 300.0));

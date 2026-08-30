@@ -371,6 +371,11 @@ public final class ValkeyCacheClient implements CacheClient {
                 }
                 cursor = commands().scan(cursor, args).get(ADMIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             }
+        } catch (final InterruptedException ex) {
+            // Same contract as await(): interruption must propagate, so re-assert the flag for the caller.
+            Thread.currentThread().interrupt();
+            log.warn("Valkey clearNamespace('{}') interrupted; the namespace may be partially cleared", prefix);
+            return false;
         } catch (final Exception ex) {
             log.error("Valkey clearNamespace('{}') failed", prefix, ex);
             return false;
