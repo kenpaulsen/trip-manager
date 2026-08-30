@@ -509,7 +509,7 @@
                 </dependencies>
                 <configuration>
                     <!--
-                        Surefire's default run order is filesystem order, which differs between machines --
+                        Surefire's default run order is filesystem order, which differs between machines;
                         the same suite ran green on one machine and failed 41 tests on another purely because
                         a state-leaking test landed earlier there (the WebFiltersTest LocalMode leak, fixed
                         2026-08-28). Alphabetical makes every machine run the same order, so an order-dependent
