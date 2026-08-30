@@ -5,6 +5,7 @@ import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.io.InputStream;
 import java.io.Serializable;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -32,8 +33,13 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 import org.paulsens.trip.cache.Cached;
 
 /**
@@ -63,8 +69,15 @@ public class MediaCommands {
     static final String DISTRIBUTION_VAR = "TRIP_MEDIA_DISTRIBUTION";
     /** A day. Long enough to be worth caching; short enough that a same-key replacement rolls out on its own. */
     private static final long CACHE_SECONDS = 86_400L;
+    /**
+     * How long a presigned upload URL stays usable. S3 checks the signature's expiry when the PUT STARTS, so
+     * this does not bound the transfer itself; it only has to cover the gap between asking for the URL and
+     * beginning the upload, and staying short keeps a leaked URL from being a standing grant.
+     */
+    public static final Duration UPLOAD_URL_TTL = Duration.ofMinutes(15);
 
     private volatile S3Client s3;
+    private volatile S3Presigner presigner;
     private volatile CloudFrontClient cloudFront;
     private final ConfigCommands config = new ConfigCommands();
 
@@ -356,6 +369,136 @@ public class MediaCommands {
                 .message("Uploaded " + cleanKey + " (" + size + " bytes)")
                 .log();
         return true;
+    }
+
+    /** What S3 reports about a stored object, for confirming a direct upload without trusting the caller. */
+    public record StoredObject(long size, String contentType) implements Serializable {
+    }
+
+    /**
+     * A short-lived presigned {@code PUT} URL for uploading directly to S3, or null when no bucket is
+     * configured or the request is malformed.
+     *
+     * <p>This is the API's upload path (issue #37): the container never carries the file's bytes -- it issues
+     * the URL, the client PUTs straight to S3, and {@link #confirmUpload} records the row afterwards. The
+     * content type, exact content length and the standard cache policy are all part of the SIGNATURE, so the
+     * URL is permission to put that one object shape at that one key and nothing else.
+     */
+    public String presignUpload(final String key, final String contentType, final long size) {
+        final String bucket = bucket();
+        final String cleanKey = normalizeKey(key);
+        if (bucket == null || cleanKey == null || contentType == null || contentType.isBlank() || size <= 0) {
+            return null;
+        }
+        try {
+            final PutObjectRequest put = PutObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(cleanKey)
+                    .contentType(contentType)
+                    .contentLength(size)
+                    // Same policy upload() stamps, and signed for the same reason: S3 serves object metadata
+                    // as response headers, so a direct upload must carry it or the CDN never caches the file.
+                    .cacheControl("public, max-age=" + CACHE_SECONDS)
+                    .build();
+            final String url = presigner().presignPutObject(PutObjectPresignRequest.builder()
+                    .signatureDuration(UPLOAD_URL_TTL)
+                    .putObjectRequest(put)
+                    .build()).url().toString();
+            log.info("Issued a presigned upload URL for {} ({} bytes, {})", cleanKey, size, contentType);
+            return url;
+        } catch (final RuntimeException ex) {
+            log.error("Unable to presign an upload for: " + cleanKey, ex);
+            return null;
+        }
+    }
+
+    /**
+     * What is actually stored at {@code key}: empty when there is no such object, no bucket is configured, or
+     * S3 could not be asked. The confirm step of a direct upload trusts THIS, never the caller's claims.
+     */
+    public Optional<StoredObject> statObject(final String key) {
+        final String bucket = bucket();
+        if (bucket == null || key == null) {
+            return Optional.empty();
+        }
+        try {
+            final HeadObjectResponse head = s3().headObject(
+                    HeadObjectRequest.builder().bucket(bucket).key(key).build());
+            return Optional.of(new StoredObject(head.contentLength() == null ? 0L : head.contentLength(),
+                    head.contentType()));
+        } catch (final NoSuchKeyException absent) {
+            return Optional.empty();
+        } catch (final RuntimeException ex) {
+            // Unreachable and absent answer alike: a confirm must not record a row it cannot verify.
+            log.error("Unable to stat object: " + key, ex);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Records the metadata row for an object a client already PUT to S3 via {@link #presignUpload}, and fires
+     * the same events and audit an in-container {@link #upload} would have -- without this, {@code
+     * ProfilePhotos} and the slot listings would go stale exactly as the issue warned.
+     *
+     * <p>Size and content type come from S3, not from the request: the confirm call is just a claim, the
+     * object is the fact.
+     *
+     * @return the saved item, or null when the object is not actually there or the row could not be written.
+     */
+    public MediaItem confirmUpload(final String key, final String title, final String description,
+            final String slot, final int position, final String uploadedBy, final Boolean hidden) {
+        final String cleanKey = normalizeKey(key);
+        if (cleanKey == null) {
+            return null;
+        }
+        final Optional<StoredObject> stored = statObject(cleanKey);
+        if (stored.isEmpty()) {
+            log.warn("Refused to confirm an upload with no object behind it: {}", cleanKey);
+            return null;
+        }
+        final MediaItem item = new MediaItem(UUID.randomUUID().toString(), cleanKey,
+                (title == null || title.isBlank()) ? cleanKey : title.trim(),
+                description, stored.get().contentType(), stored.get().size(), slot, position,
+                LocalDateTime.now(), uploadedBy, null, hidden);
+        try {
+            if (!DAO.getInstance().saveMedia(item)) {
+                return null;
+            }
+        } catch (final RuntimeException ex) {
+            log.error("Verified the object but failed to save its media row: " + cleanKey, ex);
+            return null;
+        }
+        MediaEvents.fire(MediaEvents.Change.ADDED, cleanKey);
+        Audit.builder(AuditAction.MEDIA, AuditOutcome.SUCCESS)
+                .currentActor(uploadedBy)
+                .target(AuditEventBuilder.TARGET_MEDIA, cleanKey)
+                .message("Uploaded " + cleanKey + " (" + stored.get().size() + " bytes) via presigned URL")
+                .log();
+        return item;
+    }
+
+    /**
+     * The item whose object key is {@code key}, or null. Fresh read, because its callers are about to decide
+     * whether a key is free to be claimed -- a stale answer here mints a second row over the same object.
+     */
+    public MediaItem getByKey(final String key) {
+        final String cleanKey = normalizeKey(key);
+        if (cleanKey == null) {
+            return null;
+        }
+        return getAll().stream().filter(item -> cleanKey.equals(item.getS3Key())).findFirst().orElse(null);
+    }
+
+    /**
+     * Whether {@code key} lives where a DIFFERENT feature reads: profile photos index their whole prefix and
+     * chat photos own theirs, so a caller-chosen key under either would be writing into someone else's
+     * namespace. A malformed key counts as reserved -- there is no safe answer for it.
+     */
+    public static boolean isReservedKey(final String key) {
+        final String cleanKey = normalizeKey(key);
+        return cleanKey == null
+                || cleanKey.startsWith(ProfilePhotos.PREFIX)
+                || cleanKey.startsWith(ChatPhotos.KEY_PREFIX);
     }
 
     /**
@@ -670,17 +813,24 @@ public class MediaCommands {
      * @return how many items are visible after the refresh, so the page can say what it found.
      */
     public int refreshFromDatabase() {
+        // AuditActor.current() reads a Faces-request ThreadLocal, so this form is for JSF pages only; the
+        // REST edge resolves its actor from the session and must use the overload.
+        return refreshFromDatabase(AuditActor.current());
+    }
+
+    /** As {@link #refreshFromDatabase()}, with the actor supplied -- the form non-Faces callers must use. */
+    public int refreshFromDatabase(final AuditActor actor) {
         DAO.getInstance().clearMediaCache();
         final int count = getAll().size();
         Audit.builder(AuditAction.MEDIA, AuditOutcome.SUCCESS)
-                .actor(AuditActor.current())
+                .actor(actor)
                 .message("Refreshed the media inventory from the table; " + count + " items")
                 .log();
         return count;
     }
 
     /** Strips leading slashes and lowercases nothing: keys are case-sensitive and become part of the URL. */
-    static String normalizeKey(final String key) {
+    public static String normalizeKey(final String key) {
         if (key == null) {
             return null;
         }
@@ -715,6 +865,23 @@ public class MediaCommands {
                             .credentialsProvider(DefaultCredentialsProvider.builder().build())
                             .build();
                     s3 = client;
+                }
+            }
+        }
+        return client;
+    }
+
+    private S3Presigner presigner() {
+        S3Presigner client = presigner;
+        if (client == null) {
+            synchronized (this) {
+                client = presigner;
+                if (client == null) {
+                    client = S3Presigner.builder()
+                            .region(Region.of(regionName()))
+                            .credentialsProvider(DefaultCredentialsProvider.builder().build())
+                            .build();
+                    presigner = client;
                 }
             }
         }

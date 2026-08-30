@@ -28,6 +28,7 @@ public class TripApiApplication extends Application {
                 ConfigResource.class,
                 DeployResource.class,
                 MailResource.class,
+                MediaResource.class,
                 PrivilegesResource.class,
                 PaymentsResource.class,
                 PeopleResource.class,
