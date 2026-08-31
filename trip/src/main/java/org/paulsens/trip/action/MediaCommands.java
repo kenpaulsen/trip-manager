@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
@@ -221,6 +222,28 @@ public class MediaCommands {
 
     private TripAlbum toAlbum(final Trip trip) {
         return new TripAlbum(trip, getVisibleInSlot(ChatPhotos.slotFor(trip.getId()), 0));
+    }
+
+    /**
+     * The stored-object filename shape ({@code 20260830-212714549-m457ag.jpg}), which is what an untitled
+     * chat upload gets as its title (see {@code ChatPhotos.titleFor}'s fallback). Anchored, so a real title
+     * that merely mentions a filename keeps its caption.
+     */
+    private static final Pattern GENERATED_FILENAME_TITLE =
+            Pattern.compile("\\d{8}-\\d{9}-[a-z0-9]{6}(-small)?\\.[A-Za-z0-9]{2,5}");
+
+    /**
+     * The caption the landing galleria shows under a photo: the uploader's title, or the empty string when
+     * the stored title is just the generated filename — a filename under a photo reads as debris, not a
+     * caption. Empty (never null) so the page's tight caption facet renders a truly empty element, which
+     * its {@code :empty} rule then hides.
+     */
+    public String photoCaption(final MediaItem photo) {
+        if (photo == null || photo.getTitle() == null) {
+            return "";
+        }
+        final String title = photo.getTitle().trim();
+        return GENERATED_FILENAME_TITLE.matcher(title).matches() ? "" : title;
     }
 
     /**
