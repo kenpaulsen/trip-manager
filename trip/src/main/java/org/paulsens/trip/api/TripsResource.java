@@ -367,6 +367,7 @@ public class TripsResource extends BaseResource {
         if (body.title() != null) {
             trip.setTitle(body.title());
         }
+        applyPeople(body, trip);
         if (body.description() != null) {
             trip.setDescription(body.description());
         }
@@ -383,6 +384,28 @@ public class TripsResource extends BaseResource {
             trip.setRegLimit(body.regLimit());
         }
         applyDetails(body, trip);
+    }
+
+    /**
+     * The roster, settable like every other field the caller may already edit — with the tenancy rule the
+     * page's org-scoped picker enforces applied here too: a person from OUTSIDE the trip's org is silently
+     * skipped, never added (organization is THE tenancy boundary; a raw setter must not be the one door
+     * around it). Null means "not sent" (leave the roster alone); an empty list clears it.
+     */
+    private static void applyPeople(final TripDto body, final Trip trip) {
+        if (body.people() == null) {
+            return;
+        }
+        final String orgId = body.orgId() != null ? body.orgId() : trip.getOrgId();
+        final OrgCommands org = Beans.get(OrgCommands.class);
+        final List<Person.Id> allowed = new ArrayList<>();
+        for (final String raw : body.people()) {
+            final Person.Id id = Person.Id.from(raw);
+            if (orgId != null && org.isMember(orgId, id)) {
+                allowed.add(id);
+            }
+        }
+        trip.setPeople(allowed);
     }
 
     private static void applyDetails(final TripDto body, final Trip trip) {

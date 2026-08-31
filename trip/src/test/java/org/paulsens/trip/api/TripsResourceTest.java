@@ -322,6 +322,49 @@ public class TripsResourceTest extends ResourceTestSupport {
         Mockito.verify(trips).saveTrip(ArgumentMatchers.same(existing));
     }
 
+    /**
+     * The roster is settable like any other field the caller may edit — but tenancy holds: a person from
+     * outside the trip's org is SKIPPED, never added, because organization is the tenancy boundary and a
+     * raw REST setter must not be the one door around the page picker's org scoping.
+     */
+    @Test
+    public void updateAppliesTheRosterButOnlyWithinTheTripsOrg() {
+        signedInAsSiteAdmin(ME);
+        final Trip existing = trip(TRIP_ID, ME);
+        existing.setOrgId("org-1");
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(existing)).thenReturn(true);
+        final org.paulsens.trip.action.OrgCommands orgs =
+                bindMock(org.paulsens.trip.action.OrgCommands.class);
+        Mockito.when(orgs.isMember("org-1", Person.Id.from("in-org"))).thenReturn(true);
+
+        final TripDto body = new TripDto(null, null, null, null, false, null, null, null, null,
+                null, null, null, null, null, null, null, null, null,
+                List.of("in-org", "outside-org"), null);
+        assertOk(resource.update(TRIP_ID, CSRF_OK, body));
+
+        Assert.assertEquals(existing.getPeople(), List.of(Person.Id.from("in-org")),
+                "only the org member may land on the roster; the outsider is silently skipped");
+    }
+
+    /** Null means "not sent": a body without a people list must leave the roster untouched. */
+    @Test
+    public void anAbsentPeopleListLeavesTheRosterAlone() {
+        signedInAsSiteAdmin(ME);
+        final Trip existing = trip(TRIP_ID, ME);
+        existing.setOrgId("org-1");
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(existing)).thenReturn(true);
+        bindMock(org.paulsens.trip.action.OrgCommands.class);
+
+        final TripDto body = new TripDto(null, "Renamed", null, null, false, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null);
+        assertOk(resource.update(TRIP_ID, CSRF_OK, body));
+
+        Assert.assertEquals(existing.getPeople(), List.of(ME),
+                "an absent people list must not clear the roster");
+    }
+
     @Test
     public void participationRejectsAnUnknownEventBeforeSavingAnything() {
         signedInAs(ME);
