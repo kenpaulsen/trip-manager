@@ -312,11 +312,89 @@ public class ChatResource extends BaseResource {
         for (final Object entry : list) {
             if (entry instanceof Map<?, ?> map && map.get("key") != null) {
                 final Object title = map.get("title");
+                final Object hidden = map.get("hidden");
                 refs.add(new ChatPhotos.AttachmentRef(
-                        map.get("key").toString(), title == null ? null : title.toString()));
+                        map.get("key").toString(), title == null ? null : title.toString(),
+                        hidden instanceof Boolean flag ? flag : null));
             }
         }
         return refs;
+    }
+
+    // --- composer draft ---
+
+    /** The caller's own unsent composer state (expired photos pruned), for clients that restore off-page. */
+    @GET
+    @Path("draft")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response draft(@PathParam("channelId") final String channelId) {
+        final Person.Id me = personId();
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        final ChatCommands.DraftView view = ChatCommands.getChatCommands().draftForTrip(tripId, me);
+        if (view == null) {
+            return ok(Map.of("body", "", "attachments", List.of(), "pruned", 0));
+        }
+        return ok(view);
+    }
+
+    /**
+     * Upserts the caller's draft — the composer's debounced autosave. An empty body with no attachments
+     * clears it, so the composer needs no separate "erase" call on its ordinary path.
+     */
+    @PUT
+    @Path("draft")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response saveDraft(
+            @PathParam("channelId") final String channelId,
+            @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf,
+            final Map<String, Object> body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
+        }
+        final Person.Id me = personId();
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        final String text = body == null ? null : string(body.get("body"));
+        final List<ChatPhotos.AttachmentRef> attachments =
+                parseAttachments(body == null ? null : body.get("attachments"));
+        final ChatCommands.DraftResult result =
+                ChatCommands.getChatCommands().saveDraft(tripId, me, text, attachments);
+        if (result.ok()) {
+            return ok(Map.of("saved", !result.cleared(), "cleared", result.cleared(),
+                    "attachments", result.attachments()));
+        }
+        final String message = result.message() == null ? "Draft was not saved." : result.message();
+        if ("disabled".equals(result.code())) {
+            return error(403, ChatErrors.CHAT_DISABLED, message);
+        }
+        if ("forbidden".equals(result.code())) {
+            return error(403, ChatErrors.NOT_A_TRIP_MEMBER, message);
+        }
+        return error(500, ChatErrors.INTERNAL, message);
+    }
+
+    @DELETE
+    @Path("draft")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response deleteDraft(
+            @PathParam("channelId") final String channelId,
+            @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf) {
+        if (csrfMissing(csrf)) {
+            return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
+        }
+        final Person.Id me = personId();
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        ChatCommands.getChatCommands().clearDraft(tripId, me);
+        return ok(Map.of("cleared", true));
     }
 
     @DELETE

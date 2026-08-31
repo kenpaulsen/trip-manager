@@ -53,6 +53,7 @@ import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.model.chat.ChatChannel;
+import org.paulsens.trip.model.chat.ChatDraft;
 import org.paulsens.trip.model.chat.ChatInvite;
 import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMessage;
@@ -678,6 +679,18 @@ public final class DAO {
     public Boolean saveChatCursor(
             final ChatChannel.Id channelId, final Person.Id personId, final ChatMessage.Id cursor) {
         return chatDao.saveCursor(channelId, personId, cursor);
+    }
+    // Drafts deliberately bypass the near cache: a just-sent message must clear the draft indicator on the
+    // very next render, and per-person keys would only pollute the shared heap anyway.
+    public Boolean saveChatDraft(
+            final ChatChannel.Id channelId, final Person.Id personId, final ChatDraft draft) {
+        return chatDao.saveDraft(channelId, personId, draft);
+    }
+    public Optional<ChatDraft> getChatDraft(final ChatChannel.Id channelId, final Person.Id personId) {
+        return chatDao.getDraft(channelId, personId);
+    }
+    public Boolean deleteChatDraft(final ChatChannel.Id channelId, final Person.Id personId) {
+        return chatDao.deleteDraft(channelId, personId);
     }
     public Optional<ChatMessage.Id> getChatCursor(
             final ChatChannel.Id channelId, final Person.Id personId, final Cached cached) {

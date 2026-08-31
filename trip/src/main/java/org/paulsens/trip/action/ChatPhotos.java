@@ -217,6 +217,26 @@ public class ChatPhotos {
     }
 
     /**
+     * The subset of {@code refs} still claimable by this person for this trip, each with its thumbnail key
+     * for a composer preview. The non-throwing sibling of {@link #resolveStaged}: a draft outlives its
+     * photos by design (each photo expires 24h after ITS upload), so an expired reference here is ordinary
+     * aging to prune quietly, not the tampering the send path fails loudly on.
+     */
+    public List<StagedRef> peekStaged(final String tripId, final Person.Id uploader,
+            final List<AttachmentRef> refs) {
+        final List<StagedRef> out = new ArrayList<>();
+        for (final AttachmentRef ref : refs) {
+            staging.peek(ref.key(), tripId, uploader.getValue())
+                    .ifPresent(staged -> out.add(new StagedRef(ref, staged.smallKey())));
+        }
+        return out;
+    }
+
+    /** A draft-time view of one still-claimable staged reference: the ref plus its thumbnail key. */
+    public record StagedRef(AttachmentRef ref, String smallKey) {
+    }
+
+    /**
      * A send-time reference: the staged full-rendition key plus the title and public-visibility choice made
      * in the attach dialog ({@code hidden} null = visible; like the title, it is send-time metadata, not
      * upload-time state).

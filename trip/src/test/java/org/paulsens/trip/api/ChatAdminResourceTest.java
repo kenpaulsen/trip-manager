@@ -49,7 +49,7 @@ public class ChatAdminResourceTest extends ResourceTestSupport {
         final ChatChannel channel = Mockito.mock(ChatChannel.class);
         Mockito.when(channel.getId()).thenReturn(ChatChannel.Id.forTrip("trip-1"));
         Mockito.when(chat.myChats(ME)).thenReturn(List.of(
-                new ChatCommands.ChatSummary(channel, "Rome 2027", 1_723_000_000_000L, true)));
+                new ChatCommands.ChatSummary(channel, "Rome 2027", 1_723_000_000_000L, true, false)));
 
         final Response response = resource.myChannels();
 
@@ -66,7 +66,7 @@ public class ChatAdminResourceTest extends ResourceTestSupport {
     @Test
     public void aChannellessSummaryFlattensToANullId() {
         Mockito.when(chat.myChats(ME)).thenReturn(List.of(
-                new ChatCommands.ChatSummary(null, "Orphan", 0L, false)));
+                new ChatCommands.ChatSummary(null, "Orphan", 0L, false, false)));
 
         final Response response = resource.myChannels();
 

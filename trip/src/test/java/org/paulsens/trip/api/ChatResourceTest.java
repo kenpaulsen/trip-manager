@@ -486,4 +486,89 @@ public class ChatResourceTest extends ResourceTestSupport {
     public void theProducedTypeIsTheChatMediaType() {
         Assert.assertEquals(new ChatResource().versionedType(), ApiMediaTypes.CHAT_V1);
     }
+
+    // --- composer draft ---
+
+    @Test
+    public void anAbsentDraftReadsAsAnEmptyOne() {
+        Mockito.when(chat.draftForTrip(TRIP_ID, ME)).thenReturn(null);
+
+        final Response response = resource.draft(CHANNEL);
+
+        assertOk(response);
+        Assert.assertEquals(((Map<?, ?>) response.getEntity()).get("body"), "");
+    }
+
+    @Test
+    public void aStoredDraftComesBackAsTheView() {
+        final ChatCommands.DraftView view = new ChatCommands.DraftView("hi",
+                List.of(new ChatCommands.DraftAttachmentView("k", "k-small", "T", true)), 1);
+        Mockito.when(chat.draftForTrip(TRIP_ID, ME)).thenReturn(view);
+
+        final Response response = resource.draft(CHANNEL);
+
+        assertOk(response);
+        Assert.assertSame(response.getEntity(), view);
+        assertError(resource.draft("not-a-trip-channel"), 400, ChatErrors.BAD_CHANNEL);
+    }
+
+    @Test
+    public void draftMutationsRequireTheCsrfHeader() {
+        assertError(resource.saveDraft(CHANNEL, null, Map.of()), 403, ChatErrors.CSRF);
+        assertError(resource.deleteDraft(CHANNEL, null), 403, ChatErrors.CSRF);
+        Mockito.verifyNoInteractions(chat);
+    }
+
+    @Test
+    public void aDraftSaveCarriesTheParsedRefsHiddenFlagIncluded() {
+        Mockito.when(chat.saveDraft(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME),
+                ArgumentMatchers.eq("wip"), ArgumentMatchers.anyList()))
+                .thenReturn(ChatCommands.DraftResult.saved(1));
+
+        final Response response = resource.saveDraft(CHANNEL, CSRF_OK, Map.of(
+                "body", "wip",
+                "attachments", List.of(Map.of("key", "chat/t/a.jpg", "title", "T", "hidden", true))));
+
+        assertOk(response);
+        Assert.assertEquals(((Map<?, ?>) response.getEntity()).get("saved"), true);
+        Mockito.verify(chat).saveDraft(TRIP_ID, ME, "wip",
+                List.of(new org.paulsens.trip.action.ChatPhotos.AttachmentRef("chat/t/a.jpg", "T", true)));
+    }
+
+    @Test
+    public void anEmptyDraftSaveReportsCleared() {
+        Mockito.when(chat.saveDraft(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME),
+                ArgumentMatchers.any(), ArgumentMatchers.anyList()))
+                .thenReturn(ChatCommands.DraftResult.clearedOk());
+
+        final Response response = resource.saveDraft(CHANNEL, CSRF_OK, Map.of("body", ""));
+
+        assertOk(response);
+        Assert.assertEquals(((Map<?, ?>) response.getEntity()).get("cleared"), true);
+    }
+
+    @Test
+    public void draftSaveFailuresMapToTheirStatuses() {
+        Mockito.when(chat.saveDraft(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME),
+                ArgumentMatchers.any(), ArgumentMatchers.anyList()))
+                .thenReturn(ChatCommands.DraftResult.fail("disabled", "Chat is off."))
+                .thenReturn(ChatCommands.DraftResult.fail("forbidden", "Not a member."))
+                .thenReturn(ChatCommands.DraftResult.fail("store", null));
+
+        assertError(resource.saveDraft(CHANNEL, CSRF_OK, Map.of("body", "x")), 403, ChatErrors.CHAT_DISABLED);
+        assertError(resource.saveDraft(CHANNEL, CSRF_OK, Map.of("body", "x")), 403,
+                ChatErrors.NOT_A_TRIP_MEMBER);
+        assertError(resource.saveDraft(CHANNEL, CSRF_OK, Map.of("body", "x")), 500, ChatErrors.INTERNAL);
+        assertError(resource.saveDraft("junk-channel", CSRF_OK, Map.of()), 400, ChatErrors.BAD_CHANNEL);
+    }
+
+    @Test
+    public void deletingADraftClearsIt() {
+        Mockito.when(chat.clearDraft(TRIP_ID, ME)).thenReturn(true);
+
+        assertOk(resource.deleteDraft(CHANNEL, CSRF_OK));
+
+        Mockito.verify(chat).clearDraft(TRIP_ID, ME);
+        assertError(resource.deleteDraft("junk-channel", CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
+    }
 }

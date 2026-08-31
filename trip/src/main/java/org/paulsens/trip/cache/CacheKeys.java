@@ -162,6 +162,17 @@ public final class CacheKeys {
         return CHAT_FORMAT_VERSION + "cur:" + channelId + ":" + personId;
     }
 
+    /** One unsent composer draft per (channel, person); expires {@link #CHAT_DRAFT_TTL} after the last save. */
+    public static String chatDraftKey(final String channelId, final String personId) {
+        return CHAT_FORMAT_VERSION + "draft:" + channelId + ":" + personId;
+    }
+
+    /**
+     * Hard expiry for composer drafts: matches {@code ChatPhotoStaging.TTL} so a draft never promises more
+     * than its staged photos can deliver, and an abandoned draft is permanently gone within a day.
+     */
+    public static final Duration CHAT_DRAFT_TTL = Duration.ofHours(24);
+
     /**
      * Rate-limit counter. Window length is part of the key so an admin changing the window cannot collide with
      * a live counter written under the previous length.

@@ -21,6 +21,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatAttachment;
 import org.paulsens.trip.model.chat.ChatChannel;
+import org.paulsens.trip.model.chat.ChatDraft;
 import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatPage;
@@ -714,6 +715,50 @@ public class ChatDAO {
     /** Last-activity millis per channel, for the unread indicator and the "My Chats" sort. */
     protected Map<String, String> lastActivity() {
         return cacheClient.getHash(CacheKeys.CHAT_LAST_ACTIVITY);
+    }
+
+    // --- composer drafts (Valkey-authoritative, like the cursor; a lost draft costs re-typing, never a message) ---
+
+    protected Boolean saveDraft(
+            final ChatChannel.Id channelId, final Person.Id personId, final ChatDraft draft) {
+        if (channelId == null || personId == null || draft == null) {
+            return false;
+        }
+        final String json;
+        try {
+            json = mapper.writeValueAsString(draft);
+        } catch (final IOException ex) {
+            log.warn("Unable to serialize a chat draft for {}", channelId.getValue(), ex);
+            return false;
+        }
+        return cacheClient.putValue(
+                CacheKeys.chatDraftKey(channelId.getValue(), personId.getValue()),
+                json, CacheKeys.CHAT_DRAFT_TTL);
+    }
+
+    protected Optional<ChatDraft> getDraft(final ChatChannel.Id channelId, final Person.Id personId) {
+        if (channelId == null || personId == null) {
+            return Optional.empty();
+        }
+        return cacheClient.getValue(CacheKeys.chatDraftKey(channelId.getValue(), personId.getValue()))
+                .flatMap(this::parseDraft);
+    }
+
+    protected Boolean deleteDraft(final ChatChannel.Id channelId, final Person.Id personId) {
+        if (channelId == null || personId == null) {
+            return false;
+        }
+        return cacheClient.removeKey(CacheKeys.chatDraftKey(channelId.getValue(), personId.getValue()));
+    }
+
+    private Optional<ChatDraft> parseDraft(final String json) {
+        try {
+            return Optional.ofNullable(mapper.readValue(json, ChatDraft.class));
+        } catch (final IOException ex) {
+            // Convenience state: unreadable means absent, never an error surfaced to a composer.
+            log.warn("Dropping an unparseable chat draft: {}", ex.getMessage());
+            return Optional.empty();
+        }
     }
 
     /**

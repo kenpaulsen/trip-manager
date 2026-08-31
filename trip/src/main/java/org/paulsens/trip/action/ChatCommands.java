@@ -39,6 +39,7 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatAppearance;
 import org.paulsens.trip.model.chat.ChatAttachment;
 import org.paulsens.trip.model.chat.ChatChannel;
+import org.paulsens.trip.model.chat.ChatDraft;
 import org.paulsens.trip.model.chat.ChatEmoji;
 import org.paulsens.trip.model.chat.ChatInvite;
 import org.paulsens.trip.model.chat.ChatMembership;
@@ -918,6 +919,9 @@ public class ChatCommands {
         // AFTER the durable write, never before: a notification about a message that failed to save would point at
         // nothing. Everything past this point is fire-and-forget on a pool thread and cannot fail the send.
         final ChatMessage stored = saved.get();
+        // The send IS the draft's completion, whichever client autosaved it — clear it so the tab indicator
+        // dies with this render rather than lying for up to 24h.
+        dao().deleteChatDraft(channel.getId(), authorId);
         if (!stored.getAttachments().isEmpty()) {
             // Consumed and recorded only for a saved message: a failed send leaves the photos staged, so the
             // composer's retry still owns them.
@@ -1480,6 +1484,163 @@ public class ChatCommands {
     /** Unread state for the trip tab, addressed by trip id so the XHTML needs no person id. */
     public boolean isUnreadForCurrentUser(final String tripId) {
         return hasUnread(tripId, currentUserId());
+    }
+
+    // --- composer drafts ---
+
+    /**
+     * Saves (or clears) this person's unsent composer state for a trip's channel. Lenient where the send is
+     * strict — an autosave must never bounce what someone is still typing — so the body is clamped to the
+     * channel's limit and attachment references that are not claimable are dropped rather than refused. An
+     * empty draft is a delete: "they erased everything" and "no draft" must converge or the tab indicator
+     * lies until the TTL clears it.
+     */
+    public DraftResult saveDraft(final String tripId, final Person.Id me, final String body,
+            final List<ChatPhotos.AttachmentRef> refs) {
+        if (me == null || tripId == null || tripId.isBlank()) {
+            return DraftResult.fail("forbidden", "Sign in and open a trip chat first.");
+        }
+        if (!chatEnabledForTrip(tripId)) {
+            return DraftResult.fail("disabled", "Chat is turned off for this trip.");
+        }
+        if (!canParticipate(tripId, me)) {
+            return DraftResult.fail("forbidden", "Not a member of this trip.");
+        }
+        final ChatSettings settings = channelForPage(tripId).getSettings();
+        final String text = clampCodePoints(body == null ? "" : body, settings.getMaxMessageChars());
+        final List<ChatPhotos.AttachmentRef> capped = !settings.isAllowMedia() || refs == null
+                ? List.of()
+                : refs.stream().limit(Math.max(0, settings.getMaxAttachmentsPerMessage())).toList();
+        final List<ChatDraft.Ref> kept = new ArrayList<>();
+        for (final ChatPhotos.StagedRef staged : ChatPhotos.getChatPhotos().peekStaged(tripId, me, capped)) {
+            kept.add(new ChatDraft.Ref(staged.ref().key(), staged.ref().title(), staged.ref().hidden()));
+        }
+        final ChatDraft draft = new ChatDraft(text, kept, Instant.now());
+        final ChatChannel.Id cid = ChatChannel.Id.forTrip(tripId);
+        if (draft.isEmpty()) {
+            dao().deleteChatDraft(cid, me);
+            return DraftResult.clearedOk();
+        }
+        return Boolean.TRUE.equals(dao().saveChatDraft(cid, me, draft))
+                ? DraftResult.saved(kept.size())
+                : DraftResult.fail("store", "Draft was not saved.");
+    }
+
+    /**
+     * This person's draft for the trip's channel, with expired attachment references pruned — or null when
+     * there is nothing to restore. A prune is written back so the stored draft and the composer agree; the
+     * one-visit view still reports how many were lost so the page can say so. No participation gate on the
+     * read: a draft is the caller's own composer state and nothing else.
+     */
+    public DraftView draftForTrip(final String tripId, final Person.Id me) {
+        if (me == null || tripId == null || tripId.isBlank()) {
+            return null;
+        }
+        final ChatChannel.Id cid = ChatChannel.Id.forTrip(tripId);
+        final ChatDraft stored = dao().getChatDraft(cid, me).orElse(null);
+        if (stored == null) {
+            return null;
+        }
+        final List<ChatPhotos.AttachmentRef> refs = new ArrayList<>();
+        for (final ChatDraft.Ref ref : stored.attachments()) {
+            refs.add(new ChatPhotos.AttachmentRef(ref.key(), ref.title(), ref.hidden()));
+        }
+        final List<ChatPhotos.StagedRef> claimable = ChatPhotos.getChatPhotos().peekStaged(tripId, me, refs);
+        final int pruned = refs.size() - claimable.size();
+        if (pruned > 0) {
+            rewriteAfterPrune(cid, me, stored, claimable);
+        }
+        final List<DraftAttachmentView> photos = new ArrayList<>();
+        for (final ChatPhotos.StagedRef staged : claimable) {
+            photos.add(new DraftAttachmentView(staged.ref().key(), staged.smallKey(),
+                    staged.ref().title(), staged.ref().hidden()));
+        }
+        if (stored.body().isBlank() && photos.isEmpty() && pruned == 0) {
+            return null;
+        }
+        return new DraftView(stored.body(), photos, pruned);
+    }
+
+    private void rewriteAfterPrune(final ChatChannel.Id cid, final Person.Id me,
+            final ChatDraft stored, final List<ChatPhotos.StagedRef> claimable) {
+        final List<ChatDraft.Ref> kept = new ArrayList<>();
+        for (final ChatPhotos.StagedRef staged : claimable) {
+            kept.add(new ChatDraft.Ref(staged.ref().key(), staged.ref().title(), staged.ref().hidden()));
+        }
+        final ChatDraft rewritten = new ChatDraft(stored.body(), kept, stored.savedAt());
+        if (rewritten.isEmpty()) {
+            dao().deleteChatDraft(cid, me);
+        } else {
+            dao().saveChatDraft(cid, me, rewritten);
+        }
+    }
+
+    /** The current user's draft as JSON for the page's restore script (or the literal {@code null}). */
+    public String draftJsonForTrip(final String tripId) {
+        final DraftView view = draftForTrip(tripId, currentUserId());
+        return view == null ? "null" : scriptSafeJson(view);
+    }
+
+    public boolean hasDraft(final String tripId, final Person.Id me) {
+        if (me == null || tripId == null || tripId.isBlank()) {
+            return false;
+        }
+        return dao().getChatDraft(ChatChannel.Id.forTrip(tripId), me).isPresent();
+    }
+
+    /** Draft state for the trip tab, addressed by trip id so the XHTML needs no person id. */
+    public boolean hasDraftForCurrentUser(final String tripId) {
+        return hasDraft(tripId, currentUserId());
+    }
+
+    /**
+     * The trip tab's Chat label with its indicator baked in — computed here so the jsft script stays a flat
+     * call (its parser is not trusted with nested conditions). Unread outranks a draft: someone else's words
+     * beat a reminder about your own.
+     */
+    public String chatTabLabelForCurrentUser(final String tripId) {
+        if (isUnreadForCurrentUser(tripId)) {
+            return "Chat ●";
+        }
+        return hasDraftForCurrentUser(tripId) ? "Chat ✎" : "Chat";
+    }
+
+    public boolean clearDraft(final String tripId, final Person.Id me) {
+        if (me == null || tripId == null || tripId.isBlank()) {
+            return false;
+        }
+        return Boolean.TRUE.equals(dao().deleteChatDraft(ChatChannel.Id.forTrip(tripId), me));
+    }
+
+    private static String clampCodePoints(final String text, final int maxCps) {
+        if (text.codePointCount(0, text.length()) <= maxCps) {
+            return text;
+        }
+        return text.substring(0, text.offsetByCodePoints(0, maxCps));
+    }
+
+    /** Outcome of a draft save. Carries a code so the REST edge can map it to a status without re-deciding. */
+    public record DraftResult(boolean ok, boolean cleared, String code, String message, int attachments) {
+
+        public static DraftResult saved(final int attachments) {
+            return new DraftResult(true, false, null, null, attachments);
+        }
+
+        public static DraftResult clearedOk() {
+            return new DraftResult(true, true, null, null, 0);
+        }
+
+        public static DraftResult fail(final String code, final String message) {
+            return new DraftResult(false, false, code, message, 0);
+        }
+    }
+
+    /** What a composer restores: the stored body, the still-live photos, and how many aged out. */
+    public record DraftView(String body, List<DraftAttachmentView> attachments, int pruned) {
+    }
+
+    /** One restorable attachment: enough for a tray chip ({@code smallKey}) and a re-send ({@code key}). */
+    public record DraftAttachmentView(String key, String smallKey, String title, Boolean hidden) {
     }
 
     // --- reactions ---
@@ -2484,7 +2645,7 @@ public class ChatCommands {
             }
             final long activity = parseLong(lastAct.get(cid.getValue()), 0L);
             out.add(new ChatSummary(channel, trip.getTitle(), activity,
-                    unreadAgainst(channel, personId, lastAct)));
+                    unreadAgainst(channel, personId, lastAct), hasDraft(trip.getId(), personId)));
         }
         out.sort(Comparator.comparingLong(ChatSummary::lastActivityMillis).reversed());
         return out;
@@ -2649,7 +2810,7 @@ public class ChatCommands {
      * here must stay serializable as well ({@link ChatChannel} already is).
      */
     public record ChatSummary(
-            ChatChannel channel, String tripTitle, long lastActivityMillis, boolean unread)
+            ChatChannel channel, String tripTitle, long lastActivityMillis, boolean unread, boolean draft)
             implements java.io.Serializable {
     }
 
