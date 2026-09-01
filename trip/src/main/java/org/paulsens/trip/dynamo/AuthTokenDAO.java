@@ -140,12 +140,17 @@ public class AuthTokenDAO {
         return tokens;
     }
 
+    /** Fail-open like {@link #read}: one unreadable table must not take the other's rows down with it. */
     private void scanInto(final List<AuthToken> sink, final String table, final Person.Id userId) {
-        for (final Map<String, AttributeValue> row : persistence.scanAll(b -> b.tableName(table))) {
-            final AttributeValue owner = row.get(USER_ID);
-            if (owner != null && userId.getValue().equals(owner.s())) {
-                sink.add(fromItem(row));
+        try {
+            for (final Map<String, AttributeValue> row : persistence.scanAll(b -> b.tableName(table))) {
+                final AttributeValue owner = row.get(USER_ID);
+                if (owner != null && userId.getValue().equals(owner.s())) {
+                    sink.add(fromItem(row));
+                }
             }
+        } catch (final RuntimeException ex) {
+            log.error("Failed to scan auth tokens in {}.", table, ex);
         }
     }
 
@@ -164,12 +169,23 @@ public class AuthTokenDAO {
         return legacy;
     }
 
+    /**
+     * A failed read answers empty, never throws: a token lookup sits on the login path, and "not signed in"
+     * is the right degradation for a broken store. The concrete case this guards is the deploy window in
+     * which the app is live before {@code cdk deploy} has created {@code auth_tokens} -- every remember-me
+     * restore reads this table, and an exception here would surface on ordinary page loads.
+     */
     private Optional<AuthToken> read(final String table, final String selector) {
-        final GetItemResponse item = persistence.getItem(b -> b.tableName(table)
-                .key(Map.of(SELECTOR, AttributeValue.builder().s(selector).build())).build());
-        // Emptiness, not hasItem(): the in-memory fake answers a miss with an explicit empty map.
-        return (item.hasItem() && !item.item().isEmpty())
-                ? Optional.of(fromItem(item.item())) : Optional.empty();
+        try {
+            final GetItemResponse item = persistence.getItem(b -> b.tableName(table)
+                    .key(Map.of(SELECTOR, AttributeValue.builder().s(selector).build())).build());
+            // Emptiness, not hasItem(): the in-memory fake answers a miss with an explicit empty map.
+            return (item.hasItem() && !item.item().isEmpty())
+                    ? Optional.of(fromItem(item.item())) : Optional.empty();
+        } catch (final RuntimeException ex) {
+            log.error("Failed to read auth token from {}.", table, ex);
+            return Optional.empty();
+        }
     }
 
     private Boolean deleteFrom(final String table, final String selector) {

@@ -125,7 +125,11 @@ public class AuthTokenDAOTest {
         DAO.getInstance().deleteAuthToken(sel2);
     }
 
-    /** Persistence blowing up answers false, never throws -- a broken store must not 500 a login page. */
+    /**
+     * Persistence blowing up answers false/empty, never throws -- a broken store must not 500 a login page.
+     * The READ half is the one with a scheduled real-world occurrence: the deploy window before cdk deploy
+     * has created auth_tokens, during which every remember-me restore reads a nonexistent table.
+     */
     @Test
     public void aBrokenStoreAnswersFalseQuietly() {
         final Persistence broken = org.mockito.Mockito.mock(Persistence.class);
@@ -133,10 +137,17 @@ public class AuthTokenDAOTest {
                 .thenThrow(new RuntimeException("store down"));
         org.mockito.Mockito.when(broken.deleteItem(org.mockito.ArgumentMatchers.any()))
                 .thenThrow(new RuntimeException("store down"));
+        org.mockito.Mockito.when(broken.getItem(org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new RuntimeException("no such table"));
+        org.mockito.Mockito.when(broken.scanAll(org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new RuntimeException("no such table"));
         final AuthTokenDAO dao = new AuthTokenDAO(broken);
 
         Assert.assertFalse(dao.saveToken(token(RandomData.genSecureToken(9), Person.Id.from("x"))));
         Assert.assertFalse(dao.deleteToken("whatever"));
+        Assert.assertTrue(dao.getToken("whatever").isEmpty(), "an unreadable table is 'not signed in'");
+        Assert.assertTrue(dao.listForUser(Person.Id.from("x")).isEmpty());
+        Assert.assertTrue(dao.deleteAllForUser(Person.Id.from("x")).isEmpty());
     }
 
     @Test
