@@ -30,6 +30,7 @@ public final class ApiMediaTypes {
     public static final String MEDIA_V1 = "application/vnd.trip.media.v1+json";
     public static final String PHOTO_CHAT_V1 = "application/vnd.trip.photochat.v1+json";
     public static final String AUDIT_V1 = "application/vnd.trip.audit.v1+json";
+    public static final String ORGS_V1 = "application/vnd.trip.orgs.v1+json";
     public static final String CONFIG_V1 = "application/vnd.trip.config.v1+json";
     public static final String PRIVILEGES_V1 = "application/vnd.trip.privileges.v1+json";
     public static final String MAIL_V1 = "application/vnd.trip.mail.v1+json";
