@@ -135,6 +135,39 @@ public class LoginCodeCommands {
     /** {@link #verifyAndLogin(String, String)} for callers that carry their own request (the REST edge). */
     public Creds verifyAndLogin(final String email, final String code, final HttpServletRequest request,
             final HttpServletResponse response) {
+        final Creds creds = verifiedCreds(email, code);
+        if (creds == null) {
+            return null;
+        }
+        final String lowEmail = email.trim().toLowerCase(Locale.ROOT);
+        DAO.getInstance().updateLastLogin(creds);
+        final HttpSession session = Sessions.establish(request, lowEmail, creds);
+        session.setAttribute(Sessions.CODE_LOGIN, Boolean.TRUE);
+        if (response != null) {
+            RememberMeService.getInstance().issue(request, response, creds);
+        }
+        Audit.builder(AuditAction.LOGIN, AuditOutcome.SUCCESS)
+                .actor(lowEmail, creds.getUserId() == null ? null : creds.getUserId().getValue())
+                .message("Logged in via email code")
+                .log();
+        return creds;
+    }
+
+    /**
+     * Verifies a code and answers the credentials WITHOUT establishing a session or issuing cookies -- the
+     * bearer-token issuance path ({@code docs/api-tokens.md}), which must stay sessionless. Null on ANY
+     * failure, indistinguishably, for the same enumeration reason the login page shows one generic message.
+     */
+    public Creds verifyForToken(final String email, final String code) {
+        final Creds creds = verifiedCreds(email, code);
+        if (creds != null) {
+            DAO.getInstance().updateLastLogin(creds);
+        }
+        return creds;
+    }
+
+    /** The shared verification half of every code login: burns the code, resolves creds, audits failures. */
+    private Creds verifiedCreds(final String email, final String code) {
         if (!config.getBoolean(KnownSettings.LOGIN_CODE_ENABLED) || Util.isBlank(email) || Util.isBlank(code)) {
             return null;
         }
@@ -152,18 +185,7 @@ public class LoginCodeCommands {
                     .actor(lowEmail, null)
                     .message("Email-code verified but no account credentials could be found or created")
                     .log();
-            return null;
         }
-        DAO.getInstance().updateLastLogin(creds);
-        final HttpSession session = Sessions.establish(request, lowEmail, creds);
-        session.setAttribute(Sessions.CODE_LOGIN, Boolean.TRUE);
-        if (response != null) {
-            RememberMeService.getInstance().issue(request, response, creds);
-        }
-        Audit.builder(AuditAction.LOGIN, AuditOutcome.SUCCESS)
-                .actor(lowEmail, creds.getUserId() == null ? null : creds.getUserId().getValue())
-                .message("Logged in via email code")
-                .log();
         return creds;
     }
 

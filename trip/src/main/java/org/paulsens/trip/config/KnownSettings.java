@@ -273,6 +273,28 @@ public final class KnownSettings {
             "How long the stay-signed-in cookie lasts, counted from sign-in (using it does not extend it). "
                     + "Signing out or changing the password ends it early.");
 
+    public static final SettingDef API_TOKEN_ENABLED = new SettingDef(
+            "api.token.enabled", Config.Type.BOOLEAN, "false", "API bearer tokens",
+            "Lets native/mobile clients sign in over the REST API with bearer tokens (docs/api-tokens.md). "
+                    + "Off means no issuance, no refresh, AND no acceptance of tokens already out there -- it "
+                    + "is the kill switch. Leave OFF until a client ships.");
+
+    public static final SettingDef API_TOKEN_ACCESS_MINUTES = new SettingDef(
+            "api.token.access.minutes", Config.Type.INT, "30", "...access token minutes",
+            "How long one access token works before the client must silently refresh. Also bounds how stale "
+                    + "the role stamped in a token can be, so shorter is safer.");
+
+    public static final SettingDef API_TOKEN_REFRESH_DAYS = new SettingDef(
+            "api.token.refresh.days", Config.Type.INT, "60", "...refresh token days",
+            "How long a signed-in device stays signed in without re-entering credentials, counted from "
+                    + "sign-in (refreshing does not extend it). Signing out or a password change ends it "
+                    + "early.");
+
+    public static final SettingDef API_TOKEN_REFRESH_ADMIN_DAYS = new SettingDef(
+            "api.token.refresh.admin.days", Config.Type.INT, "7", "...admin refresh days",
+            "The refresh lifetime for ADMIN-scoped tokens, deliberately short: an admin token is the most "
+                    + "valuable credential this system hands out.");
+
     public static final SettingDef LOGIN_PASSWORD_MAX_FAILS = new SettingDef(
             "login.password.maxFails", Config.Type.INT, "10", "Wrong passwords per person",
             "After this many wrong passwords for one email address within the window below, sign-in for that "
@@ -504,7 +526,9 @@ public final class KnownSettings {
                             LOGIN_CODE_SEND_WINDOW_SECONDS, LOGIN_CODE_MAX_ATTEMPTS,
                             LOGIN_REMEMBER_ENABLED, LOGIN_REMEMBER_DAYS,
                             LOGIN_PASSKEY_ENABLED, LOGIN_PASSWORD_MAX_FAILS,
-                            LOGIN_PASSWORD_FAIL_WINDOW_SECONDS)),
+                            LOGIN_PASSWORD_FAIL_WINDOW_SECONDS,
+                            API_TOKEN_ENABLED, API_TOKEN_ACCESS_MINUTES,
+                            API_TOKEN_REFRESH_DAYS, API_TOKEN_REFRESH_ADMIN_DAYS)),
             new SettingSection("Family accounts", null,
                     List.of(FAMILY_MAX_MEMBERS)),
             new SettingSection("Registration", null,

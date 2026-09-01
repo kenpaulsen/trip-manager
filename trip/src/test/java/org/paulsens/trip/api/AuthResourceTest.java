@@ -273,4 +273,135 @@ public class AuthResourceTest extends ResourceTestSupport {
         final Map<String, Object> body = (Map<String, Object>) response.getEntity();
         return String.valueOf(body.get("message"));
     }
+
+    // ---- Bearer-token endpoints (docs/api-tokens.md) ----
+
+    /** A resource whose token feature is ON, wired to its own config; the DAO underneath is the real fake. */
+    private AuthResource tokenResource() {
+        final org.paulsens.trip.action.ConfigCommands config =
+                Mockito.mock(org.paulsens.trip.action.ConfigCommands.class);
+        Mockito.when(config.getBoolean(org.paulsens.trip.config.KnownSettings.API_TOKEN_ENABLED))
+                .thenReturn(true);
+        Mockito.when(config.getInt(org.paulsens.trip.config.KnownSettings.API_TOKEN_ACCESS_MINUTES, 5, 240))
+                .thenReturn(30);
+        Mockito.when(config.getInt(org.paulsens.trip.config.KnownSettings.API_TOKEN_REFRESH_DAYS, 1, 365))
+                .thenReturn(60);
+        Mockito.when(config.getInt(org.paulsens.trip.config.KnownSettings.API_TOKEN_REFRESH_ADMIN_DAYS, 1, 30))
+                .thenReturn(7);
+        return resource(new AuthResource(new org.paulsens.trip.security.TokenService(config)));
+    }
+
+    /** The kill switch covers all three endpoints -- and off is the config DEFAULT, which is what this uses. */
+    @Test
+    public void tokenEndpointsAreRefusedWhileTheFeatureIsOff() {
+        assertError(resource.token(Map.of("email", "me@example.com", "password", "x")),
+                404, ApiErrors.NOT_FOUND);
+        assertError(resource.refreshToken(Map.of("refreshToken", "a:b")), 404, ApiErrors.NOT_FOUND);
+        assertError(resource.revokeToken(Map.of("refreshToken", "a:b")), 404, ApiErrors.NOT_FOUND);
+    }
+
+    @Test
+    public void tokenNeedsAnEmailAndExactlyOneCredential() {
+        final AuthResource live = tokenResource();
+        assertError(live.token(null), 400, ApiErrors.BAD_REQUEST);
+        assertError(live.token(Map.of("email", "me@example.com")), 400, ApiErrors.BAD_REQUEST);
+        assertError(live.token(Map.of("password", "secret")), 400, ApiErrors.BAD_REQUEST);
+        assertError(live.token(Map.of("email", "me@example.com", "password", "secret", "code", "123456")),
+                400, ApiErrors.BAD_REQUEST);
+        assertError(live.token(Map.of("email", " ", "password", "secret")), 400, ApiErrors.BAD_REQUEST);
+    }
+
+    @Test
+    public void aBadTokenLoginDoesNotSayWhichHalfWasWrong() {
+        Mockito.when(passes.login(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(null);
+        final AuthResource live = tokenResource();
+
+        final Response unknown = live.token(Map.of("email", "nobody@example.com", "password", "x"));
+        final Response wrong = live.token(Map.of("email", "me@example.com", "password", "wrong"));
+
+        assertError(unknown, 401, ApiErrors.NOT_AUTHENTICATED);
+        assertError(wrong, 401, ApiErrors.NOT_AUTHENTICATED);
+        Assert.assertEquals(message(unknown), message(wrong),
+                "The two failures must be indistinguishable to the caller");
+    }
+
+    @Test
+    public void anUnknownScopeIsRefusedNotSilentlyDowngraded() {
+        assertError(tokenResource().token(Map.of("email", "me@example.com", "password", "x", "scope", "root")),
+                400, ApiErrors.BAD_REQUEST);
+    }
+
+    @Test
+    public void adminScopeIsForbiddenForMemberCredentials() {
+        Mockito.when(passes.login(ArgumentMatchers.anyString(), ArgumentMatchers.anyString()))
+                .thenReturn(creds("user"));
+        assertError(tokenResource().token(
+                        Map.of("email", "me@example.com", "password", "secret", "scope", "admin")),
+                403, ApiErrors.FORBIDDEN);
+    }
+
+    /** The property the whole design hangs on: a token grant must never create or touch a session. */
+    @Test
+    public void aTokenGrantIsCompleteAndStrictlySessionless() {
+        Mockito.when(passes.login("me@example.com", "secret")).thenReturn(creds("user"));
+
+        final Response response = tokenResource().token(
+                Map.of("email", " me@example.com ", "password", "secret", "label", "Ken's phone"));
+
+        assertOk(response);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> body = (Map<String, Object>) response.getEntity();
+        Assert.assertNotNull(body.get("accessToken"));
+        Assert.assertNotNull(body.get("refreshToken"));
+        Assert.assertEquals(body.get("accessExpiresIn"), 30 * 60L);
+        Assert.assertEquals(body.get("scope"), "member");
+        Mockito.verify(request, Mockito.never()).getSession(true);
+        Mockito.verify(session, Mockito.never()).invalidate();
+        Assert.assertTrue(freshAttributes.isEmpty(), "nothing may be stashed on any session");
+    }
+
+    @Test
+    public void theCodePathVerifiesWithoutASessionToo() {
+        final org.paulsens.trip.action.LoginCodeCommands codes =
+                bindMock(org.paulsens.trip.action.LoginCodeCommands.class);
+        Mockito.when(codes.verifyForToken("me@example.com", "123456")).thenReturn(creds("user"));
+
+        assertOk(tokenResource().token(Map.of("email", "me@example.com", "code", "123456")));
+
+        Mockito.verify(codes).verifyForToken("me@example.com", "123456");
+        Mockito.verify(codes, Mockito.never()).verifyAndLogin(ArgumentMatchers.anyString(),
+                ArgumentMatchers.anyString(), ArgumentMatchers.any(), ArgumentMatchers.any());
+        Mockito.verify(request, Mockito.never()).getSession(true);
+    }
+
+    @Test
+    public void refreshRoundTripsThroughTheEndpointAndRefusesGarbage() {
+        // A REAL local-mode account, not the mocked creds: refresh re-reads credentials from the store, so a
+        // grant issued to an account that does not exist there is (correctly) revoked at its first refresh.
+        Mockito.when(passes.login("user2", "user")).thenReturn(new PassCommands().login("user2", "user"));
+        final AuthResource live = tokenResource();
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> grant = (Map<String, Object>)
+                live.token(Map.of("email", "user2", "password", "user")).getEntity();
+
+        final Response refreshed = live.refreshToken(Map.of("refreshToken", grant.get("refreshToken")));
+        assertOk(refreshed);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> body = (Map<String, Object>) refreshed.getEntity();
+        Assert.assertNotNull(body.get("accessToken"));
+        Assert.assertNotNull(body.get("refreshToken"), "a CURRENT refresh answers the rotated token");
+
+        assertError(live.refreshToken(null), 400, ApiErrors.BAD_REQUEST);
+        assertError(live.refreshToken(Map.of("refreshToken", "unknown:validator")),
+                401, ApiErrors.NOT_AUTHENTICATED);
+        assertOk(live.revokeToken(Map.of("refreshToken", body.get("refreshToken"))));
+    }
+
+    @Test
+    public void revokeIsIdempotentAndQuiet() {
+        final AuthResource live = tokenResource();
+        assertOk(live.revokeToken(null));
+        assertOk(live.revokeToken(Map.of("refreshToken", "unknown:validator")));
+        assertOk(live.revokeToken(Map.of("refreshToken", "garbage")));
+    }
 }

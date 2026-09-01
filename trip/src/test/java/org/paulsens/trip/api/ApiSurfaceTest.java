@@ -76,8 +76,11 @@ public class ApiSurfaceTest {
                 .toList();
 
         // logout is intentionally open: signing out when already signed out is a success, not a 401. The two
-        // code endpoints are the email-code login -- like login, they only make sense WITHOUT a session.
-        Assert.assertEquals(unbound, List.of("login", "logout", "requestCode", "verifyCode"),
+        // code endpoints are the email-code login -- like login, they only make sense WITHOUT a session. The
+        // three token endpoints are the bearer flows (docs/api-tokens.md): ways in, and deliberately
+        // SESSIONLESS -- their authority is credentials or the token in the body, never a session.
+        Assert.assertEquals(unbound,
+                List.of("login", "logout", "refreshToken", "requestCode", "revokeToken", "token", "verifyCode"),
                 "Unexpected open endpoints on AuthResource.");
     }
 

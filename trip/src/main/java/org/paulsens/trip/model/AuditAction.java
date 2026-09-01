@@ -33,6 +33,12 @@ public enum AuditAction {
     PASSKEY_REGISTER,
     /** A passkey was removed. */
     PASSKEY_DELETE,
+    /** A bearer token pair (refresh + access) was issued to an API client (docs/api-tokens.md). */
+    TOKEN_ISSUE,
+    /** A bearer access token was refreshed; the refresh validator rotated. */
+    TOKEN_REFRESH,
+    /** A bearer refresh token was revoked, along with its access-token children. */
+    TOKEN_REVOKE,
     /** A password was set: by the owner, or by an admin on someone else's account. */
     PASSWORD_CHANGE,
     /** Credentials were removed, so the account can no longer sign in. */
