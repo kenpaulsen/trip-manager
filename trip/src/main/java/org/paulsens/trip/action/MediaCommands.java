@@ -42,6 +42,7 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.site.SiteContext;
 
 /**
  * Managed media, exposed to pages as {@code #{media}}.
@@ -200,13 +201,16 @@ public class MediaCommands {
      * ({@code openToPublic} -- private trips are unlisted everywhere, including here), has started (in
      * progress is fine, not-yet-started is not), ended within the window, and has at least {@code minPhotos}
      * visible photos in its chat-photo slot. Everything reads from caches (trip index + media hash), so this
-     * is safe on a public page render.
+     * is safe on a public page render. On an ORGANIZATION's site only that org's trips qualify -- the
+     * albums follow the trips, and a tenant's site never shows another tenant's pictures.
      */
     public List<TripAlbum> getHomeAlbums(final int windowDays, final int minPhotos) {
         final LocalDateTime now = LocalDateTime.now();
+        final SiteContext site = SiteContext.current();
         try {
             return DAO.getInstance().getActiveTrips(now.minusDays(windowDays), Cached.YES).stream()
                     .filter(trip -> Boolean.TRUE.equals(trip.getOpenToPublic()))
+                    .filter(trip -> site.admits(trip.getOrgId()))
                     .filter(trip -> trip.getStartDate() != null && !trip.getStartDate().isAfter(now))
                     .map(this::toAlbum)
                     .filter(album -> album.photos().size() >= minPhotos)

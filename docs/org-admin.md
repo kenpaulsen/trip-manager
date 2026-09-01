@@ -192,6 +192,27 @@ list.
   shrink for pre-migration clients.
 - `AuthResource` no longer reports `peopleAdmin`/`emailAdmin`/`addTrip` flags (absent reads as false).
 
+## Organization sites (subdomains, 2026-09)
+
+An org can have its **own site** at `{slug}.unitetrip.com` (service tier 1 of three: subdomain, custom
+domain (later), or listed on a shared site as today). Everything about it is an ONLINE admin act — no
+script, no DNS step, no deploy (wildcard DNS and the wildcard certificate already cover every label):
+
+- `Organization.slug` — site-admin only (a public namespace grant, like the sending-domain allow-list);
+  edited on the shared profile include. `OrgCommands.saveOrgEdits(..., slug)` validates the DNS-label
+  grammar, uniqueness, and the `RESERVED_SLUGS` list; blank clears it (the site goes offline, data and
+  content kept). `DAO.saveOrganization` refreshes the `SiteIndex`, so the host serves within the request.
+- **The starter home page**: the first assignment also calls `ensureHomePage`, which seeds the org's
+  `page:org:{id}:home` once (`Organization.homePageSeededAt` records it) — see
+  `content-templates.md`, "Organization sites". The org dashboard (`admin/orgSettings.xhtml`) calls it too,
+  so an org slugged before seeding existed gets its page on its managers' next visit; for anyone else it is
+  a no-op. The dashboard's "Organization Site" card links to the live site (`SiteCommands.orgSiteUrl`, which
+  answers `http://{slug}.localhost:{port}/` when the admin is browsing on localhost).
+- **What the site shows** is decided by the request's `SiteContext` (`#{site}`), never by the session: the
+  org's page key, its name as the page title, only its own public trips and albums. Editing happens on the
+  org's site, in the same edit mode as the shared page; the org-scoped `contentAdmin@{org}` grant is a
+  later phase — until then site admins / global `contentAdmin` edit org pages.
+
 ## Local-mode fixtures (`FakeData`)
 
 Acme trip `3f7a9c15…` (Kevin on the roster — demonstrates the removal guard), `emailAdmin@CFPW` → user2,

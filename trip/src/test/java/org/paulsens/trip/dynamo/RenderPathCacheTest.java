@@ -9,9 +9,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentTemplate;
+import org.paulsens.trip.model.Organization;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -100,10 +102,17 @@ public class RenderPathCacheTest {
                 Map.of()), 5));
         Assert.assertTrue(content.saveContent(instance("rp-child", "rp-holder",
                 StarterTemplates.TEXT_ONLY_ID, Map.of("body", "<p>child</p>")), 5));
+        // An ORGANIZATION's site page: its own section partition, rendered by the same path with the same
+        // zero-read contract -- a tenant's home page must cost no more than the shared one.
+        final String orgPage = OrgPageBootstrap.pageKey(
+                Organization.Id.from("1d88a054-74c7-4293-a40c-b007e09520f3"));
+        Assert.assertTrue(content.saveContent(instance("rp-org-welcome", orgPage, StarterTemplates.TEXT_ONLY_ID,
+                Map.of("body", "<p>welcome</p>")), 5));
 
         // Warm every cache the render path touches (the first request may hit the store; that is allowed).
         content.getContentForSection(page);
         content.getContentForSection("rp-holder");
+        content.getContentForSection(orgPage);
         templates.getAllTemplates();
         templates.getTemplate(StarterTemplates.TEXT_ONLY_ID, 1);
         templates.getTemplate(StarterTemplates.CONTAINER_ID, 1);
@@ -113,6 +122,7 @@ public class RenderPathCacheTest {
         for (int i = 0; i < 2; i++) {
             content.getContentForSection(page);
             content.getContentForSection("rp-holder");
+            content.getContentForSection(orgPage);
             templates.getTemplate(StarterTemplates.TEXT_ONLY_ID, 1);
             templates.getTemplate(StarterTemplates.CONTAINER_ID, 1);
             templates.getTemplate(StarterTemplates.PILGRIMAGES_ID, 1);

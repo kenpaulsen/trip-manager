@@ -40,6 +40,42 @@ STANDARD as null so JSON round trips stay equal).
   page level is either markup in the body or the reflection pattern: a titleless container whose child
   carries the heading.
 
+## Organization sites (per-org pages, 2026-09)
+
+The same engine renders more than one site; **which page renders is a fact about the request's
+hostname**, resolved once per request into a `SiteContext` (`org.paulsens.trip.site`, carried on
+`RequestContext`) and read by pages as `#{site}`:
+
+- **Page keys per site** (`SiteCommands.getPageKey()`): the shared site renders `page:trip-index`; an
+  organization's own site (`{slug}.unitetrip.com`) renders `page:org:{orgUUID}:home` (the UUID, never the
+  slug — a site admin may rename the slug and the page must survive it); the product's marketing host
+  renders `page:unitetrip-home`. `OrgPageBootstrap` owns these keys. `WEB-INF/homePage.xhtml` captures the
+  key from the bean at initPage on every request and never stores it anywhere a later request could read it
+  back (see `SiteContext`'s hard rule: never in sessionScope/viewScope).
+- **The starter page** (`OrgPageBootstrap.rows`): a welcome section naming the org (obviously placeholder
+  text), an English `pilgrimages` section, and a `photo-albums` section — "less is more". Seeded through the
+  normal DAO save path by `OrgCommands.ensureHomePage`, **exactly once per org** (the org row records
+  `homePageSeededAt`): on the subdomain's first assignment, or lazily from the org dashboard for an org
+  slugged earlier. An org that empties its page keeps it empty; a hand-authored page is never overwritten.
+  Instance ids are minted UUIDs — the shared page's guessable ids (`events`, `docs`) are anchors and
+  child-section keys and can never be reused by a second page. No script: onboarding an org is an admin-UI
+  flow by design.
+- **What an org site lists is that org's data, as a property of the site**: `TripCommands.getPublicTripsFor`
+  and `MediaCommands.getHomeAlbums` filter by `SiteContext.admits(trip.orgId)` on an ORG site, whatever the
+  instance's properties say — isolation is not an option an editor could forget. Non-org sites are
+  unfiltered (the shared site's own curation of which orgs it shows is a later phase).
+- **Template scope**: `ContentTemplate.orgId` — null = site-level/shared, else one organization's own.
+  Sharing is an AUTHORING-time choice: the Add dialog (`getTemplateChoicesFor`) offers an org site the shared
+  templates plus its own (`SiteContext.isSiteOf`), any other site only the shared ones; an instance then
+  pins whichever it chose, so rendering never consults the field and the zero-live-read rule below is
+  untouched. The template manager's Scope column/menu (`TemplateCommands.scopeChoices`/`scopeLabel`) sets
+  it; a blank menu choice saves as null; an unknown org is refused.
+- **Editing** an org's page happens on the org's site (cookies are host-scoped) with the same edit mode;
+  authorization is site admin / global `contentAdmin` until the org-scoped `contentAdmin@{org}` privilege
+  lands (privilege-only by decision: org admins do not implicitly edit content).
+- An empty page shows a plain notice (`homePage.xhtml`): the marketing host's "coming soon", or "this site
+  is being set up" on an org host whose page is not seeded yet.
+
 ## Programmatic types
 
 `ProgrammaticContentTemplate` (in `org.paulsens.trip.content`, EL-friendly getter naming):
@@ -222,7 +258,8 @@ datastore).
    `--purge-v1` deletes the retired `home.*` rows. New rows appear on their own within ~5 minutes (the
    cache refresh merges); only DELETES need the Settings page's "Clear caches" button (the refresh never
    removes).
-Everything else is edited in place: `/trip/index.jsf` → Edit page.
+Everything else is edited in place: `/trip/index.jsf` → Edit page. **Organization pages need no
+script**: assigning the org's subdomain seeds its starter page (see "Organization sites" above).
 
 ## Retired v1 behaviors
 

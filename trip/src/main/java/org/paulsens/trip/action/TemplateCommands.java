@@ -26,6 +26,7 @@ import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentRecord;
 import org.paulsens.trip.model.ContentTemplate;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.model.TemplateKind;
 import org.paulsens.trip.model.TemplateRecord;
@@ -117,6 +118,12 @@ public class TemplateCommands {
             log.warn("Refusing template save of '{}': caller lacks contentAdmin", template.getId());
             return false;
         }
+        normalizeScope(template);
+        if (template.isOrgOwned() && findOrg(template.getOrgId()) == null) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved",
+                    "The template's organization does not exist.");
+            return false;
+        }
         final String problem = validateForSave(template);
         if (problem != null) {
             log.warn("Refusing template save of '{}': {}", template.getId(), problem);
@@ -138,6 +145,48 @@ public class TemplateCommands {
                     "Saved v" + template.getVersion() + " of template '" + template.getId() + "'");
         }
         return saved;
+    }
+
+    /** The editor's Scope menu submits "" for "shared"; the stored shape of shared is null. */
+    private static void normalizeScope(final ContentTemplate template) {
+        if (template.getOrgId() != null && template.getOrgId().isBlank()) {
+            template.setOrgId(null);
+        }
+    }
+
+    private static Organization findOrg(final String orgId) {
+        try {
+            return DAO.getInstance().getOrganization(Organization.Id.from(orgId.trim()), Cached.YES)
+                    .orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to look up organization " + orgId, ex);
+            return null;
+        }
+    }
+
+    /**
+     * The organizations a template may be scoped to, name-sorted, for the editor's Scope menu. Every org:
+     * template authoring is site-staff work ({@code contentAdmin} is global), so the menu is not narrowed
+     * to the request's site.
+     */
+    public List<Organization> getScopeChoices() {
+        try {
+            return DAO.getInstance().getOrganizations(Cached.YES).stream()
+                    .sorted(java.util.Comparator.comparing(Organization::getName, String.CASE_INSENSITIVE_ORDER))
+                    .toList();
+        } catch (final RuntimeException ex) {
+            log.error("Unable to list organizations for the template editor", ex);
+            return List.of();
+        }
+    }
+
+    /** "Shared" for a site-level template, else the owning organization's name (its id if unreadable). */
+    public String scopeLabel(final ContentTemplate template) {
+        if (template == null || !template.isOrgOwned()) {
+            return "Shared";
+        }
+        final Organization org = findOrg(template.getOrgId());
+        return org == null ? template.getOrgId() : org.getName();
     }
 
     /**

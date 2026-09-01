@@ -77,6 +77,15 @@ public final class Organization implements Serializable {
     private String slug;
 
     /**
+     * When the org's default home page was seeded (see {@code OrgPageBootstrap}); null until the org first
+     * gets a subdomain. Recorded on the org row rather than inferred from the page's content so that seeding
+     * happens exactly ONCE: an org that later deletes every section has an empty page by choice, and must
+     * not find the starter sections back the next time an admin opens its settings. Setter-populated,
+     * outside the 8-arg creator like {@link #paymentDefaults}.
+     */
+    private LocalDateTime homePageSeededAt;
+
+    /**
      * The privilege base names this org may grant (site-admin controlled allow-list, bounding both the
      * trip-scoped roles on the trip editor and the org-scoped grants on the org People page). {@code null}
      * means "never restricted" == everything allowed, so existing rows need no migration and restriction is

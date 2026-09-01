@@ -1,5 +1,6 @@
 package org.paulsens.trip.site;
 
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.model.Organization;
 
 /**
@@ -49,6 +50,36 @@ public record SiteContext(Mode mode, Organization.Id orgId, String slug, String 
 
     public static SiteContext unknown(final String host) {
         return new SiteContext(Mode.UNKNOWN, null, null, host);
+    }
+
+    /**
+     * The site of the request in progress, read from the {@code RequestContext} ScopedValue that
+     * {@code SessionRecoveryFilter} binds -- the one sanctioned way for a bean to learn which site it is
+     * rendering for. Off a bound request (schedulers, background work, unit tests) this is the SHARED
+     * default, so code that runs there must take the organization explicitly.
+     */
+    public static SiteContext current() {
+        return RequestContext.SCOPE.isBound() ? RequestContext.SCOPE.get().site() : shared(null);
+    }
+
+    /**
+     * Whether a LISTING on this site may include something owned by {@code ownerOrgId} (a trip, an album):
+     * an org site admits only its own; every other site admits everything (the shared site's own curation
+     * of which orgs it shows is a later phase).
+     */
+    public boolean admits(final String ownerOrgId) {
+        if (!isOrg()) {
+            return true;
+        }
+        return isSiteOf(ownerOrgId);
+    }
+
+    /**
+     * Whether this is exactly {@code ownerOrgId}'s own site -- the rule for things that belong to ONE
+     * tenant and to no shared surface at all (an org's templates): false on every non-org site.
+     */
+    public boolean isSiteOf(final String ownerOrgId) {
+        return isOrg() && ownerOrgId != null && ownerOrgId.equals(orgId.getValue());
     }
 
     public boolean isOrg() {

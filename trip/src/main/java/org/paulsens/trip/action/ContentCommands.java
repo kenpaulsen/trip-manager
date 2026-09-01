@@ -36,6 +36,7 @@ import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.TemplateKind;
 import org.paulsens.trip.model.TemplateRecord;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.site.SiteContext;
 
 /**
  * Template-driven page content, exposed to pages as {@code #{content}}.
@@ -689,15 +690,19 @@ public class ContentCommands {
     /**
      * The templates the Add dialog may offer for a section: inside a container, its effective allow-list
      * -- the container INSTANCE's when set, else its template's, else any non-container template; at page
-     * level, everything.
+     * level, everything -- always narrowed to what the request's SITE may use: an org site sees the shared
+     * templates plus its own, any other site only the shared ones (an org's template never reaches another
+     * tenant's page, or the shared page).
      */
     public List<ContentTemplate> getTemplateChoicesFor(final String section) {
         final List<ContentTemplate> all;
         try {
             // MAIL templates are email bodies: they have no instances and never render on a page, so no
             // Add dialog anywhere may offer one.
+            final SiteContext site = SiteContext.current();
             all = DAO.getInstance().getAllTemplates(Cached.NO).stream()
                     .filter(t -> t.getKind() != TemplateKind.MAIL)
+                    .filter(t -> !t.isOrgOwned() || site.isSiteOf(t.getOrgId()))
                     .toList();
         } catch (final RuntimeException ex) {
             log.error("Unable to list templates for section: " + section, ex);

@@ -5,6 +5,7 @@ import java.util.List;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Placeholder;
@@ -27,6 +28,29 @@ public class TemplateCommandsTest {
             DAO.getInstance().getTemplateRecord(id, Cached.NO)
                     .ifPresent(rec -> DAO.getInstance().saveTemplate(rec.getCurrent(), 5));
         }
+    }
+
+    @Test
+    public void aTemplateIsSharedOrOwnedByOneRealOrganization() {
+        final TemplateCommands admin = as(true);
+        final ContentTemplate template = new ContentTemplate("scope-" + System.nanoTime(), 0, "Scoped", null,
+                "<p>{{msg}}</p>", List.of(new Placeholder("msg", Placeholder.Type.TEXT, "Msg", null, true)),
+                null, null);
+        template.setOrgId("");
+        Assert.assertTrue(admin.saveTemplate(template), "the Scope menu's 'shared' choice submits blank");
+        Assert.assertNull(template.getOrgId(), "...stored as null, the pre-org-sites row shape");
+        Assert.assertEquals(admin.scopeLabel(template), "Shared");
+        Assert.assertEquals(admin.scopeLabel(null), "Shared");
+
+        template.setOrgId("no-such-org");
+        Assert.assertFalse(admin.saveTemplate(template), "an owner that is not an organization is refused");
+
+        template.setOrgId(FakeData.ACME_ORG_ID);
+        Assert.assertTrue(admin.saveTemplate(template));
+        Assert.assertEquals(admin.getTemplate(template.getId()).getOrgId(), FakeData.ACME_ORG_ID);
+        Assert.assertEquals(admin.scopeLabel(template), "Acme Inc");
+        Assert.assertTrue(admin.getScopeChoices().stream()
+                .anyMatch(org -> FakeData.ACME_ORG_ID.equals(org.getId().getValue())));
     }
 
     private static TemplateCommands as(final boolean siteAdmin) {

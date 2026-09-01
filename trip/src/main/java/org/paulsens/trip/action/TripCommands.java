@@ -31,6 +31,7 @@ import org.paulsens.trip.model.TripEvent;
 
 import static java.time.temporal.ChronoUnit.DAYS;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.site.SiteContext;
 
 @Slf4j
 @Named("trip")
@@ -326,6 +327,8 @@ public class TripCommands {
      * The pilgrimages a "Pilgrimage Listings" programmatic content instance shows: its admin-provided
      * properties (language, CFPW-only, max count) applied to the same index-cached public listing. Blank or
      * unparsable properties fall back to everything -- a public page renders permissively, never errors.
+     * On an ORGANIZATION's site the listing is always that org's own trips, whatever the instance says:
+     * tenant isolation is a property of the site, not an option an editor could forget to tick.
      */
     public List<Trip> getPublicTripsFor(final ContentInstance instance) {
         if (instance == null) {
@@ -335,8 +338,9 @@ public class TripCommands {
         final List<Trip> listed = Boolean.parseBoolean(values.get("cfpwOnly"))
                 ? getPublicCfpwTrips(values.get("language"))
                 : getPublicTrips(values.get("language"));
+        final SiteContext site = SiteContext.current();
         final int max = parsePositive(values.get("maxCount"), Integer.MAX_VALUE);
-        return listed.stream().limit(max).toList();
+        return listed.stream().filter(trip -> site.admits(trip.getOrgId())).limit(max).toList();
     }
 
     private static int parsePositive(final String raw, final int fallback) {

@@ -15,12 +15,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.model.ContentInstance;
+import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.FeesPaidBy;
 import org.paulsens.trip.model.OrgMember;
 import org.paulsens.trip.model.Organization;
@@ -1205,7 +1208,76 @@ public class OrgCommands {
             }
         }
         fresh.setDefaultMailDomain(chosenDefault(fresh, defaultDomain));
-        return saveOrganization(fresh);
+        if (!saveOrganization(fresh)) {
+            return false;
+        }
+        if (fresh.getSlug() != null) {
+            // A subdomain's first assignment also gives the site something to show (once; see
+            // ensureHomePage). A seeding failure growls on its own -- the profile itself did save.
+            ensureHomePage(orgId);
+        }
+        return true;
+    }
+
+    /**
+     * Seeds the organization's default home page (see {@code OrgPageBootstrap}) the first time it is asked
+     * for -- on the subdomain's assignment, and lazily from the org dashboard for an org whose slug predates
+     * seeding. Exactly once per org: the org row records the seeding, so an org that later empties its page
+     * keeps it empty. Site admins and the org's own admins may trigger it; everyone else is a no-op.
+     *
+     * @return whether the org now has (or already had) its seeded page; false when it has no subdomain, the
+     *         caller may not manage it, or the seed failed (with a growl)
+     */
+    public boolean ensureHomePage(final String orgId) {
+        final Organization org = freshOrg(orgId);
+        if (org == null || org.getSlug() == null || org.getSlug().isBlank()) {
+            return false;
+        }
+        if (org.getHomePageSeededAt() != null) {
+            return true;
+        }
+        if (!canManageOrg(orgId)) {
+            return false;
+        }
+        return seedHomePage(org);
+    }
+
+    private boolean seedHomePage(final Organization org) {
+        final String pageKey = OrgPageBootstrap.pageKey(org.getId());
+        try {
+            // A page someone already authored by hand is theirs: seeding only ever fills an EMPTY page.
+            if (DAO.getInstance().getContentForSection(pageKey, Cached.NO).isEmpty()) {
+                final int retain = new ConfigCommands().getInt(KnownSettings.CONTENT_VERSIONS_RETAINED, 0, 50);
+                for (final ContentInstance row : OrgPageBootstrap.rows(org, this::currentTemplateVersion)) {
+                    if (!DAO.getInstance().saveContent(row, retain)) {
+                        return fail("Home page not created",
+                                "The starter page for '" + org.getName() + "' could not be saved.");
+                    }
+                }
+            }
+        } catch (final RuntimeException ex) {
+            log.error("Unable to seed the home page of organization {}", org.getId(), ex);
+            return fail("Home page not created", "The starter page could not be saved: " + ex.getMessage());
+        }
+        org.setHomePageSeededAt(LocalDateTime.now());
+        if (!saveOrgOrWarn(org)) {
+            return false;
+        }
+        audit(caller(), org, "Default home page seeded for the site '" + org.getSlug() + "'");
+        return true;
+    }
+
+    /** The version a starter row pins: the template's CURRENT one, or 1 when it cannot be read. */
+    private int currentTemplateVersion(final String templateId) {
+        try {
+            return DAO.getInstance().getTemplate(templateId, Cached.NO)
+                    .map(ContentTemplate::getVersion)
+                    .filter(version -> version > 0)
+                    .orElse(1);
+        } catch (final RuntimeException ex) {
+            log.warn("Unable to read template {} while seeding a home page; pinning v1", templateId, ex);
+            return 1;
+        }
     }
 
     /**

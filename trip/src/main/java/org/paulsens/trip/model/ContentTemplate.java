@@ -1,5 +1,6 @@
 package org.paulsens.trip.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -53,6 +54,15 @@ public final class ContentTemplate implements Serializable {
     /** PROGRAMMATIC only: the registered {@code ProgrammaticContentTemplate} type id. */
     @JsonProperty("programmaticTypeId")
     private String programmaticTypeId;
+    /**
+     * The organization whose site may author content on this template, or null for a SITE-LEVEL template
+     * every site shares. Sharing is an AUTHORING-time choice: the Add dialog offers an org site its own
+     * templates plus the shared ones, and a shared site only the shared ones; an instance then pins
+     * whichever it chose, so rendering never consults this field (the zero-live-read render path is
+     * untouched). Null on every row written before org sites existed.
+     */
+    @JsonProperty("orgId")
+    private String orgId;
 
     private ContentTemplate() {
     }
@@ -66,6 +76,21 @@ public final class ContentTemplate implements Serializable {
             final String modifiedBy) {
         this(id, version, name, description, body, placeholders, modified, modifiedBy,
                 null, null, null, null);
+    }
+
+    /** The v2 shape without an owning organization: a site-level template (the pre-org-sites rows). */
+    public ContentTemplate(final String id, final int version, final String name, final String description,
+            final String body, final List<Placeholder> placeholders, final LocalDateTime modified,
+            final String modifiedBy, final TemplateKind kind, final List<String> allowedChildTemplateIds,
+            final Integer maxChildren, final String programmaticTypeId) {
+        this(id, version, name, description, body, placeholders, modified, modifiedBy, kind,
+                allowedChildTemplateIds, maxChildren, programmaticTypeId, null);
+    }
+
+    /** Whether this template belongs to one organization's site rather than to every site. */
+    @JsonIgnore
+    public boolean isOrgOwned() {
+        return orgId != null && !orgId.isBlank();
     }
 
     /** The template's kind; rows written before v2 have none and read as {@link TemplateKind#STANDARD}. */
@@ -95,6 +120,6 @@ public final class ContentTemplate implements Serializable {
         getPlaceholders().forEach(ph -> copies.add(ph.copy()));
         return new ContentTemplate(id, version, name, description, body, copies, modified, modifiedBy,
                 kind, allowedChildTemplateIds == null ? null : new ArrayList<>(allowedChildTemplateIds),
-                maxChildren, programmaticTypeId);
+                maxChildren, programmaticTypeId, orgId);
     }
 }

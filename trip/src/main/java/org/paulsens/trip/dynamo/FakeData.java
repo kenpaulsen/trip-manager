@@ -227,6 +227,14 @@ public final class FakeData {
         seedFakeProcessor(ACME_PROCESSOR_ID, ACME_ORG_ID, "Acme Test Processor", kevin.getId());
         seedCfpwPaymentDefaults();
         seedOrgScopedPrivileges(commands, kevin);
+        // Each org SITE gets its default home page through the same once-only seeding a slug assignment
+        // triggers in production, so cfpw.localhost / acme.localhost show what a new tenant sees. Runs after
+        // addFakeContent: the starter rows pin the starter templates' current versions.
+        for (final String orgId : List.of(CFPW_ORG_ID, ACME_ORG_ID)) {
+            if (!commands.ensureHomePage(orgId)) {
+                throw new IllegalStateException("Fake org seed: could not seed the home page of " + orgId);
+            }
+        }
     }
 
     /** Fixed id of the seeded Acme trip, so webtests and re-seeds agree (the fixed-UUID convention). */
