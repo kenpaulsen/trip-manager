@@ -253,6 +253,43 @@ public class TokenService {
         return deleted.size();
     }
 
+    /**
+     * The caller's listable credentials for the devices UI: REMEMBER and REFRESH rows, most recently used
+     * first. ACCESS rows are an implementation detail and are not listed (each dies with its parent).
+     * Deliberately not gated on {@link #enabled()}: browser remember-me rows are worth seeing and revoking
+     * whatever the API-token switch says.
+     */
+    public List<AuthToken> sessionsFor(final Person.Id userId) {
+        return DAO.getInstance().listAuthTokensForUser(userId).stream()
+                .filter(token -> token.getKind() != AuthToken.Kind.ACCESS)
+                .sorted((a, b) -> Long.compare(
+                        b.getLastUsed() == null ? 0 : b.getLastUsed(),
+                        a.getLastUsed() == null ? 0 : a.getLastUsed()))
+                .toList();
+    }
+
+    /**
+     * Owner-checked revocation of ONE listed credential (devices UI): the row must exist, be a listable
+     * kind, and belong to {@code owner} -- false otherwise, indistinguishably, so the endpoint can answer
+     * 404 for missing and not-owned alike ("whether someone ELSE has this token is not an answerable
+     * question", the passkey-delete rule). Cascades through the family for refresh tokens.
+     */
+    public boolean revokeSession(final Person.Id owner, final String selector) {
+        if (owner == null || selector == null || selector.isBlank()) {
+            return false;
+        }
+        final AuthToken row = DAO.getInstance().getAuthToken(selector, Cached.NO).orElse(null);
+        if (row == null || row.getKind() == AuthToken.Kind.ACCESS || !owner.equals(row.getUserId())) {
+            return false;
+        }
+        revokeFamily(row);
+        Audit.builder(AuditAction.TOKEN_REVOKE, AuditOutcome.SUCCESS)
+                .actor(row.getEmail(), row.getUserId().getValue())
+                .message("Signed-in device revoked (" + row.getKind() + ")")
+                .log();
+        return true;
+    }
+
     /** Loads ONLY access rows for the validation cache, so other kinds never take up residence in it. */
     private AuthToken loadAccessRow(final String selector) {
         final AuthToken row = DAO.getInstance().getAuthToken(selector, Cached.NO).orElse(null);

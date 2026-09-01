@@ -2,10 +2,12 @@ package org.paulsens.trip.api;
 
 import jakarta.servlet.http.HttpSession;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -224,6 +226,53 @@ public class AuthResource extends BaseResource {
             result.put("refreshToken", grant.refreshToken());
         }
         result.put("scope", grant.scope());
+        return result;
+    }
+
+    /**
+     * The caller's signed-in devices: browser remember-me registrations and API refresh tokens, for the
+     * profile page's devices fieldset ({@code docs/api-tokens.md}). {@link TripApi}-bound -- session or
+     * token, a phone can manage itself. ACCESS rows are an implementation detail and are not listed.
+     */
+    @GET
+    @Path("sessions")
+    @TripApi
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response sessions() {
+        final Map<String, Object> result = new LinkedHashMap<>();
+        result.put("sessions", tokens.sessionsFor(personId()).stream().map(AuthResource::describe).toList());
+        return ok(result);
+    }
+
+    /**
+     * Revokes one signed-in device, cascading to its access tokens. Owner-checked in the service; 404 for
+     * missing and not-owned alike -- whether someone ELSE has this token is not an answerable question
+     * (the passkey-delete rule). CSRF-checked for cookie callers; a bearer caller is exempt as everywhere.
+     */
+    @DELETE
+    @Path("sessions/{selector}")
+    @TripApi
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response revokeSession(@PathParam("selector") final String selector,
+            @HeaderParam(CSRF_HEADER) final String csrf) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        if (!tokens.revokeSession(personId(), selector)) {
+            return error(404, ApiErrors.NOT_FOUND, "No such signed-in device.");
+        }
+        return ok(Map.of("revoked", true));
+    }
+
+    /** The wire shape of one signed-in device. Browser rows carry no label; the UI names them by kind. */
+    private static Map<String, Object> describe(final AuthToken token) {
+        final Map<String, Object> result = new LinkedHashMap<>();
+        result.put("selector", token.getSelector());
+        result.put("kind", token.getKind().name());
+        result.put("label", token.getLabel());
+        result.put("created", token.getCreated());
+        result.put("lastUsed", token.getLastUsed());
+        result.put("expires", token.getExpires());
         return result;
     }
 

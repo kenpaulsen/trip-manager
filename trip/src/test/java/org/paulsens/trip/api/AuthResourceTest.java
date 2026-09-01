@@ -276,8 +276,8 @@ public class AuthResourceTest extends ResourceTestSupport {
 
     // ---- Bearer-token endpoints (docs/api-tokens.md) ----
 
-    /** A resource whose token feature is ON, wired to its own config; the DAO underneath is the real fake. */
-    private AuthResource tokenResource() {
+    /** A feature-ON token config, for services and resources alike. */
+    private static org.paulsens.trip.action.ConfigCommands tokenConfig() {
         final org.paulsens.trip.action.ConfigCommands config =
                 Mockito.mock(org.paulsens.trip.action.ConfigCommands.class);
         Mockito.when(config.getBoolean(org.paulsens.trip.config.KnownSettings.API_TOKEN_ENABLED))
@@ -288,7 +288,12 @@ public class AuthResourceTest extends ResourceTestSupport {
                 .thenReturn(60);
         Mockito.when(config.getInt(org.paulsens.trip.config.KnownSettings.API_TOKEN_REFRESH_ADMIN_DAYS, 1, 30))
                 .thenReturn(7);
-        return resource(new AuthResource(new org.paulsens.trip.security.TokenService(config)));
+        return config;
+    }
+
+    /** A resource whose token feature is ON, wired to its own config; the DAO underneath is the real fake. */
+    private AuthResource tokenResource() {
+        return resource(new AuthResource(new org.paulsens.trip.security.TokenService(tokenConfig())));
     }
 
     /** The kill switch covers all three endpoints -- and off is the config DEFAULT, which is what this uses. */
@@ -403,5 +408,85 @@ public class AuthResourceTest extends ResourceTestSupport {
         assertOk(live.revokeToken(null));
         assertOk(live.revokeToken(Map.of("refreshToken", "unknown:validator")));
         assertOk(live.revokeToken(Map.of("refreshToken", "garbage")));
+    }
+
+    // ---- Signed-in devices (docs/api-tokens.md) ----
+
+    private static org.paulsens.trip.model.AuthToken deviceRow(final String selector, final Person.Id who,
+            final org.paulsens.trip.model.AuthToken.Kind kind) {
+        final long now = java.time.Instant.now().getEpochSecond();
+        return org.paulsens.trip.model.AuthToken.builder()
+                .selector(selector).validatorHash("hash").userId(who).email("who@example.org")
+                .created(now).lastUsed(now).expires(now + 3600).kind(kind)
+                .build();
+    }
+
+    @Test
+    public void sessionsListShowsOnlyRevocableKindsAndOnlyMine() {
+        final Person.Id mine = Person.Id.from("dev-mine-" + System.nanoTime());
+        final Person.Id theirs = Person.Id.from("dev-theirs-" + System.nanoTime());
+        final org.paulsens.trip.dynamo.DAO dao = org.paulsens.trip.dynamo.DAO.getInstance();
+        dao.saveAuthToken(deviceRow("dev-r1", mine, org.paulsens.trip.model.AuthToken.Kind.REMEMBER));
+        dao.saveAuthToken(deviceRow("dev-r2", mine, org.paulsens.trip.model.AuthToken.Kind.REFRESH));
+        dao.saveAuthToken(deviceRow("dev-r3", mine, org.paulsens.trip.model.AuthToken.Kind.ACCESS));
+        dao.saveAuthToken(deviceRow("dev-r4", theirs, org.paulsens.trip.model.AuthToken.Kind.REFRESH));
+
+        signedInAs(mine);
+        final Response response = tokenResource().sessions();
+        assertOk(response);
+        @SuppressWarnings("unchecked")
+        final java.util.List<Map<String, Object>> sessions = (java.util.List<Map<String, Object>>)
+                ((Map<String, Object>) response.getEntity()).get("sessions");
+        final java.util.Set<Object> selectors = sessions.stream()
+                .map(row -> row.get("selector"))
+                .collect(java.util.stream.Collectors.toSet());
+        Assert.assertEquals(selectors, java.util.Set.of("dev-r1", "dev-r2"),
+                "ACCESS rows are an implementation detail and other people's rows are not mine to see");
+        dao.deleteAuthToken("dev-r1");
+        dao.deleteAuthToken("dev-r2");
+        dao.deleteAuthToken("dev-r3");
+        dao.deleteAuthToken("dev-r4");
+    }
+
+    @Test
+    public void revokeSessionIsCsrfCheckedOwnerCheckedAndCascades() {
+        final AuthResource live = tokenResource();
+        Mockito.when(passes.login("user2", "user")).thenReturn(new PassCommands().login("user2", "user"));
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> grant = (Map<String, Object>)
+                live.token(Map.of("email", "user2", "password", "user")).getEntity();
+        final String refreshSelector = String.valueOf(grant.get("refreshToken")).split(":")[0];
+        final Person.Id owner = new PassCommands().login("user2", "user").getUserId();
+
+        signedInAs(owner);
+        assertError(live.revokeSession(refreshSelector, null), 403, ApiErrors.CSRF);
+
+        signedInAs(Person.Id.from("somebody-else"));
+        assertError(live.revokeSession(refreshSelector, CSRF_OK), 404, ApiErrors.NOT_FOUND);
+
+        signedInAs(owner);
+        assertError(live.revokeSession("never-issued", CSRF_OK), 404, ApiErrors.NOT_FOUND);
+        assertOk(live.revokeSession(refreshSelector, CSRF_OK));
+        assertError(live.revokeSession(refreshSelector, CSRF_OK), 404, ApiErrors.NOT_FOUND);
+
+        final org.paulsens.trip.security.TokenService validator =
+                new org.paulsens.trip.security.TokenService(tokenConfig());
+        Assert.assertNull(validator.validateAccess(String.valueOf(grant.get("accessToken"))),
+                "revoking the device must kill its access tokens immediately");
+    }
+
+    /** A phone manages itself: bearer-authenticated, so no CSRF header -- and only its own rows. */
+    @Test
+    public void aBearerCallerManagesItsOwnSessionsWithoutCsrf() {
+        final Person.Id mine = Person.Id.from("dev-bearer-" + System.nanoTime());
+        final org.paulsens.trip.dynamo.DAO dao = org.paulsens.trip.dynamo.DAO.getInstance();
+        dao.saveAuthToken(deviceRow("dev-b1", mine, org.paulsens.trip.model.AuthToken.Kind.REFRESH));
+
+        bearer(new org.paulsens.trip.security.TokenPrincipal(mine, "who@example.org", "user",
+                org.paulsens.trip.model.AuthToken.Scope.MEMBER, "dev-b1-access"));
+        final AuthResource live = tokenResource();
+        assertOk(live.sessions());
+        assertOk(live.revokeSession("dev-b1", null));
+        assertError(live.revokeSession("dev-b1", null), 404, ApiErrors.NOT_FOUND);
     }
 }
