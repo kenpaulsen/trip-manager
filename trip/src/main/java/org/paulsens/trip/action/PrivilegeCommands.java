@@ -14,6 +14,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.cache.Cached;
 
@@ -73,8 +74,19 @@ public class PrivilegeCommands {
      */
     public static final List<String> TRIP_SCOPED_BASES =
             List.of(TRIP_MGR, TRIP_FIN_ADMIN, TRIP_FIN_VIEW, TRIP_VIEW, CHAT_MGR, REGISTRATION_ADMIN);
+    /**
+     * The org-scoped grants. {@link #CONTENT_ADMIN} and {@link #MEDIA_ADMIN} are BOTH here and global: the
+     * global row edits every site, the org-scoped row ({@code contentAdmin} + the org UUID) edits that one
+     * organization's own site -- its page, its templates, its media library -- and nothing shared. The
+     * org-site editing decision is privilege-only: an org's admins do not edit content by being admins.
+     */
     public static final List<String> ORG_SCOPED_BASES =
-            List.of(PEOPLE_ADMIN, ADD_TRIP, EMAIL_ADMIN, PAYMENTS_ADMIN);
+            List.of(PEOPLE_ADMIN, ADD_TRIP, EMAIL_ADMIN, PAYMENTS_ADMIN, CONTENT_ADMIN, MEDIA_ADMIN);
+    /**
+     * The org-scoped bases that open the org DASHBOARD (hub) to their holders: the operational grants. A
+     * content or media editor works on the org's site itself and has no business on its dashboard.
+     */
+    public static final List<String> ORG_HUB_BASES = List.of(PEOPLE_ADMIN, ADD_TRIP, EMAIL_ADMIN, PAYMENTS_ADMIN);
     public static final List<String> GLOBAL_BASES = List.of(PRIVILEGE_ADMIN, CONFIG_ADMIN, AUDIT_ADMIN,
             SITE_DEPLOYER, CONTENT_ADMIN, MEDIA_ADMIN, EVENT_ADMIN);
 
@@ -260,6 +272,32 @@ public class PrivilegeCommands {
                 .map(priv -> priv.getPeople().contains(personId))
                 .orElse(false);
     }
+
+    /**
+     * The page-side gate for a site-wide-or-this-org's privilege: {@code #{priv.checkHere('mediaAdmin',
+     * userId)}} is true for a site admin, a GLOBAL holder anywhere, and on an organization's own site also
+     * for a holder of the base scoped to THAT org. On a shared site the org-scoped grant counts for nothing
+     * -- it is a grant on the org's site, not on the org. The site comes from the request's host
+     * ({@code SiteContext.current()}), never from the session.
+     */
+    public boolean checkHere(final String name, final Person.Id personId) {
+        if (name == null || personId == null) {
+            return false;
+        }
+        final Caller current = callerSource.get();
+        if (current.isSiteAdmin() && personId.equals(current.personId())) {
+            return true;
+        }
+        if (check(name, null, personId)) {
+            return true;
+        }
+        final SiteContext site = SiteContext.current();
+        return site.isOrg() && check(name, site.orgId().getValue(), personId);
+    }
+
+    /** Test seam: the caller behind the current request (only {@link #checkHere} consults it). */
+    @lombok.Setter
+    private java.util.function.Supplier<Caller> callerSource = Caller::current;
 
     /**
      * Grants the named privilege to {@code personId}.

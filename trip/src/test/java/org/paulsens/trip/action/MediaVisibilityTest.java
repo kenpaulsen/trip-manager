@@ -17,7 +17,7 @@ import org.testng.annotations.Test;
  */
 public class MediaVisibilityTest {
 
-    private final MediaCommands media = new MediaCommands();
+    private final MediaCommands media = TestCallers.mediaAsSiteAdmin();
     private final TripCommands trips = new TripCommands();
 
     @BeforeClass

@@ -7,6 +7,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.security.TokenPrincipal;
 import org.paulsens.trip.util.ScopeUtil;
@@ -107,6 +108,23 @@ public final class Caller {
         return new Caller(id, false, who == null ? AuditActor.from(null) : who, new PrivilegeCommands());
     }
 
+    /**
+     * The caller behind ANY request -- JSF page, REST resource, or plain servlet -- resolved from the
+     * {@code RequestContext} the outermost filter binds for every request (actor + role), so beans that
+     * re-check authorization inside a write ({@code MediaCommands.mayManage}) answer the same for a page
+     * and for the API. Off a bound request (a scheduler, a unit test without the seam) this is nobody.
+     */
+    public static Caller bound() {
+        if (!org.paulsens.trip.audit.RequestContext.SCOPE.isBound()) {
+            return of((HttpSession) null);
+        }
+        final org.paulsens.trip.audit.RequestContext ctx = org.paulsens.trip.audit.RequestContext.SCOPE.get();
+        final AuditActor actor = ctx.actor();     // every RequestContext factory substitutes an anonymous actor
+        final Person.Id id = actor.id() == null ? null : Person.Id.from(actor.id());
+        return new Caller(id, ctx.userRole() != null && SITE_ADMIN_ROLE.equalsIgnoreCase(ctx.userRole()), actor,
+                new PrivilegeCommands());
+    }
+
     /** The caller behind a JSF request, resolved through {@code FacesContext}. */
     public static Caller current() {
         final ScopeUtil scope = ScopeUtil.getInstance();
@@ -139,6 +157,20 @@ public final class Caller {
 
     public boolean has(final String privilegeName) {
         return has(privilegeName, null);
+    }
+
+    /**
+     * Whether this caller holds the named privilege for the SITE this request is for: the global grant
+     * anywhere, or -- on an organization's own site -- the grant scoped to that org. On a shared site an
+     * org-scoped grant counts for nothing: it is a grant on the org's site, not on the org. The site comes
+     * from the request's host ({@code SiteContext.current()}), never from the session.
+     */
+    public boolean hasHere(final String privilegeName) {
+        if (has(privilegeName)) {
+            return true;
+        }
+        final SiteContext site = SiteContext.current();
+        return site.isOrg() && has(privilegeName, site.orgId().getValue());
     }
 
     /**

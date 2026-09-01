@@ -227,7 +227,36 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   the trip is publicly listed on that site.
 - **Local fixtures**: CFPW has NO slug (shared-tier, as in production); Acme (`acme.localhost`) and Beta
   Corp (`beta.localhost`, `FakeData.BETA_ORG_ID`) are the two hosted orgs; `fake-acme-doc` is Acme's
-  library document. `OwnedFixturePolicyIT` ratchets which webtests may reference the seeded orgs.
+  library document; Matt (user6) is Acme's SITE editor (`contentAdmin`+`mediaAdmin` scoped to Acme) and
+  Kevin (user3) its org admin WITHOUT the grant. `OwnedFixturePolicyIT` ratchets which webtests may
+  reference the seeded orgs.
+
+## Org-site editors: `contentAdmin@org` / `mediaAdmin@org` (privilege-only, 2026-09)
+
+Editing an organization's site is a PRIVILEGE, never a consequence of being its admin (user decision).
+`contentAdmin` and `mediaAdmin` are now in `ORG_SCOPED_BASES` as well as `GLOBAL_BASES`: the global row
+edits every site, the org-scoped row (stored id = base + the org UUID, granted on the org People page
+like any other org grant and bounded by the org's allow-list) edits that ONE org's own site:
+
+- **Content** (`ContentCommands.canEdit/mayEdit`): the org of a section is derived from the SECTION —
+  `OrgPageBootstrap.orgOf(pageKey)`, or for a container's children the container row's page — never
+  from the request's host, so a forged section cannot become editable and an org grant provably never
+  reaches `page:trip-index`, `page:unitetrip-home` or another org's page. Container config fields
+  (editor-privilege chips, child allow-lists) stay global-`contentAdmin`-only, and the chips themselves
+  are global privilege names (an org-scoped chip is a deliberate non-feature for now).
+- **Templates** (`TemplateCommands.mayAuthor`): an org editor authors templates scoped to their org only,
+  may never re-scope a stored template into or out of it (seizure), sees shared + own templates in the
+  manager, and gets only their org in the Scope menu; starter installation stays site-staff-only.
+  Scoping this grant scopes the blast radius of template HTML (script access) to the org's own site.
+- **Media** (`MediaCommands.mayManage/mayUploadHere`, resolved from the request-bound `Caller.bound()`
+  so pages, the REST API and the upload servlet answer alike): every write re-checks OWNERSHIP of the
+  item (global → any; org editor → the org's items; a trip's manager → its chat album), uploads are
+  allowed on the site whose org the editor holds, and `admin/media.xhtml` / `mediaItem.xhtml` /
+  `templates.xhtml` self-gate with `priv.checkHere(base, userId)` (site admin, global holder, or the
+  holder for THIS site's org) instead of the one-privilege `defaultAuth`.
+- The org DASHBOARD stays with the operational grants (`ORG_HUB_BASES`): editors work on the site itself.
+- Menu entries (Media, Content/Email Templates) and the landing page's upload/edit affordances use
+  `priv.checkHere`, so an editor sees them on their org's host only.
 
 ## Per-org settings (the settings ladder, 2026-09)
 

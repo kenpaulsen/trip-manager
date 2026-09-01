@@ -190,6 +190,31 @@ public class MediaResourceTest extends ResourceTestSupport {
         assertOk(adminResource.inSlot("tripChat-" + org.paulsens.trip.dynamo.FakeData.ACME_TRIP_ID));
     }
 
+    /**
+     * An org-scoped mediaAdmin is a media administrator on that org's own site only: the admin branch of
+     * the API on the org host, an ordinary caller on the shared site.
+     */
+    @Test
+    public void anOrgScopedMediaAdminAdministersOnlyOnItsOrgsSite() throws Exception {
+        final Person.Id editor = Person.Id.from("api-acme-media-editor");
+        final org.paulsens.trip.action.PrivilegeCommands priv = new org.paulsens.trip.action.PrivilegeCommands();
+        org.paulsens.trip.dynamo.DAO.getInstance();
+        org.paulsens.trip.dynamo.FakeData.addFakeData();
+        priv.savePrivilege(priv.createPrivilege(org.paulsens.trip.action.PrivilegeCommands.MEDIA_ADMIN, "acme",
+                org.paulsens.trip.dynamo.FakeData.ACME_ORG_ID, List.of(editor)));
+        signedInAs(editor);
+        Mockito.when(media.getAll()).thenReturn(List.of());
+        assertError(resource.list(), 403, ApiErrors.FORBIDDEN);
+
+        final MediaResource onAcme = resource(new MediaResource());
+        final org.paulsens.trip.site.SiteContext acme = org.paulsens.trip.site.SiteContext.org(
+                org.paulsens.trip.model.Organization.Id.from(org.paulsens.trip.dynamo.FakeData.ACME_ORG_ID),
+                "acme", "acme.localhost");
+        final Response listed = ScopedValue.where(org.paulsens.trip.audit.RequestContext.SCOPE,
+                org.paulsens.trip.audit.RequestContext.of(null, null, acme)).call(onAcme::list);
+        assertOk(listed);
+    }
+
     /** Hidden reads as absent for a non-admin: 404, not a redacted body. */
     @Test
     public void gettingOneItemRedactsByPrivilege() {

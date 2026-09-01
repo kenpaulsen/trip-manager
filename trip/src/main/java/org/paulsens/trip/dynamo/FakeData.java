@@ -236,6 +236,7 @@ public final class FakeData {
         seedFakeProcessor(ACME_PROCESSOR_ID, ACME_ORG_ID, "Acme Test Processor", kevin.getId());
         seedCfpwPaymentDefaults();
         seedOrgScopedPrivileges(commands, kevin);
+        seedOrgSiteEditor(commands);
         // Each org SITE gets its default home page through the same once-only seeding a slug assignment
         // triggers in production, so acme.localhost / beta.localhost show what a new tenant sees. Runs after
         // addFakeContent: the starter rows pin the starter templates' current versions.
@@ -248,6 +249,26 @@ public final class FakeData {
 
     /** Fixed id of the seeded Acme trip, so webtests and re-seeds agree (the fixed-UUID convention). */
     public static final String ACME_TRIP_ID = "3f7a9c15-6d28-4e0b-8a54-1c9e7b3d5f82";
+
+    /**
+     * Matt (user6), a plain Acme member, is Acme's SITE editor: {@code contentAdmin} and {@code mediaAdmin}
+     * scoped to Acme, granted through the real org grant path (Acme's allow-list admits them). He edits
+     * acme.localhost's page and library and nothing on the shared site or on beta.localhost -- the
+     * privilege-only org-editing fixture. Kevin, Acme's org ADMIN, deliberately holds neither: being an
+     * org admin does not edit content.
+     */
+    private static void seedOrgSiteEditor(final org.paulsens.trip.action.OrgCommands commands) {
+        final Person matt = DAO.getInstance().getPersonByEmail(localEmail("user6"), Cached.NO);
+        if (matt == null) {
+            throw new IllegalStateException("Fake org seed: Matt (user6) is missing");
+        }
+        for (final String base : List.of(org.paulsens.trip.action.PrivilegeCommands.CONTENT_ADMIN,
+                org.paulsens.trip.action.PrivilegeCommands.MEDIA_ADMIN)) {
+            if (!commands.grantOrgPrivilege(ACME_ORG_ID, matt.getId(), base)) {
+                throw new IllegalStateException("Fake org seed: could not grant " + base + "@Acme to Matt");
+            }
+        }
+    }
 
     /**
      * The org-scoped privilege fixtures (org migration, 2026-08), granted through the REAL writers so the

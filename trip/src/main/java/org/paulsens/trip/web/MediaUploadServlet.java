@@ -55,7 +55,9 @@ public class MediaUploadServlet extends HttpServlet {
             error(resp, 401, "not_authenticated", "Sign in required.");
             return;
         }
-        if (!caller.has(PrivilegeCommands.MEDIA_ADMIN)) {
+        // Global media admins upload anywhere; an org's media editor only on that org's own site (the
+        // upload is stamped with the site's org -- see MediaCommands.siteOrgId).
+        if (!caller.hasHere(PrivilegeCommands.MEDIA_ADMIN)) {
             error(resp, 403, "forbidden", "Media administration required.");
             return;
         }

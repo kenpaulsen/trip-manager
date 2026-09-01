@@ -84,9 +84,11 @@ hostname**, resolved once per request into a `SiteContext` (`org.paulsens.trip.s
   pins whichever it chose, so rendering never consults the field and the zero-live-read rule below is
   untouched. The template manager's Scope column/menu (`TemplateCommands.scopeChoices`/`scopeLabel`) sets
   it; a blank menu choice saves as null; an unknown org is refused.
-- **Editing** an org's page happens on the org's site (cookies are host-scoped) with the same edit mode;
-  authorization is site admin / global `contentAdmin` until the org-scoped `contentAdmin@{org}` privilege
-  lands (privilege-only by decision: org admins do not implicitly edit content).
+- **Editing** an org's page happens on the org's site with the same edit mode. Authorization is
+  privilege-only: site admin, global `contentAdmin`, or `contentAdmin` scoped to that org (see
+  `org-admin.md` "Org-site editors") — org admins do not edit content by being admins. The org of a
+  section is derived from the section (page key, or the container's page), so an org grant never reaches
+  the shared or marketing page.
 - An empty page shows a plain notice (`homePage.xhtml`): the marketing host's "coming soon", or "this site
   is being set up" on an org host whose page is not seeded yet.
 

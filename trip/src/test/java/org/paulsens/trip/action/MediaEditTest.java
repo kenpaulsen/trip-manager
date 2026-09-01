@@ -21,7 +21,7 @@ import org.testng.annotations.Test;
  */
 public class MediaEditTest {
 
-    private final MediaCommands media = new MediaCommands();
+    private final MediaCommands media = TestCallers.mediaAsSiteAdmin();
 
     private MediaItem seed(final String key) {
         final MediaItem item = new MediaItem("edit-test-" + System.nanoTime(), key, "Original title",

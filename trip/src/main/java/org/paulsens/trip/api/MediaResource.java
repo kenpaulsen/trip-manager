@@ -22,6 +22,7 @@ import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.site.ListingScope;
+import org.paulsens.trip.site.SiteContext;
 
 /**
  * The media library over the wire (issue #37): the JSF admin page's operations, ported for the mobile
@@ -66,7 +67,7 @@ public class MediaResource extends BaseResource {
     @GET
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response list() {
-        if (!privileges().has(ApiPrivileges.MEDIA_ADMIN)) {
+        if (!mediaAdminHere()) {
             return error(403, ApiErrors.FORBIDDEN, "Media administration required.");
         }
         final MediaCommands media = Beans.get(MediaCommands.class);
@@ -85,7 +86,7 @@ public class MediaResource extends BaseResource {
             return error(400, ApiErrors.BAD_REQUEST, "A slot name is required.");
         }
         final MediaCommands media = Beans.get(MediaCommands.class);
-        final boolean admin = privileges().has(ApiPrivileges.MEDIA_ADMIN);
+        final boolean admin = mediaAdminHere();
         if (!admin && !mayBrowseSlot(slot)) {
             // Same answer as an unknown slot: a slot name is guessable (tripChat-{tripId}), and "exists but
             // not yours" would confirm another tenant's trip.
@@ -94,6 +95,19 @@ public class MediaResource extends BaseResource {
         return ok((admin ? media.getInSlot(slot) : media.getVisibleInSlot(slot, 0)).stream()
                 .map(item -> toDto(media, item))
                 .toList());
+    }
+
+    /**
+     * Media administration for the SITE this request is for: a global mediaAdmin anywhere, or on an
+     * organization's own site its org-scoped media editor. Which ITEMS such an editor may then change is
+     * the commands' ownership rule ({@code MediaCommands.mayManage}): a foreign row reads as absent.
+     */
+    private boolean mediaAdminHere() {
+        if (privileges().has(ApiPrivileges.MEDIA_ADMIN)) {
+            return true;
+        }
+        final SiteContext site = SiteContext.current();
+        return site.isOrg() && privileges().has(ApiPrivileges.MEDIA_ADMIN, site.orgId().getValue());
     }
 
     /**
@@ -123,7 +137,7 @@ public class MediaResource extends BaseResource {
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response get(@PathParam("id") final String id) {
         final MediaCommands media = Beans.get(MediaCommands.class);
-        final MediaItem item = privileges().has(ApiPrivileges.MEDIA_ADMIN)
+        final MediaItem item = mediaAdminHere()
                 ? media.get(id) : media.getVisible(id);
         if (item == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such media item.");
@@ -151,7 +165,7 @@ public class MediaResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        if (!privileges().has(ApiPrivileges.MEDIA_ADMIN)) {
+        if (!mediaAdminHere()) {
             return error(403, ApiErrors.FORBIDDEN, "Media administration required.");
         }
         if (body == null || body.key() == null || body.key().isBlank()) {
@@ -209,7 +223,7 @@ public class MediaResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        if (!privileges().has(ApiPrivileges.MEDIA_ADMIN)) {
+        if (!mediaAdminHere()) {
             return error(403, ApiErrors.FORBIDDEN, "Media administration required.");
         }
         if (body == null || body.key() == null || body.key().isBlank()) {
@@ -255,7 +269,7 @@ public class MediaResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        if (!privileges().has(ApiPrivileges.MEDIA_ADMIN)) {
+        if (!mediaAdminHere()) {
             return error(403, ApiErrors.FORBIDDEN, "Media administration required.");
         }
         if (body == null) {
@@ -292,7 +306,7 @@ public class MediaResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        if (!privileges().has(ApiPrivileges.MEDIA_ADMIN)) {
+        if (!mediaAdminHere()) {
             return error(403, ApiErrors.FORBIDDEN, "Media administration required.");
         }
         final MediaCommands media = Beans.get(MediaCommands.class);
@@ -317,7 +331,7 @@ public class MediaResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        if (!privileges().has(ApiPrivileges.MEDIA_ADMIN)) {
+        if (!mediaAdminHere()) {
             return error(403, ApiErrors.FORBIDDEN, "Media administration required.");
         }
         return ok(Map.of("items", Beans.get(MediaCommands.class).refreshFromDatabase(actor())));

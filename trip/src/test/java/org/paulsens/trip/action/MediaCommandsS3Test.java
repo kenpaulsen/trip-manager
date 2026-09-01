@@ -34,7 +34,7 @@ public class MediaCommandsS3Test {
     @BeforeClass
     public void injectClientAndBucket() throws Exception {
         System.setProperty("trip.media.bucket", "test-bucket");
-        media = new MediaCommands();
+        media = TestCallers.mediaAsSiteAdmin();
         s3 = Mockito.mock(S3Client.class);
         final java.lang.reflect.Field field = MediaCommands.class.getDeclaredField("s3");
         field.setAccessible(true);

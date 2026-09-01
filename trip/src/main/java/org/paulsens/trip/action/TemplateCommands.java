@@ -49,10 +49,17 @@ public class TemplateCommands {
     @Setter
     private Supplier<Caller> callerSource = Caller::current;
 
-    /** The latest version of every template, name-sorted -- drives the manager table and pickers. */
+    /**
+     * The latest version of every template the caller may see, name-sorted -- drives the manager table and
+     * pickers. Site staff see everything; an org's content editor sees the shared templates and their own
+     * org's, never another tenant's.
+     */
     public List<ContentTemplate> getTemplates() {
         try {
-            return DAO.getInstance().getAllTemplates(Cached.NO);
+            final Caller caller = callerSource.get();
+            return DAO.getInstance().getAllTemplates(Cached.NO).stream()
+                    .filter(template -> visible(caller, template))
+                    .toList();
         } catch (final RuntimeException ex) {
             log.error("Unable to list templates", ex);
             return List.of();
@@ -114,11 +121,13 @@ public class TemplateCommands {
             return false;
         }
         final Caller caller = callerSource.get();
-        if (!caller.has(PrivilegeCommands.CONTENT_ADMIN)) {
-            log.warn("Refusing template save of '{}': caller lacks contentAdmin", template.getId());
+        normalizeScope(template);
+        if (!mayAuthor(caller, template, storedTemplate(template.getId()))) {
+            log.warn("Refusing template save of '{}': caller may not author it", template.getId());
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved",
+                    "You may only author templates scoped to an organization whose site you edit.");
             return false;
         }
-        normalizeScope(template);
         if (template.isOrgOwned() && findOrg(template.getOrgId()) == null) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved",
                     "The template's organization does not exist.");
@@ -147,6 +156,39 @@ public class TemplateCommands {
         return saved;
     }
 
+    /**
+     * Who may author a template. A global contentAdmin (or site admin, via Caller) authors everything --
+     * template bodies are raw HTML rendered unescaped, so this is script access. An ORG-scoped contentAdmin
+     * authors only templates owned by an org whose site they edit, and may never re-scope a template into
+     * (or out of) that org: the STORED row must already be that org's, or not exist -- otherwise an org
+     * editor could seize a shared template, or another org's, by saving it under their own scope. Scoping
+     * the grant to an org scopes the blast radius of that script access to the org's own site.
+     */
+    static boolean mayAuthor(final Caller caller, final ContentTemplate template, final ContentTemplate stored) {
+        if (caller.has(PrivilegeCommands.CONTENT_ADMIN)) {
+            return true;
+        }
+        if (!template.isOrgOwned() || !caller.has(PrivilegeCommands.CONTENT_ADMIN, template.getOrgId())) {
+            return false;
+        }
+        return stored == null || template.getOrgId().equals(stored.getOrgId());
+    }
+
+    /** Whether the caller may see a template at all: everything for site staff, own-org + shared otherwise. */
+    private boolean visible(final Caller caller, final ContentTemplate template) {
+        return caller.has(PrivilegeCommands.CONTENT_ADMIN) || !template.isOrgOwned()
+                || caller.has(PrivilegeCommands.CONTENT_ADMIN, template.getOrgId());
+    }
+
+    private static ContentTemplate storedTemplate(final String id) {
+        try {
+            return DAO.getInstance().getTemplate(id, Cached.NO).orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to read the stored template: " + id, ex);
+            return null;
+        }
+    }
+
     /** The editor's Scope menu submits "" for "shared"; the stored shape of shared is null. */
     private static void normalizeScope(final ContentTemplate template) {
         if (template.getOrgId() != null && template.getOrgId().isBlank()) {
@@ -171,7 +213,11 @@ public class TemplateCommands {
      */
     public List<Organization> getScopeChoices() {
         try {
+            final Caller caller = callerSource.get();
             return DAO.getInstance().getOrganizations(Cached.YES).stream()
+                    // Site staff scope to any org; an org's editor only to an org whose site they edit.
+                    .filter(org -> caller.has(PrivilegeCommands.CONTENT_ADMIN)
+                            || caller.has(PrivilegeCommands.CONTENT_ADMIN, org.getId().getValue()))
                     .sorted(java.util.Comparator.comparing(Organization::getName, String.CASE_INSENSITIVE_ORDER))
                     .toList();
         } catch (final RuntimeException ex) {
@@ -217,8 +263,9 @@ public class TemplateCommands {
             return false;
         }
         final Caller caller = callerSource.get();
-        if (!caller.has(PrivilegeCommands.CONTENT_ADMIN)) {
-            log.warn("Refusing template delete of '{}': caller lacks contentAdmin", id);
+        final ContentTemplate stored = storedTemplate(id);
+        if (stored == null || !mayAuthor(caller, stored, stored)) {
+            log.warn("Refusing template delete of '{}': caller may not author it", id);
             return false;
         }
         if (isReferenced(id)) {

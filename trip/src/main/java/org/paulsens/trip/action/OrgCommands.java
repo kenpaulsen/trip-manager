@@ -677,7 +677,8 @@ public class OrgCommands {
             return false;
         }
         final Caller current = caller();
-        return PrivilegeCommands.ORG_SCOPED_BASES.stream().anyMatch(base -> current.has(base, orgId));
+        // The operational grants open the dashboard; an org's content/media editors work on its SITE.
+        return PrivilegeCommands.ORG_HUB_BASES.stream().anyMatch(base -> current.has(base, orgId));
     }
 
     /** The org Trips page: admins, plus addTrip holders (they need the list their button lives on). */
@@ -971,7 +972,9 @@ public class OrgCommands {
             PrivilegeCommands.PEOPLE_ADMIN, "People Admin",
             PrivilegeCommands.ADD_TRIP, "Create Trips",
             PrivilegeCommands.EMAIL_ADMIN, "Email Admin",
-            PrivilegeCommands.PAYMENTS_ADMIN, "Payments Admin");
+            PrivilegeCommands.PAYMENTS_ADMIN, "Payments Admin",
+            PrivilegeCommands.CONTENT_ADMIN, "Site Content Editor",
+            PrivilegeCommands.MEDIA_ADMIN, "Site Media Editor");
 
     /**
      * The org-scoped privileges this person holds here, each as a {@code name}/{@code desc}/{@code base}

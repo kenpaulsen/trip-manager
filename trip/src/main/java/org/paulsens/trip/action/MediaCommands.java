@@ -42,6 +42,8 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 import org.paulsens.trip.cache.Cached;
+import java.util.function.Supplier;
+import lombok.Setter;
 import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 
@@ -120,6 +122,46 @@ public class MediaCommands {
     }
 
     /**
+     * Test seam (the ContentCommands pattern): the caller behind the current request. Resolved from the
+     * request-bound {@code RequestContext}, not FacesContext, because these writes are reached from pages,
+     * the REST API and the upload servlet alike.
+     */
+    @Setter
+    private Supplier<Caller> callerSource = Caller::bound;
+
+    /**
+     * The media OWNERSHIP rule every write re-checks: a global mediaAdmin (or site admin) manages every
+     * item; an org-scoped media editor only that org's items -- discovery already hides the rest, and this
+     * is what stops a known id from reaching a foreign row; a trip's manager moderates the trip's own chat
+     * album whoever owns the rows. Ownership is the ITEM's, never the request's host.
+     */
+    boolean mayManage(final MediaItem item) {
+        if (item == null) {
+            return false;
+        }
+        final Caller caller = callerSource.get();
+        if (caller.has(PrivilegeCommands.MEDIA_ADMIN)) {
+            return true;
+        }
+        if (item.isOrgOwned() && caller.has(PrivilegeCommands.MEDIA_ADMIN, item.getOrgId())) {
+            return true;
+        }
+        final String tripId = ChatPhotos.tripOfSlot(item.getSlot());
+        return tripId != null && caller.has(PrivilegeCommands.TRIP_MGR, tripId);
+    }
+
+    /** Whether the caller may add to the library on THIS site (global, or the site's org's media editor). */
+    boolean mayUploadHere() {
+        return callerSource.get().hasHere(PrivilegeCommands.MEDIA_ADMIN);
+    }
+
+    /** One item by row id for the edit page, or null when it is unknown OR not this caller's to manage. */
+    public MediaItem getManageable(final String id) {
+        final MediaItem item = get(id);
+        return item != null && mayManage(item) ? item : null;
+    }
+
+    /**
      * The curated inventory: everything EXCEPT trip-chat photos. The admin page lists this by default —
      * pilgrims sharing phone photos would otherwise swamp the travel guides and flyers an admin actually
      * manages there (its toggle brings them back). Chat photos have their own page per trip.
@@ -194,7 +236,7 @@ public class MediaCommands {
      */
     public boolean assignToSlot(final String id, final String slot, final String actor) {
         final MediaItem existing = getForEdit(id);
-        if (existing == null || slot == null || slot.isBlank()) {
+        if (existing == null || slot == null || slot.isBlank() || !mayManage(existing)) {
             return false;
         }
         final String cleanSlot = slot.trim();
@@ -326,7 +368,7 @@ public class MediaCommands {
      */
     public boolean setHidden(final String id, final boolean hidden, final String actor) {
         final MediaItem existing = getForEdit(id);
-        if (existing == null) {
+        if (existing == null || !mayManage(existing)) {
             return false;
         }
         if (existing.getHidden() == hidden) {
@@ -376,6 +418,8 @@ public class MediaCommands {
     public boolean upload(final String key, final InputStream content, final long size, final String contentType,
             final String title, final String description, final String slot, final int position,
             final String uploadedBy, final Boolean hidden) {
+        // The two entry points (the admin page and the upload servlet) gate media administration for the
+        // site themselves (priv.checkHere / Caller.hasHere); the row is stamped with the site's org below.
         final String bucket = bucket();
         if (bucket == null) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Uploads unavailable",
@@ -509,7 +553,7 @@ public class MediaCommands {
     public MediaItem confirmUpload(final String key, final String title, final String description,
             final String slot, final int position, final String uploadedBy, final Boolean hidden) {
         final String cleanKey = normalizeKey(key);
-        if (cleanKey == null) {
+        if (cleanKey == null || !mayUploadHere()) {
             return null;
         }
         final Optional<StoredObject> stored = statObject(cleanKey);
@@ -616,7 +660,7 @@ public class MediaCommands {
     public boolean update(final String id, final String newKey, final String title, final String description,
             final String slot, final Integer position, final boolean hidden, final String editedBy) {
         final MediaItem existing = getForEdit(id);
-        if (existing == null) {
+        if (existing == null || !mayManage(existing)) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", "No such media item.");
             return false;
         }
@@ -830,7 +874,7 @@ public class MediaCommands {
             log.error("Unable to look up media for delete: " + id, ex);
             return false;
         }
-        if (found.isEmpty()) {
+        if (found.isEmpty() || !mayManage(found.get())) {
             return false;
         }
         final MediaItem item = found.get();

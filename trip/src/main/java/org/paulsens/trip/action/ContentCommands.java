@@ -20,6 +20,7 @@ import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.content.HtmlFragmentValidator;
+import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.content.ProgrammaticContentTemplate;
 import org.paulsens.trip.content.ProgrammaticTypes;
 import org.paulsens.trip.content.RichTextRules;
@@ -30,6 +31,7 @@ import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentRecord;
 import org.paulsens.trip.model.ContentTemplate;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.model.Privilege;
@@ -532,7 +534,42 @@ public class ContentCommands {
         if (priv.check(PrivilegeCommands.CONTENT_ADMIN, null, userId)) {
             return true;
         }
-        return containerEditorPrivileges(section).stream().anyMatch(name -> priv.check(name, null, userId));
+        final ContentInstance container = containerOf(section);
+        final Organization.Id org = orgOf(section, container);
+        if (org != null && priv.check(PrivilegeCommands.CONTENT_ADMIN, org.getValue(), userId)) {
+            return true;
+        }
+        return editorPrivilegesOf(container).stream().anyMatch(name -> priv.check(name, null, userId));
+    }
+
+    /**
+     * The organization whose SITE a section belongs to, or null for the shared and marketing pages (and
+     * anything else). Derived from the SECTION, never from the request's host: a save carries its section,
+     * and a forged section on an org host must not become editable, nor a legitimate edit be blocked by
+     * which host the browser used. A container's children live under the container id, so the container
+     * row (one point read, shared with the editor-privilege lookup) names the page.
+     */
+    static Organization.Id orgOf(final String section, final ContentInstance container) {
+        final Organization.Id direct = OrgPageBootstrap.orgOf(section);
+        if (direct != null) {
+            return direct;
+        }
+        return container == null ? null : OrgPageBootstrap.orgOf(container.getSection());
+    }
+
+    /** The container instance a section key names (its children's section), or null for a page key. */
+    private ContentInstance containerOf(final String section) {
+        try {
+            return DAO.getInstance().getContent(section, Cached.NO).orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to resolve the container for section: " + section, ex);
+            return null;
+        }
+    }
+
+    private static List<String> editorPrivilegesOf(final ContentInstance container) {
+        return container == null || container.getEditorPrivileges() == null
+                ? List.of() : container.getEditorPrivileges();
     }
 
     /**
@@ -556,23 +593,22 @@ public class ContentCommands {
                 .anyMatch(name -> priv.check(name, null, userId));
     }
 
+    /**
+     * The server-side gate every mutation re-checks: a global contentAdmin (or site admin, via Caller)
+     * edits everything; an ORG-scoped contentAdmin edits sections of that org's own page and nothing else
+     * -- {@link #orgOf} answers null for the shared and marketing pages, so an org grant can never reach
+     * them, or another org's page; a container's editor-privilege holders edit that container's children.
+     */
     private boolean mayEdit(final Caller caller, final String section) {
         if (caller.has(PrivilegeCommands.CONTENT_ADMIN)) {
             return true;
         }
-        return containerEditorPrivileges(section).stream().anyMatch(caller::has);
-    }
-
-    /** The editor privileges of the container instance a section key names; empty for page keys. */
-    private List<String> containerEditorPrivileges(final String section) {
-        try {
-            return DAO.getInstance().getContent(section, Cached.NO)
-                    .map(ContentInstance::getEditorPrivileges)
-                    .orElse(List.of());
-        } catch (final RuntimeException ex) {
-            log.error("Unable to resolve the container for section: " + section, ex);
-            return List.of();
+        final ContentInstance container = containerOf(section);
+        final Organization.Id org = orgOf(section, container);
+        if (org != null && caller.has(PrivilegeCommands.CONTENT_ADMIN, org.getValue())) {
+            return true;
         }
+        return editorPrivilegesOf(container).stream().anyMatch(caller::has);
     }
 
     // ------------------------------------------------------------------ contentSections include helpers

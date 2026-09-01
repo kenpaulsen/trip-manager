@@ -36,7 +36,7 @@ public class MediaCommandsPresignTest {
     @BeforeClass
     public void injectClientsAndBucket() throws Exception {
         System.setProperty("trip.media.bucket", "test-bucket");
-        media = new MediaCommands();
+        media = TestCallers.mediaAsSiteAdmin();
         s3 = Mockito.mock(S3Client.class);
         presigner = Mockito.mock(S3Presigner.class);
         inject("s3", s3);

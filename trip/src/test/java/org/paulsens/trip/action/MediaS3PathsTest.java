@@ -35,7 +35,7 @@ public class MediaS3PathsTest {
 
     @BeforeMethod
     public void wireClient() throws Exception {
-        media = new MediaCommands();
+        media = TestCallers.mediaAsSiteAdmin();
         s3 = Mockito.mock(S3Client.class);
         final Field field = MediaCommands.class.getDeclaredField("s3");
         field.setAccessible(true);

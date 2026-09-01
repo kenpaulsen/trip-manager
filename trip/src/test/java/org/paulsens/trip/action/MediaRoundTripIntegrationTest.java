@@ -43,7 +43,7 @@ import static org.testng.Assert.assertTrue;
 public class MediaRoundTripIntegrationTest {
 
     private static final String PREFIX = "_ittest/";
-    private final MediaCommands media = new MediaCommands();
+    private final MediaCommands media = TestCallers.mediaAsSiteAdmin();
     private String key;
     private String uploadedId;
 
