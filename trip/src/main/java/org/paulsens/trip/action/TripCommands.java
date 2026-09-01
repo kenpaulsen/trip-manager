@@ -292,34 +292,54 @@ public class TripCommands {
      */
     public List<Trip> getMenuTrips(final int pastDaysToCountAsActive, final Person.Id userId,
             final boolean showAll) {
+        return getMenuTrips(pastDaysToCountAsActive, userId, showAll, null);
+    }
+
+    /** {@link #getMenuTrips(int, Person.Id, boolean)} narrowed by the site admin's org selector. */
+    public List<Trip> getMenuTrips(final int pastDaysToCountAsActive, final Person.Id userId,
+            final boolean showAll, final String selectedOrgId) {
         return getActiveTrips(pastDaysToCountAsActive).stream()
-                .filter(trip -> listsInMenu(trip, userId, showAll))
+                .filter(trip -> listsInMenu(trip, userId, showAll, selectedOrgId))
                 .toList();
     }
 
     /** The past trips the Trips menu may list for this viewer -- the whole-system list, site-narrowed. */
     public List<Trip> getMenuOldTrips(final Person.Id userId, final boolean showAll,
             final int pastDaysStillActive, final int limit) {
+        return getMenuOldTrips(userId, showAll, pastDaysStillActive, limit, null);
+    }
+
+    /** {@link #getMenuOldTrips(Person.Id, boolean, int, int)} narrowed by the site admin's org selector. */
+    public List<Trip> getMenuOldTrips(final Person.Id userId, final boolean showAll,
+            final int pastDaysStillActive, final int limit, final String selectedOrgId) {
         return getInactiveTrips(userId, true, pastDaysStillActive, limit).stream()
-                .filter(trip -> listsInMenu(trip, userId, showAll))
+                .filter(trip -> listsInMenu(trip, userId, showAll, selectedOrgId))
                 .toList();
     }
 
-    /**
-     * Whether a trip may appear in this site's menu for this viewer. An organization's site lists only its
-     * own trips, whoever is looking (a property of the site, not a permission). On a shared site a trip the
-     * viewer belongs to, or a site admin's view, is always listed; anything else follows the public listing
-     * rule ({@link ListingScope}: a hosted org's trips stay off the shared site until curated in).
-     */
     boolean listsInMenu(final Trip trip, final Person.Id userId, final boolean showAll) {
+        return listsInMenu(trip, userId, showAll, null);
+    }
+
+    /**
+     * Whether a trip may appear in this site's menu. An organization's site lists only its own trips,
+     * whoever is looking. A SHARED site's menus list only the organizations that SHARE it: an org with a
+     * site of its own (or one that opted out of shared sites) never appears here -- not for its members,
+     * not for a site admin; they see that content on the org's own site. The site admin's org selector
+     * (the topbar chip, {@code sessionScope.currentOrgId}) then narrows the menus to one sharing org; the
+     * menu's own public/member/admin guard still applies on top. Properties of the site and the selector,
+     * never permissions.
+     */
+    boolean listsInMenu(final Trip trip, final Person.Id userId, final boolean showAll,
+            final String selectedOrgId) {
         final SiteContext site = SiteContext.current();
         if (site.isOrg()) {
             return site.admits(trip.getOrgId());
         }
-        if (showAll || (userId != null && trip.getPeople() != null && trip.getPeople().contains(userId))) {
-            return true;
+        if (!ListingScope.forSite().shows(trip.getOrgId())) {
+            return false;
         }
-        return ListingScope.forSite().shows(trip.getOrgId());
+        return selectedOrgId == null || selectedOrgId.isBlank() || selectedOrgId.equals(trip.getOrgId());
     }
 
     /**

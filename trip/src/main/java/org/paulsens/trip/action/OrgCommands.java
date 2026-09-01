@@ -662,6 +662,20 @@ public class OrgCommands {
                 .toList();
     }
 
+    /**
+     * The organizations the site admin's topbar org selector offers on a SHARED site: the ones that share
+     * it -- no site of their own. A hosted org's content is seen on its own site, never selected into a
+     * shared site's menus. Site admins only (the selector is theirs); empty for everyone else.
+     */
+    public List<Organization> switchableOrgs() {
+        if (!caller().isSiteAdmin()) {
+            return List.of();
+        }
+        return getOrganizations().stream()
+                .filter(org -> org.getSlug() == null || org.getSlug().isBlank())
+                .toList();
+    }
+
     /** Whether the signed-in user may create a trip belonging to this org. */
     public boolean canCreateTripFor(final String orgId) {
         return canManageOrg(orgId)

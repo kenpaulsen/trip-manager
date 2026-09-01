@@ -53,14 +53,25 @@ public class SiteScopedMenuAndMediaTest {
         final Trip cfpwPublic = trip(FakeData.CFPW_ORG_ID, true, null);
         final Trip orgless = trip(null, true, null);
 
-        // Shared site: CFPW (no site of its own) lists; hosted Acme does not -- unless I am on the trip or
-        // a site admin.
+        // Shared site: CFPW (no site of its own) lists; hosted Acme NEVER does -- not for its members, not
+        // for a site admin: a hosted org's content is seen on its own site.
         Assert.assertTrue(trips.listsInMenu(cfpwPublic, null, false));
         Assert.assertTrue(trips.listsInMenu(orgless, null, false));
         Assert.assertFalse(trips.listsInMenu(acmePublic, null, false), "hosted org off the shared menu");
-        Assert.assertTrue(trips.listsInMenu(acmeMine, me, false), "my own trip always lists for me");
-        Assert.assertFalse(trips.listsInMenu(acmeMine, Person.Id.from("someone-else"), false));
-        Assert.assertTrue(trips.listsInMenu(acmePublic, null, true), "a site admin sees everything");
+        Assert.assertFalse(trips.listsInMenu(acmeMine, me, false), "...even for a member of the trip");
+        Assert.assertFalse(trips.listsInMenu(acmePublic, null, true), "...even for a site admin");
+        // The site admin's org selector narrows the shared menus to one sharing org.
+        Assert.assertTrue(trips.listsInMenu(cfpwPublic, null, true, FakeData.CFPW_ORG_ID));
+        Assert.assertFalse(trips.listsInMenu(cfpwPublic, null, true, FakeData.BETA_ORG_ID));
+        Assert.assertFalse(trips.listsInMenu(orgless, null, true, FakeData.CFPW_ORG_ID),
+                "a selection means that org only");
+        Assert.assertFalse(trips.listsInMenu(acmePublic, null, true, FakeData.ACME_ORG_ID),
+                "selecting a hosted org still shows nothing of it here");
+        Assert.assertTrue(trips.listsInMenu(cfpwPublic, null, false, " "), "blank = no selection");
+        Assert.assertTrue(trips.getMenuTrips(1, null, true, FakeData.CFPW_ORG_ID).stream()
+                .allMatch(t -> FakeData.CFPW_ORG_ID.equals(t.getOrgId())));
+        Assert.assertTrue(trips.getMenuOldTrips(null, true, 1, 100, FakeData.CFPW_ORG_ID).stream()
+                .allMatch(t -> FakeData.CFPW_ORG_ID.equals(t.getOrgId())));
 
         // Acme's site: Acme's trips only, whoever is looking.
         onSite(ACME_SITE, () -> {
@@ -73,6 +84,17 @@ public class SiteScopedMenuAndMediaTest {
 
         final List<Trip> sharedMenu = trips.getMenuTrips(1, null, false);
         Assert.assertTrue(sharedMenu.stream().noneMatch(t -> FakeData.ACME_ORG_ID.equals(t.getOrgId())));
+        Assert.assertTrue(trips.getMenuTrips(1, null, true).stream()
+                .noneMatch(t -> FakeData.ACME_ORG_ID.equals(t.getOrgId())), "admin: still no hosted org");
+
+        // The selector offers only the orgs that share the site: CFPW, never hosted Acme or Beta.
+        final OrgCommands asAdmin = new OrgCommands(TestCallers::siteAdmin);
+        final List<String> switchable = asAdmin.switchableOrgs().stream().map(o -> o.getId().getValue()).toList();
+        Assert.assertTrue(switchable.contains(FakeData.CFPW_ORG_ID));
+        Assert.assertFalse(switchable.contains(FakeData.ACME_ORG_ID));
+        Assert.assertFalse(switchable.contains(FakeData.BETA_ORG_ID));
+        Assert.assertTrue(new OrgCommands(() -> TestCallers.person(me)).switchableOrgs().isEmpty(),
+                "the selector is a site admin's");
         final List<Trip> acmeMenu = onSite(ACME_SITE, () -> trips.getMenuTrips(1, null, true));
         Assert.assertTrue(acmeMenu.stream().allMatch(t -> FakeData.ACME_ORG_ID.equals(t.getOrgId())));
         final List<Trip> acmeOld = onSite(ACME_SITE, () -> trips.getMenuOldTrips(null, true, 1, 100));

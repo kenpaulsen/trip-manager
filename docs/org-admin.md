@@ -215,6 +215,12 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   the admin menu's org list (`visibleOrgs`). Editing happens on the org's site, in the same edit mode as
   the shared page; the org-scoped `contentAdmin@{org}` grant is a later phase — until then site admins /
   global `contentAdmin` edit org pages.
+- **A shared site's MENUS** (the Trips menu, `TripCommands.getMenuTrips/getMenuOldTrips`) name only the
+  orgs that SHARE the site: a hosted org's trips never appear there — not for their members, not for a
+  site admin, who sees them on the org's own host. The site admin's topbar org selector
+  (`sessionScope.currentOrgId`, offered only on shared sites and only over `OrgCommands.switchableOrgs()`
+  = orgs without a site of their own) narrows the menus to one sharing org. The page's SECTIONS are
+  curated separately (below).
 - **Shared sites and the org's content — the double gate** (`site/ListingScope`, see
   `content-templates.md` "Organization sites"): a shared site's sections list a hosted org only when the
   section's `includeOrgs` pick includes it AND the org has not unchecked "Shared sites" on its profile
