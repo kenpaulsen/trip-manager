@@ -1146,6 +1146,12 @@ public class OrgCommands {
         return (stored == null) ? List.of() : List.copyOf(stored);
     }
 
+    /** The org's stored subdomain slug for the site-admin editor ("" when the org has no subdomain site). */
+    public String storedSlug(final String orgId) {
+        final Organization org = findOrganization(orgId);
+        return (org == null || org.getSlug() == null) ? "" : org.getSlug();
+    }
+
     private Organization ownerOf(final Trip trip) {
         return (trip == null) ? null : findOrganization(trip.getOrgId());
     }
@@ -1169,14 +1175,22 @@ public class OrgCommands {
         return allowedDomains(org).contains(wanted) ? wanted : "";
     }
 
-    /**
-     * Page-facing profile save with the mail-domain rows: {@code domains} (the site-admin allow-list) is
-     * applied ONLY for a site admin -- an org admin's post carries the same field, and silently ignoring
-     * it is what keeps the shared include safe to render for both. {@code defaultDomain} is an org-admin
-     * choice, kept only while the allow-list still permits it.
-     */
+    /** {@link #saveOrgEdits(String, String, String, String, List, String, String)} leaving the slug alone. */
     public boolean saveOrgEdits(final String orgId, final String name, final String abbreviation,
             final String contactEmail, final List<String> domains, final String defaultDomain) {
+        return saveOrgEdits(orgId, name, abbreviation, contactEmail, domains, defaultDomain, null);
+    }
+
+    /**
+     * Page-facing profile save with the mail-domain and subdomain rows: {@code domains} (the site-admin
+     * allow-list) and {@code slug} (the org's subdomain) are applied ONLY for a site admin -- an org
+     * admin's post carries the same fields, and silently ignoring them is what keeps the shared include
+     * safe to render for both. {@code defaultDomain} is an org-admin choice, kept only while the
+     * allow-list still permits it.
+     */
+    public boolean saveOrgEdits(final String orgId, final String name, final String abbreviation,
+            final String contactEmail, final List<String> domains, final String defaultDomain,
+            final String slug) {
         final Organization fresh = freshOrg(orgId);
         if (fresh == null) {
             return fail("Unable to save", "Unknown organization.");
@@ -1186,9 +1200,58 @@ public class OrgCommands {
         fresh.setContactEmail(contactEmail);
         if (caller().isSiteAdmin()) {
             fresh.setMailDomains(cleanDomains(domains));
+            if (!applySlug(fresh, slug)) {
+                return false;
+            }
         }
         fresh.setDefaultMailDomain(chosenDefault(fresh, defaultDomain));
         return saveOrganization(fresh);
+    }
+
+    /**
+     * The subdomain labels no org may claim: platform names (present and plausible future), mail
+     * plumbing, and anything an attacker could pass off as the product itself. Checked at ASSIGNMENT --
+     * retrofitting a reservation would evict a live tenant, so err on the side of reserving now.
+     */
+    static final java.util.Set<String> RESERVED_SLUGS = java.util.Set.of(
+            "www", "mail", "smtp", "imap", "pop", "bounce", "mx", "ns1", "ns2", "api", "app", "admin",
+            "static", "cdn", "assets", "files", "my", "status", "support", "help", "blog", "docs", "dev",
+            "test", "staging", "demo", "login", "auth", "sso", "account", "accounts", "secure", "billing",
+            "pay", "payments", "unitetrip", "autodiscover", "autoconfig", "mta-sts", "unsubscribe");
+
+    /** Lowercase DNS-label grammar: no leading/trailing hyphen, 63 chars max. */
+    private static final java.util.regex.Pattern SLUG_SHAPE =
+            java.util.regex.Pattern.compile("[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?");
+
+    /**
+     * Applies the site-admin's slug edit onto the org being saved, or refuses (growl + false) when the
+     * value is malformed, reserved, or already another org's. {@code null} means "leave it alone" (callers
+     * without a slug field in hand); an explicit BLANK clears it -- the ONLINE downgrade to the shared-site
+     * tier, with the org's data and content kept for a later re-assignment.
+     */
+    private boolean applySlug(final Organization org, final String slug) {
+        if (slug == null) {
+            return true;
+        }
+        if (slug.isBlank()) {
+            org.setSlug(null);
+            return true;
+        }
+        final String wanted = slug.trim().toLowerCase(Locale.ROOT);
+        if (!SLUG_SHAPE.matcher(wanted).matches()) {
+            return fail("Invalid subdomain", "A subdomain is lowercase letters, digits and hyphens "
+                    + "(not at the ends), at most 63 characters.");
+        }
+        if (RESERVED_SLUGS.contains(wanted)) {
+            return fail("Reserved subdomain", "\"" + wanted + "\" is reserved for the platform.");
+        }
+        final boolean taken = DAO.getInstance().getOrganizations(Cached.NO).stream()
+                .anyMatch(other -> !other.getId().equals(org.getId()) && wanted.equals(other.getSlug()));
+        if (taken) {
+            return fail("Subdomain taken", "Another organization already uses \"" + wanted + "\".");
+        }
+        org.setSlug(wanted);
+        return true;
     }
 
     /** Null (never restricted) for an empty pick, else the lower-cased, de-duplicated list. */

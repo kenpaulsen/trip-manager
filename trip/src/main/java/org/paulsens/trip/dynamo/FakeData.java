@@ -203,8 +203,10 @@ public final class FakeData {
                         Organization.Id.from(CFPW_ORG_ID), Cached.NO).isPresent()) {
             return;
         }
-        seedOrg(CFPW_ORG_ID, "CFPW", "CFPW", admin.getId());
-        seedOrg(ACME_ORG_ID, "Acme Inc", "Acme", admin.getId());
+        // Slugs make the org SITES reachable locally: Chromium resolves {slug}.localhost natively, so
+        // http://acme.localhost:8080/ exercises the per-org subdomain path with no hosts-file edit.
+        seedOrg(CFPW_ORG_ID, "CFPW", "CFPW", "cfpw", admin.getId());
+        seedOrg(ACME_ORG_ID, "Acme Inc", "Acme", "acme", admin.getId());
         final org.paulsens.trip.action.OrgCommands commands = new org.paulsens.trip.action.OrgCommands(
                 () -> new org.paulsens.trip.action.Caller(admin.getId(), true,
                         org.paulsens.trip.audit.AuditActor.system(),
@@ -334,15 +336,18 @@ public final class FakeData {
         }
     }
 
-    private static void seedOrg(final String id, final String name, final String abbr, final Person.Id creator) {
+    private static void seedOrg(final String id, final String name, final String abbr, final String slug,
+            final Person.Id creator) {
         try {
-            final boolean saved = DAO.getInstance().saveOrganization(Organization.builder()
+            final Organization org = Organization.builder()
                     .id(Organization.Id.from(id))
                     .name(name)
                     .abbreviation(abbr)
                     .createdBy(creator)
                     .created(LocalDateTime.now())
-                    .build());
+                    .build();
+            org.setSlug(slug);
+            final boolean saved = DAO.getInstance().saveOrganization(org);
             if (!saved) {
                 throw new IllegalStateException("Fake org seed: could not save " + name);
             }

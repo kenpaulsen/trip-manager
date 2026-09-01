@@ -357,6 +357,56 @@ public class OrgCommandsTest {
         assertFalse(cmds.saveOrgEdits("  ", "X", null, null));
     }
 
+    // ------------------------------------------------------------------ subdomain slugs (org sites)
+
+    @Test
+    public void aSiteAdminAssignsAndClearsASlugThroughTheProfileSave() throws IOException {
+        final Organization org = admin().createOrganization("Sluggable " + unique(), null, null);
+        final String slug = "s" + unique().toLowerCase(java.util.Locale.ROOT);
+        assertTrue(admin().saveOrgEdits(org.getId().getValue(), org.getName(), null, null, null, null,
+                "  " + slug.toUpperCase(java.util.Locale.ROOT) + "  "), "slugs normalize: trim + lowercase");
+        assertEquals(dao.getOrganization(org.getId(), Cached.NO).orElseThrow().getSlug(), slug);
+        assertEquals(admin().storedSlug(org.getId().getValue()), slug);
+
+        assertTrue(admin().saveOrgEdits(org.getId().getValue(), org.getName(), null, null, null, null, " "),
+                "blank clears the slug: the ONLINE downgrade to the shared-site tier");
+        assertNull(dao.getOrganization(org.getId(), Cached.NO).orElseThrow().getSlug());
+        assertEquals(admin().storedSlug(org.getId().getValue()), "");
+    }
+
+    @Test
+    public void malformedReservedAndDuplicateSlugsAreRefused() throws IOException {
+        final Organization org = admin().createOrganization("BadSlugs " + unique(), null, null);
+        final String id = org.getId().getValue();
+        assertFalse(admin().saveOrgEdits(id, org.getName(), null, null, null, null, "-bad"));
+        assertFalse(admin().saveOrgEdits(id, org.getName(), null, null, null, null, "bad-"));
+        assertFalse(admin().saveOrgEdits(id, org.getName(), null, null, null, null, "has.dots"));
+        assertFalse(admin().saveOrgEdits(id, org.getName(), null, null, null, null, "x".repeat(64)));
+        assertFalse(admin().saveOrgEdits(id, org.getName(), null, null, null, null, "www"),
+                "reserved platform labels are never grantable");
+        assertNull(dao.getOrganization(org.getId(), Cached.NO).orElseThrow().getSlug(),
+                "a refused slug save must save NOTHING");
+
+        final Organization other = admin().createOrganization("SlugOwner " + unique(), null, null);
+        final String taken = "t" + unique().toLowerCase(java.util.Locale.ROOT);
+        assertTrue(admin().saveOrgEdits(other.getId().getValue(), other.getName(), null, null, null, null,
+                taken));
+        assertFalse(admin().saveOrgEdits(id, org.getName(), null, null, null, null, taken),
+                "a slug is unique across organizations");
+        assertTrue(admin().saveOrgEdits(other.getId().getValue(), other.getName(), null, null, null, null,
+                taken), "re-saving an org with its OWN slug is not a collision");
+    }
+
+    @Test
+    public void anOrgAdminsSlugEditIsSilentlyIgnored() throws IOException {
+        final Person acmeAdmin = savedPerson();
+        final Organization acme = orgWithAdmin(acmeAdmin);
+        assertTrue(commandsFor(acmeAdmin).saveOrgEdits(acme.getId().getValue(), acme.getName(), null, null,
+                null, null, "hijack"), "the save succeeds -- the slug field is ignored, not refused");
+        assertNull(dao.getOrganization(acme.getId(), Cached.NO).orElseThrow().getSlug(),
+                "a subdomain is a public namespace grant: site-admin only, like mailDomains");
+    }
+
     @Test
     public void memberCountCountsRowsWithoutResolvingPeople() throws IOException {
         final Person acmeAdmin = savedPerson();

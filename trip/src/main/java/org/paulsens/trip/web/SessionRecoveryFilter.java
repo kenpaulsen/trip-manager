@@ -22,6 +22,8 @@ import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.security.BearerTokens;
 import org.paulsens.trip.security.TokenPrincipal;
+import org.paulsens.trip.site.SiteContext;
+import org.paulsens.trip.site.SiteIndex;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.AuditPage;
@@ -66,6 +68,16 @@ public class SessionRecoveryFilter implements Filter {
     @Override
     public void doFilter(final ServletRequest request, final ServletResponse response, final FilterChain chain)
             throws IOException, ServletException {
+        // Host -> site resolution runs FIRST, before any session work: an unknown org-site subdomain is
+        // answered with a fixed static page (no session, no scopes, no database) -- the NotFoundServlet
+        // load-shedding rule applies, since every *.unitetrip.com label lands here.
+        final SiteContext site = (request instanceof HttpServletRequest req)
+                ? SiteIndex.getInstance().resolve(req.getServerName())
+                : SiteContext.shared(null);
+        if (site.isUnknown() && response instanceof HttpServletResponse res) {
+            writeNoSuchSite(res);
+            return;
+        }
         // getSession(false): neither resolving identity nor repairing the session may CREATE one.
         final HttpSession session = (request instanceof HttpServletRequest req) ? req.getSession(false) : null;
         try {
@@ -87,14 +99,52 @@ public class SessionRecoveryFilter implements Filter {
             // run(): doFilter throws checked exceptions -- tunneled through one carrier type because call()
             // infers a single throws clause.
             ScopedValue.where(RequestContext.SCOPE, principal != null
-                            ? RequestContext.of(principal.actor(), principal.role())
-                            : RequestContext.from(session))
+                            ? RequestContext.of(principal.actor(), principal.role(), site)
+                            : RequestContext.from(session, site))
                     .call(() -> runChain(chain, request, response));
         } catch (final Tunnel tunneled) {
             handleFailure(request, response, tunneled.getCause());
         } catch (final RuntimeException | Error ex) {
             handleFailure(request, response, ex);
         }
+    }
+
+    /**
+     * The answer for an org-site label no organization owns: a fixed, fully inline page (an external
+     * stylesheet or image would 404 into NotFoundServlet on the same unknown host). Deliberately does not
+     * echo the requested hostname -- the Host header is attacker-controlled text.
+     */
+    static void writeNoSuchSite(final HttpServletResponse response) throws IOException {
+        response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+        response.setContentType("text/html");
+        response.setCharacterEncoding("UTF-8");
+        response.getWriter().write("""
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <meta name="robots" content="noindex">
+                <title>No such site</title>
+                <style>
+                  body { margin: 0; font-family: system-ui, -apple-system, sans-serif; min-height: 100vh;
+                         display: flex; align-items: center; justify-content: center;
+                         background: linear-gradient(160deg, #4b5d8a 0%, #7a8cc0 100%); color: #fff; }
+                  main { text-align: center; padding: 2rem; max-width: 34rem; }
+                  h1 { font-size: 2.4rem; margin: 0; font-weight: 600; opacity: 0.9; }
+                  p  { font-size: 1.15rem; line-height: 1.6; margin: 1rem 0 2rem; }
+                  a  { color: #fff; font-weight: 600; }
+                </style>
+                </head>
+                <body>
+                <main>
+                <h1>No such site</h1>
+                <p>This address is not an active organization site.</p>
+                <p><a href="https://unitetrip.com/">unitetrip.com</a></p>
+                </main>
+                </body>
+                </html>
+                """);
     }
 
     /** Carries the chain's checked exceptions across the ScopedValue.call boundary. */

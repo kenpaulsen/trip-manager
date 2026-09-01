@@ -34,12 +34,13 @@ public final class KnownSettings {
             "The organization's display name, used on public pages and in notices such as the photo-upload "
                     + "license text.");
 
-    // --- home page ---
+    public static final SettingDef SITE_ORGSITES_BASE_DOMAIN = new SettingDef(
+            "site.orgsites.baseDomain", Config.Type.STRING, "unitetrip.com", "Org sites base domain",
+            "The domain organization sites live under: an org with slug 'acme' serves at "
+                    + "acme.<this domain>. Its apex and www are the marketing site. Changing this only works "
+                    + "when DNS and the certificate already cover the new domain's wildcard.");
 
-    public static final SettingDef HOME_DOCS_MAX_AGE_DAYS = new SettingDef(
-            "home.docs.maxAgeDays", Config.Type.INT, "92", "Documents shown for (days)",
-            "How long a document stays in the home page's Documents section after its upload. Re-uploading a "
-                    + "file restarts its clock; the file itself stays reachable at its URL either way.");
+    // --- home page ---
 
     public static final SettingDef HOME_PHOTOS_WINDOW_DAYS = new SettingDef(
             "home.photos.windowDays", Config.Type.INT, "365", "Pictures from the last (days)",
@@ -476,7 +477,7 @@ public final class KnownSettings {
 
     private static final List<SettingSection> SECTIONS = List.of(
             new SettingSection("Site", null,
-                    List.of(SITE_ORG_NAME)),
+                    List.of(SITE_ORG_NAME, SITE_ORGSITES_BASE_DOMAIN)),
             new SettingSection(EMAIL_ADDRESSES_SECTION,
                     "Every address the application sends with or to. From addresses must be on an "
                             + "SES-verified domain; recipients and Reply-To may be any address.",
@@ -493,7 +494,7 @@ public final class KnownSettings {
             new SettingSection("Profile pictures", null,
                     List.of(PROFILE_BG_REMOVAL_ENABLED)),
             new SettingSection("Home page", null,
-                    List.of(HOME_BANNER_ENABLED, HOME_BANNER_TEXT, HOME_DOCS_MAX_AGE_DAYS,
+                    List.of(HOME_BANNER_ENABLED, HOME_BANNER_TEXT,
                             HOME_PHOTOS_WINDOW_DAYS, HOME_PHOTOS_MIN_COUNT, HOME_COUNTDOWN_SOON_DAYS)),
             new SettingSection("Content templates", null,
                     List.of(CONTENT_VERSIONS_RETAINED)),

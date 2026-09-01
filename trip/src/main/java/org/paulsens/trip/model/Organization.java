@@ -65,6 +65,18 @@ public final class Organization implements Serializable {
     private String defaultMailDomain;
 
     /**
+     * The org's subdomain label on the org-site base domain: slug {@code acme} makes
+     * {@code acme.unitetrip.com} serve this org's site. {@code null} (or blank) means the org has no
+     * subdomain site (the shared-site service tier). Site-admin only -- a slug is a public namespace grant,
+     * like {@link #mailDomains} -- and validated by {@code OrgCommands} (sole writer): lowercase DNS-label
+     * grammar, unique across orgs, never a reserved platform name. Setter-populated, outside the 8-arg
+     * creator like {@link #paymentDefaults}. Assigning or clearing it is an ONLINE tier change: the
+     * {@code SiteIndex} refreshes on save, wildcard DNS and the wildcard certificate already cover every
+     * label, and no deploy or restart is involved.
+     */
+    private String slug;
+
+    /**
      * The privilege base names this org may grant (site-admin controlled allow-list, bounding both the
      * trip-scoped roles on the trip editor and the org-scoped grants on the org People page). {@code null}
      * means "never restricted" == everything allowed, so existing rows need no migration and restriction is

@@ -63,6 +63,7 @@ import org.paulsens.trip.model.chat.ChatReactionSummary;
 import org.paulsens.trip.model.chat.PhotoChatMeta;
 import org.paulsens.trip.security.PasswordHasher;
 import org.paulsens.trip.security.Pepper;
+import org.paulsens.trip.site.SiteIndex;
 
 @Slf4j
 public final class DAO {
@@ -262,7 +263,13 @@ public final class DAO {
      * {@link software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException} on a lost race.
      */
     public Boolean saveOrganization(final Organization org) throws IOException {
-        return orgDao.saveOrganization(org);
+        final Boolean saved = orgDao.saveOrganization(org);
+        if (Boolean.TRUE.equals(saved)) {
+            // Slug assignments are ONLINE tier changes: the host->org index must see this save now, not at
+            // its next timed refresh. Here (not in the command layer) so scripts and REST get it too.
+            SiteIndex.getInstance().refresh();
+        }
+        return saved;
     }
     public Optional<Organization> getOrganization(final Organization.Id id, final Cached cached) {
         return NearCacheContext.call(cached, () -> orgDao.getOrganization(id));

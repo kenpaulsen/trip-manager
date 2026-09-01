@@ -188,4 +188,54 @@ public class SessionRecoveryFilterTest {
         org.mockito.Mockito.verify(res).addCookie(org.mockito.Mockito.argThat(
                 cookie -> "JSESSIONID".equals(cookie.getName()) && cookie.getMaxAge() == 0));
     }
+
+    // --- host -> site resolution: the per-organization subdomain gate ---
+
+    /**
+     * A label under the org-site base that no organization owns is answered before ANY application work: no
+     * session read, no chain, one static 404. All of *.unitetrip.com reaches the app (the ALB has no host
+     * rules), so this is the scanner-load-shedding posture of NotFoundServlet applied to hostnames.
+     */
+    @Test
+    public void anUnknownOrgSubdomainGetsTheStaticPageAndNeverRunsTheChain() throws Exception {
+        final SessionRecoveryFilter filter = new SessionRecoveryFilter();
+        final jakarta.servlet.http.HttpServletRequest req = requestWithSession(null);
+        org.mockito.Mockito.when(req.getServerName()).thenReturn("no-such-tenant.unitetrip.com");
+        final jakarta.servlet.http.HttpServletResponse res =
+                org.mockito.Mockito.mock(jakarta.servlet.http.HttpServletResponse.class);
+        final java.io.StringWriter body = new java.io.StringWriter();
+        org.mockito.Mockito.when(res.getWriter()).thenReturn(new java.io.PrintWriter(body));
+        final java.util.concurrent.atomic.AtomicBoolean chainRan =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        filter.doFilter(req, res, (rq, rs) -> chainRan.set(true));
+
+        Assert.assertFalse(chainRan.get(), "an unknown org host must never reach the application");
+        org.mockito.Mockito.verify(res).setStatus(jakarta.servlet.http.HttpServletResponse.SC_NOT_FOUND);
+        org.mockito.Mockito.verify(req, org.mockito.Mockito.never()).getSession(false);
+        Assert.assertTrue(body.toString().contains("No such site"));
+        Assert.assertFalse(body.toString().contains("no-such-tenant"),
+                "the attacker-controlled Host header must never be echoed into the page");
+    }
+
+    /** A KNOWN org subdomain binds an ORG site context and the chain runs normally. */
+    @Test
+    public void aKnownOrgSubdomainBindsItsSiteForTheChain() throws Exception {
+        // Self-provisioned rather than leaning on the FakeData slugs: suite-mates may clear the local
+        // cache, which in local mode IS the org datastore. *.localhost mirrors the base-domain grammar.
+        final String slug = "f" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        final org.paulsens.trip.model.Organization saved = new org.paulsens.trip.model.Organization();
+        saved.setName("Filter site " + slug);
+        saved.setSlug(slug);
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveOrganization(saved));
+        final SessionRecoveryFilter filter = new SessionRecoveryFilter();
+        final jakarta.servlet.http.HttpServletRequest req = requestWithSession("bound@x.org");
+        org.mockito.Mockito.when(req.getServerName()).thenReturn(slug + ".localhost");
+        final java.util.concurrent.atomic.AtomicReference<org.paulsens.trip.site.SiteContext> seen =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        filter.doFilter(req, org.mockito.Mockito.mock(jakarta.servlet.http.HttpServletResponse.class),
+                (rq, rs) -> seen.set(org.paulsens.trip.audit.RequestContext.SCOPE.get().site()));
+        Assert.assertTrue(seen.get().isOrg(), "the chain must observe the resolved org site");
+        Assert.assertEquals(seen.get().slug(), slug);
+    }
 }
