@@ -1,9 +1,13 @@
 package org.paulsens.trip.dynamo;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.function.Consumer;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditEvent;
 import org.paulsens.trip.model.AuditOutcome;
@@ -11,6 +15,9 @@ import org.paulsens.trip.model.AuditPage;
 import org.paulsens.trip.model.AuditQuery;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
+import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.PutItemResponse;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
@@ -283,6 +290,65 @@ public class AuditDAOTest {
 
         final AuditPage page = brittle.getAuditEvents(AuditQuery.builder().build());
         assertTrue(page.isEmpty(), "A failing query should yield an empty page, not an exception");
+    }
+
+    @Test
+    public void aSerializationFailureIsRefusedBeforeAnyWrite() {
+        final ObjectMapper broken = new ObjectMapper() {
+            @Override
+            public String writeValueAsString(final Object value) throws JsonProcessingException {
+                throw new JsonMappingException(null, "cannot serialize");
+            }
+        };
+        final AuditDAO brokenDao = new AuditDAO(broken, persistence);
+        assertFalse(brokenDao.saveAuditEvent(
+                event(Instant.now(), AuditAction.LOGIN, AuditOutcome.SUCCESS, "a@x.com")),
+                "An unserializable event maps to false, never an exception into the sink");
+        assertEquals(persistence.size(), 0, "Nothing may reach the table");
+    }
+
+    @Test
+    public void aNonConditionalWriteFailureMapsToFalse() {
+        // The sink still holds and prints the event, so the contract is false, not a throw -- and no
+        // retry: retrying is only for key collisions, not for a store that is down.
+        final InMemoryPersistence refusing = new InMemoryPersistence() {
+            @Override
+            public PutItemResponse putItem(final Consumer<PutItemRequest.Builder> request) {
+                throw new IllegalStateException("write refused");
+            }
+        };
+        final AuditDAO failing = new AuditDAO(new ObjectMapper().findAndRegisterModules(), refusing);
+        assertFalse(failing.saveAuditEvent(
+                event(Instant.now(), AuditAction.LOGIN, AuditOutcome.SUCCESS, "a@x.com")));
+    }
+
+    @Test
+    public void aWrappedConditionalFailureStillTriggersTheRetry() {
+        // The SDK can surface the conditional failure nested inside another runtime exception; the cause
+        // walk must find it and retry rather than treating it as a dead store.
+        final InMemoryPersistence wrapping = new InMemoryPersistence() {
+            private boolean first = true;
+
+            @Override
+            public PutItemResponse putItem(final Consumer<PutItemRequest.Builder> request) {
+                if (first) {
+                    first = false;
+                    throw new RuntimeException("wrapped",
+                            ConditionalCheckFailedException.builder().message("taken").build());
+                }
+                return super.putItem(request);
+            }
+        };
+        final AuditDAO retrying = new AuditDAO(new ObjectMapper().findAndRegisterModules(), wrapping);
+        assertTrue(retrying.saveAuditEvent(
+                event(Instant.now(), AuditAction.LOGIN, AuditOutcome.SUCCESS, "a@x.com")),
+                "A wrapped collision retries at +1ms and succeeds");
+        assertEquals(wrapping.size(), 1);
+    }
+
+    @Test
+    public void maxWindowMatchesTheWalkBudget() {
+        assertEquals(AuditDAO.maxWindow(), Duration.ofDays(AuditDAO.MAX_DAYS_PER_PAGE));
     }
 
     private AuditPage page(final AuditQuery query) {
