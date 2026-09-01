@@ -85,8 +85,9 @@ public final class KnownSettings {
      * a mode widget instead of the generic text box.
      */
     private static final String MODE_NOTE = " Value shape: 'site' = the Site email, 'org' = the owning "
-            + "organization's contact email (falling back to the Site email), anything else = that literal "
-            + "address.";
+            + "organization's contact email (falling back to the Site email), 'facilitators' = the trip's "
+            + "facilitators' emails (org-context slots only; falls back like 'org'), anything else = that "
+            + "literal address.";
 
     public static final SettingDef CHAT_MAIL_FROM = new SettingDef(
             "chat.mail.from", Config.Type.STRING, "Trip Chat <no-reply@visitqueenofpeace.com>", "From address",
@@ -339,9 +340,10 @@ public final class KnownSettings {
                     + "verified to send from.");
 
     public static final SettingDef REG_NOTIFY_EMAIL = new SettingDef(
-            "reg.notify.email", Config.Type.STRING, "org",
+            "reg.notify.email", Config.Type.STRING, "facilitators",
             "Registration notice recipient",
-            "Who receives the internal registration notices (new/moved/cancelled)." + MODE_NOTE);
+            "Who receives the internal registration notices (new/moved/cancelled). Defaults to the trip's "
+                    + "facilitators -- the same contacts the registrant is shown." + MODE_NOTE);
 
     public static final SettingDef REG_NOTIFY_FROM = new SettingDef(
             "reg.notify.from", Config.Type.STRING, "site",

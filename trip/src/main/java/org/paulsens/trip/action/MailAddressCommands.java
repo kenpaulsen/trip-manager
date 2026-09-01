@@ -9,12 +9,14 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.SettingDef;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.util.EmailAddresses;
@@ -23,7 +25,9 @@ import org.paulsens.trip.util.EmailAddresses;
  * Resolves every configurable mail address the application sends WITH (From) or TO (recipient/Reply-To).
  * Each slot is one {@link KnownSettings} entry whose value is either the sentinel {@code site} (the Site
  * email setting), the sentinel {@code org} (the owning organization's contact email from its org Profile
- * page, falling back to the Site email -- only slots with a trip in hand), or a literal address. The
+ * page, falling back to the Site email -- only slots with a trip in hand), the sentinel
+ * {@code facilitators} (the trip's facilitators' emails -- the same contacts the registrant is shown --
+ * falling back like {@code org}; same trip-in-hand slots), or a literal address. The
  * Settings page's Email addresses section edits these through {@link #editState()}/{@link #applyEdits},
  * which render as a mode menu plus a local-part/domain composer instead of raw text.
  *
@@ -38,6 +42,7 @@ import org.paulsens.trip.util.EmailAddresses;
 public class MailAddressCommands {
     private static final String ORG = "org";
     private static final String SITE = "site";
+    private static final String FACILITATORS = "facilitators";
     /** Conservative local-part shape; covers every address this site actually uses. */
     private static final Pattern LOCAL_PART = Pattern.compile("[A-Za-z0-9._%+-]+");
 
@@ -120,13 +125,22 @@ public class MailAddressCommands {
     }
 
     /**
-     * The recipient/Reply-To value for this slot. {@code org} resolves to the owning organization's
-     * contact email when {@code trip} has one, else the Site email (bare); {@code site} is the Site email
-     * (bare); anything else is literal. {@code trip} may be null (no org context) -- {@code org} then
-     * falls back like an org without a contact email.
+     * The recipient/Reply-To value for this slot. {@code facilitators} resolves to the trip's
+     * facilitators' emails (comma-joined), falling back to {@code org}; {@code org} resolves to the
+     * owning organization's contact email when {@code trip} has one, else the Site email (bare);
+     * {@code site} is the Site email (bare); anything else is literal. {@code trip} may be null (no org
+     * context) -- the trip-dependent sentinels then fall through their fallback chain to the Site email.
      */
     public String recipient(final SettingDef def, final Trip trip) {
         final String value = raw(def);
+        if (FACILITATORS.equalsIgnoreCase(value)) {
+            final String facEmails = facilitatorEmails(trip);
+            if (facEmails != null) {
+                return facEmails;
+            }
+            final String orgEmail = orgContactEmail(trip);
+            return orgEmail != null ? orgEmail : siteBare();
+        }
         if (ORG.equalsIgnoreCase(value)) {
             final String orgEmail = orgContactEmail(trip);
             return orgEmail != null ? orgEmail : siteBare();
@@ -164,6 +178,27 @@ public class MailAddressCommands {
     /** The bare Site email address. */
     public String siteBare() {
         return addressOf(siteFrom());
+    }
+
+    /**
+     * The trip's facilitators' emails, comma-joined for {@link MailCommands#send}'s recipient split, or
+     * null when the trip is null, has no facilitators, or none of them has a usable address (a
+     * facilitator may be a person-modeled staff entry with no login/email).
+     */
+    public String facilitatorEmails(final Trip trip) {
+        final List<Person.Id> ids = (trip == null) ? null : trip.getFacilitatorIds();
+        if (ids == null || ids.isEmpty()) {
+            return null;
+        }
+        final String joined = ids.stream()
+                .map(this::facilitatorEmail)
+                .filter(EmailAddresses::isValid)
+                .collect(Collectors.joining(", "));
+        return joined.isEmpty() ? null : joined;
+    }
+
+    private String facilitatorEmail(final Person.Id id) {
+        return DAO.getInstance().getPerson(id, Cached.YES).map(Person::getEmail).orElse(null);
     }
 
     /** The owning org's contact email, or null when the trip is org-less or the address is unusable. */
@@ -204,6 +239,9 @@ public class MailAddressCommands {
         final List<Map<String, String>> options = new java.util.ArrayList<>();
         options.add(Map.of("label", "Default (" + defaultLabel(slot) + ")", "value", ""));
         if (slot.isOrgAllowed()) {
+            options.add(Map.of("label",
+                    "Trip facilitators (falls back to Organization email, then Site email)",
+                    "value", FACILITATORS));
             options.add(Map.of("label", "Organization email (falls back to Site email)", "value", ORG));
         }
         options.add(Map.of("label", "Site email", "value", SITE));
@@ -213,6 +251,9 @@ public class MailAddressCommands {
 
     private static String defaultLabel(final Slot slot) {
         final String value = slot.getDef().getDefaultValue();
+        if (FACILITATORS.equalsIgnoreCase(value)) {
+            return "Trip facilitators";
+        }
         if (ORG.equalsIgnoreCase(value)) {
             return "Organization email";
         }
@@ -287,6 +328,10 @@ public class MailAddressCommands {
         final String where = slot.getGroup() + " " + slot.getLabel();
         if (mode.isEmpty()) {
             return "";
+        }
+        if (FACILITATORS.equals(mode)) {
+            // Facilitators need a trip in hand, which is exactly the org-allowed slots.
+            return slot.isOrgAllowed() ? FACILITATORS : fail(where, "has no facilitators option.");
         }
         if (ORG.equals(mode)) {
             return slot.isOrgAllowed() ? ORG : fail(where, "has no organization option.");
@@ -405,6 +450,9 @@ public class MailAddressCommands {
     private static String modeOf(final String value) {
         if (value.isEmpty()) {
             return "";
+        }
+        if (FACILITATORS.equalsIgnoreCase(value)) {
+            return FACILITATORS;
         }
         if (ORG.equalsIgnoreCase(value)) {
             return ORG;
