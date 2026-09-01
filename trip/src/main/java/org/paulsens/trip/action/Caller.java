@@ -8,6 +8,7 @@ import java.util.stream.Collectors;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Privilege;
+import org.paulsens.trip.security.TokenPrincipal;
 import org.paulsens.trip.util.ScopeUtil;
 
 /**
@@ -72,6 +73,24 @@ public final class Caller {
                 personIdOf(session.getAttribute(PersonCommands.ACTIVE_USER_ID)),
                 PersonCommands.hasRole(session, SITE_ADMIN_ROLE),
                 AuditActor.from(session),
+                new PrivilegeCommands());
+    }
+
+    /**
+     * The caller behind a bearer-token request ({@code docs/api-tokens.md}).
+     *
+     * <p>Site-admin comes from {@link TokenPrincipal#siteAdmin()} -- the admin ROLE and the admin SCOPE
+     * together -- which is the one choke point of the scope cap: since {@link #has} short-circuits through
+     * {@code siteAdmin}, a member-scoped token held by an administrator behaves as that person without the
+     * admin role, and no resource needs a scope check of its own. Explicit privilege rows still apply under
+     * member scope, exactly as through the person's own session. Do not add a second cap; two is how they
+     * drift.
+     */
+    public static Caller forToken(final TokenPrincipal principal) {
+        if (principal == null) {
+            return of((HttpSession) null);
+        }
+        return new Caller(principal.personId(), principal.siteAdmin(), principal.actor(),
                 new PrivilegeCommands());
     }
 

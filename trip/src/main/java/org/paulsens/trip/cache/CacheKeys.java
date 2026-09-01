@@ -369,6 +369,26 @@ public final class CacheKeys {
      */
     public static final String AUTH_FORMAT_VERSION = "auth:v1:";
 
+    /**
+     * ACCESS-token validation cache ({@code docs/api-tokens.md}) -- the one deliberately CACHED credential,
+     * because it is read per API request. The {@code auth:v1:} namespace is load-bearing twice over: outside
+     * {@code t1:} so no cache clear touches it, and never near-cached, so one {@code removeKey} on the shared
+     * Valkey revokes on every node at once. The cached value holds only the validator HASH, like
+     * {@link #loginCodeKey}'s rule: a cache dump must not contain working credentials.
+     */
+    public static final String AUTH_TOKEN_PREFIX = AUTH_FORMAT_VERSION + "tok:";
+
+    /**
+     * How long access validation trusts a cached row before a stale hit schedules the background re-read.
+     * This is the revocation-backstop bound: a revocation whose explicit removeKey was lost is dead within
+     * this window (plus jitter). A compile-time constant like every soft TTL -- settings cannot be read on a
+     * cache read path.
+     */
+    public static final Duration AUTH_TOKEN_SOFT_TTL = Duration.ofMinutes(5);
+
+    /** Hygiene ceiling for validation entries, past the max access lifetime. Never the expiry mechanism. */
+    public static final Duration AUTH_TOKEN_GC_TTL = Duration.ofHours(5);
+
     /** Value is the base64 SHA-256 of the code, never the code: a cache dump must not contain live codes. */
     public static String loginCodeKey(final String lowEmail) {
         return AUTH_FORMAT_VERSION + "code:" + lowEmail;

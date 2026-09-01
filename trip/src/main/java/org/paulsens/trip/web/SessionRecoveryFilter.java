@@ -20,6 +20,8 @@ import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.security.BearerTokens;
+import org.paulsens.trip.security.TokenPrincipal;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.AuditPage;
@@ -76,10 +78,17 @@ public class SessionRecoveryFilter implements Filter {
             // The repair call doubles as the probe (it reads an attribute); it also belongs inside the
             // guarded scope in its own right, which it never was.
             DynamicResourceMap.repair(session);
+            // Bearer tokens resolve HERE, before the identity binds: this filter is the one binding point of
+            // RequestContext, and an actor bound before token resolution would audit every token request as
+            // UNKNOWN (docs/api-tokens.md). Non-API requests and absent headers cost one null check.
+            final TokenPrincipal principal =
+                    (request instanceof HttpServletRequest http) ? BearerTokens.resolve(http) : null;
             // Bind the request identity for the whole chain (this is the outermost filter). call(), not
             // run(): doFilter throws checked exceptions -- tunneled through one carrier type because call()
             // infers a single throws clause.
-            ScopedValue.where(RequestContext.SCOPE, RequestContext.from(session))
+            ScopedValue.where(RequestContext.SCOPE, principal != null
+                            ? RequestContext.of(principal.actor(), principal.role())
+                            : RequestContext.from(session))
                     .call(() -> runChain(chain, request, response));
         } catch (final Tunnel tunneled) {
             handleFailure(request, response, tunneled.getCause());

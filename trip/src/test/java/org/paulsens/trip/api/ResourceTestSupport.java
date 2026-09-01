@@ -129,6 +129,18 @@ public abstract class ResourceTestSupport {
     }
 
     /**
+     * Signs in as a BEARER-token caller ({@code docs/api-tokens.md}): stashes the principal exactly where
+     * {@code BearerTokens} would, plus the filter-stamped person id {@code TripAuthFilter} sets for both
+     * credential shapes. No session attributes at all -- a bearer request has no session.
+     */
+    protected void bearer(final org.paulsens.trip.security.TokenPrincipal principal) {
+        requestAttributes.put(org.paulsens.trip.security.BearerTokens.PRINCIPAL_ATTR, principal);
+        requestAttributes.put(TripAuthFilter.PERSON_ID_PROP, principal.personId());
+        sessionAttributes.remove(PersonCommands.ACTIVE_USER_ID);
+        sessionAttributes.remove(PersonCommands.ACTIVE_USER_ROLE);
+    }
+
+    /**
      * Signed in via the SESSION only, with no filter-stamped request attribute -- the shape of a request that
      * reached a resource without passing TripAuthFilter. Exercises personId()'s fallback path.
      */

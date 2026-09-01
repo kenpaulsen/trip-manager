@@ -41,7 +41,16 @@ public record RequestContext(AuditActor actor, String userRole) {
 
     /** A context carrying an explicitly captured actor (fire-and-forget spawns re-binding their request's). */
     public static RequestContext of(final AuditActor actor) {
-        return new RequestContext(actor == null ? AuditActor.from(null) : actor, null);
+        return of(actor, null);
+    }
+
+    /**
+     * A context carrying an explicit actor AND role -- the bearer-token path, where both come from the
+     * validated token rather than a session ({@code docs/api-tokens.md}). Still two immutable fields; the
+     * hard rule above holds.
+     */
+    public static RequestContext of(final AuditActor actor, final String userRole) {
+        return new RequestContext(actor == null ? AuditActor.from(null) : actor, userRole);
     }
 
     private static String roleOf(final HttpSession session) {

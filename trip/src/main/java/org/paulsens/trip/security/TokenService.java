@@ -1,5 +1,7 @@
 package org.paulsens.trip.security;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
@@ -7,13 +9,18 @@ import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.audit.Audit;
+import org.paulsens.trip.cache.CacheClient;
+import org.paulsens.trip.cache.CacheKeys;
+import org.paulsens.trip.cache.CacheSupport;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.cache.PointCache;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.AuthToken;
 import org.paulsens.trip.model.Creds;
+import org.paulsens.trip.model.Person;
 
 /**
  * Bearer tokens for the REST API: issuance, refresh, revocation (see {@code docs/api-tokens.md}).
@@ -35,7 +42,17 @@ public class TokenService {
 
     private static final TokenService INSTANCE = new TokenService(new ConfigCommands());
 
+    /**
+     * Same tolerance rules as the DAO's mapper: instances of different versions share the Valkey validation
+     * cache, so reads must survive JSON written by a newer schema (rolling deploys).
+     */
+    private static final ObjectMapper MAPPER =
+            new ObjectMapper().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+
     private final ConfigCommands config;
+    /** Test seam; null means "the DAO's client", resolved lazily so constructing the service touches no DAO. */
+    private final CacheClient cacheClientOverride;
+    private volatile PointCache<AuthToken> validationCache;
 
     public static TokenService getInstance() {
         return INSTANCE;
@@ -43,7 +60,13 @@ public class TokenService {
 
     // Public so tests outside this package (the resource tests) can supply their own config.
     public TokenService(final ConfigCommands config) {
+        this(config, null);
+    }
+
+    // Package-private: cache tests hand in their own client (e.g. wrapped so revalidation turns on).
+    TokenService(final ConfigCommands config, final CacheClient cacheClient) {
         this.config = config;
+        this.cacheClientOverride = cacheClient;
     }
 
     /**
@@ -179,6 +202,102 @@ public class TokenService {
                 .log();
     }
 
+    /**
+     * The hot path: validates a presented access token and answers the request's {@link TokenPrincipal}, or
+     * null for every refusal, indistinguishably.
+     *
+     * <p>The row comes from the TRUSTED validation cache -- one foreground Valkey GET; a stale hit schedules
+     * the standard background re-read; a miss falls through to one Dynamo point read. The checks that decide
+     * the answer run inline on the value in hand, every time, cached or not: kind, expiry against now, and a
+     * constant-time validator-hash compare. The cache can serve a DELETED row for at most the soft-TTL
+     * window (and normally not at all -- every revocation path removes the key explicitly); it can never
+     * serve an expired or wrong-validator success, because those judgments never trust the cache's age.
+     * This deliberately reverses the "auth rows are never cached" rule -- see {@code docs/api-tokens.md} for
+     * why, and for the bounded worst case.
+     */
+    public TokenPrincipal validateAccess(final String presented) {
+        if (!enabled()) {
+            return null;
+        }
+        final Optional<SelectorTokens.Parsed> parsed = SelectorTokens.parse(presented);
+        if (parsed.isEmpty()) {
+            return null;
+        }
+        final AuthToken row = cache().get(parsed.get().selector(), this::loadAccessRow).orElse(null);
+        if (row == null || row.getKind() != AuthToken.Kind.ACCESS) {
+            return null;
+        }
+        if (row.getExpires() == null || row.getExpires() <= Instant.now().getEpochSecond()) {
+            return null;
+        }
+        if (!Digests.matches(row.getValidatorHash(), parsed.get().validatorHash())) {
+            return null;
+        }
+        return new TokenPrincipal(row.getUserId(), row.getEmail(), row.getRole(),
+                row.getScope() == null ? AuthToken.Scope.MEMBER : row.getScope(), row.getSelector());
+    }
+
+    /**
+     * Revokes every credential of every kind for one person and purges each ACCESS entry from the
+     * validation cache -- which is why {@code deleteAuthTokensForUser} returns rows, not a count. The one
+     * funnel behind password change and credential deletion (via {@code RememberMeService.revokeAllFor});
+     * deliberately NOT gated on {@link #enabled()}: revocation must always work.
+     */
+    public int revokeAllFor(final Person.Id userId) {
+        final List<AuthToken> deleted = DAO.getInstance().deleteAuthTokensForUser(userId);
+        for (final AuthToken token : deleted) {
+            if (token.getKind() == AuthToken.Kind.ACCESS) {
+                cache().remove(token.getSelector());
+            }
+        }
+        return deleted.size();
+    }
+
+    /** Loads ONLY access rows for the validation cache, so other kinds never take up residence in it. */
+    private AuthToken loadAccessRow(final String selector) {
+        final AuthToken row = DAO.getInstance().getAuthToken(selector, Cached.NO).orElse(null);
+        return (row == null || row.getKind() != AuthToken.Kind.ACCESS) ? null : row;
+    }
+
+    /**
+     * The validation cache, built lazily so constructing a service (tests do, with mocks) touches no DAO.
+     * The benign race on first use costs at most a duplicate build.
+     */
+    private PointCache<AuthToken> cache() {
+        if (validationCache == null) {
+            final CacheClient client =
+                    cacheClientOverride != null ? cacheClientOverride : DAO.getInstance().getCacheClient();
+            validationCache = PointCache.<AuthToken>builder()
+                    .cache(client)
+                    .keyPrefix(CacheKeys.AUTH_TOKEN_PREFIX)
+                    .softTtl(CacheKeys.AUTH_TOKEN_SOFT_TTL)
+                    .gcTtl(CacheKeys.AUTH_TOKEN_GC_TTL)
+                    .softRevalidate(CacheSupport.softRevalidateEnabled(client))
+                    .serializer(this::toJson)
+                    .deserializer(this::parseToken)
+                    .build();
+        }
+        return validationCache;
+    }
+
+    private String toJson(final AuthToken token) {
+        try {
+            return MAPPER.writeValueAsString(token);
+        } catch (final com.fasterxml.jackson.core.JsonProcessingException ex) {
+            throw new IllegalStateException("AuthToken must always serialize", ex);
+        }
+    }
+
+    private AuthToken parseToken(final String json) {
+        try {
+            return MAPPER.readValue(json, AuthToken.class);
+        } catch (final com.fasterxml.jackson.core.JacksonException ex) {
+            // An unreadable entry behaves as a miss; the loader rewrites it from the row of record.
+            log.warn("Unparseable auth-token cache entry; treating as a miss.", ex);
+            return null;
+        }
+    }
+
     /** The row a presented refresh token names, or null -- feature off, malformed, unknown, or wrong kind. */
     private AuthToken presentedRefreshRow(final String presented) {
         if (!enabled()) {
@@ -210,7 +329,12 @@ public class TokenService {
                 .scope(refresh.getScope())
                 .parentSelector(refresh.getSelector())
                 .build();
-        return Boolean.TRUE.equals(DAO.getInstance().saveAuthToken(access)) ? minted.presentable() : null;
+        if (!Boolean.TRUE.equals(DAO.getInstance().saveAuthToken(access))) {
+            return null;
+        }
+        // Write-through: the first validation of a fresh token is already a cache hit.
+        cache().put(access.getSelector(), access);
+        return minted.presentable();
     }
 
     /**
@@ -229,13 +353,18 @@ public class TokenService {
                 ? token.getSelector() + ":" + freshValidator : null;
     }
 
-    /** Deletes a refresh row and every ACCESS child that points back at it. */
+    /**
+     * Deletes a refresh row and every ACCESS child that points back at it, purging each child from the
+     * validation cache -- Dynamo first (authoritative), then the explicit removeKey that makes revocation
+     * immediate on every node; the soft-TTL reload is the backstop if a removal is lost.
+     */
     private void revokeFamily(final AuthToken refresh) {
         final List<AuthToken> children = DAO.getInstance().listAuthTokensForUser(refresh.getUserId());
         for (final AuthToken child : children) {
             if (child.getKind() == AuthToken.Kind.ACCESS
                     && refresh.getSelector().equals(child.getParentSelector())) {
                 DAO.getInstance().deleteAuthToken(child.getSelector());
+                cache().remove(child.getSelector());
             }
         }
         DAO.getInstance().deleteAuthToken(refresh.getSelector());

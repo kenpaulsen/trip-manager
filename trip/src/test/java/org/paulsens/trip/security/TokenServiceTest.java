@@ -193,4 +193,120 @@ public class TokenServiceTest {
         token.setRotatedAt(token.getRotatedAt() - seconds);
         Assert.assertTrue(DAO.getInstance().saveAuthToken(token));
     }
+
+    // ---- validateAccess: the cached hot path (docs/api-tokens.md) ----
+
+    @Test
+    public void aFreshAccessTokenValidatesToAFullyKnownPrincipal() {
+        final TokenService.Grant grant = service.issue(login("user3", "user"), AuthToken.Scope.MEMBER, null);
+
+        final TokenPrincipal principal = service.validateAccess(grant.accessToken());
+
+        Assert.assertNotNull(principal);
+        Assert.assertNotNull(principal.personId(), "half-known actors are the failure this design forbids");
+        Assert.assertNotNull(principal.email(), "half-known actors are the failure this design forbids");
+        Assert.assertNotNull(principal.actor().email());
+        Assert.assertNotNull(principal.actor().id());
+        Assert.assertEquals(principal.scope(), AuthToken.Scope.MEMBER);
+        Assert.assertFalse(principal.siteAdmin());
+        service.revoke(grant.refreshToken());
+    }
+
+    /**
+     * The cache is TRUSTED: a row deleted behind the cache's back still validates until the entry is
+     * refreshed or purged. That is the documented, bounded trade -- which is exactly why every real
+     * revocation path purges explicitly (the next test).
+     */
+    @Test
+    public void validationTrustsTheCacheWithoutRereadingTheStore() {
+        final TokenService.Grant grant = service.issue(login("user4", "user"), AuthToken.Scope.MEMBER, null);
+        Assert.assertNotNull(service.validateAccess(grant.accessToken()));
+
+        final String accessSelector = SelectorTokens.parse(grant.accessToken()).orElseThrow().selector();
+        DAO.getInstance().deleteAuthToken(accessSelector);
+
+        Assert.assertNotNull(service.validateAccess(grant.accessToken()),
+                "a validation that re-read the store would be paying the Dynamo read the cache exists to avoid");
+    }
+
+    /** Real revocation purges the cache entry, so it bites immediately -- no soft-TTL wait. */
+    @Test
+    public void revocationRefusesTheAccessTokenImmediately() {
+        final TokenService.Grant grant = service.issue(login("user5", "user"), AuthToken.Scope.MEMBER, null);
+        Assert.assertNotNull(service.validateAccess(grant.accessToken()));
+
+        service.revoke(grant.refreshToken());
+
+        Assert.assertNull(service.validateAccess(grant.accessToken()),
+                "revocation must bite on the very next validation, not after the soft TTL");
+    }
+
+    /** The password-change funnel: revokeAllFor sweeps rows AND purges each ACCESS cache entry. */
+    @Test
+    public void revokeAllForPurgesTheValidationCacheToo() {
+        final Creds creds = login("user6", "user");
+        final TokenService.Grant grant = service.issue(creds, AuthToken.Scope.MEMBER, null);
+        Assert.assertNotNull(service.validateAccess(grant.accessToken()));
+
+        Assert.assertTrue(service.revokeAllFor(creds.getUserId()) >= 2);
+
+        Assert.assertNull(service.validateAccess(grant.accessToken()));
+        Assert.assertNull(service.refresh(grant.refreshToken()));
+    }
+
+    @Test
+    public void validationRefusesEverythingButALiveExactAccessToken() {
+        final TokenService.Grant grant = service.issue(login("user7", "user"), AuthToken.Scope.MEMBER, null);
+        final String selector = SelectorTokens.parse(grant.accessToken()).orElseThrow().selector();
+
+        Assert.assertNull(service.validateAccess(null));
+        Assert.assertNull(service.validateAccess("no-separator"));
+        Assert.assertNull(service.validateAccess("unknown:validator"));
+        Assert.assertNull(service.validateAccess(selector + ":wrong-validator"),
+                "a wrong validator must be refused even though the row is cached");
+        Assert.assertNull(service.validateAccess(grant.refreshToken()),
+                "a refresh token must never authenticate a request directly");
+        service.revoke(grant.refreshToken());
+    }
+
+    /** Expiry is judged inline on the row in hand, never from cache age. */
+    @Test
+    public void anExpiredAccessRowIsRefusedInline() {
+        final long now = Instant.now().getEpochSecond();
+        final SelectorTokens.Minted minted = SelectorTokens.mint();
+        final AuthToken expired = AuthToken.builder()
+                .selector(minted.selector()).validatorHash(minted.validatorHash())
+                .userId(Person.Id.from("at-expired")).email("who@example.org")
+                .created(now - 100).lastUsed(now - 100).expires(now - 1)
+                .kind(AuthToken.Kind.ACCESS).role("user").scope(AuthToken.Scope.MEMBER)
+                .build();
+        Assert.assertTrue(DAO.getInstance().saveAuthToken(expired));
+
+        Assert.assertNull(service.validateAccess(minted.presentable()));
+        DAO.getInstance().deleteAuthToken(minted.selector());
+    }
+
+    /** The kill switch stops ACCEPTANCE of tokens already in the field, not just issuance. */
+    @Test
+    public void aDisabledFeatureRefusesTokensAlreadyIssued() {
+        final TokenService.Grant grant = service.issue(login("user8", "user"), AuthToken.Scope.MEMBER, null);
+        Assert.assertNotNull(service.validateAccess(grant.accessToken()));
+
+        final TokenService off = new TokenService(Mockito.mock(ConfigCommands.class));
+        Assert.assertNull(off.validateAccess(grant.accessToken()),
+                "off means no acceptance -- the kill switch covers every token in the field");
+        service.revoke(grant.refreshToken());
+    }
+
+    @Test
+    public void anAdminScopedPrincipalIsSiteAdminAndAMemberScopedOneIsNot() {
+        final TokenService.Grant admin = service.issue(login("admin", "admin"), AuthToken.Scope.ADMIN, null);
+        Assert.assertTrue(service.validateAccess(admin.accessToken()).siteAdmin());
+        service.revoke(admin.refreshToken());
+
+        final TokenService.Grant capped = service.issue(login("admin", "admin"), AuthToken.Scope.MEMBER, null);
+        Assert.assertFalse(service.validateAccess(capped.accessToken()).siteAdmin(),
+                "a member-scoped token held by an administrator behaves as a member");
+        service.revoke(capped.refreshToken());
+    }
 }

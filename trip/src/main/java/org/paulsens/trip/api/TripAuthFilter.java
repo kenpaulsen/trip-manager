@@ -14,12 +14,16 @@ import java.io.IOException;
 import java.util.Map;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.security.BearerTokens;
+import org.paulsens.trip.security.TokenPrincipal;
 
 /**
- * Session auth for the whole API. Never creates a session ({@code getSession(false)}) -- only
- * {@code AuthResource.login} may do that. Sets the {@code personId} property for the resource. Returns 401 JSON,
- * never {@code sendError}, which would hit the default HTML error page and hand a mobile client an HTML body
- * where it expects JSON.
+ * Auth for the whole API: ONE filter, TWO credentials ({@code docs/api-tokens.md}). A bearer principal --
+ * resolved once at the servlet edge by {@code BearerTokens} and stashed on the request -- wins; otherwise
+ * the session cookie authenticates exactly as it always has, so JSF and browser callers are untouched.
+ * Never creates a session ({@code getSession(false)}) -- only {@code AuthResource.login} may do that. Sets
+ * the {@code personId} property for the resource. Returns 401 JSON, never {@code sendError}, which would
+ * hit the default HTML error page and hand a mobile client an HTML body where it expects JSON.
  */
 @Provider
 @TripApi
@@ -33,6 +37,12 @@ public class TripAuthFilter implements ContainerRequestFilter {
 
     @Override
     public void filter(final ContainerRequestContext ctx) throws IOException {
+        final TokenPrincipal principal = BearerTokens.principalOf(request);
+        if (principal != null) {
+            ctx.setProperty(PERSON_ID_PROP, principal.personId());
+            request.setAttribute(PERSON_ID_PROP, principal.personId());
+            return;
+        }
         final HttpSession session = request.getSession(false);
         if (session == null) {
             abort(ctx, 401, ApiErrors.NOT_AUTHENTICATED, "Sign in required.");

@@ -151,9 +151,13 @@ public class RememberMeService {
         }
     }
 
-    /** Deletes EVERY credential of every kind for this person (password change, credentials removal). */
+    /**
+     * Deletes EVERY credential of every kind for this person (password change, credentials removal).
+     * Delegates to {@link TokenService}, which also purges revoked ACCESS tokens from the validation cache
+     * -- one funnel, so the existing call sites cover bearer tokens with no new hooks.
+     */
     public void revokeAllFor(final Person.Id userId) {
-        final int revoked = DAO.getInstance().deleteAuthTokensForUser(userId).size();
+        final int revoked = TokenService.getInstance().revokeAllFor(userId);
         if (revoked > 0) {
             log.info("Revoked {} auth token(s) for {}", revoked, userId.getValue());
         }

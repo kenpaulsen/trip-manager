@@ -16,6 +16,8 @@ import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.security.BearerTokens;
+import org.paulsens.trip.security.TokenPrincipal;
 
 /**
  * What every resource on this API needs and none of them should reinvent: response shaping, {@code Accept}
@@ -119,16 +121,26 @@ public abstract class BaseResource {
         throw new NotAuthorizedException("Sign in required.");
     }
 
+    /** The bearer principal riding this request, or null when the caller authenticated by session cookie. */
+    protected TokenPrincipal principal() {
+        return BearerTokens.principalOf(request);
+    }
+
     /**
-     * Site-admin status read from the session, because the ordinary check goes through {@code FacesContext} and
-     * there is none here. Without this a site administrator is refused every moderation action over the API.
+     * Site-admin status: the token's capped answer for a bearer caller ({@code TokenPrincipal.siteAdmin} --
+     * role AND scope), the session role otherwise (read directly because the ordinary check goes through
+     * {@code FacesContext} and there is none here). Without this a site administrator is refused every
+     * moderation action over the API.
      */
     protected boolean isSiteAdmin() {
-        return PersonCommands.hasRole(request.getSession(false), "admin");
+        final TokenPrincipal principal = principal();
+        return principal != null ? principal.siteAdmin()
+                : PersonCommands.hasRole(request.getSession(false), "admin");
     }
 
     protected AuditActor actor() {
-        return AuditActor.from(request.getSession(false));
+        final TokenPrincipal principal = principal();
+        return principal != null ? principal.actor() : AuditActor.from(request.getSession(false));
     }
 
     /**
@@ -145,7 +157,8 @@ public abstract class BaseResource {
      */
     protected Caller caller() {
         if (cachedCaller == null) {
-            cachedCaller = Caller.of(request.getSession(false));
+            final TokenPrincipal principal = principal();
+            cachedCaller = principal != null ? Caller.forToken(principal) : Caller.of(request.getSession(false));
         }
         return cachedCaller;
     }
@@ -233,8 +246,15 @@ public abstract class BaseResource {
      * <p>The defence is that a cross-origin form cannot set an arbitrary header at all, so the value carries no
      * secret and needs no comparison against session state -- its mere presence is the proof. Which also means it
      * defends nothing against script already running on this origin; see the note in the API plan.
+     *
+     * <p>An instance method (it was static) because a bearer caller is exempt: the sentinel exists because a
+     * cookie is sent ambiently, and a bearer token is only sent on purpose -- CSRF does not apply to it.
+     * Cookie-session mutations keep the sentinel exactly as before.
      */
-    protected static boolean csrfMissing(final String headerValue) {
+    protected boolean csrfMissing(final String headerValue) {
+        if (principal() != null) {
+            return false;
+        }
         return headerValue == null || !"1".equals(headerValue.trim());
     }
 }
