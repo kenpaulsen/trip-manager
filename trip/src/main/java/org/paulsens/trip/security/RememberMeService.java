@@ -4,6 +4,8 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
@@ -141,12 +143,20 @@ public class RememberMeService {
         return creds;
     }
 
-    /** Deletes THIS browser's token and cookie (logout). */
+    /**
+     * Deletes THIS browser's token(s) and cookie (logout). EVERY presented {@code trip_remember} is revoked,
+     * not just the first: on an org-site host a browser can hold two -- a host-only one from before the
+     * shared-cookie deploy and the domain-wide one -- and the one it presents first is not necessarily the
+     * live one. Leaving the other's row alive would let that cookie sign the browser straight back in.
+     */
     public void revoke(final HttpServletRequest request, final HttpServletResponse response) {
-        final Cookie cookie = find(request);
-        if (cookie != null) {
+        boolean presented = false;
+        for (final Cookie cookie : findAll(request)) {
+            presented = true;
             SelectorTokens.parse(cookie.getValue())
                     .ifPresent(parsed -> DAO.getInstance().deleteAuthToken(parsed.selector()));
+        }
+        if (presented) {
             expire(request, response);
         }
     }
@@ -197,16 +207,23 @@ public class RememberMeService {
     }
 
     private static Cookie find(final HttpServletRequest request) {
+        final List<Cookie> all = findAll(request);
+        return all.isEmpty() ? null : all.get(0);
+    }
+
+    /** Every presented remember-me cookie, in the browser's order (first = the one restores honor). */
+    private static List<Cookie> findAll(final HttpServletRequest request) {
+        final List<Cookie> found = new ArrayList<>();
         final Cookie[] cookies = request.getCookies();
         if (cookies == null) {
-            return null;
+            return found;
         }
         for (final Cookie cookie : cookies) {
             if (COOKIE_NAME.equals(cookie.getName())) {
-                return cookie;
+                found.add(cookie);
             }
         }
-        return null;
+        return found;
     }
 
     private boolean enabled() {

@@ -1,6 +1,8 @@
 package org.paulsens.trip.web;
 
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -11,6 +13,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.security.RememberMeService;
+import org.paulsens.trip.site.SiteContext;
 
 /**
  * The single place a signed-in session is created or destroyed.
@@ -204,5 +208,46 @@ public final class Sessions {
                 log.debug("Session was already invalid at logout.", ex);
             }
         }
+    }
+
+    /**
+     * {@link #logout(HttpServletRequest)} plus the browser side: the session cookie is expired too, so
+     * logging out on one {@code *.unitetrip.com} site signs the browser out of EVERY site the shared
+     * (domain-wide) session cookie covered.
+     *
+     * <p>Two deletions of {@code JSESSIONID} go out on an org-site host, and both are needed. The first is
+     * an ordinary {@code addCookie}, which the container's cookie processor widens to the shared domain on
+     * those hosts exactly as it widened the login cookie -- that deletes the SSO cookie. The second is a raw
+     * host-only {@code Set-Cookie} header, which bypasses the processor on purpose: a browser that signed in
+     * at {@code acme.unitetrip.com} BEFORE the shared-cookie deploy still holds a host-only cookie of the same
+     * name, and Tomcat picks whichever presented id is still valid -- so unless that one dies here too, a
+     * signed-out browser could be quietly served by the other session. Shared hosts get only the first
+     * (their cookie was never widened, so the first already is the host-only delete).
+     */
+    public static void logout(final HttpServletRequest request, final HttpServletResponse response) {
+        logout(request);
+        if (response == null) {
+            return;
+        }
+        final String path = request.getContextPath() == null || request.getContextPath().isEmpty()
+                ? "/" : request.getContextPath();
+        final Cookie dead = new Cookie(SESSION_COOKIE, "");
+        dead.setPath(path);
+        dead.setMaxAge(0);
+        dead.setHttpOnly(true);
+        dead.setSecure(request.isSecure());
+        response.addCookie(dead);
+        if (!SiteContext.current().isShared()) {
+            response.addHeader("Set-Cookie", hostOnlyDeletion(SESSION_COOKIE, path));
+            response.addHeader("Set-Cookie", hostOnlyDeletion(RememberMeService.COOKIE_NAME, "/"));
+        }
+    }
+
+    /** The container's session cookie; its name is Tomcat's default and the live descriptor never renames it. */
+    static final String SESSION_COOKIE = "JSESSIONID";
+
+    /** A host-only deletion the cookie processor never sees (a raw header is not a {@code Cookie}). */
+    static String hostOnlyDeletion(final String name, final String path) {
+        return name + "=; Path=" + path + "; Max-Age=0; HttpOnly";
     }
 }

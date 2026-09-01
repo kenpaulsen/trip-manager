@@ -1,15 +1,22 @@
 package org.paulsens.trip.web;
 
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.PersonCommands;
+import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.model.Creds;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.site.SiteContext;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -95,6 +102,59 @@ public class SessionsTest {
 
         Sessions.logout(request);
 
+        Mockito.verify(session).invalidate();
+    }
+
+    /** Off a bound request the site is SHARED: one ordinary (processor-routed) deletion, no raw sweep. */
+    @Test
+    public void logoutWithAResponseExpiresTheSessionCookieOnASharedHost() {
+        final HttpSession session = sessionOver(new HashMap<>());
+        final HttpServletRequest request = requestWith(session, null);
+        Mockito.when(request.getContextPath()).thenReturn("");
+        Mockito.when(request.isSecure()).thenReturn(true);
+        final HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
+
+        Sessions.logout(request, response);
+
+        Mockito.verify(session).invalidate();
+        final ArgumentCaptor<Cookie> dead = ArgumentCaptor.forClass(Cookie.class);
+        Mockito.verify(response).addCookie(dead.capture());
+        Assert.assertEquals(dead.getValue().getName(), Sessions.SESSION_COOKIE);
+        Assert.assertEquals(dead.getValue().getMaxAge(), 0);
+        Assert.assertEquals(dead.getValue().getPath(), "/");
+        Assert.assertTrue(dead.getValue().getSecure(), "Secure tracks the request");
+        Assert.assertTrue(dead.getValue().isHttpOnly());
+        Assert.assertNull(dead.getValue().getDomain(), "the app never stamps a domain; the container does");
+        Mockito.verify(response, Mockito.never()).addHeader(Mockito.anyString(), Mockito.anyString());
+    }
+
+    /** On an org-site host the raw host-only deletions go out too (the pre-SSO shadow cookies). */
+    @Test
+    public void logoutOnAnOrgSiteAlsoSweepsTheHostOnlyShadowCookies() throws Exception {
+        final HttpSession session = sessionOver(new HashMap<>());
+        final HttpServletRequest request = requestWith(session, null);
+        Mockito.when(request.getContextPath()).thenReturn(null);
+        final HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
+        final RequestContext onAcme = RequestContext.of(AuditActor.system(), null,
+                SiteContext.org(Organization.Id.from("o"), "acme", "acme.unitetrip.com"));
+
+        ScopedValue.where(RequestContext.SCOPE, onAcme).call(() -> logoutReturningNull(request, response));
+
+        Mockito.verify(session).invalidate();
+        Mockito.verify(response).addCookie(Mockito.any(Cookie.class));
+        Mockito.verify(response).addHeader("Set-Cookie", "JSESSIONID=; Path=/; Max-Age=0; HttpOnly");
+        Mockito.verify(response).addHeader("Set-Cookie", "trip_remember=; Path=/; Max-Age=0; HttpOnly");
+    }
+
+    private static Void logoutReturningNull(final HttpServletRequest request, final HttpServletResponse response) {
+        Sessions.logout(request, response);
+        return null;
+    }
+
+    @Test
+    public void logoutWithoutAResponseOnlyInvalidates() {
+        final HttpSession session = sessionOver(new HashMap<>());
+        Sessions.logout(requestWith(session, null), null);
         Mockito.verify(session).invalidate();
     }
 

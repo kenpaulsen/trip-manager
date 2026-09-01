@@ -54,6 +54,38 @@ public class RememberMeServiceTest {
                 "the selector must survive rotation -- it is what makes theft detectable");
     }
 
+    /**
+     * A browser on an org-site host can present TWO remember-me cookies (a host-only one from before the
+     * shared-cookie deploy plus the domain-wide one); logout must burn both rows, not just the first.
+     */
+    @Test
+    public void revokeBurnsEveryPresentedCookie() {
+        final Creds creds = userCreds("user5");
+        final List<Cookie> first = new ArrayList<>();
+        service.issue(requestWith((Cookie) null), responseCapturing(first), creds);
+        final List<Cookie> second = new ArrayList<>();
+        service.issue(requestWith((Cookie) null), responseCapturing(second), creds);
+
+        final HttpServletRequest both = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(both.getCookies()).thenReturn(new Cookie[] {first.get(0), second.get(0)});
+        final List<Cookie> expired = new ArrayList<>();
+        service.revoke(both, responseCapturing(expired));
+
+        Assert.assertEquals(expired.size(), 1, "one expiry cookie; the container scopes it per host");
+        Assert.assertEquals(expired.get(0).getMaxAge(), 0);
+        Assert.assertNull(service.validateAndRotate(requestWith(first.get(0)),
+                responseCapturing(new ArrayList<>())), "the first presented token is dead");
+        Assert.assertNull(service.validateAndRotate(requestWith(second.get(0)),
+                responseCapturing(new ArrayList<>())), "...and so is the second, which a first-only revoke left alive");
+    }
+
+    @Test
+    public void revokeWithNoCookieIsSilent() {
+        final List<Cookie> expired = new ArrayList<>();
+        service.revoke(requestWith((Cookie) null), responseCapturing(expired));
+        Assert.assertTrue(expired.isEmpty(), "nothing presented, nothing expired");
+    }
+
     /** The theft signature: a stale validator presented AFTER the grace window kills the token for BOTH parties. */
     @Test
     public void aReplayedOldValidatorBurnsTheTokenAfterTheGraceWindow() {

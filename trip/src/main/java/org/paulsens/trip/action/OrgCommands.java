@@ -425,6 +425,15 @@ public class OrgCommands {
     }
 
     private boolean writeMembership(final String orgId, final Person.Id personId) {
+        return writeMembership(orgId, personId, null);
+    }
+
+    /**
+     * @param how the audit trail's account of WHY this membership was written (null = an admin added them);
+     *            the self-join paths pass the event that granted it, so a roster reviewer can tell a
+     *            sign-up or a trip registration from an admin's add.
+     */
+    private boolean writeMembership(final String orgId, final Person.Id personId, final String how) {
         final Caller current = caller();
         final Organization org = findOrganization(orgId);
         final Person person = DAO.getInstance().getPerson(personId, Cached.NO).orElse(null);
@@ -447,7 +456,8 @@ public class OrgCommands {
             person.getOrgIds().add(org.getId());
             savePersonOrWarn(person);
         }
-        audit(current, org, "Added " + describe(person) + " to organization '" + org.getName() + "'");
+        audit(current, org, "Added " + describe(person) + " to organization '" + org.getName() + "'"
+                + (how == null ? "" : " (" + how + ")"));
         return true;
     }
 
@@ -550,6 +560,54 @@ public class OrgCommands {
         audit(current, fresh, (admin ? "Granted" : "Revoked") + " org admin for " + personId.getValue()
                 + " on organization '" + fresh.getName() + "'");
         return true;
+    }
+
+    // ------------------------------------------------------------------ self-join (org sites)
+
+    /**
+     * The one membership write a person earns for THEMSELVES, and the only two events that earn it
+     * (user-locked, 2026-09-01): creating an account on an organization's own site, and registering for
+     * one of the organization's trips. Browsing an org site never joins -- an existing account reads
+     * {@code acme.unitetrip.com} exactly as an outsider until it registers there or accepts an invite --
+     * which is why this takes no org id from the caller: the org comes from the request's host or the
+     * trip's owner, never from a parameter a page could be talked into passing.
+     *
+     * <p>Authorization is the event itself: the account exists (so the caller IS the person), or the
+     * registration was accepted by {@code RegistrationCommands.registerParty}'s own checks. A person
+     * already in the org is a no-op; an org the site or trip does not name is a no-op too, never a
+     * refusal growl -- both callers are mid-flow on a page whose real work already succeeded.
+     */
+    private boolean selfJoin(final String orgId, final Person.Id personId, final String how) {
+        if (orgId == null || orgId.isBlank() || personId == null || findOrganization(orgId) == null) {
+            return false;
+        }
+        return writeMembership(orgId, personId, how);
+    }
+
+    /**
+     * Auto-join for a brand-new account created on an ORG host: the signed-in caller (the account the
+     * create page just established a session for) joins the site's organization. On a shared or marketing
+     * host there is no organization to join and this answers false without a message.
+     */
+    public boolean joinSiteOrgOnSignup() {
+        final SiteContext site = SiteContext.current();
+        final Caller current = caller();
+        if (!site.isOrg() || !current.isAuthenticated()) {
+            return false;
+        }
+        return selfJoin(site.orgId().getValue(), current.personId(), "signed up on the organization's site");
+    }
+
+    /**
+     * Join-on-registration: a traveler whose registration for {@code trip} was just accepted becomes a
+     * member of the trip's owning organization (a roster member who is not in the org would otherwise be
+     * unremovable from a People page that never lists them). Org-less trips are a no-op.
+     */
+    public boolean joinOnRegistration(final Trip trip, final Person.Id travelerId) {
+        if (trip == null || trip.getOrgId() == null) {
+            return false;
+        }
+        return selfJoin(trip.getOrgId(), travelerId, "registered for trip '" + trip.getTitle() + "'");
     }
 
     // ------------------------------------------------------------------ org-scoped privileges

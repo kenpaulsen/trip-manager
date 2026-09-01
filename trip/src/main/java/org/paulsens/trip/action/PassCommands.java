@@ -69,7 +69,7 @@ public class PassCommands {
         // Logout means THIS browser stops being signed in -- the remember-me cookie must die with the
         // session, or the next request would quietly sign the person straight back in.
         RememberMeService.getInstance().revoke(request, currentResponse());
-        Sessions.logout(request);
+        Sessions.logout(request, currentResponse());
     }
 
     /** {@link #createCreds} plus session establishment, for the create-account page (same gap as login). */

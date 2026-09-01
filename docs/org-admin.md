@@ -286,6 +286,49 @@ are filled by `sendOrgInvite`. Installed template ROWS are runtime-editable and 
 must delete its `org-invite` template on the Templates page and re-install, or edit the row's subject/body
 to use the tokens.
 
+### One login across the org sites (shared cookie, 2026-09)
+
+One Person, one login: a session established on any host under the org-site base domain
+(`unitetrip.com`, `www.unitetrip.com`, every `{slug}.unitetrip.com`) is the same session on all of them,
+because the session cookie carries `Domain=unitetrip.com` there. The shared hosts
+(`visitqueenofpeace.com`, `centerforpeacewest.com`, `localhost`) keep host-only cookies, and a login on
+one of them never reaches the org sites (cross-registrable-domain SSO is deferred).
+
+- **The domain is stamped by the container, not the application.** Tomcat writes the `JSESSIONID`
+  `Set-Cookie` below any servlet-level wrapper, and a static `sessionCookieDomain` would stamp the org
+  domain on vqop responses too (browsers reject a Domain that does not cover the host). So the private
+  repo ships a per-context `CookieProcessor` (`medjugorje/tomcat-ext`, `SiteCookieProcessor`, a jar in
+  `tomcat/lib`, named in `conf/context.xml`) whose `generateHeader(cookie, request)` widens EVERY cookie —
+  the session cookie, `trip_remember`, and their max-age-0 deletions — when `request.getServerName()` is
+  the base domain or under it. Application code never sets a cookie domain; the webtest harness installs
+  the same processor on its embedded context.
+- **Logout signs out everywhere.** `Sessions.logout(request, response)` invalidates the session and
+  expires the cookie (widened by the processor on an org host); on org hosts it also emits raw host-only
+  deletions of `JSESSIONID` and `trip_remember` for browsers still holding pre-SSO host-only copies
+  (Tomcat serves whichever presented session id is still valid, so a stale host-only cookie could otherwise
+  keep a signed-out browser signed in). `RememberMeService.revoke` deletes the row of EVERY presented
+  remember-me cookie for the same reason. Both `PassCommands.logout` and `POST /api/auth/logout` funnel
+  through it. At login a leftover host-only cookie is harmless: an invalid id is skipped by Tomcat.
+- **Org context never comes from the session.** One session now serves several sites; the site is
+  `SiteContext.current()` (the request host), full stop. Passkeys already span the subdomains
+  (`PasskeyService.rpIdFor` collapses to the registrable domain).
+
+### Membership from the org sites (self-join, 2026-09)
+
+Exactly two events make a person a member of an org on their own, both on `OrgCommands` and both audited
+with their reason; nothing else does — **browsing an org's site never joins**, however long, however
+signed in:
+
+- **Sign-up on an org site** — `joinSiteOrgOnSignup()`, called by `account/createAccount.xhtml` right
+  after `createCredsSession` established the new account's session: the signed-in caller joins the site's
+  org (`SiteContext.current()`; a no-op on shared/marketing hosts). It takes no org id, so no page can be
+  talked into joining an arbitrary org.
+- **Registration for an org's trip** — `joinOnRegistration(trip, travelerId)`, called by
+  `RegistrationCommands.registerParty` for each traveler whose row was just saved (a refused registration
+  joins nobody; a family manager's registrations join each traveler). Org-less trips are a no-op.
+
+Invite acceptance already produces a membership through the org People page's add path.
+
 ## Local-mode fixtures (`FakeData`)
 
 Acme trip `3f7a9c15…` (Kevin on the roster — demonstrates the removal guard), `emailAdmin@CFPW` → user2,

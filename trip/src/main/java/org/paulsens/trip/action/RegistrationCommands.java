@@ -32,6 +32,7 @@ public class RegistrationCommands {
     private final java.util.function.Supplier<AuditCommands> auditSource;
     private final java.util.function.Supplier<MailCommands> mailSource;
     private final java.util.function.Supplier<MailAddressCommands> mailAddrSource;
+    private final java.util.function.Supplier<OrgCommands> orgSource;
 
     public RegistrationCommands() {
         this(Caller::current);
@@ -48,11 +49,25 @@ public class RegistrationCommands {
             final java.util.function.Supplier<AuditCommands> auditSource,
             final java.util.function.Supplier<MailCommands> mailSource,
             final java.util.function.Supplier<MailAddressCommands> mailAddrSource) {
+        // The org commands run as THIS bean's caller, so a join-on-registration audits as the person (or
+        // family manager) who registered, never as an anonymous or system actor.
+        this(callerSource, tripSource, auditSource, mailSource, mailAddrSource,
+                () -> new OrgCommands(callerSource));
+    }
+
+    /** The full seam plus the org membership writer ({@link #registerParty}'s join-on-registration). */
+    RegistrationCommands(final java.util.function.Supplier<Caller> callerSource,
+            final java.util.function.Supplier<TripCommands> tripSource,
+            final java.util.function.Supplier<AuditCommands> auditSource,
+            final java.util.function.Supplier<MailCommands> mailSource,
+            final java.util.function.Supplier<MailAddressCommands> mailAddrSource,
+            final java.util.function.Supplier<OrgCommands> orgSource) {
         this.callerSource = callerSource;
         this.tripSource = tripSource;
         this.auditSource = auditSource;
         this.mailSource = mailSource;
         this.mailAddrSource = mailAddrSource;
+        this.orgSource = orgSource;
     }
 
     public Registration createRegistration(final String tripId, final Person.Id userId) {
@@ -142,6 +157,10 @@ public class RegistrationCommands {
             }
             if (saveRegistration(reg.withStatusString("Pending"))) {
                 registered.add(traveler);
+                // Join-on-registration (user-locked 2026-09-01): an accepted registration is what makes an
+                // existing account a member of the trip's organization -- browsing its site never does.
+                // After the save, so a refused registration joins nobody; a failed join never undoes it.
+                orgSource.get().joinOnRegistration(trip, travelerId);
             }
         }
         final List<String> updated = saveResponseEdits(trip, regs, digests, me, people);

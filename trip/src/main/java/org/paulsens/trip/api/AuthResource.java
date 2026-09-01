@@ -1,6 +1,5 @@
 package org.paulsens.trip.api;
 
-import jakarta.servlet.http.HttpSession;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
@@ -285,10 +284,8 @@ public class AuthResource extends BaseResource {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
         RememberMeService.getInstance().revoke(request, response);
-        final HttpSession session = request.getSession(false);
-        if (session != null) {
-            session.invalidate();
-        }
+        // The page logout's funnel: invalidates AND expires the (domain-wide, on an org site) cookie.
+        Sessions.logout(request, response);
         return ok(Map.of("signedOut", true));
     }
 
