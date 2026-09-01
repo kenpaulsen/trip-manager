@@ -101,6 +101,23 @@ public class OrgHomePageSeedingTest {
     }
 
     @Test
+    public void theSharedSitesChoiceIsTheOrgsOwnAndDefaultsToAllow() {
+        final OrgCommands admin = as(SITE_ADMIN, true);
+        final Organization org = newOrg(admin, "Shared Gate " + UUID.randomUUID());
+        final String id = org.getId().getValue();
+        Assert.assertTrue(admin.storedAllowSharedSites(id), "allow by default");
+        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, Boolean.FALSE));
+        Assert.assertFalse(admin.storedAllowSharedSites(id));
+        Assert.assertEquals(reread(org).getAllowSharedSites(), Boolean.FALSE);
+        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, null),
+                "null leaves the choice alone");
+        Assert.assertFalse(admin.storedAllowSharedSites(id));
+        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, Boolean.TRUE));
+        Assert.assertNull(reread(org).getAllowSharedSites(), "allow is stored as the null default");
+        Assert.assertTrue(admin.storedAllowSharedSites("no-such-org"), "unknown org: nothing to restrict");
+    }
+
+    @Test
     public void onlyTheOrgsManagersCanTriggerSeeding() {
         final OrgCommands admin = as(SITE_ADMIN, true);
         final Organization org = newOrg(admin, "Seed Authz " + UUID.randomUUID());

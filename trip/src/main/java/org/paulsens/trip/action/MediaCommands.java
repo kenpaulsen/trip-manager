@@ -42,6 +42,7 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 
 /**
@@ -83,10 +84,14 @@ public class MediaCommands {
     private volatile CloudFrontClient cloudFront;
     private final ConfigCommands config = new ConfigCommands();
 
-    /** @return every media item, newest first, for the admin page. */
+    /**
+     * @return every media item this SITE may discover, newest first, for the admin page: an organization's
+     *         site sees only its own items, a shared site only site-level ones (see {@link #discoverable}).
+     */
     public List<MediaItem> getAll() {
         try {
             return DAO.getInstance().getAllMedia(Cached.NO).stream()
+                    .filter(MediaCommands::discoverable)
                     .sorted(Comparator.comparing(MediaItem::getUploaded,
                             Comparator.nullsLast(Comparator.reverseOrder())))
                     .toList();
@@ -94,6 +99,24 @@ public class MediaCommands {
             log.error("Unable to list media", ex);
             return List.of();
         }
+    }
+
+    /**
+     * The media tenancy rule: an item is discoverable (listed, picked, managed) on an organization's site
+     * only when it is that org's, and on a shared site only when it is site-level -- a tenant's documents
+     * and pictures never surface in another site's library, picker or public section, public or not. This
+     * is about DISCOVERY; an item's URL is not restricted, and chat albums are scoped by their trip instead
+     * (an old null-org chat photo must still show in its own trip's album).
+     */
+    static boolean discoverable(final MediaItem item) {
+        final SiteContext site = SiteContext.current();
+        return site.isOrg() ? site.isSiteOf(item.getOrgId()) : !item.isOrgOwned();
+    }
+
+    /** The organization to stamp on a library upload made on this site: the org's on its site, else none. */
+    static String siteOrgId() {
+        final SiteContext site = SiteContext.current();
+        return site.isOrg() ? site.orgId().getValue() : null;
     }
 
     /**
@@ -133,7 +156,11 @@ public class MediaCommands {
      */
     public List<MediaItem> getVisibleInSlot(final String slot, final int maxAgeDays) {
         final LocalDateTime cutoff = maxAgeDays > 0 ? LocalDateTime.now().minusDays(maxAgeDays) : null;
+        // Library slots (documents, home images) are site-scoped per item; a chat slot is one trip's album,
+        // scoped by the trip that owns it, so its rows are not filtered here.
+        final boolean chatSlot = ChatPhotos.isChatSlot(slot);
         return getInSlot(slot).stream()
+                .filter(item -> chatSlot || discoverable(item))
                 .filter(item -> !item.getHidden())
                 .filter(item -> cutoff == null
                         || (item.getUploaded() != null && !item.getUploaded().isBefore(cutoff)))
@@ -174,7 +201,8 @@ public class MediaCommands {
         final int position = getInSlot(cleanSlot).stream().mapToInt(MediaItem::getPosition).max().orElse(-1) + 1;
         final MediaItem updated = new MediaItem(existing.getId(), existing.getS3Key(), existing.getTitle(),
                 existing.getDescription(), existing.getContentType(), existing.getSize(), cleanSlot, position,
-                LocalDateTime.now(), existing.getUploadedBy(), existing.getSmallKey(), existing.getHidden());
+                LocalDateTime.now(), existing.getUploadedBy(), existing.getSmallKey(), existing.getHidden(),
+                existing.getOrgId());
         try {
             if (!DAO.getInstance().saveMedia(updated)) {
                 return false;
@@ -201,16 +229,20 @@ public class MediaCommands {
      * ({@code openToPublic} -- private trips are unlisted everywhere, including here), has started (in
      * progress is fine, not-yet-started is not), ended within the window, and has at least {@code minPhotos}
      * visible photos in its chat-photo slot. Everything reads from caches (trip index + media hash), so this
-     * is safe on a public page render. On an ORGANIZATION's site only that org's trips qualify -- the
-     * albums follow the trips, and a tenant's site never shows another tenant's pictures.
+     * is safe on a public page render. The albums follow the trips through {@link ListingScope}: an
+     * organization's site shows only its own, a shared site the orgs it curates -- a tenant's site never
+     * shows another tenant's pictures.
      */
     public List<TripAlbum> getHomeAlbums(final int windowDays, final int minPhotos) {
+        return getHomeAlbums(windowDays, minPhotos, ListingScope.forSite());
+    }
+
+    private List<TripAlbum> getHomeAlbums(final int windowDays, final int minPhotos, final ListingScope scope) {
         final LocalDateTime now = LocalDateTime.now();
-        final SiteContext site = SiteContext.current();
         try {
             return DAO.getInstance().getActiveTrips(now.minusDays(windowDays), Cached.YES).stream()
                     .filter(trip -> Boolean.TRUE.equals(trip.getOpenToPublic()))
-                    .filter(trip -> site.admits(trip.getOrgId()))
+                    .filter(trip -> scope.shows(trip.getOrgId()))
                     .filter(trip -> trip.getStartDate() != null && !trip.getStartDate().isAfter(now))
                     .map(this::toAlbum)
                     .filter(album -> album.photos().size() >= minPhotos)
@@ -252,7 +284,8 @@ public class MediaCommands {
 
     /**
      * {@link #getHomeAlbums(int, int)} driven by a "Photo Albums" programmatic content instance: blank or
-     * unparsable properties fall back to the site-wide settings, so an empty instance behaves like v1 did.
+     * unparsable properties fall back to the site-wide settings, so an empty instance behaves like v1 did;
+     * on a shared site the instance's curated {@code includeOrgs} list picks whose albums appear.
      */
     public List<TripAlbum> getHomeAlbumsFor(final ContentInstance instance) {
         if (instance == null) {
@@ -262,7 +295,7 @@ public class MediaCommands {
                 config.getInt(KnownSettings.HOME_PHOTOS_WINDOW_DAYS));
         final int minPhotos = parsePositive(instance.getValues().get("minPhotos"),
                 config.getInt(KnownSettings.HOME_PHOTOS_MIN_COUNT));
-        return getHomeAlbums(window, minPhotos);
+        return getHomeAlbums(window, minPhotos, ListingScope.forInstance(instance.getValues()));
     }
 
     /**
@@ -374,7 +407,8 @@ public class MediaCommands {
 
         final MediaItem item = new MediaItem(UUID.randomUUID().toString(), cleanKey,
                 (title == null || title.isBlank()) ? cleanKey : title.trim(),
-                description, contentType, size, slot, position, LocalDateTime.now(), uploadedBy, null, hidden);
+                description, contentType, size, slot, position, LocalDateTime.now(), uploadedBy, null, hidden,
+                siteOrgId());
         try {
             if (!DAO.getInstance().saveMedia(item)) {
                 // The object is stored but unlisted: say so plainly rather than reporting success, because the
@@ -486,7 +520,7 @@ public class MediaCommands {
         final MediaItem item = new MediaItem(UUID.randomUUID().toString(), cleanKey,
                 (title == null || title.isBlank()) ? cleanKey : title.trim(),
                 description, stored.get().contentType(), stored.get().size(), slot, position,
-                LocalDateTime.now(), uploadedBy, null, hidden);
+                LocalDateTime.now(), uploadedBy, null, hidden, siteOrgId());
         try {
             if (!DAO.getInstance().saveMedia(item)) {
                 return null;
@@ -596,7 +630,8 @@ public class MediaCommands {
         final MediaItem updated = new MediaItem(existing.getId(), cleanKey, title, description,
                 existing.getContentType(), existing.getSize(), slot,
                 (position == null) ? existing.getPosition() : position,
-                existing.getUploaded(), existing.getUploadedBy(), existing.getSmallKey(), hidden);
+                existing.getUploaded(), existing.getUploadedBy(), existing.getSmallKey(), hidden,
+                existing.getOrgId());
         try {
             if (!DAO.getInstance().saveMedia(updated)) {
                 TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", "The save failed.");

@@ -4,10 +4,15 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.util.AbstractMap;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
@@ -94,6 +99,76 @@ public final class ContentInstance implements Serializable {
 
     public void setValues(final Map<String, String> values) {
         this.values = new HashMap<>(values);
+    }
+
+    /**
+     * A LIST view over {@link #values} for MULTI_CHOICE properties: the editor binds a checkbox menu to
+     * {@code listValues[name]}, and reads and writes go straight through to the single comma-separated
+     * string in {@code values} -- no second field, nothing to keep in sync, and a row's JSON shape is
+     * unchanged. Computed on each call (never a field), so nothing extra rides the serialized instance.
+     */
+    @JsonIgnore
+    public Map<String, List<String>> getListValues() {
+        return new ListValuesView();
+    }
+
+    /** The stored form of a list value split back into its items; null/blank = empty. Tolerates whitespace. */
+    public static List<String> splitList(final String stored) {
+        if (stored == null || stored.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(stored.split("[,\\s]+"))
+                .map(String::trim)
+                .filter(item -> !item.isEmpty())
+                .distinct()
+                .toList();
+    }
+
+    /** The list form joined back into the stored string (empty list = the value is removed). */
+    public static String joinList(final List<String> items) {
+        return items == null ? "" : items.stream()
+                .filter(item -> item != null && !item.isBlank())
+                .map(String::trim)
+                .distinct()
+                .collect(Collectors.joining(","));
+    }
+
+    /**
+     * The map view {@link #getListValues()} answers; {@code put} writes through into {@link #values}.
+     * Serializable only to satisfy the model-package ratchet -- it is computed per call and never stored.
+     */
+    private final class ListValuesView extends AbstractMap<String, List<String>> implements Serializable {
+
+        @Override
+        public List<String> get(final Object key) {
+            return key == null ? List.of() : splitList(getValues().get(key.toString()));
+        }
+
+        @Override
+        public List<String> put(final String key, final List<String> items) {
+            final List<String> before = get(key);
+            final String joined = joinList(items);
+            if (joined.isEmpty()) {
+                getValues().remove(key);
+            } else {
+                getValues().put(key, joined);
+            }
+            return before;
+        }
+
+        @Override
+        public boolean containsKey(final Object key) {
+            return key != null && getValues().containsKey(key.toString());
+        }
+
+        @Override
+        public Set<Entry<String, List<String>>> entrySet() {
+            final Set<Entry<String, List<String>>> entries = new LinkedHashSet<>();
+            for (final Map.Entry<String, String> entry : getValues().entrySet()) {
+                entries.add(Map.entry(entry.getKey(), splitList(entry.getValue())));
+            }
+            return entries;
+        }
     }
 
     /** Whether this instance should render on public pages right now. */

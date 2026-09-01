@@ -189,6 +189,13 @@ public final class FakeData {
      */
     public static final String CFPW_ORG_ID = "5f0c2a4e-9d31-4a8e-8f34-6d2f19c7b0a1";
     public static final String ACME_ORG_ID = "a17c3b52-2e84-4d0b-9c66-08d94f2e6b73";
+    /**
+     * A second HOSTED org ("Beta Corp", site beta.localhost): the tenant-isolation tests need two org sites
+     * to prove one never shows the other's content, while CFPW stays a shared-tier org (no site of its own)
+     * exactly as in production -- the shared landing page lists CFPW by default and hosted orgs only when
+     * curated in.
+     */
+    public static final String BETA_ORG_ID = "b2e5d7a1-4c39-4f8e-9a60-2d7c1e8f5b34";
 
     /**
      * Seeds the two demo organizations through the REAL {@code OrgCommands} membership path (so the
@@ -204,9 +211,11 @@ public final class FakeData {
             return;
         }
         // Slugs make the org SITES reachable locally: Chromium resolves {slug}.localhost natively, so
-        // http://acme.localhost:8080/ exercises the per-org subdomain path with no hosts-file edit.
-        seedOrg(CFPW_ORG_ID, "CFPW", "CFPW", "cfpw", admin.getId());
+        // http://acme.localhost:8080/ exercises the per-org subdomain path with no hosts-file edit. CFPW
+        // deliberately has NO slug -- it is the shared-tier org, as in production.
+        seedOrg(CFPW_ORG_ID, "CFPW", "CFPW", null, admin.getId());
         seedOrg(ACME_ORG_ID, "Acme Inc", "Acme", "acme", admin.getId());
+        seedOrg(BETA_ORG_ID, "Beta Corp", "Beta", "beta", admin.getId());
         final org.paulsens.trip.action.OrgCommands commands = new org.paulsens.trip.action.OrgCommands(
                 () -> new org.paulsens.trip.action.Caller(admin.getId(), true,
                         org.paulsens.trip.audit.AuditActor.system(),
@@ -228,9 +237,9 @@ public final class FakeData {
         seedCfpwPaymentDefaults();
         seedOrgScopedPrivileges(commands, kevin);
         // Each org SITE gets its default home page through the same once-only seeding a slug assignment
-        // triggers in production, so cfpw.localhost / acme.localhost show what a new tenant sees. Runs after
+        // triggers in production, so acme.localhost / beta.localhost show what a new tenant sees. Runs after
         // addFakeContent: the starter rows pin the starter templates' current versions.
-        for (final String orgId : List.of(CFPW_ORG_ID, ACME_ORG_ID)) {
+        for (final String orgId : List.of(ACME_ORG_ID, BETA_ORG_ID)) {
             if (!commands.ensureHomePage(orgId)) {
                 throw new IllegalStateException("Fake org seed: could not seed the home page of " + orgId);
             }
@@ -406,6 +415,11 @@ public final class FakeData {
         saveMedia(new MediaItem("fake-doc-4", "downloads/FakeRegistrationForm.pdf", "Fake Registration Form",
                 "Selectable, not yet placed", "application/pdf", 350_000L, null, 0,
                 now.minusDays(200), "fake-seed", null, null));
+        // An ORG-owned document in the same slot: discoverable on acme.localhost only -- the shared site's
+        // Documents section, library and pickers must never surface it.
+        saveMedia(new MediaItem("fake-acme-doc", "downloads/FakeAcmeBrochure.pdf", "Acme Brochure",
+                "Acme's own document", "application/pdf", 120_000L, "home-docs", 3,
+                now.minusDays(2), "fake-seed", null, null, ACME_ORG_ID));
         // The galleria trip's album: 12 photos, one hidden -> 11 visible, above the min-count of 10.
         for (int i = 1; i <= 12; i++) {
             saveMedia(new MediaItem("fake-photo-past-" + i, "chat/pub-past-3d/fake-" + i + ".jpg",

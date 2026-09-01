@@ -8,6 +8,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.site.SiteContext;
 
 /**
  * One document from the media library, as a programmatic content type: the instance stores ONLY the media
@@ -46,14 +47,19 @@ final class FileType implements ProgrammaticContentTemplate {
         return "/WEB-INF/ptypes/file.xhtml";
     }
 
-    /** Curated (non-chat), publicly-visible library items, by title -- the admin's pick list. */
+    /**
+     * Curated (non-chat), publicly-visible library items this SITE may discover, by title -- the admin's
+     * pick list. An organization's site picks from its own documents, a shared site from site-level ones.
+     */
     @Override
     public List<Choice> choicesFor(final String propertyName) {
         if (!PROP_MEDIA_ID.equals(propertyName)) {
             return List.of();
         }
+        final SiteContext site = SiteContext.current();
         return DAO.getInstance().getAllMedia(Cached.YES).stream()
                 .filter(item -> !ChatPhotos.isChatSlot(item.getSlot()))
+                .filter(item -> site.isOrg() ? site.isSiteOf(item.getOrgId()) : !item.isOrgOwned())
                 .filter(item -> !item.getHidden())
                 .sorted(Comparator.comparing(FileType::titleKey))
                 .map(FileType::mediaChoice)

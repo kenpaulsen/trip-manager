@@ -24,10 +24,17 @@ public final class Placeholder implements Serializable {
      * {@link #VIDEO_URL} additionally normalizes YouTube links to their embed form.
      * {@link #CHOICE} is a fixed pick-one prompt whose options come from a programmatic type's
      * {@code choicesFor} provider (escaped like TEXT when rendered); it is meaningless on hand-authored
-     * templates and excluded from the template editor's type menu.
+     * templates and excluded from the template editor's type menu. {@link #MULTI_CHOICE} is its pick-many
+     * sibling: the editor shows a checkbox menu over the same provider, and the picks are stored in the
+     * one string value comma-separated ({@code ContentInstance.getListValues()} is the list view).
      */
     public enum Type {
-        TEXT, RICH_TEXT, IMAGE_URL, VIDEO_URL, URL, CHOICE
+        TEXT, RICH_TEXT, IMAGE_URL, VIDEO_URL, URL, CHOICE, MULTI_CHOICE
+    }
+
+    /** The prompt kinds only a programmatic type can declare (options come from its provider). */
+    public static boolean isProviderBacked(final Type type) {
+        return type == Type.CHOICE || type == Type.MULTI_CHOICE;
     }
 
     /** Token name matched in the template body: {@code {{name}}}. */

@@ -132,6 +132,64 @@ public class MediaResourceTest extends ResourceTestSupport {
         assertError(resource.inSlot(" "), 400, ApiErrors.BAD_REQUEST);
     }
 
+    /**
+     * A chat slot is one trip's album and its name is guessable ({@code tripChat-{tripId}}): a non-admin
+     * may browse it only as that trip's member, or when the trip is publicly listed on THIS site --
+     * otherwise it reads as absent, so one tenant cannot enumerate another's album by trip id.
+     */
+    @Test
+    public void aChatSlotIsBrowsableOnlyByMembersOrWhenTheTripListsOnThisSite() throws Exception {
+        signedInAs(USER);
+        Mockito.when(media.getVisibleInSlot(ArgumentMatchers.anyString(), ArgumentMatchers.anyInt()))
+                .thenReturn(List.of());
+        final org.paulsens.trip.dynamo.DAO dao = org.paulsens.trip.dynamo.DAO.getInstance();
+        org.paulsens.trip.dynamo.FakeData.addFakeData();
+
+        // A hosted org's public trip: off the shared site by default, and USER is not on it.
+        assertError(resource.inSlot("tripChat-" + org.paulsens.trip.dynamo.FakeData.ACME_TRIP_ID), 404,
+                ApiErrors.NOT_FOUND);
+        assertError(resource.inSlot("tripChat-no-such-trip"), 404, ApiErrors.NOT_FOUND);
+
+        // A shared-tier org's public trip lists on the shared site: browsable by anyone signed in.
+        final org.paulsens.trip.model.Trip open = org.paulsens.trip.model.Trip.builder()
+                .id("mr-open-" + System.nanoTime()).title("Open").build();
+        open.setOrgId(org.paulsens.trip.dynamo.FakeData.CFPW_ORG_ID);
+        open.setOpenToPublic(true);
+        Assert.assertTrue(dao.saveTrip(open));
+        final org.paulsens.trip.model.Trip reread =
+                dao.getTrip(open.getId(), org.paulsens.trip.cache.Cached.YES).orElse(null);
+        Assert.assertNotNull(reread, "the saved trip must be readable");
+        Assert.assertEquals(reread.getOpenToPublic(), Boolean.TRUE, "openToPublic survives the save");
+        Assert.assertEquals(reread.getOrgId(), org.paulsens.trip.dynamo.FakeData.CFPW_ORG_ID, "orgId survives");
+        Assert.assertEquals(org.paulsens.trip.action.ChatPhotos.tripOfSlot("tripChat-" + open.getId()), open.getId());
+        Assert.assertEquals(resource.personId(), USER, "signed in as USER");
+        Assert.assertTrue(resource.mayBrowseSlot("tripChat-" + open.getId()),
+                "gate: people=" + reread.getPeople() + " open=" + reread.getOpenToPublic());
+        Assert.assertTrue(org.paulsens.trip.site.ListingScope.forSite()
+                .shows(org.paulsens.trip.dynamo.FakeData.CFPW_ORG_ID), "CFPW lists on the shared site");
+        assertOk(resource.inSlot("tripChat-" + open.getId()));
+
+        // A private trip USER belongs to: browsable as a member.
+        final org.paulsens.trip.model.Trip mine = org.paulsens.trip.model.Trip.builder()
+                .id("mr-mine-" + System.nanoTime()).title("Mine").build();
+        mine.setOrgId(org.paulsens.trip.dynamo.FakeData.ACME_ORG_ID);
+        mine.setOpenToPublic(false);
+        mine.setPeople(new java.util.ArrayList<>(List.of(USER)));
+        Assert.assertTrue(dao.saveTrip(mine));
+        final org.paulsens.trip.model.Trip mineReread =
+                dao.getTrip(mine.getId(), org.paulsens.trip.cache.Cached.YES).orElseThrow();
+        Assert.assertTrue(mineReread.getPeople().contains(USER), "membership survives: " + mineReread.getPeople());
+        Assert.assertTrue(resource.mayBrowseSlot("tripChat-" + mine.getId()), "member gate");
+        assertOk(resource.inSlot("tripChat-" + mine.getId()));
+
+        // Admins browse everything (the admin branch never consults the gate). A resource memoizes its
+        // caller, so the second identity needs its own resource.
+        signedInAsSiteAdmin(ADMIN);
+        final MediaResource adminResource = resource(new MediaResource());
+        Mockito.when(media.getInSlot(ArgumentMatchers.anyString())).thenReturn(List.of());
+        assertOk(adminResource.inSlot("tripChat-" + org.paulsens.trip.dynamo.FakeData.ACME_TRIP_ID));
+    }
+
     /** Hidden reads as absent for a non-admin: 404, not a redacted body. */
     @Test
     public void gettingOneItemRedactsByPrivilege() {

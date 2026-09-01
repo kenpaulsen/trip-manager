@@ -24,6 +24,7 @@ import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentTemplate;
+import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.model.FeesPaidBy;
 import org.paulsens.trip.model.OrgMember;
 import org.paulsens.trip.model.Organization;
@@ -583,10 +584,16 @@ public class OrgCommands {
         if (!current.isAuthenticated()) {
             return List.of();
         }
+        // On an organization's own site the menu names that org alone -- even for a site admin, another
+        // tenant's name is not that site's business (the shared site keeps the full list).
+        final SiteContext site = SiteContext.current();
+        final List<Organization> onThisSite = getOrganizations().stream()
+                .filter(org -> site.admits(org.getId().getValue()))
+                .toList();
         if (current.isSiteAdmin()) {
-            return getOrganizations();
+            return onThisSite;
         }
-        return getOrganizations().stream()
+        return onThisSite.stream()
                 .filter(org -> canViewOrgHub(org.getId().getValue()))
                 .toList();
     }
@@ -1184,16 +1191,30 @@ public class OrgCommands {
         return saveOrgEdits(orgId, name, abbreviation, contactEmail, domains, defaultDomain, null);
     }
 
+    /** The 7-arg save leaving the org's shared-sites choice alone. */
+    public boolean saveOrgEdits(final String orgId, final String name, final String abbreviation,
+            final String contactEmail, final List<String> domains, final String defaultDomain,
+            final String slug) {
+        return saveOrgEdits(orgId, name, abbreviation, contactEmail, domains, defaultDomain, slug, null);
+    }
+
+    /** Whether the org currently allows shared sites to show its content (the profile checkbox's seed). */
+    public boolean storedAllowSharedSites(final String orgId) {
+        final Organization org = findOrganization(orgId);
+        return org == null || org.allowsSharedSites();
+    }
+
     /**
      * Page-facing profile save with the mail-domain and subdomain rows: {@code domains} (the site-admin
      * allow-list) and {@code slug} (the org's subdomain) are applied ONLY for a site admin -- an org
      * admin's post carries the same fields, and silently ignoring them is what keeps the shared include
      * safe to render for both. {@code defaultDomain} is an org-admin choice, kept only while the
-     * allow-list still permits it.
+     * allow-list still permits it, and so is {@code allowShared} -- the org side of the shared-site gate
+     * ({@link Organization#getAllowSharedSites()}; null = leave it alone).
      */
     public boolean saveOrgEdits(final String orgId, final String name, final String abbreviation,
             final String contactEmail, final List<String> domains, final String defaultDomain,
-            final String slug) {
+            final String slug, final Boolean allowShared) {
         final Organization fresh = freshOrg(orgId);
         if (fresh == null) {
             return fail("Unable to save", "Unknown organization.");
@@ -1206,6 +1227,10 @@ public class OrgCommands {
             if (!applySlug(fresh, slug)) {
                 return false;
             }
+        }
+        if (allowShared != null) {
+            // Stored as null when allowed (the default every existing row already has), false when not.
+            fresh.setAllowSharedSites(allowShared ? null : Boolean.FALSE);
         }
         fresh.setDefaultMailDomain(chosenDefault(fresh, defaultDomain));
         if (!saveOrganization(fresh)) {

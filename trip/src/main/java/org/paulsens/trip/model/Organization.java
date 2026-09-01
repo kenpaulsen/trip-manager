@@ -86,6 +86,15 @@ public final class Organization implements Serializable {
     private LocalDateTime homePageSeededAt;
 
     /**
+     * The org side of the double gate on SHARED sites: whether this org's public content (trips, albums)
+     * may appear on a shared site's sections at all. {@code null} = allow (the default; the site side's own
+     * pick list is already opt-in), {@code false} = never, whatever a shared site's curation says. Org-admin
+     * controlled -- it is the org's content. Has no effect on the org's OWN site. Setter-populated, outside
+     * the 8-arg creator like {@link #paymentDefaults}.
+     */
+    private Boolean allowSharedSites;
+
+    /**
      * The privilege base names this org may grant (site-admin controlled allow-list, bounding both the
      * trip-scoped roles on the trip editor and the org-scoped grants on the org People page). {@code null}
      * means "never restricted" == everything allowed, so existing rows need no migration and restriction is
@@ -130,6 +139,12 @@ public final class Organization implements Serializable {
     @JsonIgnore
     public boolean isAdmin(final Person.Id personId) {
         return personId != null && adminIds.contains(personId);
+    }
+
+    /** Whether shared sites may show this org's content -- see {@link #allowSharedSites}; null reads as allow. */
+    @JsonIgnore
+    public boolean allowsSharedSites() {
+        return !Boolean.FALSE.equals(allowSharedSites);
     }
 
     /** True when this org may grant the given privilege base name -- see {@link #grantablePrivileges}. */

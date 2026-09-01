@@ -36,11 +36,18 @@ final class PhotoAlbumsType implements ProgrammaticContentTemplate {
                 new Placeholder(PROP_WINDOW_DAYS, Placeholder.Type.TEXT, "Window (days)",
                         "How far back a pilgrimage may have ended; blank = the site default", false),
                 new Placeholder(PROP_MIN_PHOTOS, Placeholder.Type.TEXT, "Minimum photos",
-                        "Fewest visible photos a pilgrimage needs to show; blank = the site default", false));
+                        "Fewest visible photos a pilgrimage needs to show; blank = the site default", false),
+                SharedSiteOrgChoices.property());
     }
 
     @Override
     public String getFragmentPath() {
         return "/WEB-INF/ptypes/photoAlbums.xhtml";
+    }
+
+    @Override
+    public List<Choice> choicesFor(final String propertyName) {
+        return SharedSiteOrgChoices.PROP_INCLUDE_ORGS.equals(propertyName)
+                ? SharedSiteOrgChoices.choices() : List.of();
     }
 }

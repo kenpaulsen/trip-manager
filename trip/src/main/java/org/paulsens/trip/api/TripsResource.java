@@ -27,6 +27,7 @@ import org.paulsens.trip.api.mapper.TripMapper;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.model.TripEvent;
 
 /**
@@ -77,8 +78,11 @@ public class TripsResource extends BaseResource {
             return error(400, ApiErrors.BAD_REQUEST, "Unknown filter; expected mine, active, inactive or recent.");
         }
         // active/recent are not per-user queries, so they are filtered down to what this caller may see. Without
-        // this, "active" would list every trip in the system to any signed-in traveller.
+        // this, "active" would list every trip in the system to any signed-in traveller. On an organization's
+        // host the list is further that org's alone -- the site boundary holds for API clients too.
+        final SiteContext site = SiteContext.current();
         return ok(found.stream()
+                .filter(trip -> site.admits(trip.getOrgId()))
                 .filter(trip -> canRead(trip, me))
                 .map(trip -> TripMapper.INSTANCE.toDto(trip).withoutEvents())
                 .toList());

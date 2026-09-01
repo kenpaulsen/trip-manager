@@ -60,10 +60,24 @@ hostname**, resolved once per request into a `SiteContext` (`org.paulsens.trip.s
   Instance ids are minted UUIDs — the shared page's guessable ids (`events`, `docs`) are anchors and
   child-section keys and can never be reused by a second page. No script: onboarding an org is an admin-UI
   flow by design.
-- **What an org site lists is that org's data, as a property of the site**: `TripCommands.getPublicTripsFor`
-  and `MediaCommands.getHomeAlbums` filter by `SiteContext.admits(trip.orgId)` on an ORG site, whatever the
-  instance's properties say — isolation is not an option an editor could forget. Non-org sites are
-  unfiltered (the shared site's own curation of which orgs it shows is a later phase).
+- **What a site lists is decided by ONE rule, `site/ListingScope`** (every public listing — the page
+  sections, the Trips menu, the sidebar, the countdown cards, the media API's slot browsing):
+  - an ORG site lists only its own content, whatever the instance's properties say and whoever is looking
+    (org-less legacy content belongs to nobody and does not show there);
+  - a SHARED site shows a hosted org's content only when BOTH sides agree — the section's curation list
+    (`includeOrgs`, a `MULTI_CHOICE` property on the `pilgrimages` and `photo-albums` types, declared once in
+    `SharedSiteOrgChoices`) AND the org's own `Organization.allowSharedSites` (org-admin checkbox on the
+    profile; null = allow, false = never). With NO list a shared site shows the orgs that have no site of
+    their own (today's tenants), so a newly hosted org stays off `visitqueenofpeace.com` until a site admin
+    picks it — no data migration. Org-less legacy content keeps listing.
+  - `MULTI_CHOICE` stores its picks comma-separated in the ONE string value; the dialog binds a
+    `p:selectCheckboxMenu` to `editContent.listValues[name]` (`ContentInstance.getListValues()`, a computed
+    write-through view — never a second field). The prompt is hidden on org sites, where it does nothing.
+  - Media: `MediaItem.orgId` (null = site-level; every pre-existing row) decides DISCOVERY —
+    `MediaCommands.discoverable`: an org's items only on its site, site-level items only on shared sites, in
+    the library, pickers (`FileType`), the Documents slot and `getAll/getCurated`. Chat albums are scoped by
+    their TRIP (an old null-org chat photo still shows in its album); chat rows are stamped with the trip's
+    org at send, library uploads with the request's site. URLs are not restricted, discovery is.
 - **Template scope**: `ContentTemplate.orgId` — null = site-level/shared, else one organization's own.
   Sharing is an AUTHORING-time choice: the Add dialog (`getTemplateChoicesFor`) offers an org site the shared
   templates plus its own (`SiteContext.isSiteOf`), any other site only the shared ones; an instance then

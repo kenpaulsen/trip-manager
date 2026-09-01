@@ -41,7 +41,8 @@ final class PilgrimagesType implements ProgrammaticContentTemplate {
                 new Placeholder(PROP_CFPW_ONLY, Placeholder.Type.CHOICE, "Providers",
                         "All public pilgrimages, or only CFPW-hosted ones", false),
                 new Placeholder(PROP_MAX_COUNT, Placeholder.Type.TEXT, "Max to display",
-                        "Blank shows every listed pilgrimage", false));
+                        "Blank shows every listed pilgrimage", false),
+                SharedSiteOrgChoices.property());
     }
 
     @Override
@@ -58,6 +59,9 @@ final class PilgrimagesType implements ProgrammaticContentTemplate {
         }
         if (PROP_CFPW_ONLY.equals(propertyName)) {
             return List.of(new Choice("false", "All providers"), new Choice("true", "CFPW only"));
+        }
+        if (SharedSiteOrgChoices.PROP_INCLUDE_ORGS.equals(propertyName)) {
+            return SharedSiteOrgChoices.choices();
         }
         return List.of();
     }

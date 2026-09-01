@@ -13,6 +13,7 @@ import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
@@ -20,12 +21,13 @@ import org.testng.annotations.Test;
 
 /**
  * What an ORGANIZATION's site lists is that org's data and nothing else -- a property of the site, applied
- * by the beans the public page reads through, not an option an editor could forget. The shared site keeps
- * listing everything (its own curation is a later phase).
+ * by the beans the public page reads through, not an option an editor could forget. A SHARED site lists a
+ * hosted org's content only when both sides agree (the section's curation list and the org's own choice).
  */
 public class SiteScopedListingsTest {
 
     private static final Organization.Id ACME = Organization.Id.from(FakeData.ACME_ORG_ID);
+    private static final Organization.Id BETA = Organization.Id.from(FakeData.BETA_ORG_ID);
     private static final Organization.Id CFPW = Organization.Id.from(FakeData.CFPW_ORG_ID);
 
     private final TripCommands trips = new TripCommands();
@@ -47,35 +49,74 @@ public class SiteScopedListingsTest {
                 new java.util.HashMap<>(java.util.Map.of("language", "English")), null, 0, 1, null, null);
     }
 
+    private static ContentInstance listingCurating(final String... orgIds) {
+        final ContentInstance instance = listing();
+        instance.getValues().put(ListingScope.INCLUDE_ORGS_PROPERTY, String.join(",", orgIds));
+        return instance;
+    }
+
     @Test
     public void anOrgSiteListsOnlyItsOwnPublicTrips() throws Exception {
-        final List<Trip> everywhere = trips.getPublicTripsFor(listing());
-        Assert.assertTrue(everywhere.stream().anyMatch(trip -> !ACME.getValue().equals(trip.getOrgId())),
-                "the shared site lists other tenants' trips (fixture precondition)");
+        final List<Trip> shared = trips.getPublicTripsFor(listing());
+        Assert.assertTrue(shared.stream().anyMatch(trip -> CFPW.getValue().equals(trip.getOrgId())),
+                "the shared site lists the shared-tier org (CFPW has no site of its own)");
+        Assert.assertTrue(shared.stream().noneMatch(trip -> ACME.getValue().equals(trip.getOrgId())),
+                "a hosted org is off the shared site until a site admin curates it in");
 
         final List<Trip> onAcme = onSite(SiteContext.org(ACME, "acme", "acme.localhost"),
                 () -> trips.getPublicTripsFor(listing()));
         Assert.assertTrue(onAcme.stream().allMatch(trip -> ACME.getValue().equals(trip.getOrgId())),
                 "an org site never lists another tenant's trip: " + onAcme);
-        final List<Trip> onCfpw = onSite(SiteContext.org(CFPW, "cfpw", "cfpw.localhost"),
-                () -> trips.getPublicTripsFor(listing()));
-        Assert.assertTrue(onCfpw.stream().allMatch(trip -> CFPW.getValue().equals(trip.getOrgId())));
-        Assert.assertFalse(onCfpw.isEmpty(), "CFPW's own public trips still list on its site");
+        final List<Trip> onBeta = onSite(SiteContext.org(BETA, "beta", "beta.localhost"),
+                () -> trips.getPublicTripsFor(listingCurating(FakeData.CFPW_ORG_ID)));
+        Assert.assertTrue(onBeta.stream().allMatch(trip -> BETA.getValue().equals(trip.getOrgId())),
+                "a curation list never widens an org site");
         Assert.assertEquals(onSite(SiteContext.marketing("unitetrip.com"), () -> trips.getPublicTripsFor(listing()))
-                .size(), everywhere.size(), "non-org sites are unfiltered (shared-site curation is phase 2)");
+                .size(), shared.size(), "non-org sites share the default rule");
+    }
+
+    @Test
+    public void theSharedSiteListsAHostedOrgOnlyWhenBothSidesAgree() throws Exception {
+        final List<Trip> curated = trips.getPublicTripsFor(listingCurating(FakeData.ACME_ORG_ID));
+        final List<Trip> acmesOwn = onSite(SiteContext.org(ACME, "acme", "acme.localhost"),
+                () -> trips.getPublicTripsFor(listing()));
+        // Org-less legacy trips (no owner to gate on) keep listing everywhere on a shared site; every OWNED
+        // trip must be Acme's, and all of Acme's own listing must be there.
+        Assert.assertTrue(curated.stream().noneMatch(trip -> CFPW.getValue().equals(trip.getOrgId())),
+                "a list is exhaustive: CFPW drops off when only Acme is picked");
+        Assert.assertTrue(curated.stream().filter(trip -> trip.getOrgId() != null)
+                .allMatch(trip -> ACME.getValue().equals(trip.getOrgId())), "only the picked org's trips");
+        Assert.assertTrue(curated.stream().map(Trip::getId).toList()
+                .containsAll(acmesOwn.stream().map(Trip::getId).toList()),
+                "with Acme picked, the shared site lists what Acme's own site lists");
+        // The org side of the gate: an org that opted out never appears, whatever the site picked.
+        final Organization acme = DAO.getInstance().getOrganization(ACME, Cached.NO).orElseThrow();
+        acme.setAllowSharedSites(Boolean.FALSE);
+        Assert.assertTrue(DAO.getInstance().saveOrganization(acme));
+        try {
+            Assert.assertTrue(trips.getPublicTripsFor(listingCurating(FakeData.ACME_ORG_ID)).stream()
+                    .noneMatch(trip -> ACME.getValue().equals(trip.getOrgId())),
+                    "opted out: nothing of Acme's on the shared site even when picked");
+        } finally {
+            final Organization restore = DAO.getInstance().getOrganization(ACME, Cached.NO).orElseThrow();
+            restore.setAllowSharedSites(null);
+            Assert.assertTrue(DAO.getInstance().saveOrganization(restore));
+        }
     }
 
     @Test
     public void anOrgSiteShowsOnlyItsOwnAlbums() throws Exception {
-        final List<MediaCommands.TripAlbum> everywhere = media.getHomeAlbums(3650, 1);
-        Assert.assertFalse(everywhere.isEmpty(), "fixture precondition: the shared site has albums");
+        final List<MediaCommands.TripAlbum> shared = media.getHomeAlbums(3650, 1);
+        Assert.assertFalse(shared.isEmpty(), "fixture precondition: the shared site has albums");
+        Assert.assertTrue(shared.stream().noneMatch(album -> ACME.getValue().equals(album.trip().getOrgId())),
+                "a hosted org's albums are off the shared site by default");
         final List<MediaCommands.TripAlbum> onAcme = onSite(SiteContext.org(ACME, "acme", "acme.localhost"),
                 () -> media.getHomeAlbums(3650, 1));
         Assert.assertTrue(onAcme.stream().allMatch(album -> ACME.getValue().equals(album.trip().getOrgId())),
                 "an org site shows no other tenant's pictures");
-        final List<MediaCommands.TripAlbum> onCfpw = onSite(SiteContext.org(CFPW, "cfpw", "cfpw.localhost"),
+        final List<MediaCommands.TripAlbum> onBeta = onSite(SiteContext.org(BETA, "beta", "beta.localhost"),
                 () -> media.getHomeAlbums(3650, 1));
-        Assert.assertTrue(onCfpw.stream().allMatch(album -> CFPW.getValue().equals(album.trip().getOrgId())));
+        Assert.assertTrue(onBeta.stream().allMatch(album -> BETA.getValue().equals(album.trip().getOrgId())));
     }
 
     @Test
@@ -98,10 +139,10 @@ public class SiteScopedListingsTest {
         Assert.assertTrue(onAcme.contains(shared), "shared templates are offered everywhere");
         Assert.assertTrue(onAcme.contains(acmeOwned), "an org site sees its own templates");
 
-        final List<String> onCfpw = onSite(SiteContext.org(CFPW, "cfpw", "cfpw.localhost"),
+        final List<String> onBeta = onSite(SiteContext.org(BETA, "beta", "beta.localhost"),
                 () -> ids(content.getTemplateChoicesFor(page)));
-        Assert.assertFalse(onCfpw.contains(acmeOwned), "...and never another tenant's");
-        Assert.assertTrue(onCfpw.contains(shared));
+        Assert.assertFalse(onBeta.contains(acmeOwned), "...and never another tenant's");
+        Assert.assertTrue(onBeta.contains(shared));
     }
 
     private static List<String> ids(final List<ContentTemplate> templates) {

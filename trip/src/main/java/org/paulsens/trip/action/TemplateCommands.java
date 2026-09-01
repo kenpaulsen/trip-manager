@@ -392,7 +392,7 @@ public class TemplateCommands {
      */
     public List<Placeholder.Type> getPlaceholderTypes() {
         return Arrays.stream(Placeholder.Type.values())
-                .filter(type -> type != Placeholder.Type.CHOICE)
+                .filter(type -> !Placeholder.isProviderBacked(type))
                 .toList();
     }
 

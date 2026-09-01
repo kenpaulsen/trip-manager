@@ -24,6 +24,7 @@ import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.media.ChatPhotoStaging;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.media.PhotoRejectedException;
@@ -301,6 +302,16 @@ public class ChatPhotos {
         return slot != null && slot.startsWith("tripChat-");
     }
 
+    /** The trip id a chat slot names, or null for any other slot. */
+    public static String tripOfSlot(final String slot) {
+        return isChatSlot(slot) ? slot.substring("tripChat-".length()) : null;
+    }
+
+    /** The trip's organization for the album rows (a cached read; an unknown trip stamps nothing). */
+    static String orgOfTrip(final String tripId) {
+        return DAO.getInstance().getTrip(tripId, Cached.YES).map(Trip::getOrgId).orElse(null);
+    }
+
     /**
      * Records one media row per sent photo, which is what puts them on the trip's media page. Called AFTER
      * the message is durably saved; a row that fails to save is logged and skipped rather than failing the
@@ -309,13 +320,15 @@ public class ChatPhotos {
     public void recordAlbumRows(final String tripId, final String tripTitle, final Person.Id author,
             final String authorName, final List<ChatAttachment> attachments,
             final AuditActor actor) {
+        // A chat photo belongs to the trip's organization, whatever host the pilgrim sent it from.
+        final String orgId = orgOfTrip(tripId);
         for (final ChatAttachment attachment : attachments) {
             final MediaItem item = new MediaItem(UUID.randomUUID().toString(),
                     attachment.getS3Key(), titleFor(attachment),
                     "Uploaded by " + authorName + " in the " + tripTitle + " chat",
                     attachment.getContentType(), attachment.getSize(), slotFor(tripId), 0,
                     LocalDateTime.now(), author.getValue(), attachment.getThumbKey(),
-                    attachment.isHidden());
+                    attachment.isHidden(), orgId);
             try {
                 if (DAO.getInstance().saveMedia(item)) {
                     MediaEvents.fire(MediaEvents.Change.ADDED, attachment.getS3Key());

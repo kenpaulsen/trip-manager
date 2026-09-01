@@ -13,9 +13,15 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.action.ChatPhotos;
 import org.paulsens.trip.action.MediaCommands;
 import org.paulsens.trip.api.dto.MediaItemDto;
+import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.MediaItem;
+import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.site.ListingScope;
 
 /**
  * The media library over the wire (issue #37): the JSF admin page's operations, ported for the mobile
@@ -80,9 +86,35 @@ public class MediaResource extends BaseResource {
         }
         final MediaCommands media = Beans.get(MediaCommands.class);
         final boolean admin = privileges().has(ApiPrivileges.MEDIA_ADMIN);
+        if (!admin && !mayBrowseSlot(slot)) {
+            // Same answer as an unknown slot: a slot name is guessable (tripChat-{tripId}), and "exists but
+            // not yours" would confirm another tenant's trip.
+            return error(404, ApiErrors.NOT_FOUND, "No such slot.");
+        }
         return ok((admin ? media.getInSlot(slot) : media.getVisibleInSlot(slot, 0)).stream()
                 .map(item -> toDto(media, item))
                 .toList());
+    }
+
+    /**
+     * A chat slot is one trip's album: a non-admin may browse it only as that trip's member, or when the
+     * trip is publicly listed on the SITE this request is for -- a signed-in traveller of one org must not
+     * enumerate another org's album by trip id. Library slots are site-scoped per item by the commands.
+     */
+    boolean mayBrowseSlot(final String slot) {
+        final String tripId = ChatPhotos.tripOfSlot(slot);
+        if (tripId == null) {
+            return true;
+        }
+        final Trip trip = DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
+        if (trip == null) {
+            return false;
+        }
+        final Person.Id me = personId();
+        if (me != null && trip.getPeople() != null && trip.getPeople().contains(me)) {
+            return true;
+        }
+        return Boolean.TRUE.equals(trip.getOpenToPublic()) && ListingScope.forSite().shows(trip.getOrgId());
     }
 
     /** One item by row id. A non-admin sees it only if a public page would (hidden reads as absent). */

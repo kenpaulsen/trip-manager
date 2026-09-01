@@ -209,9 +209,24 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   a no-op. The dashboard's "Organization Site" card links to the live site (`SiteCommands.orgSiteUrl`, which
   answers `http://{slug}.localhost:{port}/` when the admin is browsing on localhost).
 - **What the site shows** is decided by the request's `SiteContext` (`#{site}`), never by the session: the
-  org's page key, its name as the page title, only its own public trips and albums. Editing happens on the
-  org's site, in the same edit mode as the shared page; the org-scoped `contentAdmin@{org}` grant is a
-  later phase — until then site admins / global `contentAdmin` edit org pages.
+  org's page key, its name as the page title, only its own public trips, albums, documents and Trips-menu
+  entries (`TripCommands.getMenuTrips/getMenuOldTrips`, seeded by `template.xhtml`), and only that org in
+  the admin menu's org list (`visibleOrgs`). Editing happens on the org's site, in the same edit mode as
+  the shared page; the org-scoped `contentAdmin@{org}` grant is a later phase — until then site admins /
+  global `contentAdmin` edit org pages.
+- **Shared sites and the org's content — the double gate** (`site/ListingScope`, see
+  `content-templates.md` "Organization sites"): a shared site's sections list a hosted org only when the
+  section's `includeOrgs` pick includes it AND the org has not unchecked "Shared sites" on its profile
+  (`Organization.allowSharedSites`, org-admin controlled, saved through `saveOrgEdits`' 8th argument). With
+  no pick, a shared site lists the orgs that have no site of their own — so assigning a subdomain also
+  takes the org OFF the shared sites until a site admin curates it back in.
+- **Media is site-scoped by `MediaItem.orgId`**: the admin library (`admin/media.xhtml`), the document
+  picker and the Documents slot show an org's items only on its own site and the site's items only on
+  shared sites; `GET /api/media/slots/{slot}` refuses a chat album (404) unless the caller is on the trip or
+  the trip is publicly listed on that site.
+- **Local fixtures**: CFPW has NO slug (shared-tier, as in production); Acme (`acme.localhost`) and Beta
+  Corp (`beta.localhost`, `FakeData.BETA_ORG_ID`) are the two hosted orgs; `fake-acme-doc` is Acme's
+  library document. `OwnedFixturePolicyIT` ratchets which webtests may reference the seeded orgs.
 
 ## Local-mode fixtures (`FakeData`)
 

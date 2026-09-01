@@ -31,6 +31,7 @@ import org.paulsens.trip.model.TripEvent;
 
 import static java.time.temporal.ChronoUnit.DAYS;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 
 @Slf4j
@@ -285,11 +286,55 @@ public class TripCommands {
     }
 
     /**
+     * The active trips the site's Trips MENU may list for this viewer -- {@link #getActiveTrips(int)} narrowed
+     * by {@link #listsInMenu}. The menu itself still applies its own public/member/admin guard; this is the
+     * tenant boundary underneath it, so an org host's menu never names another tenant's trip.
+     */
+    public List<Trip> getMenuTrips(final int pastDaysToCountAsActive, final Person.Id userId,
+            final boolean showAll) {
+        return getActiveTrips(pastDaysToCountAsActive).stream()
+                .filter(trip -> listsInMenu(trip, userId, showAll))
+                .toList();
+    }
+
+    /** The past trips the Trips menu may list for this viewer -- the whole-system list, site-narrowed. */
+    public List<Trip> getMenuOldTrips(final Person.Id userId, final boolean showAll,
+            final int pastDaysStillActive, final int limit) {
+        return getInactiveTrips(userId, true, pastDaysStillActive, limit).stream()
+                .filter(trip -> listsInMenu(trip, userId, showAll))
+                .toList();
+    }
+
+    /**
+     * Whether a trip may appear in this site's menu for this viewer. An organization's site lists only its
+     * own trips, whoever is looking (a property of the site, not a permission). On a shared site a trip the
+     * viewer belongs to, or a site admin's view, is always listed; anything else follows the public listing
+     * rule ({@link ListingScope}: a hosted org's trips stay off the shared site until curated in).
+     */
+    boolean listsInMenu(final Trip trip, final Person.Id userId, final boolean showAll) {
+        final SiteContext site = SiteContext.current();
+        if (site.isOrg()) {
+            return site.admits(trip.getOrgId());
+        }
+        if (showAll || (userId != null && trip.getPeople() != null && trip.getPeople().contains(userId))) {
+            return true;
+        }
+        return ListingScope.forSite().shows(trip.getOrgId());
+    }
+
+    /**
      * The landing-page listing: publicly-listed trips ({@code openToPublic}), kept for
-     * {@link #PUBLIC_PAST_DAYS} days after they end, oldest start date first. Everything the public page and
-     * sidebar show derives from this one index-cached read.
+     * {@link #PUBLIC_PAST_DAYS} days after they end, oldest start date first, on the SITE the request is for
+     * ({@link ListingScope}: an organization's site lists only its own trips; a shared site the orgs it
+     * curates). Everything the public page, menu and sidebar show derives from this one index-cached read.
      */
     public List<Trip> getPublicTrips() {
+        final ListingScope scope = ListingScope.forSite();
+        return publicTripsAnywhere().stream().filter(trip -> scope.shows(trip.getOrgId())).toList();
+    }
+
+    /** Every publicly-listed trip regardless of site: the raw index the site-scoped views narrow. */
+    private List<Trip> publicTripsAnywhere() {
         return getActiveTrips(PUBLIC_PAST_DAYS).stream()
                 .filter(trip -> Boolean.TRUE.equals(trip.getOpenToPublic()))
                 .sorted(Comparator.comparing(Trip::getStartDate,
@@ -318,29 +363,39 @@ public class TripCommands {
         return Arrays.stream(Language.values()).filter(present::contains).toList();
     }
 
-    /** The sidebar's link list: {@link #getPublicTrips(String)} restricted to CFPW-hosted trips. */
+    /**
+     * The sidebar's link list: {@link #getPublicTrips(String)} restricted to CFPW-hosted trips on the shared
+     * site. An organization's own site links its own trips -- there is no other provider there, and the
+     * CFPW badge is a shared-site notion.
+     */
     public List<Trip> getPublicCfpwTrips(final String language) {
-        return getPublicTrips(language).stream().filter(Trip::isCfpw).toList();
+        final List<Trip> listed = getPublicTrips(language);
+        return SiteContext.current().isOrg() ? listed : listed.stream().filter(Trip::isCfpw).toList();
     }
 
     /**
      * The pilgrimages a "Pilgrimage Listings" programmatic content instance shows: its admin-provided
-     * properties (language, CFPW-only, max count) applied to the same index-cached public listing. Blank or
-     * unparsable properties fall back to everything -- a public page renders permissively, never errors.
-     * On an ORGANIZATION's site the listing is always that org's own trips, whatever the instance says:
-     * tenant isolation is a property of the site, not an option an editor could forget to tick.
+     * properties (language, CFPW-only, max count, and on a shared site the curated {@code includeOrgs}
+     * list) applied to the raw public listing through {@link ListingScope}. Blank or unparsable properties
+     * fall back to everything the site may show -- a public page renders permissively, never errors. On an
+     * ORGANIZATION's site the listing is always that org's own trips, whatever the instance says: tenant
+     * isolation is a property of the site, not an option an editor could forget to tick.
      */
     public List<Trip> getPublicTripsFor(final ContentInstance instance) {
         if (instance == null) {
             return List.of();
         }
         final Map<String, String> values = instance.getValues();
-        final List<Trip> listed = Boolean.parseBoolean(values.get("cfpwOnly"))
-                ? getPublicCfpwTrips(values.get("language"))
-                : getPublicTrips(values.get("language"));
-        final SiteContext site = SiteContext.current();
+        final ListingScope scope = ListingScope.forInstance(values);
+        final Language wanted = parseLanguage(values.get("language"));
+        final boolean cfpwOnly = Boolean.parseBoolean(values.get("cfpwOnly")) && !SiteContext.current().isOrg();
         final int max = parsePositive(values.get("maxCount"), Integer.MAX_VALUE);
-        return listed.stream().filter(trip -> site.admits(trip.getOrgId())).limit(max).toList();
+        return publicTripsAnywhere().stream()
+                .filter(trip -> scope.shows(trip.getOrgId()))
+                .filter(trip -> languageOf(trip) == wanted)
+                .filter(trip -> !cfpwOnly || trip.isCfpw())
+                .limit(max)
+                .toList();
     }
 
     private static int parsePositive(final String raw, final int fallback) {
@@ -363,8 +418,10 @@ public class TripCommands {
     public List<Trip> getCountdownTrips(final int soonDays) {
         final LocalDateTime now = LocalDateTime.now();
         final LocalDateTime soon = now.plusDays(soonDays);
+        // The CFPW-only cut is a shared-site notion; an organization's site counts down to its own trips.
+        final boolean orgSite = SiteContext.current().isOrg();
         final List<Trip> upcoming = getPublicTrips().stream()
-                .filter(Trip::isCfpw)
+                .filter(trip -> orgSite || trip.isCfpw())
                 .filter(trip -> trip.getStartDate() != null && trip.getStartDate().isAfter(now))
                 .toList();
         final Map<Language, Trip> nextPerLanguage = new LinkedHashMap<>();

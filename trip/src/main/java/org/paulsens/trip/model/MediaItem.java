@@ -55,6 +55,15 @@ public class MediaItem implements Serializable {
      */
     @Getter(AccessLevel.NONE)
     Boolean hidden;
+    /**
+     * The organization this item belongs to, or null for a SITE-level item (every pre-existing row, and
+     * anything uploaded on a shared site). Stamped at creation: from the trip for chat photos, from the
+     * request's site for library uploads. Decides where the item is DISCOVERABLE -- listings, pickers and
+     * the admin library show an org's items only on that org's site and site-level items only on shared
+     * sites; the object's URL itself is not restricted. Chat albums are scoped through their TRIP, so an old
+     * null-org chat photo still shows in its trip's album.
+     */
+    String orgId;
 
     @JsonCreator
     public MediaItem(
@@ -69,7 +78,9 @@ public class MediaItem implements Serializable {
             @JsonProperty("uploaded") final LocalDateTime uploaded,
             @JsonProperty("uploadedBy") final String uploadedBy,
             @JsonProperty("smallKey") final String smallKey,
-            @JsonProperty("hidden") final Boolean hidden) {
+            @JsonProperty("hidden") final Boolean hidden,
+            @JsonProperty("orgId") final String orgId) {
+        this.orgId = (orgId == null || orgId.isBlank()) ? null : orgId.trim();
         this.id = id;
         this.s3Key = s3Key;
         this.title = title;
@@ -86,12 +97,20 @@ public class MediaItem implements Serializable {
         this.hidden = Boolean.TRUE.equals(hidden) ? Boolean.TRUE : null;
     }
 
+    /** Compatibility constructor predating {@link #orgId}: a site-level item. */
+    public MediaItem(final String id, final String s3Key, final String title, final String description,
+            final String contentType, final long size, final String slot, final int position,
+            final LocalDateTime uploaded, final String uploadedBy, final String smallKey, final Boolean hidden) {
+        this(id, s3Key, title, description, contentType, size, slot, position, uploaded, uploadedBy, smallKey,
+                hidden, null);
+    }
+
     /** Compatibility constructor predating the {@link #hidden} flag. */
     public MediaItem(final String id, final String s3Key, final String title, final String description,
             final String contentType, final long size, final String slot, final int position,
             final LocalDateTime uploaded, final String uploadedBy, final String smallKey) {
         this(id, s3Key, title, description, contentType, size, slot, position, uploaded, uploadedBy, smallKey,
-                null);
+                null, null);
     }
 
     /** Compatibility constructor for the common single-rendition case. */
@@ -99,7 +118,13 @@ public class MediaItem implements Serializable {
             final String contentType, final long size, final String slot, final int position,
             final LocalDateTime uploaded, final String uploadedBy) {
         this(id, s3Key, title, description, contentType, size, slot, position, uploaded, uploadedBy, null,
-                null);
+                null, null);
+    }
+
+    /** Whether this item belongs to an organization (else it is site-level). */
+    @JsonIgnore
+    public boolean isOrgOwned() {
+        return orgId != null;
     }
 
     /**
@@ -115,7 +140,14 @@ public class MediaItem implements Serializable {
     @JsonIgnore
     public MediaItem withHidden(final boolean nowHidden) {
         return new MediaItem(id, s3Key, title, description, contentType, size, slot, position, uploaded,
-                uploadedBy, smallKey, nowHidden);
+                uploadedBy, smallKey, nowHidden, orgId);
+    }
+
+    /** @return a copy of this item owned by {@code newOrgId} (null = site-level); all other fields unchanged. */
+    @JsonIgnore
+    public MediaItem withOrg(final String newOrgId) {
+        return new MediaItem(id, s3Key, title, description, contentType, size, slot, position, uploaded,
+                uploadedBy, smallKey, hidden, newOrgId);
     }
 
     /** @return the key a page should display: the reduced rendition when there is one, else the object. */

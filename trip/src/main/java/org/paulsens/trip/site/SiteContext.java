@@ -63,9 +63,9 @@ public record SiteContext(Mode mode, Organization.Id orgId, String slug, String 
     }
 
     /**
-     * Whether a LISTING on this site may include something owned by {@code ownerOrgId} (a trip, an album):
-     * an org site admits only its own; every other site admits everything (the shared site's own curation
-     * of which orgs it shows is a later phase).
+     * Whether this site's tenant boundary admits something owned by {@code ownerOrgId} (a trip, an album):
+     * an org site admits only its own; every other site admits everything at this level -- what a SHARED
+     * site then chooses to list is {@link ListingScope}'s double gate, on top of this.
      */
     public boolean admits(final String ownerOrgId) {
         if (!isOrg()) {
