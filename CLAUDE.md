@@ -184,6 +184,8 @@ photo-chat, audit, config, mail, payments, deploy) + `TripAuthFilter`, `JsonExce
 - `PhotoChatResource` is deliberately NOT `@TripApi`: the auth filter is name-bound, so its GETs serve
   anonymous readers (comments follow the photo — `docs/photo-comments.md`); mutations enforce the session
   themselves and answer 401 JSON.
+- API authentication (session today, bearer tokens designed): read `docs/api-tokens.md` before touching
+  `TripAuthFilter`, `AuthResource`, `RememberMeService`, or anything that mints or validates a credential.
 
 - Redaction is authorization: a DTO field the caller may not see is redacted by the mapper, not blocked by a
   route. `AccessLevel` is unranked — do not compare its constants with ordinal logic.
