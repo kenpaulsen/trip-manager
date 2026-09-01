@@ -11,7 +11,7 @@ import org.paulsens.trip.model.Person;
 /**
  * One shareable invite link for a trip chat: anyone with an account who presents it becomes a guest member.
  *
- * <p>Selector/validator split, same shape as {@code RememberToken}: the row stores the selector and
+ * <p>Selector/validator split, same shape as {@code AuthToken}: the row stores the selector and
  * SHA-256(validator), the URL carries {@code selector.validator}, so a read of the table (or a backup) cannot
  * mint working links. Unlike remember-me the validator never rotates — a link is multi-use by design, shared
  * in a group text or shown as a QR code, and dies by expiry or revocation instead.

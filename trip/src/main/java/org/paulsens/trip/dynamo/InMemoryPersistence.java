@@ -69,10 +69,12 @@ public class InMemoryPersistence implements Persistence {
             // lesson as media -- without a real fake, rows live only in the cache.
             Map.entry(TemplateDAO.TEMPLATES_TABLE, new TableKeys("id", null)),
             Map.entry(ContentDAO.CONTENT_TABLE, new TableKeys("id", null)),
-            // Remember-me works fully in local mode (the webtest deletes JSESSIONID and expects the cookie
-            // to restore the session), so the token rows need a real fake store. Same for passkeys: the
+            // Auth tokens (remember-me, API refresh/access) work fully in local mode (the webtest deletes
+            // JSESSIONID and expects the cookie to restore the session), so the token rows need a real fake
+            // store -- the legacy table too, or the lazy migration is untestable. Same for passkeys: the
             // webtest registers against a virtual authenticator and signs back in with it.
-            Map.entry(RememberMeDAO.REMEMBER_TABLE, new TableKeys(RememberMeDAO.SELECTOR, null)),
+            Map.entry(AuthTokenDAO.AUTH_TOKENS_TABLE, new TableKeys(AuthTokenDAO.SELECTOR, null)),
+            Map.entry(AuthTokenDAO.LEGACY_REMEMBER_TABLE, new TableKeys(AuthTokenDAO.SELECTOR, null)),
             Map.entry(PasskeyDAO.PASSKEY_TABLE, new TableKeys(PasskeyDAO.CREDENTIAL_ID, null)),
             // Families are written in local mode (FakeData seeds one, the family page edits them), and
             // their optimistic-version puts must be honestly rejectable here or the race is untestable.

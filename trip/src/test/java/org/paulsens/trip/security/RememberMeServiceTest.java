@@ -125,10 +125,10 @@ public class RememberMeServiceTest {
     /** Backdates the stored rotation timestamp so tests can cross the grace window without sleeping. */
     private static void ageLastRotation(final Cookie cookie, final long seconds) {
         final String selector = cookie.getValue().split(":")[0];
-        final org.paulsens.trip.model.RememberToken token =
-                DAO.getInstance().getRememberToken(selector, Cached.NO).orElseThrow();
+        final org.paulsens.trip.model.AuthToken token =
+                DAO.getInstance().getAuthToken(selector, Cached.NO).orElseThrow();
         token.setRotatedAt(token.getRotatedAt() - seconds);
-        Assert.assertTrue(DAO.getInstance().saveRememberToken(token));
+        Assert.assertTrue(DAO.getInstance().saveAuthToken(token));
     }
 
     @Test
@@ -210,14 +210,14 @@ public class RememberMeServiceTest {
         final List<Cookie> issued = new ArrayList<>();
         service.issue(requestWith((Cookie) null), responseCapturing(issued), creds);
         final String selector = issued.get(0).getValue().split(":")[0];
-        final org.paulsens.trip.model.RememberToken token =
-                DAO.getInstance().getRememberToken(selector, Cached.NO).orElseThrow();
+        final org.paulsens.trip.model.AuthToken token =
+                DAO.getInstance().getAuthToken(selector, Cached.NO).orElseThrow();
         token.setExpires(1L);
-        Assert.assertTrue(DAO.getInstance().saveRememberToken(token));
+        Assert.assertTrue(DAO.getInstance().saveAuthToken(token));
 
         Assert.assertNull(service.validateAndRotate(requestWith(issued.get(0)),
                 responseCapturing(new ArrayList<>())), "an expired token must be refused");
-        Assert.assertTrue(DAO.getInstance().getRememberToken(selector, Cached.NO).isEmpty(),
+        Assert.assertTrue(DAO.getInstance().getAuthToken(selector, Cached.NO).isEmpty(),
                 "the expired row should have been deleted");
     }
 

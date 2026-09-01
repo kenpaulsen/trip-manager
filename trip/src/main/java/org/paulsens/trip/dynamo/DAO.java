@@ -46,7 +46,7 @@ import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.PasskeyCredential;
 import org.paulsens.trip.model.Registration;
-import org.paulsens.trip.model.RememberToken;
+import org.paulsens.trip.model.AuthToken;
 import org.paulsens.trip.model.TemplateRecord;
 import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.Transaction;
@@ -80,7 +80,7 @@ public final class DAO {
     private final RegistrationDAO regDao;
     private final TransactionDAO txDao;
     private final CredentialsDAO credDao;
-    private final RememberMeDAO rememberMeDao;
+    private final AuthTokenDAO authTokenDao;
     private final PasskeyDAO passkeyDao;
     private final TodoDAO todoDao;
     private final PersonDataValueDAO pdvDao;
@@ -116,8 +116,9 @@ public final class DAO {
         this.regDao = new RegistrationDAO(mapper, persistence, cacheClient);
         this.txDao = new TransactionDAO(mapper, persistence, cacheClient);
         this.credDao = new CredentialsDAO(persistence, personDao, createPasswordHasher());
-        // No cacheClient: remember-me rows authenticate, so a stale read is a security bug (see the DAO).
-        this.rememberMeDao = new RememberMeDAO(persistence);
+        // No cacheClient HERE: auth-token rows authenticate, so a stale read is a security bug. The one
+        // sanctioned exception is the ACCESS-token validation cache in TokenService (docs/api-tokens.md).
+        this.authTokenDao = new AuthTokenDAO(persistence);
         this.passkeyDao = new PasskeyDAO(persistence);
         this.todoDao = new TodoDAO(mapper, persistence, cacheClient);
         this.pdvDao = new PersonDataValueDAO(mapper, persistence, cacheClient);
@@ -413,18 +414,21 @@ public final class DAO {
         return credDao.removeCreds(email);
     }
 
-    // Remember-me tokens
-    public Optional<RememberToken> getRememberToken(final String selector, final Cached cached) {
-        return NearCacheContext.call(cached, () -> rememberMeDao.getToken(selector));
+    // Auth tokens (remember-me cookies, API refresh/access tokens -- docs/api-tokens.md)
+    public Optional<AuthToken> getAuthToken(final String selector, final Cached cached) {
+        return NearCacheContext.call(cached, () -> authTokenDao.getToken(selector));
     }
-    public Boolean saveRememberToken(final RememberToken token) {
-        return rememberMeDao.saveToken(token);
+    public Boolean saveAuthToken(final AuthToken token) {
+        return authTokenDao.saveToken(token);
     }
-    public Boolean deleteRememberToken(final String selector) {
-        return rememberMeDao.deleteToken(selector);
+    public Boolean deleteAuthToken(final String selector) {
+        return authTokenDao.deleteToken(selector);
     }
-    public int deleteRememberTokensForUser(final Person.Id userId) {
-        return rememberMeDao.deleteAllForUser(userId);
+    public List<AuthToken> deleteAuthTokensForUser(final Person.Id userId) {
+        return authTokenDao.deleteAllForUser(userId);
+    }
+    public List<AuthToken> listAuthTokensForUser(final Person.Id userId) {
+        return authTokenDao.listForUser(userId);
     }
 
     // Passkeys (WebAuthn credentials)

@@ -15,7 +15,7 @@ import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
  * The {@code passkeys} table: registered WebAuthn credentials, keyed by credential id.
  *
  * <p>Uncached like {@link CredentialsDAO} (rows authenticate; a stale read is a security bug), and the
- * by-user/by-email lookups are table scans like {@link RememberMeDAO} -- the table is tiny, the lookups are
+ * by-user/by-email lookups are table scans like {@link AuthTokenDAO} -- the table is tiny, the lookups are
  * rare (a registration ceremony, a manage-page render), and a GSI would exist only for them while breaking
  * the in-memory fake.
  */

@@ -4,34 +4,35 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.time.Instant;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.audit.Audit;
+import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
+import org.paulsens.trip.model.AuthToken;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
-import org.paulsens.trip.model.RememberToken;
-import org.paulsens.trip.util.RandomData;
-import org.paulsens.trip.cache.Cached;
 
 /**
  * The {@code trip_remember} cookie: quietly signs a browser back in after its session is gone.
  *
- * <p>Selector/validator design. The cookie is {@code selector:validator}; the row (see
- * {@code RememberMeDAO}) stores the selector and SHA-256(validator). Lookup is by selector, the validator is
+ * <p>Selector/validator design, shared with the API bearer tokens through {@link SelectorTokens} (see
+ * {@code docs/api-tokens.md}). The cookie is {@code selector:validator}; the row (an {@link AuthToken} of
+ * kind {@code REMEMBER}) stores the selector and SHA-256(validator). Lookup is by selector, the validator is
  * compared constant-time, and on every successful use the validator ROTATES under the same selector -- so a
  * copied cookie dies the next time the real browser checks in, and a stale validator against a live selector
  * is treated as theft: row deleted, ALARM audit, cookie expired.
  *
- * <p>One exception to "stale means theft": for {@value #ROTATION_GRACE_SECONDS} seconds after a rotation, the
- * validator that rotation replaced is still honored (restore only -- no second rotation, no Set-Cookie).
- * A browser whose session just died fires several requests at once with the SAME cookie; whichever lands
- * first rotates, and without the grace every sibling request would trip the theft detector and burn a
- * legitimate token. The window is short enough that a thief gains at most one restore they could already
- * have had by winning the race.
+ * <p>One exception to "stale means theft": for {@link SelectorTokens#ROTATION_GRACE_SECONDS} seconds after a
+ * rotation, the validator that rotation replaced is still honored (restore only -- no second rotation, no
+ * Set-Cookie). A browser whose session just died fires several requests at once with the SAME cookie;
+ * whichever lands first rotates, and without the grace every sibling request would trip the theft detector
+ * and burn a legitimate token. The window is short enough that a thief gains at most one restore they could
+ * already have had by winning the race.
  *
  * <p>Admin accounts are excluded at BOTH ends (no cookie issued, no cookie honored), so a role change
  * mid-token also kills the token. Expiry is absolute from creation. Role is read fresh from the pass table at
@@ -45,9 +46,8 @@ import org.paulsens.trip.cache.Cached;
 public class RememberMeService {
 
     public static final String COOKIE_NAME = "trip_remember";
-    /** How long the pre-rotation validator stays honored; see the class javadoc for why it exists at all. */
-    static final long ROTATION_GRACE_SECONDS = 30;
-    private static final char SEPARATOR = ':';
+    /** The shared grace constant, re-exposed where the cookie tests historically found it. */
+    static final long ROTATION_GRACE_SECONDS = SelectorTokens.ROTATION_GRACE_SECONDS;
     private static final RememberMeService INSTANCE = new RememberMeService(new ConfigCommands());
 
     private final ConfigCommands config;
@@ -66,17 +66,23 @@ public class RememberMeService {
         if (!enabled() || creds == null || isAdmin(creds.getPriv())) {
             return;
         }
-        final String selector = RandomData.genSecureToken(9);
-        final String validator = RandomData.genSecureToken(32);
+        final SelectorTokens.Minted minted = SelectorTokens.mint();
         final long now = Instant.now().getEpochSecond();
-        final long expires = now + days() * 86_400L;
-        final RememberToken token = new RememberToken(selector, Digests.sha256Base64(validator), null, null,
-                creds.getUserId(), creds.getEmail(), now, now, expires);
-        if (!Boolean.TRUE.equals(DAO.getInstance().saveRememberToken(token))) {
+        final AuthToken token = AuthToken.builder()
+                .selector(minted.selector())
+                .validatorHash(minted.validatorHash())
+                .userId(creds.getUserId())
+                .email(creds.getEmail())
+                .created(now)
+                .lastUsed(now)
+                .expires(now + days() * 86_400L)
+                .kind(AuthToken.Kind.REMEMBER)
+                .build();
+        if (!Boolean.TRUE.equals(DAO.getInstance().saveAuthToken(token))) {
             // No row means the cookie could never work; better no cookie than a dead one.
             return;
         }
-        response.addCookie(cookie(request, selector + SEPARATOR + validator, (int) (days() * 86_400L)));
+        response.addCookie(cookie(request, minted.presentable(), (int) (days() * 86_400L)));
     }
 
     /**
@@ -89,31 +95,29 @@ public class RememberMeService {
         if (cookie == null || !enabled()) {
             return null;
         }
-        final String value = cookie.getValue() == null ? "" : cookie.getValue();
-        final int split = value.indexOf(SEPARATOR);
-        if (split <= 0 || split == value.length() - 1) {
+        final Optional<SelectorTokens.Parsed> parsed = SelectorTokens.parse(cookie.getValue());
+        if (parsed.isEmpty()) {
             expire(request, response);
             return null;
         }
-        final String selector = value.substring(0, split);
-        final String validator = value.substring(split + 1);
-        final RememberToken token = DAO.getInstance().getRememberToken(selector, Cached.NO).orElse(null);
+        final String selector = parsed.get().selector();
+        final AuthToken token = DAO.getInstance().getAuthToken(selector, Cached.NO).orElse(null);
         if (token == null) {
             expire(request, response);
             return null;
         }
-        if (token.getExpires() == null || token.getExpires() <= Instant.now().getEpochSecond()) {
-            DAO.getInstance().deleteRememberToken(selector);
+        final long now = Instant.now().getEpochSecond();
+        final SelectorTokens.Judgment judgment = SelectorTokens.judge(token, parsed.get().validatorHash(), now);
+        if (judgment == SelectorTokens.Judgment.EXPIRED) {
+            DAO.getInstance().deleteAuthToken(selector);
             expire(request, response);
             return null;
         }
-        final String presentedHash = Digests.sha256Base64(validator);
-        final boolean current = Digests.matches(token.getValidatorHash(), presentedHash);
-        if (!current && !withinRotationGrace(token, presentedHash)) {
+        if (judgment == SelectorTokens.Judgment.THEFT) {
             // A known selector with the wrong validator is the theft signature: either the thief presented a
             // stale copy after the owner rotated, or the owner is presenting a stale copy after the thief
             // used it. Both mean the token is compromised; kill it loudly.
-            DAO.getInstance().deleteRememberToken(selector);
+            DAO.getInstance().deleteAuthToken(selector);
             Audit.builder(AuditAction.ALARM, AuditOutcome.FAILURE)
                     .actor(token.getEmail(), token.getUserId() == null ? null : token.getUserId().getValue())
                     .message("remember.theft: stale remember-me validator presented for a live selector")
@@ -125,11 +129,11 @@ public class RememberMeService {
         // and an account that became admin since issue stops being restorable at all.
         final Creds creds = DAO.getInstance().getCredsForCodeLogin(token.getEmail(), Cached.NO);
         if (creds == null || isAdmin(creds.getPriv())) {
-            DAO.getInstance().deleteRememberToken(selector);
+            DAO.getInstance().deleteAuthToken(selector);
             expire(request, response);
             return null;
         }
-        if (current) {
+        if (judgment == SelectorTokens.Judgment.CURRENT) {
             rotate(request, response, token, selector);
         }
         // Grace path: no rotation and no Set-Cookie -- the racing request that won already rotated and set
@@ -137,42 +141,27 @@ public class RememberMeService {
         return creds;
     }
 
-    /**
-     * Whether this stale validator is the browser racing its own rotation rather than a theft: it must be
-     * the exact validator the LAST rotation replaced, presented within {@value #ROTATION_GRACE_SECONDS}
-     * seconds of that rotation. Rows from before the grace columns existed have neither field and never
-     * match, which keeps the old strict behavior for them.
-     */
-    private static boolean withinRotationGrace(final RememberToken token, final String presentedHash) {
-        return token.getPrevValidatorHash() != null && token.getRotatedAt() != null
-                && Digests.matches(token.getPrevValidatorHash(), presentedHash)
-                && Instant.now().getEpochSecond() - token.getRotatedAt() <= ROTATION_GRACE_SECONDS;
-    }
-
     /** Deletes THIS browser's token and cookie (logout). */
     public void revoke(final HttpServletRequest request, final HttpServletResponse response) {
         final Cookie cookie = find(request);
         if (cookie != null) {
-            final String value = cookie.getValue() == null ? "" : cookie.getValue();
-            final int split = value.indexOf(SEPARATOR);
-            if (split > 0) {
-                DAO.getInstance().deleteRememberToken(value.substring(0, split));
-            }
+            SelectorTokens.parse(cookie.getValue())
+                    .ifPresent(parsed -> DAO.getInstance().deleteAuthToken(parsed.selector()));
             expire(request, response);
         }
     }
 
-    /** Deletes EVERY browser's token for this person (password change, credentials removal). */
+    /** Deletes EVERY credential of every kind for this person (password change, credentials removal). */
     public void revokeAllFor(final Person.Id userId) {
-        final int revoked = DAO.getInstance().deleteRememberTokensForUser(userId);
+        final int revoked = DAO.getInstance().deleteAuthTokensForUser(userId).size();
         if (revoked > 0) {
-            log.info("Revoked {} remember-me token(s) for {}", revoked, userId.getValue());
+            log.info("Revoked {} auth token(s) for {}", revoked, userId.getValue());
         }
     }
 
     private void rotate(final HttpServletRequest request, final HttpServletResponse response,
-            final RememberToken token, final String selector) {
-        final String freshValidator = RandomData.genSecureToken(32);
+            final AuthToken token, final String selector) {
+        final String freshValidator = SelectorTokens.mintValidator();
         final long now = Instant.now().getEpochSecond();
         // The outgoing validator stays honored for the grace window; only ONE generation back, so a
         // validator two rotations old is stale evidence again.
@@ -180,9 +169,9 @@ public class RememberMeService {
         token.setRotatedAt(now);
         token.setValidatorHash(Digests.sha256Base64(freshValidator));
         token.setLastUsed(now);
-        if (Boolean.TRUE.equals(DAO.getInstance().saveRememberToken(token))) {
+        if (Boolean.TRUE.equals(DAO.getInstance().saveAuthToken(token))) {
             final int remaining = (int) Math.max(60L, token.getExpires() - Instant.now().getEpochSecond());
-            response.addCookie(cookie(request, selector + SEPARATOR + freshValidator, remaining));
+            response.addCookie(cookie(request, selector + ":" + freshValidator, remaining));
         }
         // A failed rotation save leaves the old validator valid; the login still proceeds -- rotation is a
         // hardening measure, not a precondition.

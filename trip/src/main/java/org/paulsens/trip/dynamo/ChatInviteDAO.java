@@ -14,11 +14,11 @@ import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 /**
  * The {@code chat_invites} table: one row per outstanding invite link for a chat channel.
  *
- * <p>Keyed PK {@code channelId} / SK {@code selector} — not PK=selector like {@code remember_me} — because the
+ * <p>Keyed PK {@code channelId} / SK {@code selector} — not PK=selector like {@code auth_tokens} — because the
  * admin UI must list a channel's outstanding links and this schema answers that with a partition query, no GSI
  * and no scan. Redemption has both keys anyway: the invite URL carries the trip id beside the token.
  *
- * <p>Deliberately UNCACHED, like {@link RememberMeDAO}: these rows authorize, so a stale read is a security
+ * <p>Deliberately UNCACHED, like {@link AuthTokenDAO}: these rows authorize, so a stale read is a security
  * bug (a revoked link must die immediately), and the volume — one point-read per invite click — needs no
  * cache. The {@code expires} attribute doubles as the table's TTL, so expired rows delete themselves; readers
  * still check it because TTL deletion can lag by up to 48 hours.
