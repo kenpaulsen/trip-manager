@@ -20,10 +20,12 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.TripCommands;
+import org.paulsens.trip.api.dto.RegOptionDto;
 import org.paulsens.trip.api.dto.TripDto;
 import org.paulsens.trip.api.dto.TripEventDto;
 import org.paulsens.trip.api.mapper.TripMapper;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 
@@ -196,6 +198,10 @@ public class TripsResource extends BaseResource {
         if (!new OrgCommands(this::caller).canCreateTripFor(orgId)) {
             return error(403, ApiErrors.FORBIDDEN, "Not permitted to create trips for this organization.");
         }
+        if (eventsCarryIds(body)) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "tripEvents on a write are append-only: ids "
+                    + "must be null (editing an existing event is the editor page's job).");
+        }
         final TripCommands trips = Beans.get(TripCommands.class);
         final Trip trip = trips.createTrip();
         apply(body, trip);
@@ -230,6 +236,10 @@ public class TripsResource extends BaseResource {
         final Trip trip = findTrip(tripId);
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
+        }
+        if (eventsCarryIds(body)) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "tripEvents on a write are append-only: ids "
+                    + "must be null (editing an existing event is the editor page's job).");
         }
         apply(body, trip);
         if (!Beans.get(TripCommands.class).saveTrip(trip)) {
@@ -346,7 +356,8 @@ public class TripsResource extends BaseResource {
         return new TripDto(dto.id(), dto.title(), dto.description(), dto.openToPublic(), dto.chatEnabled(),
                 dto.startDate(), dto.endDate(), dto.regLimit(), dto.provider(), dto.orgId(), dto.language(),
                 dto.estimatedPrice(), dto.director(), dto.localGuide(), dto.facilitators(), dto.flyerUrl(),
-                dto.nonHostedTripUrl(), dto.nonHostedRegNumber(), dto.people(), eventDtos(trip, me));
+                dto.nonHostedTripUrl(), dto.nonHostedRegNumber(), dto.regOptions(), dto.people(),
+                eventDtos(trip, me));
     }
 
     private static List<TripEventDto> eventDtos(final Trip trip, final Person.Id viewer) {
@@ -368,6 +379,8 @@ public class TripsResource extends BaseResource {
             trip.setTitle(body.title());
         }
         applyPeople(body, trip);
+        applyRegOptions(body, trip);
+        appendEvents(body, trip);
         if (body.description() != null) {
             trip.setDescription(body.description());
         }
@@ -406,6 +419,48 @@ public class TripsResource extends BaseResource {
             }
         }
         trip.setPeople(allowed);
+    }
+
+    /**
+     * The registration-page questions, settable like the rest of the trip the caller may already edit.
+     * Null means "not sent" (leave them alone); an empty list clears them. A null option id takes the next
+     * index, the same rule the page's Add Row uses, so a client can append without knowing the count.
+     */
+    private static void applyRegOptions(final TripDto body, final Trip trip) {
+        if (body.regOptions() == null) {
+            return;
+        }
+        final List<RegistrationOption> options = new ArrayList<>();
+        for (final RegOptionDto dto : body.regOptions()) {
+            final int id = dto.id() != null ? dto.id() : options.size();
+            options.add(new RegistrationOption(id, dto.shortDesc(), dto.longDesc(), dto.show()));
+        }
+        trip.setRegOptions(options);
+    }
+
+    /**
+     * Itinerary events on a WRITE are APPEND-ONLY: each entry must carry a null id and is added as a new
+     * event. Deliberately narrower than the read shape — replacing an existing event by id would have to
+     * round-trip participants and everybody's private notes, and a partial body would silently erase them
+     * (the exact hazard {@code TripEventDto}'s own javadoc exists to prevent). Editing stays with the
+     * editor page and {@code setParticipation}; an id here is a client bug and answers 400 upstream.
+     */
+    private static boolean eventsCarryIds(final TripDto body) {
+        if (body == null || body.tripEvents() == null) {
+            return false;
+        }
+        return body.tripEvents().stream().anyMatch(dto -> dto.id() != null);
+    }
+
+    private static void appendEvents(final TripDto body, final Trip trip) {
+        if (body.tripEvents() == null) {
+            return;
+        }
+        for (final TripEventDto dto : body.tripEvents()) {
+            trip.getTripEvents().add(new TripEvent(java.util.UUID.randomUUID().toString(),
+                    dto.type() == null ? TripEvent.Type.EVENT : TripEvent.Type.valueOf(dto.type()),
+                    dto.title(), dto.notes(), dto.start(), dto.end(), null, null));
+        }
     }
 
     private static void applyDetails(final TripDto body, final Trip trip) {

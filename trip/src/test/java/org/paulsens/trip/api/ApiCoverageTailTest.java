@@ -256,7 +256,7 @@ public class ApiCoverageTailTest extends ResourceTestSupport {
         final LocalDateTime end = LocalDateTime.of(2027, 5, 10, 20, 0);
         final TripDto body = new TripDto(null, null, "New description", Boolean.TRUE, false, start, end, 25,
                 "CFPW", null, null, "$3000", "Fr. Director", "Guide", "Facilitators",
-                "https://flyer.example/f.pdf", "https://info.example", null, null, null);
+                "https://flyer.example/f.pdf", "https://info.example", null, null, null, null);
         assertOk(resource.update("t1", CSRF_OK, body));
 
         Assert.assertEquals(existing.getDescription(), "New description");

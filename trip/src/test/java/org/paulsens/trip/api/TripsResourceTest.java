@@ -235,7 +235,7 @@ public class TripsResourceTest extends ResourceTestSupport {
     /** A body whose only interesting fields are title/regLimit/orgId -- the create matrix's fixture. */
     private static TripDto createBody(final String orgId) {
         return new TripDto(null, "Rome 2027", "Ten days", null, false, null, null, 40, null,
-                orgId, null, null, null, null, null, null, null, null, null, null);
+                orgId, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     @Test
@@ -315,7 +315,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         Mockito.when(trips.saveTrip(existing)).thenReturn(true);
 
         final TripDto body = new TripDto(null, "Renamed", null, null, false, null, null, null, null,
-                null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null);
         assertOk(resource.update(TRIP_ID, CSRF_OK, body));
 
         Assert.assertEquals(existing.getTitle(), "Renamed");
@@ -339,12 +339,58 @@ public class TripsResourceTest extends ResourceTestSupport {
         Mockito.when(orgs.isMember("org-1", Person.Id.from("in-org"))).thenReturn(true);
 
         final TripDto body = new TripDto(null, null, null, null, false, null, null, null, null,
-                null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null,
                 List.of("in-org", "outside-org"), null);
         assertOk(resource.update(TRIP_ID, CSRF_OK, body));
 
         Assert.assertEquals(existing.getPeople(), List.of(Person.Id.from("in-org")),
                 "only the org member may land on the roster; the outsider is silently skipped");
+    }
+
+    /** Registration options are settable; a null option id appends at the next index (the Add Row rule). */
+    @Test
+    public void updateSetsTheRegistrationOptions() {
+        signedInAsSiteAdmin(ME);
+        final Trip existing = trip(TRIP_ID, ME);
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(existing)).thenReturn(true);
+
+        final TripDto body = new TripDto(null, null, null, null, false, null, null, null, null,
+                null, null, null, null, null, null, null, null, null,
+                List.of(new org.paulsens.trip.api.dto.RegOptionDto(null, "Room Preference", "Who with?", null),
+                        new org.paulsens.trip.api.dto.RegOptionDto(null, "Diet", "Anything we should know?",
+                                false)),
+                null, null);
+        assertOk(resource.update(TRIP_ID, CSRF_OK, body));
+
+        Assert.assertEquals(existing.getRegOptions().size(), 2);
+        Assert.assertEquals(existing.getRegOptions().get(0).getId(), 0);
+        Assert.assertEquals(existing.getRegOptions().get(0).getShortDesc(), "Room Preference");
+        Assert.assertEquals(existing.getRegOptions().get(1).getId(), 1);
+        Assert.assertEquals(existing.getRegOptions().get(1).getShow(), Boolean.FALSE);
+    }
+
+    /** Events on a write APPEND (null ids only): replacing by id would erase participants/private notes. */
+    @Test
+    public void updateAppendsNewEventsAndRefusesIds() {
+        signedInAsSiteAdmin(ME);
+        final Trip existing = trip(TRIP_ID, ME);
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(existing)).thenReturn(true);
+
+        final TripDto append = new TripDto(null, null, null, null, false, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null,
+                List.of(new TripEventDto(null, "LODGING", "Hotel Ruža", null,
+                        LocalDateTime.now().plusDays(31), null, null, null, null)));
+        assertOk(resource.update(TRIP_ID, CSRF_OK, append));
+        Assert.assertEquals(existing.getTripEvents().size(), 2, "the new event appends after evt-1");
+        Assert.assertEquals(existing.getTripEvents().get(1).getTitle(), "Hotel Ruža");
+        Assert.assertEquals(existing.getTripEvents().get(1).getType(), TripEvent.Type.LODGING);
+
+        final TripDto withId = new TripDto(null, null, null, null, false, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null,
+                List.of(new TripEventDto("evt-1", null, "Rewritten", null, null, null, null, null, null)));
+        assertError(resource.update(TRIP_ID, CSRF_OK, withId), 400, ApiErrors.VALIDATION_FAILED);
     }
 
     /** Null means "not sent": a body without a people list must leave the roster untouched. */
@@ -358,7 +404,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         bindMock(org.paulsens.trip.action.OrgCommands.class);
 
         final TripDto body = new TripDto(null, "Renamed", null, null, false, null, null, null, null,
-                null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null);
         assertOk(resource.update(TRIP_ID, CSRF_OK, body));
 
         Assert.assertEquals(existing.getPeople(), List.of(ME),

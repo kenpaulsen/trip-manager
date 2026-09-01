@@ -34,6 +34,7 @@ public record TripDto(
         String flyerUrl,
         String nonHostedTripUrl,
         Integer nonHostedRegNumber,
+        List<RegOptionDto> regOptions,
         List<String> people,
         List<TripEventDto> tripEvents) {
 
@@ -41,6 +42,6 @@ public record TripDto(
     public TripDto withoutEvents() {
         return new TripDto(id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit,
                 provider, orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl,
-                nonHostedTripUrl, nonHostedRegNumber, people, null);
+                nonHostedTripUrl, nonHostedRegNumber, regOptions, people, null);
     }
 }
