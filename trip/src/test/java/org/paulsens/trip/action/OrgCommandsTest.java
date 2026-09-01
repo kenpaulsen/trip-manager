@@ -2,12 +2,15 @@ package org.paulsens.trip.action;
 
 import java.io.IOException;
 import java.util.List;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.SettingDef;
 import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -1508,5 +1511,129 @@ public class OrgCommandsTest {
 
     private static String unique() {
         return RandomData.genAlpha(10);
+    }
+
+    // ------------------------------------------------------------------ per-org settings ladder
+
+    @Test
+    public void orgSettingsEditorListsEveryOverridableSettingAsInheritedUntilSet() throws IOException {
+        final Organization org = orgWithAdmin(savedPerson());
+        final String orgId = org.getId().getValue();
+        final List<SettingDef> defs = admin().orgSettingDefs();
+        assertEquals(defs, KnownSettings.orgOverridable());
+        final java.util.Map<String, String> edit = admin().orgSettingsEdit(orgId);
+        assertEquals(edit.keySet(), new java.util.LinkedHashSet<>(defs.stream()
+                .map(SettingDef::getName).toList()), "one row per overridable setting");
+        assertTrue(edit.values().stream().allMatch(String::isEmpty), "a new org inherits everything");
+        assertTrue(admin().orgSettingsEdit("no-such-org").values().stream().allMatch(String::isEmpty),
+                "an unknown org renders as all-inherited rather than failing the page");
+        assertEquals(admin().inheritedSetting(KnownSettings.SITE_ORG_NAME),
+                new ConfigCommands().siteString(KnownSettings.SITE_ORG_NAME),
+                "the placeholder is the SITE rung");
+        assertEquals(admin().inheritedSetting(KnownSettings.SITE_ANALYTICS_ID),
+                KnownSettings.SITE_ANALYTICS_ID.getDefaultValue(),
+                "an org-only setting inherits the compiled default, never the site's row");
+    }
+
+    @Test
+    public void orgAdminSavesOverridesAndBlankGivesTheValueBack() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Organization org = orgWithAdmin(orgAdmin);
+        final String orgId = org.getId().getValue();
+        final OrgCommands cmds = commandsFor(orgAdmin);
+        final SettingDef name = KnownSettings.SITE_ORG_NAME;
+        final SettingDef days =
+                KnownSettings.HOME_COUNTDOWN_SOON_DAYS;
+
+        final java.util.Map<String, String> edit = new java.util.HashMap<>();
+        edit.put(name.getName(), "  Acme Pilgrimages ");
+        edit.put(days.getName(), "14");
+        assertTrue(cmds.saveOrgSettings(orgId, edit));
+        final Organization stored = dao.getOrganization(org.getId(), Cached.NO).orElseThrow();
+        assertEquals(stored.settingOverride(name.getName()), "Acme Pilgrimages", "trimmed on save");
+        assertEquals(stored.settingOverride(days.getName()), "14");
+        assertEquals(cmds.effectiveSetting(name, orgId), "Acme Pilgrimages");
+        assertEquals(cmds.effectiveSetting(days, "no-such-org"), days.getDefaultValue(),
+                "an unknown org is the site rung");
+        assertEquals(cmds.orgSettingsEdit(orgId).get(days.getName()), "14", "the editor shows the override");
+
+        // Same values again: nothing changes, nothing is written (the version stays put).
+        final long version = stored.getVersion();
+        assertTrue(cmds.saveOrgSettings(orgId, java.util.Map.of(days.getName(), "14")));
+        assertEquals(dao.getOrganization(org.getId(), Cached.NO).orElseThrow().getVersion(), version,
+                "an unchanged save must not stamp a new version");
+        assertTrue(cmds.saveOrgSettings(orgId, null), "no map at all is a no-op success");
+
+        // Blank means inherit: the override goes away rather than becoming an empty string.
+        assertTrue(cmds.saveOrgSettings(orgId, java.util.Map.of(days.getName(), "   ")));
+        final Organization cleared = dao.getOrganization(org.getId(), Cached.NO).orElseThrow();
+        assertNull(cleared.settingOverride(days.getName()));
+        assertFalse(cleared.getSettingsOverrides().containsKey(days.getName()), "removed, not blanked");
+        assertEquals(cleared.settingOverride(name.getName()), "Acme Pilgrimages", "the other override stays");
+        assertEquals(cmds.effectiveSetting(days, orgId), days.getDefaultValue());
+        assertTrue(cmds.saveOrgSettings(orgId, java.util.Map.of(days.getName(), "")),
+                "clearing an already-inherited setting is a quiet no-op");
+    }
+
+    @Test
+    public void orgSettingsRefuseForeignKeysBadValuesAndOutsiders() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person outsider = savedPerson();
+        final Organization org = orgWithAdmin(orgAdmin);
+        final String orgId = org.getId().getValue();
+        final OrgCommands cmds = commandsFor(orgAdmin);
+        final String siteOnly = KnownSettings.CHAT_MAIL_BASE_URL.getName();
+        final String days = KnownSettings.HOME_COUNTDOWN_SOON_DAYS.getName();
+
+        assertFalse(cmds.saveOrgSettings(orgId, java.util.Map.of(siteOnly, "https://evil.example")),
+                "a site-only key is refused: the map comes from a browser, the server decides");
+        assertFalse(cmds.saveOrgSettings(orgId, java.util.Map.of("no.such.setting", "x")));
+        assertFalse(cmds.saveOrgSettings(orgId, java.util.Map.of(days, "soon")),
+                "a value that is not the setting's type is refused, like the site Settings page does");
+        assertFalse(commandsFor(outsider).saveOrgSettings(orgId, java.util.Map.of(days, "3")),
+                "only the org's admins (and site admins) may change its settings");
+        assertFalse(anonymous().saveOrgSettings(orgId, java.util.Map.of(days, "3")));
+        assertFalse(admin().saveOrgSettings("no-such-org", java.util.Map.of(days, "3")));
+        assertFalse(admin().saveOrgSettings(null, java.util.Map.of(days, "3")));
+        assertTrue(dao.getOrganization(org.getId(), Cached.NO).orElseThrow().getSettingsOverrides().isEmpty(),
+                "a refused save writes NOTHING, even when other entries were valid");
+        assertTrue(admin().saveOrgSettings(orgId, java.util.Map.of(days, "3")), "site admins may save too");
+    }
+
+    @Test
+    public void orgInviteNamesTheOrgsOwnSiteWhenItHasOne() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Organization org = orgWithAdmin(orgAdmin);
+        final String orgId = org.getId().getValue();
+        final org.paulsens.trip.action.MailCommands mail =
+                Mockito.mock(org.paulsens.trip.action.MailCommands.class);
+        Mockito.when(mail.sendManagedTemplate(Mockito.anyString(), Mockito.anyMap(), Mockito.anyString(),
+                Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(true);
+        final OrgCommands cmds = new OrgCommands(callerOf(orgAdmin), () -> mail);
+        @SuppressWarnings("unchecked")
+        final ArgumentCaptor<java.util.Map<String, Object>> values = ArgumentCaptor.forClass(java.util.Map.class);
+
+        // No subdomain: the shared site, by the reg.mail.baseUrl setting and the site's org name.
+        assertTrue(cmds.sendOrgInvite(orgId, "shared-" + unique() + "@example.org"));
+        Mockito.verify(mail).sendManagedTemplate(Mockito.anyString(), values.capture(), Mockito.anyString(),
+                Mockito.any(), Mockito.any(), Mockito.any());
+        final String regBase = KnownSettings.REG_MAIL_BASE_URL.getDefaultValue();
+        assertEquals(values.getValue().get("createAccountUrl"), regBase + "/account/createAccount.jsf");
+        assertEquals(values.getValue().get("siteHost"), "www.visitqueenofpeace.com");
+        assertEquals(values.getValue().get("siteName"), new ConfigCommands()
+                .siteString(KnownSettings.SITE_ORG_NAME));
+
+        // With a subdomain: the org's own site, its own name, whatever host the admin was browsing.
+        final String slug = "inv" + unique().toLowerCase(java.util.Locale.ROOT);
+        assertTrue(admin().saveOrgEdits(orgId, org.getName(), null, null, null, null, slug));
+        Mockito.clearInvocations(mail);
+        assertTrue(cmds.sendOrgInvite(orgId, "own-" + unique() + "@example.org"));
+        Mockito.verify(mail).sendManagedTemplate(Mockito.anyString(), values.capture(), Mockito.anyString(),
+                Mockito.any(), Mockito.any(), Mockito.any());
+        assertEquals(values.getValue().get("createAccountUrl"),
+                "https://" + slug + ".unitetrip.com/account/createAccount.jsf");
+        assertEquals(values.getValue().get("siteHost"), slug + ".unitetrip.com");
+        assertEquals(values.getValue().get("siteName"), org.getName());
+        assertEquals(values.getValue().get("orgName"), org.getName());
     }
 }

@@ -19,9 +19,11 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Config;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.SettingDef;
 import org.paulsens.trip.model.SettingSection;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.site.SiteContext;
 
 /**
  * Runtime settings, exposed to pages as {@code #{config}}.
@@ -53,7 +55,20 @@ public class ConfigCommands {
      *         {@code defaultValue} -- a mistyped value must not silently read as false.
      */
     public boolean getBoolean(final String name, final boolean defaultValue) {
-        final String raw = getString(name, null);
+        return parseBoolean(name, getString(name, null), defaultValue);
+    }
+
+    /** @return the setting parsed as an int, or {@code defaultValue} if absent or not a number. */
+    public int getInt(final String name, final int defaultValue) {
+        return parseInt(name, getString(name, null), defaultValue);
+    }
+
+    /** @return the setting parsed as a long, or {@code defaultValue} if absent or not a number. */
+    public long getLong(final String name, final long defaultValue) {
+        return parseLong(name, getString(name, null), defaultValue);
+    }
+
+    private static boolean parseBoolean(final String name, final String raw, final boolean defaultValue) {
         if (raw == null) {
             return defaultValue;
         }
@@ -68,9 +83,7 @@ public class ConfigCommands {
         return defaultValue;
     }
 
-    /** @return the setting parsed as an int, or {@code defaultValue} if absent or not a number. */
-    public int getInt(final String name, final int defaultValue) {
-        final String raw = getString(name, null);
+    private static int parseInt(final String name, final String raw, final int defaultValue) {
         if (raw == null) {
             return defaultValue;
         }
@@ -82,9 +95,7 @@ public class ConfigCommands {
         }
     }
 
-    /** @return the setting parsed as a long, or {@code defaultValue} if absent or not a number. */
-    public long getLong(final String name, final long defaultValue) {
-        final String raw = getString(name, null);
+    private static long parseLong(final String name, final String raw, final long defaultValue) {
         if (raw == null) {
             return defaultValue;
         }
@@ -104,21 +115,116 @@ public class ConfigCommands {
      * <p>Prefer these overloads to the {@code (name, default)} pair everywhere. They are what keeps the admin
      * page and the code in agreement: the key and the default come from the same declaration, so the page
      * cannot offer a setting nothing reads, and a call site cannot quietly disagree with the default shown.
+     *
+     * <p>On an ORGANIZATION's site (the request's {@link SiteContext}) an
+     * {@link SettingDef#isOrgOverridable() org-overridable} setting resolves through the ladder
+     * {@link #getString(SettingDef, Organization)} describes -- the org's override first -- so a page or bean
+     * reading through these overloads is per-tenant without doing anything. Every other host, and every
+     * other setting, reads exactly as before. Code running with no bound request (schedulers, mail senders
+     * under the system context) sees the SHARED site here and must pass the organization explicitly.
      */
     public String getString(final SettingDef def) {
-        return getString(def.getName(), def.getDefaultValue());
+        return getString(def, siteOrg(def));
     }
 
     public boolean getBoolean(final SettingDef def) {
-        return getBoolean(def.getName(), def.booleanDefault());
+        return getBoolean(def, siteOrg(def));
     }
 
     public int getInt(final SettingDef def) {
-        return getInt(def.getName(), def.intDefault());
+        return getInt(def, siteOrg(def));
     }
 
     public long getLong(final SettingDef def) {
-        return getLong(def.getName(), def.longDefault());
+        return getLong(def, siteOrg(def));
+    }
+
+    // --- the org -> site -> default ladder, with the organization named explicitly ---
+
+    /**
+     * A declared setting as it applies to ONE organization: the org's non-blank override when the setting
+     * is org-overridable, else the site's stored row, else the compiled default -- except that an
+     * {@link SettingDef#isOrgOnly() org-only} setting skips the site row for an org (its override or the
+     * default, nothing in between). {@code org} null means the site rung: identical to the plain overload
+     * off an org host. This is the form for code with no request in hand (digest and notification senders,
+     * anything under {@code RequestContext.system()}): the organization comes from the entity -- the trip,
+     * the chat channel's trip -- never from a session, and never from a site context that is not bound.
+     */
+    public String getString(final SettingDef def, final Organization org) {
+        if (!appliesTo(def, org)) {
+            return getString(def.getName(), def.getDefaultValue());
+        }
+        final String raw = rawFor(def, org);
+        return raw == null ? def.getDefaultValue() : raw;
+    }
+
+    public boolean getBoolean(final SettingDef def, final Organization org) {
+        if (!appliesTo(def, org)) {
+            return getBoolean(def.getName(), def.booleanDefault());
+        }
+        return parseBoolean(def.getName(), rawFor(def, org), def.booleanDefault());
+    }
+
+    public int getInt(final SettingDef def, final Organization org) {
+        if (!appliesTo(def, org)) {
+            return getInt(def.getName(), def.intDefault());
+        }
+        return parseInt(def.getName(), rawFor(def, org), def.intDefault());
+    }
+
+    public long getLong(final SettingDef def, final Organization org) {
+        if (!appliesTo(def, org)) {
+            return getLong(def.getName(), def.longDefault());
+        }
+        return parseLong(def.getName(), rawFor(def, org), def.longDefault());
+    }
+
+    /**
+     * Whether the org rung is in play at all. When it is not, the reads above take EXACTLY the pre-ladder
+     * path -- the {@code (name, default)} overloads -- so a subclass or test double that overrides those
+     * keeps steering every non-org read the way it always did.
+     */
+    private static boolean appliesTo(final SettingDef def, final Organization org) {
+        return org != null && def.isOrgOverridable();
+    }
+
+    /**
+     * The SITE rung alone -- the stored row or the compiled default, whatever host the request is on. What
+     * the org settings editor shows as "inherited", so an org admin editing from the shared host and one
+     * editing from the org's own host see the same placeholder.
+     */
+    public String siteString(final SettingDef def) {
+        return getString(def.getName(), def.getDefaultValue());
+    }
+
+    /** The org's override, else (unless org-only) the site row; null when nothing is set at either rung. */
+    private String rawFor(final SettingDef def, final Organization org) {
+        final String override = org.settingOverride(def.getName());
+        if (override != null) {
+            return override;
+        }
+        return def.isOrgOnly() ? null : getString(def.getName(), null);
+    }
+
+    /**
+     * The organization whose site the current request is for, when {@code def} can vary by org; null
+     * otherwise (a shared or marketing host, no bound request, a site-only setting, or an org row that
+     * cannot be read -- the last degrades to the site value rather than breaking a render).
+     */
+    private Organization siteOrg(final SettingDef def) {
+        if (!def.isOrgOverridable()) {
+            return null;
+        }
+        final SiteContext site = SiteContext.current();
+        if (!site.isOrg()) {
+            return null;
+        }
+        try {
+            return DAO.getInstance().getOrganization(site.orgId(), Cached.YES).orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to read the organization behind site " + site.host(), ex);
+            return null;
+        }
     }
 
     /**

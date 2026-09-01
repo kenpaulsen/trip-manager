@@ -32,14 +32,45 @@ public class SettingDef implements Serializable {
     String label;
     /** What it controls, and any consequence worth knowing before changing it. */
     String description;
+    /**
+     * Whether an organization may override this setting for its OWN site (the trip &rarr; org &rarr; site
+     * ladder the payment settings established, generalized): the org's non-blank override wins on its host,
+     * else the site's stored row, else {@link #defaultValue}. False for the vast majority -- a setting that
+     * governs shared infrastructure (mail plumbing, rate limits, caches) has no per-tenant meaning.
+     */
+    boolean orgOverridable;
+    /**
+     * Whether an ORG host resolves this setting from the org rung ONLY -- its own override or the compiled
+     * default, never the site's stored row. For values that would be a cross-tenant leak if inherited: an
+     * analytics property id set for the shared site must not silently collect an org site's traffic.
+     * Implies {@link #orgOverridable}. Off an org host the site row applies as for any other setting.
+     */
+    boolean orgOnly;
 
     public SettingDef(final String name, final Config.Type type, final String defaultValue, final String label,
             final String description) {
+        this(name, type, defaultValue, label, description, false, false);
+    }
+
+    private SettingDef(final String name, final Config.Type type, final String defaultValue, final String label,
+            final String description, final boolean orgOverridable, final boolean orgOnly) {
         this.name = name;
         this.type = type;
         this.defaultValue = defaultValue;
         this.label = label;
         this.description = description;
+        this.orgOverridable = orgOverridable || orgOnly;
+        this.orgOnly = orgOnly;
+    }
+
+    /** This declaration, marked as one an organization may override on its own site. */
+    public SettingDef withOrgOverride() {
+        return new SettingDef(name, type, defaultValue, label, description, true, false);
+    }
+
+    /** This declaration, marked org-explicit: an org host never inherits the site's value (see {@link #orgOnly}). */
+    public SettingDef withOrgOnly() {
+        return new SettingDef(name, type, defaultValue, label, description, true, true);
     }
 
     /**

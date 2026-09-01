@@ -1,7 +1,10 @@
 package org.paulsens.trip.api;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.Locale;
+import java.util.function.Predicate;
 
 /**
  * Whether a client-supplied address is one this site is willing to send a person back to.
@@ -39,6 +42,36 @@ public final class RedirectAllowlist {
                 .map(prefix -> prefix.trim().toLowerCase(Locale.ROOT))
                 .filter(prefix -> !prefix.isEmpty())
                 .anyMatch(prefix -> matches(candidate, prefix));
+    }
+
+    /**
+     * Whether {@code url} is an {@code https} address on a host {@code isOrgHost} recognises as an
+     * organization's own site -- the per-tenant complement to the configured prefixes. Same boundary rule
+     * as {@link #allows}: the URL must sit under {@code https://{host}}, so a host is matched whole, never
+     * as a prefix of a longer name. Plain http is refused: an org site is only ever served over TLS, and a
+     * cleartext return address would be a downgrade an attacker on the path could exploit. The resolver is
+     * a parameter so the rule is testable without the live site index.
+     */
+    public static boolean allowsOrgSite(final String url, final Predicate<String> isOrgHost) {
+        final String host = httpsHostOf(url);
+        return host != null && isOrgHost.test(host) && allows(url, "https://" + host);
+    }
+
+    /** The host of an https URL, or null for anything else (other schemes, no host, unparseable). */
+    private static String httpsHostOf(final String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        try {
+            final URI uri = new URI(url.trim());
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null) {
+                return null;
+            }
+            // Hostnames are case-insensitive; the site index keys lower-case slugs.
+            return uri.getHost().toLowerCase(Locale.ROOT);
+        } catch (final URISyntaxException ex) {
+            return null;
+        }
     }
 
     private static boolean matches(final String candidate, final String prefix) {

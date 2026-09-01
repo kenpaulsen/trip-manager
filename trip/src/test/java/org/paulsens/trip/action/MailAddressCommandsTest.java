@@ -363,4 +363,33 @@ public class MailAddressCommandsTest {
     private static List<String> sesIsDown() {
         throw new IllegalStateException("SES down");
     }
+
+    // ------------------------------------------------------------------ organization-direct resolution
+
+    /** An org invite or org-level notice has the organization in hand and no trip at all. */
+    @Test
+    public void theOrgSentinelResolvesStraightFromAnOrganization() {
+        final MailAddressCommands mailAddr = commands();
+        final String siteBare = MailAddressCommands.addressOf(KnownSettings.SITE_MAIL_EMAIL.getDefaultValue());
+        final Organization org = new Organization();
+        org.setContactEmail("office@direct.example.com");
+
+        // reg.mail.replyTo defaults to 'org'; reg.notify.email to 'facilitators' (org-like with no trip).
+        assertEquals(mailAddr.orgReplyTo(KnownSettings.REG_MAIL_REPLY_TO, org), "office@direct.example.com");
+        assertEquals(mailAddr.orgRecipient(KnownSettings.REG_NOTIFY_EMAIL, org), "office@direct.example.com",
+                "facilitators is a trip-only notion; with only an org in hand it resolves like org");
+        assertEquals(mailAddr.orgReplyTo(KnownSettings.REG_MAIL_REPLY_TO, new Organization()), siteBare,
+                "an org without a contact email falls back to the site address");
+        assertEquals(mailAddr.orgReplyTo(KnownSettings.REG_MAIL_REPLY_TO, null), siteBare, "no org: site");
+        assertEquals(mailAddr.orgRecipient(KnownSettings.SUPPORT_MAIL_REPLY_TO, org), siteBare,
+                "the site sentinel ignores the org");
+        assertEquals(mailAddr.orgRecipient(KnownSettings.TX_NOTIFY_EMAIL, org),
+                KnownSettings.TX_NOTIFY_EMAIL.getDefaultValue(), "a literal passes through");
+
+        assertEquals(mailAddr.contactEmailOf(org), "office@direct.example.com");
+        assertNull(mailAddr.contactEmailOf(null));
+        org.setContactEmail("not an address");
+        assertNull(mailAddr.contactEmailOf(org), "an unusable contact address counts as none");
+        assertEquals(mailAddr.orgReplyTo(KnownSettings.REG_MAIL_REPLY_TO, org), siteBare);
+    }
 }

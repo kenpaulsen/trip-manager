@@ -138,22 +138,40 @@ public class MailAddressCommands {
             if (facEmails != null) {
                 return facEmails;
             }
-            final String orgEmail = orgContactEmail(trip);
-            return orgEmail != null ? orgEmail : siteBare();
         }
-        if (ORG.equalsIgnoreCase(value)) {
-            final String orgEmail = orgContactEmail(trip);
+        return resolveRecipient(value, ownerOf(trip));
+    }
+
+    /** {@link #recipient} under its Reply-To name; the semantics are identical. */
+    public String replyTo(final SettingDef def, final Trip trip) {
+        return recipient(def, trip);
+    }
+
+    /**
+     * {@link #recipient(SettingDef, Trip)} with the ORGANIZATION in hand and no trip -- an org invite, an
+     * org-level notice. {@code org} resolves to that organization's contact email (Site email fallback);
+     * {@code facilitators}, a trip-only notion, resolves the same way. Distinct name rather than an
+     * overload: {@code recipient(def, null)} callers exist, and EL picks overloads by runtime type.
+     */
+    public String orgRecipient(final SettingDef def, final Organization org) {
+        return resolveRecipient(raw(def), org);
+    }
+
+    /** {@link #orgRecipient} under its Reply-To name; the semantics are identical. */
+    public String orgReplyTo(final SettingDef def, final Organization org) {
+        return orgRecipient(def, org);
+    }
+
+    /** The sentinel rules shared by the trip and organization forms, once the facilitators case is settled. */
+    private String resolveRecipient(final String value, final Organization org) {
+        if (ORG.equalsIgnoreCase(value) || FACILITATORS.equalsIgnoreCase(value)) {
+            final String orgEmail = contactEmailOf(org);
             return orgEmail != null ? orgEmail : siteBare();
         }
         if (SITE.equalsIgnoreCase(value)) {
             return siteBare();
         }
         return value;
-    }
-
-    /** {@link #recipient} under its Reply-To name; the semantics are identical. */
-    public String replyTo(final SettingDef def, final Trip trip) {
-        return recipient(def, trip);
     }
 
     // EL entry points -- distinct names (never overloads: EL picks overloads by runtime argument type).
@@ -203,15 +221,22 @@ public class MailAddressCommands {
 
     /** The owning org's contact email, or null when the trip is org-less or the address is unusable. */
     public String orgContactEmail(final Trip trip) {
+        return contactEmailOf(ownerOf(trip));
+    }
+
+    /** An organization's contact email, or null when there is no org or the address is unusable. */
+    public String contactEmailOf(final Organization org) {
+        final String email = (org == null) ? null : org.getContactEmail();
+        return EmailAddresses.isValid(email) ? email : null;
+    }
+
+    /** The trip's owning organization (cached read), or null for a null or org-less trip. */
+    private static Organization ownerOf(final Trip trip) {
         final String orgId = (trip == null) ? null : trip.getOrgId();
         if (orgId == null || orgId.isBlank()) {
             return null;
         }
-        final String email = DAO.getInstance()
-                .getOrganization(Organization.Id.from(orgId.trim()), Cached.YES)
-                .map(Organization::getContactEmail)
-                .orElse(null);
-        return EmailAddresses.isValid(email) ? email : null;
+        return DAO.getInstance().getOrganization(Organization.Id.from(orgId.trim()), Cached.YES).orElse(null);
     }
 
     // ------------------------------------------------------------------ the Settings page

@@ -37,6 +37,7 @@ import org.paulsens.trip.model.TripPaymentConfig;
 import org.primefaces.PrimeFaces;
 import org.paulsens.trip.pay.ProcessorPing;
 import org.paulsens.trip.security.ProcessorSecrets;
+import org.paulsens.trip.site.SiteUrls;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
 /**
@@ -378,15 +379,20 @@ public class OrgCommands {
             return writeMembership(orgId, match.getId());
         }
         final ConfigCommands config = new ConfigCommands();
+        // The invitee lands on the ORG's site when it has one (its own name, its own host), else on the
+        // shared site the org is listed on -- derived from the org, never from the host the admin is on.
+        final String siteUrl = SiteUrls.baseUrl(org, KnownSettings.REG_MAIL_BASE_URL, config);
+        final boolean ownSite = org.getSlug() != null && !org.getSlug().isBlank();
         final java.util.Map<String, Object> values = java.util.Map.of(
                 "orgName", org.getName(),
-                "createAccountUrl", config.getString(KnownSettings.REG_MAIL_BASE_URL)
-                        + "/account/createAccount.jsf");
+                "siteName", ownSite ? org.getName() : config.siteString(KnownSettings.SITE_ORG_NAME),
+                "siteHost", SiteUrls.hostOf(siteUrl),
+                "createAccountUrl", siteUrl + "/account/createAccount.jsf");
         // The invite already has its org in hand, so org-first directly; the site email is the fallback
         // (REG_MAIL_REPLY_TO may hold the 'org' sentinel now, so it is resolved, never read raw).
         final MailAddressCommands addresses = new MailAddressCommands(config);
         final String replyTo = (org.getContactEmail() == null || org.getContactEmail().isBlank())
-                ? addresses.replyTo(KnownSettings.REG_MAIL_REPLY_TO, null) : org.getContactEmail();
+                ? addresses.orgReplyTo(KnownSettings.REG_MAIL_REPLY_TO, org) : org.getContactEmail();
         final boolean sent = mailSource.get().sendManagedTemplate(
                 StarterTemplates.ORG_INVITE_ID, values, addr,
                 addresses.from(KnownSettings.REG_MAIL_FROM), replyTo, current.auditActor());
@@ -1900,6 +1906,126 @@ public class OrgCommands {
                 .confirmationTemplateId(config.getString(KnownSettings.PAYMENT_CONFIRM_TEMPLATE))
                 .mailFrom(config.getString(KnownSettings.PAYMENT_MAIL_FROM))
                 .build();
+    }
+
+    // ------------------------------------------------------------------ per-org settings ladder
+    //
+    // The payment-config ladder above, generalized: any setting KnownSettings marks org-overridable can be
+    // set per organization, and ConfigCommands resolves org override -> site row -> compiled default on the
+    // org's own host automatically. This region is the org rung's editor surface and its explicit-org
+    // resolution for code that has no request (docs/org-admin.md, "Per-org settings").
+
+    /** The settings an organization may override, in page order -- the org settings editor's rows. */
+    public List<org.paulsens.trip.model.SettingDef> orgSettingDefs() {
+        return KnownSettings.orgOverridable();
+    }
+
+    /**
+     * The editor's map: setting name &rarr; the org's stored override, "" when it inherits, for every
+     * org-overridable setting. Blank means inherit -- the Settings page's own convention, and what makes
+     * "clear the box" the way to give a value back to the site.
+     */
+    public java.util.Map<String, String> orgSettingsEdit(final String orgId) {
+        final Organization org = findOrganization(orgId);
+        final java.util.Map<String, String> edit = new java.util.LinkedHashMap<>();
+        for (final org.paulsens.trip.model.SettingDef def : orgSettingDefs()) {
+            final String value = (org == null) ? null : org.settingOverride(def.getName());
+            edit.put(def.getName(), value == null ? "" : value);
+        }
+        return edit;
+    }
+
+    /**
+     * What the organization gets when it leaves a setting blank -- the editor's placeholder: the SITE's
+     * value (stored or default), or for an org-only setting the compiled default, since an org host never
+     * inherits the site's row for those. Read through {@code siteString}, so the answer is the same whether
+     * the admin is browsing the shared host or the org's own.
+     */
+    public String inheritedSetting(final org.paulsens.trip.model.SettingDef def) {
+        return def.isOrgOnly() ? def.getDefaultValue() : new ConfigCommands().siteString(def);
+    }
+
+    /**
+     * A setting as it applies to ONE organization, named explicitly -- for background code (digest and
+     * notification senders, schedulers) that runs with no request bound and must derive the org from the
+     * entity in hand rather than from a site context. Pages and request-bound beans need nothing: the
+     * {@code SettingDef} overloads on {@code ConfigCommands} already resolve the ladder on an org host.
+     */
+    public String effectiveSetting(final org.paulsens.trip.model.SettingDef def, final String orgId) {
+        return new ConfigCommands().getString(def, findOrganization(orgId));
+    }
+
+    /**
+     * Saves an organization's setting overrides from the editor's map ({@link #orgSettingsEdit}): each entry
+     * is a setting name and its new override, blank meaning inherit. Refuses (growl, nothing written) a key
+     * that is not org-overridable -- the map is posted from a browser, so the server decides what an org may
+     * touch -- and a value that does not parse as the setting's declared type. Applied onto a FRESH read
+     * and written only when something actually changed; site admins and the org's own admins may save.
+     */
+    public boolean saveOrgSettings(final String orgId, final java.util.Map<String, String> values) {
+        final Caller current = caller();
+        if (!canManageOrg(orgId)) {
+            return fail("Not allowed", "Only this organization's admins can change its settings.");
+        }
+        final Organization fresh = freshOrg(orgId);
+        if (fresh == null) {
+            return fail("Unable to save", "Unknown organization.");
+        }
+        if (values == null) {
+            return true;
+        }
+        final List<String> changed = new ArrayList<>();
+        for (final java.util.Map.Entry<String, String> entry : values.entrySet()) {
+            final String change = applyOverride(fresh, entry.getKey(), entry.getValue());
+            if (change == null) {
+                return false;
+            }
+            if (!change.isEmpty()) {
+                changed.add(change);
+            }
+        }
+        if (changed.isEmpty()) {
+            return true;
+        }
+        if (!saveOrgOrWarn(fresh)) {
+            return false;
+        }
+        audit(current, fresh, "Settings changed: " + String.join("; ", changed));
+        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO, "Settings saved.", null);
+        return true;
+    }
+
+    /**
+     * One override onto the org being saved: "" when nothing changed, a description of the change when it
+     * did, or null (growled) when the key or value is refused.
+     */
+    private String applyOverride(final Organization org, final String key, final String rawValue) {
+        final org.paulsens.trip.model.SettingDef def = KnownSettings.findOrgOverridable(key).orElse(null);
+        if (def == null) {
+            return failText("Not saved", "'" + key + "' is not a setting an organization can override.");
+        }
+        final String value = (rawValue == null) ? "" : rawValue.trim();
+        final org.paulsens.trip.model.Config probe = new org.paulsens.trip.model.Config(def.getName(), value,
+                def.getType(), null, null, null);
+        if (!value.isEmpty() && !new ConfigCommands().isValid(probe)) {
+            return failText("Not saved", "'" + value + "' is not a valid " + def.getType() + " for "
+                    + def.getLabel() + ".");
+        }
+        final java.util.Map<String, String> overrides = org.getSettingsOverrides();
+        final String before = overrides.get(def.getName());
+        if (value.isEmpty()) {
+            return (overrides.remove(def.getName()) == null) ? "" : def.getName() + " = (inherit)";
+        }
+        if (value.equals(before)) {
+            return "";
+        }
+        overrides.put(def.getName(), value);
+        return def.getName() + " = " + value;
+    }
+
+    private String failText(final String summary, final String detail) {
+        fail(summary, detail);
+        return null;
     }
 
     private boolean saveProcessorOrWarn(final PaymentProcessorConfig config) {

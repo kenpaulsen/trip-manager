@@ -7,7 +7,9 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.Builder;
 import lombok.Data;
@@ -104,6 +106,17 @@ public final class Organization implements Serializable {
      */
     private List<String> grantablePrivileges;
 
+    /**
+     * The org's own values for the settings marked {@link SettingDef#isOrgOverridable() org-overridable}, keyed
+     * by setting name -- the org rung of the org &rarr; site &rarr; default ladder ({@code ConfigCommands}
+     * resolves it on the org's host; {@code OrgCommands.effectiveSetting} for background code). Only
+     * org-overridable keys are ever stored ({@code OrgCommands.saveOrgSettings} refuses the rest), and a
+     * blank or absent value means "inherit". Kept on the org row rather than re-keying the {@code config}
+     * table: a few short strings per org, read on every request of its site alongside the org itself.
+     * Setter-populated, outside the 8-arg creator like {@link #paymentDefaults}; never null via the getter.
+     */
+    private Map<String, String> settingsOverrides;
+
     @Builder
     @JsonCreator
     public Organization(
@@ -134,6 +147,20 @@ public final class Organization implements Serializable {
             paymentDefaults = new TripPaymentConfig();
         }
         return paymentDefaults;
+    }
+
+    public Map<String, String> getSettingsOverrides() {
+        if (settingsOverrides == null) {
+            settingsOverrides = new LinkedHashMap<>();
+        }
+        return settingsOverrides;
+    }
+
+    /** The org's non-blank override for a setting name, or null when it inherits (never a blank string). */
+    @JsonIgnore
+    public String settingOverride(final String name) {
+        final String value = (settingsOverrides == null || name == null) ? null : settingsOverrides.get(name);
+        return (value == null || value.isBlank()) ? null : value.trim();
     }
 
     @JsonIgnore

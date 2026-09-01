@@ -75,4 +75,31 @@ public class PaymentReturnUrlSettingTest {
     private static boolean allowed(final String url) {
         return RedirectAllowlist.allows(url, KnownSettings.PAYMENT_RETURN_URL_PREFIXES.getDefaultValue());
     }
+
+    // ------------------------------------------------------------------ organization sites
+
+    /** The org-site rule with a stand-in resolver: exactly {@code acme.unitetrip.com} is an org host. */
+    private static boolean orgSite(final String url) {
+        return RedirectAllowlist.allowsOrgSite(url, "acme.unitetrip.com"::equals);
+    }
+
+    @Test
+    public void anOrganizationsOwnSiteIsAcceptedWithoutBeingListed() {
+        Assert.assertTrue(orgSite("https://acme.unitetrip.com/trip/payment.jsf?trip=x"));
+        Assert.assertTrue(orgSite("https://acme.unitetrip.com"));
+        Assert.assertTrue(orgSite("HTTPS://ACME.unitetrip.com/pay"), "scheme and host are case-insensitive");
+    }
+
+    @Test
+    public void onlyKnownSlugsOverHttpsCount() {
+        Assert.assertFalse(orgSite("https://typo.unitetrip.com/pay"), "an unknown label is not a site");
+        Assert.assertFalse(orgSite("http://acme.unitetrip.com/pay"), "cleartext is refused outright");
+        Assert.assertFalse(orgSite("https://acme.unitetrip.com.evil.example/pay"), "the whole host, never a prefix");
+        Assert.assertFalse(orgSite("https://evil.example/?next=https://acme.unitetrip.com"));
+        Assert.assertFalse(orgSite("trip://acme.unitetrip.com/done"));
+        Assert.assertFalse(orgSite("https:///no-host"));
+        Assert.assertFalse(orgSite("https://bad host/"), "unparseable is refused, not thrown");
+        Assert.assertFalse(orgSite(null));
+        Assert.assertFalse(orgSite("  "));
+    }
 }

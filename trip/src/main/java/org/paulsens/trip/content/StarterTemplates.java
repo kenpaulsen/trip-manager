@@ -43,18 +43,27 @@ public final class StarterTemplates {
                 paymentConfirmation(), orgInvite());
     }
 
-    /** Sent when an org admin invites an email address that has no account yet ({@code OrgCommands}). */
+    /**
+     * Sent when an org admin invites an email address that has no account yet ({@code OrgCommands}). The
+     * site is a TOKEN, never a name in the copy: an org with its own subdomain invites people to ITS site
+     * ({@code siteName} = the org's name, {@code siteHost} = {@code acme.unitetrip.com}), and every other org
+     * to the shared site it is listed on. Installed rows are runtime-editable and are NOT rewritten by a
+     * later install, so a deployment that installed the older, host-naming copy must re-install (or edit)
+     * this template to get the tokens.
+     */
     private static ContentTemplate orgInvite() {
         final String body = """
-                <p><b>{{orgName}}</b> has invited you to join them on Visit Queen of Peace.</p>
+                <p><b>{{orgName}}</b> has invited you to join them on {{siteName}}.</p>
                 <p><a href="{{createAccountUrl}}">Create your account</a> to get started.</p>
                 <p>Once your account is created, {{orgName}}'s administrator will be able to add you as a
                 member, and you will see your organization's pilgrimages and information when you sign in.</p>
                 <p>Questions? Just reply to this email.</p>
                 """;
-        return mail(ORG_INVITE_ID, "{{orgName}} invites you to visitqueenofpeace.com",
+        return mail(ORG_INVITE_ID, "{{orgName}} invites you to {{siteHost}}",
                 "Sent when an organization admin invites an email address that has no account yet. "
-                        + "Tokens: orgName, createAccountUrl.",
+                        + "Tokens: orgName, siteName (the site's name: the organization's own for a "
+                        + "subdomain site, else the shared site's), siteHost (its hostname), "
+                        + "createAccountUrl.",
                 body);
     }
 

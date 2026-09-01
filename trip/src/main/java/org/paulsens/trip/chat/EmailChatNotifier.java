@@ -14,6 +14,7 @@ import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.site.SiteUrls;
 
 /**
  * Sends chat notifications by email.
@@ -136,9 +137,8 @@ public final class EmailChatNotifier implements ChatNotifier {
         if (photoKey == null) {
             return chatUrl(notification.getTripId());
         }
-        final String base = config.getString(KnownSettings.CHAT_MAIL_BASE_URL);
         final String tripId = notification.getTripId() == null ? "" : notification.getTripId();
-        return base + "/trip/tripMedia.jsf?trip=" + tripId
+        return baseUrlFor(tripId) + "/trip/tripMedia.jsf?trip=" + tripId
                 + "&photo=" + URLEncoder.encode(photoKey, StandardCharsets.UTF_8);
     }
 
@@ -183,8 +183,18 @@ public final class EmailChatNotifier implements ChatNotifier {
     }
 
     String chatUrl(final String tripId) {
-        final String base = config.getString(KnownSettings.CHAT_MAIL_BASE_URL);
-        return base + "/trip/chat.jsf?trip=" + (tripId == null ? "" : tripId);
+        return baseUrlFor(tripId) + "/trip/chat.jsf?trip=" + (tripId == null ? "" : tripId);
+    }
+
+    /**
+     * The site the link belongs on: the trip's organization's own site when it has one, else the chat
+     * base-URL setting. Derived from the TRIP -- this runs off-request under the system context, where no
+     * host is bound, and the recipient must land on the site their trip lives on.
+     */
+    private String baseUrlFor(final String tripId) {
+        final org.paulsens.trip.model.Trip trip = (tripId == null || tripId.isBlank()) ? null
+                : DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
+        return SiteUrls.baseUrlForTrip(trip, KnownSettings.CHAT_MAIL_BASE_URL, config);
     }
 
     private String from() {

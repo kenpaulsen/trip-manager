@@ -43,7 +43,10 @@ because org admins paste credentials through the UI, write-only fields with set/
 `TripPaymentConfig` (all fields nullable = inherit) lives on the Trip (`paymentConfig`, edited in the trip
 editor's **Payment Settings** dialog against the TripEditDrafts draft) AND on the Organization
 (`paymentDefaults`, org settings page). `OrgCommands.effectivePaymentConfig(trip)` resolves
-**trip → org → site settings** (`payment.*` in `KnownSettings`). Fields: processorConfigId, feesPaidBy,
+**trip → org → site settings** (`payment.*` in `KnownSettings`). This trip → org → site shape is the
+precedent the general per-org settings ladder follows (`org-admin.md`, "Per-org settings":
+`Organization.settingsOverrides` + `ConfigCommands`' org-aware reads); the payment fields keep their own
+typed config object rather than moving into that map. Fields: processorConfigId, feesPaidBy,
 donation toggle+label, confirmation template id (MAIL kind; installed starter `payment-confirmation`),
 mailFrom/replyTo/bcc (**no cc — the SES wrapper has none**), extraTokens. The dialog's **Send Test Email**
 renders the effective template with sample values to a PROMPTED address (prefilled with the signed-in
@@ -78,7 +81,8 @@ Entered amounts are ALWAYS the amounts credited. All math in **long cents** (`pa
 ## The flow (`action/PaymentCommands` — Java-first, user-locked)
 
 ALL flow logic is Java; `trip/payment.xhtml` and `api/PaymentsResource` (v2: `POST payments`,
-`/quote`, `/{id}/complete`, `/{id}/cancel`; return URLs allowlisted per `payment.returnUrl.allowedPrefixes`)
+`/quote`, `/{id}/complete`, `/{id}/cancel`; return URLs allowlisted per `payment.returnUrl.allowedPrefixes`
+PLUS any organization site the live `SiteIndex` knows — `https://{slug}.{base}/…`, whole host, https only)
 are thin callers of the same methods — that is what makes iOS/Android possible.
 
 `Payment` rows (`payments` table, PK paymentId, **uncached**) are the durable state machine:

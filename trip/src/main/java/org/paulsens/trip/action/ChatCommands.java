@@ -1941,8 +1941,11 @@ public class ChatCommands {
     }
 
     private String inviteUrl(final String tripId, final String selector, final String validator) {
-        final String base = config.getString(KnownSettings.CHAT_MAIL_BASE_URL);
-        final String prefix = (base == null || base.isBlank()) ? "" : base.replaceAll("/+$", "");
+        // The trip's org's own site when it has one, else the chat base-URL setting: the guest must land on
+        // the site the trip lives on, whatever host the inviter was browsing.
+        final Trip trip = dao().getTrip(tripId, Cached.YES).orElse(null);
+        final String prefix = org.paulsens.trip.site.SiteUrls.baseUrlForTrip(trip,
+                KnownSettings.CHAT_MAIL_BASE_URL, config);
         return prefix + "/trip/chatInvite.jsf?trip="
                 + java.net.URLEncoder.encode(tripId, java.nio.charset.StandardCharsets.UTF_8)
                 + "&token=" + selector + "." + validator;

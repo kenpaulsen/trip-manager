@@ -13,6 +13,7 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.site.SiteIndex;
 
 /**
  * Starting and completing a payment from a client that is not a browser -- a thin edge over
@@ -120,14 +121,22 @@ public class PaymentsResource extends BaseResource {
     }
 
     /**
-     * Whether a client-supplied address is one we are willing to send a payer back to.
+     * Whether a client-supplied address is one we are willing to send a payer back to: under a configured
+     * prefix, OR on an organization's own site ({@code https://{slug}.{base}}) for any slug currently
+     * known to the {@link SiteIndex} -- a payment started on acme.unitetrip.com returns to acme without a
+     * site admin listing every tenant, and a slug that is cleared stops being accepted with it.
      *
      * <p>The allowlist is a setting so an app's custom scheme can be added at release time rather than
-     * needing a deploy. The matching rule itself lives in {@link RedirectAllowlist}, where it is tested.
+     * needing a deploy. Both matching rules live in {@link RedirectAllowlist}, where they are tested.
      */
     private static boolean isAllowed(final String url) {
         return RedirectAllowlist.allows(
-                url, Beans.get(ConfigCommands.class).getString(KnownSettings.PAYMENT_RETURN_URL_PREFIXES));
+                url, Beans.get(ConfigCommands.class).getString(KnownSettings.PAYMENT_RETURN_URL_PREFIXES))
+                || RedirectAllowlist.allowsOrgSite(url, PaymentsResource::isOrgHost);
+    }
+
+    private static boolean isOrgHost(final String host) {
+        return SiteIndex.getInstance().resolve(host).isOrg();
     }
 
     private static Map<String, Object> amountsOf(final PaymentStart body) {

@@ -17,6 +17,7 @@ so these pages gate themselves in `initPage`, NOT via defaultAuth):
 | `orgTrips.jsf` | `canViewOrgTrips` — admin OR `addTrip@org` | New Trip: `canCreateTripFor` |
 | `orgPeople.jsf` | `canViewOrgPeople` — admin OR `peopleAdmin@org` | **org admins only** (all of them) |
 | `orgProcessors.jsf` | `canManageOrg` | `canManageOrg` |
+| `orgConfig.jsf` | `canManageOrg` | `saveOrgSettings` (see "Per-org settings") |
 
 The menu's per-org entries come from `org.visibleOrgs()` (admins ∪ holders of any org-scoped privilege), so
 reachability and the hub gate agree. Site admins pass everything via the usual short-circuits.
@@ -227,6 +228,63 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
 - **Local fixtures**: CFPW has NO slug (shared-tier, as in production); Acme (`acme.localhost`) and Beta
   Corp (`beta.localhost`, `FakeData.BETA_ORG_ID`) are the two hosted orgs; `fake-acme-doc` is Acme's
   library document. `OwnedFixturePolicyIT` ratchets which webtests may reference the seeded orgs.
+
+## Per-org settings (the settings ladder, 2026-09)
+
+The payment-config ladder (`payments.md`) generalized: a runtime setting can be **org-overridable**, and an
+organization's own value then wins on its own site. Three rungs, resolved in order:
+
+1. the org's override — `Organization.settingsOverrides` (`Map<String,String>`, setter-populated, never null
+   via the getter; a blank or absent entry means *inherit*);
+2. the site's stored row in the `config` table (the admin Settings page, untouched — the table is NOT
+   re-keyed per org);
+3. the compiled default on the `SettingDef`.
+
+Which settings: those `KnownSettings` marks with `.withOrgOverride()` — `site.org.name`,
+`home.photos.windowDays`, `home.photos.minCount`, `home.countdown.soonDays`, `reg.allowEdits`,
+`chat.background.colors`, `chat.background.image`, `chat.reactions.palette` — plus `site.analytics.id`,
+which is **org-explicit** (`.withOrgOnly()`): an org host resolves it from the org's override or the
+compiled default (blank) and *never* from the site's row, so the shared site's analytics property can never
+collect an org site's traffic. `KnownSettings.orgOverridable()` is the authoritative list; marking a new
+setting is a product decision (`OrgSettingsLadderTest` pins the set).
+
+Resolution is automatic for request-bound code: `ConfigCommands.getString/getInt/getBoolean/getLong(def)` —
+and the page entry points `#{config.getString('key')}` etc. — consult `SiteContext.current()`, and on an ORG
+host walk the ladder for an org-overridable def. Every other host, every other setting, and every read with
+no bound request take exactly the pre-ladder path (the `(name, default)` overloads), so nothing shared
+changed. Background code (`RequestContext.system()`: the digest and notification senders, schedulers) has
+no host and must name the organization explicitly — `ConfigCommands.getString(def, org)` or
+`OrgCommands.effectiveSetting(def, orgId)` — deriving it from the entity in hand (trip → org), never from
+a session. `ConfigCommands.siteString(def)` is the site rung alone, whatever host the request is on.
+
+The editor: `admin/orgConfig.jsf?orgId=…` (hub card + "Settings" tab; `canManageOrg`) lists every
+org-overridable setting with the site's value as its placeholder ("Inherit (…)" for booleans), blank =
+inherit. `OrgCommands.saveOrgSettings(orgId, map)` refuses non-overridable keys and values that do not
+parse as the declared type, applies onto a `Cached.NO` read, writes only when something changed, and
+audits the change list. Rows bind by setting NAME into a viewScope map (names and scalars only), like the
+site Settings page.
+
+**Derived base URLs.** `reg.mail.baseUrl` and `chat.mail.baseUrl` are the *shared-site* rung only. Every
+absolute link about an org — registration mail (`RegistrationCommands`), org invites (`sendOrgInvite`),
+chat mention/reply/photo mail (`EmailChatNotifier`), the daily digest (`ChatDigestSender`), chat invite
+links (`ChatCommands.inviteUrl`) — goes through `site/SiteUrls`: `https://{slug}.{site.orgsites.baseDomain}`
+when the org has a subdomain, else the setting's value; the org always comes from the trip/channel/org in
+hand, never from the host the sender happened to be on (the senders run under the system context, which
+has none). Support-request mail stays on the site URL: its readers are the site's support admins.
+`PaymentsResource` accepts a return URL on any org site the live `SiteIndex` knows (`https://` only, whole
+host, `RedirectAllowlist.allowsOrgSite`) in addition to `payment.returnUrl.allowedPrefixes`, so a payment
+started on an org site returns there without a site admin listing every tenant.
+
+**Mail addresses without a trip.** `MailAddressCommands.orgRecipient/orgReplyTo(def, org)` resolve the
+`org` sentinel straight from an `Organization` (distinct names, not overloads: `recipient(def, null)`
+callers exist and EL picks overloads by runtime type). From is still never `org`.
+
+**Org-invite copy.** The `org-invite` MAIL starter no longer names a host: `{{siteName}}` (the org's own
+name for a subdomain org, else the site's `site.org.name`) and `{{siteHost}}` (e.g. `acme.unitetrip.com`)
+are filled by `sendOrgInvite`. Installed template ROWS are runtime-editable and are *not* rewritten by
+"Install starter templates" (it only creates missing ones), so a deployment that installed the older copy
+must delete its `org-invite` template on the Templates page and re-install, or edit the row's subject/body
+to use the tokens.
 
 ## Local-mode fixtures (`FakeData`)
 

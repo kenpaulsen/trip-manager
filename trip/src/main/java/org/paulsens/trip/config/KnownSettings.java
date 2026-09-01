@@ -32,7 +32,7 @@ public final class KnownSettings {
     public static final SettingDef SITE_ORG_NAME = new SettingDef(
             "site.org.name", Config.Type.STRING, "Center for Peace West", "Organization name",
             "The organization's display name, used on public pages and in notices such as the photo-upload "
-                    + "license text.");
+                    + "license text.").withOrgOverride();
 
     public static final SettingDef SITE_ORGSITES_BASE_DOMAIN = new SettingDef(
             "site.orgsites.baseDomain", Config.Type.STRING, "unitetrip.com", "Org sites base domain",
@@ -40,21 +40,34 @@ public final class KnownSettings {
                     + "acme.<this domain>. Its apex and www are the marketing site. Changing this only works "
                     + "when DNS and the certificate already cover the new domain's wildcard.");
 
+    /**
+     * Org-EXPLICIT (see {@link SettingDef#isOrgOnly()}): the shared site's property must never collect an
+     * organization site's traffic, so an org host emits a tag only when the org set its own id. The tag
+     * itself (and its consent banner) is wired by the branding phase; this declares the value and its rule.
+     */
+    public static final SettingDef SITE_ANALYTICS_ID = new SettingDef(
+            "site.analytics.id", Config.Type.STRING, "", "Analytics property id",
+            "The web-analytics property (e.g. a Google Analytics measurement id) this site reports to. Blank "
+                    + "means no analytics tag at all. An organization's site never inherits this value: it "
+                    + "reports only to an id the organization set for itself.").withOrgOnly();
+
     // --- home page ---
 
     public static final SettingDef HOME_PHOTOS_WINDOW_DAYS = new SettingDef(
             "home.photos.windowDays", Config.Type.INT, "365", "Pictures from the last (days)",
-            "A pilgrimage's photos appear on the home page until this long after the trip ends.");
+            "A pilgrimage's photos appear on the home page until this long after the trip ends.")
+            .withOrgOverride();
 
     public static final SettingDef HOME_PHOTOS_MIN_COUNT = new SettingDef(
             "home.photos.minCount", Config.Type.INT, "10", "Minimum pictures per pilgrimage",
             "A pilgrimage needs at least this many publicly-visible photos before its album shows on the "
-                    + "home page.");
+                    + "home page.").withOrgOverride();
 
     public static final SettingDef HOME_COUNTDOWN_SOON_DAYS = new SettingDef(
             "home.countdown.soonDays", Config.Type.INT, "60", "Extra countdowns within (days)",
             "The sidebar always counts down to the next pilgrimage of each language; a pilgrimage starting "
-                    + "within this many days gets a countdown too, even behind one of the same language.");
+                    + "within this many days gets a countdown too, even behind one of the same language.")
+            .withOrgOverride();
 
     // --- content templates ---
 
@@ -168,14 +181,15 @@ public final class KnownSettings {
             "Background colours offered",
             "Comma-separated, in the order they are offered. People pick from this list rather than typing a "
                     + "colour, so an entry that is not a plain #rrggbb or a CSS colour keyword is dropped -- the "
-                    + "value ends up inside a style attribute, where anything else is CSS injection.");
+                    + "value ends up inside a style attribute, where anything else is CSS injection.")
+            .withOrgOverride();
 
     public static final SettingDef CHAT_BACKGROUND_IMAGE = new SettingDef(
             "chat.background.image", Config.Type.STRING,
             "https://files.visitqueenofpeace.com/images/mary-link.jpg",
             "Default background image",
             "Shown faded behind the messages when neither the trip nor the person has chosen one. Blank means "
-                    + "no image at all. Must be an http(s) URL.");
+                    + "no image at all. Must be an http(s) URL.").withOrgOverride();
 
 
     public static final SettingDef CHAT_REACTIONS_PALETTE = new SettingDef(
@@ -184,7 +198,7 @@ public final class KnownSettings {
             "Reaction emoji",
             "Comma-separated, in display order. Matched exactly, so an emoji written with a different "
                     + "variation selector is a different entry. Reactions already stored with a removed emoji "
-                    + "stay in the data but stop being offered.");
+                    + "stay in the data but stop being offered.").withOrgOverride();
 
     public static final SettingDef CHAT_PHOTO_COMMENTS_ENABLED = new SettingDef(
             "chat.photoComments.enabled", Config.Type.BOOLEAN, "true", "Photo comments and reactions",
@@ -312,7 +326,7 @@ public final class KnownSettings {
             "reg.allowEdits", Config.Type.BOOLEAN, "true", "Registrants may edit their responses",
             "Whether a traveler who has already registered (pending or confirmed) can still change their "
                     + "registration-option answers from the registration page. Off makes the expanded view "
-                    + "read-only; registering itself is unaffected.");
+                    + "read-only; registering itself is unaffected.").withOrgOverride();
 
     // --- registration email ---
 
@@ -477,7 +491,7 @@ public final class KnownSettings {
 
     private static final List<SettingSection> SECTIONS = List.of(
             new SettingSection("Site", null,
-                    List.of(SITE_ORG_NAME, SITE_ORGSITES_BASE_DOMAIN)),
+                    List.of(SITE_ORG_NAME, SITE_ORGSITES_BASE_DOMAIN, SITE_ANALYTICS_ID)),
             new SettingSection(EMAIL_ADDRESSES_SECTION,
                     "Every address the application sends with or to. From addresses must be on an "
                             + "SES-verified domain; recipients and Reply-To may be any address.",
@@ -576,6 +590,19 @@ public final class KnownSettings {
     /** The declaration for a key, or empty when nothing declares it. */
     public static Optional<SettingDef> find(final String name) {
         return name == null ? Optional.empty() : Optional.ofNullable(BY_NAME.get(name));
+    }
+
+    /**
+     * The settings an organization may override for its own site, in page order -- what the org settings
+     * editor renders and the only keys {@code Organization.settingsOverrides} may hold.
+     */
+    public static List<SettingDef> orgOverridable() {
+        return all().stream().filter(SettingDef::isOrgOverridable).toList();
+    }
+
+    /** The declaration for a key IF an organization may override it; empty for unknown or site-only keys. */
+    public static Optional<SettingDef> findOrgOverridable(final String name) {
+        return find(name).filter(SettingDef::isOrgOverridable);
     }
 
     private static Map<String, SettingDef> index() {

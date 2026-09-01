@@ -317,4 +317,29 @@ public class ChatNotifierTest {
         Assert.assertEquals(subject.getValue(), "Someone mentioned you in the your trip chat");
         Assert.assertFalse(body.contains("null"), "a null field must never render as the word 'null'");
     }
+
+    /**
+     * The link's site comes from the TRIP's organization, never from a host: this sender runs under the
+     * system context, where none is bound. A trip whose org has its own subdomain links there; an unknown
+     * or org-less trip keeps the chat base-URL setting.
+     */
+    @Test
+    public void chatLinksLandOnTheTripsOrgSite() throws Exception {
+        Mockito.when(config.getString(KnownSettings.CHAT_MAIL_BASE_URL)).thenReturn("https://example.org");
+        Assert.assertEquals(notifier.chatUrl("trip-1"), "https://example.org/trip/chat.jsf?trip=trip-1");
+        Assert.assertEquals(notifier.chatUrl(null), "https://example.org/trip/chat.jsf?trip=");
+
+        final org.paulsens.trip.model.Organization owner = new org.paulsens.trip.model.Organization();
+        owner.setName("Notify Org");
+        final String slug = "ntf" + org.paulsens.trip.util.RandomData.genAlpha(6).toLowerCase(java.util.Locale.ROOT);
+        owner.setSlug(slug);
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveOrganization(owner));
+        final org.paulsens.trip.model.Trip trip = org.paulsens.trip.model.Trip.builder()
+                .id(java.util.UUID.randomUUID().toString()).title("Org chat").build();
+        trip.setOrgId(owner.getId().getValue());
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveTrip(trip));
+        Assert.assertEquals(notifier.chatUrl(trip.getId()),
+                "https://" + slug + ".unitetrip.com/trip/chat.jsf?trip=" + trip.getId(),
+                "the mocked config answers null for the base domain, so the shipped one applies");
+    }
 }

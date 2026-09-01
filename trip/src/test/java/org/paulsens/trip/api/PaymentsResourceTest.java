@@ -120,6 +120,31 @@ public class PaymentsResourceTest extends ResourceTestSupport {
         assertError(stranger.complete("no-such-payment", CSRF_OK, null), 404, ApiErrors.NOT_FOUND);
     }
 
+    /**
+     * A payment started on an organization's own site returns there without a site admin listing every
+     * tenant: any slug the live SiteIndex knows is an allowed https origin. The org is this test's own
+     * (other tests edit the seeded orgs), and the index is refreshed because its snapshot predates it.
+     */
+    @Test
+    public void anOrgSitesOwnAddressIsAnAllowedReturnWithoutBeingConfigured() throws java.io.IOException {
+        final org.paulsens.trip.model.Organization owner = new org.paulsens.trip.model.Organization();
+        owner.setName("Pay org " + RandomData.genAlpha(6));
+        final String slug = "pay" + RandomData.genAlpha(8).toLowerCase(java.util.Locale.ROOT);
+        owner.setSlug(slug);
+        Assert.assertTrue(DAO.getInstance().saveOrganization(owner));
+        org.paulsens.trip.site.SiteIndex.getInstance().refresh();
+        Assert.assertTrue(org.paulsens.trip.site.SiteIndex.getInstance().resolve(slug + ".unitetrip.com").isOrg(),
+                "precondition: the live index resolves the org's host");
+        final Person payer = savedPerson();
+        signedInAs(payer.getId());
+        assertOk(resource.start(CSRF_OK,
+                body("faketrip", "10", "https://" + slug + ".unitetrip.com/trip/payment.jsf")));
+        assertError(resource.start(CSRF_OK, body("faketrip", "10", "https://nobody.unitetrip.com/pay")), 400,
+                ApiErrors.BAD_REQUEST);
+        assertError(resource.start(CSRF_OK, body("faketrip", "10", "http://" + slug + ".unitetrip.com/pay")),
+                400, ApiErrors.BAD_REQUEST);
+    }
+
     @Test
     public void aRefusedStartMapsTo400() {
         final Person payer = savedPerson();

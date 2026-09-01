@@ -332,7 +332,7 @@ public class RegistrationCommands {
         block.append("</ul>");
         return java.util.Map.of(
                 "tripTitle", trip.getTitle() == null ? "" : trip.getTitle(),
-                "tripUrl", regBaseUrl() + "/trip/tripDetails.jsf?trip=" + trip.getId(),
+                "tripUrl", regBaseUrl(trip) + "/trip/tripDetails.jsf?trip=" + trip.getId(),
                 "travelersBlock", new org.paulsens.trip.chat.MailTemplates.Raw(block.toString()));
     }
 
@@ -342,9 +342,9 @@ public class RegistrationCommands {
         return java.util.Map.of(
                 "tripTitle", trip.getTitle() == null ? "" : trip.getTitle(),
                 "firstName", person.getPreferredName() == null ? "" : person.getPreferredName(),
-                "itineraryUrl", regBaseUrl() + "/trip/itinerary.jsf?trip=" + trip.getId()
+                "itineraryUrl", regBaseUrl(trip) + "/trip/itinerary.jsf?trip=" + trip.getId()
                         + "&id=" + person.getId().getValue(),
-                "profileUrl", regBaseUrl() + "/account/person.jsf?id=" + person.getId().getValue());
+                "profileUrl", regBaseUrl(trip) + "/account/person.jsf?id=" + person.getId().getValue());
     }
 
     /**
@@ -420,8 +420,10 @@ public class RegistrationCommands {
         return PersonCommands.getPersonCommands().getPerson(Person.Id.from(ownerId)).getPreferredName();
     }
 
-    private String regBaseUrl() {
-        return new ConfigCommands().getString(org.paulsens.trip.config.KnownSettings.REG_MAIL_BASE_URL);
+    /** The trip's org's own site when it has one, else the site-wide setting -- never the session's host. */
+    private String regBaseUrl(final org.paulsens.trip.model.Trip trip) {
+        return org.paulsens.trip.site.SiteUrls.baseUrlForTrip(trip,
+                org.paulsens.trip.config.KnownSettings.REG_MAIL_BASE_URL, new ConfigCommands());
     }
 
     /**

@@ -25,6 +25,7 @@ import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatPage;
 import org.paulsens.trip.model.chat.ChatVisibility;
+import org.paulsens.trip.site.SiteUrls;
 import org.paulsens.trip.util.EmailAddresses;
 import software.amazon.awssdk.services.ses.model.SendEmailResponse;
 import org.paulsens.trip.cache.Cached;
@@ -260,7 +261,7 @@ public class ChatDigestSender {
     private Map<String, Object> digestValues(final Candidate candidate) {
         final Map<String, Object> values = new LinkedHashMap<>();
         values.put("tripTitle", tripTitle(candidate));
-        values.put("chatUrl", chatUrl(candidate.channel().getTripId()));
+        values.put("chatUrl", chatUrl(candidate));
         // The count people see must match what the body lists: tombstones are in the page but are not news.
         values.put("messageCount", newsIn(candidate.page()).size());
         values.put("messageBlock", messageBlock(candidate));
@@ -332,8 +333,10 @@ public class ChatDigestSender {
         return trip == null || trip.getTitle() == null ? "trip" : trip.getTitle();
     }
 
-    private String chatUrl(final String tripId) {
-        return config.getString(KnownSettings.CHAT_MAIL_BASE_URL)
+    /** The link's site comes from the digest TRIP's organization (its own site when it has one), never a host. */
+    private String chatUrl(final Candidate candidate) {
+        final String tripId = candidate.channel().getTripId();
+        return SiteUrls.baseUrlForTrip(candidate.trip(), KnownSettings.CHAT_MAIL_BASE_URL, config)
                 + "/trip/chat.jsf?trip=" + (tripId == null ? "" : tripId);
     }
 

@@ -116,4 +116,18 @@ public class OrganizationTest {
         assertEquals(a, Organization.Id.from("aaa"));
         assertNotEquals(a, b);
     }
+
+    @Test
+    public void settingsOverridesRoundTripAndAreNeverNull() throws Exception {
+        final Organization org = new Organization();
+        assertTrue(org.getSettingsOverrides().isEmpty(), "lazily an empty map, like paymentDefaults");
+        org.getSettingsOverrides().put("site.org.name", "Acme");
+        final Organization back = MAPPER.readValue(MAPPER.writeValueAsString(org), Organization.class);
+        assertEquals(back.getSettingsOverrides(), java.util.Map.of("site.org.name", "Acme"));
+        assertEquals(back.settingOverride("site.org.name"), "Acme");
+        // A row written before the field existed reads back as "inherit everything".
+        final Organization legacy = MAPPER.readValue("{\"name\":\"Old\"}", Organization.class);
+        assertTrue(legacy.getSettingsOverrides().isEmpty());
+        assertNull(legacy.settingOverride("site.org.name"));
+    }
 }
