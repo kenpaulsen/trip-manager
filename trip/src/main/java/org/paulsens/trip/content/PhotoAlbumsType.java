@@ -1,6 +1,7 @@
 package org.paulsens.trip.content;
 
 import java.util.List;
+import java.util.Set;
 import org.paulsens.trip.model.Placeholder;
 
 /**
@@ -49,5 +50,10 @@ final class PhotoAlbumsType implements ProgrammaticContentTemplate {
     public List<Choice> choicesFor(final String propertyName) {
         return SharedSiteOrgChoices.PROP_INCLUDE_ORGS.equals(propertyName)
                 ? SharedSiteOrgChoices.choices() : List.of();
+    }
+
+    @Override
+    public Set<String> sharedSiteOnlyProperties() {
+        return Set.of(SharedSiteOrgChoices.PROP_INCLUDE_ORGS);
     }
 }

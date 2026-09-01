@@ -1,6 +1,7 @@
 package org.paulsens.trip.content;
 
 import java.util.List;
+import java.util.Set;
 import org.paulsens.trip.model.Placeholder;
 
 /**
@@ -39,6 +40,15 @@ public interface ProgrammaticContentTemplate {
     /** Dropdown options for a {@link Placeholder.Type#CHOICE} property; empty for non-choice names. */
     default List<Choice> choicesFor(final String propertyName) {
         return List.of();
+    }
+
+    /**
+     * The properties that only mean something on a SHARED site -- curation among several organizations
+     * ("CFPW only", "Organizations shown"). An organization's own site lists its own content and nothing
+     * else, so the dialog does not show these there.
+     */
+    default Set<String> sharedSiteOnlyProperties() {
+        return Set.of();
     }
 
     /** One dropdown option. Render-time only -- never parked in viewScope. */

@@ -4,6 +4,7 @@ import java.util.List;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
+import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.site.ListingScope;
@@ -36,6 +37,36 @@ public class SharedSiteOrgChoicesTest {
             Assert.assertTrue(choices.stream().anyMatch(c -> FakeData.CFPW_ORG_ID.equals(c.value())), typeId);
             Assert.assertTrue(type.choicesFor("nonsense").isEmpty());
         }
+    }
+
+    @Test
+    public void sharedSiteOnlyPromptsAreHiddenOnAnOrgsOwnSite() throws Exception {
+        final ContentInstance pilgrimages = new ContentInstance("ssp-1", "page:x", "Trips", "pilgrimages", 1,
+                new java.util.HashMap<>(), null, 0, 1, null, null);
+        final ContentInstance albums = new ContentInstance("ssp-2", "page:x", "Pics", "photo-albums", 1,
+                new java.util.HashMap<>(), null, 0, 1, null, null);
+        final ContentInstance text = new ContentInstance("ssp-3", "page:x", "Intro", "text-only", 1,
+                new java.util.HashMap<>(), null, 0, 1, null, null);
+        final org.paulsens.trip.action.ContentCommands content = new org.paulsens.trip.action.ContentCommands();
+        // Shared site: every prompt shows.
+        Assert.assertTrue(content.showsProperty(pilgrimages, "cfpwOnly"));
+        Assert.assertTrue(content.showsProperty(pilgrimages, ListingScope.INCLUDE_ORGS_PROPERTY));
+        Assert.assertTrue(content.showsProperty(pilgrimages, "language"));
+        // An org's own site: provider and curation prompts are meaningless and hidden; the rest show.
+        final org.paulsens.trip.site.SiteContext acme = org.paulsens.trip.site.SiteContext.org(
+                Organization.Id.from(FakeData.ACME_ORG_ID), "acme", "acme.localhost");
+        ScopedValue.where(org.paulsens.trip.audit.RequestContext.SCOPE,
+                org.paulsens.trip.audit.RequestContext.of(null, null, acme)).call(() -> {
+            Assert.assertFalse(content.showsProperty(pilgrimages, "cfpwOnly"));
+            Assert.assertFalse(content.showsProperty(pilgrimages, ListingScope.INCLUDE_ORGS_PROPERTY));
+            Assert.assertTrue(content.showsProperty(pilgrimages, "language"));
+            Assert.assertTrue(content.showsProperty(pilgrimages, "maxCount"));
+            Assert.assertFalse(content.showsProperty(albums, ListingScope.INCLUDE_ORGS_PROPERTY));
+            Assert.assertTrue(content.showsProperty(albums, "windowDays"));
+            Assert.assertTrue(content.showsProperty(text, "body"), "a STANDARD template has no such prompts");
+            return null;
+        });
+        Assert.assertTrue(ProgrammaticTypes.byId("file").orElseThrow().sharedSiteOnlyProperties().isEmpty());
     }
 
     @Test

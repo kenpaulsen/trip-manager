@@ -2,6 +2,7 @@ package org.paulsens.trip.content;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Placeholder;
 
@@ -48,6 +49,12 @@ final class PilgrimagesType implements ProgrammaticContentTemplate {
     @Override
     public String getFragmentPath() {
         return "/WEB-INF/ptypes/pilgrimages.xhtml";
+    }
+
+    /** Provider and org curation are shared-site questions; an org's site is implicitly its own provider. */
+    @Override
+    public Set<String> sharedSiteOnlyProperties() {
+        return Set.of(PROP_CFPW_ONLY, SharedSiteOrgChoices.PROP_INCLUDE_ORGS);
     }
 
     @Override

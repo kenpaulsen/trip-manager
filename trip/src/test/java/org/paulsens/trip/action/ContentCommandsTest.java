@@ -75,6 +75,21 @@ public class ContentCommandsTest {
     }
 
     @Test
+    public void aNewContainerStartsWithItsTemplatesAllowList() {
+        final ContentCommands content = as(ADMIN, false);
+        final ContentTemplate restricted = new ContentTemplate("cc-restricted-holder", 0, "Holder", null, "",
+                List.of(), null, null, TemplateKind.CONTAINER, List.of("text-only", "image"), null, null);
+        Assert.assertTrue(DAO.getInstance().saveTemplate(restricted, 5));
+        final ContentInstance created = content.createContent("cc.section-holder", "cc-restricted-holder");
+        Assert.assertEquals(created.getAllowedChildTemplateIds(), List.of("text-only", "image"),
+                "the dialog shows what the template decided, ready to override");
+        Assert.assertEquals(content.createContent("cc.section-holder", StarterTemplates.CONTAINER_ID)
+                .getAllowedChildTemplateIds(), null, "an unrestricted container template starts empty");
+        Assert.assertNull(content.createContent("cc.section-holder", "cc-test-tpl").getAllowedChildTemplateIds(),
+                "not a container: nothing to inherit");
+    }
+
+    @Test
     public void expiredEventsDropFromThePublicViewOnly() {
         final ContentCommands content = as(ADMIN, false);
         final String section = "cc.section-expiry";

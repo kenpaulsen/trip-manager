@@ -103,6 +103,13 @@ public class ContentCommands {
             created.setTemplateId(template.getId());
             created.setTemplateVersion(template.getVersion());
             template.getPlaceholders().forEach(ph -> created.getValues().putIfAbsent(ph.getName(), ""));
+            if (template.getKind() == TemplateKind.CONTAINER && template.getAllowedChildTemplateIds() != null
+                    && !template.getAllowedChildTemplateIds().isEmpty()) {
+                // A new container STARTS with its template's allow-list checked, so the dialog shows what
+                // the template decided and the editor overrides by editing it -- an empty control used to
+                // read as "nothing configured" when the template had in fact configured two types.
+                created.setAllowedChildTemplateIds(new ArrayList<>(template.getAllowedChildTemplateIds()));
+            }
         } else {
             log.warn("Creating content in '{}' against unknown template '{}'", section, templateId);
             created.setTemplateId(templateId);
@@ -892,6 +899,21 @@ public class ContentCommands {
      */
     public String frameClass(final int index) {
         return "tripEditFrame tripEditFrame" + Math.floorMod(index, 5);
+    }
+
+    /**
+     * Whether the content dialog shows a programmatic property on THIS site: a shared-site-only property
+     * (provider and org curation -- see {@code ProgrammaticContentTemplate.sharedSiteOnlyProperties}) is
+     * hidden on an organization's own site, where the site is implicitly the only provider.
+     */
+    public boolean showsProperty(final ContentInstance instance, final String propertyName) {
+        if (!SiteContext.current().isOrg()) {
+            return true;
+        }
+        final String typeId = typeId(instance);
+        return typeId.isEmpty() || ProgrammaticTypes.byId(typeId)
+                .map(type -> !type.sharedSiteOnlyProperties().contains(propertyName))
+                .orElse(true);
     }
 
     /** Dropdown options for a CHOICE property of a programmatic instance; empty otherwise. */
