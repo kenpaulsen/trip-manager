@@ -2080,11 +2080,11 @@ public class OrgCommands {
             return failText("Not saved", "'" + key + "' is not a setting an organization can override.");
         }
         final String value = (rawValue == null) ? "" : rawValue.trim();
-        final org.paulsens.trip.model.Config probe = new org.paulsens.trip.model.Config(def.getName(), value,
-                def.getType(), null, null, null);
-        if (!value.isEmpty() && !new ConfigCommands().isValid(probe)) {
-            return failText("Not saved", "'" + value + "' is not a valid " + def.getType() + " for "
-                    + def.getLabel() + ".");
+        // The same judge as the site Settings page: type, then the declaration's choices / URL rule.
+        final String rejection = new ConfigCommands().rejection(new org.paulsens.trip.model.Config(
+                def.getName(), value, def.getType(), null, null, null));
+        if (rejection != null) {
+            return failText("Not saved", rejection);
         }
         final java.util.Map<String, String> overrides = org.getSettingsOverrides();
         final String before = overrides.get(def.getName());

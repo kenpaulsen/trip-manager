@@ -162,7 +162,10 @@ allow-list, processor configs, the payment-config ladder; see `docs/org-admin.md
 before touching), `payment` (PaymentCommands — the whole payment flow in Java: quote/start/complete/cancel + reconciliation + paymentsAdmin sandbox; see `docs/payments.md`), `site` (SiteCommands — the request's
 resolved `SiteContext`: shared / org / marketing host, its page key, org name, org-site URLs; the ONLY
 sanctioned window onto which site a request is for — never copy its answers into session or view scope; see
-`docs/org-admin.md` "Organization sites"), `deploy`, `json`, `tripUtil`.
+`docs/org-admin.md` "Organization sites"), `brand` (BrandCommands — the org site's look: theme/layout
+names, logo or wordmark, favicon, footer, contact card, donate link, analytics id, ALL from the org's own
+org-only Branding settings; neutral/null on every other host so shared pages keep their literal chrome; see
+`docs/org-admin.md` "Branding"), `deploy`, `json`, `tripUtil`.
 
 - `ChatPhotos.getChatPhotos()` is ONE static instance on purpose — never give it ChatCommands'
   FacesContext/application-map lookup: the upload servlet has no FacesContext and the JSF send does, so a

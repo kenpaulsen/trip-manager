@@ -1601,6 +1601,35 @@ public class OrgCommandsTest {
     }
 
     @Test
+    public void brandingOverridesAreHeldToTheirChoicesAndUrlRules() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Organization org = orgWithAdmin(orgAdmin);
+        final String orgId = org.getId().getValue();
+        final OrgCommands cmds = commandsFor(orgAdmin);
+        final String palette = KnownSettings.SITE_THEME_PALETTE.getName();
+        final String logo = KnownSettings.SITE_LOGO_URL.getName();
+
+        assertFalse(cmds.saveOrgSettings(orgId, java.util.Map.of(palette, "pink")),
+                "a palette outside the choices is a stylesheet 404, so it is refused at save");
+        assertFalse(cmds.saveOrgSettings(orgId, java.util.Map.of(palette, "Green")), "exact match only");
+        assertFalse(cmds.saveOrgSettings(orgId, java.util.Map.of(logo, "javascript:alert(1)")),
+                "a *.url branding value must be an http(s) URL");
+        assertFalse(cmds.saveOrgSettings(orgId, java.util.Map.of(logo, "cdn.example/logo.png")));
+        assertFalse(cmds.saveOrgSettings(orgId, java.util.Map.of(logo, "https://x.example/a b")));
+        assertTrue(dao.getOrganization(org.getId(), Cached.NO).orElseThrow().getSettingsOverrides().isEmpty(),
+                "a refused save writes NOTHING");
+
+        assertTrue(cmds.saveOrgSettings(orgId, java.util.Map.of(palette, " green ", logo,
+                "https://cdn.example/logo.png")));
+        final Organization stored = dao.getOrganization(org.getId(), Cached.NO).orElseThrow();
+        assertEquals(stored.settingOverride(palette), "green");
+        assertEquals(stored.settingOverride(logo), "https://cdn.example/logo.png");
+        assertTrue(cmds.saveOrgSettings(orgId, java.util.Map.of(palette, "", logo, "  ")),
+                "blank stays 'unset' whatever the choices say");
+        assertTrue(dao.getOrganization(org.getId(), Cached.NO).orElseThrow().getSettingsOverrides().isEmpty());
+    }
+
+    @Test
     public void orgInviteNamesTheOrgsOwnSiteWhenItHasOne() throws IOException {
         final Person orgAdmin = savedPerson();
         final Organization org = orgWithAdmin(orgAdmin);

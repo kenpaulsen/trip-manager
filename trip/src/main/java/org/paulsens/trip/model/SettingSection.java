@@ -23,4 +23,13 @@ public class SettingSection implements Serializable {
         this.note = note;
         this.settings = List.copyOf(settings);
     }
+
+    /**
+     * @return whether any setting here is one the SITE's own row can affect, i.e. not org-only. The site
+     *         Settings page hides org-only rows (a value stored there applies to nothing), and a section made
+     *         entirely of them would otherwise render as an empty fieldset under a heading.
+     */
+    public boolean hasSiteSettings() {
+        return settings.stream().anyMatch(def -> !def.isOrgOnly());
+    }
 }

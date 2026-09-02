@@ -280,8 +280,9 @@ Which settings: those `KnownSettings` marks with `.withOrgOverride()` — `site.
 `chat.background.colors`, `chat.background.image`, `chat.reactions.palette` — plus `site.analytics.id`,
 which is **org-explicit** (`.withOrgOnly()`): an org host resolves it from the org's override or the
 compiled default (blank) and *never* from the site's row, so the shared site's analytics property can never
-collect an org site's traffic. `KnownSettings.orgOverridable()` is the authoritative list; marking a new
-setting is a product decision (`OrgSettingsLadderTest` pins the set).
+collect an org site's traffic — and the ten org-only **Branding** defs (`site.theme.palette`,
+`site.logo.url`, …; see "Branding" below). `KnownSettings.orgOverridable()` is the authoritative list;
+marking a new setting is a product decision (`OrgSettingsLadderTest` pins the set).
 
 Resolution is automatic for request-bound code: `ConfigCommands.getString/getInt/getBoolean/getLong(def)` —
 and the page entry points `#{config.getString('key')}` etc. — consult `SiteContext.current()`, and on an ORG
@@ -320,6 +321,66 @@ are filled by `sendOrgInvite`. Installed template ROWS are runtime-editable and 
 "Install starter templates" (it only creates missing ones), so a deployment that installed the older copy
 must delete its `org-invite` template on the Templates page and re-install, or edit the row's subject/body
 to use the tokens.
+
+### Branding (org-site look, 2026-09)
+
+An org site's look comes from the org's OWN settings and from nowhere else (user-locked): the shared site's
+logo, footer and contact details are literals in the sibling repo's XHTML and stay there, and an org host
+**never inherits them** — every branding def is `.withOrgOnly()`, so on an org host it resolves to the org's
+override or, when blank, to the NEUTRAL platform default (never the `config` table's site row, which the
+Branding section on the site Settings page can still write but nothing applies). The defs live in
+`KnownSettings`' **Branding** section (`BRANDING_SECTION`, right after Site), all `STRING`, default `""`:
+
+| Setting | Blank means | Notes |
+|---------|-------------|-------|
+| `site.theme.palette` | the platform's default look (`freya-medj-l/d`, `layout-light/dark`) | a MENU: `avocado, blue, green, orange, purple, red, turquoise, yellow` (`THEME_PALETTES`); the Freya build ships `freya-{palette}-{light|dark}` + `layout-{palette}-{light|dark}.css` for exactly these |
+| `site.logo.url` | the org's name as a text wordmark | http(s) URL |
+| `site.favicon.url` | no icon: the page emits `href="data:,"` so the browser fetches no `/favicon.ico` | http(s) URL |
+| `site.ogImage.url` | the logo (no logo either: no preview picture) | http(s) URL |
+| `site.background.url` | no page background image | http(s) URL |
+| `site.footer.title` | the org's name | plain text |
+| `site.footer.text` | nothing | plain text |
+| `site.contact.name`, `site.contact.phone` | left off the "Questions?" card | the card's email is the org profile's `contactEmail`; the card is hidden when all three are blank |
+| `site.donate.url` | no Donate card / menu entry | http(s) URL |
+
+Two `SettingDef` markings carry the rules: `.withChoices(...)` (an ordered, immutable list the settings
+pages render as a menu; `hasChoices()`/`allows(value)`) and `.withHttpUrl()`. **One judge for both save
+paths**: `ConfigCommands.rejection(config)` checks the declared type, then — for a DECLARED key — the
+choices and the URL rule (`ContentRenderer.requireHttpUrl`, the same check content placeholders use);
+`ConfigCommands.save` (site page) and `OrgCommands.applyOverride` (org editor) both ask it, and blank is
+always "unset". Choices are matched exactly (a palette is a stylesheet path).
+
+The pages read everything through **`#{brand}` (`action/BrandCommands`)**, modeled on `SiteCommands`: it
+reads only the request's `SiteContext` plus the org row, never session/view scope (dark mode is the one
+session read — the existing `dark` flag via `getSession(false)`, so no session is ever created for a
+visitor). Off an org host (shared, marketing, no bound request) EVERY getter answers the neutral/empty
+value — `getTheme()` = `freya-medj-l`/`-d`, `getLayoutCss()` = `layout-light`/`-dark`, everything else
+null/false — and the templates branch on `#{site.orgSite}` to keep their literal chrome; the bean changes
+no byte of a shared page. On an org host: `getTheme()`/`getLayoutCss()`/`isDark()`, `getLogoUrl()` /
+`getWordmark()` (mutually exclusive), `getFaviconHref()` (`data:,` when unset), `getOgImage()`,
+`getRootStyle()` (`--site-bg:url(<url>)` or `--site-bg:none`, for the root element's `style`),
+`getFooterTitle()`/`getFooterText()`, `getContactName()`/`getContactPhone()`/`getContactEmail()` +
+`isShowContact()`, `getDonateUrl()` + `isShowDonate()`, `getAnalyticsId()`. An org whose row cannot be
+read gets the neutral look and its slug as the name — never a broken page. Every URL is re-screened in the
+bean even though the save paths validate (a hand-written row bypasses the page): anything with a quote,
+angle bracket, backslash or whitespace is dropped (null → the blank behaviour), and the background URL is
+additionally percent-encoded for the unquoted CSS `url()` context (`( ) ' " ; \ { }`). Text values
+(footer, contact) are returned raw for the page to escape as usual.
+
+**The page side** (sibling repo): `web.xml`'s `primefaces.THEME` is `#{brand.theme}`; `template.xhtml`
+puts `brand.rootStyle` on `<html>` (`site.css` reads `--site-bg` with the shared rainbow as the `var()`
+fallback), swaps the layout sheet, og:image and favicon per host, and gates the analytics tag on BOTH an
+id for the host (the shared site's literal, or the org's own) AND the visitor's consent: the
+`trip_consent` cookie (`1`/`0`, one year) that `WEB-INF/consentBanner.xhtml` sets, read straight off the
+request so an anonymous page stays sessionless; no id means no tag and no banner. `topbar.xhtml` (logo or
+wordmark), `footer.xhtml`, `menu.xhtml` (the shared site's Overview / Links / Help entries hidden, an org
+Donate entry added) and `mainTemplate.xhtml`'s sidebar (Donate and "Questions?" cards from the settings,
+"Trips" for "Pilgrimages") branch on `#{site.orgSite}`, so a shared host renders byte-for-byte what it
+did apart from the Privacy footer link and the consent banner. `privacy.xhtml` is the stateless cookie
+notice. The site Settings page hides org-only rows (`SettingSection.hasSiteSettings()` skips the Branding
+section whole); the org editor renders a `choices` def as a menu whose blank item is "None (platform
+default)". Fixtures: Beta Corp is fully branded (`FakeData.seedBetaBranding`, incl. `G-BETAFIXTURE`),
+Acme is deliberately unbranded; `OrgSubdomainPwIT` pins both and the shared host.
 
 ### One login across the org sites (shared cookie, 2026-09)
 

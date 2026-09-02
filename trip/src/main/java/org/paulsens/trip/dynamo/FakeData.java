@@ -235,6 +235,7 @@ public final class FakeData {
         seedFakeProcessor(CFPW_PROCESSOR_ID, CFPW_ORG_ID, "CFPW Test Processor", admin.getId());
         seedFakeProcessor(ACME_PROCESSOR_ID, ACME_ORG_ID, "Acme Test Processor", kevin.getId());
         seedCfpwPaymentDefaults();
+        seedBetaBranding();
         seedOrgScopedPrivileges(commands, kevin);
         seedOrgSiteEditor(commands);
         // Each org SITE gets its default home page through the same once-only seeding a slug assignment
@@ -344,6 +345,35 @@ public final class FakeData {
             }
         } catch (final IOException ex) {
             throw new IllegalStateException("Fake org seed: could not save CFPW payment defaults", ex);
+        }
+    }
+
+    /**
+     * Beta Corp's org-site BRANDING overrides (the Branding section of {@code KnownSettings}, every def
+     * org-only): a palette, a logo, footer, contact card, donate link and its own analytics id, so
+     * beta.localhost renders the settings-driven chrome and its consent banner. Acme deliberately gets NONE
+     * of these: acme.localhost exercises the neutral defaults (wordmark, {@code data:,} favicon, platform
+     * theme, no analytics and so no banner). Written straight onto the row: these are fixture values that
+     * the editor's save path would accept unchanged, and the seed must not depend on a signed-in caller.
+     */
+    private static void seedBetaBranding() {
+        try {
+            final Organization beta = DAO.getInstance()
+                    .getOrganization(Organization.Id.from(BETA_ORG_ID), Cached.NO).orElseThrow();
+            final Map<String, String> overrides = beta.getSettingsOverrides();
+            overrides.put("site.theme.palette", "green");
+            overrides.put("site.logo.url", "https://example.com/beta-logo.png");
+            overrides.put("site.footer.title", "Beta Corp Travel");
+            overrides.put("site.footer.text", "A fixture organization");
+            overrides.put("site.contact.name", "Bea Tester");
+            overrides.put("site.contact.phone", "555-0100");
+            overrides.put("site.donate.url", "https://example.com/give");
+            overrides.put("site.analytics.id", "G-BETAFIXTURE");
+            if (!DAO.getInstance().saveOrganization(beta)) {
+                throw new IllegalStateException("Fake org seed: could not save Beta Corp's branding");
+            }
+        } catch (final IOException ex) {
+            throw new IllegalStateException("Fake org seed: could not save Beta Corp's branding", ex);
         }
     }
 

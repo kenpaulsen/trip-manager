@@ -51,6 +51,69 @@ public final class KnownSettings {
                     + "means no analytics tag at all. An organization's site never inherits this value: it "
                     + "reports only to an id the organization set for itself.").withOrgOnly();
 
+    // --- branding (org sites only; every def is org-ONLY, see the section note) ---
+
+    /**
+     * The colour palettes the Freya theme build ships: {@code freya-{palette}-{light|dark}} theme jars and
+     * {@code layout-{palette}-{light|dark}.css} layout sheets exist for exactly these names, which is why the
+     * value is a menu and the save paths refuse anything else. Adding a palette means adding it here AND
+     * to the theme build.
+     */
+    public static final List<String> THEME_PALETTES = List.of(
+            "avocado", "blue", "green", "orange", "purple", "red", "turquoise", "yellow");
+
+    public static final SettingDef SITE_THEME_PALETTE = new SettingDef(
+            "site.theme.palette", Config.Type.STRING, "", "Colour palette",
+            "The accent colour of the organization's site (menus, buttons, links) in both light and dark "
+                    + "mode. Blank means the platform's default look.")
+            .withOrgOnly().withChoices(THEME_PALETTES.toArray(String[]::new));
+
+    public static final SettingDef SITE_LOGO_URL = new SettingDef(
+            "site.logo.url", Config.Type.STRING, "", "Logo image URL",
+            "An http(s) URL of the logo shown in the site's top bar. Blank shows the organization's name as "
+                    + "text instead.").withOrgOnly().withHttpUrl();
+
+    public static final SettingDef SITE_FAVICON_URL = new SettingDef(
+            "site.favicon.url", Config.Type.STRING, "", "Favicon URL",
+            "An http(s) URL of the browser-tab icon. Blank means no icon at all (the browser shows its "
+                    + "generic one).").withOrgOnly().withHttpUrl();
+
+    public static final SettingDef SITE_OG_IMAGE_URL = new SettingDef(
+            "site.ogImage.url", Config.Type.STRING, "", "Link preview image URL",
+            "An http(s) URL of the image chat apps and social sites show when someone shares a link to the "
+                    + "site. Blank uses the logo; with no logo either, links preview without a picture.")
+            .withOrgOnly().withHttpUrl();
+
+    public static final SettingDef SITE_BACKGROUND_URL = new SettingDef(
+            "site.background.url", Config.Type.STRING, "", "Page background image URL",
+            "An http(s) URL of an image shown behind the site's pages. Blank means no background image.")
+            .withOrgOnly().withHttpUrl();
+
+    public static final SettingDef SITE_FOOTER_TITLE = new SettingDef(
+            "site.footer.title", Config.Type.STRING, "", "Footer title",
+            "The heading of the page footer. Blank shows the organization's name.").withOrgOnly();
+
+    public static final SettingDef SITE_FOOTER_TEXT = new SettingDef(
+            "site.footer.text", Config.Type.STRING, "", "Footer text",
+            "A line of plain text under the footer title -- a tagline, a mailing address, a registration "
+                    + "number. Blank shows nothing there.").withOrgOnly();
+
+    public static final SettingDef SITE_CONTACT_NAME = new SettingDef(
+            "site.contact.name", Config.Type.STRING, "", "Contact name",
+            "Who the \"Questions?\" card in the sidebar names. The card's email is the organization "
+                    + "profile's contact email; the card is hidden when the name, phone and email are all "
+                    + "blank.").withOrgOnly();
+
+    public static final SettingDef SITE_CONTACT_PHONE = new SettingDef(
+            "site.contact.phone", Config.Type.STRING, "", "Contact phone",
+            "The phone number on the \"Questions?\" card, shown as typed. Blank leaves it off the card.")
+            .withOrgOnly();
+
+    public static final SettingDef SITE_DONATE_URL = new SettingDef(
+            "site.donate.url", Config.Type.STRING, "", "Donate link URL",
+            "An http(s) URL people are sent to by the Donate card and menu entry. Blank means neither is "
+                    + "shown.").withOrgOnly().withHttpUrl();
+
     // --- home page ---
 
     public static final SettingDef HOME_PHOTOS_WINDOW_DAYS = new SettingDef(
@@ -489,9 +552,20 @@ public final class KnownSettings {
      */
     public static final String EMAIL_ADDRESSES_SECTION = "Email addresses";
 
+    /** The org-site branding section: every def in it is org-only and read by {@code BrandCommands}. */
+    public static final String BRANDING_SECTION = "Branding";
+
     private static final List<SettingSection> SECTIONS = List.of(
             new SettingSection("Site", null,
                     List.of(SITE_ORG_NAME, SITE_ORGSITES_BASE_DOMAIN, SITE_ANALYTICS_ID)),
+            new SettingSection(BRANDING_SECTION,
+                    "The look of an ORGANIZATION's own site, set by the organization on its Settings tab. "
+                            + "An org site never inherits the shared site's look, and the shared site's "
+                            + "own logo, footer and contacts are fixed in its pages -- so a value here on "
+                            + "the site Settings page applies to nothing.",
+                    List.of(SITE_THEME_PALETTE, SITE_LOGO_URL, SITE_FAVICON_URL, SITE_OG_IMAGE_URL,
+                            SITE_BACKGROUND_URL, SITE_FOOTER_TITLE, SITE_FOOTER_TEXT,
+                            SITE_CONTACT_NAME, SITE_CONTACT_PHONE, SITE_DONATE_URL)),
             new SettingSection(EMAIL_ADDRESSES_SECTION,
                     "Every address the application sends with or to. From addresses must be on an "
                             + "SES-verified domain; recipients and Reply-To may be any address.",

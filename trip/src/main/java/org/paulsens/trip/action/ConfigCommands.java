@@ -15,6 +15,7 @@ import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.NearCacheClient;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
@@ -390,11 +391,10 @@ public class ConfigCommands {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", "A setting needs a name.");
             return false;
         }
-        if (!isValid(config)) {
-            log.warn("Refusing config '{}': '{}' is not a valid {}",
-                    config.getName(), config.getValue(), config.getType());
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved",
-                    "'" + config.getValue() + "' is not a valid " + config.getType() + ".");
+        final String rejection = rejection(config);
+        if (rejection != null) {
+            log.warn("Refusing config '{}': {}", config.getName(), rejection);
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", rejection);
             return false;
         }
         final Config stamped = new Config(config.getName().trim(), config.getValue(), config.getType(),
@@ -448,19 +448,49 @@ public class ConfigCommands {
         return true;
     }
 
-    /** @return whether the value parses as its declared type (a null/blank value is allowed: it means "unset"). */
+    /** @return whether {@link #rejection} has nothing to refuse. */
     public boolean isValid(final Config config) {
+        return rejection(config) == null;
+    }
+
+    /**
+     * Why a value must be refused, or null when it may be stored: it must parse as its declared type, and
+     * when the key is a DECLARED setting it must also satisfy the declaration's own rules -- one of its
+     * {@link SettingDef#getChoices() choices}, an http(s) URL. A null/blank value is always allowed: it means
+     * "unset". Both save paths (this page's and the org settings editor's) ask here, so the two cannot
+     * disagree about what a valid value is.
+     */
+    public String rejection(final Config config) {
         final String raw = (config.getValue() == null) ? null : config.getValue().trim();
         if (raw == null || raw.isEmpty()) {
-            return true;
+            return null;
         }
-        return switch (config.getType()) {
+        if (!parsesAs(raw, config.getType())) {
+            return "'" + raw + "' is not a valid " + config.getType() + ".";
+        }
+        return KnownSettings.find(config.getName()).map(def -> declarationRejection(def, raw)).orElse(null);
+    }
+
+    private static boolean parsesAs(final String raw, final Config.Type type) {
+        return switch (type) {
             case STRING -> true;
             case BOOLEAN -> List.of("true", "yes", "on", "1", "false", "no", "off", "0")
                     .contains(raw.toLowerCase());
             case INT -> parses(raw, Integer::parseInt);
             case LONG -> parses(raw, Long::parseLong);
         };
+    }
+
+    /** The declaration's own rules on a non-blank, type-valid value; null when it passes. */
+    private static String declarationRejection(final SettingDef def, final String raw) {
+        if (!def.allows(raw)) {
+            return "'" + raw + "' is not one of the choices for " + def.getLabel() + ": "
+                    + String.join(", ", def.getChoices()) + ".";
+        }
+        if (def.isHttpUrl() && ContentRenderer.requireHttpUrl(raw).isEmpty()) {
+            return "'" + raw + "' is not an http(s) URL, which " + def.getLabel() + " requires.";
+        }
+        return null;
     }
 
     private static boolean parses(final String raw, final java.util.function.Function<String, Number> parser) {

@@ -1,6 +1,7 @@
 package org.paulsens.trip.model;
 
 import java.io.Serializable;
+import java.util.List;
 import lombok.Value;
 
 /**
@@ -46,14 +47,28 @@ public class SettingDef implements Serializable {
      * Implies {@link #orgOverridable}. Off an org host the site row applies as for any other setting.
      */
     boolean orgOnly;
+    /**
+     * The only values this setting accepts, in the order a menu offers them; empty means free text. A
+     * blank value stays "unset" whatever this says. Both save paths (the site Settings page and the org
+     * settings editor) refuse anything else, because a value outside the list is not merely wrong but
+     * unrenderable -- a theme name is a stylesheet path, and a misspelt one is a 404 on every page.
+     */
+    List<String> choices;
+    /**
+     * Whether a non-blank value must be an {@code http(s)} URL. The save paths refuse anything else, and
+     * the reading code still re-checks before the value lands in an attribute (a row written by hand
+     * bypasses the page).
+     */
+    boolean httpUrl;
 
     public SettingDef(final String name, final Config.Type type, final String defaultValue, final String label,
             final String description) {
-        this(name, type, defaultValue, label, description, false, false);
+        this(name, type, defaultValue, label, description, false, false, List.of(), false);
     }
 
     private SettingDef(final String name, final Config.Type type, final String defaultValue, final String label,
-            final String description, final boolean orgOverridable, final boolean orgOnly) {
+            final String description, final boolean orgOverridable, final boolean orgOnly,
+            final List<String> choices, final boolean httpUrl) {
         this.name = name;
         this.type = type;
         this.defaultValue = defaultValue;
@@ -61,16 +76,43 @@ public class SettingDef implements Serializable {
         this.description = description;
         this.orgOverridable = orgOverridable || orgOnly;
         this.orgOnly = orgOnly;
+        this.choices = List.copyOf(choices);
+        this.httpUrl = httpUrl;
     }
 
     /** This declaration, marked as one an organization may override on its own site. */
     public SettingDef withOrgOverride() {
-        return new SettingDef(name, type, defaultValue, label, description, true, false);
+        return new SettingDef(name, type, defaultValue, label, description, true, false, choices, httpUrl);
     }
 
     /** This declaration, marked org-explicit: an org host never inherits the site's value (see {@link #orgOnly}). */
     public SettingDef withOrgOnly() {
-        return new SettingDef(name, type, defaultValue, label, description, true, true);
+        return new SettingDef(name, type, defaultValue, label, description, true, true, choices, httpUrl);
+    }
+
+    /** This declaration, restricted to exactly these values (see {@link #choices}); blank stays "unset". */
+    public SettingDef withChoices(final String... allowed) {
+        return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly,
+                List.of(allowed), httpUrl);
+    }
+
+    /** This declaration, requiring a non-blank value to be an {@code http(s)} URL (see {@link #httpUrl}). */
+    public SettingDef withHttpUrl() {
+        return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
+                true);
+    }
+
+    /** @return whether the settings pages render this as a menu over {@link #getChoices()} instead of a text box. */
+    public boolean hasChoices() {
+        return !choices.isEmpty();
+    }
+
+    /**
+     * @return whether a trimmed, non-blank value is one this declaration's {@link #choices} admit. Always true
+     *         for a free-text setting; the URL rule is the save path's, not this method's.
+     */
+    public boolean allows(final String value) {
+        return !hasChoices() || choices.contains(value);
     }
 
     /**

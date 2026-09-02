@@ -62,6 +62,25 @@ public class KnownSettingsTest {
         names.forEach(name -> Assert.assertTrue(KnownSettings.isKnown(name), name + " is not indexed"));
     }
 
+    /**
+     * The site Settings page hides org-only rows and, through {@code hasSiteSettings()}, any section made
+     * only of them: Branding is exactly that section, and Site (org name, base domain + the org-only
+     * analytics id) must keep rendering.
+     */
+    @Test
+    public void aSectionOfOnlyOrgOnlySettingsHasNoSiteSettings() {
+        final SettingSection branding = KnownSettings.sections().stream()
+                .filter(section -> KnownSettings.BRANDING_SECTION.equals(section.getTitle()))
+                .findFirst().orElseThrow();
+        Assert.assertFalse(branding.hasSiteSettings(), "every Branding def is org-only");
+        Assert.assertTrue(branding.getSettings().stream().allMatch(SettingDef::isOrgOnly));
+        final SettingSection site = KnownSettings.sections().stream()
+                .filter(section -> "Site".equals(section.getTitle()))
+                .findFirst().orElseThrow();
+        Assert.assertTrue(site.hasSiteSettings(), "the Site section still has site-level rows");
+        Assert.assertFalse(new SettingSection("Empty", null, List.of()).hasSiteSettings());
+    }
+
     @Test
     public void unrecognisedKeysAreNotKnown() {
         // The "Other settings" section depends on this being false for anything the code does not read.
@@ -79,6 +98,18 @@ public class KnownSettingsTest {
         Assert.assertEquals(KnownSettings.CHAT_MAIL_ENABLED.getType(), Config.Type.BOOLEAN);
         Assert.assertEquals(KnownSettings.CHAT_DIGEST_HOUR.getType(), Config.Type.INT);
         Assert.assertEquals(KnownSettings.CHAT_MAIL_FROM.getType(), Config.Type.STRING);
+    }
+
+    @Test
+    public void aMenuSettingDefaultsToBlankOrToOneOfItsOwnChoices() {
+        // A default outside the menu could never be re-chosen once changed, and the page could not show it.
+        for (final SettingDef def : KnownSettings.all()) {
+            if (def.hasChoices()) {
+                Assert.assertTrue(def.getDefaultValue().isEmpty() || def.allows(def.getDefaultValue()),
+                        def.getName() + " declares a default its own choices refuse: " + def.getDefaultValue());
+                Assert.assertEquals(def.getType(), Config.Type.STRING, def.getName() + ": a menu is a STRING");
+            }
+        }
     }
 
     @Test

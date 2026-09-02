@@ -289,7 +289,7 @@ public final class ContentRenderer {
     }
 
     /** @return the URL when it parses as absolute http(s), else the empty string. */
-    static String requireHttpUrl(final String raw) {
+    public static String requireHttpUrl(final String raw) {
         try {
             final URI uri = URI.create(raw.trim());
             final String scheme = uri.getScheme();

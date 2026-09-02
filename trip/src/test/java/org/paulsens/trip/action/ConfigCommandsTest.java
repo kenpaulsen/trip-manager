@@ -91,6 +91,39 @@ public class ConfigCommandsTest {
     }
 
     @Test
+    public void aDeclaredSettingsOwnRulesApplyOnTheSitePageToo() {
+        final String palette = KnownSettings.SITE_THEME_PALETTE.getName();
+        final String logo = KnownSettings.SITE_LOGO_URL.getName();
+        try {
+            Assert.assertNull(config.rejection(of(palette, "", Config.Type.STRING)), "blank is unset");
+            Assert.assertNull(config.rejection(of(palette, null, Config.Type.STRING)));
+            Assert.assertNull(config.rejection(of(palette, " green ", Config.Type.STRING)));
+            final String outside = config.rejection(of(palette, "pink", Config.Type.STRING));
+            Assert.assertNotNull(outside, "a value outside the choices is refused with the choices named");
+            Assert.assertTrue(outside.contains("avocado, blue, green"), outside);
+            Assert.assertFalse(config.save(of(palette, "pink", Config.Type.STRING), "tester"));
+            Assert.assertFalse(config.isValid(of(palette, "pink", Config.Type.STRING)));
+            Assert.assertTrue(config.save(of(palette, "green", Config.Type.STRING), "tester"));
+
+            Assert.assertNull(config.rejection(of(logo, "https://cdn.example/logo.png", Config.Type.STRING)));
+            final String notUrl = config.rejection(of(logo, "javascript:alert(1)", Config.Type.STRING));
+            Assert.assertNotNull(notUrl);
+            Assert.assertTrue(notUrl.contains("http(s) URL"), notUrl);
+            Assert.assertFalse(config.save(of(logo, "cdn.example/logo.png", Config.Type.STRING), "tester"));
+            Assert.assertFalse(config.save(of(logo, "https://x.example/a b", Config.Type.STRING), "tester"));
+            Assert.assertTrue(config.save(of(logo, "https://cdn.example/logo.png", Config.Type.STRING), "tester"));
+
+            Assert.assertEquals(config.rejection(of(palette, "x", Config.Type.INT)), "'x' is not a valid INT.",
+                    "the type check comes first and reads as before");
+            Assert.assertNull(config.rejection(of("free." + RandomData.genAlpha(6), "anything", Config.Type.STRING)),
+                    "an undeclared key has no declaration rules");
+        } finally {
+            config.save(of(palette, null, Config.Type.STRING), "tester");
+            config.save(of(logo, null, Config.Type.STRING), "tester");
+        }
+    }
+
+    @Test
     public void blankValueMeansUnsetAndIsAllowed() {
         final String name = "blank." + RandomData.genAlpha(8);
         Assert.assertTrue(config.save(of(name, "", Config.Type.INT), "tester"));
