@@ -209,7 +209,7 @@ public class PaymentCommands {
             log.error("Unable to persist payment for {}", payer.getId(), ex);
             return failNull("Unable to start", "The payment could not be started; nothing was charged.");
         }
-        audit.payment(payment.getPaymentId(), true, sandboxTag(payment) + "Payment started by "
+        audit.payment(payment, true, sandboxTag(payment) + "Payment started by "
                 + payer.getEmail() + ": " + MoneyMath.formatCents(payment.getTotalChargedCents())
                 + " to trip " + trip.getId() + " (" + allocations.size() + " traveler(s), donation "
                 + MoneyMath.formatCents(donation) + ", via " + config.getDisplayLabel() + ")",
@@ -311,7 +311,7 @@ public class PaymentCommands {
             log.error("Unable to persist capture for payment {}", payment.getPaymentId(), ex);
         }
         if (result.grossCents() != payment.getTotalChargedCents()) {
-            audit.payment(payment.getPaymentId(), false, sandboxTag(payment)
+            audit.payment(payment, false, sandboxTag(payment)
                     + "Captured amount " + MoneyMath.formatCents(result.grossCents())
                     + " does not match the expected " + MoneyMath.formatCents(payment.getTotalChargedCents())
                     + "; NOT recorded (needs reconciliation)", current.auditActor());
@@ -332,7 +332,7 @@ public class PaymentCommands {
         } catch (final RuntimeException ex) {
             // Money HAS moved; the payment stays CAPTURED and the reconciliation list owns it now.
             log.error("Ledger write failed for CAPTURED payment {}", payment.getPaymentId(), ex);
-            audit.payment(payment.getPaymentId(), false, sandboxTag(payment)
+            audit.payment(payment, false, sandboxTag(payment)
                     + "Ledger write failed after capture; payment left in CAPTURED for reconciliation",
                     current.auditActor());
             return Completion.of("mismatch", "Your payment was received, but recording it hit a problem. "
@@ -353,11 +353,11 @@ public class PaymentCommands {
             final boolean mailed = mailerSource.get().sendConfirmation(payment, trip, effective, orgName,
                     processorName, notifyEmail(), current.auditActor());
             if (!mailed) {
-                audit.payment(payment.getPaymentId(), false, "Confirmation email was not sent",
+                audit.payment(payment, false, "Confirmation email was not sent",
                         current.auditActor());
             }
         }
-        audit.payment(payment.getPaymentId(), true, sandboxTag(payment) + "Payment recorded: "
+        audit.payment(payment, true, sandboxTag(payment) + "Payment recorded: "
                 + MoneyMath.formatCents(payment.getCapturedGrossCents()) + " (capture id "
                 + payment.getCaptureId() + "), " + result.txIds().size() + " ledger row(s)",
                 current.auditActor());
@@ -382,7 +382,7 @@ public class PaymentCommands {
             log.warn("Unable to mark payment {} cancelled", payment.getPaymentId(), ex);
             return false;
         }
-        audit.payment(payment.getPaymentId(), true, sandboxTag(payment) + "Payment cancelled by the payer",
+        audit.payment(payment, true, sandboxTag(payment) + "Payment cancelled by the payer",
                 current.auditActor());
         return true;
     }
@@ -430,7 +430,7 @@ public class PaymentCommands {
         } catch (final RuntimeException | IOException ex) {
             log.warn("Unable to mark payment {} failed", payment.getPaymentId(), ex);
         }
-        audit.payment(payment.getPaymentId(), false, sandboxTag(payment) + "Order creation failed: " + reason,
+        audit.payment(payment, false, sandboxTag(payment) + "Order creation failed: " + reason,
                 current.auditActor());
         fail("Payment not started", reason + " Nothing was charged.");
         return null;
@@ -443,7 +443,7 @@ public class PaymentCommands {
         } catch (final RuntimeException | IOException ex) {
             log.warn("Unable to mark payment {} failed", payment.getPaymentId(), ex);
         }
-        audit.payment(payment.getPaymentId(), false, sandboxTag(payment) + reason, current.auditActor());
+        audit.payment(payment, false, sandboxTag(payment) + reason, current.auditActor());
     }
 
     private Completion recordedOutcome(final Payment payment, final String message) {

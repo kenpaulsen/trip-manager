@@ -7,7 +7,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import org.paulsens.trip.model.AuditAction;
+import org.paulsens.trip.model.AuditEvent;
 import org.paulsens.trip.model.AuditOutcome;
+import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
@@ -49,6 +52,37 @@ public class AuditTest {
         // "<iso-8601> | user | type | msg"
         Assert.assertEquals(line.split(" \\| ").length, 4, "Expected 4 pipe-delimited fields: " + line);
         Assert.assertTrue(line.startsWith("20"), "Record should start with an ISO timestamp: " + line);
+    }
+
+    private static final SiteContext ACME_SITE =
+            SiteContext.org(Organization.Id.from("a17c3b52-2e84-4d0b-9c66-08d94f2e6b73"), "acme", "acme.localhost");
+
+    private static AuditEvent builtOn(final SiteContext site, final String explicitOrg) throws Exception {
+        return ScopedValue.where(RequestContext.SCOPE, RequestContext.of(null, null, site))
+                .call(() -> Audit.builder(AuditAction.LOGIN, AuditOutcome.SUCCESS)
+                        .actor("a@example.com", "id-1").org(explicitOrg).message("m").build());
+    }
+
+    @Test
+    public void anEventOnAnOrgSiteBelongsToThatOrgUnlessTheWriterSaysOtherwise() throws Exception {
+        Assert.assertEquals(builtOn(ACME_SITE, null).getOrgId(), ACME_SITE.orgId().getValue(),
+                "everything done on an org's site lands in its trail");
+        Assert.assertEquals(builtOn(ACME_SITE, "other-org").getOrgId(), "other-org",
+                "the entity's org outranks the site's: an admin recording another tenant's row");
+        Assert.assertNull(builtOn(SiteContext.shared("localhost"), null).getOrgId(),
+                "a shared host stamps nothing: site-level records belong to nobody");
+        Assert.assertNull(Audit.builder(AuditAction.LOGIN, AuditOutcome.SUCCESS).message("m").build().getOrgId(),
+                "and neither does the unbound system context");
+        Assert.assertEquals(builtOn(SiteContext.shared("localhost"), " ").getOrgId(), null,
+                "a blank explicit org leaves the fallback in charge");
+    }
+
+    @Test
+    public void theConsoleLineNamesTheOrgWhenThereIsOne() throws Exception {
+        Assert.assertTrue(AuditSink.format(builtOn(ACME_SITE, null)).endsWith(
+                " | org=" + ACME_SITE.orgId().getValue()));
+        Assert.assertFalse(AuditSink.format(builtOn(SiteContext.shared("localhost"), null)).contains("org="),
+                "site-level records keep the historical 4-field line");
     }
 
     @Test

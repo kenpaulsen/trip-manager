@@ -24,7 +24,10 @@ in `initPage`, NOT via defaultAuth:
 The hub's cards are Profile, Trips, People, Payment Processors, Appearance
 (`orgAppearance.jsf` — the Branding settings), Settings (`orgConfig.jsf` — everything else), Content
 Templates (`templates.jsf?orgId=` — org admins OR whoever `priv.checkHere('contentAdmin', …)` admits on
-this host), and, for site admins only, Privileges. There is no "Organization Site" card: the site's own
+this host), Media (`canViewOrgMedia`: site admins, global or org-scoped `mediaAdmin` — NOT org admins as
+such; links to `{site.hostFor(org)}/admin/media.jsf`, the library being host-scoped), Audit Trail
+(`auditView.canView(org)`; `audit.jsf?orgId=`, org-keyed so it reads from any host), and, for site
+admins only, Privileges. There is no "Organization Site" card: the site's own
 address is a link on the **profile**, beside the subdomain field that decides it.
 
 **Save Profile returns to the hub.** `saveOrgEdits` answers a boolean; on true the page redirects to
@@ -40,10 +43,17 @@ edit that saved silently with no effect and no error was every org admin's profi
 
 The menu's per-org entries come from `org.menuOrgs()` — `visibleOrgs()` (admins ∪ holders of any org-scoped
 privilege), minus a SITE admin on a shared host, who would get an entry per tenant and uses the
-Organizations page instead. They are labelled `Manage {name}` (the org's full name) and are the FIRST items
-of the Admin submenu, inserted before the static ones by `jsftComp.insertUIComponentBefore` because
-`addUIComponent` can only append. On an organization's own site `visibleOrgs()` is that org alone, site
-admins included, so managing Acme from `acme.unitetrip.com` leads that menu with "Manage Acme Inc".
+Organizations page instead. They are labelled **`Dashboard`** (user decision 2026-09-02, replacing
+`Manage {name}`), or `{full name} Dashboard` when the person has several so the entries can be told
+apart, and are the FIRST items of the Admin submenu, inserted before the static ones by
+`jsftComp.insertUIComponentBefore` because `addUIComponent` can only append. On an organization's own site
+`visibleOrgs()` is that org alone, site admins included, so `acme.unitetrip.com` leads that menu with one
+plain "Dashboard".
+
+On an organization's own site the Admin menu's **People** entry (renamed from "Manage People") opens the
+org People page (`orgPeople.jsf?orgId=`, gated by `canViewOrgPeople`); on a shared host it stays the
+site-wide manager. **Media** and **Audit Trail** are shared-host entries only: on an org site both are
+cards on the Dashboard (below), so every org-level page is reached from one place.
 
 The Admin menu's **Content Templates** entry is the SITE-WIDE manager and is gated on the GLOBAL grant
 (`priv.check('contentAdmin', null, …)`) plus `showAll`; an org's own templates are reached from its hub
@@ -62,10 +72,11 @@ Privileges page once verified:
 | `addTrip` | Creating trips belonging to that org (page and `POST /api/trips` use the same rule) |
 | `emailAdmin` | Mail-merge bounded to that org's members + its trips' rosters (`OrgCommands.sendMerge`) |
 | `paymentsAdmin` | The payment page's sandbox toggle for that org's trips |
+| `contentAdmin`, `mediaAdmin` | That org's own site: its page, templates, media library (also global; see "Org-site editors") |
+| `auditAdmin` | That org's own audit trail — its site's view and its Dashboard card (also global: every trail); chip name "Audit Viewer" |
 
 `addTx` was deleted outright (its one button now uses `tripFinAdmin@trip`, like its destination always
-did). `privilegeAdmin`, `configAdmin`, `auditAdmin`, `siteDeployer`, `contentAdmin`, `mediaAdmin`, and
-`eventAdmin` remain global.
+did). `privilegeAdmin`, `configAdmin`, `siteDeployer`, and `eventAdmin` remain global-only.
 
 **Granting**: org admins grant/revoke org-scoped privileges to their MEMBERS on the org People page
 (grantee need not be an org admin), through `OrgCommands.grantOrgPrivilege`/`revokeOrgPrivilege` — the
@@ -305,6 +316,21 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   deliberately not punched for site admins: a hosted org's trips are edited, mailed, reconciled and paid on
   the org's own host (Phase 5 verified the org-admin pages there); a site admin following such a link signs
   in again on the org host (the shared hosts' cookies are host-only, see "One login across the org sites").
+- **The audit trail is split by organization (2026-09-02).** `AuditEvent.orgId` is stamped by
+  `AuditEventBuilder`: from the entity when the writer has one (`.org(...)`: a transaction's row org, a
+  registration's trip org, a payment's org, an org-scoped privilege's org, an org's own settings change,
+  a trip delete), else from the SITE the request came in on — so everything done on
+  `acme.unitetrip.com` (sign-ins included) is Acme's record, and nothing done on a shared host is any
+  org's. Reads carry an `AuditScope` (`AuditViewCommands.scopeFor`): an org site's own organization; a
+  shared host's everything EXCEPT the hosted orgs (those with a slug — an unreadable org list narrows to
+  site-level records rather than widening); `?orgId=` / REST `org=` names one org's trail from any host
+  (the Dashboard's Audit Trail card). The gate is `AuditViewCommands.canView`: site admins and global
+  `auditAdmin` read any trail (but never another tenant's from an org site), `auditAdmin@org` reads that
+  org's. Records written before the field have no org and stay on the shared hosts' trail. The shared
+  view gains an Org column; the org view names one org throughout. `admin/audit.xhtml` is self-gated
+  now (not `defaultAuth`), like `media.xhtml`. Sessions holding an audit page were invalidated once by
+  the field (the recovery filter handles it); `AuditEvent`/`AuditPage`/`AuditQuery` now pin
+  `serialVersionUID` so later fields will not.
 - **Media is site-scoped by `MediaItem.orgId`**, for discovery AND for writes: the admin library
   (`admin/media.xhtml`), the document picker and the Documents slot show an org's items only on its own site
   and the site's items only on shared sites, and a row can be changed only from the site where it shows;

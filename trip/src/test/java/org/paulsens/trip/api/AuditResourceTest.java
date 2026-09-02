@@ -44,57 +44,85 @@ public class AuditResourceTest extends ResourceTestSupport {
     public void everyEndpointNeedsAuditAdmin() {
         signedInAs(ADMIN);
 
-        assertError(resource.page(null, null, null, null, null, 50), 403, ApiErrors.FORBIDDEN);
-        assertError(resource.recent(50), 403, ApiErrors.FORBIDDEN);
-        assertError(resource.export(null, null, null, null, null), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.page(null, null, null, null, null, null, 50), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.recent(null, 50), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.export(null, null, null, null, null, null), 403, ApiErrors.FORBIDDEN);
         assertError(resource.vocabularies(), 403, ApiErrors.FORBIDDEN);
         Mockito.verifyNoInteractions(view);
+    }
+
+    /**
+     * {@code org=} scopes a read to one organization's trail, and that organization's OWN auditAdmin
+     * holder -- no global grant -- may read it and nothing wider. The gate is the page's
+     * ({@code AuditViewCommands.canView}), so the two surfaces cannot drift apart.
+     */
+    @Test
+    public void anOrgsOwnAuditHolderReadsThatOrgsTrailOnly() {
+        final String acme = org.paulsens.trip.dynamo.FakeData.ACME_ORG_ID;
+        final org.paulsens.trip.action.PrivilegeCommands privs = new org.paulsens.trip.action.PrivilegeCommands();
+        privs.savePrivilege(privs.createPrivilege(org.paulsens.trip.action.PrivilegeCommands.AUDIT_ADMIN,
+                "acme audit", acme, List.of(ADMIN)));
+        signedInAs(ADMIN);
+        Mockito.when(view.getPage(ArgumentMatchers.eq(acme), ArgumentMatchers.isNull(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.anyInt()))
+                .thenReturn(emptyPage());
+        Mockito.when(view.getRecent(ArgumentMatchers.eq(acme), ArgumentMatchers.anyInt())).thenReturn(emptyPage());
+        Mockito.when(view.toCsv(ArgumentMatchers.eq(acme), ArgumentMatchers.isNull(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn("timestamp\n");
+
+        assertOk(resource.page(acme, null, null, null, null, null, 50));
+        assertOk(resource.recent(" " + acme + " ", 50));
+        Assert.assertEquals(resource.export(acme, null, null, null, null, null).getStatus(), 200);
+
+        assertError(resource.page(null, null, null, null, null, null, 50), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.page("some-other-org", null, null, null, null, null, 50), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.vocabularies(), 403, ApiErrors.FORBIDDEN);
     }
 
     @Test
     public void aMalformedCursorIs400NotA500() {
         signedInAsSiteAdmin(ADMIN);
 
-        assertError(resource.page("yesterday-ish", null, null, null, null, 50), 400, ApiErrors.BAD_REQUEST);
-        assertError(resource.export("not-a-time", null, null, null, null), 400, ApiErrors.BAD_REQUEST);
+        assertError(resource.page(null, "yesterday-ish", null, null, null, null, 50), 400, ApiErrors.BAD_REQUEST);
+        assertError(resource.export(null, "not-a-time", null, null, null, null), 400, ApiErrors.BAD_REQUEST);
         Mockito.verifyNoInteractions(view);
     }
 
     @Test
     public void aBlankCursorMeansTheNewestPage() {
         signedInAsSiteAdmin(ADMIN);
-        Mockito.when(view.getPage(ArgumentMatchers.isNull(), ArgumentMatchers.any(), ArgumentMatchers.any(),
-                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.anyInt()))
+        Mockito.when(view.getPage(ArgumentMatchers.isNull(), ArgumentMatchers.isNull(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.anyInt()))
                 .thenReturn(emptyPage());
 
-        assertOk(resource.page("  ", null, null, null, null, 50));
-        assertOk(resource.page(null, null, null, null, null, 50));
+        assertOk(resource.page(null, "  ", null, null, null, null, 50));
+        assertOk(resource.page(null, null, null, null, null, null, 50));
     }
 
     @Test
     public void aValidCursorIsParsedAndPassedThrough() {
         signedInAsSiteAdmin(ADMIN);
         final Instant cursor = Instant.parse("2026-08-01T12:00:00Z");
-        Mockito.when(view.getPage(ArgumentMatchers.eq(cursor), ArgumentMatchers.eq("ken"),
+        Mockito.when(view.getPage(ArgumentMatchers.isNull(), ArgumentMatchers.eq(cursor), ArgumentMatchers.eq("ken"),
                 ArgumentMatchers.eq("LOGIN"), ArgumentMatchers.eq("SUCCESS"), ArgumentMatchers.eq("note"),
                 ArgumentMatchers.eq(50))).thenReturn(emptyPage());
 
-        assertOk(resource.page(" 2026-08-01T12:00:00Z ", "ken", "LOGIN", "SUCCESS", "note", 50));
+        assertOk(resource.page(null, " 2026-08-01T12:00:00Z ", "ken", "LOGIN", "SUCCESS", "note", 50));
     }
 
     @Test
     public void theLimitIsClampedAtBothEnds() {
         signedInAsSiteAdmin(ADMIN);
         Mockito.when(view.getPage(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
-                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.anyInt()))
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.anyInt()))
                 .thenReturn(emptyPage());
-        Mockito.when(view.getRecent(ArgumentMatchers.anyInt())).thenReturn(emptyPage());
+        Mockito.when(view.getRecent(ArgumentMatchers.any(), ArgumentMatchers.anyInt())).thenReturn(emptyPage());
 
-        resource.page(null, null, null, null, null, 100_000);
-        Mockito.verify(view).getPage(null, null, null, null, null, 500);
+        resource.page(null, null, null, null, null, null, 100_000);
+        Mockito.verify(view).getPage(null, null, null, null, null, null, 500);
 
-        resource.recent(-3);
-        Mockito.verify(view).getRecent(1);
+        resource.recent(null, -3);
+        Mockito.verify(view).getRecent(null, 1);
     }
 
     /** The honesty flags: a partial answer must say so, or an outage reads as an empty history. */
@@ -102,9 +130,9 @@ public class AuditResourceTest extends ResourceTestSupport {
     public void theHonestyFlagsSurviveTheTripToTheWire() {
         signedInAsSiteAdmin(ADMIN);
         final AuditPage partial = new AuditPage(List.of(), LocalDate.of(2026, 7, 1), false, 3);
-        Mockito.when(view.getRecent(ArgumentMatchers.anyInt())).thenReturn(partial);
+        Mockito.when(view.getRecent(ArgumentMatchers.any(), ArgumentMatchers.anyInt())).thenReturn(partial);
 
-        final Response response = resource.recent(50);
+        final Response response = resource.recent(null, 50);
 
         assertOk(response);
         @SuppressWarnings("unchecked")
@@ -118,9 +146,9 @@ public class AuditResourceTest extends ResourceTestSupport {
     public void exportIsCsvWithAFilenameNotJson() {
         signedInAsSiteAdmin(ADMIN);
         Mockito.when(view.toCsv(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
-                ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn("time,actor\n");
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn("time,actor\n");
 
-        final Response response = resource.export(null, null, null, null, null);
+        final Response response = resource.export(null, null, null, null, null, null);
 
         Assert.assertEquals(response.getStatus(), 200);
         Assert.assertEquals(response.getMediaType().toString(), "text/csv");

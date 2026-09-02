@@ -40,12 +40,25 @@ import lombok.Value;
  * own history -- past actions appear to belong to an address that no longer exists, or worse, to whoever holds
  * it now. Storing both means the record survives the rename.
  *
+ * <p><b>orgId.</b> The organization (tenancy boundary) the event belongs to, so an organization's own
+ * viewers see their trail and only theirs, and a hosted organization's activity stays off the shared
+ * sites' trail. Stamped by {@code AuditEventBuilder}: from the entity when the writer has one (a
+ * transaction's or trip's org), else from the site the request came in on; null on records written before
+ * this field existed and on site-level events (a shared-host login, a deploy, a config change).
+ *
  * <p><b>schemaVersion.</b> Records imported from the old {@code trip-audit.log} files are version 1 and
  * genuinely lack an outcome and a target -- that information was never written down. The version lets the UI
  * present them as limited rather than rendering empty columns that look like a defect.
  */
 @Value
 public class AuditEvent implements Serializable {
+
+    /**
+     * Pinned: a page parks these in viewScope, which the Valkey session serializes, and an unpinned UID
+     * shifts with every field added (the 2026-08-14 outage). Adding {@code orgId} invalidated the admin
+     * sessions holding an audit page once regardless; pinning at the same time makes it the last time.
+     */
+    private static final long serialVersionUID = 1L;
 
     /** Current shape. 1 == imported legacy text; 2 == written by the typed API. */
     public static final int CURRENT_SCHEMA = 2;
@@ -75,6 +88,17 @@ public class AuditEvent implements Serializable {
 
     int schemaVersion;
 
+    /** The owning organization's id; null for site-level and pre-field records (see the class comment). */
+    String orgId;
+
+    /** Pre-org shape, kept for the callers and tests that never stamp one: {@code orgId} null. */
+    public AuditEvent(final Instant timestamp, final AuditAction action, final AuditOutcome outcome,
+            final String actorEmail, final String actorId, final String targetType, final String targetEmail,
+            final String targetId, final String message, final Integer schemaVersion) {
+        this(timestamp, action, outcome, actorEmail, actorId, targetType, targetEmail, targetId, message,
+                schemaVersion, null);
+    }
+
     @JsonCreator
     public AuditEvent(
             @JsonProperty("timestamp") final Instant timestamp,
@@ -86,7 +110,8 @@ public class AuditEvent implements Serializable {
             @JsonProperty("targetEmail") final String targetEmail,
             @JsonProperty("targetId") final String targetId,
             @JsonProperty("message") final String message,
-            @JsonProperty("schemaVersion") final Integer schemaVersion) {
+            @JsonProperty("schemaVersion") final Integer schemaVersion,
+            @JsonProperty("orgId") final String orgId) {
         // Truncated to millisecond precision on the way in, so the stored time and the sort key can never
         // disagree: a nanosecond-precision Instant would render one thing and key another.
         this.timestamp = (timestamp == null) ? Instant.now() : timestamp.truncatedTo(ChronoUnit.MILLIS);
@@ -101,6 +126,7 @@ public class AuditEvent implements Serializable {
         this.targetId = targetId;
         this.message = message;
         this.schemaVersion = (schemaVersion == null) ? CURRENT_SCHEMA : schemaVersion;
+        this.orgId = (orgId == null || orgId.isBlank()) ? null : orgId;
     }
 
     /** Partition key: the UTC day ({@code yyyy-MM-dd}) this event belongs to. */
@@ -140,7 +166,7 @@ public class AuditEvent implements Serializable {
      */
     public AuditEvent withNextMilli() {
         return new AuditEvent(timestamp.plusMillis(1), action, outcome, actorEmail, actorId,
-                targetType, targetEmail, targetId, message, schemaVersion);
+                targetType, targetEmail, targetId, message, schemaVersion, orgId);
     }
 
     /** True when this came from the imported log files and therefore has no reliable outcome or target. */

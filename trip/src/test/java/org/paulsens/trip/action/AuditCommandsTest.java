@@ -3,7 +3,9 @@ package org.paulsens.trip.action;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
@@ -143,6 +145,38 @@ public class AuditCommandsTest {
         // Unconverted pages must keep working while the conversion finishes.
         final String out = captureStdout(() -> audit.log("a@x.com", "LOGIN", "did a thing"));
         Assert.assertTrue(out.contains("LOGIN") && out.contains("did a thing"), out);
+    }
+
+    /**
+     * The records that carry an entity are stamped with THAT entity's organization, not the host's: a ledger
+     * row, a registration and a payment belong to their trip's tenant wherever an admin happened to record
+     * them (the shared host's reconciliation page, a transaction page reached from the shared site).
+     */
+    @Test
+    public void entityBackedRecordsBelongToTheEntitysOrganization() {
+        final Person payee = person("Pat", null, "Payee", "pat@example.com");
+        final Transaction tx = new Transaction(payee.getId(), null, null);
+        tx.setAmount(10f);
+        tx.setOrgId("org-of-the-row");
+        final String txLine = lineFor(captureStdout(() -> audit.transaction(payee, tx)), "pat@example.com");
+        Assert.assertTrue(txLine.endsWith(" | org=org-of-the-row"), txLine);
+
+        final Trip trip = trip("Acme Retreat");
+        trip.setOrgId("org-of-the-trip");
+        final String regLine = lineFor(captureStdout(() -> audit.registered(payee, trip)), "Acme Retreat");
+        Assert.assertTrue(regLine.endsWith(" | org=org-of-the-trip"), regLine);
+
+        final Payment payment = Payment.builder().paymentId("pay-1").orgId("org-of-the-payment").build();
+        final String payLine = lineFor(captureStdout(() -> audit.payment(payment, true, "Payment recorded",
+                new org.paulsens.trip.audit.AuditActor("a@x.com", "a"))), "pay-1");
+        Assert.assertTrue(payLine.endsWith(" | org=org-of-the-payment"), payLine);
+
+        final String noOrg = lineFor(captureStdout(() -> audit.registered(payee, trip("Legacy"))), "Legacy");
+        Assert.assertFalse(noOrg.contains("org="), "an org-less trip stamps nothing off a request: " + noOrg);
+    }
+
+    private static String lineFor(final String out, final String needle) {
+        return java.util.Arrays.stream(out.split("\\R")).filter(l -> l.contains(needle)).findFirst().orElse("");
     }
 
     /** {@code preferred} is stored as the nickname: getPreferredName() derives from it, falling back to first. */

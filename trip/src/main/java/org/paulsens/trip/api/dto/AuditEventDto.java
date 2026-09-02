@@ -14,5 +14,6 @@ public record AuditEventDto(
         String targetType,
         String targetEmail,
         String targetId,
-        String message) {
+        String message,
+        String orgId) {
 }

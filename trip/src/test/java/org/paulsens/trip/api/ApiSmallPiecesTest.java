@@ -92,8 +92,9 @@ public class ApiSmallPiecesTest {
     @Test
     public void auditEventDtoIsAPlainCarrier() {
         final AuditEventDto dto = new AuditEventDto(Instant.now(), "LOGIN", "SUCCESS", "a@x", "id",
-                "person", "t@x", "tid", "msg");
+                "person", "t@x", "tid", "msg", "org-1");
         Assert.assertEquals(dto.action(), "LOGIN");
+        Assert.assertEquals(dto.orgId(), "org-1");
     }
 
     @Test

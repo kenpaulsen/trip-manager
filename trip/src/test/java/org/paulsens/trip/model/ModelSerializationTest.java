@@ -65,12 +65,15 @@ public class ModelSerializationTest {
                 .actor("someone@example.com")
                 .action(AuditAction.LOGIN)
                 .outcome(AuditOutcome.FAILURE)
+                .scope(AuditScope.org("acme"))
                 .build();
 
         final AuditQuery revived = roundTrip(query);
 
         Assert.assertEquals(revived.getActor(), "someone@example.com");
         Assert.assertEquals(revived.getAction(), AuditAction.LOGIN);
+        Assert.assertTrue(revived.getScope().admits("acme"), "the tenancy boundary survives the session");
+        Assert.assertFalse(revived.getScope().admits("beta"));
     }
 
     @Test

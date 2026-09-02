@@ -10,6 +10,11 @@ every Trip belongs to one (`Trip.orgId`; the legacy `provider` display string is
 name on every save — `TripCommands.syncProviderFromOrg` — for the public renderers; `isCfpw()` and the
 landing filter key on the org's short name, falling back to `provider` only for org-less legacy rows), and
 Transactions carry `orgId` (stamped from the trip on new writes; `org-migrate.sh` backfills legacy rows).
+Every writer that knows the trip must use `saveTransaction(tx, tripId)`: the one-arg form stamps nothing,
+and `trip/transaction.xhtml`'s Save used it until 2026-09-02, so a row recorded on `acme.unitetrip.com`
+was org-less — listed on the shared site, invisible on Acme's (a row already carrying an org keeps it, so
+re-saving cannot re-tenant one). Re-running `org-migrate.sh` backfills such rows through their
+TRANSACTION→TRIP binding.
 Design every new data holder along this boundary.
 
 - Membership: `org_members` table (PK orgId, SK personId) is the source of truth; `Person.orgIds` is the

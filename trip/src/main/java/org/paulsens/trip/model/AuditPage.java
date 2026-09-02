@@ -22,6 +22,9 @@ import lombok.Value;
 @Value
 public class AuditPage implements Serializable {
 
+    /** Pinned, like {@link AuditEvent}: this is the object the audit page parks in viewScope. */
+    private static final long serialVersionUID = 1L;
+
     /** The matching events, newest first. */
     List<AuditEvent> events;
 

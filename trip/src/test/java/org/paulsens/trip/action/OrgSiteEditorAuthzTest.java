@@ -307,5 +307,17 @@ public class OrgSiteEditorAuthzTest {
         Assert.assertTrue(PrivilegeCommands.ORG_SCOPED_BASES.contains(PrivilegeCommands.MEDIA_ADMIN));
         Assert.assertTrue(PrivilegeCommands.GLOBAL_BASES.contains(PrivilegeCommands.CONTENT_ADMIN), "still global too");
         Assert.assertTrue(Caller.bound().personId() == null, "off a request, nobody");
+
+        // The audit trail follows the same shape: global rows read every trail, an org-scoped row reads
+        // that organization's, and the grant opens the dashboard (its Audit Trail card is the route).
+        Assert.assertTrue(PrivilegeCommands.ORG_SCOPED_BASES.contains(PrivilegeCommands.AUDIT_ADMIN));
+        Assert.assertTrue(PrivilegeCommands.ORG_HUB_BASES.contains(PrivilegeCommands.AUDIT_ADMIN));
+        Assert.assertTrue(PrivilegeCommands.GLOBAL_BASES.contains(PrivilegeCommands.AUDIT_ADMIN));
+
+        // The dashboard's Media card: the org's own media editor and site admins, not its admin as such.
+        Assert.assertTrue(orgs.canViewOrgMedia(FakeData.ACME_ORG_ID));
+        Assert.assertFalse(orgs.canViewOrgMedia(FakeData.BETA_ORG_ID), "another tenant's library");
+        Assert.assertFalse(orgs.canViewOrgMedia(null));
+        Assert.assertTrue(new OrgCommands(TestCallers::siteAdmin).canViewOrgMedia(FakeData.BETA_ORG_ID));
     }
 }

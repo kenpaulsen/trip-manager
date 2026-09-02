@@ -339,6 +339,7 @@ public class TripDeleteCommands {
     private void audit(final Trip trip, final AuditOutcome outcome, final String message) {
         Audit.builder(AuditAction.TRIP_DELETE, outcome)
                 .target(AuditEventBuilder.TARGET_TRIP, trip.getId())
+                .org(trip.getOrgId())
                 .message(message)
                 .log();
     }

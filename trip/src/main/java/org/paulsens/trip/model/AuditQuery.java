@@ -26,6 +26,9 @@ import lombok.Value;
 @Builder(toBuilder = true)
 public class AuditQuery implements Serializable {
 
+    /** Pinned, like {@link AuditEvent}: a page may park one of these in viewScope. */
+    private static final long serialVersionUID = 1L;
+
     /** Default page size; also what the admin table requests. */
     public static final int DEFAULT_LIMIT = 50;
 
@@ -52,9 +55,19 @@ public class AuditQuery implements Serializable {
     @Builder.Default
     int limit = DEFAULT_LIMIT;
 
+    /**
+     * Whose records this read may answer with ({@link AuditScope}); everything by default, which is right
+     * for the system context and wrong for any page -- the view bean always sets it from the site.
+     */
+    @Builder.Default
+    AuditScope scope = AuditScope.all();
+
     /** True when this event should appear in the results. */
     public boolean matches(final AuditEvent event) {
         if (event == null) {
+            return false;
+        }
+        if (!scope.admits(event.getOrgId())) {
             return false;
         }
         if (since != null && event.getTimestamp().isBefore(since)) {

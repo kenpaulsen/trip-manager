@@ -8,6 +8,7 @@ import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
+import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
@@ -110,9 +111,25 @@ public class AuditCommands {
      */
     public String payment(final String paymentId, final boolean succeeded, final String msg,
             final AuditActor who) {
+        return payment(paymentId, null, succeeded, msg, who);
+    }
+
+    /**
+     * {@link #payment(String, boolean, String, AuditActor)} with the payment in hand: the record lands in
+     * the payment's organization's trail whichever host it was recorded from (captures complete on return
+     * requests, retries run from the shared host's reconciliation page).
+     */
+    public String payment(final Payment payment, final boolean succeeded, final String msg,
+            final AuditActor who) {
+        return payment(payment.getPaymentId(), payment.getOrgId(), succeeded, msg, who);
+    }
+
+    private static String payment(final String paymentId, final String orgId, final boolean succeeded,
+            final String msg, final AuditActor who) {
         Audit.builder(AuditAction.PAYMENT, succeeded ? AuditOutcome.SUCCESS : AuditOutcome.FAILURE)
                 .actor((who == null) ? AuditActor.current() : who)
                 .target(AuditEventBuilder.TARGET_PAYMENT, paymentId)
+                .org(orgId)
                 .message(msg)
                 .log();
         return msg;
@@ -164,7 +181,7 @@ public class AuditCommands {
     /** @see #registered(Person, Trip) */
     public String registered(final Person target, final Trip trip, final AuditActor who) {
         final String msg = describe(target) + " just registered for the '" + titleOf(trip) + "' trip.";
-        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who);
+        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who, orgOf(trip));
     }
 
     /** A registration was approved -- an event that previously left NO record at all. */
@@ -176,7 +193,7 @@ public class AuditCommands {
     public String registrationApproved(final Person target, final Trip trip, final AuditActor who) {
         final String msg = actorEmail(who) + " approved " + describe(target)
                 + " for '" + titleOf(trip) + "'.";
-        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who);
+        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who, orgOf(trip));
     }
 
     /** A registration was moved between trips. */
@@ -189,7 +206,7 @@ public class AuditCommands {
             final Person target, final Trip from, final Trip to, final AuditActor who) {
         final String msg = actorEmail(who) + " moved " + describe(target)
                 + " from '" + titleOf(from) + "' to '" + titleOf(to) + "'.";
-        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who);
+        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who, orgOf(to));
     }
 
     /** A registration was cancelled. */
@@ -200,7 +217,7 @@ public class AuditCommands {
     /** @see #registrationRemoved(Person, Trip) */
     public String registrationRemoved(final Person target, final Trip trip, final AuditActor who) {
         final String msg = describe(target) + " was removed from '" + titleOf(trip) + "'.";
-        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who);
+        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who, orgOf(trip));
     }
 
     /** A registration status change with no dedicated event: un-approve, or reviving a removed row. */
@@ -214,7 +231,7 @@ public class AuditCommands {
             final String to, final AuditActor who) {
         final String msg = actorEmail(who) + " changed " + describe(target) + "'s registration on '"
                 + titleOf(trip) + "' from " + from + " to " + to + ".";
-        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who);
+        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who, orgOf(trip));
     }
 
     /** A todo item's status changed for someone. */
@@ -247,9 +264,12 @@ public class AuditCommands {
         final AuditActor actor = (who == null) ? AuditActor.current() : who;
         final String msg = describeActor(actor) + " recorded $" + amountOf(tx) + " (" + noteOf(tx) + ") for "
                 + describe(target);
+        // The ROW's org, not the site's: a ledger row belongs to its trip's organization, and an admin can
+        // record one from the shared host (docs/payments.md, "site reach").
         final AuditEventBuilder builder = Audit.builder(AuditAction.TRANSACTION, AuditOutcome.SUCCESS)
                 .actor(actor)
                 .targetPerson(target)
+                .org(tx == null ? null : tx.getOrgId())
                 .message(msg);
         if (tx != null && tx.getTxId() != null) {
             builder.target(AuditEventBuilder.TARGET_TRANSACTION, tx.getTxId());
@@ -290,12 +310,23 @@ public class AuditCommands {
 
     private static String record(final AuditAction action, final AuditOutcome outcome, final Person target,
             final String msg, final AuditActor who) {
+        return record(action, outcome, target, msg, who, null);
+    }
+
+    /** {@link #record} with the owning organization when the caller has the entity that knows it. */
+    private static String record(final AuditAction action, final AuditOutcome outcome, final Person target,
+            final String msg, final AuditActor who, final String orgId) {
         Audit.builder(action, outcome)
                 .actor(who == null ? AuditActor.current() : who)
                 .targetPerson(target)
+                .org(orgId)
                 .message(msg)
                 .log();
         return msg;
+    }
+
+    private static String orgOf(final Trip trip) {
+        return trip == null ? null : trip.getOrgId();
     }
 
     /** "First Last [email]", tolerating any of them being null -- the old concat chains did not. */

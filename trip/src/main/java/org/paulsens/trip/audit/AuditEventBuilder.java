@@ -5,6 +5,7 @@ import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditEvent;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.site.SiteContext;
 
 /**
  * Assembles an {@link AuditEvent} at a call site.
@@ -46,6 +47,7 @@ public final class AuditEventBuilder {
     private String targetId;
     private String message;
     private int schemaVersion = AuditEvent.CURRENT_SCHEMA;
+    private String orgId;
 
     AuditEventBuilder(final AuditAction action, final AuditOutcome outcome) {
         this.action = action;
@@ -99,6 +101,17 @@ public final class AuditEventBuilder {
         return this;
     }
 
+    /**
+     * The organization this event belongs to, when the writer has the entity in hand (a transaction's or a
+     * trip's org): the entity is the truth, whichever site the request came in on -- a site admin
+     * recording an Acme payment from the shared host still writes an Acme record. Without this, {@link
+     * #build} falls back to the site of the current request. Null/blank leaves the fallback in charge.
+     */
+    public AuditEventBuilder org(final String ownerOrgId) {
+        this.orgId = (ownerOrgId == null || ownerOrgId.isBlank()) ? null : ownerOrgId;
+        return this;
+    }
+
     /** Overrides the time; used by the importer replaying historical records, not by live callers. */
     public AuditEventBuilder at(final Instant when) {
         this.timestamp = when;
@@ -113,7 +126,17 @@ public final class AuditEventBuilder {
 
     public AuditEvent build() {
         return new AuditEvent(timestamp, action, outcome, actorEmail, actorId,
-                targetType, targetEmail, targetId, message, schemaVersion);
+                targetType, targetEmail, targetId, message, schemaVersion, orgId != null ? orgId : siteOrg());
+    }
+
+    /**
+     * The organization whose SITE the current request came in on, or null on a shared host and off a
+     * request: the default tenancy of an event nobody stamped explicitly, so everything done on
+     * {@code acme.unitetrip.com} lands in Acme's trail and nothing done on the shared hosts does.
+     */
+    private static String siteOrg() {
+        final SiteContext site = SiteContext.current();
+        return site.isOrg() ? site.orgId().getValue() : null;
     }
 
     /** Records the built event. The usual terminal call: {@code Audit.builder(...).actor(...).log();} */

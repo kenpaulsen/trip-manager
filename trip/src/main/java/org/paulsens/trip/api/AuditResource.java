@@ -28,7 +28,9 @@ import org.paulsens.trip.model.AuditPage;
  * code for the same reason. Audit entries are a side effect of real operations and nothing else.
  *
  * <p>Everything here needs {@code auditAdmin}. The trail is a log of what everyone did, so read access to it is
- * read access to a summary of every other privilege's activity.
+ * read access to a summary of every other privilege's activity. The reads are scoped like the page
+ * ({@code AuditViewCommands.scopeFor}): {@code org=} names one organization's trail (its own
+ * {@code auditAdmin@org} holders may read it), and without it the answer is the host's own view.
  */
 @Slf4j
 @Path("audit")
@@ -52,13 +54,14 @@ public class AuditResource extends BaseResource {
     @GET
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response page(
+            @QueryParam("org") final String org,
             @QueryParam("before") final String before,
             @QueryParam("actor") final String actor,
             @QueryParam("action") final String action,
             @QueryParam("outcome") final String outcome,
             @QueryParam("text") final String text,
             @QueryParam("limit") @DefaultValue("50") final int limit) {
-        if (!privileges().has(ApiPrivileges.AUDIT_ADMIN)) {
+        if (!mayRead(org)) {
             return error(403, ApiErrors.FORBIDDEN, "Audit access required.");
         }
         final Instant cursor;
@@ -68,7 +71,8 @@ public class AuditResource extends BaseResource {
             return error(400, ApiErrors.BAD_REQUEST, "before must be an ISO-8601 instant.");
         }
         final AuditPage page = Beans.get(AuditViewCommands.class)
-                .getPage(cursor, actor, action, outcome, text, Math.min(Math.max(limit, 1), MAX_LIMIT));
+                .getPage(blankToNull(org), cursor, actor, action, outcome, text,
+                        Math.min(Math.max(limit, 1), MAX_LIMIT));
         return ok(toDto(page));
     }
 
@@ -76,12 +80,13 @@ public class AuditResource extends BaseResource {
     @GET
     @Path("recent")
     @Produces({V1, MediaType.APPLICATION_JSON})
-    public Response recent(@QueryParam("limit") @DefaultValue("50") final int limit) {
-        if (!privileges().has(ApiPrivileges.AUDIT_ADMIN)) {
+    public Response recent(@QueryParam("org") final String org,
+            @QueryParam("limit") @DefaultValue("50") final int limit) {
+        if (!mayRead(org)) {
             return error(403, ApiErrors.FORBIDDEN, "Audit access required.");
         }
         return ok(toDto(Beans.get(AuditViewCommands.class)
-                .getRecent(Math.min(Math.max(limit, 1), MAX_LIMIT))));
+                .getRecent(blankToNull(org), Math.min(Math.max(limit, 1), MAX_LIMIT))));
     }
 
     /**
@@ -94,12 +99,13 @@ public class AuditResource extends BaseResource {
     @Path("export.csv")
     @Produces("text/csv")
     public Response export(
+            @QueryParam("org") final String org,
             @QueryParam("before") final String before,
             @QueryParam("actor") final String actor,
             @QueryParam("action") final String action,
             @QueryParam("outcome") final String outcome,
             @QueryParam("text") final String text) {
-        if (!privileges().has(ApiPrivileges.AUDIT_ADMIN)) {
+        if (!mayRead(org)) {
             return error(403, ApiErrors.FORBIDDEN, "Audit access required.");
         }
         final Instant cursor;
@@ -108,7 +114,8 @@ public class AuditResource extends BaseResource {
         } catch (final DateTimeParseException ex) {
             return error(400, ApiErrors.BAD_REQUEST, "before must be an ISO-8601 instant.");
         }
-        final String csv = Beans.get(AuditViewCommands.class).toCsv(cursor, actor, action, outcome, text);
+        final String csv = Beans.get(AuditViewCommands.class)
+                .toCsv(blankToNull(org), cursor, actor, action, outcome, text);
         return Response.ok(csv)
                 .type("text/csv")
                 .header("Vary", "Accept")
@@ -150,5 +157,14 @@ public class AuditResource extends BaseResource {
 
     private static Instant parseCursor(final String before) {
         return (before == null || before.isBlank()) ? null : Instant.parse(before.trim());
+    }
+
+    /** The page's rule, against this request's caller: {@code AuditViewCommands.canView}. */
+    private boolean mayRead(final String org) {
+        return AuditViewCommands.canView(privileges().caller(), blankToNull(org));
+    }
+
+    private static String blankToNull(final String value) {
+        return (value == null || value.isBlank()) ? null : value.trim();
     }
 }

@@ -55,6 +55,9 @@ public interface AuditSink {
                 line.append(':').append(event.getTargetId());
             }
         }
+        if (event.getOrgId() != null) {
+            line.append(" | org=").append(event.getOrgId());
+        }
         return line.toString();
     }
 

@@ -75,13 +75,14 @@ public class PrivilegeCommands {
     public static final List<String> TRIP_SCOPED_BASES =
             List.of(TRIP_MGR, TRIP_FIN_ADMIN, TRIP_FIN_VIEW, TRIP_VIEW, CHAT_MGR, REGISTRATION_ADMIN);
     /**
-     * The org-scoped grants. {@link #CONTENT_ADMIN} and {@link #MEDIA_ADMIN} are BOTH here and global: the
-     * global row edits every site, the org-scoped row ({@code contentAdmin} + the org UUID) edits that one
-     * organization's own site -- its page, its templates, its media library -- and nothing shared. The
-     * org-site editing decision is privilege-only: an org's admins do not edit content by being admins.
+     * The org-scoped grants. {@link #CONTENT_ADMIN}, {@link #MEDIA_ADMIN} and {@link #AUDIT_ADMIN} are BOTH
+     * here and global: the global row edits every site (reads every trail), the org-scoped row ({@code
+     * contentAdmin} + the org UUID) edits that one organization's own site -- its page, its templates, its
+     * media library, its audit trail -- and nothing shared. The org-site editing decision is
+     * privilege-only: an org's admins do not edit content, or read the trail, by being admins.
      */
     public static final List<String> ORG_SCOPED_BASES =
-            List.of(PEOPLE_ADMIN, ADD_TRIP, EMAIL_ADMIN, PAYMENTS_ADMIN, CONTENT_ADMIN, MEDIA_ADMIN);
+            List.of(PEOPLE_ADMIN, ADD_TRIP, EMAIL_ADMIN, PAYMENTS_ADMIN, CONTENT_ADMIN, MEDIA_ADMIN, AUDIT_ADMIN);
     /**
      * The org-scoped bases that open the org DASHBOARD (hub) to their holders. It was the operational grants
      * alone while an editor's whole job was the org's site in edit mode; the hub is now also where the org's
@@ -90,7 +91,7 @@ public class PrivilegeCommands {
      * itself: every card on it is gated separately, so an editor arrives at a page showing only their own.
      */
     public static final List<String> ORG_HUB_BASES =
-            List.of(PEOPLE_ADMIN, ADD_TRIP, EMAIL_ADMIN, PAYMENTS_ADMIN, CONTENT_ADMIN, MEDIA_ADMIN);
+            List.of(PEOPLE_ADMIN, ADD_TRIP, EMAIL_ADMIN, PAYMENTS_ADMIN, CONTENT_ADMIN, MEDIA_ADMIN, AUDIT_ADMIN);
     public static final List<String> GLOBAL_BASES = List.of(PRIVILEGE_ADMIN, CONFIG_ADMIN, AUDIT_ADMIN,
             SITE_DEPLOYER, CONTENT_ADMIN, MEDIA_ADMIN, EVENT_ADMIN);
 
@@ -112,7 +113,7 @@ public class PrivilegeCommands {
             java.util.Map.entry(PAYMENTS_ADMIN, "Use payment sandbox mode on the organization's trips"),
             java.util.Map.entry(PRIVILEGE_ADMIN, "See and edit privileges"),
             java.util.Map.entry(CONFIG_ADMIN, "See and manage site settings"),
-            java.util.Map.entry(AUDIT_ADMIN, "See audit logs"),
+            java.util.Map.entry(AUDIT_ADMIN, "See the audit trail (an organization's own, when scoped to one)"),
             java.util.Map.entry(SITE_DEPLOYER, "Deploy committed changes to AWS"),
             java.util.Map.entry(CONTENT_ADMIN, "Edit templates and template-driven page content"),
             java.util.Map.entry(MEDIA_ADMIN, "Manage the media library"),
@@ -201,6 +202,7 @@ public class PrivilegeCommands {
         Audit.builder(AuditAction.PRIVILEGE, AuditOutcome.of(saved))
                 .actor(who == null ? AuditActor.current() : who)
                 .target(AuditEventBuilder.TARGET_PRIVILEGE, privilege.getId())
+                .org(orgOf(privilege))
                 .message(describeChange(privilege, before))
                 .log();
         return saved;
@@ -297,6 +299,11 @@ public class PrivilegeCommands {
         }
         final SiteContext site = SiteContext.current();
         return site.isOrg() && check(name, site.orgId().getValue(), personId);
+    }
+
+    /** The organization an org-scoped privilege belongs to (its trail records the grant); null otherwise. */
+    private static String orgOf(final Privilege privilege) {
+        return ORG_SCOPED_BASES.contains(privilege.getName()) ? privilege.getScopeId() : null;
     }
 
     /** Test seam: the caller behind the current request (only {@link #checkHere} consults it). */

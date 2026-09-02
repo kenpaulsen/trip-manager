@@ -735,6 +735,20 @@ public class OrgCommands {
         return canCreateTripFor(orgId);
     }
 
+    /**
+     * The org's media library (the dashboard's Media card): site admins, global {@code mediaAdmin}, and the
+     * org's own {@code mediaAdmin@org} holders -- NOT its admins as such (media editing is privilege-only,
+     * like content). The library itself lives on the org's own site ({@code admin/media.jsf} is
+     * host-scoped), which is where the card sends them.
+     */
+    public boolean canViewOrgMedia(final String orgId) {
+        if (orgId == null || orgId.isBlank()) {
+            return false;
+        }
+        final Caller current = caller();
+        return current.has(PrivilegeCommands.MEDIA_ADMIN) || current.has(PrivilegeCommands.MEDIA_ADMIN, orgId);
+    }
+
     /** The org People page: admins get the controls, peopleAdmin holders a read-only browse. */
     public boolean canViewOrgPeople(final String orgId) {
         return canManageOrg(orgId)
@@ -1023,7 +1037,8 @@ public class OrgCommands {
             PrivilegeCommands.EMAIL_ADMIN, "Email Admin",
             PrivilegeCommands.PAYMENTS_ADMIN, "Payments Admin",
             PrivilegeCommands.CONTENT_ADMIN, "Site Content Editor",
-            PrivilegeCommands.MEDIA_ADMIN, "Site Media Editor");
+            PrivilegeCommands.MEDIA_ADMIN, "Site Media Editor",
+            PrivilegeCommands.AUDIT_ADMIN, "Audit Viewer");
 
     /**
      * The org-scoped privileges this person holds here, each as a {@code name}/{@code desc}/{@code base}
@@ -2227,6 +2242,7 @@ public class OrgCommands {
         Audit.builder(AuditAction.ORGANIZATION, AuditOutcome.SUCCESS)
                 .actor(current.auditActor())
                 .target(AuditEventBuilder.TARGET_ORGANIZATION, org.getId().getValue())
+                .org(org.getId().getValue())
                 .message(message)
                 .log();
     }

@@ -24,6 +24,17 @@ public class AuditEventTest {
     }
 
     @Test
+    public void theOrgSurvivesTheCollisionNudgeAndBlankMeansNone() {
+        final AuditEvent acme = new AuditEvent(Instant.parse("2026-09-02T12:00:00Z"), AuditAction.LOGIN,
+                AuditOutcome.SUCCESS, "a@example.com", null, null, null, null, "msg", null, "acme");
+        Assert.assertEquals(acme.getOrgId(), "acme");
+        Assert.assertEquals(acme.withNextMilli().getOrgId(), "acme", "the retry keeps the tenancy");
+        Assert.assertNull(at(Instant.now()).getOrgId(), "the pre-org constructor stamps none");
+        Assert.assertNull(new AuditEvent(Instant.now(), AuditAction.LOGIN, AuditOutcome.SUCCESS,
+                "a@example.com", null, null, null, null, "msg", null, "  ").getOrgId(), "blank reads as none");
+    }
+
+    @Test
     public void partitionIsTheUtcDay() {
         final AuditEvent event = at(Instant.parse("2026-07-26T23:59:59Z"));
         Assert.assertEquals(event.getPartition(), "2026-07-26");
