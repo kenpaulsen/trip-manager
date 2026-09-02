@@ -128,7 +128,10 @@ public class TransactionsResource extends BaseResource {
         final Person.Id subject = Person.Id.from(personIdParam);
         final Transaction tx = transactions.createTransaction(subject);
         apply(body, tx);
-        if (!transactions.saveTransaction(tx)) {
+        // The trip-carrying save stamps the tenancy boundary (Transaction.orgId) from ?trip=, as the page
+        // does: an unstamped row is org-less legacy content, which the shared sites list and an org's own
+        // site never would.
+        if (!transactions.saveTransaction(tx, tripId)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the transaction.");
         }
         Beans.get(AuditCommands.class).transaction(findPerson(subject), tx, actor());
@@ -163,7 +166,7 @@ public class TransactionsResource extends BaseResource {
             return error(404, ApiErrors.NOT_FOUND, "No such transaction.");
         }
         apply(body, tx);
-        if (!transactions.saveTransaction(tx)) {
+        if (!transactions.saveTransaction(tx, tripId)) {    // a row that already carries an org keeps it
             return error(500, ApiErrors.STORE_FAILED, "Could not save the transaction.");
         }
         Beans.get(AuditCommands.class).transaction(findPerson(subject), tx, actor());

@@ -16,6 +16,7 @@ import java.util.function.Supplier;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Payment;
@@ -388,7 +389,11 @@ public class PaymentCommands {
 
     // ------------------------------------------------------------------ reconciliation (site admin)
 
-    /** Non-terminal, non-sandbox payments -- the money that may still be owed a ledger row. */
+    /**
+     * Non-terminal, non-sandbox payments -- the money that may still be owed a ledger row -- of the
+     * organizations the SITE this request is for lists ({@code ListingScope.reaches} on the payment's org;
+     * an org's own payments reconcile on its own host, a hosted org's never on the shared one).
+     */
     public List<Payment> getOpenPayments() {
         if (!caller().isSiteAdmin()) {
             return List.of();
@@ -397,6 +402,7 @@ public class PaymentCommands {
                 .filter(payment -> payment.getStatus() == Payment.Status.CREATED
                         || payment.getStatus() == Payment.Status.CAPTURED)
                 .filter(payment -> !payment.isSandbox())
+                .filter(payment -> ListingScope.reachable(payment.getOrgId()))
                 .sorted(Comparator.comparing(Payment::getCreatedAt,
                         Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();

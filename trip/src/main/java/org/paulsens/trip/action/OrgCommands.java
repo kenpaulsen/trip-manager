@@ -24,6 +24,7 @@ import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentTemplate;
+import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.model.FeesPaidBy;
 import org.paulsens.trip.model.OrgMember;
@@ -1124,7 +1125,12 @@ public class OrgCommands {
         if (!canMail()) {
             return List.of();
         }
-        final List<Trip> recent = DAO.getInstance().getRecentTrips(limit, Cached.YES);
+        // Site-gated like every trip picker: the merge page resolves its pick through TripCommands.getTrip,
+        // which answers blank for a trip this host does not reach (a hosted org's roster is mailed from
+        // the org's own host).
+        final List<Trip> recent = DAO.getInstance().getRecentTrips(limit, Cached.YES).stream()
+                .filter(trip -> ListingScope.reachable(trip.getOrgId()))
+                .toList();
         if (caller().isSiteAdmin()) {
             return recent;
         }

@@ -26,6 +26,30 @@ Design every new data holder along this boundary.
 - Org pickers are `p:autoComplete` (contains, case-insensitive) — never a plain dropdown; 100+ orgs is a
   design constraint.
 
+### Money is site-scoped on read (2026-09-01)
+
+What a site LISTS is what it shows of the ledger — the same rule as trips (`org-admin.md`, "What a site can
+reach": `ListingScope.reaches(orgId)`). A production validation of the org sites found a payment started
+on acme.unitetrip.com showing up on visitqueenofpeace.com; now:
+
+- `TransactionsCommands.getTransactions(userId)` — the ONE read behind the Balance page
+  (`trip/transactions.jsf`, sorted/family variants), the trip transaction views, the registration/party
+  amounts, `admin/person.jsf`, `GET /api/transactions/...` — returns only the rows whose `orgId` the site
+  reaches: an org host lists that org's rows; a shared host lists the rows of the orgs it lists plus
+  org-less legacy rows (a row with no `orgId`). `getTransaction(userId, txId)` answers null for a row the
+  site does not list, exactly like a row that does not exist.
+- **Totals and balances shown on a site are computed from the listed rows only** (`getBalance`,
+  `getFamilyBalance`, the pages' running columns): a person's vqop balance is their balance with the
+  organizations vqop lists, and their Acme balance lives on Acme's site. There is no all-sites total on any
+  page; the whole ledger is what the unbound/system context reads (mail, exports run under
+  `RequestContext.system()` reach everything).
+- `PaymentCommands.getOpenPayments()` (the `admin/payments.jsf` reconciliation list) is filtered the same way
+  on `Payment.orgId`.
+- The ledger itself is untouched: payment creation/capture/recording, `PaymentRecorder`, the group-transaction
+  helpers (`getGroupTransactionForUser`, `saveGroupTransaction`) and the delete guards read the store
+  directly. Scoping is a READ concern. `POST/PUT /api/transactions/people/{id}?trip=` now stamps the org
+  from the trip like the page does (`saveTransaction(tx, tripId)`), so an API-created row is tenanted.
+
 ## Processor configs and secrets
 
 `PaymentProcessorConfig` rows live in `payment_processors` (PK **orgId**, SK id — the partition IS the

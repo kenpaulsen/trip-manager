@@ -89,7 +89,10 @@ public class TripCommands {
         if (orgId == null || orgId.isBlank() || !orgSource.get().canViewOrgTrips(orgId)) {
             return Collections.emptyList();
         }
-        return getRecentTrips(limit * 4).stream()
+        // Deliberately NOT site-gated: the org's own trips page is keyed and gated by the org, and a site
+        // admin opens it from the shared host's Organizations page; the page links each trip to the host
+        // that reaches it (SiteCommands.hostFor) rather than this list going empty there.
+        return recentTripsAnywhere(limit * 4).stream()
                 .filter(trip -> orgId.equals(trip.getOrgId()))
                 .limit(limit)
                 .toList();
@@ -275,7 +278,13 @@ public class TripCommands {
         return trip;
     }
 
+    /** The active trips this site reaches ({@link #reachesHere}). */
     public List<Trip> getActiveTrips(final int pastDaysToCountAsActive) {
+        return here(activeTripsAnywhere(pastDaysToCountAsActive));
+    }
+
+    /** Every active trip regardless of site: the raw index the site-scoped listings narrow themselves. */
+    private List<Trip> activeTripsAnywhere(final int pastDaysToCountAsActive) {
         try {
             return DAO.getInstance().getActiveTrips(LocalDateTime.now().minus(pastDaysToCountAsActive, DAYS),
                     Cached.YES);
@@ -298,7 +307,7 @@ public class TripCommands {
     /** {@link #getMenuTrips(int, Person.Id, boolean)} narrowed by the site admin's org selector. */
     public List<Trip> getMenuTrips(final int pastDaysToCountAsActive, final Person.Id userId,
             final boolean showAll, final String selectedOrgId) {
-        return getActiveTrips(pastDaysToCountAsActive).stream()
+        return activeTripsAnywhere(pastDaysToCountAsActive).stream()
                 .filter(trip -> listsInMenu(trip, userId, showAll, selectedOrgId))
                 .toList();
     }
@@ -355,7 +364,7 @@ public class TripCommands {
 
     /** Every publicly-listed trip regardless of site: the raw index the site-scoped views narrow. */
     private List<Trip> publicTripsAnywhere() {
-        return getActiveTrips(PUBLIC_PAST_DAYS).stream()
+        return activeTripsAnywhere(PUBLIC_PAST_DAYS).stream()
                 .filter(trip -> Boolean.TRUE.equals(trip.getOpenToPublic()))
                 .sorted(Comparator.comparing(Trip::getStartDate,
                         Comparator.nullsLast(Comparator.naturalOrder())))
@@ -488,7 +497,7 @@ public class TripCommands {
         final LocalDateTime cutoff = LocalDateTime.now().minus(pastDaysStillActive, DAYS);
         if (isAdmin) {
             try {
-                return DAO.getInstance().getInactiveTrips(cutoff, limit, Cached.YES);
+                return here(DAO.getInstance().getInactiveTrips(cutoff, limit, Cached.YES));
             } catch (final RuntimeException ex) {
                 log.error("Failed to get inactive trips!", ex);
                 return Collections.emptyList();
@@ -506,6 +515,11 @@ public class TripCommands {
      * scan. Callers (e.g. XHTML dropdowns) pass the cap so it is configurable without a code change.
      */
     public List<Trip> getRecentTrips(final int limit) {
+        return here(recentTripsAnywhere(limit));
+    }
+
+    /** {@link #getRecentTrips} before the site gate -- for the org-keyed reads, which bound themselves. */
+    private List<Trip> recentTripsAnywhere(final int limit) {
         try {
             return DAO.getInstance().getRecentTrips(limit, Cached.YES);
         } catch (final RuntimeException ex) {
@@ -514,9 +528,16 @@ public class TripCommands {
         }
     }
 
+    /**
+     * The trip by id, or a blank trip (fresh id, null title) when there is no such trip -- OR when the site
+     * this request is for does not reach it ({@link #reachesHere}): a hosted organization's trip on the
+     * shared site, another org's trip on an org site. Pages prove existence with {@code id.equals(...)} /
+     * {@code title == null} and REST with {@code BaseResource.findTrip}, so one gate here makes an
+     * out-of-site trip behave exactly like an unknown one everywhere those read through.
+     */
     public Trip getTrip(final String id) {
         try {
-            return DAO.getInstance().getTrip(id, Cached.YES).orElse(Trip.builder().build());
+            return hereOrBlank(DAO.getInstance().getTrip(id, Cached.YES).orElse(null));
         } catch (final RuntimeException ex) {
             log.error("Failed to get trip '" + id + "'!", ex);
             return Trip.builder().build();
@@ -526,15 +547,36 @@ public class TripCommands {
     /**
      * The trip an EDIT page seeds its working draft from ({@code TripEditDrafts}), always read fresh: the
      * draft becomes the save payload wholesale, so seeding it from the near-cache would let a stale copy
-     * overwrite fields somebody else just changed. Display resolution stays on {@link #getTrip}.
+     * overwrite fields somebody else just changed. Display resolution stays on {@link #getTrip}; the site
+     * gate is the same.
      */
     public Trip getTripForEdit(final String id) {
         try {
-            return DAO.getInstance().getTrip(id, Cached.NO).orElse(Trip.builder().build());
+            return hereOrBlank(DAO.getInstance().getTrip(id, Cached.NO).orElse(null));
         } catch (final RuntimeException ex) {
             log.error("Failed to get trip '" + id + "' for editing!", ex);
             return Trip.builder().build();
         }
+    }
+
+    /**
+     * Whether the site this request is for serves pages about this trip -- {@code ListingScope.reaches}
+     * on the trip's org: an org site reaches only its own trips, a shared site the orgs it lists (its
+     * sharing tenants, org-less legacy trips, and a hosted org only while the shared page curates it).
+     * Everything is reachable off a bound request (mail, digests, schedulers). Every trip READ on this
+     * bean applies it, so lists never offer what {@link #getTrip} would then answer blank.
+     */
+    static boolean reachesHere(final Trip trip) {
+        return ListingScope.reachable(trip.getOrgId());
+    }
+
+    private static Trip hereOrBlank(final Trip trip) {
+        return trip == null || !reachesHere(trip) ? Trip.builder().build() : trip;
+    }
+
+    /** {@code trips} narrowed to what this site reaches. */
+    private static List<Trip> here(final List<Trip> trips) {
+        return trips.stream().filter(TripCommands::reachesHere).toList();
     }
 
     public Trip getBoundTrip(final String id, final String bindingType) {
@@ -559,7 +601,7 @@ public class TripCommands {
     public Trip getTripForUser(final Trip currTrip, final Person.Id userId, final Boolean showAll,
             final String tripId) {
         Trip result;
-        if (canSeeTrip(currTrip, userId, showAll)) {
+        if (canSeeTrip(currTrip, userId, showAll) && !isBlankAnswer(currTrip)) {
             result = currTrip;                          // Use current trip
         } else if ((tripId != null) && canSeeTrip(findTrip(tripId), userId, showAll)) {
             result = findTrip(tripId);                  // Use requested trip
@@ -578,6 +620,17 @@ public class TripCommands {
             }
         }
         return result;
+    }
+
+    /**
+     * Whether this is the bean convention's "no such trip" answer ({@link #getTrip} on a miss or an
+     * out-of-site trip): a page passes it straight back in as {@code currTrip} after reading
+     * {@code sessionScope.lastTripId}, and an admin "can see" any trip -- so without this the site's
+     * "current trip" would be the blank one instead of the next trip the site actually lists. Recognized by
+     * its minted id, which nothing ever stored (a title can legitimately be missing; an unstored id cannot).
+     */
+    private boolean isBlankAnswer(final Trip trip) {
+        return findTrip(trip.getId()) == null;
     }
 
     /** The ids of these events, in order -- the view-held SCALAR anchor for frozen-order row resolution. */
@@ -637,7 +690,7 @@ public class TripCommands {
 
     public List<Trip> getTripsForUser(final Person.Id userId) {
         try {
-            return DAO.getInstance().getTripsForUser(userId, Cached.YES);
+            return here(DAO.getInstance().getTripsForUser(userId, Cached.YES));
         } catch (final RuntimeException ex) {
             log.error("Failed to get trips for user!", ex);
             return Collections.emptyList();
@@ -749,7 +802,8 @@ public class TripCommands {
      * @return The trip or null if not found.
      */
     private Trip findTrip(final String tripId) {
-        return DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
+        final Trip trip = DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
+        return trip == null || !reachesHere(trip) ? null : trip;
     }
 
     /**

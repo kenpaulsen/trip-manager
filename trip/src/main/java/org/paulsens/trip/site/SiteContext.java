@@ -97,4 +97,15 @@ public record SiteContext(Mode mode, Organization.Id orgId, String slug, String 
     public boolean isUnknown() {
         return mode == Mode.UNKNOWN;
     }
+
+    /**
+     * Whether this site was resolved from a request's {@code Host} at all. The off-request default
+     * ({@link #current()} with nothing bound, {@code RequestContext.system()}) carries no host: background
+     * senders, schedulers and unit tests run there, and a tenant boundary is a property of a HOST, so
+     * {@link ListingScope#reaches} admits everything for them -- the organization must then be taken from
+     * the entity in hand, never from a site.
+     */
+    public boolean isBound() {
+        return host != null;
+    }
 }

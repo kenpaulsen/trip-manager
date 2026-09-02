@@ -56,6 +56,7 @@ import org.paulsens.trip.security.Digests;
 import org.paulsens.trip.util.RandomData;
 import org.paulsens.trip.util.ScopeUtil;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.site.ListingScope;
 
 /**
  * Chat operations for both JSF pages and the JAX-RS resource. Capture {@link AuditActor} at the top of any
@@ -334,6 +335,9 @@ public class ChatCommands {
      * roster backfill) never does, so no code path that materialises ordinary rows can become a back door.
      */
     public boolean canParticipate(final String tripId, final Person.Id personId) {
+        if (!reachesHere(tripId)) {
+            return false;
+        }
         if (isTripMember(tripId, personId)) {
             return true;
         }
@@ -341,6 +345,19 @@ public class ChatCommands {
             return false;
         }
         return guestJoined(dao().getChatMembership(ChatChannel.Id.forTrip(tripId), personId, Cached.NO).orElse(null));
+    }
+
+    /**
+     * Whether the SITE this request is for serves this trip at all ({@code ListingScope.reaches} on the
+     * trip's org -- the same gate {@code TripCommands.getTrip} answers blank behind). A member of a hosted
+     * org's trip is not in its chat on the shared host, nor on another org's host: every chat access
+     * answer ({@link #canParticipate}, {@link #readDenial}) starts here, so the page, the REST feed and
+     * the long poll refuse alike. Unknown trip = not reachable; everything is reachable off a bound
+     * request (the digest and notification senders run under the system context).
+     */
+    private boolean reachesHere(final String tripId) {
+        final Trip trip = tripId == null ? null : dao().getTrip(tripId, Cached.NO).orElse(null);
+        return trip != null && ListingScope.reachable(trip.getOrgId());
     }
 
     private static boolean guestJoined(final ChatMembership row) {
@@ -759,6 +776,10 @@ public class ChatCommands {
         // means "chat off" holds for the JSF page, the REST feed, the digest and the export alike.
         if (!chatEnabledFor(channel)) {
             return "CHAT_DISABLED";
+        }
+        // A trip channel the site does not reach reads as "not a member" -- the trip itself is blank here.
+        if (channel.getTripId() != null && !reachesHere(channel.getTripId())) {
+            return "NOT_A_TRIP_MEMBER";
         }
         // The membership row is read BEFORE any grant, and LEFT/REMOVED refuse before isTripMember allows:
         // an admin REMOVE must oust a trip member and a guest alike, and a guest-marked JOINED row is itself

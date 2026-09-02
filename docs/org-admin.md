@@ -227,6 +227,38 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   (`Organization.allowSharedSites`, org-admin controlled, saved through `saveOrgEdits`' 8th argument). With
   no pick, a shared site lists the orgs that have no site of their own — so assigning a subdomain also
   takes the org OFF the shared sites until a site admin curates it back in.
+- **What a site can reach (2026-09-01).** A trip's PAGES — contacts, itinerary, details, registration, chat,
+  its ledger rows and payments — are served by a site only if that site LISTS the trip's organization:
+  `ListingScope.forSite().reaches(orgId)` = `SiteContext.admits(orgId) && ListingScope.shows(orgId)`, with
+  one extension for pages reached by link rather than by listing: on a shared site a hosted org is also
+  reachable while any section of that site's home page curates it (`includeOrgs`, top-level or a
+  container's children; `ListingScope.curatedOnPageOf`), the org still allowing shared sites. So an org
+  site reaches only its own trips; the shared sites reach their sharing tenants, org-less legacy trips, and a
+  hosted org only while curated in. What a site does not reach behaves exactly like something that does not
+  exist: `TripCommands.getTrip`/`getTripForEdit` answer the blank trip (the page's `title == null` /
+  `id.equals` proof fails as for a bad id), `BaseResource.findTrip` and every REST route through it 404,
+  `ChatCommands.canParticipate`/`readDenial` refuse (`NOT_A_TRIP_MEMBER`, page, feed and long poll alike),
+  and every trip LIST on `TripCommands` (`getTripsForUser`, `getRecentTrips`, `getActiveTrips`,
+  `getInactiveTrips`, `recentTripsFor`) and `OrgCommands.mailableTrips` is narrowed, so pickers never offer
+  what the page would then answer blank. The "current trip" behind `/account.jsf` → `tripContacts.jsf`
+  (`getTripForUser`) therefore picks among the trips the site lists (on an org host, that org's), and the
+  continue-registration banner hides for a trip the host does not serve. **Off a bound request** —
+  `RequestContext.system()`: the digest and notification senders, schedulers, unit tests —
+  `SiteContext.isBound()` is false and everything is reachable: a tenant boundary is a property of a HOST,
+  and that code takes its organization from the entity in hand. The money side is in `payments.md`,
+  "Money is site-scoped on read". Enforced by `SiteReachTest` and `OrgSubdomainPwIT`.
+
+  *Site admins and a hosted org's admin pages.* The org-admin pages are org-keyed and org-gated, not
+  site-gated: `admin/orgTrips.jsf?orgId=` still lists a hosted org's trips on the shared host (a site admin
+  opens it from the Organizations page there), but its trip links and New Trip go to the host that serves
+  them (`SiteCommands.hostFor(orgId)`: empty when this host reaches the org, else
+  `https://{slug}.{base}`), with a note saying the trips are managed on the org's own site, and
+  `admin/editTrip.jsf`'s post-save redirects (to the trip editor / itinerary) carry the same prefix, so a
+  trip created for a hosted org from the shared host continues on the org's site (`TripCreatorRolesPwIT`
+  drives the create round trip on acme's own host for that reason). The rule is
+  deliberately not punched for site admins: a hosted org's trips are edited, mailed, reconciled and paid on
+  the org's own host (Phase 5 verified the org-admin pages there); a site admin following such a link signs
+  in again on the org host (the shared hosts' cookies are host-only, see "One login across the org sites").
 - **Media is site-scoped by `MediaItem.orgId`**, for discovery AND for writes: the admin library
   (`admin/media.xhtml`), the document picker and the Documents slot show an org's items only on its own site
   and the site's items only on shared sites, and a row can be changed only from the site where it shows;

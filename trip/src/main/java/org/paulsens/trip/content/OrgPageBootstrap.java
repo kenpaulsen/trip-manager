@@ -7,6 +7,7 @@ import java.util.UUID;
 import java.util.function.ToIntFunction;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.site.SiteContext;
 
 /**
  * The page keys of the sites the content engine renders besides the classic shared landing page, and the
@@ -38,6 +39,18 @@ public final class OrgPageBootstrap {
     /** The section key of an organization's home page: {@code page:org:{uuid}:home}. */
     public static String pageKey(final Organization.Id orgId) {
         return ORG_PAGE_PREFIX + orgId.getValue() + ORG_PAGE_SUFFIX;
+    }
+
+    /**
+     * The home-page section key of a SITE: the org's own page on its host, the marketing page on the
+     * product host, the classic shared page ({@code V2PageBootstrap.PAGE_KEY}) everywhere else -- the one
+     * mapping {@code SiteCommands.getPageKey} and {@code ListingScope}'s curation read both use.
+     */
+    public static String pageKeyOf(final SiteContext site) {
+        if (site.isOrg()) {
+            return pageKey(site.orgId());
+        }
+        return site.isMarketing() ? MARKETING_PAGE_KEY : V2PageBootstrap.PAGE_KEY;
     }
 
     /** The org an org-page key names, or null for any other key (shared page, marketing page, containers). */

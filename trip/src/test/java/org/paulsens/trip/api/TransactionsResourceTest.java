@@ -168,7 +168,8 @@ public class TransactionsResourceTest extends ResourceTestSupport {
         signedInAsSiteAdmin(ME);
         final Transaction created = tx(OTHER);
         Mockito.when(transactions.createTransaction(OTHER)).thenReturn(created);
-        Mockito.when(transactions.saveTransaction(created)).thenReturn(true);
+        // The trip-carrying save: ?trip= stamps the row's org (tenancy), as the page's save does.
+        Mockito.when(transactions.saveTransaction(created, TRIP_ID)).thenReturn(true);
         Mockito.when(transactions.getUserAmount(created)).thenReturn(75f);
 
         final TransactionDto body = new TransactionDto(null, null, null, null, "Bill", null, 75f, null,
@@ -186,7 +187,7 @@ public class TransactionsResourceTest extends ResourceTestSupport {
     public void aFailedCreateIsReportedAndNotAudited() {
         signedInAsSiteAdmin(ME);
         Mockito.when(transactions.createTransaction(OTHER)).thenReturn(tx(OTHER));
-        Mockito.when(transactions.saveTransaction(ArgumentMatchers.any())).thenReturn(false);
+        Mockito.when(transactions.saveTransaction(ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(false);
 
         assertError(resource.create(OTHER.getValue(), CSRF_OK, TRIP_ID, null), 500, ApiErrors.STORE_FAILED);
         Mockito.verifyNoInteractions(audit);
@@ -208,7 +209,7 @@ public class TransactionsResourceTest extends ResourceTestSupport {
         Mockito.when(transactions.getTransaction(ME, "gone")).thenReturn(null);
 
         assertError(resource.update(ME.getValue(), "gone", CSRF_OK, TRIP_ID, null), 404, ApiErrors.NOT_FOUND);
-        Mockito.verify(transactions, Mockito.never()).saveTransaction(ArgumentMatchers.any());
+        Mockito.verify(transactions, Mockito.never()).saveTransaction(ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     @Test
@@ -216,7 +217,7 @@ public class TransactionsResourceTest extends ResourceTestSupport {
         signedInAsSiteAdmin(ME);
         final Transaction existing = tx(ME);
         Mockito.when(transactions.getTransaction(ME, existing.getTxId())).thenReturn(existing);
-        Mockito.when(transactions.saveTransaction(existing)).thenReturn(true);
+        Mockito.when(transactions.saveTransaction(existing, TRIP_ID)).thenReturn(true);
         Mockito.when(transactions.getUserAmount(existing)).thenReturn(80f);
 
         final TransactionDto body = new TransactionDto(null, null, null, null, null, null, 80f, null,
@@ -225,7 +226,7 @@ public class TransactionsResourceTest extends ResourceTestSupport {
 
         Assert.assertEquals(existing.getAmount(), 80f);
         Assert.assertEquals(existing.getNote(), "amended");
-        Mockito.verify(transactions).saveTransaction(ArgumentMatchers.same(existing));
+        Mockito.verify(transactions).saveTransaction(ArgumentMatchers.same(existing), ArgumentMatchers.eq(TRIP_ID));
         Mockito.verify(audit).transaction(ArgumentMatchers.any(), ArgumentMatchers.eq(existing),
                 ArgumentMatchers.any());
     }

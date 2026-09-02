@@ -10,9 +10,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.OrgPageBootstrap;
-import org.paulsens.trip.content.V2PageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 
 /**
@@ -71,14 +71,28 @@ public class SiteCommands {
      * from the request's host, never stored anywhere a later request could read it back.
      */
     public String getPageKey() {
-        final SiteContext current = getCurrent();
-        if (current.isOrg()) {
-            return OrgPageBootstrap.pageKey(current.orgId());
+        return OrgPageBootstrap.pageKeyOf(getCurrent());
+    }
+
+    /**
+     * The host prefix a link to something owned by {@code orgId} needs from THIS site: empty when the
+     * current site reaches the org (a plain site-relative link works), else the org's own site
+     * ({@code https://{slug}.{base}}, no trailing slash) -- for the org-admin pages, which a site admin may
+     * open on the shared host for a hosted org whose trips that host does not list (see
+     * {@code docs/org-admin.md}, "What a site can reach"). An org with no site of its own answers empty too:
+     * there is nowhere else to send the link.
+     */
+    public String hostFor(final String orgId) {
+        if (orgId == null || orgId.isBlank() || ListingScope.reachable(orgId)) {
+            return "";
         }
-        if (current.isMarketing()) {
-            return OrgPageBootstrap.MARKETING_PAGE_KEY;
+        final String slug = DAO.getInstance().getOrganization(Organization.Id.from(orgId), Cached.YES)
+                .map(Organization::getSlug).orElse(null);
+        if (slug == null || slug.isBlank()) {
+            return "";
         }
-        return V2PageBootstrap.PAGE_KEY;
+        final String url = orgSiteUrl(slug);
+        return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
     }
 
     /** The current org site's organization name (its slug if the org cannot be read); null elsewhere. */

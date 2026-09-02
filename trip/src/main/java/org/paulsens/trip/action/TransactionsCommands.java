@@ -24,6 +24,7 @@ import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Transaction.Type;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.site.ListingScope;
 
 @Slf4j
 @Named("txCmds")
@@ -66,16 +67,35 @@ public class TransactionsCommands {
         return result;
     }
 
+    /**
+     * This person's ledger rows AS LISTED ON THE SITE this request is for: only the rows whose organization
+     * the site reaches ({@link #reachesHere}) -- an org host lists that org's rows, a shared host the rows of
+     * the orgs it lists plus org-less legacy rows. Every listing, total and balance on this bean derives from
+     * this read, so a balance shown on a site is the balance of the rows that site lists (documented in
+     * {@code docs/payments.md}). The ledger itself is untouched: writes and the group-transaction helpers
+     * read the store directly.
+     */
     public List<Transaction> getTransactions(final Person.Id userId) {
         if (userId == null) {
             return List.of();
         }
         try {
-            return DAO.getInstance().getTransactions(userId, Cached.NO);
+            return DAO.getInstance().getTransactions(userId, Cached.NO).stream()
+                    .filter(TransactionsCommands::reachesHere)
+                    .toList();
         } catch (final RuntimeException ex) {
             log.error("Error querying transactions for user {}: ", userId.getValue(), ex);
             return Collections.emptyList();
         }
+    }
+
+    /**
+     * Whether the site this request is for lists this row: {@code ListingScope.reaches} on the row's
+     * {@code orgId} (stamped from the trip on every write; the migration backfilled legacy rows, and a row
+     * still carrying none is org-less legacy content, which the shared sites keep listing).
+     */
+    static boolean reachesHere(final Transaction tx) {
+        return ListingScope.reachable(tx.getOrgId());
     }
 
     public List<Transaction> getTripTransactions(final String tripId) {
@@ -103,7 +123,10 @@ public class TransactionsCommands {
             return createTransaction(userId);
         }
         try {
-            return DAO.getInstance().getTransaction(userId, txId, Cached.NO).orElse(null);
+            // A row the site does not list reads as absent (null), like a transaction that does not exist.
+            return DAO.getInstance().getTransaction(userId, txId, Cached.NO)
+                    .filter(TransactionsCommands::reachesHere)
+                    .orElse(null);
         } catch (final RuntimeException ex) {
             log.error("Error while getting Tx ({}) for userId: '{}'!", txId, userId, ex);
             return null;
