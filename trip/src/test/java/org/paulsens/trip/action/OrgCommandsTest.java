@@ -5,12 +5,14 @@ import java.util.List;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.SettingDef;
+import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -71,6 +73,30 @@ public class OrgCommandsTest {
         final List<Organization> manageable = commandsFor(acmeAdmin).getManageableOrgs();
         assertTrue(manageable.contains(acme), "An org admin manages their own org");
         assertFalse(manageable.contains(other), "...and never sees another tenant's org as manageable");
+    }
+
+    /**
+     * The Admin menu's per-org entries. A site admin gets none on a shared host (they use the Organizations
+     * page, and one entry per tenant is not a menu), but on an organization's OWN site they get that org --
+     * managing Acme from acme.unitetrip.com is exactly what that host is for.
+     */
+    @Test
+    public void menuOrgsSkipsSiteAdminsOnSharedHostsButNotOnAnOrgsOwnSite() throws Exception {
+        final Person acmeAdmin = savedPerson();
+        final Organization acme = orgWithAdmin(acmeAdmin);
+        final SiteContext acmeSite = SiteContext.org(acme.getId(), "acme-menu", "acme-menu.localhost");
+
+        assertTrue(admin().menuOrgs().isEmpty(), "a site admin on a shared host gets no per-org entries");
+        assertTrue(commandsFor(acmeAdmin).menuOrgs().contains(acme), "an org admin gets their own org");
+
+        assertEquals(onSite(acmeSite, () -> admin().menuOrgs()), List.of(acme),
+                "on the org's own site a site admin gets that org, and only that org");
+        assertEquals(onSite(acmeSite, () -> commandsFor(acmeAdmin).menuOrgs()), List.of(acme));
+    }
+
+    private static <T> T onSite(final SiteContext site, final ScopedValue.CallableOp<T, Exception> body)
+            throws Exception {
+        return ScopedValue.where(RequestContext.SCOPE, RequestContext.of(null, null, site)).call(body);
     }
 
     @Test
@@ -228,7 +254,7 @@ public class OrgCommandsTest {
     // ------------------------------------------------------------------ edits
 
     @Test
-    public void orgAdminEditsContactButOnlySiteAdminRenames() throws IOException {
+    public void anOrgAdminEditsContactsAndRenamesTheirOwnOrganization() throws IOException {
         final Person acmeAdmin = savedPerson();
         final Organization acme = orgWithAdmin(acmeAdmin);
         final OrgCommands cmds = commandsFor(acmeAdmin);
@@ -237,14 +263,42 @@ public class OrgCommandsTest {
         edit.setContactEmail("front-desk@acme.example");
         assertTrue(cmds.saveOrganization(edit));
 
+        // Renaming used to be site-admin only; an organization owns its own name (user decision
+        // 2026-09-02), and canManageOrg is now the whole authorization.
+        final String renamed = "Renamed " + unique();
         final Organization rename = dao.getOrganization(acme.getId(), Cached.NO).orElseThrow();
-        rename.setName("Renamed " + unique());
-        assertFalse(cmds.saveOrganization(rename),
-                "Public pages display the name; renaming is site-admin only");
+        rename.setName(renamed);
+        assertTrue(cmds.saveOrganization(rename), "An org admin may rename their own organization");
+        assertEquals(dao.getOrganization(acme.getId(), Cached.NO).orElseThrow().getName(), renamed);
+
+        final Organization blank = dao.getOrganization(acme.getId(), Cached.NO).orElseThrow();
+        blank.setName("  ");
+        assertFalse(cmds.saveOrganization(blank), "A blank name is still refused");
 
         final Organization adminRename = dao.getOrganization(acme.getId(), Cached.NO).orElseThrow();
         adminRename.setName("Renamed " + unique());
         assertTrue(admin().saveOrganization(adminRename));
+    }
+
+    @Test
+    public void anOutsiderCannotRenameSomeoneElsesOrganization() throws IOException {
+        final Organization acme = orgWithAdmin(savedPerson());
+        final OrgCommands outsider = commandsFor(savedPerson());
+        assertFalse(outsider.saveOrgEdits(acme.getId().getValue(), "Seized " + unique(), null, null),
+                "canManageOrg is the whole authorization, and an outsider fails it");
+    }
+
+    @Test
+    public void aPagesMultiSelectValueNormalizesFromEveryShapeJsfLeavesBehind() {
+        final OrgCommands cmds = admin();
+        assertEquals(cmds.asStringList(null), List.of(), "nothing selected, nothing decoded");
+        assertEquals(cmds.asStringList(new Object[] {"acme.test", " ", null, "beta.test"}),
+                List.of("acme.test", "beta.test"), "a decoded selectMany hands back an Object[]");
+        // The regression that mattered: a DISABLED selectMany never decodes, so the List initPage seeded
+        // survives the post. util.asList took only an Object[], and its EL miss killed the whole save.
+        assertEquals(cmds.asStringList(List.of("acme.test")), List.of("acme.test"));
+        assertEquals(cmds.asStringList(List.of()), List.of());
+        assertEquals(cmds.asStringList("acme.test"), List.of("acme.test"), "a lone value is a list of one");
     }
 
     @Test
@@ -354,8 +408,10 @@ public class OrgCommandsTest {
         assertEquals(stored.getAbbreviation(), "AI");
         assertEquals(stored.getContactEmail(), "desk@acme.example");
 
-        assertFalse(cmds.saveOrgEdits(acme.getId().getValue(), "Renamed " + unique(), null, null),
-                "The rename rule applies through the page-facing edit too");
+        final String renamed = "Renamed " + unique();
+        assertTrue(cmds.saveOrgEdits(acme.getId().getValue(), renamed, "AI", "desk@acme.example"),
+                "The page-facing edit renames for an org admin too");
+        assertEquals(dao.getOrganization(acme.getId(), Cached.NO).orElseThrow().getName(), renamed);
         assertFalse(cmds.saveOrgEdits("no-such-org", "X", null, null));
         assertFalse(cmds.saveOrgEdits("  ", "X", null, null));
     }

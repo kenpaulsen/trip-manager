@@ -6,21 +6,48 @@ in `payments.md`; family-admin gating is in `family-accounts.md`.
 
 ## The hub and its pages
 
-`admin/orgSettings.jsf?orgId=…` is a dashboard of cards; each area is its own page, all sharing the
-`WEB-INF/orgTabs.xhtml` nav strip and the self-gating pattern (org authority has no role or privilege row,
-so these pages gate themselves in `initPage`, NOT via defaultAuth):
+`admin/orgSettings.jsf?orgId=…` is a dashboard of cards and the org area's **only** navigation (user
+decision 2026-09-02: cards, not tabs — `WEB-INF/orgTabs.xhtml` is deleted). Every sub-page carries one
+control back: a **Done** `p:linkButton` (`id="orgDone"`, a plain GET) top-right of its heading. All of them
+follow the self-gating pattern — org authority has no role or privilege row, so these pages gate themselves
+in `initPage`, NOT via defaultAuth:
 
 | Page | View gate (`OrgCommands`) | Mutations |
 |------|---------------------------|-----------|
 | `orgSettings.jsf` (hub) | `canViewOrgHub` — admin OR any org-scoped privilege here | — (cards render per-permission) |
-| `orgProfile.jsf` | `canManageOrg` | `saveOrgEdits` (rename stays site-admin) |
+| `orgProfile.jsf` | `canManageOrg` | `saveOrgEdits`, **the name included** |
 | `orgTrips.jsf` | `canViewOrgTrips` — admin OR `addTrip@org` | New Trip: `canCreateTripFor` |
 | `orgPeople.jsf` | `canViewOrgPeople` — admin OR `peopleAdmin@org` | **org admins only** (all of them) |
 | `orgProcessors.jsf` | `canManageOrg` | `canManageOrg` |
 | `orgConfig.jsf` | `canManageOrg` | `saveOrgSettings` (see "Per-org settings") |
 
-The menu's per-org entries come from `org.visibleOrgs()` (admins ∪ holders of any org-scoped privilege), so
-reachability and the hub gate agree. Site admins pass everything via the usual short-circuits.
+The hub's cards are Profile, Trips, People, Payment Processors, Appearance
+(`orgAppearance.jsf` — the Branding settings), Settings (`orgConfig.jsf` — everything else), Content
+Templates (`templates.jsf?orgId=` — org admins OR whoever `priv.checkHere('contentAdmin', …)` admits on
+this host), and, for site admins only, Privileges. There is no "Organization Site" card: the site's own
+address is a link on the **profile**, beside the subdomain field that decides it.
+
+**Save Profile returns to the hub.** `saveOrgEdits` answers a boolean; on true the page redirects to
+`orgSettings.jsf?orgId=…&info=Organization profile saved.` (a growl carried as a URL message, the
+`account/person.xhtml` idiom), on false it stays put with the typed values and the refusal's own growl.
+
+**A page's multi-select value goes through `OrgCommands.asStringList`, never `util.asList`.** A rendered
+`selectManyCheckbox` decodes to an `Object[]`, but a **disabled** one never decodes at all, so its binding
+is still the `List` that `initPage` seeded — which is exactly what an org admin's Save Profile posts, the
+sending-domain allow-list being site-admin-only. `util.asList` declares one `Object[]` parameter, and the EL
+`MethodNotFoundException` aborted the whole ajax command handler: the 2026-09-02 report of an Abbreviation
+edit that saved silently with no effect and no error was every org admin's profile save, dead.
+
+The menu's per-org entries come from `org.menuOrgs()` — `visibleOrgs()` (admins ∪ holders of any org-scoped
+privilege), minus a SITE admin on a shared host, who would get an entry per tenant and uses the
+Organizations page instead. They are labelled `Manage {name}` (the org's full name) and are the FIRST items
+of the Admin submenu, inserted before the static ones by `jsftComp.insertUIComponentBefore` because
+`addUIComponent` can only append. On an organization's own site `visibleOrgs()` is that org alone, site
+admins included, so managing Acme from `acme.unitetrip.com` leads that menu with "Manage Acme Inc".
+
+The Admin menu's **Content Templates** entry is the SITE-WIDE manager and is gated on the GLOBAL grant
+(`priv.check('contentAdmin', null, …)`) plus `showAll`; an org's own templates are reached from its hub
+card. The separate "Email Templates" entry is gone — it was the same page with `?kind=MAIL`.
 
 ## Org-scoped privileges
 
@@ -225,8 +252,9 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   `page:org:{id}:home` once (`Organization.homePageSeededAt` records it) — see
   `content-templates.md`, "Organization sites". The org dashboard (`admin/orgSettings.xhtml`) calls it too,
   so an org slugged before seeding existed gets its page on its managers' next visit; for anyone else it is
-  a no-op. The dashboard's "Organization Site" card links to the live site (`SiteCommands.orgSiteUrl`, which
-  answers `http://{slug}.localhost:{port}/` when the admin is browsing on localhost).
+  a no-op. The live site's address is a link on the org PROFILE, beside the subdomain field
+  (`SiteCommands.orgSiteUrl`, which answers `http://{slug}.localhost:{port}/` when the admin is browsing on
+  localhost); the hub card that used to carry it is gone (2026-09-02).
 - **What the site shows** is decided by the request's `SiteContext` (`#{site}`), never by the session: the
   org's page key, its name as the page title, only its own public trips, albums, documents and Trips-menu
   entries (`TripCommands.getMenuTrips/getMenuOldTrips`, seeded by `template.xhtml`), and only that org in
@@ -389,7 +417,7 @@ no host and must name the organization explicitly — `ConfigCommands.getString(
 `OrgCommands.effectiveSetting(def, orgId)` — deriving it from the entity in hand (trip → org), never from
 a session. `ConfigCommands.siteString(def)` is the site rung alone, whatever host the request is on.
 
-The editor: `admin/orgConfig.jsf?orgId=…` (hub card + "Settings" tab; `canManageOrg`) lists every
+The editor: `admin/orgConfig.jsf?orgId=…` (the hub's "Settings" card; `canManageOrg`) lists every
 org-overridable setting with the site's value as its placeholder ("Inherit (…)" for booleans), blank =
 inherit. `OrgCommands.saveOrgSettings(orgId, map)` refuses non-overridable keys and values that do not
 parse as the declared type, applies onto a `Cached.NO` read, writes only when something changed, and

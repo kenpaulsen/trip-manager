@@ -17,7 +17,7 @@ Design every new data holder along this boundary.
   on `Organization.adminIds` (small list; admins are members). Removal enforces admin-first and the
   ≥1-org rule.
 - Org ids are canonical UUIDs on purpose (privilege scope suffixes must round-trip).
-- Site admins create/rename orgs (`admin/organizations.jsf`) and get the topbar **org switcher**
+- Site admins CREATE orgs (`admin/organizations.jsf`) and get the topbar **org switcher**
   (`sessionScope.currentOrgId`, a session preference, not an identity swap). Org admins manage their own
   org from the **org hub** `admin/orgSettings.jsf?orgId=…` (a dashboard of cards; Profile, Trips, People
   and Payment Processors live on their own `admin/org*.jsf` pages behind the same self-gating pattern —

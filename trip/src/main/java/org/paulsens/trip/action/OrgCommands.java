@@ -7,10 +7,13 @@ import jakarta.inject.Named;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
@@ -53,8 +56,9 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
  * computed from the in-memory object just saved (a re-read can be stale in production), then audit.
  *
  * <p>Authorization: site admins (role {@code admin}) reach everything; org admins reach exactly their own
- * org's structure and (later phases) its payment-processor configuration. Creating an organization -- and
- * renaming one, because {@code Trip.provider} display strings derive from the name -- is site-admin only.
+ * org's structure and (later phases) its payment-processor configuration. CREATING an organization is
+ * site-admin only (a tenancy root is not something a tenant mints); everything on an existing org's profile,
+ * its NAME included, belongs to that org's own admins.
  */
 @Slf4j
 @Named("org")
@@ -238,8 +242,10 @@ public class OrgCommands {
     }
 
     /**
-     * Saves edits to an existing organization. Org admins may edit contact details; RENAMING is site-admin
-     * only, because {@code Trip.provider} display strings on public pages derive from the name.
+     * Saves edits to an existing organization. Every field on the profile, the NAME included, belongs to the
+     * org's own admins (user decision 2026-09-02): an organization that cannot correct its own name on the
+     * pages its members read has to file a support request for a typo. {@link #canManageOrg} is the whole
+     * authorization; a blank name is still refused, and the rename is audited like any other edit.
      */
     public boolean saveOrganization(final Organization org) {
         final Caller current = caller();
@@ -253,10 +259,6 @@ public class OrgCommands {
         if (stored == null) {
             return fail("Unable to save", "Unknown organization.");
         }
-        if (!current.isSiteAdmin() && !equalsIgnoreCaseSafe(stored.getName(), org.getName())) {
-            return fail("Not allowed", "Only a site administrator can rename an organization "
-                    + "(public pages display the name).");
-        }
         if (org.getName() == null || org.getName().isBlank()) {
             return fail("Name required", "An organization needs a name.");
         }
@@ -269,7 +271,7 @@ public class OrgCommands {
 
     /**
      * Page-facing edit: applies the given field values onto a FRESH read of the org (never a stale page
-     * snapshot) and saves through {@link #saveOrganization}'s authorization + rename rules.
+     * snapshot) and saves through {@link #saveOrganization}'s authorization rules.
      */
     public boolean saveOrgEdits(final String orgId, final String name, final String abbreviation,
             final String contactEmail) {
@@ -652,6 +654,22 @@ public class OrgCommands {
         return getOrganizations().stream()
                 .filter(org -> current.has(base, org.getId().getValue()))
                 .toList();
+    }
+
+    /**
+     * The organizations the Admin menu names, one "Manage {name}" entry each, ahead of the site-wide items.
+     *
+     * <p>{@link #visibleOrgs()} minus the one case where a per-org entry is the wrong offer: a SITE admin on
+     * a shared host, who reaches every tenant and would get an entry per organization. They use the
+     * Organizations page there instead. On an organization's OWN site the list is that org alone (see
+     * {@code visibleOrgs}), so a site admin managing Acme from {@code acme.unitetrip.com} does get
+     * "Manage Acme, Inc." as their first Admin item, which is the whole point of being on that host.
+     */
+    public List<Organization> menuOrgs() {
+        if (caller().isSiteAdmin() && !SiteContext.current().isOrg()) {
+            return List.of();
+        }
+        return visibleOrgs();
     }
 
     /**
@@ -1255,6 +1273,37 @@ public class OrgCommands {
         final Organization org = findOrganization(orgId);
         final List<String> stored = (org == null) ? null : org.getMailDomains();
         return (stored == null) ? List.of() : List.copyOf(stored);
+    }
+
+    /**
+     * A page's multi-select value normalized to a string list, whatever shape the request left behind.
+     *
+     * <p>A rendered {@code selectManyCheckbox} decodes to an {@code Object[]}, but a DISABLED one never
+     * decodes at all, so its binding keeps the {@code List} that {@code initPage} seeded -- exactly what an
+     * ORG admin's Save Profile posts, since the sending-domain allow-list is a site-admin-only row. The
+     * pages used to call {@code util.asList}, whose only parameter is {@code Object[]}: handed a List it
+     * threw an EL {@code MethodNotFoundException} that aborted the whole command handler mid-ajax, so the
+     * save neither happened nor said anything (the 2026-09-02 "the abbreviation edit does nothing" report).
+     * Accepting both shapes here, in Java, is what keeps one shared include safe for both audiences.
+     */
+    public List<String> asStringList(final Object value) {
+        if (value == null) {
+            return List.of();
+        }
+        if (value instanceof Object[] array) {
+            return textOf(Arrays.stream(array));
+        }
+        if (value instanceof Collection<?> items) {
+            return textOf(items.stream());
+        }
+        return textOf(Stream.of(value));
+    }
+
+    private static List<String> textOf(final Stream<?> values) {
+        return values.filter(value -> value != null)
+                .map(Object::toString)
+                .filter(text -> !text.isBlank())
+                .toList();
     }
 
     /** The org's stored subdomain slug for the site-admin editor ("" when the org has no subdomain site). */
@@ -2190,10 +2239,6 @@ public class OrgCommands {
 
     private static boolean containsIgnoreCase(final String haystack, final String lowerNeedle) {
         return haystack != null && haystack.toLowerCase(Locale.ROOT).contains(lowerNeedle);
-    }
-
-    private static boolean equalsIgnoreCaseSafe(final String a, final String b) {
-        return (a == null) ? (b == null) : a.equalsIgnoreCase(b);
     }
 
     private static String describe(final Person person) {
