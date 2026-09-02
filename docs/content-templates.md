@@ -84,6 +84,11 @@ hostname**, resolved once per request into a `SiteContext` (`org.paulsens.trip.s
   pins whichever it chose, so rendering never consults the field and the zero-live-read rule below is
   untouched. The template manager's Scope column/menu (`TemplateCommands.scopeChoices`/`scopeLabel`) sets
   it; a blank menu choice saves as null; an unknown org is refused.
+  **Customizing a shared template for one org is a COPY** (`TemplateCommands.copyForOrg`, the manager's
+  "Copy for {org}" button on an org host): the clone `{id}-{slug}` is org-scoped, version 1, "{name}
+  ({org})", same kind/body/placeholders; the shared row stays shared and read-only to the org's editor
+  (Edit/History/Delete render only where `mayAuthor` says so). MAIL templates are excluded -- senders
+  resolve them by fixed id, so a copy would be dead. Details: `org-admin.md` "Org-site editors".
 - **Editing** an org's page happens on the org's site with the same edit mode. Authorization is
   privilege-only: site admin, global `contentAdmin`, or `contentAdmin` scoped to that org (see
   `org-admin.md` "Org-site editors") — org admins do not edit content by being admins. The org of a

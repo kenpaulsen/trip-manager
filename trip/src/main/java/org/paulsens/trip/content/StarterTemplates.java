@@ -50,12 +50,16 @@ public final class StarterTemplates {
      * to the shared site it is listed on. Installed rows are runtime-editable and are NOT rewritten by a
      * later install, so a deployment that installed the older, host-naming copy must re-install (or edit)
      * this template to get the tokens.
+     *
+     * <p>{@code createAccountUrl} (the name is kept for installed rows) is the site's LOGIN page with the
+     * invitee's address pre-filled, not the create-account page: the login step checks whether an account
+     * exists by now and either signs the person in or carries the address on to Create Account.
      */
     private static ContentTemplate orgInvite() {
         final String body = """
                 <p><b>{{orgName}}</b> has invited you to join them on {{siteName}}.</p>
-                <p><a href="{{createAccountUrl}}">Create your account</a> to get started.</p>
-                <p>Once your account is created, {{orgName}}'s administrator will be able to add you as a
+                <p><a href="{{createAccountUrl}}">Sign in or create your account</a> to get started.</p>
+                <p>Once you have an account, {{orgName}}'s administrator will be able to add you as a
                 member, and you will see your organization's pilgrimages and information when you sign in.</p>
                 <p>Questions? Just reply to this email.</p>
                 """;
@@ -63,7 +67,7 @@ public final class StarterTemplates {
                 "Sent when an organization admin invites an email address that has no account yet. "
                         + "Tokens: orgName, siteName (the site's name: the organization's own for a "
                         + "subdomain site, else the shared site's), siteHost (its hostname), "
-                        + "createAccountUrl.",
+                        + "createAccountUrl (the site's login page with the address pre-filled).",
                 body);
     }
 

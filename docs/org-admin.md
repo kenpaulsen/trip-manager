@@ -97,10 +97,28 @@ no hardcoded tenant contact -- and its OK returns to the trip. No editor UI for 
 **Adding members** (org People page): site admins keep the whole-directory autocomplete; org admins add
 by EXACT email address instead (`OrgCommands.addMemberByEmail`) — a name typeahead across every account
 leaked other tenants' people. An address with no account offers an invite dialog: `sendOrgInvite` mails
-the `org-invite` MAIL template (create-account link; From/base-URL from the `reg.mail.*` settings,
-Reply-To the org's contact email). Invites are STATELESS by design — nothing is recorded, no membership
-is pre-granted; the admin adds the address again once the account exists, and an account that appears
-between check and send folds into a plain add.
+the `org-invite` MAIL template (From/base-URL from the `reg.mail.*` settings, Reply-To the org's contact
+email). Invites are STATELESS by design — nothing is recorded, no membership is pre-granted; the admin
+adds the address again once the account exists, and an account that appears between check and send
+folds into a plain add.
+
+**The invite link lands on the login page** (2026-09-01, `OrgCommands.inviteLoginUrl`):
+`{siteUrl}/account/login.jsf?email={invitee}` — the org's own site when it has one. The old link went
+straight to `createAccount.jsf`, which was wrong the moment an account existed by the time the mail was
+opened. `login.xhtml` reads `?email=` into `requestScope.loginEmail` (a query-param read on a GET — no
+session until Next posts, the issue-19 rule), pre-fills the field, and Next decides: an existing account
+goes to the password/code/passkey step, an unknown address continues to Create Account with the email
+carried over (`sessionScope.loginEmail`, the first session write of the flow). Because the visitor is on
+the org's site, the sign-up self-join below still applies. The template token keeps its
+`createAccountUrl` name, so installed rows need no re-install; the starter's link text is now "Sign in or
+create your account" (an installed row keeps its old wording until edited).
+
+**Nobody creates a person from an admin page.** The People Manager's "New Person" button is gone
+(2026-09-01): a person comes into being by signing up — where they read the privacy and legal text
+themselves — by a family manager's add-member flow, or through `POST /api/people`. The profile editor
+(`account/person.xhtml`) saves through `PersonCommands.saveProfile`, which refuses a person no row
+exists for: `?id=<unknown>` used to hand an admin a blank Person under a fresh id whose Save created a
+junk row.
 
 ## Email addresses (the Settings section, 2026-08-24)
 
@@ -289,6 +307,18 @@ like any other org grant and bounded by the org's allow-list) edits that ONE org
   may never re-scope a stored template into or out of it (seizure), sees shared + own templates in the
   manager, and gets only their org in the Scope menu; starter installation stays site-staff-only.
   Scoping this grant scopes the blast radius of template HTML (script access) to the org's own site.
+  **Shared templates are copied, not edited** (2026-09-01): on the manager page Edit / History / Delete
+  render only for a row the caller may author (`contentTemplate.mayAuthor(t)`), so an org editor gets no
+  affordance whose save could only fail; a SHARED row on the org's own host offers **"Copy for {org}"**
+  instead (`mayCopyForSite` / `copyForOrg(id)`), which clones it into the org's scope as `{id}-{slug}`,
+  named "{name} ({org})", same kind/body/placeholders/container settings, version 1, audited as a template
+  write -- the org customizes its copy, the shared original is untouched. Authorized by `mayAuthor` on the
+  RESULT's scope (so Kevin, an org admin without the grant, cannot copy), refused off an org host, for a
+  non-shared source (another tenant's template is never a source), and when the copy already exists. Site
+  staff get the Copy button alongside Edit on an org host. **MAIL templates are never copied**: every
+  sender resolves an email template by its FIXED id (`MailCommands.sendManagedTemplate`, the org-invite
+  lookup), so a per-org `org-invite-acme` would never be sent -- until mail resolution is per-org, email
+  copy stays a site-staff edit of the shared row, and the page offers no copy for MAIL rows.
 - **Media** (`MediaCommands.mayManage/mayUploadHere`, resolved from the request-bound `Caller.bound()`
   so pages, the REST API and the upload servlet answer alike): every write re-checks OWNERSHIP of the
   item (global → any; org editor → the org's items; a trip's manager → its chat album), uploads are
@@ -383,10 +413,12 @@ callers exist and EL picks overloads by runtime type). From is still never `org`
 
 **Org-invite copy.** The `org-invite` MAIL starter no longer names a host: `{{siteName}}` (the org's own
 name for a subdomain org, else the site's `site.org.name`) and `{{siteHost}}` (e.g. `acme.unitetrip.com`)
-are filled by `sendOrgInvite`. Installed template ROWS are runtime-editable and are *not* rewritten by
-"Install starter templates" (it only creates missing ones), so a deployment that installed the older copy
-must delete its `org-invite` template on the Templates page and re-install, or edit the row's subject/body
-to use the tokens.
+are filled by `sendOrgInvite`, and `{{createAccountUrl}}` is the site's login page with the address
+pre-filled (name kept for compatibility). Installed template ROWS are runtime-editable and are *not*
+rewritten by "Install starter templates" (it only creates missing ones), so a deployment that installed
+the older copy must delete its `org-invite` template on the Templates page and re-install, or edit the
+row's subject/body to use the tokens; a row installed with the "Create your account" link text keeps
+working unchanged (the token's VALUE changed, not its name).
 
 ### Branding (org-site look, 2026-09)
 

@@ -100,6 +100,32 @@ public class PersonCommands {
     }
 
     /**
+     * {@link #savePerson} for the profile EDITOR pages: saves an EXISTING person only. A person comes into
+     * being through sign-up (createAccount, where they see the privacy and legal text themselves), a family
+     * manager's add-member flow, or the REST API -- never through an admin opening a profile page. Without
+     * this guard {@code /account/person.jsf?id=<unknown>} handed an admin a blank Person under a fresh id
+     * (the never-null {@code getPersonForEdit} contract) whose Save created a junk row; the People page's
+     * "New Person" button was exactly that path (removed 2026-09-01).
+     */
+    public boolean saveProfile(final Person person) {
+        if (person == null || person.getId() == null || !personExists(person.getId())) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
+                    "Not saved: this profile does not exist. A person is created by signing up, not from "
+                            + "a profile page.", "");
+            return false;
+        }
+        return savePerson(person);
+    }
+
+    /**
+     * Whether a person row is stored under this id: a fresh read through {@link #getPersonForEdit}, whose
+     * miss answer carries a FRESH id (the selectProfilePhoto idiom) -- so a failed read also reads as absent.
+     */
+    private boolean personExists(final Person.Id id) {
+        return getPersonForEdit(id).getId().equals(id);
+    }
+
+    /**
      * The email-uniqueness funnel: a non-blank email may belong to at most one (non-deleted) person. Family
      * members made null emails legitimate, and duplicate addresses were ONLY ever prevented by the pass
      * table's primary key -- which cannot see people who never had a login. This check covers every writer

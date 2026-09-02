@@ -388,7 +388,7 @@ public class OrgCommands {
                 "orgName", org.getName(),
                 "siteName", ownSite ? org.getName() : config.siteString(KnownSettings.SITE_ORG_NAME),
                 "siteHost", SiteUrls.hostOf(siteUrl),
-                "createAccountUrl", siteUrl + "/account/createAccount.jsf");
+                "createAccountUrl", inviteLoginUrl(siteUrl, addr));
         // The invite already has its org in hand, so org-first directly; the site email is the fallback
         // (REG_MAIL_REPLY_TO may hold the 'org' sentinel now, so it is resolved, never read raw).
         final MailAddressCommands addresses = new MailAddressCommands(config);
@@ -405,6 +405,20 @@ public class OrgCommands {
         TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO, "Invitation sent to " + addr + ".",
                 null);
         return true;
+    }
+
+    /**
+     * The invitation's link: the site's LOGIN page with the invitee's address pre-filled ({@code ?email=},
+     * read into requestScope by the page -- no session for the click). Deliberately not the create-account
+     * page (the pre-2026-09-01 link): an account may have appeared since the invite was sent, and the
+     * login page's Next is what checks -- an existing account signs in (password, code or passkey), an
+     * unknown address continues to Create Account with the email carried over. Either way the visitor
+     * is on the org's site, so the existing sign-up join ({@link #joinSiteOrgOnSignup}) still applies. The
+     * template token keeps its {@code createAccountUrl} name so installed rows need no re-install.
+     */
+    static String inviteLoginUrl(final String siteUrl, final String email) {
+        return siteUrl + "/account/login.jsf?email="
+                + java.net.URLEncoder.encode(email, java.nio.charset.StandardCharsets.UTF_8);
     }
 
     /** Trimmed address, or null unless it has at least one char on each side of an {@code @}. */

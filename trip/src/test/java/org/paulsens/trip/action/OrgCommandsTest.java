@@ -791,8 +791,20 @@ public class OrgCommandsTest {
                 Mockito.eq(org.paulsens.trip.content.StarterTemplates.ORG_INVITE_ID), values.capture(),
                 Mockito.eq(unknown), Mockito.any(), Mockito.any(), Mockito.any());
         assertEquals(values.getValue().get("orgName"), acme.getName());
+        // The link lands on the LOGIN page with the address pre-filled (2026-09-01), never on the
+        // create-account page: an account may exist by the time the invite is opened.
         assertTrue(values.getValue().get("createAccountUrl").toString()
-                .endsWith("/account/createAccount.jsf"));
+                .endsWith("/account/login.jsf?email=" + java.net.URLEncoder.encode(unknown,
+                        java.nio.charset.StandardCharsets.UTF_8)));
+    }
+
+    @Test
+    public void theInviteLinkIsTheLoginPageWithTheAddressEncoded() {
+        assertEquals(OrgCommands.inviteLoginUrl("https://acme.unitetrip.com", "a+b@example.org"),
+                "https://acme.unitetrip.com/account/login.jsf?email=a%2Bb%40example.org",
+                "the address is query-encoded: a + or & in it must not split the parameter");
+        assertFalse(OrgCommands.inviteLoginUrl("https://x", "x@y").contains("createAccount"),
+                "never the create-account page");
     }
 
     @Test
@@ -1643,11 +1655,13 @@ public class OrgCommandsTest {
         final ArgumentCaptor<java.util.Map<String, Object>> values = ArgumentCaptor.forClass(java.util.Map.class);
 
         // No subdomain: the shared site, by the reg.mail.baseUrl setting and the site's org name.
-        assertTrue(cmds.sendOrgInvite(orgId, "shared-" + unique() + "@example.org"));
+        final String sharedInvitee = "shared-" + unique() + "@example.org";
+        assertTrue(cmds.sendOrgInvite(orgId, sharedInvitee));
         Mockito.verify(mail).sendManagedTemplate(Mockito.anyString(), values.capture(), Mockito.anyString(),
                 Mockito.any(), Mockito.any(), Mockito.any());
         final String regBase = KnownSettings.REG_MAIL_BASE_URL.getDefaultValue();
-        assertEquals(values.getValue().get("createAccountUrl"), regBase + "/account/createAccount.jsf");
+        assertEquals(values.getValue().get("createAccountUrl"),
+                OrgCommands.inviteLoginUrl(regBase, sharedInvitee));
         assertEquals(values.getValue().get("siteHost"), "www.visitqueenofpeace.com");
         assertEquals(values.getValue().get("siteName"), new ConfigCommands()
                 .siteString(KnownSettings.SITE_ORG_NAME));
@@ -1656,11 +1670,12 @@ public class OrgCommandsTest {
         final String slug = "inv" + unique().toLowerCase(java.util.Locale.ROOT);
         assertTrue(admin().saveOrgEdits(orgId, org.getName(), null, null, null, null, slug));
         Mockito.clearInvocations(mail);
-        assertTrue(cmds.sendOrgInvite(orgId, "own-" + unique() + "@example.org"));
+        final String ownInvitee = "own-" + unique() + "@example.org";
+        assertTrue(cmds.sendOrgInvite(orgId, ownInvitee));
         Mockito.verify(mail).sendManagedTemplate(Mockito.anyString(), values.capture(), Mockito.anyString(),
                 Mockito.any(), Mockito.any(), Mockito.any());
         assertEquals(values.getValue().get("createAccountUrl"),
-                "https://" + slug + ".unitetrip.com/account/createAccount.jsf");
+                OrgCommands.inviteLoginUrl("https://" + slug + ".unitetrip.com", ownInvitee));
         assertEquals(values.getValue().get("siteHost"), slug + ".unitetrip.com");
         assertEquals(values.getValue().get("siteName"), org.getName());
         assertEquals(values.getValue().get("orgName"), org.getName());

@@ -31,6 +31,7 @@ import org.paulsens.trip.model.Placeholder;
 import org.paulsens.trip.model.TemplateKind;
 import org.paulsens.trip.model.TemplateRecord;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.site.SiteContext;
 
 /**
  * Content-template management, exposed to the template-manager page as {@code #{contentTemplate}}.
@@ -186,6 +187,100 @@ public class TemplateCommands {
             return false;
         }
         return stored == null || template.getOrgId().equals(stored.getOrgId());
+    }
+
+    /**
+     * {@link #mayAuthor(Caller, ContentTemplate, ContentTemplate)} for a STORED row, for the manager page's
+     * per-row Edit / History / Delete gates: a row the caller may not author gets no editing affordance at
+     * all (the save would only fail with a growl), and a shared row instead offers {@link #copyForOrg}.
+     */
+    public boolean mayAuthor(final ContentTemplate stored) {
+        return stored != null && mayAuthor(callerSource.get(), stored, stored);
+    }
+
+    /**
+     * Whether the manager page should offer "Copy for {org}" on a row: the request is on an organization's
+     * own site, the row is a SHARED template (another tenant's is never a source -- no cross-org sharing),
+     * it is not a MAIL template (see {@link #copyForOrg}), and the caller may author templates for the
+     * site's org (site staff included, so an admin can seed an org's copy from the org's host).
+     */
+    public boolean mayCopyForSite(final ContentTemplate stored) {
+        final SiteContext site = SiteContext.current();
+        return stored != null && site.isOrg() && !stored.isOrgOwned()
+                && stored.getKind() != TemplateKind.MAIL
+                && callerSource.get().has(PrivilegeCommands.CONTENT_ADMIN, site.orgId().getValue());
+    }
+
+    /**
+     * Clones a SHARED template into the scope of the organization whose site the request is on, so the
+     * org can customize it without touching the shared original (an org editor may not author a shared
+     * template, and must not seize it by re-scoping). The copy is {@code {id}-{slug}} at version 1, named
+     * "{name} ({org})", with the same kind, body, placeholders and container/programmatic settings, and it
+     * is authorized like any other write: {@link #mayAuthor} on the RESULT's scope.
+     *
+     * <p>MAIL templates are refused on purpose: {@code MailCommands.sendManagedTemplate} and every sender
+     * resolve an email template by its FIXED id ({@code org-invite}, {@code registration-received}, ...),
+     * so a per-org copy would never be sent -- an editor would customize it and nothing would change. Until
+     * mail resolution is per-org, email copy stays a site-staff edit of the shared row.
+     *
+     * @return true when the copy was saved; every refusal explains itself with a growl.
+     */
+    public boolean copyForOrg(final String id) {
+        if (id == null || id.isBlank()) {
+            return false;
+        }
+        final Caller caller = callerSource.get();
+        final SiteContext site = SiteContext.current();
+        if (!site.isOrg()) {
+            return refuseCopy("A template is copied for an organization on that organization's own site.");
+        }
+        final ContentTemplate source = storedTemplate(id);
+        if (source == null) {
+            return refuseCopy("No template '" + id + "'.");
+        }
+        if (source.isOrgOwned()) {
+            return refuseCopy("Only a shared template can be copied for an organization.");
+        }
+        if (source.getKind() == TemplateKind.MAIL) {
+            return refuseCopy("Email templates are sent by their fixed id, so a copy for an organization "
+                    + "would never be used. Ask a site administrator to edit the shared email template.");
+        }
+        final Organization org = findOrg(site.orgId().getValue());
+        if (org == null) {
+            return refuseCopy("This site's organization could not be read.");
+        }
+        final ContentTemplate copy = orgCopy(source, org, site.slug());
+        if (!mayAuthor(caller, copy, null)) {
+            log.warn("Refusing template copy of '{}' for org {}: caller may not author it", id, org.getId());
+            return refuseCopy("You may only copy templates for an organization whose site you edit.");
+        }
+        if (storedTemplate(copy.getId()) != null) {
+            return refuseCopy("A copy already exists: '" + copy.getId() + "'. Edit that one instead.");
+        }
+        if (!saveTemplate(copy)) {
+            return false;
+        }
+        audit(caller, copy.getId(), "Copied shared template '" + id + "' as '" + copy.getId()
+                + "' for organization '" + org.getName() + "'");
+        return true;
+    }
+
+    /** The org-scoped clone of a shared template: a new id and name, everything else carried over. */
+    static ContentTemplate orgCopy(final ContentTemplate source, final Organization org, final String slug) {
+        final ContentTemplate copy = source.copy();
+        copy.setId(source.getId() + "-" + slug);
+        copy.setVersion(0);
+        copy.setName(source.getName() + " (" + org.getName() + ")");
+        copy.setOrgId(org.getId().getValue());
+        copy.setModified(null);
+        copy.setModifiedBy(null);
+        return copy;
+    }
+
+    private static boolean refuseCopy(final String reason) {
+        // The SUMMARY carries the reason: growl details are never rendered for messages raised from Java.
+        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not copied: " + reason, "");
+        return false;
     }
 
     /** Whether the caller may see a template at all: everything for site staff, own-org + shared otherwise. */
