@@ -289,7 +289,7 @@ public final class FakeData {
         final Trip acmeTrip = Trip.builder()
                 .id(ACME_TRIP_ID)
                 .title("2027 Jun: Acme Retreat")
-                .description("Acme Inc's demo pilgrimage (tenant-isolation fixture).")
+                .description("Acme Inc's demo trip (tenant-isolation fixture).")
                 .startDate(LocalDateTime.of(2027, 6, 10, 9, 0))
                 .endDate(LocalDateTime.of(2027, 6, 20, 17, 0))
                 .people(new ArrayList<>(List.of(kevin.getId())))

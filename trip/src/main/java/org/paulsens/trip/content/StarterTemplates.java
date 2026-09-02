@@ -60,7 +60,7 @@ public final class StarterTemplates {
                 <p><b>{{orgName}}</b> has invited you to join them on {{siteName}}.</p>
                 <p><a href="{{createAccountUrl}}">Sign in or create your account</a> to get started.</p>
                 <p>Once you have an account, {{orgName}}'s administrator will be able to add you as a
-                member, and you will see your organization's pilgrimages and information when you sign in.</p>
+                member, and you will see your organization's trips and information when you sign in.</p>
                 <p>Questions? Just reply to this email.</p>
                 """;
         return mail(ORG_INVITE_ID, "{{orgName}} invites you to {{siteHost}}",
@@ -156,13 +156,13 @@ public final class StarterTemplates {
     }
 
     private static ContentTemplate pilgrimages() {
-        return programmatic(PILGRIMAGES_ID, "Pilgrimage Listings",
-                "The public pilgrimage accordions for one language, straight from the trip data.");
+        return programmatic(PILGRIMAGES_ID, "Trip Listings",
+                "The public trip accordions for one language, straight from the trip data.");
     }
 
     private static ContentTemplate photoAlbums() {
-        return programmatic(PHOTO_ALBUMS_ID, "Pilgrimage Photo Albums",
-                "A photo gallery per recent pilgrimage, from the publicly-visible chat photos.");
+        return programmatic(PHOTO_ALBUMS_ID, "Trip Photo Albums",
+                "A photo gallery per recent trip, from the publicly-visible chat photos.");
     }
 
     private static ContentTemplate file() {

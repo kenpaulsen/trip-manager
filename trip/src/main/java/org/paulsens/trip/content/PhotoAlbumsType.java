@@ -5,7 +5,7 @@ import java.util.Set;
 import org.paulsens.trip.model.Placeholder;
 
 /**
- * The pilgrimage picture galleries as a programmatic content type: one galleria per qualifying trip from
+ * The trip picture galleries as a programmatic content type: one galleria per qualifying trip from
  * the chat-photo albums, exactly the v1 Pictures section. Blank properties fall back to the KnownSettings
  * defaults ({@code home.photos.windowDays} / {@code home.photos.minCount}) so an empty instance behaves
  * like v1 did.
@@ -23,21 +23,21 @@ final class PhotoAlbumsType implements ProgrammaticContentTemplate {
 
     @Override
     public String getDisplayName() {
-        return "Pilgrimage Photo Albums";
+        return "Trip Photo Albums";
     }
 
     @Override
     public String getDescription() {
-        return "A photo gallery per recent pilgrimage, from the publicly-visible chat photos.";
+        return "A photo gallery per recent trip, from the publicly-visible chat photos.";
     }
 
     @Override
     public List<Placeholder> getProperties() {
         return List.of(
                 new Placeholder(PROP_WINDOW_DAYS, Placeholder.Type.TEXT, "Window (days)",
-                        "How far back a pilgrimage may have ended; blank = the site default", false),
+                        "How far back a trip may have ended; blank = the site default", false),
                 new Placeholder(PROP_MIN_PHOTOS, Placeholder.Type.TEXT, "Minimum photos",
-                        "Fewest visible photos a pilgrimage needs to show; blank = the site default", false),
+                        "Fewest visible photos a trip needs to show; blank = the site default", false),
                 SharedSiteOrgChoices.property());
     }
 

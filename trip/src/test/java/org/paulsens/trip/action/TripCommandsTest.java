@@ -134,7 +134,7 @@ public class TripCommandsTest {
     }
 
     /**
-     * The "Pilgrimage Listings" content instance: its admin-typed properties drive the listing, and a blank
+     * The "Trip Listings" content instance: its admin-typed properties drive the listing, and a blank
      * or nonsense property must fall back to "everything" rather than error -- this renders on the PUBLIC
      * landing page, where a typo in an admin field must never take the page down.
      */

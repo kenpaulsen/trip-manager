@@ -7,7 +7,7 @@ import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Placeholder;
 
 /**
- * The public pilgrimage listing for one language, as a programmatic content type: what v1 hardcoded as a
+ * The public trip listing for one language, as a programmatic content type: what v1 hardcoded as a
  * per-language accordion block on the landing page. The instance's title is the section heading
  * ("English Medjugorje Pilgrimages"); the fragment drives the same cached {@code TripCommands} listing the
  * v1 page used, filtered by these properties.
@@ -26,23 +26,23 @@ final class PilgrimagesType implements ProgrammaticContentTemplate {
 
     @Override
     public String getDisplayName() {
-        return "Pilgrimage Listings";
+        return "Trip Listings";
     }
 
     @Override
     public String getDescription() {
-        return "The public pilgrimage accordions for one language, straight from the trip data.";
+        return "The public trip accordions for one language, straight from the trip data.";
     }
 
     @Override
     public List<Placeholder> getProperties() {
         return List.of(
                 new Placeholder(PROP_LANGUAGE, Placeholder.Type.CHOICE, "Language",
-                        "Which language's pilgrimages to list", true),
+                        "Which language's trips to list", true),
                 new Placeholder(PROP_CFPW_ONLY, Placeholder.Type.CHOICE, "Providers",
-                        "All public pilgrimages, or only CFPW-hosted ones", false),
+                        "All public trips, or only CFPW-hosted ones", false),
                 new Placeholder(PROP_MAX_COUNT, Placeholder.Type.TEXT, "Max to display",
-                        "Blank shows every listed pilgrimage", false),
+                        "Blank shows every listed trip", false),
                 SharedSiteOrgChoices.property());
     }
 

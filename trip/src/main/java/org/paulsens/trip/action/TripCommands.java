@@ -403,7 +403,7 @@ public class TripCommands {
     }
 
     /**
-     * The pilgrimages a "Pilgrimage Listings" programmatic content instance shows: its admin-provided
+     * The pilgrimages a "Trip Listings" programmatic content instance shows: its admin-provided
      * properties (language, CFPW-only, max count, and on a shared site the curated {@code includeOrgs}
      * list) applied to the raw public listing through {@link ListingScope}. Blank or unparsable properties
      * fall back to everything the site may show -- a public page renders permissively, never errors. On an
