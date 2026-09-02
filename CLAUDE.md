@@ -165,7 +165,11 @@ sanctioned window onto which site a request is for — never copy its answers in
 `docs/org-admin.md` "Organization sites"), `brand` (BrandCommands — the org site's look: theme/layout
 names, logo or wordmark, favicon, footer, contact card, donate link, analytics id, ALL from the org's own
 org-only Branding settings; neutral/null on every other host so shared pages keep their literal chrome; see
-`docs/org-admin.md` "Branding"), `deploy`, `json`, `tripUtil`.
+`docs/org-admin.md` "Branding"), `brandingUpload` (BrandingUploadCommands — the Appearance page's four image
+uploads through the shared crop dialog, ONE bean carrying the `BrandingRole` chosen when the dialog opens)
+and `brandingPhotos` (BrandingPhotos — their versioned `org/{orgId}/branding/{role}-{version}.{ext}` store,
+whose KEPT previous versions are what makes a replaced image recoverable; see `docs/org-admin.md`
+"Uploading the four images"), `deploy`, `json`, `tripUtil`.
 
 - `ChatPhotos.getChatPhotos()` is ONE static instance on purpose — never give it ChatCommands'
   FacesContext/application-map lookup: the upload servlet has no FacesContext and the JSF send does, so a

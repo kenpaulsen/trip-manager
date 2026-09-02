@@ -641,6 +641,78 @@ and by `OrgSubdomainPwIT.anOrgAdminPreviewsAPaletteBeforeSavingIt`, which change
 `acme.localhost`, proves the new theme stylesheet is in the markup with nothing saved, cancels, saves, and
 restores the fixture.
 
+#### Uploading the four images (2026-09-02)
+
+Each of the four image settings — logo, favicon, link preview, page background — takes an **upload beside
+its URL box**, cropped in the shared dialog and stored by the site itself, so an organization never has to
+find somewhere else to host its own logo. `WEB-INF/brandImageUpload.xhtml` is that half of a field (the
+button, the recommendation, the replace warning and the recovery list), included once per field.
+
+**Storage: `action/BrandingPhotos`, keys `org/{orgId}/branding/{role}-{version}.{ext}`.** Modeled on
+`ProfilePhotos`, not on the media library, for two reasons. The same one that made profile pictures
+versioned — these objects serve with a day-long cache through CloudFront AND through browsers, a browser
+cache cannot be invalidated at all, so a replacement must be a NEW key or "replace the logo" takes effect
+tomorrow. And the media-library write path skips entirely with no bucket configured (local mode, every
+webtest), which would leave the feature unexercisable in a browser; the local in-memory store behind
+`web/BrandingPhotoServlet` (`/branding-photos/*`, GET only, anonymous — a logo is fetched by every visitor)
+is what makes the webtest real. There are no media-table rows: `listKeys` on the role prefix is the whole
+inventory, seeded once per organization. Writing AND listing both require `canManageOrg`, asked in the
+storage bean rather than trusted from the page.
+
+**Replaced images are kept, and that is the recovery.** The newest `KEEP_VERSIONS` (5) per role survive;
+past that the oldest are deleted so a site that re-uploads weekly cannot grow without bound. Each field's
+collapsed "Previous images" disclosure lists them newest-first with a "Use this" button that points the
+setting back at one (`BrandingUploadCommands.useVersion`; the KEY carries its own organization and role, so
+a foreign one simply does not match). The warning beside each Upload button says both halves of this up
+front: uploading replaces what the site shows now, and what it replaces can be put back.
+
+**One bean, four roles** (`action/BrandingUploadCommands`, `#{brandingUpload}`). The shared dialog has fixed
+component ids and one `widgetVar`, so a view can mount it exactly once — the role is therefore chosen when
+the dialog OPENS (`startUpload`) and rides the session beside the pending-upload token, and the bean answers
+the dialog's header and crop ratio from it. The dialog's own contract is unchanged; what is new is that
+`cropAspect` is a **parameter** rather than a choice between square and free, because every caller wants a
+different shape. `action/BrandingRole` holds the four:
+
+| Role | Crop | Stored as | Size | Warns below |
+|------|------|-----------|------|-------------|
+| `logo` | free (a logo is rarely square) | **PNG** | fits 512x512, never enlarged | 512 px long side |
+| `favicon` | square | **PNG** | exactly 48x48 | 48 px |
+| `ogImage` | **1.91:1** (Open Graph) | JPEG | ≤1200 wide, ≤1 MB | 600 px |
+| `background` | free | JPEG | ≤1920 wide, **≤1 MB** | 1920 px |
+
+PNG for the logo and the favicon is not a detail: `processSquare` and `encodeJpeg` both flatten alpha onto
+white, which draws a white box behind a transparent logo on every page — hence `PhotoProcessor.cropToPng` /
+`cropToSquarePng`, with `cropToBoundedJpeg` for the two that are shaped and byte-capped. PNG is also the
+only honest favicon answer here: browsers accept it for `rel="icon"`, and `ImageFormat` supports neither ICO
+nor SVG (the page's hint says so). The byte cap (`encodeJpegWithin`) steps quality down first and only then
+halves the image, and refuses — naming the budget — rather than storing something that loads on every page
+of a site. An area below the recommendation is a WARNING, never a refusal: the same rule badge pictures
+follow.
+
+**Where the URL lands: the page's preview, not a row.** A confirmed upload stores the image, writes its
+public URL into the Appearance page's unsaved values, and sends the browser back to the page — so an
+uploaded image previews exactly like a typed URL and the page's own Save / Cancel still decide. Choosing a
+background image also moves the three-way chooser to Image, or the page would come back showing a colour.
+Two things this needed:
+
+- the dialog's forms are SIBLINGS of the page's form and post without its `orgId` parameter, so the view-id
+  trigger above cannot fire for them — hence `BrandCommands.previewFor(orgId)`, which keys on the
+  organization alone (`preview()` is now that, plus the view-id question). Without it an upload would revert
+  whatever else the admin had in flight.
+- nothing an ajax response could replace would redraw the logo, the favicon or the background, so the bean
+  publishes the page's URL as the `brandUrl` callback param and the dialog's `afterStored` JS goes there.
+
+**In local mode the stored URL is still ABSOLUTE** (`http://{host}:{port}/branding-photos/...`, built from
+the request in hand). It has to be: these URLs land in settings declared `withHttpUrl()`, so a
+context-relative path is refused on save and dropped again by `BrandCommands.safeUrl` before it could reach
+an attribute — it would look stored and show nothing.
+
+Guarded by `BrandingPhotoProcessingTest` (alpha survives, exact dimensions, aspect cropping, the byte cap),
+`BrandingPhotosTest` (keys, versions, pruning, tenancy), `BrandingUploadCommandsTest` (the dialog contract
+per role, the refusals, recovery), `BrandingPhotoServletTest`, and
+`OrgSubdomainPwIT.anOrgAdminUploadsALogoAndCanStillPutBackTheOneItReplaced`, which drives the real cropper
+on `acme.localhost` and restores the setting afterwards.
+
 ### One login across the org sites (shared cookie, 2026-09)
 
 One Person, one login: a session established on any host under the org-site base domain

@@ -376,7 +376,7 @@ public class BrandCommands {
      * from what is stored -- a preview can never outlive the visit that made it, however the admin left.
      */
     public Map<String, String> appearanceEdit(final String orgId) {
-        final Map<String, String> preview = preview();
+        final Map<String, String> preview = previewFor(orgId);
         if (preview != null) {
             return new LinkedHashMap<>(preview);
         }
@@ -443,11 +443,25 @@ public class BrandCommands {
      * session's preview is for the SAME org. A preview for another org, on another page, or in another
      * person's session is not a preview here.
      */
-    @SuppressWarnings("unchecked")
     private Map<String, String> preview() {
         final String pageOrg = appearanceViewSource.get();
-        final HttpSession session = (pageOrg == null) ? null : sessionSource.get();
-        if (session == null || !pageOrg.equals(session.getAttribute(Sessions.APPEARANCE_PREVIEW_ORG))) {
+        return (pageOrg == null) ? null : previewFor(pageOrg);
+    }
+
+    /**
+     * This session's unsaved values for ONE organization, or null. Unlike {@link #preview()} it does not ask
+     * what the current request is rendering, which is what the Appearance page's upload dialog needs: the
+     * dialog's forms are siblings of the page's form and post WITHOUT its {@code orgId} parameter, so the
+     * view-id trigger cannot fire for them, yet an upload must extend the edits already in flight rather
+     * than silently reverting to what is stored.
+     *
+     * <p>It is not an authorization point either way: what comes back is this caller's own submission, on a
+     * page they must pass {@code OrgCommands.canManageOrg} to reach, and saving re-checks server-side.
+     */
+    @SuppressWarnings("unchecked")
+    public Map<String, String> previewFor(final String orgId) {
+        final HttpSession session = (orgId == null || orgId.isBlank()) ? null : sessionSource.get();
+        if (session == null || !orgId.equals(session.getAttribute(Sessions.APPEARANCE_PREVIEW_ORG))) {
             return null;
         }
         final Object values = session.getAttribute(Sessions.APPEARANCE_PREVIEW);

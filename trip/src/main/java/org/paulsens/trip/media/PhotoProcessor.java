@@ -62,6 +62,22 @@ public final class PhotoProcessor {
     private static final float FULL_JPEG_QUALITY = 0.95f;
 
     /**
+     * How narrow {@link #encodeJpegWithin} will go chasing a byte budget. Below this an org's page
+     * background is a thumbnail stretched across a screen, which is worse than refusing the upload and
+     * saying why.
+     */
+    static final int MIN_CAP_WIDTH = 320;
+
+    /** How many halvings {@link #encodeJpegWithin} will try; 8 takes any plausible upload past the floor. */
+    private static final int MAX_SHRINK_STEPS = 8;
+
+    /**
+     * The quality ladder tried before any shrinking: at these sizes the difference between 0.9 and 0.5 is
+     * hard to see, while the difference between a 1920px image and a 320px one is the whole picture.
+     */
+    private static final float[] CAP_QUALITIES = {0.90f, 0.80f, 0.70f, 0.60f, 0.50f};
+
+    /**
      * @param original the uploaded bytes, already size-capped by the servlet.
      * @return both renditions.
      * @throws PhotoRejectedException with a user-facing message when the bytes are not a supported image,
@@ -125,6 +141,49 @@ public final class PhotoProcessor {
         final BufferedImage oriented = decodeOriented(original, format);
         final CropRect square = squareRect(rect, oriented.getWidth(), oriented.getHeight());
         return encodeJpeg(scaleToExact(crop(oriented, square), size, size), FULL_JPEG_QUALITY);
+    }
+
+    /**
+     * A crop that KEEPS transparency: the requested region (clamped; null = the whole image) scaled down to
+     * fit inside {@code maxWidth} x {@code maxHeight} and encoded as PNG.
+     *
+     * <p>It exists because {@link #processSquare} and {@link #encodeJpeg} both flatten alpha onto white,
+     * which draws a white box behind a transparent logo on every page of a dark site. Nothing is ever
+     * enlarged: a source smaller than the caps stays its own size, and the caller warns about it rather than
+     * inventing pixels.
+     */
+    public byte[] cropToPng(final byte[] original, final CropRect rect, final int maxWidth,
+            final int maxHeight) {
+        return encodePng(fitWithin(cutOut(original, rect, 0), maxWidth, maxHeight));
+    }
+
+    /**
+     * A square crop as a PNG of exactly {@code size} on both sides -- favicons, which browsers accept as PNG
+     * and which this codebase can neither decode nor write as ICO or SVG. Alpha survives.
+     */
+    public byte[] cropToSquarePng(final byte[] original, final CropRect rect, final int size) {
+        return encodePng(scaleToExact(cutOut(original, rect, 1.0d), size, size));
+    }
+
+    /**
+     * A crop forced to {@code aspect} (width / height; zero or less crops free), scaled DOWN to at most
+     * {@code maxWidth}, and encoded as a JPEG that fits {@code maxBytes} -- link-preview images (1.91:1, the
+     * Open Graph shape) and page backgrounds (free, and capped in bytes because it loads on every page).
+     *
+     * @throws PhotoRejectedException when even a heavily shrunk encode cannot fit the budget.
+     */
+    public byte[] cropToBoundedJpeg(final byte[] original, final CropRect rect, final double aspect,
+            final int maxWidth, final long maxBytes) {
+        final BufferedImage cut = cutOut(original, rect, aspect);
+        return encodeJpegWithin(fitWithin(cut, Math.min(maxWidth, cut.getWidth()), Integer.MAX_VALUE),
+                maxBytes);
+    }
+
+    /** Decode, orient, and cut out the region {@link #aspectRect} settles on. */
+    private static BufferedImage cutOut(final byte[] original, final CropRect rect, final double aspect) {
+        final ImageFormat format = ImageFormat.detect(original).orElseThrow(PhotoProcessor::notAnImage);
+        final BufferedImage oriented = decodeOriented(original, format);
+        return crop(oriented, aspectRect(rect, oriented.getWidth(), oriented.getHeight(), aspect));
     }
 
     /**
@@ -215,15 +274,76 @@ public final class PhotoProcessor {
         return squareRect(rect, imgWidth, imgHeight).width();
     }
 
+    /**
+     * The region a {@code cropTo*} call would actually cut for this request, in source pixels — how a caller
+     * judges "is the chosen area big enough" against the SAME clamping and shaping the crop itself applies.
+     */
+    public static CropRect cutRegion(final CropRect rect, final int imgWidth, final int imgHeight,
+            final double aspect) {
+        return aspectRect(rect, imgWidth, imgHeight, aspect);
+    }
+
     /** The profile crop is square by force — {@code min(w, h)} of the clamped rect, never a stretch. */
     static CropRect squareRect(final CropRect rect, final int imgWidth, final int imgHeight) {
-        if (rect == null) {
-            final int side = Math.min(imgWidth, imgHeight);
-            return new CropRect((imgWidth - side) / 2, (imgHeight - side) / 2, side, side);
+        return aspectRect(rect, imgWidth, imgHeight, 1.0d);
+    }
+
+    /**
+     * The region a crop request actually cuts. The rect is clamped into the image and then, when
+     * {@code aspect} (width / height) is positive, SHRUNK to that ratio — never stretched, so the result is
+     * always inside what the user selected. A null rect means the whole image, or, with a ratio, the largest
+     * centered region of that ratio: exactly what "use the full photo" should mean for a shape the site
+     * requires (a favicon is square, a link preview is 1.91:1).
+     */
+    static CropRect aspectRect(final CropRect rect, final int imgWidth, final int imgHeight,
+            final double aspect) {
+        final CropRect base = (rect == null) ? new CropRect(0, 0, imgWidth, imgHeight)
+                : clamp(rect, imgWidth, imgHeight);
+        if (aspect <= 0) {
+            return base;
         }
-        final CropRect clamped = clamp(rect, imgWidth, imgHeight);
-        final int side = Math.min(clamped.width(), clamped.height());
-        return new CropRect(clamped.x(), clamped.y(), side, side);
+        final int width = Math.max(1, Math.min(base.width(), (int) Math.round(base.height() * aspect)));
+        final int height = Math.max(1, Math.min(base.height(), (int) Math.round(width / aspect)));
+        // A null rect is a request for the biggest well-shaped region, so center it; an explicit selection
+        // keeps its own top-left, which is where the user put it.
+        final int x = (rect == null) ? base.x() + (base.width() - width) / 2 : base.x();
+        final int y = (rect == null) ? base.y() + (base.height() - height) / 2 : base.y();
+        return new CropRect(x, y, width, height);
+    }
+
+    /** Scales DOWN so neither side exceeds its cap, keeping the aspect ratio. Never enlarges. */
+    static BufferedImage fitWithin(final BufferedImage src, final int maxWidth, final int maxHeight) {
+        if (src.getWidth() <= maxWidth && src.getHeight() <= maxHeight) {
+            return src;
+        }
+        final double scale = Math.min(maxWidth / (double) src.getWidth(),
+                maxHeight / (double) src.getHeight());
+        return scaleToExact(src, Math.max(1, (int) Math.round(src.getWidth() * scale)),
+                Math.max(1, (int) Math.round(src.getHeight() * scale)));
+    }
+
+    /**
+     * The best JPEG of this image that fits {@code maxBytes}: quality is stepped down first, because at
+     * these sizes the difference is hard to see, and only then is the image halved, because a background
+     * scaled to a postage stamp is the one outcome nobody wants. Refuses — with a message naming the
+     * budget — rather than storing something that would load on every page of a site.
+     */
+    static byte[] encodeJpegWithin(final BufferedImage img, final long maxBytes) {
+        BufferedImage current = img;
+        for (int step = 0; step <= MAX_SHRINK_STEPS; step++) {
+            for (final float quality : CAP_QUALITIES) {
+                final byte[] encoded = encodeJpeg(current, quality);
+                if (encoded.length <= maxBytes) {
+                    return encoded;
+                }
+            }
+            if (current.getWidth() <= MIN_CAP_WIDTH) {
+                break;
+            }
+            current = resizeToWidth(current, Math.max(MIN_CAP_WIDTH, current.getWidth() / 2));
+        }
+        throw new PhotoRejectedException("That image is too big to store: even reduced to " + MIN_CAP_WIDTH
+                + " px wide it does not fit in " + (maxBytes / 1024) + " KB. Try a smaller or simpler image.");
     }
 
     static BufferedImage crop(final BufferedImage src, final CropRect rect) {
