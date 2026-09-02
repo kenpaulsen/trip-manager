@@ -3,6 +3,7 @@ package org.paulsens.trip.action;
 import java.util.ArrayList;
 import java.util.List;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.content.ProgrammaticTypes;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
@@ -264,6 +265,37 @@ public class TemplateCommandsTest {
         Assert.assertFalse(admin.getTemplate("tpl-pilg-copy").getPlaceholders().isEmpty(),
                 "the type's properties become the placeholders on create");
         Assert.assertTrue(admin.deleteTemplate("tpl-pilg-copy"));
+    }
+
+    /**
+     * A programmatic row written against an older registry (production's starters predate
+     * {@code includeOrgs}) reads with its type's LIVE properties in the manager, the row itself is left
+     * alone by reading, and the next save writes the live list back -- the stored list is advisory.
+     */
+    @Test
+    public void programmaticRowsReadTheirTypesLivePropertiesAndCatchUpOnSave() {
+        final TemplateCommands admin = as(true);
+        final ContentTemplate stale = new ContentTemplate("tpl-stale-albums", 0, "Stale Albums", null, "",
+                List.of(new Placeholder("windowDays", Placeholder.Type.TEXT, "Window", null, false)),
+                null, null, TemplateKind.PROGRAMMATIC, null, null, "photo-albums");
+        Assert.assertTrue(DAO.getInstance().saveTemplate(stale, 5));
+        final List<String> live = ProgrammaticTypes.byId("photo-albums").orElseThrow().getProperties().stream()
+                .map(Placeholder::getName).toList();
+
+        final ContentTemplate shown = admin.getTemplate("tpl-stale-albums");
+        Assert.assertEquals(shown.getPlaceholders().stream().map(Placeholder::getName).toList(), live,
+                "the manager's copy carries the live list");
+        Assert.assertEquals(admin.getTemplate("tpl-stale-albums", 1).getPlaceholders().stream()
+                .map(Placeholder::getName).toList(), live, "so does a specific retained version");
+        Assert.assertEquals(DAO.getInstance().getTemplate("tpl-stale-albums", Cached.NO).orElseThrow()
+                .getPlaceholders().size(), 1, "reading rewrites nothing");
+
+        shown.setPlaceholders(List.of());   // whatever the editor submits, the type decides
+        Assert.assertTrue(admin.saveTemplate(shown));
+        Assert.assertEquals(DAO.getInstance().getTemplate("tpl-stale-albums", Cached.NO).orElseThrow()
+                .getPlaceholders().stream().map(Placeholder::getName).toList(), live,
+                "a save writes the live list into the row");
+        Assert.assertTrue(admin.deleteTemplate("tpl-stale-albums"));
     }
 
     @Test

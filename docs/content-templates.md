@@ -104,10 +104,17 @@ media table; hidden or deleted media renders nothing).
 
 Fragments are **pure render-time** (accordions/galleria/rows only — no build-time tags) and read the
 hosting instance as `#{instance}`. A template of kind PROGRAMMATIC copies its type's properties into
-`placeholders` at creation, so the dialog's form generation and version pinning work exactly as for
-STANDARD. On the page, `contentSections.xhtml` emits one statically-included fragment per registered type
-behind a `rendered=` guard — the ONE place build-time `c:forEach` is used, safe because the registry never
-changes at runtime.
+`placeholders` on every save, so version pinning and the manager's placeholder table work exactly as for
+STANDARD — **but the stored list is advisory at most: every reader takes the registry's LIVE property list**
+(`ProgrammaticTypes.placeholdersOf(template)`, used by the content dialog via `content.placeholdersOf(instance)`,
+by `createContent`, RICH_TEXT validation/normalization, the version-switch migrator, and the manager's
+`getTemplate` copies). The stored copy is a snapshot of the registry as it was when the row was written:
+production's `pilgrimages`/`photo-albums` starters predate the `includeOrgs` property, and the dialog once
+iterated the row, so the "Organizations shown" menu never appeared there (2026-09-01). A property added to
+a type therefore needs NO re-install and no data migration; a row whose type is no longer registered falls
+back to what it stored. On the page, `contentSections.xhtml` emits one statically-included fragment per
+registered type behind a `rendered=` guard — the ONE place build-time `c:forEach` is used, safe because the
+registry never changes at runtime.
 
 ## Rendering, editing, privileges
 

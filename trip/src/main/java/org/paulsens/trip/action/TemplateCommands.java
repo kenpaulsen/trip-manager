@@ -97,6 +97,7 @@ public class TemplateCommands {
     public ContentTemplate getTemplate(final String id) {
         try {
             return DAO.getInstance().getTemplate(id, Cached.NO).map(ContentTemplate::copy)
+                    .map(TemplateCommands::withLiveProperties)
                     .orElseGet(() -> blank(id));
         } catch (final RuntimeException ex) {
             log.error("Unable to look up template: " + id, ex);
@@ -104,15 +105,28 @@ public class TemplateCommands {
         }
     }
 
-    /** One specific retained version; the content dialog uses this to build its placeholder form. */
+    /** One specific retained version, as an editable copy (the history/restore views read these). */
     public ContentTemplate getTemplate(final String id, final int version) {
         try {
             return DAO.getInstance().getTemplate(id, version, Cached.NO).map(ContentTemplate::copy)
+                    .map(TemplateCommands::withLiveProperties)
                     .orElseGet(() -> getTemplate(id));
         } catch (final RuntimeException ex) {
             log.error("Unable to look up template: " + id + " v" + version, ex);
             return blank(id);
         }
+    }
+
+    /**
+     * A PROGRAMMATIC copy shows its type's LIVE properties, whatever the row stored (the stored list is a
+     * creation-time snapshot -- see {@link ProgrammaticTypes#placeholdersOf}); the manager then writes
+     * that list back on save, so an old row catches up the next time anyone touches it.
+     */
+    private static ContentTemplate withLiveProperties(final ContentTemplate copy) {
+        if (copy.getKind() == TemplateKind.PROGRAMMATIC) {
+            copy.setPlaceholders(ProgrammaticTypes.placeholdersOf(copy));
+        }
+        return copy;
     }
 
     /** Saves (creating or updating); {@code contentAdmin} only. Kind-specific validation applies. */
@@ -364,7 +378,7 @@ public class TemplateCommands {
         return switch (template.getKind()) {
             case STANDARD, MAIL -> HtmlFragmentValidator.validate(template.getBody());
             case CONTAINER -> normalizeContainer(template);
-            case PROGRAMMATIC -> normalizeProgrammatic(template, stored == null);
+            case PROGRAMMATIC -> normalizeProgrammatic(template);
         };
     }
 
@@ -396,17 +410,16 @@ public class TemplateCommands {
         return null;
     }
 
-    private String normalizeProgrammatic(final ContentTemplate template, final boolean creating) {
+    private String normalizeProgrammatic(final ContentTemplate template) {
         final ProgrammaticContentTemplate type =
                 ProgrammaticTypes.byId(template.getProgrammaticTypeId()).orElse(null);
         if (type == null) {
             return "Unknown programmatic type: '" + template.getProgrammaticTypeId() + "'.";
         }
-        // The type's property list IS the placeholder list; copy it in on creation (or if somehow empty)
-        // so the content dialog's form generation and version pinning work exactly as for STANDARD.
-        if (creating || template.getPlaceholders().isEmpty()) {
-            template.setPlaceholders(type.getProperties());
-        }
+        // The type's property list IS the placeholder list, on every save and not only on creation: the
+        // stored copy is advisory (every reader goes through ProgrammaticTypes.placeholdersOf), so a save
+        // is the moment a row written against an older registry catches up.
+        template.setPlaceholders(type.getProperties());
         template.setBody("");
         return null;
     }

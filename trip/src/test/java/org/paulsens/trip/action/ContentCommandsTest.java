@@ -3,6 +3,7 @@ package org.paulsens.trip.action;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.content.ProgrammaticTypes;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
@@ -72,6 +73,43 @@ public class ContentCommandsTest {
         final ContentInstance unknownTpl = content.createContent("cc.section-create", "no-such-template");
         Assert.assertEquals(unknownTpl.getTemplateId(), "no-such-template");
         Assert.assertEquals(unknownTpl.getTemplateVersion(), 0);
+    }
+
+    /**
+     * Production's pilgrimage and photo-album starters were installed before their types declared
+     * {@code includeOrgs}, and the content dialog iterated the STORED row's placeholders, so the
+     * "Organizations shown" menu never appeared on visitqueenofpeace.com (2026-09-01). Whatever a
+     * programmatic row carries, the prompts the dialog reads -- and the values a new instance seeds --
+     * come from the registry.
+     */
+    @Test
+    public void programmaticPromptsComeFromTheRegistryNotTheStoredRow() {
+        final ContentCommands admin = as(ADMIN, false);
+        final ContentTemplate stale = new ContentTemplate("cc-stale-pilgrimages", 0, "Stale Pilgrimages",
+                null, "", List.of(new Placeholder("language", Placeholder.Type.CHOICE, "Language", null, true)),
+                null, null, TemplateKind.PROGRAMMATIC, null, null, "pilgrimages");
+        Assert.assertTrue(DAO.getInstance().saveTemplate(stale, 5), "the DAO stores the row as given");
+
+        final ContentInstance section = admin.createContent("cc.section-stale", "cc-stale-pilgrimages");
+        Assert.assertTrue(section.getValues().containsKey("includeOrgs"),
+                "a new instance seeds a value for the live property");
+        final List<String> names = admin.placeholdersOf(section).stream().map(Placeholder::getName).toList();
+        Assert.assertEquals(names, ProgrammaticTypes.byId("pilgrimages").orElseThrow().getProperties().stream()
+                .map(Placeholder::getName).toList(), "the dialog's prompts are the type's live list");
+        Assert.assertTrue(names.contains("includeOrgs") && names.contains("cfpwOnly"),
+                "the org curation list AND the CFPW-only provider menu are both offered: " + names);
+        Assert.assertTrue(admin.placeholdersOf(admin.getContent("fake-albums")).stream()
+                        .anyMatch(ph -> ph.getName().equals("includeOrgs")
+                                && ph.getType() == Placeholder.Type.MULTI_CHOICE),
+                "the photo-albums section offers the same checkbox menu");
+
+        // Everything else is unchanged: STANDARD prompts are the stored list; nothing resolves to nothing.
+        Assert.assertEquals(admin.placeholdersOf(admin.createContent("cc.section-stale", "cc-test-tpl"))
+                .stream().map(Placeholder::getName).toList(), List.of("msg"));
+        Assert.assertTrue(admin.placeholdersOf(null).isEmpty());
+        Assert.assertTrue(admin.placeholdersOf(admin.createContent("cc.section-stale", "no-such-template"))
+                .isEmpty());
+        Assert.assertTrue(DAO.getInstance().deleteTemplate("cc-stale-pilgrimages"));
     }
 
     @Test

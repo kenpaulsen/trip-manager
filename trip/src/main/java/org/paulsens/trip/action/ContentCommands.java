@@ -104,7 +104,8 @@ public class ContentCommands {
         if (template != null) {
             created.setTemplateId(template.getId());
             created.setTemplateVersion(template.getVersion());
-            template.getPlaceholders().forEach(ph -> created.getValues().putIfAbsent(ph.getName(), ""));
+            ProgrammaticTypes.placeholdersOf(template)
+                    .forEach(ph -> created.getValues().putIfAbsent(ph.getName(), ""));
             if (template.getKind() == TemplateKind.CONTAINER && template.getAllowedChildTemplateIds() != null
                     && !template.getAllowedChildTemplateIds().isEmpty()) {
                 // A new container STARTS with its template's allow-list checked, so the dialog shows what
@@ -209,7 +210,7 @@ public class ContentCommands {
         if (template == null) {
             return;
         }
-        for (final Placeholder ph : template.getPlaceholders()) {
+        for (final Placeholder ph : ProgrammaticTypes.placeholdersOf(template)) {
             if (ph.getType() == Placeholder.Type.RICH_TEXT) {
                 normalizeValue(instance, ph.getName());
             }
@@ -257,7 +258,7 @@ public class ContentCommands {
         if (template == null) {
             return null;
         }
-        for (final Placeholder ph : template.getPlaceholders()) {
+        for (final Placeholder ph : ProgrammaticTypes.placeholdersOf(template)) {
             if (ph.getType() != Placeholder.Type.RICH_TEXT) {
                 continue;
             }
@@ -720,6 +721,21 @@ public class ContentCommands {
                 ? "" : template.getProgrammaticTypeId();
     }
 
+    /**
+     * The prompts the content dialog builds its form from: the instance's PINNED template version, except
+     * that a PROGRAMMATIC template answers its registered type's live property list
+     * ({@link ProgrammaticTypes#placeholdersOf}) -- the dialog used to iterate the stored row's
+     * placeholders, so a property added to a type after the starter was installed (the shared-site
+     * "Organizations shown" list) never appeared on production's pilgrimage and photo-album sections.
+     * Empty for an unresolvable template.
+     */
+    public List<Placeholder> placeholdersOf(final ContentInstance instance) {
+        if (instance == null) {
+            return List.of();
+        }
+        return ProgrammaticTypes.placeholdersOf(resolveTemplate(instance));
+    }
+
     /** A container's on-page title HTML (default heading for plain text, verbatim for markup). */
     public String renderTitle(final ContentInstance instance) {
         return instance == null ? "" : ContentRenderer.renderContainerTitle(instance.getTitle());
@@ -855,7 +871,8 @@ public class ContentCommands {
             return false;
         }
         final TemplateValueMigrator.Result result = TemplateValueMigrator.migrate(
-                from == null ? List.of() : from.getPlaceholders(), to.getPlaceholders(), instance.getValues());
+                ProgrammaticTypes.placeholdersOf(from), ProgrammaticTypes.placeholdersOf(to),
+                instance.getValues());
         instance.setTemplateVersion(wanted);
         instance.setValues(result.values());
         // The whole report goes in the SUMMARY: this site's growl renders details only for the
