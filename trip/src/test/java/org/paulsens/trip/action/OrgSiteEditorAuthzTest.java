@@ -295,10 +295,14 @@ public class OrgSiteEditorAuthzTest {
         Assert.assertTrue(onSite(ACME_SITE,
                 () -> TestCallers.person(EDITOR).hasHere(PrivilegeCommands.MEDIA_ADMIN)));
 
-        // The org dashboard is for the operational grants; a site editor does not get it.
+        // The org dashboard opens for an editor too: it is where the org's templates are managed, and the
+        // site-wide Templates entry is global-only, so this is their only route to their own work. The hub
+        // itself grants nothing -- every card on it is gated separately.
         final OrgCommands orgs = new OrgCommands(() -> TestCallers.person(EDITOR));
-        Assert.assertFalse(orgs.canViewOrgHub(FakeData.ACME_ORG_ID));
-        Assert.assertFalse(PrivilegeCommands.ORG_HUB_BASES.contains(PrivilegeCommands.CONTENT_ADMIN));
+        Assert.assertTrue(orgs.canViewOrgHub(FakeData.ACME_ORG_ID));
+        Assert.assertFalse(orgs.canManageOrg(FakeData.ACME_ORG_ID), "reaching the hub is not managing the org");
+        Assert.assertFalse(orgs.canViewOrgPeople(FakeData.ACME_ORG_ID), "and opens no card they lack");
+        Assert.assertTrue(PrivilegeCommands.ORG_HUB_BASES.contains(PrivilegeCommands.CONTENT_ADMIN));
         Assert.assertTrue(PrivilegeCommands.ORG_SCOPED_BASES.contains(PrivilegeCommands.CONTENT_ADMIN));
         Assert.assertTrue(PrivilegeCommands.ORG_SCOPED_BASES.contains(PrivilegeCommands.MEDIA_ADMIN));
         Assert.assertTrue(PrivilegeCommands.GLOBAL_BASES.contains(PrivilegeCommands.CONTENT_ADMIN), "still global too");

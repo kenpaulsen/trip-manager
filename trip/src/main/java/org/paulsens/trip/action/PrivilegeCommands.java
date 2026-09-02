@@ -83,10 +83,14 @@ public class PrivilegeCommands {
     public static final List<String> ORG_SCOPED_BASES =
             List.of(PEOPLE_ADMIN, ADD_TRIP, EMAIL_ADMIN, PAYMENTS_ADMIN, CONTENT_ADMIN, MEDIA_ADMIN);
     /**
-     * The org-scoped bases that open the org DASHBOARD (hub) to their holders: the operational grants. A
-     * content or media editor works on the org's site itself and has no business on its dashboard.
+     * The org-scoped bases that open the org DASHBOARD (hub) to their holders. It was the operational grants
+     * alone while an editor's whole job was the org's site in edit mode; the hub is now also where the org's
+     * TEMPLATES are managed, and the site-wide Templates entry is global-only, so an editor whose only grant
+     * is content or media would otherwise have no route to their own work. Opening the hub grants nothing by
+     * itself: every card on it is gated separately, so an editor arrives at a page showing only their own.
      */
-    public static final List<String> ORG_HUB_BASES = List.of(PEOPLE_ADMIN, ADD_TRIP, EMAIL_ADMIN, PAYMENTS_ADMIN);
+    public static final List<String> ORG_HUB_BASES =
+            List.of(PEOPLE_ADMIN, ADD_TRIP, EMAIL_ADMIN, PAYMENTS_ADMIN, CONTENT_ADMIN, MEDIA_ADMIN);
     public static final List<String> GLOBAL_BASES = List.of(PRIVILEGE_ADMIN, CONFIG_ADMIN, AUDIT_ADMIN,
             SITE_DEPLOYER, CONTENT_ADMIN, MEDIA_ADMIN, EVENT_ADMIN);
 
