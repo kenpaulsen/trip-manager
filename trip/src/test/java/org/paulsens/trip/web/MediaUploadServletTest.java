@@ -219,6 +219,31 @@ public class MediaUploadServletTest {
         Assert.assertEquals(body.get("slot").asText(), "home-docs");
     }
 
+    /** On an organization's host the stored key is the org's namespace, and the response names it. */
+    @Test
+    public void onAnOrgHostTheKeyIsNamespacedUnderTheOrg() throws Exception {
+        org.paulsens.trip.dynamo.DAO.getInstance();
+        org.paulsens.trip.dynamo.FakeData.addFakeData();
+        final String expected = MediaCommands.ORG_KEY_PREFIX + org.paulsens.trip.dynamo.FakeData.ACME_ORG_ID
+                + "/downloads/guide.pdf";
+        final Part fine = part("guide.pdf", 5);
+        Mockito.when(req.getPart("file")).thenReturn(fine);
+        Mockito.when(media.upload(ArgumentMatchers.eq(expected), ArgumentMatchers.any(InputStream.class),
+                        ArgumentMatchers.eq(5L), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                        ArgumentMatchers.any(), ArgumentMatchers.eq("home-docs"), ArgumentMatchers.eq(0),
+                        ArgumentMatchers.any(), ArgumentMatchers.isNull()))
+                .thenReturn(true);
+        final org.paulsens.trip.site.SiteContext acme = org.paulsens.trip.site.SiteContext.org(
+                org.paulsens.trip.model.Organization.Id.from(org.paulsens.trip.dynamo.FakeData.ACME_ORG_ID),
+                "acme", "acme.localhost");
+
+        final JsonNode body = ScopedValue.where(org.paulsens.trip.audit.RequestContext.SCOPE,
+                org.paulsens.trip.audit.RequestContext.of(null, null, acme)).call(this::post);
+
+        Assert.assertEquals(status.get(), 200);
+        Assert.assertEquals(body.get("key").asText(), expected);
+    }
+
     @Test
     public void safeFileNameHygiene() {
         Assert.assertEquals(MediaUploadServlet.safeFileName("My Guide (v2).pdf"), "My-Guide-v2.pdf");

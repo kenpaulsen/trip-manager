@@ -45,8 +45,11 @@ import org.paulsens.trip.site.SiteContext;
  * Those two reads serve any signed-in caller but show only what public pages would show, unless the caller
  * holds {@code mediaAdmin} -- redaction by privilege, same rule as everywhere else on this API.
  *
- * <p>Caller-chosen keys are validated server-side: a key is a public URL path, and {@code profilePics/} and
- * {@code chat/} belong to features that index their prefixes, so writing there is refused outright.
+ * <p>Caller-chosen keys are validated server-side: a key is a public URL path; {@code profilePics/},
+ * {@code chat/} and {@code badgeImages/} belong to features that index their prefixes, and {@code org/...}
+ * is an organization's own namespace, so writing there is refused outright. On an organization's host the
+ * key a client asks for is stored under that org's namespace ({@code MediaCommands.siteKey}) -- the
+ * upload-url response names the real key, and the confirm repeats it verbatim.
  */
 @Slf4j
 @Path("media")
@@ -189,16 +192,17 @@ public class MediaResource extends BaseResource {
         if (!media.isUploadEnabled()) {
             return error(503, ApiErrors.STORE_FAILED, "Uploads are not available in this deployment.");
         }
-        if (media.getByKey(body.key()) != null) {
+        final String stored = MediaCommands.siteKey(body.key());
+        if (media.getByKey(stored) != null) {
             return error(409, ApiErrors.CONFLICT, "A media item already uses that key.");
         }
-        final String url = media.presignUpload(body.key(), body.contentType(), body.size());
+        final String url = media.presignUpload(stored, body.contentType(), body.size());
         if (url == null) {
             return error(500, ApiErrors.INTERNAL, "Could not issue an upload URL.");
         }
         return ok(Map.of(
                 "url", url,
-                "key", MediaCommands.normalizeKey(body.key()),
+                "key", stored,
                 "contentType", body.contentType(),
                 "size", body.size(),
                 "expiresInSeconds", MediaCommands.UPLOAD_URL_TTL.toSeconds()));
@@ -237,13 +241,14 @@ public class MediaResource extends BaseResource {
         if (!media.isUploadEnabled()) {
             return error(503, ApiErrors.STORE_FAILED, "Uploads are not available in this deployment.");
         }
-        if (media.getByKey(body.key()) != null) {
+        final String stored = MediaCommands.siteKey(body.key());
+        if (media.getByKey(stored) != null) {
             return error(409, ApiErrors.CONFLICT, "A media item already uses that key.");
         }
-        if (media.statObject(MediaCommands.normalizeKey(body.key())).isEmpty()) {
+        if (media.statObject(stored).isEmpty()) {
             return error(422, ApiErrors.VALIDATION_FAILED, "Nothing is stored at that key; upload it first.");
         }
-        final MediaItem saved = media.confirmUpload(body.key(), body.title(), body.description(), body.slot(),
+        final MediaItem saved = media.confirmUpload(stored, body.title(), body.description(), body.slot(),
                 body.position() == null ? 0 : body.position(), requestedBy(), body.hidden());
         if (saved == null) {
             return error(500, ApiErrors.STORE_FAILED, "The file is stored but its row could not be recorded.");
@@ -258,7 +263,8 @@ public class MediaResource extends BaseResource {
 
     /**
      * Saves edited metadata, moving the stored object when the key changed. {@code uploaded} is preserved --
-     * it records when the bytes were written; who edited what is the audit trail's job.
+     * it records when the bytes were written; who edited what is the audit trail's job. A row this caller
+     * may not manage on THIS site (another tenant's, or the shared site's from an org host) reads as absent.
      */
     @PUT
     @Path("{id}")
@@ -276,16 +282,18 @@ public class MediaResource extends BaseResource {
             return error(400, ApiErrors.BAD_REQUEST, "A body is required.");
         }
         final MediaCommands media = Beans.get(MediaCommands.class);
-        final MediaItem existing = media.get(id);
+        final MediaItem existing = media.getManageable(id);
         if (existing == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such media item.");
         }
-        if (body.key() != null && !body.key().isBlank() && !body.key().equals(existing.getS3Key())) {
+        // The rename target as the commands will store it: an org's file stays in the org's namespace.
+        final String target = MediaCommands.keyForOwner(existing.getOrgId(), body.key());
+        if (target != null && !target.equals(existing.getS3Key())) {
             final Response keyProblem = keyRefusal(body.key());
             if (keyProblem != null) {
                 return keyProblem;
             }
-            final MediaItem holder = media.getByKey(body.key());
+            final MediaItem holder = media.getByKey(target);
             if (holder != null && !holder.getId().equals(existing.getId())) {
                 return error(409, ApiErrors.CONFLICT, "Another media item already uses that key.");
             }
@@ -298,7 +306,10 @@ public class MediaResource extends BaseResource {
         return ok(toDto(media, media.get(id)));
     }
 
-    /** Removes the row and the object. S3 versioning keeps the bytes recoverable, but URLs stop working. */
+    /**
+     * Removes the row and the object. S3 versioning keeps the bytes recoverable, but URLs stop working. As
+     * with {@link #update}, a row that is not this caller's to manage on this site is 404.
+     */
     @DELETE
     @Path("{id}")
     @Produces({V1, MediaType.APPLICATION_JSON})
@@ -310,7 +321,7 @@ public class MediaResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN, "Media administration required.");
         }
         final MediaCommands media = Beans.get(MediaCommands.class);
-        final MediaItem existing = media.get(id);
+        final MediaItem existing = media.getManageable(id);
         if (existing == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such media item.");
         }
@@ -348,7 +359,8 @@ public class MediaResource extends BaseResource {
         }
         if (MediaCommands.isReservedKey(trimmed)) {
             return error(422, ApiErrors.VALIDATION_FAILED,
-                    "That key belongs to another feature's namespace (profile or chat photos).");
+                    "That key belongs to another feature's namespace (profile, chat or badge photos) or to "
+                            + "another site's.");
         }
         return null;
     }

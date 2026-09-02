@@ -332,7 +332,8 @@ public class MediaResourceTest extends ResourceTestSupport {
     public void anUploadUrlAnswersTheSignedUrlAndItsTerms() {
         signedInAsSiteAdmin(ADMIN);
         Mockito.when(media.isUploadEnabled()).thenReturn(true);
-        Mockito.when(media.presignUpload("/downloads/a.pdf", "application/pdf", 9L))
+        // Signed for the key as it will be stored (normalized, site-keyed), not the raw request string.
+        Mockito.when(media.presignUpload("downloads/a.pdf", "application/pdf", 9L))
                 .thenReturn("https://bucket.s3/downloads/a.pdf?sig");
 
         final Response response = resource.uploadUrl(CSRF_OK,
@@ -413,7 +414,7 @@ public class MediaResourceTest extends ResourceTestSupport {
     @Test
     public void updatingAnUnknownItemIs404() {
         signedInAsSiteAdmin(ADMIN);
-        Mockito.when(media.get("nope")).thenReturn(null);
+        Mockito.when(media.getManageable("nope")).thenReturn(null);
 
         assertError(resource.update(CSRF_OK, "nope",
                 new MediaResource.UpdateRequest(null, "T", null, null, null, null)), 404, ApiErrors.NOT_FOUND);
@@ -424,7 +425,7 @@ public class MediaResourceTest extends ResourceTestSupport {
     @Test
     public void renamingGuardsTheTargetKey() {
         signedInAsSiteAdmin(ADMIN);
-        Mockito.when(media.get("m1")).thenReturn(item("m1", "downloads/a.pdf", null));
+        Mockito.when(media.getManageable("m1")).thenReturn(item("m1", "downloads/a.pdf", null));
         Mockito.when(media.getByKey("downloads/b.pdf")).thenReturn(item("m2", "downloads/b.pdf", null));
 
         assertError(resource.update(CSRF_OK, "m1",
@@ -444,7 +445,7 @@ public class MediaResourceTest extends ResourceTestSupport {
         signedInAsSiteAdmin(ADMIN);
         session("loginEmail", "admin@example.com");
         final MediaItem hidden = item("m1", "downloads/a.pdf", true);
-        Mockito.when(media.get("m1")).thenReturn(hidden);
+        Mockito.when(media.getManageable("m1")).thenReturn(hidden);
         Mockito.when(media.getUrl(hidden)).thenReturn("url");
         Mockito.when(media.update("m1", null, "New title", "d", "slot", 3, true, "admin@example.com"))
                 .thenReturn(true);
@@ -459,7 +460,7 @@ public class MediaResourceTest extends ResourceTestSupport {
     @Test
     public void aFailedUpdateIsReported() {
         signedInAsSiteAdmin(ADMIN);
-        Mockito.when(media.get("m1")).thenReturn(item("m1", "downloads/a.pdf", null));
+        Mockito.when(media.getManageable("m1")).thenReturn(item("m1", "downloads/a.pdf", null));
         Mockito.when(media.update(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.anyBoolean(), ArgumentMatchers.any())).thenReturn(false);
@@ -472,7 +473,7 @@ public class MediaResourceTest extends ResourceTestSupport {
     public void deletingRemovesTheRowAndNamesWhatWentAway() {
         signedInAsSiteAdmin(ADMIN);
         session("loginEmail", "admin@example.com");
-        Mockito.when(media.get("m1")).thenReturn(item("m1", "downloads/a.pdf", null));
+        Mockito.when(media.getManageable("m1")).thenReturn(item("m1", "downloads/a.pdf", null));
         Mockito.when(media.delete("m1", "admin@example.com")).thenReturn(true);
 
         final Response response = resource.delete(CSRF_OK, "m1");
@@ -487,12 +488,82 @@ public class MediaResourceTest extends ResourceTestSupport {
     @Test
     public void deletingAnUnknownItemIs404AndAFailedDeleteIsReported() {
         signedInAsSiteAdmin(ADMIN);
-        Mockito.when(media.get("nope")).thenReturn(null);
+        Mockito.when(media.getManageable("nope")).thenReturn(null);
         assertError(resource.delete(CSRF_OK, "nope"), 404, ApiErrors.NOT_FOUND);
 
-        Mockito.when(media.get("m1")).thenReturn(item("m1", "downloads/a.pdf", null));
+        Mockito.when(media.getManageable("m1")).thenReturn(item("m1", "downloads/a.pdf", null));
         Mockito.when(media.delete(ArgumentMatchers.eq("m1"), ArgumentMatchers.any())).thenReturn(false);
         assertError(resource.delete(CSRF_OK, "m1"), 500, ApiErrors.STORE_FAILED);
+    }
+
+    /**
+     * A row the caller may not manage on THIS site -- another tenant's, or the shared site's from an org
+     * host -- reads as absent on update and delete: the commands' ownership rule decides, the resource
+     * only asks, and no write is attempted.
+     */
+    @Test
+    public void aForeignRowIs404OnUpdateAndDelete() {
+        signedInAsSiteAdmin(ADMIN);
+        Mockito.when(media.getManageable("theirs")).thenReturn(null);
+        Mockito.when(media.get("theirs")).thenReturn(item("theirs", "downloads/theirs.pdf", null));
+
+        assertError(resource.update(CSRF_OK, "theirs",
+                new MediaResource.UpdateRequest(null, "T", null, null, null, null)), 404, ApiErrors.NOT_FOUND);
+        assertError(resource.delete(CSRF_OK, "theirs"), 404, ApiErrors.NOT_FOUND);
+        Mockito.verify(media, Mockito.never()).update(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyBoolean(), ArgumentMatchers.any());
+        Mockito.verify(media, Mockito.never()).delete(ArgumentMatchers.any(), ArgumentMatchers.any());
+    }
+
+    /** On an organization's host the caller's key is stored under the org's namespace, both steps. */
+    @Test
+    public void onAnOrgHostTheUploadKeyIsNamespacedUnderTheOrg() throws Exception {
+        org.paulsens.trip.dynamo.DAO.getInstance();
+        org.paulsens.trip.dynamo.FakeData.addFakeData();
+        signedInAsSiteAdmin(ADMIN);
+        session("loginEmail", "admin@example.com");
+        final String stored = MediaCommands.ORG_KEY_PREFIX + org.paulsens.trip.dynamo.FakeData.ACME_ORG_ID
+                + "/downloads/a.pdf";
+        final MediaItem saved = item("m9", stored, null);
+        Mockito.when(media.isUploadEnabled()).thenReturn(true);
+        Mockito.when(media.presignUpload(stored, "application/pdf", 9L)).thenReturn("https://s3/x?sig");
+        Mockito.when(media.statObject(stored))
+                .thenReturn(java.util.Optional.of(new MediaCommands.StoredObject(9L, "application/pdf")));
+        Mockito.when(media.confirmUpload(stored, "T", null, "home-docs", 0, "admin@example.com", null))
+                .thenReturn(saved);
+        Mockito.when(media.getUrl(saved)).thenReturn("https://cdn/x");
+        final org.paulsens.trip.site.SiteContext acme = org.paulsens.trip.site.SiteContext.org(
+                org.paulsens.trip.model.Organization.Id.from(org.paulsens.trip.dynamo.FakeData.ACME_ORG_ID),
+                "acme", "acme.localhost");
+
+        final Response signed = ScopedValue.where(org.paulsens.trip.audit.RequestContext.SCOPE,
+                org.paulsens.trip.audit.RequestContext.of(null, null, acme)).call(() -> resource.uploadUrl(CSRF_OK,
+                        new MediaResource.UploadUrlRequest("/downloads/a.pdf", "application/pdf", 9L)));
+        assertOk(signed);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> body = (Map<String, Object>) signed.getEntity();
+        Assert.assertEquals(body.get("key"), stored, "the response names the key as stored");
+
+        final Response confirmed = ScopedValue.where(org.paulsens.trip.audit.RequestContext.SCOPE,
+                org.paulsens.trip.audit.RequestContext.of(null, null, acme)).call(() -> resource.confirm(CSRF_OK,
+                        new MediaResource.ConfirmRequest(stored, "T", null, "home-docs", 0, null)));
+        assertOk(confirmed);
+        Assert.assertEquals(((MediaItemDto) confirmed.getEntity()).id(), "m9");
+
+        // Another tenant's namespace, and any org namespace from the shared host, is refused unsigned.
+        final String betas = MediaCommands.ORG_KEY_PREFIX + org.paulsens.trip.dynamo.FakeData.BETA_ORG_ID
+                + "/downloads/a.pdf";
+        assertError(ScopedValue.where(org.paulsens.trip.audit.RequestContext.SCOPE,
+                org.paulsens.trip.audit.RequestContext.of(null, null, acme)).call(() -> resource.uploadUrl(CSRF_OK,
+                        new MediaResource.UploadUrlRequest(betas, "application/pdf", 9L))),
+                422, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.uploadUrl(CSRF_OK, new MediaResource.UploadUrlRequest(stored, "application/pdf", 9L)),
+                422, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.confirm(CSRF_OK, new MediaResource.ConfirmRequest(stored, "T", null, null, 0, null)),
+                422, ApiErrors.VALIDATION_FAILED);
+        Mockito.verify(media, Mockito.times(1)).presignUpload(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyLong());
     }
 
     /** The refresh must pass the REST edge's actor: AuditActor.current() records nobody off a Faces thread. */

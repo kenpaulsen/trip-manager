@@ -80,6 +80,12 @@ public class MediaCommands {
      * beginning the upload, and staying short keeps a leaked URL from being a standing grant.
      */
     public static final Duration UPLOAD_URL_TTL = Duration.ofMinutes(15);
+    /**
+     * Where an organization's library uploads live: {@code org/{orgUUID}/...}, the UUID because a slug can be
+     * reassigned and a stored key cannot. The shared site's keys stay exactly as they always were (bare
+     * {@code downloads/...}), so nothing existing moved and no URL changed -- see {@link #siteKey}.
+     */
+    public static final String ORG_KEY_PREFIX = "org/";
 
     private volatile S3Client s3;
     private volatile S3Presigner presigner;
@@ -122,6 +128,43 @@ public class MediaCommands {
     }
 
     /**
+     * The object key an upload made on THIS site is stored under: {@link #keyForOwner} for the site's org.
+     * On an organization's site a caller-chosen {@code background.jpg} becomes {@code
+     * org/{orgUUID}/background.jpg}; on a shared site it is stored exactly as given. Two organizations
+     * uploading the same name therefore never meet at one object, and neither can reach the shared site's
+     * keys. Null for a blank key.
+     */
+    public static String siteKey(final String key) {
+        return keyForOwner(siteOrgId(), key);
+    }
+
+    /**
+     * The key a file owned by {@code orgId} (null = the shared site) is stored under when a caller asks for
+     * {@code key}: namespaced under the org's prefix, unless it already is -- so the key the upload-url
+     * step hands back can be repeated verbatim at confirm, and a rename keeps an org's file in its
+     * namespace whatever the editor typed. A key under ANOTHER org's namespace is left as it is rather than
+     * nested, so {@link #isReservedKey} then refuses it on every write path.
+     */
+    public static String keyForOwner(final String orgId, final String key) {
+        final String cleanKey = normalizeKey(key);
+        if (cleanKey == null || orgId == null || cleanKey.startsWith(ORG_KEY_PREFIX)) {
+            return cleanKey;
+        }
+        return orgPrefix(orgId) + cleanKey;
+    }
+
+    /** The upload namespace of one organization. */
+    static String orgPrefix(final String orgId) {
+        return ORG_KEY_PREFIX + orgId + "/";
+    }
+
+    /** For the upload form: the prefix this site's uploads land under ({@code ""} on a shared site). */
+    public String getSiteKeyPrefix() {
+        final String orgId = siteOrgId();
+        return orgId == null ? "" : orgPrefix(orgId);
+    }
+
+    /**
      * Test seam (the ContentCommands pattern): the caller behind the current request. Resolved from the
      * request-bound {@code RequestContext}, not FacesContext, because these writes are reached from pages,
      * the REST API and the upload servlet alike.
@@ -130,13 +173,17 @@ public class MediaCommands {
     private Supplier<Caller> callerSource = Caller::bound;
 
     /**
-     * The media OWNERSHIP rule every write re-checks: a global mediaAdmin (or site admin) manages every
-     * item; an org-scoped media editor only that org's items -- discovery already hides the rest, and this
-     * is what stops a known id from reaching a foreign row; a trip's manager moderates the trip's own chat
-     * album whoever owns the rows. Ownership is the ITEM's, never the request's host.
+     * The media OWNERSHIP rule every write re-checks, in two halves. The SITE half ({@link #writableHere}):
+     * an item can be changed only from the site where it is discoverable -- an org's rows on that org's
+     * host, the shared site's rows on a shared host -- whoever asks, site admins included, so a foreign
+     * org's row is never writable from any other host and the admin editor on a host can touch only that
+     * host's library. The CALLER half: a global mediaAdmin (or site admin) manages every item there, an
+     * org-scoped media editor only that org's items -- discovery already hides the rest, and this is what
+     * stops a known id from reaching a foreign row; a trip's manager moderates the trip's own chat album
+     * whoever owns the rows. Ownership is the ITEM's, never the request's host.
      */
     boolean mayManage(final MediaItem item) {
-        if (item == null) {
+        if (item == null || !writableHere(item)) {
             return false;
         }
         final Caller caller = callerSource.get();
@@ -150,9 +197,37 @@ public class MediaCommands {
         return tripId != null && caller.has(PrivilegeCommands.TRIP_MGR, tripId);
     }
 
+    /**
+     * The site half of the write rule: writable only where discoverable (see {@link #discoverable}). A chat
+     * album is the exception for the same reason it is exempt from discovery -- it belongs to its TRIP and
+     * is moderated from the trip's pages, on whichever host those are served.
+     */
+    static boolean writableHere(final MediaItem item) {
+        return ChatPhotos.isChatSlot(item.getSlot()) || discoverable(item);
+    }
+
     /** Whether the caller may add to the library on THIS site (global, or the site's org's media editor). */
     boolean mayUploadHere() {
         return callerSource.get().hasHere(PrivilegeCommands.MEDIA_ADMIN);
+    }
+
+    /**
+     * Why a NEW object may not be written at {@code storedKey} (already site-keyed) by this caller, or null
+     * when it may: a reserved namespace, or a row that already claims the key and is not this caller's to
+     * manage HERE. Re-uploading over your own file is the page's replace path and stays allowed; overwriting
+     * anybody else's bytes -- another tenant's, or the shared site's from an org host -- is not. With the
+     * org namespace the keys of different owners are disjoint by construction; this is what protects the
+     * rows that predate it (an org's early uploads stored under bare keys).
+     */
+    String claimRefusal(final String storedKey) {
+        if (isReservedKey(storedKey)) {
+            return "That path belongs to another feature or another site.";
+        }
+        final MediaItem holder = getByKey(storedKey);
+        if (holder != null && !mayManage(holder)) {
+            return "That path is already in use.";
+        }
+        return null;
     }
 
     /** One item by row id for the edit page, or null when it is unknown OR not this caller's to manage. */
@@ -419,16 +494,22 @@ public class MediaCommands {
             final String title, final String description, final String slot, final int position,
             final String uploadedBy, final Boolean hidden) {
         // The two entry points (the admin page and the upload servlet) gate media administration for the
-        // site themselves (priv.checkHere / Caller.hasHere); the row is stamped with the site's org below.
+        // site themselves (priv.checkHere / Caller.hasHere); the key is namespaced and the row stamped with
+        // the site's org below, so what they may write is decided here whatever they asked for.
         final String bucket = bucket();
         if (bucket == null) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Uploads unavailable",
                     BUCKET_VAR + " is not configured, so there is nowhere to put the file.");
             return false;
         }
-        final String cleanKey = normalizeKey(key);
+        final String cleanKey = siteKey(key);
         if (cleanKey == null) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not uploaded", "A file name is required.");
+            return false;
+        }
+        final String refusal = claimRefusal(cleanKey);
+        if (refusal != null) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not uploaded", refusal);
             return false;
         }
         try {
@@ -491,8 +572,11 @@ public class MediaCommands {
      */
     public String presignUpload(final String key, final String contentType, final long size) {
         final String bucket = bucket();
-        final String cleanKey = normalizeKey(key);
-        if (bucket == null || cleanKey == null || contentType == null || contentType.isBlank() || size <= 0) {
+        // Site-keyed, so the signature pins the namespaced key: a URL for an org's upload can put nowhere
+        // but under that org's prefix.
+        final String cleanKey = siteKey(key);
+        if (bucket == null || cleanKey == null || contentType == null || contentType.isBlank() || size <= 0
+                || isReservedKey(cleanKey)) {
             return null;
         }
         try {
@@ -552,8 +636,8 @@ public class MediaCommands {
      */
     public MediaItem confirmUpload(final String key, final String title, final String description,
             final String slot, final int position, final String uploadedBy, final Boolean hidden) {
-        final String cleanKey = normalizeKey(key);
-        if (cleanKey == null || !mayUploadHere()) {
+        final String cleanKey = siteKey(key);
+        if (cleanKey == null || !mayUploadHere() || claimRefusal(cleanKey) != null) {
             return null;
         }
         final Optional<StoredObject> stored = statObject(cleanKey);
@@ -585,25 +669,51 @@ public class MediaCommands {
     /**
      * The item whose object key is {@code key}, or null. Fresh read, because its callers are about to decide
      * whether a key is free to be claimed -- a stale answer here mints a second row over the same object.
+     * Deliberately NOT the site-filtered listing: the question is whether ANY row holds the key, and a row
+     * this site cannot discover is exactly the one an upload must not overwrite.
      */
     public MediaItem getByKey(final String key) {
         final String cleanKey = normalizeKey(key);
         if (cleanKey == null) {
             return null;
         }
-        return getAll().stream().filter(item -> cleanKey.equals(item.getS3Key())).findFirst().orElse(null);
+        try {
+            return DAO.getInstance().getAllMedia(Cached.NO).stream()
+                    .filter(item -> cleanKey.equals(item.getS3Key()))
+                    .findFirst().orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to look up media by key: " + cleanKey, ex);
+            return null;
+        }
     }
 
     /**
-     * Whether {@code key} lives where a DIFFERENT feature reads: profile photos index their whole prefix and
-     * chat photos own theirs, so a caller-chosen key under either would be writing into someone else's
-     * namespace. A malformed key counts as reserved -- there is no safe answer for it.
+     * Whether {@code key} lives where a DIFFERENT feature or site reads: profile photos, chat photos and
+     * badge images index their whole prefixes, so a caller-chosen key under any of them would be writing
+     * into someone else's namespace; and {@code org/...} is an organization's namespace, which only that
+     * org's own site may write (a shared host never writes under {@code org/} at all). A malformed key
+     * counts as reserved -- there is no safe answer for it.
      */
     public static boolean isReservedKey(final String key) {
         final String cleanKey = normalizeKey(key);
         return cleanKey == null
                 || cleanKey.startsWith(ProfilePhotos.PREFIX)
-                || cleanKey.startsWith(ChatPhotos.KEY_PREFIX);
+                || cleanKey.startsWith(ChatPhotos.KEY_PREFIX)
+                || cleanKey.startsWith(BadgePhotoCommands.PREFIX)
+                || isForeignOrgKey(cleanKey);
+    }
+
+    /** An {@code org/} key that is not THIS site's own namespace (or is its bare prefix with no name). */
+    private static boolean isForeignOrgKey(final String cleanKey) {
+        if (!cleanKey.startsWith(ORG_KEY_PREFIX)) {
+            return false;
+        }
+        final String orgId = siteOrgId();
+        if (orgId == null) {
+            return true;
+        }
+        final String own = orgPrefix(orgId);
+        return !cleanKey.startsWith(own) || cleanKey.length() == own.length();
     }
 
     /**
@@ -664,11 +774,20 @@ public class MediaCommands {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", "No such media item.");
             return false;
         }
+        // A rename stays in the OWNER's namespace whatever was typed (an org's file cannot be moved onto a
+        // shared key or another tenant's), and never lands on a key some other row holds.
         final String cleanKey = (newKey == null || newKey.isBlank())
-                ? existing.getS3Key() : normalizeKey(newKey);
+                ? existing.getS3Key() : keyForOwner(existing.getOrgId(), newKey);
         final boolean renamed = !cleanKey.equals(existing.getS3Key());
-        if (renamed && !moveObject(existing.getS3Key(), cleanKey)) {
-            return false;
+        if (renamed) {
+            final String refusal = renameRefusal(existing, cleanKey);
+            if (refusal != null) {
+                TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not renamed", refusal);
+                return false;
+            }
+            if (!moveObject(existing.getS3Key(), cleanKey)) {
+                return false;
+            }
         }
 
         final MediaItem updated = new MediaItem(existing.getId(), cleanKey, title, description,
@@ -700,6 +819,21 @@ public class MediaCommands {
                         : "Edited details for " + cleanKey)
                 .log();
         return true;
+    }
+
+    /**
+     * Why {@code existing} may not be renamed to {@code target} (already owner-keyed), or null: a reserved
+     * namespace, or a DIFFERENT row's key -- a rename never overwrites, not even a file of one's own.
+     */
+    String renameRefusal(final MediaItem existing, final String target) {
+        if (isReservedKey(target)) {
+            return "That path belongs to another feature or another site.";
+        }
+        final MediaItem holder = getByKey(target);
+        if (holder != null && !holder.getId().equals(existing.getId())) {
+            return "Another file already uses that path.";
+        }
+        return null;
     }
 
     /** Copies the object to its new key and removes the old one. S3 has no rename. */

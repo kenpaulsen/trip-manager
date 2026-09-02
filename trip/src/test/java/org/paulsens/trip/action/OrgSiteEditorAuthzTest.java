@@ -150,16 +150,23 @@ public class OrgSiteEditorAuthzTest {
         final MediaCommands editor = mediaAs(EDITOR);
         final MediaItem siteLevel = DAO.getInstance().getMedia("fake-doc-1", Cached.NO).orElseThrow();
         final MediaItem acmes = DAO.getInstance().getMedia("fake-acme-doc", Cached.NO).orElseThrow();
-        Assert.assertTrue(editor.mayManage(acmes));
-        Assert.assertFalse(editor.mayManage(siteLevel), "site-level items are the site's");
-        Assert.assertFalse(editor.mayManage(acmes.withOrg(FakeData.BETA_ORG_ID)), "never another tenant's");
-        Assert.assertNotNull(editor.getManageable("fake-acme-doc"));
-        Assert.assertNull(editor.getManageable("fake-doc-1"), "a foreign row reads as absent");
-        Assert.assertFalse(editor.setHidden("fake-doc-1", true, "x"), "writes re-check ownership");
-        Assert.assertFalse(editor.update("fake-doc-1", null, "Renamed", null, "home-docs", null, false, "x"));
-        Assert.assertFalse(editor.assignToSlot("fake-doc-1", "home-docs", "x"));
-        Assert.assertFalse(editor.delete("fake-doc-1", "x"));
-        Assert.assertFalse(mediaAs(ORG_ADMIN_ONLY).mayManage(acmes), "an org admin without the grant: nothing");
+        // The site half of the write rule first: off Acme's host, not even Acme's own rows are writable.
+        Assert.assertFalse(editor.mayManage(acmes), "shared host: nothing, Acme's rows included");
+        Assert.assertNull(editor.getManageable("fake-acme-doc"));
+        Assert.assertFalse(onSite(BETA_SITE, () -> editor.mayManage(acmes)), "another tenant's host: nothing");
+        onSite(ACME_SITE, () -> {
+            Assert.assertTrue(editor.mayManage(acmes));
+            Assert.assertFalse(editor.mayManage(siteLevel), "site-level items are the site's");
+            Assert.assertFalse(editor.mayManage(acmes.withOrg(FakeData.BETA_ORG_ID)), "never another tenant's");
+            Assert.assertNotNull(editor.getManageable("fake-acme-doc"));
+            Assert.assertNull(editor.getManageable("fake-doc-1"), "a foreign row reads as absent");
+            Assert.assertFalse(editor.setHidden("fake-doc-1", true, "x"), "writes re-check ownership");
+            Assert.assertFalse(editor.update("fake-doc-1", null, "Renamed", null, "home-docs", null, false, "x"));
+            Assert.assertFalse(editor.assignToSlot("fake-doc-1", "home-docs", "x"));
+            Assert.assertFalse(editor.delete("fake-doc-1", "x"));
+            Assert.assertFalse(mediaAs(ORG_ADMIN_ONLY).mayManage(acmes), "an org admin without the grant: nothing");
+            return null;
+        });
 
         // A trip's manager moderates the trip's chat album whoever owns the rows.
         final String tripId = UUID.randomUUID().toString();

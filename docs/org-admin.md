@@ -227,10 +227,13 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   (`Organization.allowSharedSites`, org-admin controlled, saved through `saveOrgEdits`' 8th argument). With
   no pick, a shared site lists the orgs that have no site of their own — so assigning a subdomain also
   takes the org OFF the shared sites until a site admin curates it back in.
-- **Media is site-scoped by `MediaItem.orgId`**: the admin library (`admin/media.xhtml`), the document
-  picker and the Documents slot show an org's items only on its own site and the site's items only on
-  shared sites; `GET /api/media/slots/{slot}` refuses a chat album (404) unless the caller is on the trip or
-  the trip is publicly listed on that site.
+- **Media is site-scoped by `MediaItem.orgId`**, for discovery AND for writes: the admin library
+  (`admin/media.xhtml`), the document picker and the Documents slot show an org's items only on its own site
+  and the site's items only on shared sites, and a row can be changed only from the site where it shows;
+  `GET /api/media/slots/{slot}` refuses a chat album (404) unless the caller is on the trip or the trip is
+  publicly listed on that site. An org's uploads are stored under `org/{orgUUID}/…`, so two orgs' (or an
+  org's and the shared site's) `background.jpg` are different objects -- the key layout and the write rule
+  are under "Media" in "Org-site editors" below.
 - **Local fixtures**: CFPW has NO slug (shared-tier, as in production); Acme (`acme.localhost`) and Beta
   Corp (`beta.localhost`, `FakeData.BETA_ORG_ID`) are the two hosted orgs; `fake-acme-doc` is Acme's
   library document; Matt (user6) is Acme's SITE editor (`contentAdmin`+`mediaAdmin` scoped to Acme) and
@@ -260,6 +263,37 @@ like any other org grant and bounded by the org's allow-list) edits that ONE org
   allowed on the site whose org the editor holds, and `admin/media.xhtml` / `mediaItem.xhtml` /
   `templates.xhtml` self-gate with `priv.checkHere(base, userId)` (site admin, global holder, or the
   holder for THIS site's org) instead of the one-privilege `defaultAuth`.
+
+  **Key layout (2026-09-01).** An upload made on an organization's host -- the admin page's typed path, the
+  Documents dialog's XHR (`/media-upload`), or the API's `upload-url`/confirm pair -- is stored under
+  `org/{orgUUID}/{whatever was asked for}` (`MediaCommands.siteKey`; the UUID because a slug can be
+  reassigned). The shared site's keys are exactly what they always were (`downloads/...`), so nothing
+  moved and no URL changed; the row id is a fresh UUID either way, never derived from the key. The
+  namespaces are disjoint by construction: Acme's `background.jpg` is `org/{acme}/background.jpg`, Beta's
+  is `org/{beta}/background.jpg`, the shared site's is `background.jpg`, and none can be typed into
+  existence from another host -- `org/...` counts as a reserved prefix (with `profilePics/`, `chat/`,
+  `badgeImages/`) everywhere except under the site's own org, on the page path as well as the API's. Rows
+  that predate the layout (an org's first uploads, stored bare) keep their keys; they are still the org's
+  by `orgId`, and a rename from the org's host moves them into its namespace.
+
+  **The write rule.** Two halves, both re-checked by every write (`upload`, `confirmUpload`, `update`
+  incl. rename, `delete`, `assignToSlot`, `setHidden`, `getManageable` for the edit page, the servlet, and
+  the REST resource, which 404s a row it may not touch): (1) the SITE half, `writableHere` -- a row is
+  writable only from the site where it is discoverable, an org's rows on that org's host and the shared
+  site's rows on a shared host, **whoever asks, site admins included** (a site admin manages Acme's
+  library on `acme.unitetrip.com`, where `checkHere` admits them, and never from `visitqueenofpeace.com`;
+  a foreign org's row is never writable from any other host); chat albums are the exception, moderated
+  from their trip's pages wherever those are served. (2) the CALLER half -- global `mediaAdmin`/site admin,
+  or the org-scoped editor for the row's org, or the trip manager for a chat album. Uploading over a key
+  that a row already claims is allowed only when that row passes both halves (re-uploading your own file is
+  the page's replace path); otherwise the upload is refused before any byte is written, which is what
+  protects the pre-layout bare keys. A rename never lands on another row's key at all.
+
+  **The plain answer** to "does Acme's `background.jpg` collide with anyone else's?": no. It is stored as
+  `org/{acme-uuid}/background.jpg`, a different object from every other site's, listed and editable on
+  Acme's host only, and neither the shared site nor another org can write, overwrite, rename or delete it
+  from theirs. Its public URL is still URL-referenceable by anyone (locked decision: only discovery and
+  writes are scoped).
 - The org DASHBOARD stays with the operational grants (`ORG_HUB_BASES`): editors work on the site itself.
 - Menu entries (Media, Content/Email Templates) and the landing page's upload/edit affordances use
   `priv.checkHere`, so an editor sees them on their org's host only.

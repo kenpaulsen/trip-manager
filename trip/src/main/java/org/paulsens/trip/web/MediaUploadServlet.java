@@ -36,7 +36,11 @@ public class MediaUploadServlet extends HttpServlet {
     public static final String CSRF_HEADER = "X-Trip-Media";
     /** The only slots this endpoint may write; everything else goes through /admin/media.jsf. */
     static final Set<String> ALLOWED_SLOTS = Set.of("home-docs");
-    /** Stored under the same prefix the hand-managed documents already use, so URLs look unchanged. */
+    /**
+     * Stored under the same prefix the hand-managed documents already use, so URLs look unchanged. On an
+     * organization's host the whole key is then namespaced under the org ({@code MediaCommands.siteKey}),
+     * so two orgs' {@code guide.pdf} never meet at one object and neither reaches the shared site's.
+     */
     private static final String KEY_PREFIX = "downloads/";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -92,9 +96,11 @@ public class MediaUploadServlet extends HttpServlet {
             return;
         }
 
+        // The key as it will actually be stored (site-namespaced), so the response names the real object.
+        final String key = MediaCommands.siteKey(KEY_PREFIX + fileName);
         final boolean stored;
         try (InputStream in = part.getInputStream()) {
-            stored = media.upload(KEY_PREFIX + fileName, in, part.getSize(), part.getContentType(),
+            stored = media.upload(key, in, part.getSize(), part.getContentType(),
                     req.getParameter("title"), req.getParameter("description"), slot, 0,
                     caller.auditActor().email(), null);
         } catch (final RuntimeException ex) {
@@ -106,7 +112,7 @@ public class MediaUploadServlet extends HttpServlet {
             error(resp, 503, "store", "The file could not be stored. Try again.");
             return;
         }
-        json(resp, 200, Map.of("key", KEY_PREFIX + fileName, "slot", slot));
+        json(resp, 200, Map.of("key", key, "slot", slot));
     }
 
     /**
