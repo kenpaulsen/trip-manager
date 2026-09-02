@@ -47,7 +47,8 @@ public class OrgSettingsLadderTest {
     public void theRegistryMarksExactlyTheAgreedSet() {
         final List<String> names = KnownSettings.orgOverridable().stream().map(SettingDef::getName).toList();
         Assert.assertEquals(names, List.of("site.org.name", "site.analytics.id",
-                "site.theme.palette", "site.logo.url", "site.favicon.url", "site.ogImage.url",
+                "site.theme.palette", "site.theme.dark", "site.logo.url", "site.favicon.url",
+                "site.ogImage.url",
                 "site.background.url", "site.background.color", "site.footer.title", "site.footer.text",
                 "site.contact.name", "site.contact.phone", "site.donate.url",
                 "home.photos.windowDays", "home.photos.minCount", "home.countdown.soonDays",
@@ -56,10 +57,11 @@ public class OrgSettingsLadderTest {
         Assert.assertTrue(KnownSettings.SITE_ANALYTICS_ID.isOrgOnly(), "the analytics id is org-explicit");
         for (final SettingDef def : KnownSettings.branding()) {
             Assert.assertTrue(def.isOrgOnly(), def.getName() + ": an org site never inherits the shared look");
-            // Every branding value is blank by default (the neutral look) except the page background COLOR:
-            // a site that has chosen nothing still has to paint something, and what it paints is #333333.
+            // Every branding value is blank by default (the neutral look) except Dark mode, whose type
+            // needs a parseable "false". Blank for the background COLOR means "follow the palette's own
+            // ground", so an org that has chosen nothing tracks the palette and the light/dark choice.
             Assert.assertEquals(def.getDefaultValue(),
-                    def == KnownSettings.SITE_BACKGROUND_COLOR ? "#333333" : "",
+                    def == KnownSettings.SITE_THEME_DARK ? "false" : "",
                     def.getName() + ": blank is the neutral default");
             Assert.assertEquals(def.isHttpUrl(), def.getName().endsWith(".url"),
                     def.getName() + ": every *.url branding value is validated as an http(s) URL");

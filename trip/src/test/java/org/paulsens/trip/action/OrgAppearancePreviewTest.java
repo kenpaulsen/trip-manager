@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.paulsens.trip.audit.RequestContext;
@@ -40,6 +41,9 @@ public class OrgAppearancePreviewTest {
     private static final String BG_URL = KnownSettings.SITE_BACKGROUND_URL.getName();
     private static final String BG_COLOR = KnownSettings.SITE_BACKGROUND_COLOR.getName();
     private static final String IMAGE = "https://cdn.example/bg.jpg";
+    /** What an org that has chosen no color paints: the palette's own ground, with a literal fallback. */
+    private static final String PALETTE_BG =
+            "--site-bg:none;--site-bg-color:" + BrandCommands.PALETTE_BACKGROUND;
 
     private Organization org;
     private SiteContext orgSite;
@@ -73,12 +77,12 @@ public class OrgAppearancePreviewTest {
                 "--site-bg:none;--site-bg-color:#abcdef", "a color alone paints, with no image at all"));
 
         stored(Map.of());
-        onSite(orgSite, () -> Assert.assertEquals(brand.getRootStyle(),
-                "--site-bg:none;--site-bg-color:#333333",
-                "an org that has chosen nothing gets the shipped dark page, never the shared rainbow"));
-        Assert.assertEquals(BrandCommands.DEFAULT_BACKGROUND_COLOR,
-                KnownSettings.SITE_BACKGROUND_COLOR.getDefaultValue(),
-                "the shipped default is declared once and the bean falls back to the same value");
+        onSite(orgSite, () -> Assert.assertEquals(brand.getRootStyle(), PALETTE_BG,
+                "an org that has chosen no color follows its palette's own ground, never the shared rainbow"));
+        Assert.assertEquals(KnownSettings.SITE_BACKGROUND_COLOR.getDefaultValue(), "",
+                "blank is the shipped default, and blank is what 'follow the palette' stores");
+        Assert.assertTrue(PALETTE_BG.endsWith("var(--surface-ground, #333333)"),
+                "a var() whose fallback is a literal: a palette that somehow declares no ground still paints");
     }
 
     @Test
@@ -244,7 +248,12 @@ public class OrgAppearancePreviewTest {
 
         stored(Map.of());
         Assert.assertEquals(brand.appearanceEdit(org.getId().getValue()).get(BrandCommands.BG_MODE_KEY),
-                BrandCommands.BG_MODE_COLOR, "with no image, the Color choice");
+                BrandCommands.BG_MODE_PALETTE,
+                "with neither image nor color stored, the page opens on 'follow the palette' -- which is how "
+                        + "a blank color round-trips through a picker that can never hold one");
+        stored(Map.of(BG_COLOR, "#abcdef"));
+        Assert.assertEquals(brand.appearanceEdit(org.getId().getValue()).get(BrandCommands.BG_MODE_KEY),
+                BrandCommands.BG_MODE_COLOR, "a stored color opens on the Color choice");
         Assert.assertEquals(brand.appearanceEdit(null).get(PALETTE), "",
                 "an unknown organization edits blanks rather than failing");
     }
@@ -272,10 +281,15 @@ public class OrgAppearancePreviewTest {
 
         Assert.assertEquals(brand.forSave(vals, "not-a-color").get(BG_COLOR), "#123456",
                 "an unusable picker value leaves the edited value alone");
-        Assert.assertEquals(brand.forSave(vals, "333333").get(BG_COLOR), "",
-                "the shipped default is stored as INHERIT: saving the page must not stamp an override on "
-                        + "an organization that never touched the color");
+
+        vals.put(BrandCommands.BG_MODE_KEY, BrandCommands.BG_MODE_PALETTE);
+        final Map<String, String> palette = brand.forSave(vals, "0f0");
+        Assert.assertEquals(palette.get(BG_COLOR), "",
+                "following the palette stores a BLANK color, whatever the picker still holds");
+        Assert.assertEquals(palette.get(BG_URL), "", "and no image either");
         Assert.assertEquals(brand.forSave(Map.of(), null).get(BG_URL), "", "an empty map saves blanks");
+        Assert.assertEquals(brand.forSave(Map.of(), null).get(BG_COLOR), "",
+                "an org that never touched the background is left following its palette");
     }
 
     @Test
@@ -286,9 +300,50 @@ public class OrgAppearancePreviewTest {
         Assert.assertEquals(brand.appearanceUrl(null), "/admin/orgAppearance.jsf?orgId=");
         Assert.assertEquals(brand.colorHex(Map.of(BG_COLOR, "#AABBCC")), "aabbcc",
                 "the widget's value shape: no '#'");
-        Assert.assertEquals(brand.colorHex(Map.of()), "333333", "nothing chosen: the shipped default");
+        Assert.assertEquals(brand.colorHex(Map.of()), "333333", "nothing chosen: what the picker opens on");
         Assert.assertEquals(brand.colorHex(Map.of(BG_COLOR, "nonsense")), "333333");
         Assert.assertEquals(brand.colorHex(null), "333333");
+    }
+
+    /**
+     * The Appearance page renders EVERY branding setting: the six with a control of their own, and the rest
+     * from {@code brand.detailFields}, which the page repeats over. This is the guard the split needed --
+     * `site.ogImage.url`, the two footer settings, both contact settings and the donate URL were on NEITHER
+     * page for a while (the org Settings page excludes the whole Branding section), which is how a site
+     * ended up with a "Questions?" card nobody could put a name or a phone number on.
+     */
+    @Test
+    public void everyBrandingSettingIsReachableOnTheAppearancePage() {
+        final List<String> detail = brand.getDetailFields().stream().map(SettingDef::getName).toList();
+        final List<String> rendered = Stream.concat(BrandCommands.DEDICATED_FIELDS.stream(), detail.stream())
+                .sorted().toList();
+        final List<String> declared = KnownSettings.branding().stream().map(SettingDef::getName).sorted()
+                .toList();
+        Assert.assertEquals(rendered, declared,
+                "a branding setting the page neither gives a control nor repeats over is editable NOWHERE");
+        for (final String missed : List.of("site.ogImage.url", "site.footer.title", "site.footer.text",
+                "site.contact.name", "site.contact.phone", "site.donate.url")) {
+            Assert.assertTrue(detail.contains(missed), missed + " must be on the page's own key list");
+        }
+        Assert.assertFalse(detail.contains(PALETTE), "the palette has a menu of its own, not a text box");
+        Assert.assertFalse(detail.contains(KnownSettings.SITE_THEME_DARK.getName()));
+    }
+
+    /**
+     * And the two pages still partition the org-overridable settings exactly: nothing is offered twice and
+     * nothing goes missing, whichever list a new setting is added to.
+     */
+    @Test
+    public void theTwoOrgPagesPartitionTheOverridableSettings() {
+        final List<String> branding = KnownSettings.branding().stream().map(SettingDef::getName).toList();
+        final List<String> generic = KnownSettings.orgOverridableNonBranding().stream()
+                .map(SettingDef::getName).toList();
+        final List<String> both = Stream.concat(branding.stream(), generic.stream()).sorted().toList();
+        Assert.assertEquals(both, KnownSettings.orgOverridable().stream().map(SettingDef::getName).sorted()
+                .toList(), "branding + the rest must be exactly the org-overridable set");
+        Assert.assertTrue(branding.stream().noneMatch(generic::contains), "and the halves may not overlap");
+        Assert.assertTrue(branding.contains(KnownSettings.SITE_THEME_DARK.getName()),
+                "Dark mode is a look-and-feel setting: the Appearance page, beside the palette");
     }
 
     /** A preview whose image is switched off by the mode shows the color, and keeps the URL for a switch back. */

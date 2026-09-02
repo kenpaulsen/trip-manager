@@ -30,6 +30,9 @@ public class BrandCommandsTest {
 
     private static final Organization.Id ACME = Organization.Id.from(FakeData.ACME_ORG_ID);
     private static final SiteContext ACME_SITE = SiteContext.org(ACME, "acme", "acme.unitetrip.com");
+    /** What an org that has chosen no background color paints: the palette's own ground, not a fixed grey. */
+    private static final String PALETTE_BG =
+            "--site-bg:none;--site-bg-color:" + BrandCommands.PALETTE_BACKGROUND;
 
     /** Fresh per method: the seams a test sets (dark flag, org lookup) must not leak into the next one. */
     private BrandCommands brand;
@@ -92,7 +95,7 @@ public class BrandCommandsTest {
             Assert.assertEquals(brand.getFaviconHref(), BrandCommands.NO_FAVICON,
                     "no icon: the browser must not fetch the shared site's /favicon.ico");
             Assert.assertNull(brand.getOgImage(), "no image and no logo: no preview picture");
-            Assert.assertEquals(brand.getRootStyle(), "--site-bg:none;--site-bg-color:#333333",
+            Assert.assertEquals(brand.getRootStyle(), PALETTE_BG,
                     "no image and no chosen color: a plain dark page, never the shared site's photograph");
             Assert.assertEquals(brand.getFooterTitle(), "Acme Inc");
             Assert.assertNull(brand.getFooterText());
@@ -175,20 +178,56 @@ public class BrandCommandsTest {
         Assert.assertFalse(brand.isDark(), "an unreadable flag is light");
     }
 
+    /**
+     * The precedence the org-level Dark mode setting introduced: a visitor's OWN choice first (the topbar
+     * toggle keeps working, in both directions), then the organization's setting on its own site, then
+     * light. Everything derived from it -- theme, layout sheet, and so the topbar/menu classes the page
+     * builds from {@code brand.dark} -- follows the same answer.
+     */
+    @Test
+    public void anOrganizationCanChooseADarkSiteAndAVisitorStillOverridesIt() throws IOException {
+        setAcme(Map.of(KnownSettings.SITE_THEME_PALETTE.getName(), "green",
+                KnownSettings.SITE_THEME_DARK.getName(), "true"), null);
+        brand.setDarkSource(() -> null);        // nobody has touched the personal toggle
+        onSite(ACME_SITE, () -> {
+            Assert.assertTrue(brand.isDark(), "the organization chose a dark site");
+            Assert.assertEquals(brand.getTheme(), "freya-green-dark");
+            Assert.assertEquals(brand.getLayoutCss(), "layout-green-dark");
+        });
+        onSite(SiteContext.shared("www.visitqueenofpeace.com"), () -> Assert.assertFalse(brand.isDark(),
+                "an org's choice reaches its own site and no other host"));
+
+        brand.setDarkSource(() -> false);
+        onSite(ACME_SITE, () -> {
+            Assert.assertFalse(brand.isDark(), "a visitor who chose light keeps light on a dark org site");
+            Assert.assertEquals(brand.getTheme(), "freya-green-light");
+        });
+        brand.setDarkSource(() -> true);
+        setAcme(Map.of(KnownSettings.SITE_THEME_PALETTE.getName(), "green"), null);
+        onSite(ACME_SITE, () -> Assert.assertTrue(brand.isDark(),
+                "and one who chose dark keeps dark on a light org site"));
+
+        // A value the setting cannot mean is not dark: the same "blank is unset" rule as everywhere else.
+        brand.setDarkSource(() -> null);
+        setAcme(Map.of(KnownSettings.SITE_THEME_DARK.getName(), "  "), null);
+        onSite(ACME_SITE, () -> Assert.assertFalse(brand.isDark()));
+    }
+
     @Test
     public void theSessionFlagIsReadWithoutCreatingASession() {
         Assert.assertFalse(new BrandCommands().isDark(), "no FacesContext: light");
-        Assert.assertFalse(BrandCommands.darkOf(null));
-        Assert.assertFalse(BrandCommands.darkOf("not a session"));
+        Assert.assertNull(BrandCommands.darkOf(null), "no session: no personal choice to honor");
+        Assert.assertNull(BrandCommands.darkOf("not a session"));
 
         final HttpSession session = Mockito.mock(HttpSession.class);
-        Assert.assertFalse(BrandCommands.darkOf(session), "no flag: light");
+        Assert.assertNull(BrandCommands.darkOf(session), "no flag: the org's setting decides");
         Mockito.when(session.getAttribute(Sessions.DARK)).thenReturn(Boolean.TRUE);
-        Assert.assertTrue(BrandCommands.darkOf(session), "the topbar stores a Boolean");
+        Assert.assertEquals(BrandCommands.darkOf(session), Boolean.TRUE, "the topbar stores a Boolean");
         Mockito.when(session.getAttribute(Sessions.DARK)).thenReturn("true");
-        Assert.assertTrue(BrandCommands.darkOf(session), "a string spelling counts too");
+        Assert.assertEquals(BrandCommands.darkOf(session), Boolean.TRUE, "a string spelling counts too");
         Mockito.when(session.getAttribute(Sessions.DARK)).thenReturn(Boolean.FALSE);
-        Assert.assertFalse(BrandCommands.darkOf(session));
+        Assert.assertEquals(BrandCommands.darkOf(session), Boolean.FALSE,
+                "toggling back to light is a choice too, not an absence of one");
 
         final FacesContext ctx = Mockito.mock(FacesContext.class, Mockito.RETURNS_DEEP_STUBS);
         try (MockedStatic<FacesContext> faces = Mockito.mockStatic(FacesContext.class)) {
@@ -213,7 +252,7 @@ public class BrandCommandsTest {
             Assert.assertEquals(brand.getWordmark(), "ghost", "no row: the slug, as SiteCommands does");
             Assert.assertEquals(brand.getFooterTitle(), "ghost");
             Assert.assertEquals(brand.getFaviconHref(), BrandCommands.NO_FAVICON);
-            Assert.assertEquals(brand.getRootStyle(), "--site-bg:none;--site-bg-color:#333333");
+            Assert.assertEquals(brand.getRootStyle(), PALETTE_BG);
             Assert.assertFalse(brand.isShowContact());
             Assert.assertNull(brand.getContactEmail());
         });
@@ -246,7 +285,7 @@ public class BrandCommandsTest {
             Assert.assertEquals(brand.getWordmark(), "Acme Inc", "a refused logo means the wordmark shows");
             Assert.assertEquals(brand.getFaviconHref(), BrandCommands.NO_FAVICON);
             Assert.assertNull(brand.getOgImage());
-            Assert.assertEquals(brand.getRootStyle(), "--site-bg:none;--site-bg-color:#333333",
+            Assert.assertEquals(brand.getRootStyle(), PALETTE_BG,
                     "a color that is not a hex value cannot reach the style attribute");
             Assert.assertNull(brand.getDonateUrl());
             Assert.assertFalse(brand.isShowDonate());

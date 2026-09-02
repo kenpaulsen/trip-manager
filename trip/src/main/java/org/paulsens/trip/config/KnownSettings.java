@@ -68,6 +68,18 @@ public final class KnownSettings {
                     + "mode. Blank means the platform's default look.")
             .withOrgOnly().withChoices(THEME_PALETTES.toArray(String[]::new));
 
+    /**
+     * The organization's own light/dark choice, beside the palette because it selects the other half of the
+     * same stylesheet pair ({@code freya-{palette}-{light|dark}}). A VISITOR who has worked the topbar's
+     * Dark Mode toggle still overrides this for themselves -- that switch is a personal preference and
+     * stays one; this is what everybody else sees.
+     */
+    public static final SettingDef SITE_THEME_DARK = new SettingDef(
+            "site.theme.dark", Config.Type.BOOLEAN, "false", "Dark mode",
+            "Whether the organization's site is drawn in its palette's DARK theme: dark page background, "
+                    + "dark top bar and menu. A visitor who has chosen light or dark for themselves keeps "
+                    + "their own choice.").withOrgOnly();
+
     public static final SettingDef SITE_LOGO_URL = new SettingDef(
             "site.logo.url", Config.Type.STRING, "", "Logo image URL",
             "An http(s) URL of the logo shown in the site's top bar. Blank shows the organization's name as "
@@ -91,15 +103,17 @@ public final class KnownSettings {
             .withOrgOnly().withHttpUrl();
 
     /**
-     * The one branding default that is NOT blank. An organization's site that has chosen nothing shows a
-     * plain dark background and no image -- never the shared site's photograph, which is a picture of
-     * somebody else's place. An image, when one is set, covers this: the two are offered as a choice on the
-     * Appearance page and saving one clears the other, so the value that is set is the value that shows.
+     * Blank means "follow the palette": {@code BrandCommands.getRootStyle} then paints the chosen theme's
+     * own {@code --surface-ground}, so the page behind the cards tracks the palette AND the light/dark
+     * choice without anybody picking a color that only suits one of them. A chosen color is honored as
+     * typed. An image, when one is set, covers either: the two are offered as a choice on the Appearance
+     * page and saving one clears the other, so the value that is set is the value that shows.
      */
     public static final SettingDef SITE_BACKGROUND_COLOR = new SettingDef(
-            "site.background.color", Config.Type.STRING, "#333333", "Page background color",
+            "site.background.color", Config.Type.STRING, "", "Page background color",
             "The color shown behind the site's pages when no background image is set, as a hex value such "
-                    + "as #333333. Blank restores that shipped default.")
+                    + "as #333333. Blank means the color palette's own background, which follows the "
+                    + "palette and the dark-mode choice on its own.")
             .withOrgOnly().withHexColor();
 
     public static final SettingDef SITE_FOOTER_TITLE = new SettingDef(
@@ -576,7 +590,8 @@ public final class KnownSettings {
                             + "An org site never inherits the shared site's look, and the shared site's "
                             + "own logo, footer and contacts are fixed in its pages -- so a value here on "
                             + "the site Settings page applies to nothing.",
-                    List.of(SITE_THEME_PALETTE, SITE_LOGO_URL, SITE_FAVICON_URL, SITE_OG_IMAGE_URL,
+                    List.of(SITE_THEME_PALETTE, SITE_THEME_DARK, SITE_LOGO_URL, SITE_FAVICON_URL,
+                            SITE_OG_IMAGE_URL,
                             SITE_BACKGROUND_URL, SITE_BACKGROUND_COLOR, SITE_FOOTER_TITLE, SITE_FOOTER_TEXT,
                             SITE_CONTACT_NAME, SITE_CONTACT_PHONE, SITE_DONATE_URL)),
             new SettingSection(EMAIL_ADDRESSES_SECTION,

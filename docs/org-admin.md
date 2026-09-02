@@ -467,20 +467,29 @@ logo, footer and contact details are literals in the sibling repo's XHTML and st
 **never inherits them** — every branding def is `.withOrgOnly()`, so on an org host it resolves to the org's
 override or, when blank, to the NEUTRAL platform default (never the `config` table's site row, which the
 Branding section on the site Settings page can still write but nothing applies). The defs live in
-`KnownSettings`' **Branding** section (`BRANDING_SECTION`, right after Site), all `STRING`, default `""`:
+`KnownSettings`' **Branding** section (`BRANDING_SECTION`, right after Site), all `STRING` and default `""`
+apart from the one `BOOLEAN`:
 
 | Setting | Blank means | Notes |
 |---------|-------------|-------|
 | `site.theme.palette` | the platform's default look (`freya-medj-l/d`, `layout-light/dark`) | a MENU: `avocado, blue, green, orange, purple, red, turquoise, yellow` (`THEME_PALETTES`); the Freya build ships `freya-{palette}-{light|dark}` + `layout-{palette}-{light|dark}.css` for exactly these |
+| `site.theme.dark` | light (`BOOLEAN`, default `false`) | the org's own light/dark choice; a VISITOR who has used the topbar's Dark Mode toggle still overrides it for themselves — see the precedence below |
 | `site.logo.url` | the org's name as a text wordmark | http(s) URL |
 | `site.favicon.url` | no icon: the page emits `href="data:,"` so the browser fetches no `/favicon.ico` | http(s) URL |
 | `site.ogImage.url` | the logo (no logo either: no preview picture) | http(s) URL |
 | `site.background.url` | no image, so the background COLOR shows | http(s) URL |
-| `site.background.color` | **`#333333`** — the one branding default that is not blank | `#rgb`/`#rrggbb`, validated by `SettingDef.hexColor` |
+| `site.background.color` | **follow the palette**: `var(--surface-ground, #333333)` | `#rgb`/`#rrggbb`, validated by `SettingDef.hexColor` |
 | `site.footer.title` | the org's name | plain text |
 | `site.footer.text` | nothing | plain text |
 | `site.contact.name`, `site.contact.phone` | left off the "Questions?" card | the card's email is the org profile's `contactEmail`; the card is hidden when all three are blank |
 | `site.donate.url` | no Donate card / menu entry | http(s) URL |
+
+**Dark mode has a precedence, not an owner** (`BrandCommands.isDark`): the visitor's OWN choice when they
+have made one (the topbar's Dark Mode toggle stores `sessionScope.dark`, read through `getSession(false)`
+so no session is ever created, and `false` counts as a choice), else the organization's `site.theme.dark`
+on its own site or in its Appearance preview, else light. Everything derived from it — the theme name, the
+Freya layout stylesheet, and `template.xhtml`'s `layout-topbar-{light|dark}` / `layout-menu-{light|dark}`
+classes — reads that one answer, so an org's choice moves all of them at once.
 
 Three `SettingDef` markings carry the rules: `.withChoices(...)` (an ordered, immutable list the settings
 pages render as a menu; `hasChoices()`/`allows(value)`), `.withHttpUrl()` and `.withHexColor()`. **One judge
@@ -491,27 +500,36 @@ before the value reaches a `style` attribute); `ConfigCommands.save` (site page)
 `OrgCommands.applyOverride` (org editor, so the Appearance page too) both ask it, and blank is always
 "unset". Choices are matched exactly (a palette is a stylesheet path).
 
-**The page background: an image OR a colour, never both.** An image covers the page, so a colour under one
-is a setting that silently does nothing (the rule chat backgrounds already follow). The image wins wherever
-both are somehow set, the Appearance page offers them as a mutually exclusive choice showing only the chosen
-control, and Save CLEARS the losing setting (`BrandCommands.forSave`), so what is stored is what shows. With
-neither set — an organization that has configured nothing at all — an org host renders
-`--site-bg:none;--site-bg-color:#333333`: a plain dark page and **no image**, never the shared site's
-rainbow photograph, which is a picture of somebody else's place. `resources/css/site.css` reads both
-properties off the root element (`background-color: var(--site-bg-color, transparent)` alongside
-`background-image: var(--site-bg, url(rainbow))`), so a shared host — which sets neither — computes exactly
-what it always did.
+**The page background: the palette, a colour, or an image — one of the three.** An image covers the page, so
+a colour under one is a setting that silently does nothing (the rule chat backgrounds already follow). The
+image wins wherever both are somehow set, the Appearance page offers the three as a mutually exclusive
+choice showing only the chosen control, and Save CLEARS the settings the choice does not use
+(`BrandCommands.forSave`), so what is stored is what shows. With neither set — an organization that has
+configured nothing at all — an org host renders
+`--site-bg:none;--site-bg-color:var(--surface-ground, #333333)`: **the palette's own ground colour** and no
+image, never the shared site's rainbow photograph, which is a picture of somebody else's place. Every
+shipped palette declares `--surface-ground` in its `:root` (light `#F2F4F6`, dark `#3E4754`), so the page
+behind the cards tracks both the palette and the dark-mode choice by itself; the literal inside the `var()`
+covers a theme that somehow declares none. A `var()` nested in a custom property's value is substituted
+where the property is DECLARED — the `<html>` element, which carries the theme's `:root` block too — so
+`resources/css/site.css`'s own `background-color: var(--site-bg-color, transparent)` (alongside
+`background-image: var(--site-bg, url(rainbow))`) sees a plain colour, and a shared host — which sets
+neither property — computes exactly what it always did.
+
+Blank is the stored form of "follow the palette", and a colour picker can never hold a blank, so the
+chooser has a third radio (`BrandCommands.BG_MODE_PALETTE`, the default) rather than an empty picker: that
+is how a blank round-trips through the page.
 
 The pages read everything through **`#{brand}` (`action/BrandCommands`)**, modeled on `SiteCommands`: it
-reads only the request's `SiteContext` plus the org row, never session/view scope (dark mode is the one
-session read — the existing `dark` flag via `getSession(false)`, so no session is ever created for a
-visitor). Off an org host (shared, marketing, no bound request) EVERY getter answers the neutral/empty
+reads only the request's `SiteContext` plus the org row, never session/view scope (the visitor's own dark
+flag is the one session read — via `getSession(false)`, so no session is ever created for a visitor). Off
+an org host (shared, marketing, no bound request) EVERY getter answers the neutral/empty
 value — `getTheme()` = `freya-medj-l`/`-d`, `getLayoutCss()` = `layout-light`/`-dark`, everything else
 null/false — and the templates branch on `#{site.orgSite}` to keep their literal chrome; the bean changes
 no byte of a shared page. On an org host: `getTheme()`/`getLayoutCss()`/`isDark()`, `getLogoUrl()` /
 `getWordmark()` (mutually exclusive), `getFaviconHref()` (`data:,` when unset), `getOgImage()`,
-`getRootStyle()` (`--site-bg:url(<url>)`, or `--site-bg:none;--site-bg-color:<hex>`, for the root element's
-`style`),
+`getRootStyle()` (`--site-bg:url(<url>)`, or `--site-bg:none;--site-bg-color:<hex or the palette var>`, for
+the root element's `style`), `getDetailFields()` (the branding settings the Appearance page repeats over),
 `getFooterTitle()`/`getFooterText()`, `getContactName()`/`getContactPhone()`/`getContactEmail()` +
 `isShowContact()`, `getDonateUrl()` + `isShowDonate()`, `getAnalyticsId()`. An org whose row cannot be
 read gets the neutral look and its slug as the name — never a broken page. Every URL is re-screened in the
@@ -535,12 +553,37 @@ section whole); the org editor renders a `choices` def as a menu whose blank ite
 default)". Fixtures: Beta Corp is fully branded (`FakeData.seedBetaBranding`, incl. `G-BETAFIXTURE`),
 Acme is deliberately unbranded; `OrgSubdomainPwIT` pins both and the shared host.
 
+**Never pair a literal text colour with `var(--primary-color)`.** Two chrome elements did, and both became
+unreadable under a pale palette (yellow, avocado, red and turquoise put DARK text on their primary): the
+sidebar Donate button and the topbar "Viewing:" chip. The Donate control is worse than a literal — it is an
+`h:outputLink` wearing `.ui-button`, and every palette's `a:link{color:var(--primary-color)}` outranks
+`.ui-button` on specificity, so the label was drawn in the button's own background colour and disappeared
+whatever palette was chosen. Both now use **`var(--primary-color-text)`**, the theme's own contrast colour
+for that background, with a literal only as the `var()` fallback.
+`OrgSubdomainPwIT.anOrgSitesSidebarFollowsThePaletteAndStaysReadable` computes the rendered colours in a
+real browser and fails if the label's colour ever equals its background. The rest of the site still carries
+inline colour literals; sweeping them is a separate, tracked job.
+
 #### The Appearance page and its live preview (2026-09-02)
 
 `admin/orgAppearance.jsf?orgId=…` ("Appearance", hub card, `canManageOrg`, "Done" back to the dashboard)
-is where an organization sets its look: the colour palette as a menu, the logo and favicon URLs, and the
-background chooser (Colour with a `p:colorPicker`, or Image with a URL box). It replaces the generic
-name/value rows those settings used to get on `orgConfig.jsf`, which now renders everything else.
+is where an organization sets its look. Two fieldsets:
+
+- **Appearance** — the colour palette as a menu, **Dark mode** as a radio right beneath it, the logo and
+  favicon URLs, and the background chooser (Colour palette / Colour with a `p:colorPicker` / Image with a
+  URL box).
+- **Site details** — every OTHER branding setting (`site.ogImage.url`, both footer settings, both contact
+  settings, `site.donate.url`), as labelled text boxes, in the same preview / Save / Cancel flow. The page
+  repeats over **`brand.detailFields`** — `KnownSettings.branding()` minus `BrandCommands.DEDICATED_FIELDS`,
+  the six with a control of their own — rather than hand-listing rows, because when this page was carved
+  out of `orgConfig.jsf` (which excludes the Branding section whole) those six landed on NEITHER page and a
+  site could not be given the contact name and phone its "Questions?" card shows.
+  `OrgAppearancePreviewTest.everyBrandingSettingIsReachableOnTheAppearancePage` holds dedicated + detail
+  against the section, and `theTwoOrgPagesPartitionTheOverridableSettings` holds branding +
+  `orgOverridableNonBranding()` against `orgOverridable()`.
+
+It replaces the generic name/value rows those settings used to get on `orgConfig.jsf`, which now renders
+everything else.
 
 **The preview is server-rendered, per user, and scoped to that one page.** The decision behind it: *"The
 PrimeFaces theme is designed to be flexible, including per-user. It should be trivial to set the theme in

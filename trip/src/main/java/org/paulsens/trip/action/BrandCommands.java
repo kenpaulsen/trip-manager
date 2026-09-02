@@ -35,9 +35,11 @@ import org.paulsens.trip.web.Sessions;
  *
  * <p>Like {@code SiteCommands}, this reads only the request's {@link SiteContext} (never session or view
  * scope -- one session serves several sites) plus two session values read through {@code getSession(false)},
- * so no session is ever created for a visitor: the existing {@code dark} flag, and the org Appearance page's
- * PREVIEW (see below). Every URL that lands in an attribute is re-checked here even though the save paths
- * validate: a row written by hand bypasses the page, and an attribute is the wrong place to discover that.
+ * so no session is ever created for a visitor: the {@code dark} flag the topbar's personal toggle sets
+ * (which OUTRANKS the organization's own {@code site.theme.dark} setting, and only when it is actually
+ * set -- see {@link #isDark()}), and the org Appearance page's PREVIEW (see below). Every URL that lands in
+ * an attribute is re-checked here even though the save paths validate: a row written by hand bypasses the
+ * page, and an attribute is the wrong place to discover that.
  *
  * <p><b>The preview rung.</b> An administrator editing an organization's Appearance page sees their unsaved
  * choices applied to the page they are on, rendered by the server -- the theme stylesheet, the layout sheet
@@ -63,12 +65,20 @@ public class BrandCommands {
     private static final String BG_NONE = "--site-bg:none";
     /** The custom property {@code site.css} paints when there is no background image. */
     private static final String BG_COLOR_PROPERTY = "--site-bg-color:";
+    /** The color the palette fallback below falls back to, and what the page's color picker opens on. */
+    static final String FALLBACK_BACKGROUND_COLOR = "#333333";
     /**
-     * An organization's site with no settings at all shows THIS, and no image: a plain dark page, never the
-     * shared site's photograph. Pinned here as well as on the declaration because it is the answer whenever
-     * a stored value is missing OR unusable, and {@code SiteBackgroundTest} holds the two together.
+     * What an organization that has chosen NO background color paints: the theme's own ground color, so the
+     * page behind the cards follows the palette and the light/dark choice by itself instead of sitting on a
+     * fixed grey that suits one of them at best. Every shipped palette declares {@code --surface-ground} in
+     * its {@code :root} (light {@code #F2F4F6}, dark {@code #3E4754}), and the literal inside the
+     * {@code var()} is the belt-and-braces answer for a theme that somehow does not.
+     *
+     * <p>A {@code var()} nested in a custom property's value is substituted where the property is DECLARED,
+     * which is the {@code <html>} element carrying both this and the theme's {@code :root} block, so
+     * {@code site.css}'s own {@code var(--site-bg-color, transparent)} sees a plain color.
      */
-    static final String DEFAULT_BACKGROUND_COLOR = "#333333";
+    static final String PALETTE_BACKGROUND = "var(--surface-ground, " + FALLBACK_BACKGROUND_COLOR + ")";
 
     /** The Appearance page's view id: the one view a preview may change. */
     static final String APPEARANCE_VIEW_ID = "/admin/orgAppearance.xhtml";
@@ -78,15 +88,34 @@ public class BrandCommands {
 
     /**
      * The background chooser's mode, carried in the edit map under a key that is NOT a setting (it is never
-     * stored: it only decides which control the page shows and which setting a save clears). "Image" with a
+     * stored: it only decides which control the page shows and which settings a save clears). "Image" with a
      * blank URL is a real state -- somebody who has just switched to Image and not typed the URL yet -- so
      * the mode cannot simply be derived from the values on every render.
+     *
+     * <p>{@link #BG_MODE_PALETTE} is what a BLANK color means, and how a blank one round-trips through a
+     * color picker that always has some value in it: choosing it saves both background settings blank, and
+     * the site then follows the palette's own ground color.
      */
     public static final String BG_MODE_KEY = "bg.mode";
+    public static final String BG_MODE_PALETTE = "palette";
     public static final String BG_MODE_COLOR = "color";
     public static final String BG_MODE_IMAGE = "image";
 
-    /** Test seam: the session's dark-mode flag (only the theme/layout/dark getters consult it). */
+    /**
+     * The branding settings the Appearance page draws with a control of its OWN (a palette menu, a dark-mode
+     * choice, the background chooser); everything else in {@link KnownSettings#branding()} is rendered from
+     * {@link #getDetailFields()} as a labelled text box, so a branding setting added later cannot land on
+     * neither page. {@code OrgAppearancePreviewTest} holds the two halves against the section.
+     */
+    static final List<String> DEDICATED_FIELDS = List.of(
+            KnownSettings.SITE_THEME_PALETTE.getName(), KnownSettings.SITE_THEME_DARK.getName(),
+            KnownSettings.SITE_LOGO_URL.getName(), KnownSettings.SITE_FAVICON_URL.getName(),
+            KnownSettings.SITE_BACKGROUND_URL.getName(), KnownSettings.SITE_BACKGROUND_COLOR.getName());
+
+    /**
+     * Test seam: the session's dark-mode flag, or null when this visitor has never set one (only the
+     * theme/layout/dark getters consult it).
+     */
     @Setter
     private Supplier<Boolean> darkSource = BrandCommands::sessionDark;
 
@@ -107,9 +136,23 @@ public class BrandCommands {
 
     // --- theme ---
 
-    /** The session's dark-mode preference; light for a visitor without a session or outside JSF. */
+    /**
+     * Whether this request is drawn dark, in precedence order:
+     *
+     * <ol>
+     *   <li>the visitor's OWN choice, when they have made one -- the topbar's Dark Mode toggle, which is a
+     *       personal preference and keeps working exactly as it did for whoever has used it;</li>
+     *   <li>on an org site (or its Appearance preview), the organization's {@code site.theme.dark} setting;
+     *   </li>
+     *   <li>light.</li>
+     * </ol>
+     *
+     * <p>Everything else derived from dark -- the theme name, the Freya layout stylesheet, the topbar and
+     * menu classes -- reads this one answer, so an organization's choice reaches all of them.
+     */
     public boolean isDark() {
-        return Boolean.TRUE.equals(darkSource.get());
+        final Boolean own = darkSource.get();
+        return (own == null) ? Boolean.parseBoolean(setting(KnownSettings.SITE_THEME_DARK)) : own;
     }
 
     /**
@@ -186,8 +229,9 @@ public class BrandCommands {
     /**
      * The custom properties the root element carries on an org host, for {@code site.css} to paint:
      * {@code --site-bg:url(...)} with the org's background image, or {@code --site-bg:none} plus
-     * {@code --site-bg-color:} with its background COLOR when there is no image. Null off an org host: the
-     * shared site's stylesheet keeps its own fallbacks (its rainbow image and no color), so that page is
+     * {@code --site-bg-color:} when there is no image -- the org's chosen COLOR, or, when it has chosen
+     * none, {@link #PALETTE_BACKGROUND} so the page follows the palette's own ground. Null off an org host:
+     * the shared site's stylesheet keeps its own fallbacks (its rainbow image and no color), so that page is
      * unchanged to the byte.
      *
      * <p>The two are mutually exclusive and the image wins -- a color under an image is a setting that
@@ -207,13 +251,14 @@ public class BrandCommands {
     }
 
     /**
-     * The page background color: the org's own when it is a usable hex value, else the shipped
-     * {@link #DEFAULT_BACKGROUND_COLOR}. Never null and never anything but a hex value, because it is
-     * interpolated straight into the root element's {@code style}.
+     * The page background color: the org's own when it is a usable hex value, else {@link #PALETTE_BACKGROUND}
+     * so the page follows whatever the chosen palette and light/dark mode call ground. Never null, and never
+     * anything but a hex value or that one fixed expression, because it is interpolated straight into the
+     * root element's {@code style}.
      */
     private String backgroundColor() {
         final String chosen = SettingDef.hexColor(setting(KnownSettings.SITE_BACKGROUND_COLOR));
-        return chosen == null ? DEFAULT_BACKGROUND_COLOR : chosen;
+        return chosen == null ? PALETTE_BACKGROUND : chosen;
     }
 
     // --- footer ---
@@ -335,8 +380,9 @@ public class BrandCommands {
 
     /**
      * The map to hand {@code OrgCommands.saveOrgSettings}: the branding settings only (the mode key is not a
-     * setting and never reaches a row), with the LOSING background cleared -- picking a color drops the
-     * image URL and picking an image drops the color -- so what is stored is what shows.
+     * setting and never reaches a row), with the LOSING backgrounds cleared -- picking a color drops the
+     * image URL, picking an image drops the color, and following the palette drops both -- so what is
+     * stored is what shows.
      */
     public Map<String, String> forSave(final Map<String, String> values, final String colorHex) {
         final Map<String, String> edited = withColor(values, colorHex);
@@ -344,21 +390,23 @@ public class BrandCommands {
         for (final SettingDef def : KnownSettings.branding()) {
             out.put(def.getName(), trimmed(edited.get(def.getName())));
         }
-        final boolean image = BG_MODE_IMAGE.equals(backgroundMode(edited));
-        out.put(KnownSettings.SITE_BACKGROUND_COLOR.getName(), image ? ""
-                : savedColor(trimmed(edited.get(KnownSettings.SITE_BACKGROUND_COLOR.getName()))));
-        out.put(KnownSettings.SITE_BACKGROUND_URL.getName(),
-                image ? trimmed(edited.get(KnownSettings.SITE_BACKGROUND_URL.getName())) : "");
+        final String mode = backgroundMode(edited);
+        out.put(KnownSettings.SITE_BACKGROUND_COLOR.getName(), BG_MODE_COLOR.equals(mode)
+                ? trimmed(edited.get(KnownSettings.SITE_BACKGROUND_COLOR.getName())) : "");
+        out.put(KnownSettings.SITE_BACKGROUND_URL.getName(), BG_MODE_IMAGE.equals(mode)
+                ? trimmed(edited.get(KnownSettings.SITE_BACKGROUND_URL.getName())) : "");
         return out;
     }
 
     /**
-     * A chosen color as it is stored: blank when it IS the shipped default. The picker always has some
-     * value, so storing it verbatim would stamp an override on every organization that saves the page
-     * without touching the color, and the shipped default could then never change under them.
+     * The branding settings with no purpose-built control of their own, in declaration order: the page
+     * renders exactly these as labelled text boxes in its "Site details" fieldset. Deriving the list here,
+     * rather than hand-listing rows in the page, is what stops a new branding setting from being editable
+     * on neither page -- which is how the footer, contact and donate settings went missing.
      */
-    private static String savedColor(final String color) {
-        return KnownSettings.SITE_BACKGROUND_COLOR.getDefaultValue().equalsIgnoreCase(color) ? "" : color;
+    public List<SettingDef> getDetailFields() {
+        return KnownSettings.branding().stream().filter(def -> !DEDICATED_FIELDS.contains(def.getName()))
+                .toList();
     }
 
     /** The palettes the Appearance page's menu offers. */
@@ -375,7 +423,7 @@ public class BrandCommands {
     public String colorHex(final Map<String, String> values) {
         final String chosen = (values == null) ? null
                 : normalizeHex(values.get(KnownSettings.SITE_BACKGROUND_COLOR.getName()));
-        return (chosen == null ? DEFAULT_BACKGROUND_COLOR : chosen).substring(1);
+        return (chosen == null ? FALLBACK_BACKGROUND_COLOR : chosen).substring(1);
     }
 
     /**
@@ -446,11 +494,16 @@ public class BrandCommands {
     /** The chooser's mode: what was chosen, else derived from which background the values actually carry. */
     private static String backgroundMode(final Map<String, String> values) {
         final String chosen = values.get(BG_MODE_KEY);
-        if (BG_MODE_IMAGE.equals(chosen) || BG_MODE_COLOR.equals(chosen)) {
+        if (BG_MODE_IMAGE.equals(chosen) || BG_MODE_COLOR.equals(chosen) || BG_MODE_PALETTE.equals(chosen)) {
             return chosen;
         }
-        return trimmed(values.get(KnownSettings.SITE_BACKGROUND_URL.getName())).isEmpty()
-                ? BG_MODE_COLOR : BG_MODE_IMAGE;
+        if (!trimmed(values.get(KnownSettings.SITE_BACKGROUND_URL.getName())).isEmpty()) {
+            return BG_MODE_IMAGE;
+        }
+        // Blank IS the palette choice, which is how a stored blank round-trips through a picker that can
+        // never hold one.
+        return trimmed(values.get(KnownSettings.SITE_BACKGROUND_COLOR.getName())).isEmpty()
+                ? BG_MODE_PALETTE : BG_MODE_COLOR;
     }
 
     private static String storedOverride(final Optional<Organization> org, final SettingDef def) {
@@ -522,13 +575,18 @@ public class BrandCommands {
     }
 
     /**
-     * One previewed value, with the chooser's mode applied: in COLOR mode the background image reads as
-     * unset, so the preview shows the color the admin picked rather than an image URL they have moved off.
-     * The URL itself is kept in the map, so switching back does not lose what they typed.
+     * One previewed value, with the chooser's mode applied: off IMAGE mode the background image reads as
+     * unset, and off COLOR mode so does the color, so the preview shows what the admin has actually chosen
+     * rather than a value they have moved away from. Both are kept in the map, so switching back does not
+     * lose what they typed or picked.
      */
     private static String previewValue(final Map<String, String> values, final SettingDef def) {
-        if (KnownSettings.SITE_BACKGROUND_URL.getName().equals(def.getName())
-                && !BG_MODE_IMAGE.equals(backgroundMode(values))) {
+        final String mode = backgroundMode(values);
+        if (KnownSettings.SITE_BACKGROUND_URL.getName().equals(def.getName()) && !BG_MODE_IMAGE.equals(mode)) {
+            return "";
+        }
+        if (KnownSettings.SITE_BACKGROUND_COLOR.getName().equals(def.getName())
+                && !BG_MODE_COLOR.equals(mode)) {
             return "";
         }
         return values.get(def.getName());
@@ -575,20 +633,24 @@ public class BrandCommands {
     }
 
     /** The session's {@code dark} flag through {@code getSession(false)}: never creates a session. */
-    private static boolean sessionDark() {
+    private static Boolean sessionDark() {
         final FacesContext ctx = FacesContext.getCurrentInstance();
-        if (ctx == null) {
-            return false;
-        }
-        return darkOf(ctx.getExternalContext().getSession(false));
+        return (ctx == null) ? null : darkOf(ctx.getExternalContext().getSession(false));
     }
 
-    /** The flag as the topbar stores it ({@code sessionScope.dark = !dark}: a Boolean) or as a string. */
-    static boolean darkOf(final Object session) {
+    /**
+     * The flag as the topbar stores it ({@code sessionScope.dark = !dark}: a Boolean) or as a string, and
+     * NULL when this visitor has never set one -- which is what lets an organization's own setting decide.
+     * Toggling back to light stores {@code false}, an explicit choice that still outranks the org.
+     */
+    static Boolean darkOf(final Object session) {
         if (!(session instanceof HttpSession http)) {
-            return false;
+            return null;
         }
         final Object flag = http.getAttribute(Sessions.DARK);
-        return Boolean.TRUE.equals(flag) || (flag instanceof String s && Boolean.parseBoolean(s));
+        if (flag instanceof Boolean set) {
+            return set;
+        }
+        return (flag instanceof String spelling) ? Boolean.valueOf(spelling) : null;
     }
 }
