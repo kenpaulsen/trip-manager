@@ -104,16 +104,17 @@ public final class KnownSettings {
 
     /**
      * Blank means "follow the palette": {@code BrandCommands.getRootStyle} then paints the chosen theme's
-     * own {@code --surface-ground}, so the page behind the cards tracks the palette AND the light/dark
-     * choice without anybody picking a color that only suits one of them. A chosen color is honored as
-     * typed. An image, when one is set, covers either: the two are offered as a choice on the Appearance
-     * page and saving one clears the other, so the value that is set is the value that shows.
+     * own {@code --site-bg-default}, a tint of that palette's primary color, so the page behind the cards
+     * takes the palette's HUE as well as the light/dark choice without anybody picking a color that only
+     * suits one of them. A chosen color is honored as typed. An image, when one is set, covers either: the
+     * two are offered as a choice on the Appearance page and saving one clears the other, so the value that
+     * is set is the value that shows.
      */
     public static final SettingDef SITE_BACKGROUND_COLOR = new SettingDef(
             "site.background.color", Config.Type.STRING, "", "Page background color",
             "The color shown behind the site's pages when no background image is set, as a hex value such "
-                    + "as #333333. Blank means the color palette's own background, which follows the "
-                    + "palette and the dark-mode choice on its own.")
+                    + "as #333333. Blank means the color palette's own background: a tint of the palette's "
+                    + "own color, which follows both the palette and the dark-mode choice on its own.")
             .withOrgOnly().withHexColor();
 
     public static final SettingDef SITE_FOOTER_TITLE = new SettingDef(

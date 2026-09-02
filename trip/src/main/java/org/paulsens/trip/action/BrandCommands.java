@@ -68,17 +68,28 @@ public class BrandCommands {
     /** The color the palette fallback below falls back to, and what the page's color picker opens on. */
     static final String FALLBACK_BACKGROUND_COLOR = "#333333";
     /**
-     * What an organization that has chosen NO background color paints: the theme's own ground color, so the
-     * page behind the cards follows the palette and the light/dark choice by itself instead of sitting on a
-     * fixed grey that suits one of them at best. Every shipped palette declares {@code --surface-ground} in
-     * its {@code :root} (light {@code #F2F4F6}, dark {@code #3E4754}), and the literal inside the
-     * {@code var()} is the belt-and-braces answer for a theme that somehow does not.
+     * What an organization that has chosen NO background color paints: the palette's OWN tint, so the page
+     * behind the cards follows the chosen colors and the light/dark choice by itself instead of sitting on a
+     * fixed grey that suits one of them at best. Three rungs, outermost first:
+     *
+     * <ol>
+     *   <li>{@code --site-bg-default} -- the palette's primary mixed into white (light) or near-black
+     *       (dark), declared per palette by the Freya build (the sibling repo's
+     *       {@code freya/.../sass/theme/_theme_{light,dark}.scss}). This is the rung that carries HUE:
+     *       a green site comes out green and a purple one purple.</li>
+     *   <li>{@code --surface-ground} -- the theme's ground color, for a stylesheet built before that
+     *       property existed. It tracks light/dark but not hue: the shared theme partials give every light
+     *       palette {@code #F2F4F6} and every dark one {@code #3E4754}, which is exactly the sameness this
+     *       fallback chain exists to get out of.</li>
+     *   <li>{@link #FALLBACK_BACKGROUND_COLOR} -- a literal, for a theme that declares neither.</li>
+     * </ol>
      *
      * <p>A {@code var()} nested in a custom property's value is substituted where the property is DECLARED,
      * which is the {@code <html>} element carrying both this and the theme's {@code :root} block, so
      * {@code site.css}'s own {@code var(--site-bg-color, transparent)} sees a plain color.
      */
-    static final String PALETTE_BACKGROUND = "var(--surface-ground, " + FALLBACK_BACKGROUND_COLOR + ")";
+    static final String PALETTE_BACKGROUND =
+            "var(--site-bg-default, var(--surface-ground, " + FALLBACK_BACKGROUND_COLOR + "))";
 
     /** The Appearance page's view id: the one view a preview may change. */
     static final String APPEARANCE_VIEW_ID = "/admin/orgAppearance.xhtml";
@@ -94,7 +105,7 @@ public class BrandCommands {
      *
      * <p>{@link #BG_MODE_PALETTE} is what a BLANK color means, and how a blank one round-trips through a
      * color picker that always has some value in it: choosing it saves both background settings blank, and
-     * the site then follows the palette's own ground color.
+     * the site then takes a tint of the palette's own color.
      */
     public static final String BG_MODE_KEY = "bg.mode";
     public static final String BG_MODE_PALETTE = "palette";
@@ -230,7 +241,7 @@ public class BrandCommands {
      * The custom properties the root element carries on an org host, for {@code site.css} to paint:
      * {@code --site-bg:url(...)} with the org's background image, or {@code --site-bg:none} plus
      * {@code --site-bg-color:} when there is no image -- the org's chosen COLOR, or, when it has chosen
-     * none, {@link #PALETTE_BACKGROUND} so the page follows the palette's own ground. Null off an org host:
+     * none, {@link #PALETTE_BACKGROUND} so the page takes the palette's own tint. Null off an org host:
      * the shared site's stylesheet keeps its own fallbacks (its rainbow image and no color), so that page is
      * unchanged to the byte.
      *
@@ -252,7 +263,7 @@ public class BrandCommands {
 
     /**
      * The page background color: the org's own when it is a usable hex value, else {@link #PALETTE_BACKGROUND}
-     * so the page follows whatever the chosen palette and light/dark mode call ground. Never null, and never
+     * so the page follows the chosen palette's own tint and the light/dark mode. Never null, and never
      * anything but a hex value or that one fixed expression, because it is interpolated straight into the
      * root element's {@code style}.
      */

@@ -478,7 +478,7 @@ apart from the one `BOOLEAN`:
 | `site.favicon.url` | no icon: the page emits `href="data:,"` so the browser fetches no `/favicon.ico` | http(s) URL |
 | `site.ogImage.url` | the logo (no logo either: no preview picture) | http(s) URL |
 | `site.background.url` | no image, so the background COLOR shows | http(s) URL |
-| `site.background.color` | **follow the palette**: `var(--surface-ground, #333333)` | `#rgb`/`#rrggbb`, validated by `SettingDef.hexColor` |
+| `site.background.color` | **follow the palette**: `var(--site-bg-default, var(--surface-ground, #333333))` — a tint of the palette's own colour | `#rgb`/`#rrggbb`, validated by `SettingDef.hexColor` |
 | `site.footer.title` | the org's name | plain text |
 | `site.footer.text` | nothing | plain text |
 | `site.contact.name`, `site.contact.phone` | left off the "Questions?" card | the card's email is the org profile's `contactEmail`; the card is hidden when all three are blank |
@@ -506,11 +506,30 @@ image wins wherever both are somehow set, the Appearance page offers the three a
 choice showing only the chosen control, and Save CLEARS the settings the choice does not use
 (`BrandCommands.forSave`), so what is stored is what shows. With neither set — an organization that has
 configured nothing at all — an org host renders
-`--site-bg:none;--site-bg-color:var(--surface-ground, #333333)`: **the palette's own ground colour** and no
-image, never the shared site's rainbow photograph, which is a picture of somebody else's place. Every
-shipped palette declares `--surface-ground` in its `:root` (light `#F2F4F6`, dark `#3E4754`), so the page
-behind the cards tracks both the palette and the dark-mode choice by itself; the literal inside the `var()`
-covers a theme that somehow declares none. A `var()` nested in a custom property's value is substituted
+`--site-bg:none;--site-bg-color:var(--site-bg-default, var(--surface-ground, #333333))`: **a tint of the
+palette's own colour** and no image, never the shared site's rainbow photograph, which is a picture of
+somebody else's place.
+
+The three rungs of that `var()` chain are in that order for a reason. `--surface-ground` alone tracked
+light/dark but NOT hue: it is declared once in the shared `sass/theme/_theme_{light,dark}.scss` partials, so
+every light palette was `#F2F4F6` and every dark one `#3E4754` — green, red and purple sites all came out
+the same grey. So the Freya build (sibling repo, `freya/src/main/webapp/resources/sass/`) now has each
+palette declare **`--site-bg-default`** in its own `:root`, mixed from that palette's `$primaryColor`:
+**7% into white** for a light palette, **16% into `#14171C`** for a dark one (the weights live in
+`sass/overrides/_theme_variables.scss`; the `:root` blocks in `sass/theme/_theme_{light,dark}.scss`, which
+is where light and dark differ). `--surface-ground` itself is deliberately untouched — cards and panels
+across the whole app read it, and repainting it would move every page of every site.
+
+The light weight is a readability budget, not a taste: the page background shows through beside the
+near-white cards, so `--text-color` (`#69707A`) has to survive on it. At 7% the tightest palette — purple,
+`rgb(242.05, 242.54, 254.09)` ≈ `#F2F3FE` — is **4.52:1**, next to the **4.54:1** the old flat `#F2F4F6`
+already had; every other palette lands between 4.68 and 4.80, and 8% would drop purple to 4.46:1. The dark
+side runs 10.3:1 to 12.3:1 against `#EAEBEC` and is bounded instead by staying darker than `--surface-card`
+(`#293241`) so the cards keep lifting off the page.
+`OrgSubdomainPwIT.everyStockPaletteKeepsItsBackgroundReadable` holds all 16 stock combinations to 4.5:1,
+and `…anOrgSitePaintsThePalettesOwnBackgroundColour` proves two org sites on different palettes really
+compute different `body::before` colours. The literals inside the `var()`s cover a theme that declares neither
+property. A `var()` nested in a custom property's value is substituted
 where the property is DECLARED — the `<html>` element, which carries the theme's `:root` block too — so
 `resources/css/site.css`'s own `background-color: var(--site-bg-color, transparent)` (alongside
 `background-image: var(--site-bg, url(rainbow))`) sees a plain colour, and a shared host — which sets

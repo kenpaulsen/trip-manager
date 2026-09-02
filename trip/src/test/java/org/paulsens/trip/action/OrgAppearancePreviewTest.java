@@ -41,9 +41,16 @@ public class OrgAppearancePreviewTest {
     private static final String BG_URL = KnownSettings.SITE_BACKGROUND_URL.getName();
     private static final String BG_COLOR = KnownSettings.SITE_BACKGROUND_COLOR.getName();
     private static final String IMAGE = "https://cdn.example/bg.jpg";
-    /** What an org that has chosen no color paints: the palette's own ground, with a literal fallback. */
+    /** What an org that has chosen no color paints: the palette's own tint, with two fallbacks behind it. */
     private static final String PALETTE_BG =
             "--site-bg:none;--site-bg-color:" + BrandCommands.PALETTE_BACKGROUND;
+    /**
+     * The same thing spelled out. The chain is a contract with the Freya build in the sibling repo, where
+     * every palette declares {@code --site-bg-default} as a tint of its own primary color, so it is pinned
+     * as a literal here rather than derived from the constant it is supposed to be checking.
+     */
+    private static final String PALETTE_BG_LITERAL =
+            "--site-bg:none;--site-bg-color:var(--site-bg-default, var(--surface-ground, #333333))";
 
     private Organization org;
     private SiteContext orgSite;
@@ -77,12 +84,33 @@ public class OrgAppearancePreviewTest {
                 "--site-bg:none;--site-bg-color:#abcdef", "a color alone paints, with no image at all"));
 
         stored(Map.of());
-        onSite(orgSite, () -> Assert.assertEquals(brand.getRootStyle(), PALETTE_BG,
-                "an org that has chosen no color follows its palette's own ground, never the shared rainbow"));
+        onSite(orgSite, () -> Assert.assertEquals(brand.getRootStyle(), PALETTE_BG_LITERAL,
+                "an org that has chosen no color follows its palette's own tint, never the shared rainbow"));
         Assert.assertEquals(KnownSettings.SITE_BACKGROUND_COLOR.getDefaultValue(), "",
                 "blank is the shipped default, and blank is what 'follow the palette' stores");
-        Assert.assertTrue(PALETTE_BG.endsWith("var(--surface-ground, #333333)"),
-                "a var() whose fallback is a literal: a palette that somehow declares no ground still paints");
+        Assert.assertEquals(PALETTE_BG, PALETTE_BG_LITERAL, "the constant and the pinned literal are one");
+    }
+
+    /**
+     * The no-color background is three rungs, and the ORDER is what makes a green site green: the palette's
+     * own {@code --site-bg-default} first (that is the only rung carrying hue -- every light palette shares
+     * one {@code --surface-ground}), then the theme's ground for a stylesheet built before that property,
+     * then a literal for a theme declaring neither. A chosen color skips all three, and an image skips the
+     * color too.
+     */
+    @Test
+    public void theNoColorBackgroundFallsBackPaletteThenGroundThenLiteral() throws IOException {
+        Assert.assertEquals(BrandCommands.PALETTE_BACKGROUND,
+                "var(--site-bg-default, var(--surface-ground, " + BrandCommands.FALLBACK_BACKGROUND_COLOR + "))",
+                "the palette's own tint is the OUTERMOST rung, or every palette paints the same grey again");
+        stored(Map.of());
+        onSite(orgSite, () -> Assert.assertEquals(brand.getRootStyle(), PALETTE_BG_LITERAL));
+        stored(Map.of(BG_COLOR, "#00ff00"));
+        onSite(orgSite, () -> Assert.assertEquals(brand.getRootStyle(), "--site-bg:none;--site-bg-color:#00ff00",
+                "a chosen color still wins over the palette's tint"));
+        stored(Map.of(BG_COLOR, "#00ff00", BG_URL, IMAGE));
+        onSite(orgSite, () -> Assert.assertEquals(brand.getRootStyle(), "--site-bg:url(" + IMAGE + ")",
+                "and an image still beats both"));
     }
 
     @Test

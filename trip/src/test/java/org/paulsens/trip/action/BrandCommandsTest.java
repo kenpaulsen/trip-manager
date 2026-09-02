@@ -30,7 +30,7 @@ public class BrandCommandsTest {
 
     private static final Organization.Id ACME = Organization.Id.from(FakeData.ACME_ORG_ID);
     private static final SiteContext ACME_SITE = SiteContext.org(ACME, "acme", "acme.unitetrip.com");
-    /** What an org that has chosen no background color paints: the palette's own ground, not a fixed grey. */
+    /** What an org that has chosen no background color paints: the palette's own tint, not a fixed grey. */
     private static final String PALETTE_BG =
             "--site-bg:none;--site-bg-color:" + BrandCommands.PALETTE_BACKGROUND;
 
