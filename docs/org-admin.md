@@ -337,16 +337,25 @@ like any other org grant and bounded by the org's allow-list) edits that ONE org
   Scoping this grant scopes the blast radius of template HTML (script access) to the org's own site.
   **Shared templates are copied, not edited** (2026-09-01): on the manager page Edit / History / Delete
   render only for a row the caller may author (`contentTemplate.mayAuthor(t)`), so an org editor gets no
-  affordance whose save could only fail; a SHARED row on the org's own host offers **"Copy for {org}"**
-  instead (`mayCopyForSite` / `copyForOrg(id)`), which clones it into the org's scope as `{id}-{slug}`,
-  named "{name} ({org})", same kind/body/placeholders/container settings, version 1, audited as a template
-  write -- the org customizes its copy, the shared original is untouched. Authorized by `mayAuthor` on the
-  RESULT's scope (so Kevin, an org admin without the grant, cannot copy), refused off an org host, for a
-  non-shared source (another tenant's template is never a source), and when the copy already exists. Site
-  staff get the Copy button alongside Edit on an org host. **MAIL templates are never copied**: every
-  sender resolves an email template by its FIXED id (`MailCommands.sendManagedTemplate`, the org-invite
-  lookup), so a per-org `org-invite-acme` would never be sent -- until mail resolution is per-org, email
-  copy stays a site-staff edit of the shared row, and the page offers no copy for MAIL rows.
+  affordance whose save could only fail; a SITE DEFAULT in an organization's scope offers **"Customize"**
+  instead (`mayCustomize(t, orgId)` / `customize(id, orgId)`), which clones it into the org's scope as
+  `{id}-{slug}` (`{id}-{orgUUID}` for an org with no subdomain), same kind/body/placeholders/container
+  settings, version 1, audited as a template write, and opens the clone for editing -- the org customizes
+  its copy, the shared original is untouched. Authorized by `mayAuthor` on the RESULT's scope (so Kevin, an
+  org admin without the grant, cannot copy), refused with no org scope, for a non-shared source (another
+  tenant's template is never a source), and when the copy already exists. Site staff get Customize
+  alongside Edit. The scope is the page's `?orgId=` (the org hub's Templates card) or the org whose site
+  the request is on -- not the host: the page itself is gated by `priv.checkHere`, which on a shared host
+  counts an org-scoped grant for nothing, so the privilege is the boundary either way.
+  **EMAIL templates are customized too** (2026-09-02, user decision -- this reverses the 2026-09-01 rule
+  that email copy stays a site-staff edit): every sender now resolves per organization
+  (`TemplateCommands.resolveForOrg`, `MailCommands.sendManagedTemplateForOrg`), so an org's copy of
+  `registration-received` is the mail its registrants actually get. The manager shows ONE row per use case
+  in an org scope -- the site default with **Customize**, or the org's own row badged **Customized** with
+  **View site default** and **Revert to site default** -- and the site-wide page (`/admin/templates.jsf`
+  with no `orgId`) hides org-owned rows and edits the site defaults only. A MAIL copy's name gets NO
+  "({org})" suffix: a MAIL template's name is its subject line. Full rules, including the resolution order
+  and which entity each sender takes its org from: `content-templates.md` "Per-organization email copy".
 - **Media** (`MediaCommands.mayManage/mayUploadHere`, resolved from the request-bound `Caller.bound()`
   so pages, the REST API and the upload servlet answer alike): every write re-checks OWNERSHIP of the
   item (global → any; org editor → the org's items; a trip's manager → its chat album), uploads are

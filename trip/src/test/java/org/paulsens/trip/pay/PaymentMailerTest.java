@@ -18,6 +18,7 @@ import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
 public class PaymentMailerTest {
@@ -25,9 +26,9 @@ public class PaymentMailerTest {
     @Test
     public void sendsThroughTheEffectiveConfigWithTheOrgBcc() {
         final MailCommands mail = Mockito.mock(MailCommands.class);
-        Mockito.when(mail.sendManagedTemplate(ArgumentMatchers.anyString(), ArgumentMatchers.anyMap(),
-                ArgumentMatchers.anyString(), ArgumentMatchers.anyString(), ArgumentMatchers.any(),
-                ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+        Mockito.when(mail.sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
         final Person payer = person("Joe", "joe@example.com");
         final PaymentMailer mailer = new PaymentMailer(mail, id -> payer);
 
@@ -39,12 +40,45 @@ public class PaymentMailerTest {
                 "notify@x.org", AuditActor.system()));
 
         final ArgumentCaptor<String> bcc = ArgumentCaptor.forClass(String.class);
-        Mockito.verify(mail).sendManagedTemplate(ArgumentMatchers.eq("payment-confirmation"),
-                ArgumentMatchers.anyMap(), ArgumentMatchers.eq("joe@example.com"),
+        Mockito.verify(mail).sendManagedTemplateForOrg(ArgumentMatchers.eq("payment-confirmation"),
+                ArgumentMatchers.any(), ArgumentMatchers.anyMap(), ArgumentMatchers.eq("joe@example.com"),
                 ArgumentMatchers.eq("CFPW <no-reply@x.org>"), ArgumentMatchers.eq("info@x.org"),
                 bcc.capture(), ArgumentMatchers.any());
         assertEquals(bcc.getValue(), "books@x.org,notify@x.org",
                 "The org copy and the site notification ride as bcc");
+    }
+
+    /**
+     * Whose confirmation copy goes out: the PAYMENT's own organization. A capture is confirmed wherever the
+     * processor calls back -- often on a background thread with no host at all -- so the org must come from
+     * the row, never from the request's site. A legacy org-less payment falls back to its trip's.
+     */
+    @Test
+    public void theOrganizationThreadedIntoTheSendComesFromThePayment() {
+        final MailCommands mail = Mockito.mock(MailCommands.class);
+        Mockito.when(mail.sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+        final Person payer = person("Joe", "joe@example.com");
+        final Payment ownedPayment = payment(payer);
+        ownedPayment.setOrgId("org-of-the-payment");
+        final TripPaymentConfig effective = TripPaymentConfig.builder()
+                .confirmationTemplateId("payment-confirmation").mailFrom("x <y@z.org>").build();
+
+        assertTrue(new PaymentMailer(mail, id -> payer).sendConfirmation(ownedPayment, trip(), effective,
+                "CFPW", "PayPal", null, AuditActor.system()));
+        Mockito.verify(mail).sendManagedTemplateForOrg(ArgumentMatchers.anyString(),
+                ArgumentMatchers.eq("org-of-the-payment"), ArgumentMatchers.anyMap(),
+                ArgumentMatchers.anyString(), ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any());
+
+        final Trip owned = trip();
+        owned.setOrgId("org-of-the-trip");
+        assertEquals(PaymentMailer.orgOf(payment(payer), owned), "org-of-the-trip",
+                "a payment written before payments carried an org falls back to its trip's");
+        assertEquals(PaymentMailer.orgOf(ownedPayment, owned), "org-of-the-payment", "the payment wins");
+        assertNull(PaymentMailer.orgOf(payment(payer), trip()), "org-less both ways: the shared copy");
+        assertNull(PaymentMailer.orgOf(payment(payer), null));
     }
 
     @Test
@@ -99,9 +133,9 @@ public class PaymentMailerTest {
     @Test
     public void bccCombinationsAndNameFallbacksHold() {
         final MailCommands mail = Mockito.mock(MailCommands.class);
-        Mockito.when(mail.sendManagedTemplate(ArgumentMatchers.anyString(), ArgumentMatchers.anyMap(),
-                ArgumentMatchers.anyString(), ArgumentMatchers.anyString(), ArgumentMatchers.any(),
-                ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+        Mockito.when(mail.sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
         final Person payer = person("Joe", "joe@example.com");
         final PaymentMailer mailer = new PaymentMailer(mail,
                 id -> id.equals(payer.getId()) ? payer : null);
@@ -113,9 +147,10 @@ public class PaymentMailerTest {
                 "notify@x.org", AuditActor.system()));
         assertTrue(mailer.sendConfirmation(payment(payer), trip(), noBcc, "CFPW", "PayPal",
                 null, AuditActor.system()));
-        Mockito.verify(mail, Mockito.times(2)).sendManagedTemplate(ArgumentMatchers.anyString(),
-                ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
-                ArgumentMatchers.any(), bcc.capture(), ArgumentMatchers.any());
+        Mockito.verify(mail, Mockito.times(2)).sendManagedTemplateForOrg(ArgumentMatchers.anyString(),
+                ArgumentMatchers.any(), ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(),
+                ArgumentMatchers.anyString(), ArgumentMatchers.any(), bcc.capture(),
+                ArgumentMatchers.any());
         assertEquals(bcc.getAllValues().get(0), "notify@x.org", "Notify alone still rides as bcc");
         assertEquals(bcc.getAllValues().get(1), null, "No bcc at all is fine");
 

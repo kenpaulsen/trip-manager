@@ -396,9 +396,11 @@ public class OrgCommands {
         final MailAddressCommands addresses = new MailAddressCommands(config);
         final String replyTo = (org.getContactEmail() == null || org.getContactEmail().isBlank())
                 ? addresses.orgReplyTo(KnownSettings.REG_MAIL_REPLY_TO, org) : org.getContactEmail();
-        final boolean sent = mailSource.get().sendManagedTemplate(
-                StarterTemplates.ORG_INVITE_ID, values, addr,
-                addresses.from(KnownSettings.REG_MAIL_FROM), replyTo, current.auditActor());
+        // Sent on THIS org's behalf, so it renders the org's own copy of the template when it has
+        // customized one -- resolved from the org in hand, never from the host the admin happens to be on.
+        final boolean sent = mailSource.get().sendManagedTemplateForOrg(
+                StarterTemplates.ORG_INVITE_ID, orgId, values, addr,
+                addresses.from(KnownSettings.REG_MAIL_FROM), replyTo, null, current.auditActor());
         if (!sent) {
             return fail("Not sent", "The invitation could not be sent; is the org-invite template "
                     + "installed?");
@@ -1946,9 +1948,11 @@ public class OrgCommands {
             return fail("No From address", "Set a From address on the trip, the organization, or the "
                     + "site settings.");
         }
-        final boolean sent = mailSource.get().sendManagedTemplate(effective.getConfirmationTemplateId(),
+        // The test must be the real thing: the trip's org picks the copy exactly as the live send does.
+        final boolean sent = mailSource.get().sendManagedTemplateForOrg(
+                effective.getConfirmationTemplateId(), trip == null ? null : trip.getOrgId(),
                 samplePaymentValues(trip, me, effective), addr, effective.getMailFrom(),
-                effective.getReplyTo(), current.auditActor());
+                effective.getReplyTo(), null, current.auditActor());
         if (!sent) {
             return fail("Not sent", "The test email could not be sent; is the template installed?");
         }
@@ -1985,8 +1989,9 @@ public class OrgCommands {
         if (effective.getConfirmationTemplateId() == null) {
             return null;
         }
-        return mailSource.get().renderManagedTemplate(effective.getConfirmationTemplateId(),
-                samplePaymentValues(trip, me, effective));
+        // The preview shows what THIS trip's payers get: the org's customized copy when it has one.
+        return mailSource.get().renderManagedTemplateForOrg(effective.getConfirmationTemplateId(),
+                trip.getOrgId(), samplePaymentValues(trip, me, effective));
     }
 
     /** Sample token values for the test send (the real flow's PaymentMailer fills these from a Payment). */

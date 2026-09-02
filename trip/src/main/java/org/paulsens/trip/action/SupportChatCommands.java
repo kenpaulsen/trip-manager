@@ -482,6 +482,10 @@ public class SupportChatCommands {
         // Prefer the runtime-editable MAIL template; the inline HTML built by the request methods is the
         // fallback when the starter was never installed. Rendered once -- token-substitution only, no
         // Faces coupling, so this off-request thread is fine.
+        //
+        // Deliberately the ORG-LESS render: a support request goes to the SITE's support-channel admins and
+        // is sent on nobody's behalf, so it resolves the shared copy. (This thread has no host to infer an
+        // organization from either -- the rule is that the org comes from the entity, and there is none.)
         final MailCommands.ManagedMail rendered = mail.renderManagedTemplate(
                 org.paulsens.trip.content.StarterTemplates.SUPPORT_REQUEST_ID,
                 java.util.Map.of("subject", subject, "requestBlock", new MailTemplates.Raw(html)));

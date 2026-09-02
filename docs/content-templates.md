@@ -15,7 +15,7 @@ strand instances; `saveTemplate` rejects it):
 | `STANDARD` | HTML body with `{{token}}` placeholders | placeholder values | `ContentRenderer` substitution, typed escaping |
 | `CONTAINER` | a body that is the ROW wrapped around each child (see below), `allowedChildTemplateIds` (null/empty = any non-container), `maxChildren` (null = unlimited) | optional WYSIWYG title, optional `editorPrivileges`, optional per-instance `allowedChildTemplateIds` | title via `renderContainerTitle`, then its CHILDREN in order, each inside the container's row |
 | `PROGRAMMATIC` | `programmaticTypeId` naming a registered type | the type's NVP property values | the type's Facelets fragment (full PrimeFaces behavior) |
-| `MAIL` | an EMAIL body with `{{token}}` placeholders; the template NAME doubles as the subject line | none — mail templates have no instances | never on a page; rendered by `MailCommands.sendManagedTemplate`, tokens filled by JAVA only (no EL — runtime-editable EL would be code execution) |
+| `MAIL` | an EMAIL body with `{{token}}` placeholders; the template NAME doubles as the subject line | none — mail templates have no instances | never on a page; rendered by `MailCommands.renderManagedTemplateForOrg` (resolved per organization, below), tokens filled by JAVA only (no EL — runtime-editable EL would be code execution) |
 
 MAIL templates are excluded from every content picker; the shipped ones are `registration-received`,
 `registration-approved`, `support-request`, `payment-confirmation`, and `org-invite` (the org-admin
@@ -84,11 +84,11 @@ hostname**, resolved once per request into a `SiteContext` (`org.paulsens.trip.s
   pins whichever it chose, so rendering never consults the field and the zero-live-read rule below is
   untouched. The template manager's Scope column/menu (`TemplateCommands.scopeChoices`/`scopeLabel`) sets
   it; a blank menu choice saves as null; an unknown org is refused.
-  **Customizing a shared template for one org is a COPY** (`TemplateCommands.copyForOrg`, the manager's
-  "Copy for {org}" button on an org host): the clone `{id}-{slug}` is org-scoped, version 1, "{name}
-  ({org})", same kind/body/placeholders; the shared row stays shared and read-only to the org's editor
-  (Edit/History/Delete render only where `mayAuthor` says so). MAIL templates are excluded -- senders
-  resolve them by fixed id, so a copy would be dead. Details: `org-admin.md` "Org-site editors".
+  **Customizing a shared template for one org is a COPY** (`TemplateCommands.customize(id, orgId)`, the
+  manager's "Customize" button in an org scope): the clone is org-scoped at version 1 with the same
+  kind/body/placeholders; the shared row stays shared and read-only to the org's editor
+  (Edit/History/Delete render only where `mayAuthor` says so). **EMAIL templates are copied like every
+  other kind** — see "Per-organization email copy" below. Details: `org-admin.md` "Org-site editors".
 - **Editing** an org's page happens on the org's site with the same edit mode. Authorization is
   privilege-only: site admin, global `contentAdmin`, or `contentAdmin` scoped to that org (see
   `org-admin.md` "Org-site editors") — org admins do not edit content by being admins. The org of a
@@ -96,6 +96,65 @@ hostname**, resolved once per request into a `SiteContext` (`org.paulsens.trip.s
   the shared or marketing page.
 - An empty page shows a plain notice (`homePage.xhtml`): the marketing host's "coming soon", or "this site
   is being set up" on an org host whose page is not seeded yet.
+
+## Per-organization email copy (2026-09-02)
+
+An organization customizes the email sent **on its behalf** the same way it customizes page content: by
+copying the shared template. What makes that mean something for MAIL is that senders no longer resolve an
+email template by its fixed id alone.
+
+**Resolution order — one method, `TemplateCommands.resolveForOrg(templateId, orgId)`**, and everything goes
+through it (the manager page and every sender, so what an editor sees and what goes out cannot disagree):
+
+1. the organization's own copy of `templateId`, when it has one;
+2. otherwise the shared row under `templateId`;
+3. nothing (senders treat that as "do not send" and log it) when neither exists.
+
+A row sitting under the copy's id that belongs to a DIFFERENT organization is ignored — resolution checks
+the owner, not just the name, so no tenant is ever served another's wording.
+
+**The copy's id is derived, never stored**: `{templateId}-{slug}` for a hosted org (the convention the
+manager has always shown) and `{templateId}-{orgUUID}` for an org with no subdomain, since an org reached
+from its hub need not be hosted to customize its mail. Both the copy and the lookup compute it with
+`TemplateCommands.orgCopyId`, so they cannot drift. *Caveat, inherited from the copy convention:* renaming
+a hosted org's slug orphans its existing copies (they keep the old id and stop resolving); reverting and
+re-customizing repairs it.
+
+**The organization comes from the ENTITY, never from `SiteContext`.** Background senders run under
+`RequestContext.system()` with no host at all, and a capture callback or an approval can happen from any
+host, so each caller passes the org it already holds:
+
+| Sender | Organization |
+|--------|--------------|
+| `OrgCommands.sendOrgInvite` (`org-invite`) | the org being invited to |
+| `RegistrationCommands.approvePending` (`registration-approved`) | the trip's |
+| `joinTrip.xhtml` (`registration-received`) | the trip's |
+| `PaymentMailer.sendConfirmation` (`payment-confirmation`) | the payment's, falling back to its trip's |
+| `OrgCommands.sendPaymentTestMail` / the payment-mail preview | the trip's — a test send must resolve exactly what the live one does |
+| `SupportChatCommands` (`support-request`) | **none, deliberately**: it notifies the SITE's support admins, on nobody's behalf |
+
+`MailCommands.sendManagedTemplateForOrg` / `renderManagedTemplateForOrg` /
+`renderManagedSubjectForOrg` / `renderManagedBodyForOrg` are the org-aware entry points; the org-less
+`sendManagedTemplate` / `renderManagedTemplate` forms remain and delegate with a null org (the shared row).
+
+**One row per use case.** In an organization's scope (`/admin/templates.jsf?orgId=…` from the org hub, or
+the org's own site) `getTemplatesFor(kind, orgId)` shows each use case ONCE — two rows for one email would
+be a standing invitation to edit the one that is never sent:
+
+- not customized: the shared row, read-only, offering **Customize** (which copies it and opens the copy for
+  editing in one click);
+- customized: the org's own row, editable, badged **Customized**, with **View site default** (the shared
+  subject and body, read-only) and **Revert to site default** (`revertToSiteDefault`, behind a
+  `p:confirmDialog`, which deletes only the org's own copy — an org template with no site default behind it
+  is refused rather than silently destroyed).
+
+The SITE-WIDE page (no `orgId`, no org host) is the **site defaults** page and hides org-owned rows
+entirely: a site admin editing "Registration received (Acme)" from there would be fixing one tenant while
+believing they were fixing everyone.
+
+**Naming.** A copy's name gains a "({org})" suffix for every kind EXCEPT MAIL, where the name IS the
+subject line and the suffix would ship in the subject of every email the org sends. Nothing is lost: in the
+org's own list the Scope column and the Customized badge say whose row it is.
 
 ## Programmatic types
 

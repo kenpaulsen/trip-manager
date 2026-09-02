@@ -588,13 +588,15 @@ public class RegistrationCommands {
         // template/address never blocks the approval itself.
         if (sendApprovalEmail && canEmailApproval(person)) {
             final MailAddressCommands addresses = mailAddrSource.get();
-            mailSource.get().sendManagedTemplate(
-                    org.paulsens.trip.content.StarterTemplates.REGISTRATION_APPROVED_ID,
+            // The TRIP's organization picks the copy: an org that customized its approval email sends its
+            // own wording whichever site the admin happens to be approving from.
+            mailSource.get().sendManagedTemplateForOrg(
+                    org.paulsens.trip.content.StarterTemplates.REGISTRATION_APPROVED_ID, trip.getOrgId(),
                     approvedMailValues(trip, person), approvalRecipients(person),
                     addresses.fromFor(org.paulsens.trip.config.KnownSettings.REG_MAIL_FROM.getName()),
                     addresses.replyToFor(
                             org.paulsens.trip.config.KnownSettings.REG_MAIL_REPLY_TO.getName(), trip),
-                    org.paulsens.trip.audit.AuditActor.current());
+                    null, org.paulsens.trip.audit.AuditActor.current());
         }
         return true;
     }

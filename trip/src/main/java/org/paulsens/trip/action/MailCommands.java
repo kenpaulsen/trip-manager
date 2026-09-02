@@ -44,6 +44,12 @@ import org.paulsens.trip.cache.Cached;
 public class MailCommands {
     final DAO dao = DAO.getInstance();
     final ELUtil elUtil = ELUtil.getInstance();
+    /**
+     * The single place a managed template id turns into a template row. Constructed rather than injected:
+     * the senders below run on background threads with no CDI request context, and this bean holds no
+     * per-request state of its own (its caller seam is only used by the authoring methods).
+     */
+    private final TemplateCommands templates = new TemplateCommands();
     private static final String EMAIL_TPL_PREFIX = "mailTemplates/";
     private static final String EMAIL_TPL_SUFFIX = ".tpl";
     /** Client-level timeouts replace the per-call orTimeout the CF era needed; a hung send fails, not hangs. */
@@ -416,15 +422,31 @@ public class MailCommands {
 
     /**
      * Renders a runtime-editable MAIL template ({@link org.paulsens.trip.model.TemplateKind#MAIL}) by
-     * {@code {{token}}} substitution. Values follow the {@code MailTemplates} contract: {@code String}
-     * (escaped), {@link org.paulsens.trip.chat.MailTemplates.Raw} (verbatim), {@code Number}/{@code Boolean}.
-     * No EL and no Faces-thread coupling -- callable from any thread. Returns null when the template is
-     * missing or the wrong kind; callers treat null as "do not send", never as an error that blocks the
-     * flow that wanted to send it.
+     * {@code {{token}}} substitution, using the SHARED copy of it. Every send made on behalf of an
+     * organization should use {@link #renderManagedTemplateForOrg} instead; this org-less form is for the
+     * senders that genuinely have no organization in hand (the support-request notice to site staff).
      */
     public ManagedMail renderManagedTemplate(final String templateId, final Map<String, Object> values) {
-        final org.paulsens.trip.model.ContentTemplate template =
-                dao.getTemplate(templateId, Cached.NO).orElse(null);
+        return renderManagedTemplateForOrg(templateId, null, values);
+    }
+
+    /**
+     * The same render, resolved for ONE organization: the org's own customization of {@code templateId}
+     * when it has one, else the shared row ({@code TemplateCommands.resolveForOrg} is the single place that
+     * decides, so the Templates page and the sender can never disagree about which copy is live).
+     *
+     * <p>Values follow the {@code MailTemplates} contract: {@code String} (escaped),
+     * {@link org.paulsens.trip.chat.MailTemplates.Raw} (verbatim), {@code Number}/{@code Boolean}. No EL and
+     * no Faces-thread coupling -- callable from any thread, which matters because background senders run
+     * under {@code RequestContext.system()} with no host: the organization must come from the ENTITY being
+     * mailed about (the trip, the payment, the org being invited to), never from {@code SiteContext}.
+     *
+     * <p>Returns null when the template is missing or the wrong kind; callers treat null as "do not send",
+     * never as an error that blocks the flow that wanted to send it.
+     */
+    public ManagedMail renderManagedTemplateForOrg(final String templateId, final String orgId,
+            final Map<String, Object> values) {
+        final org.paulsens.trip.model.ContentTemplate template = templates.resolveForOrg(templateId, orgId);
         if (template == null || template.getKind() != org.paulsens.trip.model.TemplateKind.MAIL) {
             log.error("No MAIL template '{}' (missing, or not MAIL kind); mail skipped. Run "
                     + "install-starter-templates.sh or create it on the Templates page.", templateId);
@@ -441,23 +463,36 @@ public class MailCommands {
      * EL should not depend on record-accessor resolution.
      */
     public String renderManagedSubject(final String templateId, final Map<String, Object> values) {
-        final ManagedMail rendered = renderManagedTemplate(templateId, values);
-        return (rendered == null) ? "" : rendered.subject();
+        return renderManagedSubjectForOrg(templateId, null, values);
     }
 
     /** The rendered body of a managed MAIL template, for on-page previews; see {@link #renderManagedSubject}. */
     public String renderManagedBody(final String templateId, final Map<String, Object> values) {
-        final ManagedMail rendered = renderManagedTemplate(templateId, values);
+        return renderManagedBodyForOrg(templateId, null, values);
+    }
+
+    /** A preview of what THIS organization's recipients get -- the customized copy when it has one. */
+    public String renderManagedSubjectForOrg(final String templateId, final String orgId,
+            final Map<String, Object> values) {
+        final ManagedMail rendered = renderManagedTemplateForOrg(templateId, orgId, values);
+        return (rendered == null) ? "" : rendered.subject();
+    }
+
+    /** The body half of {@link #renderManagedSubjectForOrg}. */
+    public String renderManagedBodyForOrg(final String templateId, final String orgId,
+            final Map<String, Object> values) {
+        final ManagedMail rendered = renderManagedTemplateForOrg(templateId, orgId, values);
         return (rendered == null) ? "" : rendered.body();
     }
 
     /**
-     * Renders and sends a managed MAIL template to one recipient. A missing template or unusable recipient
-     * logs and answers false -- registration/approval/support flows must never fail because their mail did.
+     * Renders and sends a managed MAIL template to one recipient, from the SHARED copy. A missing template
+     * or unusable recipient logs and answers false -- registration/approval/support flows must never fail
+     * because their mail did. Prefer {@link #sendManagedTemplateForOrg} wherever an organization is in hand.
      */
     public boolean sendManagedTemplate(final String templateId, final Map<String, Object> values,
             final String to, final String from, final String replyTo, final AuditActor actor) {
-        return sendManagedTemplate(templateId, values, to, from, replyTo, null, actor);
+        return sendManagedTemplateForOrg(templateId, null, values, to, from, replyTo, null, actor);
     }
 
     /**
@@ -467,7 +502,19 @@ public class MailCommands {
     public boolean sendManagedTemplate(final String templateId, final Map<String, Object> values,
             final String to, final String from, final String replyTo, final String bcc,
             final AuditActor actor) {
-        final ManagedMail rendered = renderManagedTemplate(templateId, values);
+        return sendManagedTemplateForOrg(templateId, null, values, to, from, replyTo, bcc, actor);
+    }
+
+    /**
+     * The send an organization's copy is FOR: same contract as
+     * {@link #sendManagedTemplate(String, Map, String, String, String, String, AuditActor)}, with the
+     * template resolved per {@link #renderManagedTemplateForOrg}. A null organization falls back to the
+     * shared row, so a legacy (org-less) trip or payment still sends.
+     */
+    public boolean sendManagedTemplateForOrg(final String templateId, final String orgId,
+            final Map<String, Object> values, final String to, final String from, final String replyTo,
+            final String bcc, final AuditActor actor) {
+        final ManagedMail rendered = renderManagedTemplateForOrg(templateId, orgId, values);
         if (rendered == null || to == null || to.isBlank()) {
             return false;
         }

@@ -46,9 +46,20 @@ public class PaymentMailer {
             return false;
         }
         final String bcc = joinAddresses(effective.getBcc(), notifyEmail);
-        return mail.sendManagedTemplate(effective.getConfirmationTemplateId(),
+        // The PAYMENT's own organization decides whose confirmation copy is sent -- never the request's
+        // site: a capture is confirmed wherever the processor calls back, and a payment is org-stamped at
+        // creation. The trip is the fallback for a legacy org-less row.
+        return mail.sendManagedTemplateForOrg(effective.getConfirmationTemplateId(), orgOf(payment, trip),
                 values(payment, trip, effective, payer, orgName, processorName),
                 payer.getEmail(), effective.getMailFrom(), effective.getReplyTo(), bcc, actor);
+    }
+
+    /** Whose confirmation copy this is: the payment's organization, else its trip's, else nobody's. */
+    static String orgOf(final Payment payment, final Trip trip) {
+        if (payment.getOrgId() != null && !payment.getOrgId().isBlank()) {
+            return payment.getOrgId();
+        }
+        return trip == null ? null : trip.getOrgId();
     }
 
     /** The template's token values -- scalars escaped by the mail layer, HTML pre-escaped here as Raw. */

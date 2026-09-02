@@ -139,13 +139,18 @@ public class OrgSiteEditorAuthzTest {
     }
 
     /**
-     * "Copy for {org}": an org editor customizes a SHARED template by cloning it into their org's scope on
-     * the org's own host -- the original is untouched, the copy is theirs to edit and delete. Refused for
-     * an org admin without the grant, off the org's host, for a template that is not shared, for a MAIL
-     * template (sent by fixed id, so a copy would be dead), and when the copy already exists.
+     * "Customize": an org editor makes a SHARED template their org's own by cloning it into the org's scope
+     * -- the original is untouched, the copy is theirs to edit, revert and delete. Refused for an org admin
+     * without the grant, for another tenant's org, with no org scope at all, for a template that is not
+     * shared, and when the copy already exists.
+     *
+     * <p>The org is now an explicit SCOPE (the {@code ?orgId=} the org hub links with, or the site's own
+     * org), not the request's host: the manager page itself is gated by {@code priv.checkHere}, which on a
+     * shared host counts an org-scoped grant for nothing, so the host check that used to live here would
+     * only have blocked site staff working from the hub. The privilege is the boundary, as it always was.
      */
     @Test
-    public void anOrgEditorCopiesASharedTemplateForTheirOrgOnItsOwnHost() throws Exception {
+    public void anOrgEditorCustomizesASharedTemplateForTheirOrg() {
         final String sourceId = "copy-src-" + UUID.randomUUID();
         final ContentTemplate source = template(sourceId, null);
         source.setName("Copy Source");
@@ -155,18 +160,19 @@ public class OrgSiteEditorAuthzTest {
         final TemplateCommands editor = templatesAs(EDITOR);
         try {
             Assert.assertFalse(editor.mayAuthor(source), "a shared row is not the editor's to edit");
-            Assert.assertFalse(editor.mayCopyForSite(source), "off the org's host there is nothing to copy for");
-            Assert.assertFalse(editor.copyForOrg(sourceId), "the shared site is nobody's org");
-            Assert.assertFalse(onSite(BETA_SITE, () -> editor.mayCopyForSite(source)), "not another tenant's host");
-            Assert.assertFalse(onSite(BETA_SITE, () -> editor.copyForOrg(sourceId)));
-            Assert.assertTrue(onSite(ACME_SITE, () -> editor.mayCopyForSite(source)));
-            Assert.assertFalse(onSite(ACME_SITE, () -> templatesAs(ORG_ADMIN_ONLY).copyForOrg(sourceId)),
+            Assert.assertFalse(editor.mayCustomize(source, ""), "no organization scope, nothing to customize for");
+            Assert.assertEquals(editor.customize(sourceId, ""), "");
+            Assert.assertEquals(editor.customize(sourceId, null), "");
+            Assert.assertFalse(editor.mayCustomize(source, FakeData.BETA_ORG_ID), "never another tenant's");
+            Assert.assertEquals(editor.customize(sourceId, FakeData.BETA_ORG_ID), "");
+            Assert.assertTrue(editor.mayCustomize(source, FakeData.ACME_ORG_ID));
+            Assert.assertEquals(templatesAs(ORG_ADMIN_ONLY).customize(sourceId, FakeData.ACME_ORG_ID), "",
                     "an org admin without the grant copies nothing");
-            Assert.assertFalse(onSite(ACME_SITE, () -> templatesAs(ORG_ADMIN_ONLY).mayCopyForSite(source)));
+            Assert.assertFalse(templatesAs(ORG_ADMIN_ONLY).mayCustomize(source, FakeData.ACME_ORG_ID));
 
-            Assert.assertTrue(onSite(ACME_SITE, () -> editor.copyForOrg(sourceId)));
+            Assert.assertEquals(editor.customize(sourceId, FakeData.ACME_ORG_ID), copyId);
             final ContentTemplate copy = DAO.getInstance().getTemplate(copyId, Cached.NO).orElseThrow();
-            Assert.assertEquals(copy.getOrgId(), FakeData.ACME_ORG_ID, "scoped to the site's org");
+            Assert.assertEquals(copy.getOrgId(), FakeData.ACME_ORG_ID, "scoped to the org");
             Assert.assertEquals(copy.getName(), "Copy Source (Acme Inc)");
             Assert.assertEquals(copy.getDescription(), source.getDescription());
             Assert.assertEquals(copy.getBody(), source.getBody());
@@ -174,30 +180,51 @@ public class OrgSiteEditorAuthzTest {
             Assert.assertEquals(copy.getKind(), source.getKind());
             Assert.assertEquals(copy.getVersion(), 1, "a fresh row, not the source's history");
             Assert.assertTrue(editor.mayAuthor(copy), "the copy is the org's: editable");
-            Assert.assertFalse(onSite(ACME_SITE, () -> editor.mayCopyForSite(copy)), "an org's row is no source");
+            Assert.assertTrue(editor.isCustomization(copy), "...and badged as a customization");
+            Assert.assertEquals(editor.siteDefault(copy).getId(), sourceId);
+            Assert.assertFalse(editor.mayCustomize(copy, FakeData.ACME_ORG_ID), "an org's row is no source");
             Assert.assertNull(DAO.getInstance().getTemplate(sourceId, Cached.NO).orElseThrow().getOrgId(),
                     "the shared original is untouched");
 
-            Assert.assertFalse(onSite(ACME_SITE, () -> editor.copyForOrg(sourceId)), "already copied");
-            Assert.assertFalse(onSite(ACME_SITE, () -> editor.copyForOrg(copyId)), "an org's template is no source");
-            Assert.assertFalse(onSite(ACME_SITE, () -> editor.copyForOrg("no-such-template-" + UUID.randomUUID())));
-            Assert.assertFalse(onSite(ACME_SITE, () -> editor.copyForOrg(" ")));
-            Assert.assertFalse(onSite(ACME_SITE, () -> editor.copyForOrg(StarterTemplates.ORG_INVITE_ID)),
-                    "a MAIL template is sent by fixed id: a copy would never be used");
-            Assert.assertFalse(onSite(ACME_SITE, () -> editor.mayCopyForSite(
-                    DAO.getInstance().getTemplate(StarterTemplates.ORG_INVITE_ID, Cached.NO).orElseThrow())));
-            Assert.assertTrue(DAO.getInstance().getTemplate(StarterTemplates.ORG_INVITE_ID + "-acme", Cached.NO)
-                    .isEmpty());
+            Assert.assertEquals(editor.customize(sourceId, FakeData.ACME_ORG_ID), "", "already copied");
+            Assert.assertEquals(editor.customize(copyId, FakeData.ACME_ORG_ID), "", "an org's template is no source");
+            Assert.assertEquals(editor.customize("no-such-template-" + UUID.randomUUID(),
+                    FakeData.ACME_ORG_ID), "");
+            Assert.assertEquals(editor.customize(" ", FakeData.ACME_ORG_ID), "");
 
-            // A site admin on the org's host may copy too (seeding an org's customization for them).
+            // A site admin may customize for an org too (seeding an org's copy on their behalf).
             final TemplateCommands admin = new TemplateCommands();
             admin.setCallerSource(TestCallers::siteAdmin);
-            Assert.assertTrue(onSite(ACME_SITE, () -> admin.mayCopyForSite(source)));
+            Assert.assertTrue(admin.mayCustomize(source, FakeData.BETA_ORG_ID));
             Assert.assertTrue(admin.mayAuthor(source), "...while keeping full editing");
             Assert.assertTrue(editor.deleteTemplate(copyId), "the copy is the org's to delete");
         } finally {
             DAO.getInstance().deleteTemplate(copyId);
             DAO.getInstance().deleteTemplate(sourceId);
+        }
+    }
+
+    /**
+     * MAIL templates are customized like any other kind now (they were refused while mail resolution was by
+     * fixed id): the copy is what the org's own mail resolves to, and its NAME carries no "({org})" suffix
+     * because a MAIL template's name IS the subject line -- the suffix would ship in every subject.
+     */
+    @Test
+    public void anEmailTemplateIsCustomizedWithNoOrgSuffixInItsSubject() {
+        final TemplateCommands editor = templatesAs(EDITOR);
+        final String copyId = StarterTemplates.ORG_INVITE_ID + "-acme";
+        final ContentTemplate shared =
+                DAO.getInstance().getTemplate(StarterTemplates.ORG_INVITE_ID, Cached.NO).orElseThrow();
+        try {
+            Assert.assertTrue(editor.mayCustomize(shared, FakeData.ACME_ORG_ID), "email templates copy too");
+            Assert.assertEquals(editor.customize(StarterTemplates.ORG_INVITE_ID, FakeData.ACME_ORG_ID), copyId);
+            final ContentTemplate copy = DAO.getInstance().getTemplate(copyId, Cached.NO).orElseThrow();
+            Assert.assertEquals(copy.getName(), shared.getName(),
+                    "a MAIL template's name is its subject line: no organization suffix");
+            Assert.assertEquals(copy.getKind(), org.paulsens.trip.model.TemplateKind.MAIL);
+            Assert.assertEquals(copy.getOrgId(), FakeData.ACME_ORG_ID);
+        } finally {
+            DAO.getInstance().deleteTemplate(copyId);
         }
     }
 

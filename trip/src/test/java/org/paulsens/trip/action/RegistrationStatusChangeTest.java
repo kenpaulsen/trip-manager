@@ -72,10 +72,13 @@ public class RegistrationStatusChangeTest {
         assertTrue(rosterHas(trip, traveler), "Approval must add the traveler to the trip roster");
         Mockito.verify(audit).registrationApproved(
                 ArgumentMatchers.argThat(p -> traveler.getId().equals(p.getId())), ArgumentMatchers.any());
-        Mockito.verify(mail).sendManagedTemplate(
-                ArgumentMatchers.eq("registration-approved"), ArgumentMatchers.anyMap(),
+        // The TRIP's organization is threaded through: an org that customized its approval email sends
+        // its own wording, whichever site the approval was made from.
+        Mockito.verify(mail).sendManagedTemplateForOrg(
+                ArgumentMatchers.eq("registration-approved"), ArgumentMatchers.eq(trip.getOrgId()),
+                ArgumentMatchers.anyMap(),
                 ArgumentMatchers.eq(traveler.getEmail()), ArgumentMatchers.eq("from@example.com"),
-                ArgumentMatchers.eq("reply@example.com"), ArgumentMatchers.any());
+                ArgumentMatchers.eq("reply@example.com"), ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     @Test

@@ -42,8 +42,9 @@ public class PaymentsResourceTest extends ResourceTestSupport {
         // The confirmation mail rides Beans.get(MailCommands) inside the flow; a mock keeps SES out.
         final org.paulsens.trip.action.MailCommands mail =
                 bindMock(org.paulsens.trip.action.MailCommands.class);
-        Mockito.when(mail.sendManagedTemplate(Mockito.anyString(), Mockito.anyMap(), Mockito.anyString(),
-                Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any())).thenReturn(true);
+        Mockito.when(mail.sendManagedTemplateForOrg(Mockito.anyString(), Mockito.any(), Mockito.anyMap(),
+                Mockito.anyString(), Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(true);
         resource = resource(new PaymentsResource());
     }
 

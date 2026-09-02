@@ -5,8 +5,12 @@ import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 import lombok.Setter;
@@ -199,88 +203,268 @@ public class TemplateCommands {
     }
 
     /**
-     * Whether the manager page should offer "Copy for {org}" on a row: the request is on an organization's
-     * own site, the row is a SHARED template (another tenant's is never a source -- no cross-org sharing),
-     * it is not a MAIL template (see {@link #copyForOrg}), and the caller may author templates for the
-     * site's org (site staff included, so an admin can seed an org's copy from the org's host).
+     * The organization scope the manager page is working in: the {@code ?orgId=} it was opened with (the
+     * org hub's Templates card), else the organization whose site the request is on, else "" for the
+     * site-wide page. One place so the page never has to spell the fallback out twice.
      */
-    public boolean mayCopyForSite(final ContentTemplate stored) {
+    public String orgScope(final String orgIdParam) {
+        final String explicit = blankToNull(orgIdParam);
+        if (explicit != null) {
+            return explicit;
+        }
         final SiteContext site = SiteContext.current();
-        return stored != null && site.isOrg() && !stored.isOrgOwned()
-                && stored.getKind() != TemplateKind.MAIL
-                && callerSource.get().has(PrivilegeCommands.CONTENT_ADMIN, site.orgId().getValue());
+        return site.isOrg() ? site.orgId().getValue() : "";
+    }
+
+    /** The scope organization's name, for the page's labels; "" when there is no org scope. */
+    public String orgScopeName(final String orgId) {
+        final String scope = blankToNull(orgId);
+        final Organization org = (scope == null) ? null : findOrg(scope);
+        return org == null ? "" : org.getName();
     }
 
     /**
-     * Clones a SHARED template into the scope of the organization whose site the request is on, so the
-     * org can customize it without touching the shared original (an org editor may not author a shared
-     * template, and must not seize it by re-scoping). The copy is {@code {id}-{slug}} at version 1, named
-     * "{name} ({org})", with the same kind, body, placeholders and container/programmatic settings, and it
-     * is authorized like any other write: {@link #mayAuthor} on the RESULT's scope.
+     * The manager's rows for one kind in one scope, ONE ROW PER USE CASE.
      *
-     * <p>MAIL templates are refused on purpose: {@code MailCommands.sendManagedTemplate} and every sender
-     * resolve an email template by its FIXED id ({@code org-invite}, {@code registration-received}, ...),
-     * so a per-org copy would never be sent -- an editor would customize it and nothing would change. Until
-     * mail resolution is per-org, email copy stays a site-staff edit of the shared row.
+     * <p>In an ORGANIZATION's scope a use case the org has customized shows the org's OWN row (badged,
+     * revertable) and the shared original is not listed beside it: two rows for one email would be a
+     * standing invitation to edit the one that is never sent. Uncustomized use cases show the shared row,
+     * read-only, offering {@link #customize}. The org's own templates that customize nothing (created by
+     * the org itself) list as themselves.
      *
-     * @return true when the copy was saved; every refusal explains itself with a growl.
+     * <p>The SITE-WIDE page (a blank scope) is for the GLOBAL templates: org-owned rows are hidden there,
+     * because a site admin editing "Registration received (Acme)" from the shared page would be editing
+     * one tenant's copy while believing they were fixing everyone's.
      */
-    public boolean copyForOrg(final String id) {
-        if (id == null || id.isBlank()) {
+    public List<ContentTemplate> getTemplatesFor(final String kind, final String orgId) {
+        final String scope = blankToNull(orgId);
+        final List<ContentTemplate> visible = getTemplates();
+        final List<ContentTemplate> scoped = (scope == null) ? sharedOnly(visible) : oneRowPerUseCase(visible, scope);
+        final TemplateKind wanted = parseKind(kind);
+        return wanted == null ? scoped : scoped.stream().filter(t -> t.getKind() == wanted).toList();
+    }
+
+    private static List<ContentTemplate> sharedOnly(final List<ContentTemplate> templates) {
+        return templates.stream().filter(template -> !template.isOrgOwned()).toList();
+    }
+
+    private List<ContentTemplate> oneRowPerUseCase(final List<ContentTemplate> visible, final String orgId) {
+        final Organization org = findOrg(orgId);
+        if (org == null) {
+            return sharedOnly(visible);
+        }
+        final Map<String, ContentTemplate> mine = new HashMap<>();
+        for (final ContentTemplate template : visible) {
+            if (orgId.equals(template.getOrgId())) {
+                mine.put(template.getId(), template);
+            }
+        }
+        final List<ContentTemplate> rows = new ArrayList<>();
+        final Set<String> customizations = new HashSet<>();
+        for (final ContentTemplate shared : sharedOnly(visible)) {
+            final ContentTemplate own = mine.get(orgCopyId(shared.getId(), org));
+            rows.add(own == null ? shared : own);
+            if (own != null) {
+                customizations.add(own.getId());
+            }
+        }
+        // An org template that customizes nothing -- one the org authored itself -- is still its own row.
+        mine.values().stream().filter(t -> !customizations.contains(t.getId())).forEach(rows::add);
+        rows.sort(Comparator.comparing(ContentTemplate::getName,
+                Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
+        return rows;
+    }
+
+    /**
+     * The template a managed id resolves to for one organization: the org's own customization when it has
+     * one, else the shared row. This is THE resolution order, and both the manager page and every mail
+     * sender go through it, so what an editor sees and what goes out can never disagree.
+     *
+     * <p>A null/blank organization (background work with no entity to take one from) answers the shared
+     * row, which is also what an org with no customization gets. Never null-safe by accident: a row under
+     * the copy's id that belongs to somebody ELSE is ignored, so no tenant can be served another's copy.
+     */
+    public ContentTemplate resolveForOrg(final String templateId, final String orgId) {
+        if (templateId == null || templateId.isBlank()) {
+            return null;
+        }
+        final ContentTemplate customization = orgCustomizationOf(templateId, orgId);
+        return customization == null ? storedTemplate(templateId) : customization;
+    }
+
+    /** The org's own copy of {@code templateId}, or null when it has none (or the row is not really its). */
+    private ContentTemplate orgCustomizationOf(final String templateId, final String orgId) {
+        final String scope = blankToNull(orgId);
+        final Organization org = (scope == null) ? null : findOrg(scope);
+        if (org == null) {
+            return null;
+        }
+        final ContentTemplate copy = storedTemplate(orgCopyId(templateId, org));
+        return (copy != null && scope.equals(copy.getOrgId())) ? copy : null;
+    }
+
+    /**
+     * The id an organization's copy of {@code templateId} takes: {@code {id}-{slug}} for a hosted org (the
+     * convention the manager has always shown), and {@code {id}-{orgUUID}} for an org with no subdomain --
+     * an org reached from its hub need not be hosted to customize the email sent on its behalf. Derived,
+     * never stored, so the copy and the sender always agree on where to look.
+     */
+    static String orgCopyId(final String templateId, final Organization org) {
+        return templateId + "-" + copySuffix(org);
+    }
+
+    private static String copySuffix(final Organization org) {
+        final String slug = org.getSlug();
+        return (slug == null || slug.isBlank()) ? org.getId().getValue() : slug;
+    }
+
+    /**
+     * The SHARED template a row customizes, or null when the row is not a customization at all (a shared
+     * row, or an org template the org authored itself). Read off the id convention rather than a stored
+     * pointer, so a hand-created row that follows the convention behaves like any other copy.
+     */
+    public ContentTemplate siteDefault(final ContentTemplate stored) {
+        if (stored == null || !stored.isOrgOwned()) {
+            return null;
+        }
+        final Organization org = findOrg(stored.getOrgId());
+        final String suffix = (org == null) ? null : "-" + copySuffix(org);
+        if (suffix == null || !stored.getId().endsWith(suffix) || stored.getId().length() <= suffix.length()) {
+            return null;
+        }
+        final ContentTemplate shared =
+                storedTemplate(stored.getId().substring(0, stored.getId().length() - suffix.length()));
+        return (shared != null && !shared.isOrgOwned()) ? shared : null;
+    }
+
+    /** Whether a row is an organization's customization of a shared use case -- the "Customized" badge. */
+    public boolean isCustomization(final ContentTemplate stored) {
+        return siteDefault(stored) != null;
+    }
+
+    /** {@link #siteDefault} by id, for the read-only "View site default" dialog. Null when there is none. */
+    public ContentTemplate siteDefaultOf(final String templateId) {
+        return (templateId == null || templateId.isBlank()) ? null : siteDefault(storedTemplate(templateId));
+    }
+
+    /**
+     * Whether the page should offer "Customize" on a row: an organization scope, a SHARED row (another
+     * tenant's is never a source -- no cross-org sharing), no copy yet, and a caller who may author
+     * templates for that org (site staff included, so an admin can seed an org's copy for them).
+     */
+    public boolean mayCustomize(final ContentTemplate stored, final String orgId) {
+        final String scope = blankToNull(orgId);
+        if (stored == null || scope == null || stored.isOrgOwned()
+                || !callerSource.get().has(PrivilegeCommands.CONTENT_ADMIN, scope)) {
             return false;
         }
-        final Caller caller = callerSource.get();
-        final SiteContext site = SiteContext.current();
-        if (!site.isOrg()) {
-            return refuseCopy("A template is copied for an organization on that organization's own site.");
+        final Organization org = findOrg(scope);
+        return org != null && storedTemplate(orgCopyId(stored.getId(), org)) == null;
+    }
+
+    /**
+     * Clones a SHARED template into an organization's scope so the org can customize it without touching
+     * the shared original (an org editor may not author a shared template, and must not seize it by
+     * re-scoping). The copy is {@link #orgCopyId} at version 1 with the same kind, body, placeholders and
+     * container/programmatic settings, and it is authorized like any other write: {@link #mayAuthor} on the
+     * RESULT's scope.
+     *
+     * <p>MAIL templates are copied too, and that is the whole point: {@link #resolveForOrg} is what every
+     * sender resolves through, so an org's copy of {@code registration-received} is the mail its
+     * registrants actually get. (Before per-org resolution existed a mail copy would have been dead copy,
+     * so this refused MAIL.)
+     *
+     * @return the copy's id, or "" when nothing was copied; every refusal explains itself with a growl.
+     */
+    public String customize(final String id, final String orgId) {
+        final String scope = blankToNull(orgId);
+        if (id == null || id.isBlank()) {
+            return "";
+        }
+        if (scope == null) {
+            return refuseCopy("A template is customized for one organization; this page has no organization.");
         }
         final ContentTemplate source = storedTemplate(id);
         if (source == null) {
             return refuseCopy("No template '" + id + "'.");
         }
         if (source.isOrgOwned()) {
-            return refuseCopy("Only a shared template can be copied for an organization.");
+            return refuseCopy("Only a shared template can be customized for an organization.");
         }
-        if (source.getKind() == TemplateKind.MAIL) {
-            return refuseCopy("Email templates are sent by their fixed id, so a copy for an organization "
-                    + "would never be used. Ask a site administrator to edit the shared email template.");
-        }
-        final Organization org = findOrg(site.orgId().getValue());
+        final Organization org = findOrg(scope);
         if (org == null) {
-            return refuseCopy("This site's organization could not be read.");
+            return refuseCopy("That organization could not be read.");
         }
-        final ContentTemplate copy = orgCopy(source, org, site.slug());
+        return saveCustomization(source, org, callerSource.get());
+    }
+
+    private String saveCustomization(final ContentTemplate source, final Organization org, final Caller caller) {
+        final ContentTemplate copy = orgCopy(source, org);
         if (!mayAuthor(caller, copy, null)) {
-            log.warn("Refusing template copy of '{}' for org {}: caller may not author it", id, org.getId());
-            return refuseCopy("You may only copy templates for an organization whose site you edit.");
+            log.warn("Refusing template copy of '{}' for org {}: caller may not author it",
+                    source.getId(), org.getId());
+            return refuseCopy("You may only customize templates for an organization whose site you edit.");
         }
         if (storedTemplate(copy.getId()) != null) {
             return refuseCopy("A copy already exists: '" + copy.getId() + "'. Edit that one instead.");
         }
         if (!saveTemplate(copy)) {
-            return false;
+            return "";
         }
-        audit(caller, copy.getId(), "Copied shared template '" + id + "' as '" + copy.getId()
+        audit(caller, copy.getId(), "Copied shared template '" + source.getId() + "' as '" + copy.getId()
                 + "' for organization '" + org.getName() + "'");
-        return true;
+        return copy.getId();
     }
 
-    /** The org-scoped clone of a shared template: a new id and name, everything else carried over. */
-    static ContentTemplate orgCopy(final ContentTemplate source, final Organization org, final String slug) {
+    /**
+     * Drops an organization's customization so the use case falls back to the shared row -- "Revert to site
+     * default". Only ever the org's OWN copy of a shared template: an org template with no site default
+     * behind it would leave the use case with nothing, so that is refused rather than silently destructive.
+     * Authorization and the still-referenced guard are {@link #deleteTemplate}'s, unchanged.
+     */
+    public boolean revertToSiteDefault(final String id, final String orgId) {
+        final String scope = blankToNull(orgId);
+        final ContentTemplate stored = (id == null || id.isBlank()) ? null : storedTemplate(id);
+        if (stored == null || scope == null || !scope.equals(stored.getOrgId())) {
+            return false;
+        }
+        if (siteDefault(stored) == null) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not reverted: '" + id
+                    + "' is this organization's own template, not a customization of a site default.", "");
+            return false;
+        }
+        return deleteTemplate(id);
+    }
+
+    /**
+     * The org-scoped clone of a shared template: a new id, everything else carried over.
+     *
+     * <p>The name gains a "({org})" suffix so a raw listing or an audit line says whose copy it is -- for
+     * every kind EXCEPT MAIL, where the template's NAME IS THE SUBJECT LINE and the suffix would ship in
+     * the subject of every email the org sends. In the org's own list the scope is the label, so nothing
+     * is lost there either way.
+     */
+    static ContentTemplate orgCopy(final ContentTemplate source, final Organization org) {
         final ContentTemplate copy = source.copy();
-        copy.setId(source.getId() + "-" + slug);
+        copy.setId(orgCopyId(source.getId(), org));
         copy.setVersion(0);
-        copy.setName(source.getName() + " (" + org.getName() + ")");
+        if (source.getKind() != TemplateKind.MAIL) {
+            copy.setName(source.getName() + " (" + org.getName() + ")");
+        }
         copy.setOrgId(org.getId().getValue());
         copy.setModified(null);
         copy.setModifiedBy(null);
         return copy;
     }
 
-    private static boolean refuseCopy(final String reason) {
+    private static String refuseCopy(final String reason) {
         // The SUMMARY carries the reason: growl details are never rendered for messages raised from Java.
         TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not copied: " + reason, "");
-        return false;
+        return "";
+    }
+
+    private static String blankToNull(final String value) {
+        return (value == null || value.isBlank()) ? null : value.trim();
     }
 
     /** Whether the caller may see a template at all: everything for site staff, own-org + shared otherwise. */
@@ -327,7 +511,7 @@ public class TemplateCommands {
                     // Site staff scope to any org; an org's editor only to an org whose site they edit.
                     .filter(org -> caller.has(PrivilegeCommands.CONTENT_ADMIN)
                             || caller.has(PrivilegeCommands.CONTENT_ADMIN, org.getId().getValue()))
-                    .sorted(java.util.Comparator.comparing(Organization::getName, String.CASE_INSENSITIVE_ORDER))
+                    .sorted(Comparator.comparing(Organization::getName, String.CASE_INSENSITIVE_ORDER))
                     .toList();
         } catch (final RuntimeException ex) {
             log.error("Unable to list organizations for the template editor", ex);
