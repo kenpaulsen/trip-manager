@@ -478,7 +478,7 @@ apart from the one `BOOLEAN`:
 | `site.favicon.url` | no icon: the page emits `href="data:,"` so the browser fetches no `/favicon.ico` | http(s) URL |
 | `site.ogImage.url` | the logo (no logo either: no preview picture) | http(s) URL |
 | `site.background.url` | no image, so the background COLOR shows | http(s) URL |
-| `site.background.color` | **follow the palette**: `var(--site-bg-default, var(--surface-ground, #333333))` — a tint of the palette's own colour | `#rgb`/`#rrggbb`, validated by `SettingDef.hexColor` |
+| `site.background.color` | **follow the palette**: `var(--site-bg-default, var(--surface-ground, #333333))` — a tint of the palette's own color | `#rgb`/`#rrggbb`, validated by `SettingDef.hexColor` |
 | `site.footer.title` | the org's name | plain text |
 | `site.footer.text` | nothing | plain text |
 | `site.contact.name`, `site.contact.phone` | left off the "Questions?" card | the card's email is the org profile's `contactEmail`; the card is hidden when all three are blank |
@@ -495,19 +495,19 @@ Three `SettingDef` markings carry the rules: `.withChoices(...)` (an ordered, im
 pages render as a menu; `hasChoices()`/`allows(value)`), `.withHttpUrl()` and `.withHexColor()`. **One judge
 for all save paths**: `ConfigCommands.rejection(config)` checks the declared type, then — for a DECLARED
 key — the choices, the URL rule (`ContentRenderer.requireHttpUrl`, the same check content placeholders
-use) and the hex-colour rule (`SettingDef.hexColor`, which is also what `BrandCommands` re-screens with
+use) and the hex-color rule (`SettingDef.hexColor`, which is also what `BrandCommands` re-screens with
 before the value reaches a `style` attribute); `ConfigCommands.save` (site page) and
 `OrgCommands.applyOverride` (org editor, so the Appearance page too) both ask it, and blank is always
 "unset". Choices are matched exactly (a palette is a stylesheet path).
 
-**The page background: the palette, a colour, or an image — one of the three.** An image covers the page, so
-a colour under one is a setting that silently does nothing (the rule chat backgrounds already follow). The
+**The page background: the palette, a color, or an image — one of the three.** An image covers the page, so
+a color under one is a setting that silently does nothing (the rule chat backgrounds already follow). The
 image wins wherever both are somehow set, the Appearance page offers the three as a mutually exclusive
 choice showing only the chosen control, and Save CLEARS the settings the choice does not use
 (`BrandCommands.forSave`), so what is stored is what shows. With neither set — an organization that has
 configured nothing at all — an org host renders
 `--site-bg:none;--site-bg-color:var(--site-bg-default, var(--surface-ground, #333333))`: **a tint of the
-palette's own colour** and no image, never the shared site's rainbow photograph, which is a picture of
+palette's own color** and no image, never the shared site's rainbow photograph, which is a picture of
 somebody else's place.
 
 The three rungs of that `var()` chain are in that order for a reason. `--surface-ground` alone tracked
@@ -527,15 +527,15 @@ already had; every other palette lands between 4.68 and 4.80, and 8% would drop 
 side runs 10.3:1 to 12.3:1 against `#EAEBEC` and is bounded instead by staying darker than `--surface-card`
 (`#293241`) so the cards keep lifting off the page.
 `OrgSubdomainPwIT.everyStockPaletteKeepsItsBackgroundReadable` holds all 16 stock combinations to 4.5:1,
-and `…anOrgSitePaintsThePalettesOwnBackgroundColour` proves two org sites on different palettes really
-compute different `body::before` colours. The literals inside the `var()`s cover a theme that declares neither
+and `…anOrgSitePaintsThePalettesOwnBackgroundColor` proves two org sites on different palettes really
+compute different `body::before` colors. The literals inside the `var()`s cover a theme that declares neither
 property. A `var()` nested in a custom property's value is substituted
 where the property is DECLARED — the `<html>` element, which carries the theme's `:root` block too — so
 `resources/css/site.css`'s own `background-color: var(--site-bg-color, transparent)` (alongside
-`background-image: var(--site-bg, url(rainbow))`) sees a plain colour, and a shared host — which sets
+`background-image: var(--site-bg, url(rainbow))`) sees a plain color, and a shared host — which sets
 neither property — computes exactly what it always did.
 
-Blank is the stored form of "follow the palette", and a colour picker can never hold a blank, so the
+Blank is the stored form of "follow the palette", and a color picker can never hold a blank, so the
 chooser has a third radio (`BrandCommands.BG_MODE_PALETTE`, the default) rather than an empty picker: that
 is how a blank round-trips through the page.
 
@@ -572,24 +572,24 @@ section whole); the org editor renders a `choices` def as a menu whose blank ite
 default)". Fixtures: Beta Corp is fully branded (`FakeData.seedBetaBranding`, incl. `G-BETAFIXTURE`),
 Acme is deliberately unbranded; `OrgSubdomainPwIT` pins both and the shared host.
 
-**Never pair a literal text colour with `var(--primary-color)`.** Two chrome elements did, and both became
+**Never pair a literal text color with `var(--primary-color)`.** Two chrome elements did, and both became
 unreadable under a pale palette (yellow, avocado, red and turquoise put DARK text on their primary): the
 sidebar Donate button and the topbar "Viewing:" chip. The Donate control is worse than a literal — it is an
 `h:outputLink` wearing `.ui-button`, and every palette's `a:link{color:var(--primary-color)}` outranks
-`.ui-button` on specificity, so the label was drawn in the button's own background colour and disappeared
-whatever palette was chosen. Both now use **`var(--primary-color-text)`**, the theme's own contrast colour
+`.ui-button` on specificity, so the label was drawn in the button's own background color and disappeared
+whatever palette was chosen. Both now use **`var(--primary-color-text)`**, the theme's own contrast color
 for that background, with a literal only as the `var()` fallback.
-`OrgSubdomainPwIT.anOrgSitesSidebarFollowsThePaletteAndStaysReadable` computes the rendered colours in a
-real browser and fails if the label's colour ever equals its background. The rest of the site still carries
-inline colour literals; sweeping them is a separate, tracked job.
+`OrgSubdomainPwIT.anOrgSitesSidebarFollowsThePaletteAndStaysReadable` computes the rendered colors in a
+real browser and fails if the label's color ever equals its background. The rest of the site still carries
+inline color literals; sweeping them is a separate, tracked job.
 
 #### The Appearance page and its live preview (2026-09-02)
 
 `admin/orgAppearance.jsf?orgId=…` ("Appearance", hub card, `canManageOrg`, "Done" back to the dashboard)
 is where an organization sets its look. Two fieldsets:
 
-- **Appearance** — the colour palette as a menu, **Dark mode** as a radio right beneath it, the logo and
-  favicon URLs, and the background chooser (Colour palette / Colour with a `p:colorPicker` / Image with a
+- **Appearance** — the color palette as a menu, **Dark mode** as a radio right beneath it, the logo and
+  favicon URLs, and the background chooser (Color palette / Color with a `p:colorPicker` / Image with a
   URL box).
 - **Site details** — every OTHER branding setting (`site.ogImage.url`, both footer settings, both contact
   settings, `site.donate.url`), as labelled text boxes, in the same preview / Save / Cancel flow. The page

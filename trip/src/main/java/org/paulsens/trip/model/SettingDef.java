@@ -62,7 +62,7 @@ public class SettingDef implements Serializable {
      */
     boolean httpUrl;
     /**
-     * Whether a non-blank value must be a CSS hex colour ({@code #rgb} / {@code #rrggbb}). Same contract as
+     * Whether a non-blank value must be a CSS hex color ({@code #rgb} / {@code #rrggbb}). Same contract as
      * {@link #httpUrl}: both save paths refuse anything else, and the reading code re-screens, because these
      * values are interpolated into a {@code style} attribute where anything else is CSS injection.
      */
@@ -112,19 +112,19 @@ public class SettingDef implements Serializable {
                 true, hexColor);
     }
 
-    /** This declaration, requiring a non-blank value to be a CSS hex colour (see {@link #hexColor}). */
+    /** This declaration, requiring a non-blank value to be a CSS hex color (see {@link #hexColor}). */
     public SettingDef withHexColor() {
         return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
                 httpUrl, true);
     }
 
     /**
-     * A CSS hex colour, normalized to lower case, or null when {@code raw} is not one.
+     * A CSS hex color, normalized to lower case, or null when {@code raw} is not one.
      *
      * <p>Deliberately narrow, and for the same reason {@code ChatAppearance} is: the value is interpolated
      * into a {@code style} attribute, so anything carrying a quote, a semicolon, a brace or {@code url(}
-     * could close the declaration and start another. Colour keywords are excluded here on purpose -- this is
-     * what a colour PICKER produces, and one shape is one thing to validate.
+     * could close the declaration and start another. Color keywords are excluded here on purpose -- this is
+     * what a color PICKER produces, and one shape is one thing to validate.
      *
      * @param raw the stored or submitted value, with or without surrounding whitespace.
      * @return the normalized {@code #rgb} / {@code #rrggbb} value, or null.
