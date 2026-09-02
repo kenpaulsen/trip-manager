@@ -51,6 +51,19 @@ public final class Sessions {
     public static final String JUST_LOGGED_IN = "justLoggedIn";
 
     /**
+     * The organization whose Appearance page this admin has unsaved preview values for, as a plain id
+     * string, and those values as a {@code HashMap<String, String>} of setting name to value. Scalars only,
+     * exactly like everything else on the session: a domain object here is a domain object in the session.
+     *
+     * <p>Written and read ONLY by {@code BrandCommands}, which applies them in place of the organization's
+     * stored branding while that one admin renders that one page (see {@code docs/org-admin.md},
+     * "Previewing unsaved appearance"). They are one person's unsaved edit, so they must never be consulted
+     * anywhere else: the org's live site, every other page, and every other visitor read the stored values.
+     */
+    public static final String APPEARANCE_PREVIEW_ORG = "appearancePreviewOrg";
+    public static final String APPEARANCE_PREVIEW = "appearancePreview";
+
+    /**
      * The stack of admin session snapshots behind "View As" ({@link #pushViewAs}/{@link #popViewAs}).
      * A list (not one map) because the View As affordance renders on user-visible pages too, so a second
      * push before the first pop is reachable; each pop unwinds exactly one level.

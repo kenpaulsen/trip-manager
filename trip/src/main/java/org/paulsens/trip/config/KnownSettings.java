@@ -54,7 +54,7 @@ public final class KnownSettings {
     // --- branding (org sites only; every def is org-ONLY, see the section note) ---
 
     /**
-     * The colour palettes the Freya theme build ships: {@code freya-{palette}-{light|dark}} theme jars and
+     * The color palettes the Freya theme build ships: {@code freya-{palette}-{light|dark}} theme jars and
      * {@code layout-{palette}-{light|dark}.css} layout sheets exist for exactly these names, which is why the
      * value is a menu and the save paths refuse anything else. Adding a palette means adding it here AND
      * to the theme build.
@@ -63,8 +63,8 @@ public final class KnownSettings {
             "avocado", "blue", "green", "orange", "purple", "red", "turquoise", "yellow");
 
     public static final SettingDef SITE_THEME_PALETTE = new SettingDef(
-            "site.theme.palette", Config.Type.STRING, "", "Colour palette",
-            "The accent colour of the organization's site (menus, buttons, links) in both light and dark "
+            "site.theme.palette", Config.Type.STRING, "", "Color palette",
+            "The accent color of the organization's site (menus, buttons, links) in both light and dark "
                     + "mode. Blank means the platform's default look.")
             .withOrgOnly().withChoices(THEME_PALETTES.toArray(String[]::new));
 
@@ -86,8 +86,21 @@ public final class KnownSettings {
 
     public static final SettingDef SITE_BACKGROUND_URL = new SettingDef(
             "site.background.url", Config.Type.STRING, "", "Page background image URL",
-            "An http(s) URL of an image shown behind the site's pages. Blank means no background image.")
+            "An http(s) URL of an image shown behind the site's pages. Blank means no background image, so "
+                    + "the background color below shows instead.")
             .withOrgOnly().withHttpUrl();
+
+    /**
+     * The one branding default that is NOT blank. An organization's site that has chosen nothing shows a
+     * plain dark background and no image -- never the shared site's photograph, which is a picture of
+     * somebody else's place. An image, when one is set, covers this: the two are offered as a choice on the
+     * Appearance page and saving one clears the other, so the value that is set is the value that shows.
+     */
+    public static final SettingDef SITE_BACKGROUND_COLOR = new SettingDef(
+            "site.background.color", Config.Type.STRING, "#333333", "Page background color",
+            "The color shown behind the site's pages when no background image is set, as a hex value such "
+                    + "as #333333. Blank restores that shipped default.")
+            .withOrgOnly().withHexColor();
 
     public static final SettingDef SITE_FOOTER_TITLE = new SettingDef(
             "site.footer.title", Config.Type.STRING, "", "Footer title",
@@ -559,12 +572,12 @@ public final class KnownSettings {
             new SettingSection("Site", null,
                     List.of(SITE_ORG_NAME, SITE_ORGSITES_BASE_DOMAIN, SITE_ANALYTICS_ID)),
             new SettingSection(BRANDING_SECTION,
-                    "The look of an ORGANIZATION's own site, set by the organization on its Settings tab. "
+                    "The look of an ORGANIZATION's own site, set by the organization on its Appearance page. "
                             + "An org site never inherits the shared site's look, and the shared site's "
                             + "own logo, footer and contacts are fixed in its pages -- so a value here on "
                             + "the site Settings page applies to nothing.",
                     List.of(SITE_THEME_PALETTE, SITE_LOGO_URL, SITE_FAVICON_URL, SITE_OG_IMAGE_URL,
-                            SITE_BACKGROUND_URL, SITE_FOOTER_TITLE, SITE_FOOTER_TEXT,
+                            SITE_BACKGROUND_URL, SITE_BACKGROUND_COLOR, SITE_FOOTER_TITLE, SITE_FOOTER_TEXT,
                             SITE_CONTACT_NAME, SITE_CONTACT_PHONE, SITE_DONATE_URL)),
             new SettingSection(EMAIL_ADDRESSES_SECTION,
                     "Every address the application sends with or to. From addresses must be on an "
@@ -677,6 +690,30 @@ public final class KnownSettings {
     /** The declaration for a key IF an organization may override it; empty for unknown or site-only keys. */
     public static Optional<SettingDef> findOrgOverridable(final String name) {
         return find(name).filter(SettingDef::isOrgOverridable);
+    }
+
+    /**
+     * The look-and-feel settings: the {@link #BRANDING_SECTION} section, whole. These are what the org
+     * Appearance page edits with purpose-built controls and what {@code BrandCommands} previews, so the
+     * section membership -- not a second hand-written list -- decides which page a setting appears on.
+     */
+    public static List<SettingDef> branding() {
+        return SECTIONS.stream().filter(section -> section.getTitle().equals(BRANDING_SECTION))
+                .flatMap(section -> section.getSettings().stream()).toList();
+    }
+
+    /** @return whether {@code name} is one of the {@link #branding()} settings. */
+    public static boolean isBranding(final String name) {
+        return branding().stream().anyMatch(def -> def.getName().equals(name));
+    }
+
+    /**
+     * The org-overridable settings the generic org Settings editor renders: everything except the branding
+     * ones, which have their own page. The two lists partition {@link #orgOverridable()} exactly, so no
+     * setting is offered twice and none goes missing.
+     */
+    public static List<SettingDef> orgOverridableNonBranding() {
+        return orgOverridable().stream().filter(def -> !isBranding(def.getName())).toList();
     }
 
     private static Map<String, SettingDef> index() {

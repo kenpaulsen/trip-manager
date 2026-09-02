@@ -48,20 +48,36 @@ public class OrgSettingsLadderTest {
         final List<String> names = KnownSettings.orgOverridable().stream().map(SettingDef::getName).toList();
         Assert.assertEquals(names, List.of("site.org.name", "site.analytics.id",
                 "site.theme.palette", "site.logo.url", "site.favicon.url", "site.ogImage.url",
-                "site.background.url", "site.footer.title", "site.footer.text",
+                "site.background.url", "site.background.color", "site.footer.title", "site.footer.text",
                 "site.contact.name", "site.contact.phone", "site.donate.url",
                 "home.photos.windowDays", "home.photos.minCount", "home.countdown.soonDays",
                 "chat.reactions.palette", "chat.background.colors", "chat.background.image", "reg.allowEdits"),
                 "in page order; a new org-overridable setting is a product decision, so update this list");
         Assert.assertTrue(KnownSettings.SITE_ANALYTICS_ID.isOrgOnly(), "the analytics id is org-explicit");
-        for (final SettingDef def : KnownSettings.sections().stream()
-                .filter(section -> section.getTitle().equals(KnownSettings.BRANDING_SECTION))
-                .findFirst().orElseThrow().getSettings()) {
+        for (final SettingDef def : KnownSettings.branding()) {
             Assert.assertTrue(def.isOrgOnly(), def.getName() + ": an org site never inherits the shared look");
-            Assert.assertEquals(def.getDefaultValue(), "", def.getName() + ": blank is the neutral default");
+            // Every branding value is blank by default (the neutral look) except the page background COLOR:
+            // a site that has chosen nothing still has to paint something, and what it paints is #333333.
+            Assert.assertEquals(def.getDefaultValue(),
+                    def == KnownSettings.SITE_BACKGROUND_COLOR ? "#333333" : "",
+                    def.getName() + ": blank is the neutral default");
             Assert.assertEquals(def.isHttpUrl(), def.getName().endsWith(".url"),
                     def.getName() + ": every *.url branding value is validated as an http(s) URL");
+            Assert.assertEquals(def.isHexColor(), def == KnownSettings.SITE_BACKGROUND_COLOR,
+                    def.getName() + ": only the background color is validated as one");
         }
+        Assert.assertEquals(KnownSettings.branding(), KnownSettings.sections().stream()
+                .filter(section -> section.getTitle().equals(KnownSettings.BRANDING_SECTION))
+                .findFirst().orElseThrow().getSettings(), "branding() IS the Branding section");
+        // The Appearance page and the generic org Settings page split the overridable settings exactly:
+        // together they are the whole list, and nothing is on both.
+        Assert.assertEquals(KnownSettings.orgOverridableNonBranding().size() + KnownSettings.branding().size(),
+                KnownSettings.orgOverridable().size(), "the two page lists partition the overridable set");
+        Assert.assertTrue(KnownSettings.orgOverridableNonBranding().stream()
+                .noneMatch(def -> KnownSettings.isBranding(def.getName())), "no setting on both pages");
+        Assert.assertTrue(KnownSettings.isBranding("site.logo.url"));
+        Assert.assertFalse(KnownSettings.isBranding("reg.allowEdits"));
+        Assert.assertFalse(KnownSettings.isBranding("no.such.setting"));
         Assert.assertFalse(KnownSettings.SITE_ORG_NAME.isOrgOnly());
         Assert.assertTrue(KnownSettings.findOrgOverridable("reg.allowEdits").isPresent());
         Assert.assertTrue(KnownSettings.findOrgOverridable("chat.mail.baseUrl").isEmpty(),

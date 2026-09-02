@@ -281,6 +281,15 @@ public class ConfigCommands {
     }
 
     /**
+     * The rows the generic org settings editor ({@code admin/orgConfig.xhtml}) renders: every org-overridable
+     * setting EXCEPT the look-and-feel ones, which {@code admin/orgAppearance.xhtml} edits with purpose-built
+     * controls. Split here rather than in the page so the two pages cannot both offer (or both skip) one.
+     */
+    public List<SettingDef> getOrgConfigDefs() {
+        return KnownSettings.orgOverridableNonBranding();
+    }
+
+    /**
      * The stored value of every declared setting, keyed by name, with an absent one as the empty string.
      *
      * <p>Empty means "unset, so the declared default applies" -- deliberately not pre-filled with the default,
@@ -489,6 +498,10 @@ public class ConfigCommands {
         }
         if (def.isHttpUrl() && ContentRenderer.requireHttpUrl(raw).isEmpty()) {
             return "'" + raw + "' is not an http(s) URL, which " + def.getLabel() + " requires.";
+        }
+        if (def.isHexColor() && SettingDef.hexColor(raw) == null) {
+            return "'" + raw + "' is not a hex color like #333333 or #fc0, which " + def.getLabel()
+                    + " requires.";
         }
         return null;
     }

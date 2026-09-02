@@ -92,7 +92,8 @@ public class BrandCommandsTest {
             Assert.assertEquals(brand.getFaviconHref(), BrandCommands.NO_FAVICON,
                     "no icon: the browser must not fetch the shared site's /favicon.ico");
             Assert.assertNull(brand.getOgImage(), "no image and no logo: no preview picture");
-            Assert.assertEquals(brand.getRootStyle(), "--site-bg:none");
+            Assert.assertEquals(brand.getRootStyle(), "--site-bg:none;--site-bg-color:#333333",
+                    "no image and no chosen color: a plain dark page, never the shared site's photograph");
             Assert.assertEquals(brand.getFooterTitle(), "Acme Inc");
             Assert.assertNull(brand.getFooterText());
             Assert.assertNull(brand.getContactName());
@@ -212,7 +213,7 @@ public class BrandCommandsTest {
             Assert.assertEquals(brand.getWordmark(), "ghost", "no row: the slug, as SiteCommands does");
             Assert.assertEquals(brand.getFooterTitle(), "ghost");
             Assert.assertEquals(brand.getFaviconHref(), BrandCommands.NO_FAVICON);
-            Assert.assertEquals(brand.getRootStyle(), "--site-bg:none");
+            Assert.assertEquals(brand.getRootStyle(), "--site-bg:none;--site-bg-color:#333333");
             Assert.assertFalse(brand.isShowContact());
             Assert.assertNull(brand.getContactEmail());
         });
@@ -237,6 +238,7 @@ public class BrandCommandsTest {
                 KnownSettings.SITE_FAVICON_URL.getName(), "javascript:alert(1)",
                 KnownSettings.SITE_OG_IMAGE_URL.getName(), "https://x.example/<img>",
                 KnownSettings.SITE_BACKGROUND_URL.getName(), "https://x.example/a b.jpg",
+                KnownSettings.SITE_BACKGROUND_COLOR.getName(), "red;background:url(//evil)",
                 KnownSettings.SITE_DONATE_URL.getName(), "ftp://x.example/",
                 KnownSettings.SITE_THEME_PALETTE.getName(), "../../etc"), null);
         onSite(ACME_SITE, () -> {
@@ -244,7 +246,8 @@ public class BrandCommandsTest {
             Assert.assertEquals(brand.getWordmark(), "Acme Inc", "a refused logo means the wordmark shows");
             Assert.assertEquals(brand.getFaviconHref(), BrandCommands.NO_FAVICON);
             Assert.assertNull(brand.getOgImage());
-            Assert.assertEquals(brand.getRootStyle(), "--site-bg:none");
+            Assert.assertEquals(brand.getRootStyle(), "--site-bg:none;--site-bg-color:#333333",
+                    "a color that is not a hex value cannot reach the style attribute");
             Assert.assertNull(brand.getDonateUrl());
             Assert.assertFalse(brand.isShowDonate());
             Assert.assertEquals(brand.getTheme(), BrandCommands.DEFAULT_THEME_LIGHT,

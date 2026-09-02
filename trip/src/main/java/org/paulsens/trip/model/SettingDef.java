@@ -2,6 +2,7 @@ package org.paulsens.trip.model;
 
 import java.io.Serializable;
 import java.util.List;
+import java.util.Locale;
 import lombok.Value;
 
 /**
@@ -60,15 +61,21 @@ public class SettingDef implements Serializable {
      * bypasses the page).
      */
     boolean httpUrl;
+    /**
+     * Whether a non-blank value must be a CSS hex colour ({@code #rgb} / {@code #rrggbb}). Same contract as
+     * {@link #httpUrl}: both save paths refuse anything else, and the reading code re-screens, because these
+     * values are interpolated into a {@code style} attribute where anything else is CSS injection.
+     */
+    boolean hexColor;
 
     public SettingDef(final String name, final Config.Type type, final String defaultValue, final String label,
             final String description) {
-        this(name, type, defaultValue, label, description, false, false, List.of(), false);
+        this(name, type, defaultValue, label, description, false, false, List.of(), false, false);
     }
 
     private SettingDef(final String name, final Config.Type type, final String defaultValue, final String label,
             final String description, final boolean orgOverridable, final boolean orgOnly,
-            final List<String> choices, final boolean httpUrl) {
+            final List<String> choices, final boolean httpUrl, final boolean hexColor) {
         this.name = name;
         this.type = type;
         this.defaultValue = defaultValue;
@@ -78,28 +85,56 @@ public class SettingDef implements Serializable {
         this.orgOnly = orgOnly;
         this.choices = List.copyOf(choices);
         this.httpUrl = httpUrl;
+        this.hexColor = hexColor;
     }
 
     /** This declaration, marked as one an organization may override on its own site. */
     public SettingDef withOrgOverride() {
-        return new SettingDef(name, type, defaultValue, label, description, true, false, choices, httpUrl);
+        return new SettingDef(name, type, defaultValue, label, description, true, false, choices, httpUrl,
+                hexColor);
     }
 
     /** This declaration, marked org-explicit: an org host never inherits the site's value (see {@link #orgOnly}). */
     public SettingDef withOrgOnly() {
-        return new SettingDef(name, type, defaultValue, label, description, true, true, choices, httpUrl);
+        return new SettingDef(name, type, defaultValue, label, description, true, true, choices, httpUrl,
+                hexColor);
     }
 
     /** This declaration, restricted to exactly these values (see {@link #choices}); blank stays "unset". */
     public SettingDef withChoices(final String... allowed) {
         return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly,
-                List.of(allowed), httpUrl);
+                List.of(allowed), httpUrl, hexColor);
     }
 
     /** This declaration, requiring a non-blank value to be an {@code http(s)} URL (see {@link #httpUrl}). */
     public SettingDef withHttpUrl() {
         return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
-                true);
+                true, hexColor);
+    }
+
+    /** This declaration, requiring a non-blank value to be a CSS hex colour (see {@link #hexColor}). */
+    public SettingDef withHexColor() {
+        return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
+                httpUrl, true);
+    }
+
+    /**
+     * A CSS hex colour, normalized to lower case, or null when {@code raw} is not one.
+     *
+     * <p>Deliberately narrow, and for the same reason {@code ChatAppearance} is: the value is interpolated
+     * into a {@code style} attribute, so anything carrying a quote, a semicolon, a brace or {@code url(}
+     * could close the declaration and start another. Colour keywords are excluded here on purpose -- this is
+     * what a colour PICKER produces, and one shape is one thing to validate.
+     *
+     * @param raw the stored or submitted value, with or without surrounding whitespace.
+     * @return the normalized {@code #rgb} / {@code #rrggbb} value, or null.
+     */
+    public static String hexColor(final String raw) {
+        if (raw == null) {
+            return null;
+        }
+        final String value = raw.trim().toLowerCase(Locale.ROOT);
+        return value.matches("#([0-9a-f]{3}|[0-9a-f]{6})") ? value : null;
     }
 
     /** @return whether the settings pages render this as a menu over {@link #getChoices()} instead of a text box. */

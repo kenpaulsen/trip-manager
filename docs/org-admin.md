@@ -417,12 +417,15 @@ no host and must name the organization explicitly — `ConfigCommands.getString(
 `OrgCommands.effectiveSetting(def, orgId)` — deriving it from the entity in hand (trip → org), never from
 a session. `ConfigCommands.siteString(def)` is the site rung alone, whatever host the request is on.
 
-The editor: `admin/orgConfig.jsf?orgId=…` (the hub's "Settings" card; `canManageOrg`) lists every
-org-overridable setting with the site's value as its placeholder ("Inherit (…)" for booleans), blank =
-inherit. `OrgCommands.saveOrgSettings(orgId, map)` refuses non-overridable keys and values that do not
+The editor: `admin/orgConfig.jsf?orgId=…` (hub card "Settings"; `canManageOrg`) lists every org-overridable
+setting with the site's value as its placeholder ("Inherit (…)" for booleans), blank = inherit — **minus the
+look-and-feel ones**, which `admin/orgAppearance.jsf` owns (see "Branding"). The two lists are one split
+(`KnownSettings.branding()` / `.orgOverridableNonBranding()`, offered to the pages as
+`#{config.orgConfigDefs}`), so no setting can appear on both pages or on neither.
+`OrgCommands.saveOrgSettings(orgId, map)` refuses non-overridable keys and values that do not
 parse as the declared type, applies onto a `Cached.NO` read, writes only when something changed, and
 audits the change list. Rows bind by setting NAME into a viewScope map (names and scalars only), like the
-site Settings page.
+site Settings page. Both pages end with a "Done" link back to the org dashboard.
 
 **Derived base URLs.** `reg.mail.baseUrl` and `chat.mail.baseUrl` are the *shared-site* rung only. Every
 absolute link about an org — registration mail (`RegistrationCommands`), org invites (`sendOrgInvite`),
@@ -463,18 +466,32 @@ Branding section on the site Settings page can still write but nothing applies).
 | `site.logo.url` | the org's name as a text wordmark | http(s) URL |
 | `site.favicon.url` | no icon: the page emits `href="data:,"` so the browser fetches no `/favicon.ico` | http(s) URL |
 | `site.ogImage.url` | the logo (no logo either: no preview picture) | http(s) URL |
-| `site.background.url` | no page background image | http(s) URL |
+| `site.background.url` | no image, so the background COLOR shows | http(s) URL |
+| `site.background.color` | **`#333333`** — the one branding default that is not blank | `#rgb`/`#rrggbb`, validated by `SettingDef.hexColor` |
 | `site.footer.title` | the org's name | plain text |
 | `site.footer.text` | nothing | plain text |
 | `site.contact.name`, `site.contact.phone` | left off the "Questions?" card | the card's email is the org profile's `contactEmail`; the card is hidden when all three are blank |
 | `site.donate.url` | no Donate card / menu entry | http(s) URL |
 
-Two `SettingDef` markings carry the rules: `.withChoices(...)` (an ordered, immutable list the settings
-pages render as a menu; `hasChoices()`/`allows(value)`) and `.withHttpUrl()`. **One judge for both save
-paths**: `ConfigCommands.rejection(config)` checks the declared type, then — for a DECLARED key — the
-choices and the URL rule (`ContentRenderer.requireHttpUrl`, the same check content placeholders use);
-`ConfigCommands.save` (site page) and `OrgCommands.applyOverride` (org editor) both ask it, and blank is
-always "unset". Choices are matched exactly (a palette is a stylesheet path).
+Three `SettingDef` markings carry the rules: `.withChoices(...)` (an ordered, immutable list the settings
+pages render as a menu; `hasChoices()`/`allows(value)`), `.withHttpUrl()` and `.withHexColor()`. **One judge
+for all save paths**: `ConfigCommands.rejection(config)` checks the declared type, then — for a DECLARED
+key — the choices, the URL rule (`ContentRenderer.requireHttpUrl`, the same check content placeholders
+use) and the hex-colour rule (`SettingDef.hexColor`, which is also what `BrandCommands` re-screens with
+before the value reaches a `style` attribute); `ConfigCommands.save` (site page) and
+`OrgCommands.applyOverride` (org editor, so the Appearance page too) both ask it, and blank is always
+"unset". Choices are matched exactly (a palette is a stylesheet path).
+
+**The page background: an image OR a colour, never both.** An image covers the page, so a colour under one
+is a setting that silently does nothing (the rule chat backgrounds already follow). The image wins wherever
+both are somehow set, the Appearance page offers them as a mutually exclusive choice showing only the chosen
+control, and Save CLEARS the losing setting (`BrandCommands.forSave`), so what is stored is what shows. With
+neither set — an organization that has configured nothing at all — an org host renders
+`--site-bg:none;--site-bg-color:#333333`: a plain dark page and **no image**, never the shared site's
+rainbow photograph, which is a picture of somebody else's place. `resources/css/site.css` reads both
+properties off the root element (`background-color: var(--site-bg-color, transparent)` alongside
+`background-image: var(--site-bg, url(rainbow))`), so a shared host — which sets neither — computes exactly
+what it always did.
 
 The pages read everything through **`#{brand}` (`action/BrandCommands`)**, modeled on `SiteCommands`: it
 reads only the request's `SiteContext` plus the org row, never session/view scope (dark mode is the one
@@ -484,7 +501,8 @@ value — `getTheme()` = `freya-medj-l`/`-d`, `getLayoutCss()` = `layout-light`/
 null/false — and the templates branch on `#{site.orgSite}` to keep their literal chrome; the bean changes
 no byte of a shared page. On an org host: `getTheme()`/`getLayoutCss()`/`isDark()`, `getLogoUrl()` /
 `getWordmark()` (mutually exclusive), `getFaviconHref()` (`data:,` when unset), `getOgImage()`,
-`getRootStyle()` (`--site-bg:url(<url>)` or `--site-bg:none`, for the root element's `style`),
+`getRootStyle()` (`--site-bg:url(<url>)`, or `--site-bg:none;--site-bg-color:<hex>`, for the root element's
+`style`),
 `getFooterTitle()`/`getFooterText()`, `getContactName()`/`getContactPhone()`/`getContactEmail()` +
 `isShowContact()`, `getDonateUrl()` + `isShowDonate()`, `getAnalyticsId()`. An org whose row cannot be
 read gets the neutral look and its slug as the name — never a broken page. Every URL is re-screened in the
@@ -507,6 +525,50 @@ notice. The site Settings page hides org-only rows (`SettingSection.hasSiteSetti
 section whole); the org editor renders a `choices` def as a menu whose blank item is "None (platform
 default)". Fixtures: Beta Corp is fully branded (`FakeData.seedBetaBranding`, incl. `G-BETAFIXTURE`),
 Acme is deliberately unbranded; `OrgSubdomainPwIT` pins both and the shared host.
+
+#### The Appearance page and its live preview (2026-09-02)
+
+`admin/orgAppearance.jsf?orgId=…` ("Appearance", hub card, `canManageOrg`, "Done" back to the dashboard)
+is where an organization sets its look: the colour palette as a menu, the logo and favicon URLs, and the
+background chooser (Colour with a `p:colorPicker`, or Image with a URL box). It replaces the generic
+name/value rows those settings used to get on `orgConfig.jsf`, which now renders everything else.
+
+**The preview is server-rendered, per user, and scoped to that one page.** The decision behind it: *"The
+PrimeFaces theme is designed to be flexible, including per-user. It should be trivial to set the theme in
+variables specific to this user and refresh the page. Refreshing from server ensures an accurate preview.
+We do not need to show the homepage (for now), but I also do not want it to only be a client-side mock."*
+So:
+
+- Every control change posts back, stores the submitted values on that admin's own session
+  (`BrandCommands.preview` → `Sessions.APPEARANCE_PREVIEW_ORG` + `APPEARANCE_PREVIEW`, a
+  `Map<String,String>` — **scalars only, never a domain object**), and redirects to the page (a GET, so
+  no re-post). The whole document is then rendered afresh with the unsaved values applied: the PrimeFaces
+  theme, the Freya layout sheet and the page background really change. A redirect rather than an ajax
+  update because `web.xml`'s `primefaces.THEME` is `#{brand.theme}`, resolved while `h:head` renders — no
+  partial update can replace that stylesheet link.
+- `BrandCommands` consults the preview BEFORE the org's stored settings, and only then. **The trigger is
+  the view id plus the `orgId` request parameter** (`BrandCommands.appearanceViewOrgId`:
+  `FacesContext.getViewRoot().getViewId()` equals `/admin/orgAppearance.xhtml` AND the request's `orgId`
+  equals the preview's org). It is keyed that way because the theme is resolved during `h:head` render,
+  *before* any `initPage` handler has necessarily run — a request-scope flag the page sets would be too
+  late, so the preview would apply unreliably. The page carries `?orgId=` on every GET (that is what the
+  redirects go to) and re-supplies it on postbacks with one hidden field, so the parameter is always there.
+- The session is read with `getSession(false)` and **never created**: a request with no session gets the
+  stored values, like every other visitor.
+- **Cancel** clears the preview; **Save** writes through `OrgCommands.saveOrgSettings` (which re-checks
+  `canManageOrg` — the preview itself is not an authorization point, it only shows a caller their own
+  submission) and then clears it. Arriving at the page fresh — a non-postback GET with no preview for that
+  org — always seeds from the stored values (`BrandCommands.appearanceEdit`), so what is on screen is never
+  a stale copy of an earlier visit.
+- Nothing else is affected: another page, another organization, another person's session, and the org's
+  live site all read the stored values. Off the org's own host only the palette and background preview (the
+  logo, footer and contact card are `#{site.orgSite}`-gated in the shared pages), which is why the page is
+  most useful opened on the organization's own site.
+
+Guarded by `OrgAppearancePreviewTest` (background precedence, the hex rule, and each half of the trigger)
+and by `OrgSubdomainPwIT.anOrgAdminPreviewsAPaletteBeforeSavingIt`, which changes the palette on
+`acme.localhost`, proves the new theme stylesheet is in the markup with nothing saved, cancels, saves, and
+restores the fixture.
 
 ### One login across the org sites (shared cookie, 2026-09)
 
