@@ -105,4 +105,45 @@ public class ProgrammaticTypesTest {
         Assert.assertEquals(ProgrammaticTypes.placeholdersOf(retired), stored,
                 "an unregistered type falls back to what the row stored");
     }
+
+    /**
+     * The interface's own defaults, which every type registered TODAY happens to override: a new type that
+     * declares neither must still answer empty rather than null, since the content dialog asks both of a
+     * type it knows nothing else about.
+     */
+    @Test
+    public void aTypeThatDeclaresNeitherOptionalAnswerGetsEmptyOnes() {
+        final ProgrammaticContentTemplate bare = new BareType();
+        Assert.assertTrue(bare.choicesFor("anything").isEmpty(), "no choices unless a type offers some");
+        Assert.assertTrue(bare.sharedSiteOnlyProperties().isEmpty(),
+                "every property of an unopinionated type shows on an organization's own site too");
+    }
+
+    /** A type declaring only the required half of the contract. */
+    private static final class BareType implements ProgrammaticContentTemplate {
+        @Override
+        public String getTypeId() {
+            return "bare";
+        }
+
+        @Override
+        public String getDisplayName() {
+            return "Bare";
+        }
+
+        @Override
+        public String getDescription() {
+            return "A type with no choices and no shared-site-only properties.";
+        }
+
+        @Override
+        public List<Placeholder> getProperties() {
+            return List.of();
+        }
+
+        @Override
+        public String getFragmentPath() {
+            return "/WEB-INF/ptypes/bare.xhtml";
+        }
+    }
 }
