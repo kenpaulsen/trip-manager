@@ -128,9 +128,11 @@ public class RememberMeService {
             return null;
         }
         // Role comes from the pass table NOW, not from the token: privilege changes must bite immediately,
-        // and an account that became admin since issue stops being restorable at all.
+        // and an account that became admin since issue stops being restorable at all. The lookup is by
+        // email, so SelectorTokens.owns re-checks that the row it landed on is still this token's account --
+        // see that method for why an email alone cannot be trusted to name one.
         final Creds creds = DAO.getInstance().getCredsForCodeLogin(token.getEmail(), Cached.NO);
-        if (creds == null || isAdmin(creds.getPriv())) {
+        if (creds == null || isAdmin(creds.getPriv()) || !SelectorTokens.owns(token, creds)) {
             DAO.getInstance().deleteAuthToken(selector);
             expire(request, response);
             return null;

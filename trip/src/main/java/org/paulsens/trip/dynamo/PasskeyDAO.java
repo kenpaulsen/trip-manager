@@ -93,6 +93,30 @@ public class PasskeyDAO {
         }
     }
 
+    /**
+     * Re-stamps this person's keys with the address their login just moved to. The row's email is a snapshot
+     * taken at registration, and a snapshot that outlives the address it names is how a key ends up pointing
+     * at somebody else's account -- so an email change re-stamps it rather than leaving it to rot.
+     *
+     * @return how many rows were rewritten.
+     */
+    protected int updateEmailForUser(final Person.Id userId, final String newEmail) {
+        if (userId == null || newEmail == null || newEmail.isEmpty()) {
+            return 0;
+        }
+        final String lowEmail = newEmail.toLowerCase(Locale.ROOT);
+        int moved = 0;
+        for (final PasskeyCredential passkey : getPasskeysForUser(userId)) {
+            if (!lowEmail.equals(passkey.getEmail())) {
+                passkey.setEmail(lowEmail);
+                if (Boolean.TRUE.equals(savePasskey(passkey))) {
+                    moved++;
+                }
+            }
+        }
+        return moved;
+    }
+
     /** Owner-checked: the id names whose keys may be deleted, whatever the page sent. */
     protected Boolean deletePasskey(final String credentialId, final Person.Id owner) {
         final PasskeyCredential existing = getPasskey(credentialId).orElse(null);

@@ -38,6 +38,34 @@ public class PasskeyServiceTest {
         service = new PasskeyService(cache, config);
     }
 
+    /**
+     * A person of this test's own making, with a real id and an address whose {@code pass} row resolves back
+     * to that same id (local mode answers for any "user"-prefixed address). Sign-in cross-checks the two -- a
+     * key proves an id; the pass table is keyed by a mutable email -- so a test that invents an id unrelated
+     * to its address is testing a shape production never has. Owning the fixture rather than borrowing a
+     * seeded persona also keeps it independent of what the rest of the suite has done to the caches.
+     */
+    private static Person newUser(final String tag) {
+        final Person person = new Person();
+        person.setFirst(tag);
+        person.setLast("Passkey");
+        person.setEmail("user-" + tag.toLowerCase(java.util.Locale.ROOT) + "-" + System.nanoTime()
+                + "@example.org");
+        try {
+            Assert.assertTrue(DAO.getInstance().savePerson(person));
+            // savePerson writes the email index asynchronously and these flows resolve BY email; wait for the
+            // mapping rather than racing it.
+            final long deadline = System.currentTimeMillis() + 5_000;
+            while (DAO.getInstance().getPersonByEmail(person.getEmail(), Cached.NO) == null) {
+                Assert.assertTrue(System.currentTimeMillis() < deadline, "email mapping never appeared");
+                Thread.sleep(20);
+            }
+        } catch (final java.io.IOException | InterruptedException ex) {
+            throw new IllegalStateException(ex);
+        }
+        return person;
+    }
+
     private PasskeyCredential register(final WebAuthnTestFixture authenticator, final Person.Id userId,
             final String email, final String sessionKey) throws Exception {
         final String options = service.startRegistration(userId, email, HOST, false, sessionKey);
@@ -50,9 +78,11 @@ public class PasskeyServiceTest {
     @Test
     public void registerThenSignInRoundTrip() throws Exception {
         final WebAuthnTestFixture authenticator = WebAuthnTestFixture.create();
-        final Person.Id userId = Person.Id.from("user2");
+        final Person person = newUser("Round");
+        final Person.Id userId = person.getId();
 
-        final PasskeyCredential registered = register(authenticator, userId, "user2", "sess-round-trip");
+        final PasskeyCredential registered =
+                register(authenticator, userId, person.getEmail(), "sess-round-trip");
         Assert.assertNotNull(registered, "registration should verify and store the credential");
         Assert.assertEquals(registered.getRpId(), "localhost");
         Assert.assertEquals(registered.getLabel(), "Test device");
@@ -65,7 +95,8 @@ public class PasskeyServiceTest {
                         userId.getValue().getBytes(StandardCharsets.UTF_8)));
 
         Assert.assertNotNull(creds, "a valid assertion should answer the account's creds");
-        Assert.assertEquals(creds.getEmail(), "user2");
+        Assert.assertEquals(creds.getEmail(), person.getEmail());
+        Assert.assertEquals(creds.getUserId(), userId, "the key's owner, not whoever holds its address");
         // The stored row advanced its counter and lastUsed.
         final PasskeyCredential used = DAO.getInstance().getPasskey(registered.getCredentialId(),
                 Cached.NO).orElseThrow();
@@ -75,8 +106,9 @@ public class PasskeyServiceTest {
     @Test
     public void aChallengeIsSingleUse() throws Exception {
         final WebAuthnTestFixture authenticator = WebAuthnTestFixture.create();
-        final Person.Id userId = Person.Id.from("user3");
-        Assert.assertNotNull(register(authenticator, userId, "user3", "sess-single-use"));
+        final Person person = newUser("Single");
+        final Person.Id userId = person.getId();
+        Assert.assertNotNull(register(authenticator, userId, person.getEmail(), "sess-single-use"));
 
         final PasskeyService.StartedAssertion started = service.startAssertion(HOST, false);
         final String challenge = MAPPER.readTree(started.publicKeyOptionsJson())
@@ -157,8 +189,9 @@ public class PasskeyServiceTest {
     @Test
     public void aCounterRegressionIsLoggedNotLockedOut() throws Exception {
         final WebAuthnTestFixture authenticator = WebAuthnTestFixture.create();
-        final Person.Id userId = Person.Id.from("user4");
-        Assert.assertNotNull(register(authenticator, userId, "user4", "sess-counter"));
+        final Person person = newUser("Counter");
+        final Person.Id userId = person.getId();
+        Assert.assertNotNull(register(authenticator, userId, person.getEmail(), "sess-counter"));
 
         PasskeyService.StartedAssertion started = service.startAssertion(HOST, false);
         String challenge = MAPPER.readTree(started.publicKeyOptionsJson())
@@ -228,5 +261,57 @@ public class PasskeyServiceTest {
         Assert.assertEquals(stored.getTransports(), "internal");
         Assert.assertNotNull(stored.getPublicKeyCose());
         Assert.assertNotNull(stored.getCreated());
+    }
+
+    /**
+     * The bug this cross-check exists for (production, 2026-09-02). A key registered while its owner used one
+     * address kept that address on its row; the owner's login later moved to a new one, leaving the old row
+     * behind; a second account then claimed the abandoned address. Resolving the account by the address the
+     * key remembers handed an admin's passkey to the stranger who now holds it -- so the id on the row that
+     * comes back must be the id the key proved, and here it is not.
+     */
+    @Test
+    public void aKeyWhoseAddressNowBelongsToSomebodyElseIsRefused() throws Exception {
+        final WebAuthnTestFixture authenticator = WebAuthnTestFixture.create();
+        // The key's owner has no person row of their own -- so the lookup can only fall back to the address
+        // the key remembers, which resolves to a DIFFERENT account. That is the takeover, exactly.
+        final Person.Id ghost = Person.Id.from("ghost-" + System.nanoTime());
+        final String strangersAddress = newUser("Stranger").getEmail();
+        Assert.assertNotNull(register(authenticator, ghost, strangersAddress, "sess-stolen"));
+
+        final PasskeyService.StartedAssertion started = service.startAssertion(HOST, false);
+        final String challenge = MAPPER.readTree(started.publicKeyOptionsJson())
+                .path("publicKey").path("challenge").asText();
+        Assert.assertNull(service.finishAssertion(HOST, false, started.challengeToken(),
+                authenticator.assertionResponseJson(challenge, ORIGIN, HOST, 1,
+                        ghost.getValue().getBytes(StandardCharsets.UTF_8))),
+                "a key must never sign into an account it does not name, whoever holds its old address");
+    }
+
+    /**
+     * The other half of the same rule: a row whose address is merely STALE -- the owner is still the owner,
+     * they just changed their email -- keeps working, and the row heals on the way through. Failing closed
+     * here would mean an admin fixing a typo silently killed that person's passkeys.
+     */
+    @Test
+    public void aStaleAddressStillSignsInAndTheRowHeals() throws Exception {
+        final WebAuthnTestFixture authenticator = WebAuthnTestFixture.create();
+        final Person person = newUser("Stale");
+        // Registered under an address that is no longer this person's: what an email change leaves behind.
+        final String oldAddress = "old-" + System.nanoTime() + "@example.org";
+        final PasskeyCredential registered = register(authenticator, person.getId(), oldAddress, "sess-stale");
+        Assert.assertNotNull(registered);
+
+        final PasskeyService.StartedAssertion started = service.startAssertion(HOST, false);
+        final String challenge = MAPPER.readTree(started.publicKeyOptionsJson())
+                .path("publicKey").path("challenge").asText();
+        final Creds creds = service.finishAssertion(HOST, false, started.challengeToken(),
+                authenticator.assertionResponseJson(challenge, ORIGIN, HOST, 1,
+                        person.getId().getValue().getBytes(StandardCharsets.UTF_8)));
+
+        Assert.assertNotNull(creds, "the owner is still the owner; only their address moved");
+        Assert.assertEquals(creds.getUserId(), person.getId());
+        Assert.assertEquals(DAO.getInstance().getPasskey(registered.getCredentialId(), Cached.NO)
+                .orElseThrow().getEmail(), person.getEmail(), "the stale row should heal on first use");
     }
 }

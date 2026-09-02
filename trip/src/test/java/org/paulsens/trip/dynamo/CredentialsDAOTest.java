@@ -14,6 +14,9 @@ import org.paulsens.trip.security.PasswordHasher;
 import org.paulsens.trip.security.Pepper;
 import org.paulsens.trip.util.RandomData;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
+import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.DeleteItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
@@ -327,5 +330,103 @@ public class CredentialsDAOTest {
         };
         return new CredentialsDAO(stub, personDao, HASHER);
     }
+
+    /**
+     * The pass table is KEYED by email, so a plain put TAKES OVER an address that already has a login -- and
+     * the account that lands on it inherits every credential (passkey, remember-me, API token) that reaches an
+     * account through that address. Creating a login is never a legitimate overwrite, so the write is
+     * conditional; an ordinary save, which re-keys or updates a row the caller already owns, is not.
+     */
+    @Test
+    public void creatingALoginIsConditionalButSavingOneIsNot() throws Exception {
+        final List<PutItemRequest> puts = new ArrayList<>();
+        final CredentialsDAO capturing = new CredentialsDAO(capture(puts), personDao, HASHER);
+        final String email = RandomData.genAlpha(8) + "@test.com";
+        personDao.savePerson(Person.builder().first("Cond").last("Itional").email(email).build());
+
+        assertTrue(capturing.createCreds(email).isPresent());
+        assertEquals(puts.size(), 1);
+        assertTrue(puts.get(0).conditionExpression().contains("attribute_not_exists"),
+                "creating a login must not be able to take over an address that already has one");
+
+        assertTrue(capturing.saveCreds(new Creds("save@test.com", Person.Id.newInstance(), "user", "pw", null)));
+        assertNull(puts.get(1).conditionExpression(), "an ordinary save updates a row its caller already owns");
     }
 
+    /** The condition firing means the address was claimed between the caller's check and this write. */
+    @Test
+    public void creatingALoginForAClaimedAddressAnswersEmpty() throws Exception {
+        final String email = RandomData.genAlpha(8) + "@test.com";
+        personDao.savePerson(Person.builder().first("Race").last("Loser").email(email).build());
+        final Persistence claimed = new Persistence() {
+            @Override
+            public PutItemResponse putItem(final Consumer<PutItemRequest.Builder> request) {
+                throw ConditionalCheckFailedException.builder().message("already there").build();
+            }
+        };
+        assertTrue(new CredentialsDAO(claimed, personDao, HASHER).createCreds(email).isEmpty());
+    }
+
+    /**
+     * The delete half of an email change. Owner-checked against a FRESH read, and -- unlike
+     * {@link CredentialsDAO#removeCreds} -- it does not refuse admins: an admin changing their own address is
+     * exactly the case where the abandoned row must not survive to be claimed by somebody else.
+     */
+    @Test
+    public void removeCredsAfterRekeyDeletesOnlyTheOwnersOwnRow() {
+        final Person.Id owner = Person.Id.newInstance();
+        final List<String> deleted = new ArrayList<>();
+        final CredentialsDAO rekeying = new CredentialsDAO(
+                rowOwnedBy("moved@test.com", owner, "admin", deleted), personDao, HASHER);
+
+        assertFalse(rekeying.removeCredsAfterRekey("moved@test.com", Person.Id.newInstance()),
+                "a row that is no longer this person's has been claimed by someone else -- leave it");
+        assertFalse(rekeying.removeCredsAfterRekey("moved@test.com", null));
+        assertTrue(deleted.isEmpty());
+
+        assertTrue(rekeying.removeCredsAfterRekey("moved@test.com", owner),
+                "an admin's abandoned row is the one that most needs removing");
+        assertEquals(deleted, List.of("moved@test.com"));
+    }
+
+    /** Captures every put so a test can assert on the request, not just the item. */
+    private static Persistence capture(final List<PutItemRequest> sink) {
+        return new Persistence() {
+            @Override
+            public PutItemResponse putItem(final Consumer<PutItemRequest.Builder> request) {
+                final PutItemRequest.Builder builder = PutItemRequest.builder();
+                request.accept(builder);
+                sink.add(builder.build());
+                return Persistence.super.putItem(request);
+            }
+        };
+    }
+
+    /** A store holding exactly one pass row, recording the keys any delete asks for. */
+    private static Persistence rowOwnedBy(final String email, final Person.Id owner, final String priv,
+            final List<String> deleted) {
+        return new Persistence() {
+            @Override
+            public GetItemResponse getItem(final Consumer<GetItemRequest.Builder> request) {
+                final GetItemRequest.Builder builder = GetItemRequest.builder();
+                request.accept(builder);
+                if (!email.equals(builder.build().key().get("email").s())) {
+                    return GetItemResponse.builder().build();
+                }
+                return GetItemResponse.builder().item(Map.of(
+                        "email", AttributeValue.builder().s(email).build(),
+                        "userId", AttributeValue.builder().s(owner.getValue()).build(),
+                        "priv", AttributeValue.builder().s(priv).build(),
+                        "pass", AttributeValue.builder().s("hash").build())).build();
+            }
+
+            @Override
+            public DeleteItemResponse deleteItem(final Consumer<DeleteItemRequest.Builder> request) {
+                final DeleteItemRequest.Builder builder = DeleteItemRequest.builder();
+                request.accept(builder);
+                deleted.add(builder.build().key().get("email").s());
+                return Persistence.super.deleteItem(request);
+            }
+        };
+    }
+}

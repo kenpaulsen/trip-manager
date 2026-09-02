@@ -217,4 +217,36 @@ public class AuthTokenDAOTest {
         Assert.assertFalse(inTable(persistence, AuthTokenDAO.LEGACY_REMEMBER_TABLE, legacySel));
         Assert.assertFalse(inTable(persistence, AuthTokenDAO.AUTH_TOKENS_TABLE, currentSel));
     }
+
+    /**
+     * An email change re-stamps this person's live credentials instead of leaving them to be retired: they
+     * resolve their account by email and then re-check the id, so a stale address would quietly sign every
+     * remembered browser out.
+     */
+    @Test
+    public void updateEmailForUserRestampsOnlyThatPersonsTokens() {
+        final Person.Id mover = Person.Id.from("tok-mover-" + System.nanoTime());
+        final Person.Id bystander = Person.Id.from("tok-bystander-" + System.nanoTime());
+        final String moved = RandomData.genSecureToken(9);
+        final String untouched = RandomData.genSecureToken(9);
+        Assert.assertTrue(DAO.getInstance().saveAuthToken(token(moved, mover)));
+        Assert.assertTrue(DAO.getInstance().saveAuthToken(token(untouched, bystander)));
+
+        Assert.assertEquals(DAO.getInstance().updateAuthTokenEmailForUser(mover, "moved@example.org"), 1);
+        Assert.assertEquals(email(moved), "moved@example.org");
+        Assert.assertEquals(email(untouched), "who@example.org", "somebody else's token must not move");
+        Assert.assertEquals(DAO.getInstance().updateAuthTokenEmailForUser(mover, "moved@example.org"), 0,
+                "re-running the move rewrites nothing");
+    }
+
+    @Test
+    public void updateEmailForUserIgnoresMissingArguments() {
+        Assert.assertEquals(DAO.getInstance().updateAuthTokenEmailForUser(null, "a@b.org"), 0);
+        Assert.assertEquals(DAO.getInstance().updateAuthTokenEmailForUser(Person.Id.from("tok-none"), null), 0);
+        Assert.assertEquals(DAO.getInstance().updateAuthTokenEmailForUser(Person.Id.from("tok-none"), ""), 0);
+    }
+
+    private static String email(final String selector) {
+        return DAO.getInstance().getAuthToken(selector, Cached.NO).orElseThrow().getEmail();
+    }
 }

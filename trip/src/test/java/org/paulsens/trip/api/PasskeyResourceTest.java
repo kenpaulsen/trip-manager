@@ -29,6 +29,34 @@ public class PasskeyResourceTest extends ResourceTestSupport {
         resource = resource(new PasskeyResource());
     }
 
+    /**
+     * A person of this test's own making, with a real id and an address whose {@code pass} row resolves back
+     * to that same id (local mode answers for any "user"-prefixed address). Sign-in cross-checks the two -- a
+     * key proves an id; the pass table is keyed by a mutable email -- so a test that invents an id unrelated
+     * to its address is testing a shape production never has. Owning the fixture rather than borrowing a
+     * seeded persona also keeps it independent of what the rest of the suite has done to the caches.
+     */
+    private static Person newUser(final String tag) {
+        final Person person = new Person();
+        person.setFirst(tag);
+        person.setLast("Passkey");
+        person.setEmail("user-" + tag.toLowerCase(java.util.Locale.ROOT) + "-" + System.nanoTime()
+                + "@example.org");
+        try {
+            Assert.assertTrue(DAO.getInstance().savePerson(person));
+            // savePerson writes the email index asynchronously and these flows resolve BY email; wait for the
+            // mapping rather than racing it.
+            final long deadline = System.currentTimeMillis() + 5_000;
+            while (DAO.getInstance().getPersonByEmail(person.getEmail(), Cached.NO) == null) {
+                Assert.assertTrue(System.currentTimeMillis() < deadline, "email mapping never appeared");
+                Thread.sleep(20);
+            }
+        } catch (final java.io.IOException | InterruptedException ex) {
+            throw new IllegalStateException(ex);
+        }
+        return person;
+    }
+
     @Test
     public void statusReportsDisabledWithZeroKeys() {
         signedInAs(ME);
@@ -85,8 +113,11 @@ public class PasskeyResourceTest extends ResourceTestSupport {
         final org.paulsens.trip.security.PasskeyService enabled = new org.paulsens.trip.security.PasskeyService(
                 new org.paulsens.trip.cache.InMemoryCacheClient(), on);
         final PasskeyResource live = resource(new PasskeyResource(enabled));
-        signedInAs(ME);
-        session("loginEmail", "user2");
+        // A REAL seeded person: sign-in cross-checks the key's owner id against the pass row its email
+        // resolves to, so the two must agree here as they do in production.
+        final Person me = newUser("Lifecycle");
+        signedInAs(me.getId());
+        session("loginEmail", me.getEmail());
         org.mockito.Mockito.when(request.getSession()).thenReturn(session);
         org.mockito.Mockito.when(request.getSession(true)).thenReturn(session);
         org.mockito.Mockito.when(session.getId()).thenReturn("resource-test-session");
@@ -127,11 +158,13 @@ public class PasskeyResourceTest extends ResourceTestSupport {
         final Response loginFinish = live.loginFinish(Map.of(
                 "challengeToken", startBody.get("challengeToken"),
                 "credential", authenticator.assertionResponseJson(assertChallenge, "http://localhost",
-                        "localhost", 1, ME.getValue().getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+                        "localhost", 1, me.getId().getValue()
+                                .getBytes(java.nio.charset.StandardCharsets.UTF_8))));
         assertOk(loginFinish);
         @SuppressWarnings("unchecked")
         final Map<String, Object> identity = (Map<String, Object>) loginFinish.getEntity();
         Assert.assertEquals(identity.get("role"), "user");
+        Assert.assertEquals(identity.get("userId"), me.getId().getValue());
         Assert.assertEquals(identity.get("csrfHeader"), BaseResource.CSRF_HEADER);
 
         // And its owner can remove it.

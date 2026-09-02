@@ -129,6 +129,32 @@ public class AuthTokenDAO {
         return deleted;
     }
 
+    /**
+     * Re-stamps this person's live credentials with the address their login just moved to, so an email change
+     * does not quietly retire every remembered browser and API token (they resolve their account by email and
+     * then check the id -- see {@code SelectorTokens.owns}).
+     *
+     * <p>Rewrites land in {@link #AUTH_TOKENS_TABLE} because {@link #saveToken} only writes there; a legacy
+     * row is thereby migrated forward and its stale twin shadowed, exactly as an ordinary rotation would.
+     *
+     * @return how many rows were rewritten.
+     */
+    protected int updateEmailForUser(final Person.Id userId, final String newEmail) {
+        if (userId == null || newEmail == null || newEmail.isEmpty()) {
+            return 0;
+        }
+        int moved = 0;
+        for (final AuthToken token : listForUser(userId)) {
+            if (!newEmail.equals(token.getEmail())) {
+                token.setEmail(newEmail);
+                if (Boolean.TRUE.equals(saveToken(token))) {
+                    moved++;
+                }
+            }
+        }
+        return moved;
+    }
+
     /** Every live credential for one person, both tables, any kind. Same scan justification as above. */
     protected List<AuthToken> listForUser(final Person.Id userId) {
         final List<AuthToken> tokens = new ArrayList<>();

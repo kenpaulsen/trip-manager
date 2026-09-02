@@ -12,6 +12,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.security.PasswordHasher;
 import org.paulsens.trip.util.RandomData;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 
 @Slf4j
@@ -155,10 +156,19 @@ public class CredentialsDAO {
                 Creds.USER_PRIV,
                 RandomData.genSecurePassChars(24),
                 Instant.now().getEpochSecond());
-        return Optional.ofNullable(saveCreds(creds) ? creds : null);
+        // Conditional, because this table is KEYED by email and a plain put silently TAKES OVER an address
+        // that already has a login -- which is how a second account claiming a former address inherited the
+        // first account's passkeys. Creating a login is never a legitimate overwrite; the callers all check
+        // for an existing row first, and this closes the race between that check and this write.
+        return Optional.ofNullable(putCreds(creds, true) ? creds : null);
     }
 
     protected Boolean saveCreds(final Creds creds) {
+        return putCreds(creds, false);
+    }
+
+    /** Writes the row; {@code onlyIfAbsent} refuses to take over an address that already has a login. */
+    private Boolean putCreds(final Creds creds, final boolean onlyIfAbsent) {
         final Map<String, AttributeValue> map = new HashMap<>();
         map.put(EMAIL, AttributeValue.builder().s(creds.getEmail().toLowerCase(Locale.ROOT)).build());
         map.put(USER_ID, AttributeValue.builder().s(creds.getUserId().getValue()).build());
@@ -168,12 +178,36 @@ public class CredentialsDAO {
             map.put(LAST_LOGIN, AttributeValue.builder().n("" + creds.getLastLogin()).build());
         }
         try {
-            return
-                    persistence.putItem(b -> b.tableName(PASS_TABLE).item(map)).sdkHttpResponse().isSuccessful();
+            return persistence.putItem(b -> {
+                b.tableName(PASS_TABLE).item(map);
+                if (onlyIfAbsent) {
+                    b.conditionExpression("attribute_not_exists(" + EMAIL + ")");
+                }
+            }).sdkHttpResponse().isSuccessful();
+        } catch (final ConditionalCheckFailedException ex) {
+            log.warn("Refusing to create credentials for '{}': that address already has a login.",
+                    creds.getEmail());
+            return false;
         } catch (final RuntimeException ex) {
             log.error("Failed to save credentials!", ex);
             return false;
         }
+    }
+
+    /**
+     * Deletes the row a login just MOVED off, owner-checked -- the second half of an email change, since this
+     * table is keyed by email and re-keying can only write the NEW row. Deliberately distinct from
+     * {@link #removeCreds}, which is account deletion and refuses admins: an admin changing their own address
+     * is exactly the case where the abandoned row must not survive to be claimed by somebody else.
+     */
+    protected Boolean removeCredsAfterRekey(final String email, final Person.Id owner) {
+        final Creds existing = getCredsForCodeLogin(email);
+        // Re-read rather than trust the caller's copy: if something else already claimed the address, the row
+        // is not ours to remove.
+        if (existing == null || owner == null || !owner.equals(existing.getUserId())) {
+            return false;
+        }
+        return removeCredsInternal(email);
     }
 
     protected Boolean removeCreds(final String email) {

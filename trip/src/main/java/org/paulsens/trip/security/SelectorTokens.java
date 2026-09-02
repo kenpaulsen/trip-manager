@@ -2,6 +2,7 @@ package org.paulsens.trip.security;
 
 import java.util.Optional;
 import org.paulsens.trip.model.AuthToken;
+import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.util.RandomData;
 
 /**
@@ -97,6 +98,18 @@ public final class SelectorTokens {
             return Judgment.GRACE;
         }
         return Judgment.THEFT;
+    }
+
+    /**
+     * Whether the {@code pass} row reached through a token's email is still the account that token was issued
+     * to. The token records a {@link org.paulsens.trip.model.Person.Id}; the pass table is KEYED by a mutable
+     * email, so an address that has since been re-assigned resolves to somebody ELSE's account -- and a token
+     * must never restore an account it was not issued for. Callers treat a mismatch as a dead token, not as a
+     * login, which also retires rows left stale by an email change.
+     */
+    public static boolean owns(final AuthToken token, final Creds creds) {
+        return token != null && creds != null && token.getUserId() != null
+                && token.getUserId().equals(creds.getUserId());
     }
 
     /**

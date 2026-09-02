@@ -266,4 +266,30 @@ public class RememberMeServiceTest {
                 .when(response).addCookie(ArgumentMatchers.any(Cookie.class));
         return response;
     }
+
+    /**
+     * The pass table is keyed by a MUTABLE email, so the address on a token row can come to name somebody
+     * else's account -- the owner's login moved off it and a new account claimed it. A cookie must never
+     * restore an account it was not issued for, so the id is re-checked and the mismatch kills the row.
+     */
+    @Test
+    public void aCookieWhoseAddressNowNamesAnotherAccountIsRefusedAndBurned() {
+        final Creds creds = userCreds("user8");
+        final List<Cookie> issued = new ArrayList<>();
+        service.issue(requestWith((Cookie) null), responseCapturing(issued), creds);
+        final Cookie cookie = issued.get(0);
+
+        // The address this row carries now resolves to a DIFFERENT person.
+        final String selector = cookie.getValue().split(":")[0];
+        final org.paulsens.trip.model.AuthToken token =
+                DAO.getInstance().getAuthToken(selector, Cached.NO).orElseThrow();
+        token.setEmail("user9");
+        Assert.assertTrue(DAO.getInstance().saveAuthToken(token));
+        Assert.assertNotEquals(userCreds("user9").getUserId(), creds.getUserId(), "must be a real mismatch");
+
+        Assert.assertNull(service.validateAndRotate(requestWith(cookie), responseCapturing(new ArrayList<>())),
+                "a cookie must not restore whichever account happens to hold its address now");
+        Assert.assertTrue(DAO.getInstance().getAuthToken(selector, Cached.NO).isEmpty(),
+                "a token that can no longer name its own account is dead, not merely refused");
+    }
 }

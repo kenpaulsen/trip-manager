@@ -309,4 +309,21 @@ public class TokenServiceTest {
                 "a member-scoped token held by an administrator behaves as a member");
         service.revoke(capped.refreshToken());
     }
+
+    /** The refresh-token half of the same rule; see {@code SelectorTokens.owns}. */
+    @Test
+    public void aRefreshWhoseAddressNowNamesAnotherAccountIsRefusedAndRevoked() {
+        final Creds creds = login("user7", "user");
+        final TokenService.Grant grant = service.issue(creds, AuthToken.Scope.MEMBER, "reassigned");
+        Assert.assertNotNull(grant);
+
+        final AuthToken token = row(grant.refreshToken());
+        token.setEmail("user9");
+        Assert.assertTrue(DAO.getInstance().saveAuthToken(token));
+        Assert.assertNotEquals(login("user9", "user").getUserId(), creds.getUserId(), "must be a real mismatch");
+
+        Assert.assertNull(service.refresh(grant.refreshToken()),
+                "a refresh token must not mint access for whoever holds its address now");
+        Assert.assertNull(row(grant.refreshToken()), "and the whole family is revoked");
+    }
 }

@@ -420,6 +420,10 @@ public final class DAO {
     public Boolean removeCreds(final String email) {
         return credDao.removeCreds(email);
     }
+    /** Deletes the row an email change moved OFF, owner-checked -- not account deletion. */
+    public Boolean removeCredsAfterRekey(final String email, final Person.Id owner) {
+        return credDao.removeCredsAfterRekey(email, owner);
+    }
 
     // Auth tokens (remember-me cookies, API refresh/access tokens -- docs/api-tokens.md)
     public Optional<AuthToken> getAuthToken(final String selector, final Cached cached) {
@@ -433,6 +437,10 @@ public final class DAO {
     }
     public List<AuthToken> deleteAuthTokensForUser(final Person.Id userId) {
         return authTokenDao.deleteAllForUser(userId);
+    }
+    /** Re-stamps this person's remember-me and API tokens after their login email moved. */
+    public int updateAuthTokenEmailForUser(final Person.Id userId, final String newEmail) {
+        return authTokenDao.updateEmailForUser(userId, newEmail);
     }
     public List<AuthToken> listAuthTokensForUser(final Person.Id userId) {
         return authTokenDao.listForUser(userId);
@@ -454,6 +462,10 @@ public final class DAO {
     }
     public Boolean deletePasskey(final String credentialId, final Person.Id owner) {
         return passkeyDao.deletePasskey(credentialId, owner);
+    }
+    /** Re-stamps this person's passkeys after their login email moved. */
+    public int updatePasskeyEmailForUser(final Person.Id userId, final String newEmail) {
+        return passkeyDao.updateEmailForUser(userId, newEmail);
     }
 
     // Todos

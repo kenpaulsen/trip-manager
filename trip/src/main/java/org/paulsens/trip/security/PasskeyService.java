@@ -36,6 +36,7 @@ import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.PasskeyCredential;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.RandomData;
+import org.paulsens.trip.util.Util;
 import org.paulsens.trip.cache.Cached;
 
 /**
@@ -194,15 +195,47 @@ public class PasskeyService {
                 log.warn("Passkey {} signature counter went backwards ({} < {})", credentialId,
                         result.getSignatureCount(), passkey.getSignCount());
             }
+            final Creds creds = credsFor(passkey);
+            if (creds == null) {
+                return null;
+            }
             passkey.setSignCount(result.getSignatureCount());
             passkey.setLastUsed(Instant.now().getEpochSecond());
+            // Re-stamp the address so a row left stale by an older email change heals on first use.
+            passkey.setEmail(creds.getEmail());
             DAO.getInstance().savePasskey(passkey);
-            // Role and account state come from the pass table NOW; the key only proves who is holding it.
-            return DAO.getInstance().getCredsForCodeLogin(passkey.getEmail(), Cached.NO);
+            return creds;
         } catch (final Exception ex) {
             log.info("Passkey assertion failed: {}", ex.toString());
             return null;
         }
+    }
+
+    /**
+     * The credentials a verified passkey signs in as. Role and account state come from the {@code pass} table
+     * NOW -- the key only proves who is holding it -- but WHICH row is not a question an email can answer.
+     * That table is keyed by a mutable address, so resolving the one recorded at registration hands the
+     * account to whoever holds that address today: an email change leaves the old row behind, the next
+     * account created under it takes the row over, and the key follows the address to a stranger.
+     *
+     * <p>So the owner's CURRENT email does the lookup -- an admin fixing a typo must not silently kill that
+     * person's passkeys -- and the id on the row that comes back must be the id the key proved, or nobody
+     * signs in.
+     */
+    private static Creds credsFor(final PasskeyCredential passkey) {
+        final Creds creds = DAO.getInstance().getCredsForCodeLogin(currentEmail(passkey), Cached.NO);
+        if (creds == null || !passkey.getUserId().equals(creds.getUserId())) {
+            return null;
+        }
+        return creds;
+    }
+
+    /** The owner's address as it stands now, falling back to the key's copy when there is no person row. */
+    private static String currentEmail(final PasskeyCredential passkey) {
+        return DAO.getInstance().getPerson(passkey.getUserId(), Cached.NO)
+                .map(Person::getEmail)
+                .filter(email -> !Util.isBlank(email))
+                .orElseGet(passkey::getEmail);
     }
 
     /**

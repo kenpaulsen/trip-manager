@@ -66,4 +66,44 @@ public class PasskeyDAOTest {
         Assert.assertTrue(DAO.getInstance().getPasskeysForEmailAndRp(null, "x", Cached.NO).isEmpty());
         Assert.assertTrue(DAO.getInstance().getPasskeysForEmailAndRp("a@b", null, Cached.NO).isEmpty());
     }
+
+    /**
+     * A row's email is a snapshot taken at registration; an email change re-stamps every one of that person's
+     * keys, so no key is left naming an address its owner no longer holds (where a later account could claim
+     * it). Only that person's rows move, and only where the address actually differs.
+     */
+    @Test
+    public void updateEmailForUserRestampsOnlyThatPersonsKeys() {
+        final Person.Id mover = Person.Id.from("pk-mover-" + System.nanoTime());
+        final Person.Id bystander = Person.Id.from("pk-bystander-" + System.nanoTime());
+        final String movedOne = RandomData.genSecureToken(12);
+        final String movedTwo = RandomData.genSecureToken(12);
+        final String untouched = RandomData.genSecureToken(12);
+        Assert.assertTrue(DAO.getInstance().savePasskey(passkey(movedOne, mover, "old@example.org", "localhost")));
+        Assert.assertTrue(DAO.getInstance().savePasskey(
+                passkey(movedTwo, mover, "old@example.org", "other.example")));
+        Assert.assertTrue(DAO.getInstance().savePasskey(
+                passkey(untouched, bystander, "old@example.org", "localhost")));
+
+        // Mixed case in, lowercase out: the stored address is a lookup key, not display text.
+        Assert.assertEquals(DAO.getInstance().updatePasskeyEmailForUser(mover, "New@Example.org"), 2,
+                "every domain's key moves -- the address is the person's, not the domain's");
+
+        Assert.assertEquals(email(movedOne), "new@example.org");
+        Assert.assertEquals(email(movedTwo), "new@example.org");
+        Assert.assertEquals(email(untouched), "old@example.org", "somebody else's key must not move");
+        Assert.assertEquals(DAO.getInstance().updatePasskeyEmailForUser(mover, "new@example.org"), 0,
+                "re-running the move rewrites nothing");
+    }
+
+    @Test
+    public void updateEmailForUserIgnoresMissingArguments() {
+        Assert.assertEquals(DAO.getInstance().updatePasskeyEmailForUser(null, "a@b.org"), 0);
+        Assert.assertEquals(DAO.getInstance().updatePasskeyEmailForUser(Person.Id.from("pk-none"), null), 0);
+        Assert.assertEquals(DAO.getInstance().updatePasskeyEmailForUser(Person.Id.from("pk-none"), ""), 0);
+    }
+
+    private static String email(final String credentialId) {
+        return DAO.getInstance().getPasskey(credentialId, Cached.NO).orElseThrow().getEmail();
+    }
 }

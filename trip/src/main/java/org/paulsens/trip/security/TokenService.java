@@ -153,8 +153,10 @@ public class TokenService {
             burnStolen(token);
             return null;
         }
+        // By email, then re-checked against the token's own person id: a re-assigned address otherwise
+        // refreshes into a stranger's account. See SelectorTokens.owns.
         final Creds creds = DAO.getInstance().getCredsForCodeLogin(token.getEmail(), Cached.NO);
-        if (creds == null) {
+        if (creds == null || !SelectorTokens.owns(token, creds)) {
             revokeFamily(token);
             return null;
         }

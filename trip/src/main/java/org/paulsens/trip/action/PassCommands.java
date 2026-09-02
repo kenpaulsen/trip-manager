@@ -315,9 +315,28 @@ public class PassCommands {
             } else {
                 oldCreds.setEmail(newEmail);
                 result = DAO.getInstance().saveCreds(oldCreds);
+                if (Boolean.TRUE.equals(result)) {
+                    completeEmailMove(person, oldEmail, newEmail);
+                }
             }
         }
         return result;
+    }
+
+    /**
+     * Finishes what re-keying the credentials could only half-do. The {@code pass} table is KEYED by email, so
+     * moving a login writes a NEW row and leaves the old one behind, still naming this person. That orphan is
+     * not cosmetic: the next account created under the old address takes the row over, and every credential
+     * that reaches an account through an email -- passkeys, remember-me cookies, API tokens -- then follows
+     * the address to a stranger. (That is not hypothetical; it is how an admin's passkey once signed into
+     * somebody else's account.) So the abandoned row goes, and everything holding the old address is
+     * re-stamped with the new one.
+     */
+    private void completeEmailMove(final Person person, final String oldEmail, final String newEmail) {
+        final DAO dao = DAO.getInstance();
+        dao.removeCredsAfterRekey(oldEmail, person.getId());
+        dao.updatePasskeyEmailForUser(person.getId(), newEmail);
+        dao.updateAuthTokenEmailForUser(person.getId(), newEmail);
     }
 
     /**

@@ -103,4 +103,60 @@ public class PassCommandsTailsTest {
         Assert.assertNull(pass.userTypeOf(target.getEmail()));
     }
 
+    /**
+     * An email change must be a MOVE, not a copy. The pass table is keyed by email, so re-keying the login can
+     * only write the new row; left alone, the old one survives naming this person, the next account created
+     * under that address takes it over, and every credential that reaches an account through an email --
+     * passkeys, remember-me cookies, API tokens -- follows the address to a stranger. That is not
+     * hypothetical: it is how an admin's passkey signed into somebody else's account (2026-09-02).
+     *
+     * <p>The DAO is mocked for the same reason as the revert test above: the by-email creds reads go straight
+     * to the pass table, which the fake store does not serve.
+     */
+    @Test
+    public void changingAnEmailRemovesTheAbandonedRowAndRestampsEveryCredential() throws Exception {
+        final Person.Id id = Person.Id.from("mover");
+        final Person mover = new Person();
+        mover.setId(id);
+        mover.setEmail("new@example.org");
+        final org.paulsens.trip.dynamo.DAO dao = Mockito.mock(org.paulsens.trip.dynamo.DAO.class);
+        // Nobody else holds the new address; the old one is still this person's login.
+        Mockito.when(dao.adminGetCredsByEmail("new@example.org", Cached.NO)).thenReturn(null);
+        Mockito.when(dao.adminGetCredsByEmail("old@example.org", Cached.NO))
+                .thenReturn(new Creds("old@example.org", id, "pw"));
+        Mockito.when(dao.saveCreds(org.mockito.ArgumentMatchers.any())).thenReturn(true);
+        try (MockedStatic<org.paulsens.trip.dynamo.DAO> daoStatic =
+                Mockito.mockStatic(org.paulsens.trip.dynamo.DAO.class)) {
+            daoStatic.when(org.paulsens.trip.dynamo.DAO::getInstance).thenReturn(dao);
+
+            Assert.assertTrue(pass.setEmail(mover, "old@example.org", "new@example.org"));
+        }
+
+        Mockito.verify(dao).removeCredsAfterRekey("old@example.org", id);
+        Mockito.verify(dao).updatePasskeyEmailForUser(id, "new@example.org");
+        Mockito.verify(dao).updateAuthTokenEmailForUser(id, "new@example.org");
+    }
+
+    /** A refused change must leave every credential exactly where it was. */
+    @Test
+    public void aRefusedEmailChangeMovesNothing() throws Exception {
+        final Person alice = new Person();
+        alice.setId(Person.Id.from("alice"));
+        alice.setEmail("bob-owns-this@example.org");
+        final org.paulsens.trip.dynamo.DAO dao = Mockito.mock(org.paulsens.trip.dynamo.DAO.class);
+        Mockito.when(dao.adminGetCredsByEmail("bob-owns-this@example.org", Cached.NO))
+                .thenReturn(new Creds("bob-owns-this@example.org", Person.Id.from("bob"), "pw"));
+        Mockito.when(dao.savePerson(org.mockito.ArgumentMatchers.any())).thenReturn(true);
+        try (MockedStatic<org.paulsens.trip.dynamo.DAO> daoStatic =
+                Mockito.mockStatic(org.paulsens.trip.dynamo.DAO.class)) {
+            daoStatic.when(org.paulsens.trip.dynamo.DAO::getInstance).thenReturn(dao);
+
+            Assert.assertFalse(pass.setEmail(alice, "alice@example.org", "bob-owns-this@example.org"));
+        }
+
+        Mockito.verify(dao, Mockito.never()).removeCredsAfterRekey(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
+        Mockito.verify(dao, Mockito.never()).updatePasskeyEmailForUser(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+    }
 }
