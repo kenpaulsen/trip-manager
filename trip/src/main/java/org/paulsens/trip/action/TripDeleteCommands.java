@@ -29,7 +29,7 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatChannel;
 
 /**
- * The destructive "Delete Pilgrimage" feature (trip edit page): authorization, the not-deletable conditions,
+ * The destructive "Delete Trip" feature (trip edit page): authorization, the not-deletable conditions,
  * and the full cascade over every table that references a trip. There is deliberately no partial or soft
  * variant -- the page's confirm dialog (type-'delete' challenge) is the only caller.
  *
