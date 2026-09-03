@@ -35,6 +35,8 @@ public class SharedSiteOrgChoicesTest {
                     type.choicesFor(ListingScope.INCLUDE_ORGS_PROPERTY);
             Assert.assertTrue(choices.stream().anyMatch(c -> FakeData.ACME_ORG_ID.equals(c.value())), typeId);
             Assert.assertTrue(choices.stream().anyMatch(c -> FakeData.CFPW_ORG_ID.equals(c.value())), typeId);
+            Assert.assertFalse(choices.stream().anyMatch(c -> FakeData.PLATFORM_ORG_ID.equals(c.value())),
+                    "the platform's own org has nothing to share and is never offered: " + typeId);
             Assert.assertTrue(type.choicesFor("nonsense").isEmpty());
         }
     }

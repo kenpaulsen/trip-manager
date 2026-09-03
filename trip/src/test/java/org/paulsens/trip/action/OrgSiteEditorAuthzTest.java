@@ -31,6 +31,7 @@ public class OrgSiteEditorAuthzTest {
 
     private static final Person.Id EDITOR = Person.Id.from("acme-site-editor");
     private static final Person.Id ORG_ADMIN_ONLY = Person.Id.from("acme-org-admin-no-priv");
+    private static final Person.Id PLATFORM_EDITOR = Person.Id.from("platform-site-editor");
     private static final Organization.Id ACME = Organization.Id.from(FakeData.ACME_ORG_ID);
     private static final Organization.Id BETA = Organization.Id.from(FakeData.BETA_ORG_ID);
     private static final SiteContext ACME_SITE = SiteContext.org(ACME, "acme", "acme.localhost");
@@ -46,6 +47,23 @@ public class OrgSiteEditorAuthzTest {
                 FakeData.ACME_ORG_ID, List.of(EDITOR)));
         priv.savePrivilege(priv.createPrivilege(PrivilegeCommands.MEDIA_ADMIN, "acme media",
                 FakeData.ACME_ORG_ID, List.of(EDITOR)));
+        priv.savePrivilege(priv.createPrivilege(PrivilegeCommands.CONTENT_ADMIN, "platform content",
+                FakeData.PLATFORM_ORG_ID, List.of(PLATFORM_EDITOR)));
+    }
+
+    /**
+     * The marketing page is the platform organization's: its own org-scoped editor edits it (and only it),
+     * while another tenant's editor still cannot -- the page key is fixed, the ownership comes from the
+     * org that holds the www slug.
+     */
+    @Test
+    public void thePlatformOrgsEditorEditsTheMarketingPage() {
+        final ContentCommands editor = contentAs(PLATFORM_EDITOR);
+        Assert.assertTrue(editor.canEdit(OrgPageBootstrap.MARKETING_PAGE_KEY, PLATFORM_EDITOR));
+        Assert.assertTrue(editor.canEditPage(OrgPageBootstrap.MARKETING_PAGE_KEY, PLATFORM_EDITOR));
+        Assert.assertFalse(editor.canEdit(FakeData.PAGE_KEY, PLATFORM_EDITOR), "never the shared page");
+        Assert.assertFalse(editor.canEdit(OrgPageBootstrap.pageKey(ACME), PLATFORM_EDITOR), "never a tenant's");
+        Assert.assertFalse(contentAs(EDITOR).canEdit(OrgPageBootstrap.MARKETING_PAGE_KEY, EDITOR));
     }
 
     private static ContentCommands contentAs(final Person.Id who) {

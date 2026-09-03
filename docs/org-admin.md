@@ -337,6 +337,17 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   now (not `defaultAuth`), like `media.xhtml`. Sessions holding an audit page were invalidated once by
   the field (the recovery filter handles it); `AuditEvent`/`AuditPage`/`AuditQuery` now pin
   `serialVersionUID` so later fields will not.
+- **The platform organization (2026-09-02).** The product's own site (`unitetrip.com` and
+  `www.unitetrip.com`) is the site of whichever organization holds the slug `www`
+  (`Organization.PLATFORM_SLUG`; `www` is no longer reserved, uniqueness keeps a second claim out; a site
+  admin creates the org through the Organizations page like any other and assigns the slug). `SiteIndex`
+  resolves the apex and www to that org, so its Appearance settings, `contentAdmin@org` editors, media
+  library, dashboard and audit trail are the ordinary org machinery; `SiteContext.isMarketing()` stays
+  true there (`isPlatformOrg()`) for the marketing-only rules: no auto-join on signup, no Trips/Help
+  menus, the mark links home, full-width layout always, and the page key stays the fixed
+  `page:unitetrip-home` (seeded by `bootstrap-marketing-page.sh`, independent of the org row; the org's
+  slug assignment seeds no starter rows). The platform org is never offered in shared-site curation.
+  Before any org holds `www`, those hosts fall back to the placeholder MARKETING site.
 - **Media is site-scoped by `MediaItem.orgId`**, for discovery AND for writes: the admin library
   (`admin/media.xhtml`), the document picker and the Documents slot show an org's items only on its own site
   and the site's items only on shared sites, and a row can be changed only from the site where it shows;

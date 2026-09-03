@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Set;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.site.SiteContext;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -18,6 +19,18 @@ public class OrgPageBootstrapTest {
         final String key = OrgPageBootstrap.pageKey(ORG);
         Assert.assertEquals(key, "page:org:" + ORG.getValue() + ":home");
         Assert.assertEquals(OrgPageBootstrap.orgOf(key), ORG);
+    }
+
+    @Test
+    public void thePlatformOrgsSiteIsTheMarketingPage() {
+        final SiteContext platform = SiteContext.org(Organization.Id.from("p-1"), Organization.PLATFORM_SLUG,
+                "www.unitetrip.com");
+        Assert.assertTrue(platform.isMarketing() && platform.isOrg() && platform.isPlatformOrg());
+        Assert.assertEquals(OrgPageBootstrap.pageKeyOf(platform), OrgPageBootstrap.MARKETING_PAGE_KEY,
+                "the org row behind www does not move the page: the script seeds it under the fixed key");
+        Assert.assertEquals(OrgPageBootstrap.pageKeyOf(SiteContext.org(Organization.Id.from("o-1"), "acme",
+                "acme.unitetrip.com")), OrgPageBootstrap.pageKey(Organization.Id.from("o-1")));
+        Assert.assertFalse(SiteContext.org(Organization.Id.from("o-1"), "acme", "acme.unitetrip.com").isMarketing());
     }
 
     @Test

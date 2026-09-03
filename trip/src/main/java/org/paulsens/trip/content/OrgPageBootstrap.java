@@ -51,10 +51,12 @@ public final class OrgPageBootstrap {
      * mapping {@code SiteCommands.getPageKey} and {@code ListingScope}'s curation read both use.
      */
     public static String pageKeyOf(final SiteContext site) {
-        if (site.isOrg()) {
-            return pageKey(site.orgId());
+        // The marketing key first: the platform organization's site is an org site too, but its page is
+        // the script-seeded marketing page, keyed independently of whichever org row holds the slug.
+        if (site.isMarketing()) {
+            return MARKETING_PAGE_KEY;
         }
-        return site.isMarketing() ? MARKETING_PAGE_KEY : V2PageBootstrap.PAGE_KEY;
+        return site.isOrg() ? pageKey(site.orgId()) : V2PageBootstrap.PAGE_KEY;
     }
 
     /** The org an org-page key names, or null for any other key (shared page, marketing page, containers). */

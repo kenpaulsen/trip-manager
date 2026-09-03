@@ -97,10 +97,10 @@ public final class SiteIndex {
         }
         if (host.equals(base)) {
             // The local base stays SHARED: plain localhost must keep rendering the classic site.
-            return localBase ? SiteContext.shared(host) : SiteContext.marketing(host);
+            return localBase ? SiteContext.shared(host) : platformOrMarketing(host, snap);
         }
         if (host.equals("www." + base)) {
-            return SiteContext.marketing(host);
+            return platformOrMarketing(host, snap);
         }
         if (!host.endsWith("." + base)) {
             return null;
@@ -108,6 +108,17 @@ public final class SiteIndex {
         final String label = host.substring(0, host.length() - base.length() - 1);
         final Organization.Id orgId = label.indexOf('.') < 0 ? snap.slugs().get(label) : null;
         return orgId == null ? SiteContext.unknown(host) : SiteContext.org(orgId, label, host);
+    }
+
+    /**
+     * The product's own hosts: the platform organization's site once a site admin has given an org the
+     * {@code www} slug (its settings, editors and trail are then a plain org's), else the placeholder
+     * MARKETING site.
+     */
+    private static SiteContext platformOrMarketing(final String host, final Snapshot snap) {
+        final Organization.Id platform = snap.slugs().get(Organization.PLATFORM_SLUG);
+        return platform == null ? SiteContext.marketing(host)
+                : SiteContext.org(platform, Organization.PLATFORM_SLUG, host);
     }
 
     private static String normalize(final String rawHost) {

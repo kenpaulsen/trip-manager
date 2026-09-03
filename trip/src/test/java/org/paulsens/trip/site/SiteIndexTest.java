@@ -35,6 +35,22 @@ public class SiteIndexTest {
     }
 
     @Test
+    public void thePlatformOrgOwnsTheApexAndWww() {
+        final Organization platform = orgWithSlug("UniteTrip", Organization.PLATFORM_SLUG);
+        final SiteIndex index = index(List.of(platform, orgWithSlug("Acme", "acme")));
+        for (final String host : List.of("unitetrip.com", "www.unitetrip.com", "www.localhost")) {
+            final SiteContext site = index.resolve(host);
+            Assert.assertTrue(site.isOrg(), host + " is the platform org's site");
+            Assert.assertTrue(site.isMarketing(), host + " is still the marketing site");
+            Assert.assertTrue(site.isPlatformOrg(), host);
+            Assert.assertEquals(site.slug(), Organization.PLATFORM_SLUG, host);
+            Assert.assertEquals(site.orgId(), platform.getId(), host);
+        }
+        Assert.assertTrue(index.resolve("localhost").isShared(), "plain localhost stays the classic site");
+        Assert.assertFalse(index.resolve("acme.unitetrip.com").isMarketing());
+    }
+
+    @Test
     public void aKnownSlugResolvesToItsOrganization() {
         final Organization acme = orgWithSlug("Acme", "acme");
         final SiteContext site = index(List.of(acme, orgWithSlug("Other", "other"))).resolve("acme.unitetrip.com");

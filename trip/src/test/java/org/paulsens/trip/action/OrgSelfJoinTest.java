@@ -8,6 +8,7 @@ import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.site.SiteContext;
@@ -55,6 +56,9 @@ public class OrgSelfJoinTest {
                 () -> commandsFor(newcomer).joinSiteOrgOnSignup()));
         assertFalse(onSite(SiteContext.marketing("unitetrip.com"),
                 () -> commandsFor(newcomer).joinSiteOrgOnSignup()));
+        // The platform org's site is an org site, but a prospect who signs up there joins nothing.
+        assertFalse(onSite(SiteContext.org(Organization.Id.from(FakeData.PLATFORM_ORG_ID),
+                Organization.PLATFORM_SLUG, "www.unitetrip.com"), () -> commandsFor(newcomer).joinSiteOrgOnSignup()));
         assertFalse(commandsFor(newcomer).joinSiteOrgOnSignup(), "off a bound request: the SHARED default");
         assertTrue(reload(newcomer).getOrgIds().isEmpty());
     }

@@ -31,6 +31,7 @@ final class SharedSiteOrgChoices {
     /** Every organization, name-sorted, opted-out ones labelled. */
     static List<ProgrammaticContentTemplate.Choice> choices() {
         return DAO.getInstance().getOrganizations(Cached.YES).stream()
+                .filter(org -> !org.isPlatform())   // the product's own org has no trips or albums to share
                 .sorted(Comparator.comparing(Organization::getName, String.CASE_INSENSITIVE_ORDER))
                 .map(SharedSiteOrgChoices::choice)
                 .toList();

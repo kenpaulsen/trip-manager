@@ -24,7 +24,8 @@ public record SiteContext(Mode mode, Organization.Id orgId, String slug, String 
         SHARED,
         /** One organization's own site ({slug}.unitetrip.com). */
         ORG,
-        /** The product's marketing host (the org-site base domain's apex and www). */
+        /** The product's marketing host (the org-site base domain's apex and www) while NO organization
+         *  holds the platform slug; once one does, those hosts resolve to that org's site instead. */
         MARKETING,
         /** A host under the org-site base domain that matches no organization. */
         UNKNOWN
@@ -86,8 +87,18 @@ public record SiteContext(Mode mode, Organization.Id orgId, String slug, String 
         return mode == Mode.ORG;
     }
 
+    /**
+     * Whether this is the product's own site: the base domain's apex/www before any organization holds the
+     * platform slug (a placeholder page), or the platform organization's site once one does -- which is
+     * ALSO an org site ({@link #isOrg()}), so its look, content editors and audit trail are that org's.
+     */
     public boolean isMarketing() {
-        return mode == Mode.MARKETING;
+        return mode == Mode.MARKETING || isPlatformOrg();
+    }
+
+    /** Whether this is the platform organization's own site ({@link Organization#PLATFORM_SLUG}). */
+    public boolean isPlatformOrg() {
+        return mode == Mode.ORG && Organization.PLATFORM_SLUG.equals(slug);
     }
 
     public boolean isShared() {

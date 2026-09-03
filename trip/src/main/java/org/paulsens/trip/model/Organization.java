@@ -83,6 +83,14 @@ public final class Organization implements Serializable {
     private String slug;
 
     /**
+     * The subdomain label of the PLATFORM's own organization -- the one whose site is
+     * {@code www.{base}} and the base domain's apex (the product's marketing site). Exactly one org may
+     * hold it (slugs are unique), a site admin assigns it, and {@code SiteContext.isMarketing()} is true
+     * on its site so the few marketing-only rules (no auto-join, no trip menus) still apply.
+     */
+    public static final String PLATFORM_SLUG = "www";
+
+    /**
      * When the org's default home page was seeded (see {@code OrgPageBootstrap}); null until the org first
      * gets a subdomain. Recorded on the org row rather than inferred from the page's content so that seeding
      * happens exactly ONCE: an org that later deletes every section has an empty page by choice, and must
@@ -170,6 +178,12 @@ public final class Organization implements Serializable {
     @JsonIgnore
     public boolean isAdmin(final Person.Id personId) {
         return personId != null && adminIds.contains(personId);
+    }
+
+    /** True for the platform's own organization ({@link #PLATFORM_SLUG}). */
+    @JsonIgnore
+    public boolean isPlatform() {
+        return PLATFORM_SLUG.equals(slug);
     }
 
     /** Whether shared sites may show this org's content -- see {@link #allowSharedSites}; null reads as allow. */

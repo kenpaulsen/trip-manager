@@ -551,11 +551,19 @@ public class ContentCommands {
      * row (one point read, shared with the editor-privilege lookup) names the page.
      */
     static Organization.Id orgOf(final String section, final ContentInstance container) {
-        final Organization.Id direct = OrgPageBootstrap.orgOf(section);
+        final Organization.Id direct = orgOfKey(section);
         if (direct != null) {
             return direct;
         }
-        return container == null ? null : OrgPageBootstrap.orgOf(container.getSection());
+        return container == null ? null : orgOfKey(container.getSection());
+    }
+
+    /** An org page key's org; the marketing page's is the platform organization (when one exists). */
+    private static Organization.Id orgOfKey(final String pageKey) {
+        if (OrgPageBootstrap.MARKETING_PAGE_KEY.equals(pageKey)) {
+            return OrgCommands.platformOrgId();
+        }
+        return OrgPageBootstrap.orgOf(pageKey);
     }
 
     /** The container instance a section key names (its children's section), or null for a page key. */

@@ -198,6 +198,8 @@ public final class FakeData {
      * curated in.
      */
     public static final String BETA_ORG_ID = "b2e5d7a1-4c39-4f8e-9a60-2d7c1e8f5b34";
+    /** The platform's own organization (slug {@code www}): www.localhost is its site, the marketing page. */
+    public static final String PLATFORM_ORG_ID = "c4f1e8d2-7a35-4b9c-8e21-5d6f0a3b7c19";
 
     /**
      * Seeds the two demo organizations through the REAL {@code OrgCommands} membership path (so the
@@ -218,6 +220,7 @@ public final class FakeData {
         seedOrg(CFPW_ORG_ID, "CFPW", "CFPW", null, admin.getId());
         seedOrg(ACME_ORG_ID, "Acme Inc", "Acme", "acme", admin.getId());
         seedOrg(BETA_ORG_ID, "Beta Corp", "Beta", "beta", admin.getId());
+        seedOrg(PLATFORM_ORG_ID, "UniteTrip", "UniteTrip", Organization.PLATFORM_SLUG, admin.getId());
         final org.paulsens.trip.action.OrgCommands commands = new org.paulsens.trip.action.OrgCommands(
                 () -> new org.paulsens.trip.action.Caller(admin.getId(), true,
                         org.paulsens.trip.audit.AuditActor.system(),
@@ -238,6 +241,7 @@ public final class FakeData {
         seedFakeProcessor(ACME_PROCESSOR_ID, ACME_ORG_ID, "Acme Test Processor", kevin.getId());
         seedCfpwPaymentDefaults();
         seedBetaBranding();
+        seedPlatformBranding();
         seedOrgScopedPrivileges(commands, kevin);
         seedOrgSiteEditor(commands);
         // Each org SITE gets its default home page through the same once-only seeding a slug assignment
@@ -347,6 +351,20 @@ public final class FakeData {
             }
         } catch (final IOException ex) {
             throw new IllegalStateException("Fake org seed: could not save CFPW payment defaults", ex);
+        }
+    }
+
+    /** The platform org's footer line; everything else stays the neutral default (full width is host-driven). */
+    private static void seedPlatformBranding() {
+        try {
+            final Organization platform = DAO.getInstance()
+                    .getOrganization(Organization.Id.from(PLATFORM_ORG_ID), Cached.NO).orElseThrow();
+            platform.getSettingsOverrides().put("site.footer.text", "Trip sites for organizations");
+            if (!DAO.getInstance().saveOrganization(platform)) {
+                throw new IllegalStateException("Fake org seed: could not save the platform org's branding");
+            }
+        } catch (final IOException ex) {
+            throw new IllegalStateException("Fake org seed: could not save the platform org's branding", ex);
         }
     }
 

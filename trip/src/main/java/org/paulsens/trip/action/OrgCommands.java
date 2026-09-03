@@ -611,7 +611,9 @@ public class OrgCommands {
     public boolean joinSiteOrgOnSignup() {
         final SiteContext site = SiteContext.current();
         final Caller current = caller();
-        if (!site.isOrg() || !current.isAuthenticated()) {
+        // The platform's own site is an org site, but an account created there is a PROSPECT's, not a
+        // member of the organization that runs the product.
+        if (!site.isOrg() || site.isPlatformOrg() || !current.isAuthenticated()) {
             return false;
         }
         return selfJoin(site.orgId().getValue(), current.personId(), "signed up on the organization's site");
@@ -1435,6 +1437,12 @@ public class OrgCommands {
     }
 
     private boolean seedHomePage(final Organization org) {
+        if (org.isPlatform()) {
+            // The platform org's page is the marketing page, seeded by bootstrap-marketing-page.sh under
+            // its own key: starter rows here would land on that page beside them.
+            org.setHomePageSeededAt(LocalDateTime.now());
+            return saveOrgOrWarn(org);
+        }
         final String pageKey = OrgPageBootstrap.pageKey(org.getId());
         try {
             // A page someone already authored by hand is theirs: seeding only ever fills an EMPTY page.
@@ -1476,12 +1484,32 @@ public class OrgCommands {
      * The subdomain labels no org may claim: platform names (present and plausible future), mail
      * plumbing, and anything an attacker could pass off as the product itself. Checked at ASSIGNMENT --
      * retrofitting a reservation would evict a live tenant, so err on the side of reserving now.
+     * {@code www} is deliberately NOT here: it names the platform's own organization
+     * ({@link Organization#PLATFORM_SLUG}), assigned once by a site admin like any slug; uniqueness
+     * keeps a second claim out.
      */
     static final java.util.Set<String> RESERVED_SLUGS = java.util.Set.of(
-            "www", "mail", "smtp", "imap", "pop", "bounce", "mx", "ns1", "ns2", "api", "app", "admin",
+            "mail", "smtp", "imap", "pop", "bounce", "mx", "ns1", "ns2", "api", "app", "admin",
             "static", "cdn", "assets", "files", "my", "status", "support", "help", "blog", "docs", "dev",
             "test", "staging", "demo", "login", "auth", "sso", "account", "accounts", "secure", "billing",
             "pay", "payments", "unitetrip", "autodiscover", "autoconfig", "mta-sts", "unsubscribe");
+
+    /**
+     * The platform organization's id (the org holding {@link Organization#PLATFORM_SLUG}), or null while
+     * none does. A cached read: it sits on the marketing page's edit gate.
+     */
+    static Organization.Id platformOrgId() {
+        try {
+            return DAO.getInstance().getOrganizations(Cached.YES).stream()
+                    .filter(Organization::isPlatform)
+                    .map(Organization::getId)
+                    .findFirst()
+                    .orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to read the organizations looking for the platform org", ex);
+            return null;
+        }
+    }
 
     /** Lowercase DNS-label grammar: no leading/trailing hyphen, 63 chars max. */
     private static final java.util.regex.Pattern SLUG_SHAPE =

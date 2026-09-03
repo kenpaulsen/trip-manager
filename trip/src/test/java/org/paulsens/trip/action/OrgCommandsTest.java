@@ -441,7 +441,7 @@ public class OrgCommandsTest {
         assertFalse(admin().saveOrgEdits(id, org.getName(), null, null, null, null, "bad-"));
         assertFalse(admin().saveOrgEdits(id, org.getName(), null, null, null, null, "has.dots"));
         assertFalse(admin().saveOrgEdits(id, org.getName(), null, null, null, null, "x".repeat(64)));
-        assertFalse(admin().saveOrgEdits(id, org.getName(), null, null, null, null, "www"),
+        assertFalse(admin().saveOrgEdits(id, org.getName(), null, null, null, null, "api"),
                 "reserved platform labels are never grantable");
         assertNull(dao.getOrganization(org.getId(), Cached.NO).orElseThrow().getSlug(),
                 "a refused slug save must save NOTHING");
@@ -1746,5 +1746,23 @@ public class OrgCommandsTest {
         assertEquals(values.getValue().get("siteHost"), slug + ".unitetrip.com");
         assertEquals(values.getValue().get("siteName"), org.getName());
         assertEquals(values.getValue().get("orgName"), org.getName());
+    }
+
+    /**
+     * {@code www} names the platform's own organization: NOT reserved (a site admin assigns it once, and
+     * FakeData's platform org already holds it), and uniqueness keeps every other org from claiming it.
+     */
+    @Test
+    public void theWwwSlugNamesThePlatformOrganizationOnce() throws IOException {
+        assertFalse(OrgCommands.RESERVED_SLUGS.contains(Organization.PLATFORM_SLUG), "assignable, not reserved");
+        final Organization platform = dao.getOrganization(
+                Organization.Id.from(org.paulsens.trip.dynamo.FakeData.PLATFORM_ORG_ID), Cached.NO).orElseThrow();
+        assertTrue(platform.isPlatform());
+        final Organization other = orgWithAdmin(savedPerson());
+        assertFalse(admin().saveOrgEdits(other.getId().getValue(), other.getName(), null, null, null, null,
+                Organization.PLATFORM_SLUG), "a second claim is refused: slugs are unique");
+        assertFalse(dao.getOrganization(other.getId(), Cached.NO).orElseThrow().isPlatform());
+        assertTrue(dao.getOrganization(platform.getId(), Cached.NO).orElseThrow().isPlatform(),
+                "and the platform org keeps it");
     }
 }

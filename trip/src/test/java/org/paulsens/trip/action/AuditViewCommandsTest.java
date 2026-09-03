@@ -117,7 +117,9 @@ public class AuditViewCommandsTest {
         Assert.assertTrue(shared.admits(FakeData.CFPW_ORG_ID), "the sharing tenant (no site of its own)");
         Assert.assertFalse(shared.admits(FakeData.ACME_ORG_ID), "a hosted org's records stay off the shared host");
         Assert.assertFalse(shared.admits(FakeData.BETA_ORG_ID));
-        Assert.assertEquals(AuditViewCommands.hostedOrgIds(), Set.of(FakeData.ACME_ORG_ID, FakeData.BETA_ORG_ID));
+        Assert.assertEquals(AuditViewCommands.hostedOrgIds(),
+                Set.of(FakeData.ACME_ORG_ID, FakeData.BETA_ORG_ID, FakeData.PLATFORM_ORG_ID),
+                "every org with a site of its own, the platform's included");
 
         // An unreadable org list must narrow the shared view, never widen it.
         final Set<String> unreadable = AuditViewCommands.hostedOrgIds(() -> {
