@@ -23,8 +23,9 @@ public final class Placeholder implements Serializable {
     /**
      * The value's kind, which decides both the editing widget and the rendering rule:
      * {@link #TEXT} is HTML-escaped, {@link #RICH_TEXT} renders verbatim (WYSIWYG-authored),
-     * {@link #IMAGE_URL}/{@link #URL} must parse as http(s) and are attribute-escaped, and
-     * {@link #VIDEO_URL} additionally normalizes YouTube links to their embed form.
+     * {@link #IMAGE_URL} must parse as http(s) and is attribute-escaped, {@link #URL} (a link target)
+     * additionally admits a site-relative path ({@code /trip/...}, never {@code //host}) or a page
+     * fragment ({@code #benefits}), and {@link #VIDEO_URL} normalizes YouTube links to their embed form.
      * {@link #CHOICE} is a fixed pick-one prompt whose options come from a programmatic type's
      * {@code choicesFor} provider (escaped like TEXT when rendered); it is meaningless on hand-authored
      * templates and excluded from the template editor's type menu. {@link #MULTI_CHOICE} is its pick-many

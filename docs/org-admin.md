@@ -445,7 +445,7 @@ Which settings: those `KnownSettings` marks with `.withOrgOverride()` — `site.
 `chat.background.colors`, `chat.background.image`, `chat.reactions.palette` — plus `site.analytics.id`,
 which is **org-explicit** (`.withOrgOnly()`): an org host resolves it from the org's override or the
 compiled default (blank) and *never* from the site's row, so the shared site's analytics property can never
-collect an org site's traffic — and the ten org-only **Branding** defs (`site.theme.palette`,
+collect an org site's traffic — and the thirteen org-only **Branding** defs (`site.theme.palette`,
 `site.logo.url`, …; see "Branding" below). `KnownSettings.orgOverridable()` is the authoritative list;
 marking a new setting is a product decision (`OrgSettingsLadderTest` pins the set).
 
@@ -506,6 +506,7 @@ apart from the one `BOOLEAN`:
 |---------|-------------|-------|
 | `site.theme.palette` | the platform's default look (`freya-medj-l/d`, `layout-light/dark`) | a MENU: `avocado, blue, green, orange, purple, red, turquoise, yellow` (`THEME_PALETTES`); the Freya build ships `freya-{palette}-{light|dark}` + `layout-{palette}-{light|dark}.css` for exactly these |
 | `site.theme.dark` | light (`BOOLEAN`, default `false`) | the org's own light/dark choice; a VISITOR who has used the topbar's Dark Mode toggle still overrides it for themselves — see the precedence below |
+| `site.layout` | `classic`: the HOME page keeps the content card beside the sidebar | a MENU: `classic`, `full-width` (`LAYOUT_CLASSIC` / `LAYOUT_FULL_WIDTH`). `full-width` drops the card and the sidebar on the home page only, so band sections (`content-templates.md`, "Bands") span the window; `BrandCommands.isFullWidth` is also unconditionally true on the product's marketing host. The Appearance page offers it as the "Page layout" radio |
 | `site.logo.url` | the org's name as a text wordmark | http(s) URL |
 | `site.favicon.url` | no icon: the page emits `href="data:,"` so the browser fetches no `/favicon.ico` | http(s) URL |
 | `site.ogImage.url` | the logo (no logo either: no preview picture) | http(s) URL |

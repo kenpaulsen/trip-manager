@@ -16,9 +16,11 @@ import lombok.Getter;
 import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.ChatPhotos;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.content.MarketingPageBootstrap;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.ContentInstance;
+import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Organization;
@@ -584,6 +586,14 @@ public final class FakeData {
                 StarterTemplates.FILE_ID, 1,
                 new HashMap<>(Map.of("mediaId", "fake-doc-2")),
                 null, 1, 0, null, "fake-seed"));
+        // The product's own page (www.localhost): the same rows the production bootstrap script installs,
+        // pinned to the band templates' current versions, so the full-width layout renders real content.
+        MarketingPageBootstrap.rows(FakeData::currentTemplateVersion).forEach(FakeData::saveContent);
+    }
+
+    /** The version a seeded content row pins: the template's current one (the starters were just saved). */
+    private static int currentTemplateVersion(final String templateId) {
+        return DAO.getInstance().getTemplate(templateId, Cached.NO).map(ContentTemplate::getVersion).orElse(1);
     }
 
     private static void saveMedia(final MediaItem item) {

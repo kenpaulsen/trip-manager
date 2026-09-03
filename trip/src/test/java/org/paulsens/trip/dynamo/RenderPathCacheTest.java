@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import org.paulsens.trip.content.MarketingPageBootstrap;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.model.ContentInstance;
@@ -108,14 +109,26 @@ public class RenderPathCacheTest {
                 Organization.Id.from("1d88a054-74c7-4293-a40c-b007e09520f3"));
         Assert.assertTrue(content.saveContent(instance("rp-org-welcome", orgPage, StarterTemplates.TEXT_ONLY_ID,
                 Map.of("body", "<p>welcome</p>")), 5));
+        // The product's own marketing page: band sections plus a band container with its children, each
+        // rendered through the same cached template lookups (the band's own title slot included).
+        final String marketing = OrgPageBootstrap.MARKETING_PAGE_KEY;
+        final String features = MarketingPageBootstrap.idOf(MarketingPageBootstrap.FEATURES);
+        for (final ContentInstance row : MarketingPageBootstrap.rows(id -> 1)) {
+            Assert.assertTrue(content.saveContent(row, 5), row.getTitle());
+        }
 
         // Warm every cache the render path touches (the first request may hit the store; that is allowed).
         content.getContentForSection(page);
         content.getContentForSection("rp-holder");
         content.getContentForSection(orgPage);
+        content.getContentForSection(marketing);
+        content.getContentForSection(features);
         templates.getAllTemplates();
         templates.getTemplate(StarterTemplates.TEXT_ONLY_ID, 1);
         templates.getTemplate(StarterTemplates.CONTAINER_ID, 1);
+        templates.getTemplate(StarterTemplates.BAND_HERO_ID, 1);
+        templates.getTemplate(StarterTemplates.BAND_FEATURES_ID, 1);
+        templates.getTemplate(StarterTemplates.FEATURE_CARD_ID, 1);
 
         // The render pass: what an anonymous page view executes, twice for good measure.
         counting.reads.set(0);
@@ -123,12 +136,18 @@ public class RenderPathCacheTest {
             content.getContentForSection(page);
             content.getContentForSection("rp-holder");
             content.getContentForSection(orgPage);
+            content.getContentForSection(marketing);
+            content.getContentForSection(features);
             templates.getTemplate(StarterTemplates.TEXT_ONLY_ID, 1);
             templates.getTemplate(StarterTemplates.CONTAINER_ID, 1);
             templates.getTemplate(StarterTemplates.PILGRIMAGES_ID, 1);
             // A container's ROW resolves the same pinned version the rest of the render path uses
             // (ContentCommands.childRow) -- once per child on every public page view.
             templates.getTemplate(StarterTemplates.CONTAINER_ID, 1);
+            // A band container: its title slot (renderTitle), wrapper and row all read this one entry.
+            templates.getTemplate(StarterTemplates.BAND_FEATURES_ID, 1);
+            templates.getTemplate(StarterTemplates.FEATURE_CARD_ID, 1);
+            templates.getTemplate(StarterTemplates.BAND_HERO_ID, 1);
         }
         Assert.assertEquals(counting.reads.get(), 0,
                 "the warm render path must answer entirely from cache -- no live store reads");

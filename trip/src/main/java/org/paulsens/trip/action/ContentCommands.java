@@ -465,13 +465,13 @@ public class ContentCommands {
      */
     public String childRowBefore(final ContentInstance container, final ContentInstance child,
             final int index) {
-        return childRow(container, child, index).before();
+        return ContentRenderer.fillContainerTokens(childRow(container, child, index).before(), container);
     }
 
     /** The markup a CONTAINER wraps AFTER one of its children; see {@link #childRowBefore}. */
     public String childRowAfter(final ContentInstance container, final ContentInstance child,
             final int index) {
-        return childRow(container, child, index).after();
+        return ContentRenderer.fillContainerTokens(childRow(container, child, index).after(), container);
     }
 
     /**
@@ -500,12 +500,12 @@ public class ContentCommands {
      * {@code {{children:start}}} / {@code {{children:end}}}.
      */
     public String childrenBefore(final ContentInstance container) {
-        return containerBody(container).beforeAll();
+        return ContentRenderer.fillContainerTokens(containerBody(container).beforeAll(), container);
     }
 
     /** The markup a CONTAINER emits ONCE after all of its children; see {@link #childrenBefore}. */
     public String childrenAfter(final ContentInstance container) {
-        return containerBody(container).afterAll();
+        return ContentRenderer.fillContainerTokens(containerBody(container).afterAll(), container);
     }
 
     private ContentRenderer.ContainerBody containerBody(final ContentInstance container) {
@@ -736,9 +736,28 @@ public class ContentCommands {
         return ProgrammaticTypes.placeholdersOf(resolveTemplate(instance));
     }
 
-    /** A container's on-page title HTML (default heading for plain text, verbatim for markup). */
+    /**
+     * A container's on-page title HTML (default heading for plain text, verbatim for markup) -- unless the
+     * container's body places the title itself with {@code {{container:title}}} (the band templates do),
+     * in which case this answers "" so the heading is not written twice. The body comes from the same
+     * pinned, cached template lookup the row uses, so a public page view costs no extra read.
+     */
     public String renderTitle(final ContentInstance instance) {
-        return instance == null ? "" : ContentRenderer.renderContainerTitle(instance.getTitle());
+        if (instance == null) {
+            return "";
+        }
+        return placesOwnTitle(instance) ? "" : ContentRenderer.renderContainerTitle(instance.getTitle());
+    }
+
+    private boolean placesOwnTitle(final ContentInstance container) {
+        try {
+            final ContentTemplate template = resolveTemplate(container);
+            return template != null && ContentRenderer.hasContainerTitleSlot(template.getBody());
+        } catch (final RuntimeException ex) {
+            // Same contract as render(): the page shows the default heading rather than failing.
+            log.error("Unable to read the container body of: " + container.getId(), ex);
+            return false;
+        }
     }
 
     /** Whether the instance is publicly visible right now (edit mode renders hidden ones dimmed). */

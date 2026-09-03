@@ -80,6 +80,23 @@ public final class KnownSettings {
                     + "dark top bar and menu. A visitor who has chosen light or dark for themselves keeps "
                     + "their own choice.").withOrgOnly();
 
+    /** The stored value of {@link #SITE_LAYOUT} that keeps the content card and the sidebar. */
+    public static final String LAYOUT_CLASSIC = "classic";
+    /** The stored value of {@link #SITE_LAYOUT} that lets the home page's bands span the whole window. */
+    public static final String LAYOUT_FULL_WIDTH = "full-width";
+
+    /**
+     * How the organization's HOME page is laid out. The product's own marketing host is always full-width
+     * ({@code BrandCommands.isFullWidth}); an organization opts in here. Only the home page changes --
+     * every other page keeps the card-and-sidebar layout, which is what its forms and tables are built for.
+     */
+    public static final SettingDef SITE_LAYOUT = new SettingDef(
+            "site.layout", Config.Type.STRING, "", "Page layout",
+            "How the site's home page is laid out. \"classic\" keeps the content card beside the sidebar; "
+                    + "\"full-width\" drops both so band sections (hero, features, calls to action) span "
+                    + "the whole window. Blank means classic. Other pages keep the classic layout either way.")
+            .withOrgOnly().withChoices(LAYOUT_CLASSIC, LAYOUT_FULL_WIDTH);
+
     public static final SettingDef SITE_LOGO_URL = new SettingDef(
             "site.logo.url", Config.Type.STRING, "", "Logo image URL",
             "An http(s) URL of the logo shown in the site's top bar. Blank shows the organization's name as "
@@ -591,7 +608,7 @@ public final class KnownSettings {
                             + "An org site never inherits the shared site's look, and the shared site's "
                             + "own logo, footer and contacts are fixed in its pages -- so a value here on "
                             + "the site Settings page applies to nothing.",
-                    List.of(SITE_THEME_PALETTE, SITE_THEME_DARK, SITE_LOGO_URL, SITE_FAVICON_URL,
+                    List.of(SITE_THEME_PALETTE, SITE_THEME_DARK, SITE_LAYOUT, SITE_LOGO_URL, SITE_FAVICON_URL,
                             SITE_OG_IMAGE_URL,
                             SITE_BACKGROUND_URL, SITE_BACKGROUND_COLOR, SITE_FOOTER_TITLE, SITE_FOOTER_TEXT,
                             SITE_CONTACT_NAME, SITE_CONTACT_PHONE, SITE_DONATE_URL)),

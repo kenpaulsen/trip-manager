@@ -264,6 +264,52 @@ public class ContentRendererTest {
         Assert.assertEquals(ContentRenderer.escapeHtml("plain"), "plain");
     }
 
+    /** A container's own title has a slot of its own; the STANDARD vocabulary never sees it. */
+    @Test
+    public void aContainerBodyCanPlaceItsOwnTitle() {
+        Assert.assertTrue(ContentRenderer.hasContainerTitleSlot("<h2>{{container:title}}</h2>{{child}}"));
+        Assert.assertTrue(ContentRenderer.hasContainerTitleSlot("<h2>{{ container:title }}</h2>"));
+        Assert.assertFalse(ContentRenderer.hasContainerTitleSlot("<h2>{{child:title}}</h2>{{child}}"));
+        Assert.assertFalse(ContentRenderer.hasContainerTitleSlot(null));
+        Assert.assertEquals(ContentRenderer.tokenNames("{{container:title}}{{x}}"), Set.of("x"),
+                "never offered by 'Detect from body'");
+
+        final ContentInstance band = child("b1", "Trips & <b>more</b>");
+        Assert.assertEquals(ContentRenderer.fillContainerTokens("<h2>{{container:title}}</h2>", band),
+                "<h2>Trips & <b>more</b></h2>", "markup renders verbatim (validated at save)");
+        Assert.assertEquals(ContentRenderer.fillContainerTokens("<h2>{{container:title}}</h2>",
+                child("b1", "  Trips & more ")), "<h2>Trips &amp; more</h2>", "plain text is escaped and trimmed");
+        Assert.assertEquals(ContentRenderer.fillContainerTokens("<h2>{{container:title}}</h2>", child("b1", " ")),
+                "<h2></h2>", "blank leaves the element empty for the stylesheet to hide");
+        Assert.assertEquals(ContentRenderer.fillContainerTokens("<h2>{{container:title}}</h2>", null), "<h2></h2>");
+        Assert.assertEquals(ContentRenderer.fillContainerTokens(null, band), "");
+        Assert.assertEquals(ContentRenderer.fillContainerTokens("<p>no slot</p>", band), "<p>no slot</p>");
+    }
+
+    /** A LINK may point into the site or at an anchor; only fetched sources (images, video) stay http(s). */
+    @Test
+    public void linkUrlsAdmitSiteRelativePathsAndFragments() {
+        Assert.assertEquals(ContentRenderer.requireLinkUrl("/account/createAccount.jsf"), "/account/createAccount.jsf");
+        Assert.assertEquals(ContentRenderer.requireLinkUrl(" #benefits "), "#benefits");
+        Assert.assertEquals(ContentRenderer.requireLinkUrl("https://example.com/x"), "https://example.com/x");
+        Assert.assertEquals(ContentRenderer.requireLinkUrl("//evil.example/x"), "", "protocol-relative is refused");
+        Assert.assertEquals(ContentRenderer.requireLinkUrl("/\\evil.example/x"), "",
+                "browsers read a backslash as a slash here");
+        Assert.assertEquals(ContentRenderer.requireLinkUrl("javascript:alert(1)"), "");
+        Assert.assertEquals(ContentRenderer.requireLinkUrl("account/x.jsf"), "", "a bare relative path is not a link");
+        Assert.assertEquals(ContentRenderer.requireLinkUrl(""), "");
+        Assert.assertEquals(ContentRenderer.requireLinkUrl("   "), "");
+        Assert.assertEquals(ContentRenderer.requireLinkUrl(null), "");
+        Assert.assertEquals(ContentRenderer.requireLinkUrl("/"), "/", "the site root is a link");
+
+        final ContentTemplate link = template("<a href=\"{{u}}\">x</a>", ph("u", Placeholder.Type.URL));
+        Assert.assertEquals(ContentRenderer.render(link, instance(Map.of("u", "/trip/index.jsf?a=1&b=2"))),
+                "<a href=\"/trip/index.jsf?a=1&amp;b=2\">x</a>", "still attribute-escaped");
+        final ContentTemplate img = template("<img src=\"{{i}}\" />", ph("i", Placeholder.Type.IMAGE_URL));
+        Assert.assertEquals(ContentRenderer.render(img, instance(Map.of("i", "/images/x.png"))),
+                "<img src=\"\" />", "an image source stays absolute http(s)");
+    }
+
     @Test
     public void requireHttpUrlHandlesEdgeCases() {
         Assert.assertEquals(ContentRenderer.requireHttpUrl("  https://x.example  "), "https://x.example");
