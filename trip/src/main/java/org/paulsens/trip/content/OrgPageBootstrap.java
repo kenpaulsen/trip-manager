@@ -26,7 +26,11 @@ import org.paulsens.trip.site.SiteContext;
  */
 public final class OrgPageBootstrap {
 
-    /** The product's own (marketing) host page; empty until a site admin authors it. */
+    /**
+     * The product's own (marketing) host page. Its sections are seeded by {@code MarketingPageBootstrap}
+     * (the {@code bootstrap-marketing-page.sh} script in production, {@code FakeData} locally) and edited in
+     * place from then on; until the script has run, the host shows a plain "coming soon" notice.
+     */
     public static final String MARKETING_PAGE_KEY = "page:unitetrip-home";
 
     private static final String ORG_PAGE_PREFIX = "page:org:";

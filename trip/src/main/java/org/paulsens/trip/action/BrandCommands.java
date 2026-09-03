@@ -120,6 +120,7 @@ public class BrandCommands {
      */
     static final List<String> DEDICATED_FIELDS = List.of(
             KnownSettings.SITE_THEME_PALETTE.getName(), KnownSettings.SITE_THEME_DARK.getName(),
+            KnownSettings.SITE_LAYOUT.getName(),
             KnownSettings.SITE_LOGO_URL.getName(), KnownSettings.SITE_FAVICON_URL.getName(),
             KnownSettings.SITE_BACKGROUND_URL.getName(), KnownSettings.SITE_BACKGROUND_COLOR.getName());
 
@@ -189,6 +190,22 @@ public class BrandCommands {
 
     private String mode() {
         return isDark() ? "dark" : "light";
+    }
+
+    // --- layout ---
+
+    /**
+     * Whether the HOME page drops the content card and the sidebar so its band sections span the window:
+     * always on the product's own marketing host, and on an organization's site when it chose
+     * {@code site.layout = full-width} (its Appearance page). False on the shared hosts, off a bound
+     * request, and for any other stored value -- the classic layout is the safe answer, and the page
+     * markup those hosts render is then byte-for-byte what it was. No session is consulted.
+     */
+    public boolean isFullWidth() {
+        if (SiteContext.current().isMarketing()) {
+            return true;
+        }
+        return KnownSettings.LAYOUT_FULL_WIDTH.equals(setting(KnownSettings.SITE_LAYOUT));
     }
 
     /**

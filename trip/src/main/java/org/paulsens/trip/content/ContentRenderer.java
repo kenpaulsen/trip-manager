@@ -16,8 +16,9 @@ import org.paulsens.trip.model.Placeholder;
  * <p>Tokens are written <code>{{name}}</code> -- a syntax that survives WYSIWYG round trips and cannot
  * collide with EL ({@code #{}}) or JSF markup. Escaping is decided by the placeholder's declared type, which
  * is the security model: the rendered string is emitted with {@code escape="false"}, so everything except
- * {@link Placeholder.Type#RICH_TEXT} must be neutralized here. TEXT is HTML-escaped; URL types must parse as
- * http(s) or render empty, and are attribute-escaped; RICH_TEXT is inserted verbatim -- WYSIWYG output from
+ * {@link Placeholder.Type#RICH_TEXT} must be neutralized here. TEXT is HTML-escaped; image and video URLs
+ * must parse as http(s) or render empty, a link URL may also be site-relative or a fragment
+ * ({@link #requireLinkUrl}), and all are attribute-escaped; RICH_TEXT is inserted verbatim -- WYSIWYG output from
  * trusted admins (granting {@code contentAdmin} is equivalent to granting script on public pages; see
  * docs/content-templates.md).
  *
@@ -35,6 +36,12 @@ public final class ContentRenderer {
      */
     private static final Pattern CHILD_TOKEN =
             Pattern.compile("\\{\\{\\s*child(?::([A-Za-z0-9_-]+))?\\s*}}");
+    /**
+     * A CONTAINER body's slot for the container instance's OWN title, so a band can place its heading inside
+     * its own markup (centered, above a grid) instead of receiving it as a separate block above the band.
+     * Like {@link #CHILD_TOKEN}, the ':' keeps it out of the STANDARD vocabulary.
+     */
+    private static final Pattern CONTAINER_TITLE_TOKEN = Pattern.compile("\\{\\{\\s*container:title\\s*}}");
     /** Delimits the repeated region, so the body can also carry a wrapper emitted once around the list. */
     private static final Pattern CHILDREN_REGION =
             Pattern.compile("\\{\\{\\s*children:(start|end)\\s*}}");
@@ -88,9 +95,41 @@ public final class ContentRenderer {
         return switch (declared.getType()) {
             case TEXT, CHOICE, MULTI_CHOICE -> escapeHtml(raw);
             case RICH_TEXT -> raw;
-            case IMAGE_URL, URL -> escapeHtml(requireHttpUrl(raw));
+            case IMAGE_URL -> escapeHtml(requireHttpUrl(raw));
+            case URL -> escapeHtml(requireLinkUrl(raw));
             case VIDEO_URL -> escapeHtml(normalizeVideoUrl(raw));
         };
+    }
+
+    /**
+     * Whether a container body places its own title itself. When it does, the page must not ALSO write
+     * the title above the body ({@code ContentCommands.renderTitle} answers "" for such a container), or
+     * every band would carry its heading twice.
+     */
+    public static boolean hasContainerTitleSlot(final String body) {
+        return body != null && CONTAINER_TITLE_TOKEN.matcher(body).find();
+    }
+
+    /**
+     * Fills {@code {{container:title}}} in one part of a container's body (a row half, or the once-around
+     * wrapper) with the container instance's title: plain text escaped, markup verbatim (the same
+     * WYSIWYG/raw escape hatch {@link #renderContainerTitle} honors, validated at save), blank as "" --
+     * an untitled band's heading element is then empty and its stylesheet hides it.
+     */
+    public static String fillContainerTokens(final String part, final ContentInstance container) {
+        if (part == null || part.isEmpty()) {
+            return "";
+        }
+        final String title = container == null ? null : container.getTitle();
+        return CONTAINER_TITLE_TOKEN.matcher(part).replaceAll(Matcher.quoteReplacement(titleText(title)));
+    }
+
+    /** The title as text for a band's own heading element: escaped, or verbatim when it carries markup. */
+    static String titleText(final String title) {
+        if (title == null || title.isBlank()) {
+            return "";
+        }
+        return title.indexOf('<') >= 0 ? title : escapeHtml(title.trim());
     }
 
     /**
@@ -300,6 +339,31 @@ public final class ContentRenderer {
             // Fall through to empty: an unparseable URL must not reach the page.
         }
         return "";
+    }
+
+    /**
+     * A LINK target ({@link Placeholder.Type#URL}): an absolute http(s) URL, a site-relative path
+     * ({@code /account/createAccount.jsf}) or a page fragment ({@code #benefits}); anything else -- another
+     * scheme, a protocol-relative {@code //host} (or its {@code /\host} spelling, which browsers read the
+     * same way), a bare word -- renders "". Only links get this latitude: an image or a video source is
+     * fetched, and stays absolute http(s) ({@link #requireHttpUrl}).
+     */
+    public static String requireLinkUrl(final String raw) {
+        if (raw == null) {
+            return "";
+        }
+        final String url = raw.trim();
+        if (url.isEmpty()) {
+            return "";
+        }
+        if (url.charAt(0) == '#') {
+            return url;
+        }
+        if (url.charAt(0) == '/') {
+            final boolean protocolRelative = url.length() > 1 && (url.charAt(1) == '/' || url.charAt(1) == '\\');
+            return protocolRelative ? "" : url;
+        }
+        return requireHttpUrl(url);
     }
 
     /**

@@ -464,6 +464,36 @@ public class ContentCommandsTest {
                 "the heading box stays empty (trip.css collapses it) rather than duplicating the title");
     }
 
+    /**
+     * A band places its own heading with {@code {{container:title}}}: the wrapper carries the title and the
+     * page's separate heading is suppressed, so the title is written exactly once. The seeded Events
+     * container has no such slot and keeps its heading above the rows.
+     */
+    @Test
+    public void aBandContainerPlacesItsOwnTitleOnce() {
+        final ContentCommands admin = as(ADMIN, false);
+        final ContentInstance band = admin.createContent("cc.section-band", StarterTemplates.BAND_FEATURES_ID);
+        band.setTitle("What & why");
+        Assert.assertTrue(admin.saveContent(band));
+        final ContentInstance card = admin.createContent(band.getId(), StarterTemplates.FEATURE_CARD_ID);
+        card.setTitle("Fast");
+        card.getValues().put("text", "<p>quick</p>");
+        Assert.assertTrue(admin.saveContent(card));
+
+        Assert.assertEquals(admin.renderTitle(band), "", "the band writes its own heading");
+        Assert.assertTrue(admin.childrenBefore(band)
+                        .contains("<h2 class=\"band-heading band-center\">What &amp; why</h2>"),
+                "escaped into the band's own heading element: " + admin.childrenBefore(band));
+        Assert.assertFalse(admin.childrenBefore(band).contains("{{container"), "no token may leak");
+        Assert.assertTrue(admin.childRowBefore(band, card, 0).contains("<h3 class=\"feature-title\">Fast</h3>"));
+        Assert.assertFalse(admin.childrenAfter(band).contains("{{"));
+
+        final ContentInstance events = admin.getContent("events");
+        Assert.assertEquals(admin.renderTitle(events), "<h3 class=\"contentTitle\">Events</h3>",
+                "a container without the slot keeps the page-written heading");
+        Assert.assertTrue(admin.deleteContent(band.getId()));
+    }
+
     /** Defensive: an unresolvable container still lists its children with the built-in row. */
     @Test
     public void aMissingContainerTemplateStillRendersTheRow() {

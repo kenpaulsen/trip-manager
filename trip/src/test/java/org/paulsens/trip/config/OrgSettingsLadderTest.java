@@ -47,7 +47,7 @@ public class OrgSettingsLadderTest {
     public void theRegistryMarksExactlyTheAgreedSet() {
         final List<String> names = KnownSettings.orgOverridable().stream().map(SettingDef::getName).toList();
         Assert.assertEquals(names, List.of("site.org.name", "site.analytics.id",
-                "site.theme.palette", "site.theme.dark", "site.logo.url", "site.favicon.url",
+                "site.theme.palette", "site.theme.dark", "site.layout", "site.logo.url", "site.favicon.url",
                 "site.ogImage.url",
                 "site.background.url", "site.background.color", "site.footer.title", "site.footer.text",
                 "site.contact.name", "site.contact.phone", "site.donate.url",

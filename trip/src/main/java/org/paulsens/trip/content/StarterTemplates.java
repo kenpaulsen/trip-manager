@@ -28,11 +28,36 @@ public final class StarterTemplates {
     public static final String PAYMENT_CONFIRMATION_ID = "payment-confirmation";
     public static final String ORG_INVITE_ID = "org-invite";
 
+    // The BAND family (2026-09): full-bleed page sections for a marketing-style home page. STANDARD bands
+    // take a `tone` (plain | tint | dark) rendered as a class; the container bands fix their own tone and
+    // place their heading with {{container:title}}. Leaf templates come before the containers that admit
+    // them: the installer puts rows in this order, and a container's allow-list must name installed ids.
+    public static final String BAND_HERO_ID = "band-hero";
+    public static final String BAND_SPLIT_ID = "band-split";
+    public static final String BAND_CTA_ID = "band-cta";
+    public static final String BAND_TESTIMONIAL_ID = "band-testimonial";
+    public static final String BAND_TEXT_ID = "band-text";
+    public static final String FEATURE_CARD_ID = "feature-card";
+    public static final String STAT_ITEM_ID = "stat-item";
+    public static final String BAND_FEATURES_ID = "band-features";
+    public static final String BAND_STATS_ID = "band-stats";
+    public static final String BAND_FAQ_ID = "band-faq";
+    public static final String BAND_LOGOS_ID = "band-logos";
+
+    /** The most stat items a {@link #BAND_STATS_ID} band lays out: four across is the widest row that reads. */
+    public static final int STATS_MAX = 4;
+
+    /** The values the band templates' {@code tone} prompt understands, each a stylesheet class suffix. */
+    public static final List<String> TONES = List.of("plain", "tint", "dark");
+
     /** Ids never deleted by the cleanup script without {@code --include-starters}. */
     public static final List<String> IDS = List.of(YOUTUBE_VIDEO_ID, IMAGE_ID, TEXT_ONLY_ID,
             CONTAINER_ID, PILGRIMAGES_ID, PHOTO_ALBUMS_ID, FILE_ID,
             REGISTRATION_RECEIVED_ID, REGISTRATION_APPROVED_ID, SUPPORT_REQUEST_ID,
-            PAYMENT_CONFIRMATION_ID, ORG_INVITE_ID);
+            PAYMENT_CONFIRMATION_ID, ORG_INVITE_ID,
+            BAND_HERO_ID, BAND_SPLIT_ID, BAND_CTA_ID, BAND_TESTIMONIAL_ID, BAND_TEXT_ID,
+            FEATURE_CARD_ID, STAT_ITEM_ID,
+            BAND_FEATURES_ID, BAND_STATS_ID, BAND_FAQ_ID, BAND_LOGOS_ID);
 
     private StarterTemplates() {
     }
@@ -40,7 +65,294 @@ public final class StarterTemplates {
     public static List<ContentTemplate> all() {
         return List.of(youtubeVideo(), image(), textOnly(), container(), pilgrimages(), photoAlbums(),
                 file(), registrationReceived(), registrationApproved(), supportRequest(),
-                paymentConfirmation(), orgInvite());
+                paymentConfirmation(), orgInvite(),
+                bandHero(), bandSplit(), bandCta(), bandTestimonial(), bandText(), featureCard(), statItem(),
+                bandFeatures(), bandStats(), bandFaq(), bandLogos());
+    }
+
+    // --- the band family ---
+
+    private static final String TONE_HINT = "plain, tint or dark (blank = plain)";
+
+    private static Placeholder tone() {
+        return new Placeholder("tone", Placeholder.Type.TEXT, "Tone", TONE_HINT, false);
+    }
+
+    private static Placeholder text(final String name, final String label, final String hint,
+            final boolean required) {
+        return new Placeholder(name, Placeholder.Type.TEXT, label, hint, required);
+    }
+
+    private static Placeholder richText(final String name, final String label, final String hint,
+            final boolean required) {
+        return new Placeholder(name, Placeholder.Type.RICH_TEXT, label, hint, required);
+    }
+
+    private static Placeholder link(final String name, final String label, final String hint,
+            final boolean required) {
+        return new Placeholder(name, Placeholder.Type.URL, label, hint, required);
+    }
+
+    private static Placeholder image(final String name, final String label, final String hint) {
+        return new Placeholder(name, Placeholder.Type.IMAGE_URL, label, hint, false);
+    }
+
+    private static ContentTemplate standard(final String id, final String name, final String description,
+            final String body, final List<Placeholder> placeholders) {
+        return new ContentTemplate(id, 0, name, description, body, placeholders, null, null);
+    }
+
+    private static ContentTemplate containerBand(final String id, final String name, final String description,
+            final String body, final List<String> allowedChildren, final Integer maxChildren) {
+        return new ContentTemplate(id, 0, name, description, body, List.of(), null, null,
+                TemplateKind.CONTAINER, allowedChildren, maxChildren, null);
+    }
+
+    /**
+     * The opening band: a headline, an optional line under it, up to two buttons and an optional picture.
+     * Each button is ONE anchor whose whole content is its text, written tight (no whitespace inside), so a
+     * blank text leaves an empty element that the stylesheet's {@code :empty} rule hides; the picture's
+     * element likewise disappears on a blank URL ({@code img[src=""]}). No tone: the hero always wears the
+     * deep gradient of the site's own colors.
+     */
+    private static ContentTemplate bandHero() {
+        final String body = """
+                <section class="band band-hero">
+                    <div class="band-inner hero">
+                        <div class="hero-copy">
+                            <div class="eyebrow">{{eyebrow}}</div>
+                            <h1 class="hero-headline">{{headline}}</h1>
+                            <div class="hero-sub">{{subheadline}}</div>
+                            <div class="cta-row"><a class="cta cta-primary" href="{{primaryUrl}}">{{primaryText}}</a>
+                                <a class="cta cta-secondary" href="{{secondaryUrl}}">{{secondaryText}}</a></div>
+                        </div>
+                        <div class="hero-art"><img src="{{imageUrl}}" alt="{{imageAlt}}" loading="lazy" /></div>
+                    </div>
+                </section>
+                """;
+        return standard(BAND_HERO_ID, "Band: Hero",
+                "The full-width opening section of a page: a short label, a headline, a line under it, one or "
+                        + "two buttons and an optional picture beside the text.",
+                body, List.of(
+                        text("eyebrow", "Eyebrow", "A few words above the headline, e.g. the product or "
+                                + "organization name; blank shows nothing", false),
+                        text("headline", "Headline", "The one sentence the page is about", true),
+                        text("subheadline", "Subheadline", "A line or two under the headline", false),
+                        text("primaryText", "Primary button text", "Blank hides the button", false),
+                        link("primaryUrl", "Primary button link", "A page on this site (/trip/...), "
+                                + "an anchor (#section) or an https:// URL", false),
+                        text("secondaryText", "Secondary button text", "Blank hides the button", false),
+                        link("secondaryUrl", "Secondary button link", "As above", false),
+                        image("imageUrl", "Picture URL", "Shown beside the text; blank lets the text span "
+                                + "the band"),
+                        text("imageAlt", "Picture description", "For screen readers, when there is a "
+                                + "picture", false)));
+    }
+
+    /**
+     * Text beside a picture. With no picture, an icon (a PrimeIcons class such as {@code pi-users}) stands
+     * in its place, and with neither the copy spans the band; {@code side} puts the art left or right.
+     */
+    private static ContentTemplate bandSplit() {
+        final String body = """
+                <section class="band band-{{tone}}">
+                    <div class="band-inner split split-{{side}}">
+                        <div class="split-art"><img src="{{imageUrl}}" alt="{{imageAlt}}" loading="lazy" />
+                            <i class="split-icon pi {{icon}}" data-icon="{{icon}}"></i></div>
+                        <div class="split-copy">
+                            <h2 class="band-heading">{{heading}}</h2>
+                            <div class="band-body">{{body}}</div>
+                            <a class="band-link" href="{{linkUrl}}">{{linkText}}</a>
+                        </div>
+                    </div>
+                </section>
+                """;
+        return standard(BAND_SPLIT_ID, "Band: Text beside a picture",
+                "A heading and rich text on one side, a picture (or a large icon) on the other; a full-width "
+                        + "section in the page's chosen tone.",
+                body, List.of(tone(),
+                        text("side", "Picture side", "left or right (blank = left)", false),
+                        image("imageUrl", "Picture URL", "Blank shows the icon instead, or nothing"),
+                        text("imageAlt", "Picture description", "For screen readers", false),
+                        text("icon", "Icon", "A PrimeIcons class such as pi-users, shown when there is no "
+                                + "picture; blank shows nothing", false),
+                        text("heading", "Heading", "The section's heading", true),
+                        richText("body", "Text", "The section's text", true),
+                        text("linkText", "Link text", "An optional link under the text; blank hides it",
+                                false),
+                        link("linkUrl", "Link", "A page on this site, an anchor or an https:// URL", false)));
+    }
+
+    /** A call to action: a heading, a line of text, one button and optional small print. */
+    private static ContentTemplate bandCta() {
+        final String body = """
+                <section class="band band-{{tone}}">
+                    <div class="band-inner cta-band">
+                        <h2 class="band-heading">{{heading}}</h2>
+                        <div class="band-body">{{text}}</div>
+                        <div class="cta-row"><a class="cta cta-primary" href="{{buttonUrl}}">{{buttonText}}</a></div>
+                        <div class="band-note">{{note}}</div>
+                    </div>
+                </section>
+                """;
+        return standard(BAND_CTA_ID, "Band: Call to action",
+                "A centered heading, a line of text and one button; usually the last section of a page, "
+                        + "in the dark tone.",
+                body, List.of(tone(),
+                        text("heading", "Heading", "What you are inviting the reader to do", true),
+                        richText("text", "Text", "A sentence or two under the heading", false),
+                        text("buttonText", "Button text", "The button's label", true),
+                        link("buttonUrl", "Button link", "A page on this site (/account/...), an anchor or "
+                                + "an https:// URL", true),
+                        text("note", "Small print", "An optional line under the button", false)));
+    }
+
+    /** One quotation with who said it. The photo is decorative, so its alt text is deliberately empty. */
+    private static ContentTemplate bandTestimonial() {
+        final String body = """
+                <section class="band band-{{tone}}">
+                    <div class="band-inner testimonial">
+                        <img class="testimonial-photo" src="{{photoUrl}}" alt="" loading="lazy" />
+                        <blockquote class="testimonial-quote"><div class="band-body">{{quote}}</div></blockquote>
+                        <div class="testimonial-name">{{name}}</div>
+                        <div class="testimonial-role">{{role}}</div>
+                    </div>
+                </section>
+                """;
+        return standard(BAND_TESTIMONIAL_ID, "Band: Testimonial",
+                "A centered quotation with the speaker's name, role and optional photo.",
+                body, List.of(tone(),
+                        richText("quote", "Quotation", "What they said", true),
+                        text("name", "Name", "Who said it; blank shows nothing", false),
+                        text("role", "Role", "Their role or organization; blank shows nothing", false),
+                        image("photoUrl", "Photo URL", "A small round portrait; blank shows none")));
+    }
+
+    /** A heading over rich text, in a readable column. */
+    private static ContentTemplate bandText() {
+        final String body = """
+                <section class="band band-{{tone}}">
+                    <div class="band-inner band-prose">
+                        <h2 class="band-heading">{{heading}}</h2>
+                        <div class="band-body">{{body}}</div>
+                    </div>
+                </section>
+                """;
+        return standard(BAND_TEXT_ID, "Band: Text",
+                "A full-width section holding a heading and rich text in a readable column.",
+                body, List.of(tone(),
+                        text("heading", "Heading", "Blank shows no heading", false),
+                        richText("body", "Text", "The section's text", true)));
+    }
+
+    /**
+     * One card of a Features band. Its HEADING is the instance's title, written by the band's row
+     * ({@code {{child:title}}}); the card itself holds the icon and the text, so the stylesheet can set
+     * the icon beside the heading.
+     */
+    private static ContentTemplate featureCard() {
+        final String body = """
+                <div class="feature-card">
+                    <i class="feature-icon pi {{icon}}" data-icon="{{icon}}"></i>
+                    <div class="feature-text">{{text}}</div>
+                </div>
+                """;
+        return standard(FEATURE_CARD_ID, "Feature card",
+                "One card in a Features band: the item's title is its heading; an icon and a short text go "
+                        + "with it.",
+                body, List.of(
+                        text("icon", "Icon", "A PrimeIcons class such as pi-globe; blank shows no icon",
+                                false),
+                        richText("text", "Text", "A sentence or two", true)));
+    }
+
+    /** One figure of a Stats band: a big value over a small label. */
+    private static ContentTemplate statItem() {
+        final String body = """
+                <div class="stat"><div class="stat-value">{{value}}</div><div class="stat-label">{{label}}</div></div>
+                """;
+        return standard(STAT_ITEM_ID, "Stat item",
+                "One figure in a Stats band: a large value with a short label under it.",
+                body, List.of(
+                        text("value", "Value", "The big figure or phrase", true),
+                        text("label", "Label", "What the value is", true)));
+    }
+
+    private static ContentTemplate bandFeatures() {
+        final String body = """
+                <section class="band band-plain">
+                    <div class="band-inner">
+                        <h2 class="band-heading band-center">{{container:title}}</h2>
+                        <div class="featureGrid">
+                        {{children:start}}
+                            <div class="feature-cell"><h3 class="feature-title">{{child:title}}</h3>{{child}}</div>
+                        {{children:end}}
+                        </div>
+                    </div>
+                </section>
+                """;
+        return containerBand(BAND_FEATURES_ID, "Band: Features",
+                "A full-width section laying its Feature cards out in a responsive grid under the section's "
+                        + "title. Add only Feature cards to it.",
+                body, List.of(FEATURE_CARD_ID), null);
+    }
+
+    private static ContentTemplate bandStats() {
+        final String body = """
+                <section class="band band-dark">
+                    <div class="band-inner">
+                        <h2 class="band-heading band-center">{{container:title}}</h2>
+                        <div class="statGrid">
+                        {{children:start}}
+                            <div class="stat-cell">{{child}}</div>
+                        {{children:end}}
+                        </div>
+                    </div>
+                </section>
+                """;
+        return containerBand(BAND_STATS_ID, "Band: Stats",
+                "A dark full-width section showing up to four Stat items in a row under the section's title.",
+                body, List.of(STAT_ITEM_ID), STATS_MAX);
+    }
+
+    /** Each child is a question: the child's TITLE is the question and its text the answer. */
+    private static ContentTemplate bandFaq() {
+        final String body = """
+                <section class="band band-tint">
+                    <div class="band-inner band-prose">
+                        <h2 class="band-heading band-center">{{container:title}}</h2>
+                        <div class="faqList">
+                        {{children:start}}
+                            <details class="faqItem"><summary class="faqQuestion">{{child:title}}</summary>
+                                <div class="faqAnswer">{{child}}</div></details>
+                        {{children:end}}
+                        </div>
+                    </div>
+                </section>
+                """;
+        return containerBand(BAND_FAQ_ID, "Band: Questions and answers",
+                "A full-width section of questions that open to show their answers. Add Text Only items: "
+                        + "each item's title is the question and its text the answer.",
+                body, List.of(TEXT_ONLY_ID), null);
+    }
+
+    private static ContentTemplate bandLogos() {
+        final String body = """
+                <section class="band band-plain">
+                    <div class="band-inner">
+                        <h2 class="band-heading band-center">{{container:title}}</h2>
+                        <div class="logoStrip">
+                        {{children:start}}
+                            <div class="logo-cell">{{child}}</div>
+                        {{children:end}}
+                        </div>
+                    </div>
+                </section>
+                """;
+        return containerBand(BAND_LOGOS_ID, "Band: Logo strip",
+                "A full-width row of small logos (Image items) under the section's title, e.g. the "
+                        + "organizations or partners a site wants to name.",
+                body, List.of(IMAGE_ID), null);
     }
 
     /**

@@ -94,8 +94,9 @@ hostname**, resolved once per request into a `SiteContext` (`org.paulsens.trip.s
   `org-admin.md` "Org-site editors") — org admins do not edit content by being admins. The org of a
   section is derived from the section (page key, or the container's page), so an org grant never reaches
   the shared or marketing page.
-- An empty page shows a plain notice (`homePage.xhtml`): the marketing host's "coming soon", or "this site
-  is being set up" on an org host whose page is not seeded yet.
+- An empty page shows a plain notice (`homePage.xhtml`): the marketing host's "coming soon" until
+  `bootstrap-marketing-page.sh` has seeded it (see "Bands and the full-width layout"), or "this site is
+  being set up" on an org host whose page is not seeded yet.
 
 ## Per-organization email copy (2026-09-02)
 
@@ -264,6 +265,7 @@ named `child` and "Detect from body" never offers one:
 | `{{child:id}}` | the child instance's id, escaped — an anchor target |
 | `{{child:index}}` | its 1-based position in the container |
 | `{{children:start}}` / `{{children:end}}` | optional pair delimiting the repeated row; everything outside them is emitted ONCE, before and after the whole list |
+| `{{container:title}}` | the container INSTANCE's own title, wherever the body puts it (plain text escaped, markup verbatim, blank as ""). A body that carries this slot renders NO separate heading above itself: `ContentCommands.renderTitle` answers "" for it, so the title is written exactly once. The band containers use it to center their heading inside the band |
 
 The default, seeded and used whenever the body is blank, reproduces exactly what the page markup used to
 hardcode, so adopting this changed no rendered byte:
@@ -308,6 +310,58 @@ Rules worth knowing before changing this:
   pair, or a second pair is a save error; if such a body somehow reaches the page it degrades to the
   built-in row with NO wrapper, because emitting an unclosed `<ul>` would corrupt everything after it.
 
+## Bands and the full-width layout (2026-09)
+
+A **band** is a section that spans the whole window with its content capped at a readable 1200px column
+-- the shape of a marketing page. The band family is eleven starter templates (`StarterTemplates`, ids
+never renamed), all rendered by the same engine as everything else, and all usable inside the classic
+card too (there a band simply fills the card, with rounded corners):
+
+| Template | Kind | Placeholders / children |
+|----------|------|-------------------------|
+| `band-hero` | STANDARD | `eyebrow`, `headline`*, `subheadline`, `primaryText`/`primaryUrl`, `secondaryText`/`secondaryUrl`, `imageUrl`/`imageAlt`. No tone: always the deep gradient of the site's colors |
+| `band-split` | STANDARD | `tone`, `side` (left/right), `imageUrl`/`imageAlt`, `icon` (PrimeIcons class, shown when there is no picture), `heading`*, `body`* (RICH_TEXT), `linkText`/`linkUrl` |
+| `band-cta` | STANDARD | `tone`, `heading`*, `text` (RICH_TEXT), `buttonText`*, `buttonUrl`*, `note` |
+| `band-testimonial` | STANDARD | `tone`, `quote`* (RICH_TEXT), `name`, `role`, `photoUrl` |
+| `band-text` | STANDARD | `tone`, `heading`, `body`* (RICH_TEXT) |
+| `feature-card` | STANDARD (leaf) | `icon`, `text`* (RICH_TEXT); its HEADING is the instance title, written by the Features row |
+| `stat-item` | STANDARD (leaf) | `value`*, `label`* |
+| `band-features` | CONTAINER | children `feature-card` only; a responsive card grid under `{{container:title}}` |
+| `band-stats` | CONTAINER | children `stat-item` only, max 4; dark tone |
+| `band-faq` | CONTAINER | children `text-only` only: the child's TITLE is the question, its body the answer, as `<details>` rows |
+| `band-logos` | CONTAINER | children `image` only; a centered strip of small logos |
+
+`tone` is a TEXT prompt whose value becomes a class (`band-plain`, `band-tint`, `band-dark`; blank = plain),
+so it is escaped like any text. Every optional part is written so that a blank value leaves an EMPTY
+element (`<a class="cta">…</a>` with no whitespace inside, `img[src=""]`, `data-icon=""`) that the
+stylesheet hides -- the reason the hero's buttons are one tight anchor each. Single-child allow-lists mean
+a band's Add button skips the template picker. The stylesheet is `medjugorje/webapp/resources/css/site.css`
+("band vocabulary"): colors are theme variables, except that the hero and the dark tone MIX the palette's
+own color toward near-black (`color-mix`) and write white on it, because neither `--primary-dark-color`
+nor `--primary-color-text` can be trusted at 4.5:1 against a band on every palette
+(`OrgSubdomainPwIT.bandsStayReadableOnEveryTone` measures the marketing page). Modern-browser CSS
+(`:has()`, `color-mix()`) is used deliberately.
+
+**Link URLs.** A `Placeholder.Type.URL` value (a link target, as opposed to an image or video source) may be
+an absolute http(s) URL, a site-relative path (`/account/createAccount.jsf`) or a page fragment
+(`#<section id>`); `ContentRenderer.requireLinkUrl` renders anything else -- another scheme, a
+protocol-relative `//host` or `/\host` -- as "". `IMAGE_URL` and `VIDEO_URL` keep `requireHttpUrl`.
+
+**The full-width layout.** `BrandCommands.isFullWidth()` is true on the product's marketing host and on an
+org site whose `site.layout` setting is `full-width` (`org-admin.md`, "Branding"); `homePage.xhtml` passes
+it to `mainTemplate.xhtml` as the `fullWidth` ui:param, which builds (`c:if`, build time -- the
+`mainContent` insert may only be built once) either the classic card-and-sidebar grid or a bare
+`.layoutFull` holding the sections and the footer, and `template.xhtml` widens `.layout-content` with
+`layout-content-full`. Only the home page changes; every other page, and every shared host, renders the
+classic markup byte for byte (`OrgSubdomainPwIT.theClassicLayoutIsUnchanged`). In edit mode the dashed
+section frames wrap each band, which then stays inside its frame rather than reaching the window's edges.
+
+**The marketing page** (`page:unitetrip-home`) is seeded from `MarketingPageBootstrap`: a hero, a
+six-card Features band, three split bands, a four-item Stats band, a five-question FAQ and a dark call to
+action, with deterministic row ids (`UUID.nameUUIDFromBytes` over a slot name) so the script's conditional
+puts, the local seed (`FakeData`, so `www.localhost` renders it) and the hero's `#features` anchor all
+agree. No testimonial, logo or number is seeded: every claim names a shipped feature.
+
 ## The include contract (`WEB-INF/contentSections.xhtml`)
 
 Host page's `initPage` captures into viewScope BEFORE the include's tree builds: `pageKey` (a viewScope
@@ -340,11 +394,14 @@ datastore).
 
 1. Privilege rows (hand-created in `/admin/editPrivs.jsf`): `contentAdmin` (raw-HTML power — grant like
    script access), `eventAdmin`, `mediaAdmin`.
-2. `install-starter-templates.sh` — the SEVEN starters (JSON generated from `StarterTemplates`).
+2. `install-starter-templates.sh` — the TWENTY-THREE starters (JSON generated from `StarterTemplates` by
+   the test-scope `BootstrapScriptJson` tool; the twelve originals plus the eleven bands).
 3. `bootstrap-home-v2.sh` — the `page:trip-index` skeleton (JSON generated from `V2PageBootstrap`);
    `--purge-v1` deletes the retired `home.*` rows. New rows appear on their own within ~5 minutes (the
    cache refresh merges); only DELETES need the Settings page's "Clear caches" button (the refresh never
    removes).
+4. `bootstrap-marketing-page.sh` — the `page:unitetrip-home` rows (JSON generated from
+   `MarketingPageBootstrap`, same tool); run AFTER step 2, since the rows pin v1 of the band templates.
 Everything else is edited in place: `/trip/index.jsf` → Edit page. **Organization pages need no
 script**: assigning the org's subdomain seeds its starter page (see "Organization sites" above).
 
