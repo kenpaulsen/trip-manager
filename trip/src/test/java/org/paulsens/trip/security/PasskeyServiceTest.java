@@ -247,6 +247,25 @@ public class PasskeyServiceTest {
         Assert.assertEquals(PasskeyService.rpIdFor("WWW.UniteTrip.COM"), "unitetrip.com");
     }
 
+    /**
+     * The org sites share ONE relying party: a passkey registered on acme.unitetrip.com is offered on
+     * beta.unitetrip.com because both collapse to the registrable domain. The shared hosts stay separate
+     * relying parties (a vqop passkey is a different credential), and {@code *.localhost} does NOT collapse:
+     * two labels are already the "registrable domain" to this heuristic, so acme.localhost is its own RP --
+     * which is why the browser-level proof (PasskeyPwIT) runs on the real {@code *.unitetrip.com} hosts.
+     */
+    @Test
+    public void everyOrgSiteIsTheSameRelyingParty() {
+        final String orgSites = PasskeyService.rpIdFor("acme.unitetrip.com");
+        Assert.assertEquals(orgSites, "unitetrip.com");
+        Assert.assertEquals(PasskeyService.rpIdFor("beta.unitetrip.com"), orgSites);
+        Assert.assertEquals(PasskeyService.rpIdFor("www.unitetrip.com"), orgSites);
+        Assert.assertNotEquals(PasskeyService.rpIdFor("www.visitqueenofpeace.com"), orgSites,
+                "a passkey registered on a shared host must not be a unitetrip.com credential");
+        Assert.assertEquals(PasskeyService.rpIdFor("acme.localhost"), "acme.localhost");
+        Assert.assertNotEquals(PasskeyService.rpIdFor("beta.localhost"), PasskeyService.rpIdFor("acme.localhost"));
+    }
+
     /** The JSON in the DB row is what a later assertion verifies against -- pin the whole persisted shape. */
     @Test
     public void theStoredCredentialCarriesEverythingVerificationNeeds() throws Exception {
