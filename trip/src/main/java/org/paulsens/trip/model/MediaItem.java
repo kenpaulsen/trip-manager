@@ -3,6 +3,7 @@ package org.paulsens.trip.model;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
@@ -23,6 +24,8 @@ import lombok.Value;
  */
 @Value
 public class MediaItem implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     /** Row identity (a UUID). Stable across renames of the underlying object. */
     String id;

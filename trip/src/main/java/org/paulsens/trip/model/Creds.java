@@ -2,12 +2,16 @@ package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import java.util.Locale;
 import lombok.Data;
 
 @Data
 public final class Creds implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     public static final String USER_PRIV = "user";
     private String email;
     private Person.Id userId;

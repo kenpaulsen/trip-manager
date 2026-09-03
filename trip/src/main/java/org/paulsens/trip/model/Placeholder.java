@@ -2,6 +2,7 @@ package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import lombok.Data;
 
@@ -16,6 +17,8 @@ import lombok.Data;
  */
 @Data
 public final class Placeholder implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     /**
      * The value's kind, which decides both the editing widget and the rendering rule:

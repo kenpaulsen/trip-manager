@@ -2,6 +2,7 @@ package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
+import java.io.Serial;
 import java.io.Serializable;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -13,6 +14,9 @@ import lombok.Setter;
 @Data
 @Builder
 public class PersonDataValue implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     @NonNull
     @Setter(AccessLevel.NONE)
     private Person.Id userId;

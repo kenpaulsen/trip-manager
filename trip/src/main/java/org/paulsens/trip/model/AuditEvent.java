@@ -3,6 +3,7 @@ package org.paulsens.trip.model;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -52,12 +53,12 @@ import lombok.Value;
  */
 @Value
 public class AuditEvent implements Serializable {
-
     /**
      * Pinned: a page parks these in viewScope, which the Valkey session serializes, and an unpinned UID
      * shifts with every field added (the 2026-08-14 outage). Adding {@code orgId} invalidated the admin
      * sessions holding an audit page once regardless; pinning at the same time makes it the last time.
      */
+    @Serial
     private static final long serialVersionUID = 1L;
 
     /** Current shape. 1 == imported legacy text; 2 == written by the typed API. */

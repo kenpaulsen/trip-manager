@@ -160,6 +160,8 @@ public class SupportChatCommands {
     /** One rendered support message. A plain record, Serializable so a page scope could hold it. */
     public record SupportMessage(String author, String sentAt, String body)
             implements java.io.Serializable {
+        @java.io.Serial
+        private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
     }
 
     /** Same zone the rest of the site displays in; formatted here because f:convertDateTime has no Instant. */

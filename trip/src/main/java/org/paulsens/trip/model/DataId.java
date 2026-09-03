@@ -1,12 +1,16 @@
 package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonValue;
+import java.io.Serial;
 import java.io.Serializable;
 import lombok.Value;
 import org.paulsens.trip.util.RandomData;
 
 @Value
 public class DataId implements Serializable, Comparable<DataId> {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     @JsonValue
     String value;
 

@@ -3,6 +3,7 @@ package org.paulsens.trip.model.chat;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -13,6 +14,8 @@ import lombok.Value;
 /** Reserved for media (P4). Always empty on messages in v1; still serialized so the shape never migrates. */
 @Value
 public class ChatAttachment implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     String kind;
     String s3Key;

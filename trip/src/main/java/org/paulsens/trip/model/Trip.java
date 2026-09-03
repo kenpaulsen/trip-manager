@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.sun.jsft.util.Util;
 import jakarta.faces.context.FacesContext;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.time.format.TextStyle;
@@ -36,6 +37,7 @@ public final class Trip implements Serializable {
      * every Kryo-serialized session at deploy (2026-08-14 outage). Trip itself is banned from sessions
      * now (SessionScopePolicyIT), but the pin closes the class of accident for anything that slips.
      */
+    @Serial
     private static final long serialVersionUID = 1L;
 
     @JsonProperty("id")

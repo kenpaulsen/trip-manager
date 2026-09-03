@@ -5,6 +5,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
+import java.io.Serial;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -76,6 +77,9 @@ public class ProfilePhotos {
 
     /** One occupied slot, shaped for the profile page's {@code ui:repeat}. */
     public record Slot(int number, String key, String url) implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     }
 
     /** A key under the prefix, decomposed. Legacy keys carry version -1 so any versioned key beats them. */

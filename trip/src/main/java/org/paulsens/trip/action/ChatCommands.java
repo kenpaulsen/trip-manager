@@ -2836,6 +2836,8 @@ public class ChatCommands {
     public record ChatSummary(
             ChatChannel channel, String tripTitle, long lastActivityMillis, boolean unread, boolean draft)
             implements java.io.Serializable {
+        @java.io.Serial
+        private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
     }
 
     /** Outcome of a reaction toggle. Carries a code so the REST edge can map it to a status without re-deciding. */

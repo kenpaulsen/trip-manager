@@ -1,5 +1,6 @@
 package org.paulsens.trip.model;
 
+import java.io.Serial;
 import java.io.Serializable;
 import java.util.List;
 import lombok.Value;
@@ -12,6 +13,8 @@ import lombok.Value;
  */
 @Value
 public class SettingSection implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     String title;
     /** Shown under the legend when the group needs a caveat that no single setting owns. */

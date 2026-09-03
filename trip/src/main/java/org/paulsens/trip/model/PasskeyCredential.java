@@ -1,5 +1,6 @@
 package org.paulsens.trip.model;
 
+import java.io.Serial;
 import java.io.Serializable;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -15,6 +16,9 @@ import lombok.Data;
 @Data
 @AllArgsConstructor
 public final class PasskeyCredential implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     /** The authenticator-assigned credential id, base64url; the table's key. */
     private String credentialId;
     private Person.Id userId;

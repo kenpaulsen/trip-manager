@@ -3,6 +3,7 @@ package org.paulsens.trip.model;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -11,6 +12,9 @@ import lombok.Data;
 
 @Data
 public final class Transaction implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     private final String txId;
     private final Person.Id userId;
     private final String groupId;       // Shared or Batch Group Id

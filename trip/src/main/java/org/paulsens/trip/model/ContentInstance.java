@@ -2,6 +2,7 @@ package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.AbstractMap;
@@ -28,6 +29,8 @@ import lombok.Data;
 @Data
 @AllArgsConstructor
 public final class ContentInstance implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     @JsonProperty("id")
     private String id;
@@ -138,6 +141,8 @@ public final class ContentInstance implements Serializable {
      * Serializable only to satisfy the model-package ratchet -- it is computed per call and never stored.
      */
     private final class ListValuesView extends AbstractMap<String, List<String>> implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
         @Override
         public List<String> get(final Object key) {

@@ -92,6 +92,45 @@ session login is the only auth mechanism the API has today.
 - Pub/sub works in-process; the invalidation broadcast is a no-op with one JVM (and skipped via the
   per-JVM origin id anyway). `DAO.invalidate` still clears, so the endpoint behaves.
 
+## Sessions — serialization and `serialVersionUID`
+
+Sessions live in Valkey through Redisson, and Redisson writes them with Kryo's `JavaSerializer` — plain
+Java serialization of everything in `sessionScope` **and** `viewScope` (`STATE_SAVING_METHOD=server` folds
+the view into the session). Without an explicit `serialVersionUID` the JVM derives one from the class
+shape, so a class that gains a field makes every session written before the deploy unreadable: that is the
+2026-08-14 outage (`Trip` gained `badgeImages`, every returning visitor got a 500 until
+`SessionRecoveryFilter` learned to turn the unreadable blob into a clean re-login).
+
+Two tests hold the line, and every session-borne change has to satisfy both:
+
+- **The pin.** Every `Serializable` class under `org.paulsens.trip.model` (recursively, nested types
+  included) and every view-held row type outside it (`RegRow`, `ChatSummary`, `PrivacyView`, the payment
+  `Quote`/`Completion`, ...) declares `private static final long serialVersionUID = 1L;`.
+  `ModelSerializationTest.everySerializableClassPinsItsSerialVersionUID` sweeps `model`, `action` and
+  `chat` and fails with the exact line to add.
+- **The golden streams.** `SerializationCompatibilityTest` keeps one JDK-serialized instance per
+  session-borne type in `trip/src/test/resources/serialized/<SimpleName>.ser` and reads every one back on
+  each build, checking identity fields against what the factory wrote. A stream that deserializes but reads
+  garbage fails just like one that throws.
+
+When `SerializationCompatibilityTest` fails after you changed a class, apply THE RULE:
+
+- If the change is **compatible** — a new field with a safe default, a removed field — keep the
+  `serialVersionUID` and regenerate that class's fixture.
+- If objects written before the change would be **unsafe to read** — a field that must never be null, a
+  changed meaning — bump the class's `serialVersionUID` AND regenerate. The bump is a deliberate one-time
+  re-login for every session holding that class, handled by `SessionRecoveryFilter`. Say so in the commit.
+
+Regenerate (then commit the `.ser` files with the change):
+
+```sh
+cd trip/trip && mvn -q test -Dtest=SerializationCompatibilityTest -Dserialization.regenerate=true
+```
+
+The pinning itself (2026-09-02) shifted every computed UID once, so the deploy that shipped it was a
+one-time re-login for everyone. Verify any deploy touching these classes with a **pre-deploy cookie** — a
+cookie-less curl or an incognito window is blind to exactly this failure.
+
 ## Gotchas (each has caused a real bug)
 
 - A DAO on `PartitionScanCache` must delete rows via `removeOne`, never `invalidate()` — in local mode

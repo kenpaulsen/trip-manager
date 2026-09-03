@@ -1,11 +1,15 @@
 package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import lombok.Data;
 
 @Data
 public final class Address implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     private String street;
     private String city;
     private String state;

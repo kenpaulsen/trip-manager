@@ -1,5 +1,6 @@
 package org.paulsens.trip.model.deploy;
 
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
 import lombok.Value;
@@ -14,6 +15,8 @@ import lombok.Value;
  */
 @Value
 public class PipelineStageStatus implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     /** Stage name as CodePipeline reports it: Source, Build, IntegTest, DeployProd. */
     String name;

@@ -3,6 +3,7 @@ package org.paulsens.trip.model.chat;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
 import lombok.Value;
@@ -16,6 +17,8 @@ import org.paulsens.trip.model.Person;
  */
 @Value
 public class ChatMembership implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     public static final int CURRENT_SCHEMA = 1;
 

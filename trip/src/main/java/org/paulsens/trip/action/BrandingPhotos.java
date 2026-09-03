@@ -5,6 +5,7 @@ import jakarta.faces.context.ExternalContext;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -87,6 +88,8 @@ public class BrandingPhotos {
     /** One stored version, shaped for the Appearance page's "Previous images" list. */
     public record Version(String key, String url, String role, long version, String when)
             implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
     }
 
     /** A branding key, decomposed. Null from {@link #parse} means "not one of ours", never a guess. */

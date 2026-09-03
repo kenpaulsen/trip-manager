@@ -1,5 +1,6 @@
 package org.paulsens.trip.action;
 
+import java.io.Serial;
 import java.io.Serializable;
 import lombok.Value;
 import org.paulsens.trip.model.Person;
@@ -23,6 +24,8 @@ import org.paulsens.trip.model.PrivacySettings;
  */
 @Value
 public class PrivacyView implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     public enum State {
         SHOW, MASK, HIDE

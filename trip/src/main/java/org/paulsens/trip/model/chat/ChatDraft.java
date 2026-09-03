@@ -1,6 +1,7 @@
 package org.paulsens.trip.model.chat;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.List;
@@ -13,6 +14,8 @@ import java.util.List;
  * {@code ChatPhotoStaging}), so readers must re-validate them against the staging registry and prune.
  */
 public record ChatDraft(String body, List<Ref> attachments, Instant savedAt) implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     public ChatDraft {
         body = body == null ? "" : body;
@@ -21,6 +24,9 @@ public record ChatDraft(String body, List<Ref> attachments, Instant savedAt) imp
 
     /** Mirrors {@code ChatPhotos.AttachmentRef}: the staged key plus the attach-dialog choices. */
     public record Ref(String key, String title, Boolean hidden) implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     }
 
     // Ignored or Jackson stores it as a phantom "empty" field the deserializer then rejects.

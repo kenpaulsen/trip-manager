@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonValue;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -28,6 +29,9 @@ import lombok.Value;
  */
 @Data
 public final class PaymentProcessorConfig implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     private Id id;
     private Organization.Id orgId;
     private String label;
@@ -103,6 +107,9 @@ public final class PaymentProcessorConfig implements Serializable {
 
     @Value
     public static class Id implements Serializable, Comparable<Id> {
+        @Serial
+        private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
         @JsonValue
         String value;
 

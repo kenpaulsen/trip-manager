@@ -1,5 +1,6 @@
 package org.paulsens.trip.model;
 
+import java.io.Serial;
 import java.io.Serializable;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -27,6 +28,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public final class AuthToken implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     /** What the credential is for; absent on rows written before this column existed, meaning REMEMBER. */
     public enum Kind { REMEMBER, REFRESH, ACCESS }

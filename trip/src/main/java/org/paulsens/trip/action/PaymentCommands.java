@@ -4,6 +4,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.io.IOException;
+import java.io.Serial;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -588,6 +589,9 @@ public class PaymentCommands {
     /** Live totals for the page (plain getters, not a record: JSFT EL reads bean properties). */
     @Getter
     public static final class Quote implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
         private long creditCents;
         private long creditFeeCents;
         private long donationCents;
@@ -613,6 +617,9 @@ public class PaymentCommands {
     /** A completion outcome for the page/REST: a status keyword, a message, and sandbox dry-run lines. */
     @Getter
     public static final class Completion implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
         private String status;
         private String message;
         private List<String> dryRunLines = List.of();
