@@ -1,4 +1,4 @@
-# Deleting a pilgrimage (destructive)
+# Deleting a trip (destructive)
 
 The "Delete Pilgrimage" button on `/trip/edit.jsf` permanently deletes a trip and every row that references
 it. There is no soft-delete variant and no other caller: `TripDeleteCommands` (`#{tripDelete}`) owns the
@@ -7,7 +7,7 @@ authorization, the blocking conditions, and the cascade. Feature landed 2026-08-
 ## Who may delete
 
 The trip's **Editor Admin** (`tripMgr`, which a site admin holds implicitly via `Caller.has`) who is **also
-an admin of the organization that owns the pilgrimage** (`OrgCommands.canManageOrg`; site admins pass).
+an admin of the organization that owns the trip** (`OrgCommands.canManageOrg`; site admins pass).
 Org admins live on `Organization.adminIds` — roster-style membership, deliberately NOT a privilege row, so
 they do not appear on `admin/editPrivs.xhtml`. A trip with no `orgId` falls back to site admins only
 (`canManageOrg` refuses blank org ids for everyone, by design).

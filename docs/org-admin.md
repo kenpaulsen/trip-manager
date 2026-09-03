@@ -266,6 +266,12 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   a no-op. The live site's address is a link on the org PROFILE, beside the subdomain field
   (`SiteCommands.orgSiteUrl`, which answers `http://{slug}.localhost:{port}/` when the admin is browsing on
   localhost); the hub card that used to carry it is gone (2026-09-02).
+- **Every deploy proves an org host still routes** (2026-09-02): the CodeDeploy green check
+  (`medjugorje/infra/lambda/greencheck/`) probes one org subdomain after the shared host — `deploy-config.json`
+  `pipeline.orgHostHeader`, `acme.unitetrip.com` — and fails the deploy unless `GET /` as that Host answers 200
+  with the org mark (`orglogolink`) and without the shared site's. Host routing is its own code path and the
+  shared-host probes never exercised it. A blank or absent key skips the step; the hook itself ships only via
+  the user-run `cdk deploy TripPipeline`, never via the pipeline.
 - **What the site shows** is decided by the request's `SiteContext` (`#{site}`), never by the session: the
   org's page key, its name as the page title, only its own public trips, albums, documents and Trips-menu
   entries (`TripCommands.getMenuTrips/getMenuOldTrips`, seeded by `template.xhtml`), and only that org in

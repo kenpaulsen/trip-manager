@@ -106,7 +106,7 @@ public class TripDeleteCommandsTest {
         assertTrue(dao.saveTrip(trip));
         final List<String> blockers = siteAdmin().blockers(trip);
         assertEquals(blockers.size(), 1);
-        assertTrue(blockers.get(0).contains("still part of this pilgrimage"), blockers.get(0));
+        assertTrue(blockers.get(0).contains("still part of this trip"), blockers.get(0));
         assertTrue(siteAdmin().isBlocked(trip));
     }
 
@@ -281,7 +281,7 @@ public class TripDeleteCommandsTest {
         assertFalse(admin.deleteTrip(delMe, "delete"), "an accepted pilgrim must block the delete");
         assertTrue(dao.getTrip(delMe.getId(), Cached.NO).isPresent());
         final List<String> acceptedBlockers = admin.blockers(freshTrip(delMe.getId()));
-        assertTrue(acceptedBlockers.stream().anyMatch(b -> b.contains("still part of this pilgrimage")),
+        assertTrue(acceptedBlockers.stream().anyMatch(b -> b.contains("still part of this trip")),
                 "roster blocker expected: " + acceptedBlockers);
         assertTrue(acceptedBlockers.stream().anyMatch(b -> b.contains("approved")),
                 "approved-registration blocker expected: " + acceptedBlockers);

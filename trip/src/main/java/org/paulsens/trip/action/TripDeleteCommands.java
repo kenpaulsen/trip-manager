@@ -34,7 +34,7 @@ import org.paulsens.trip.model.chat.ChatChannel;
  * variant -- the page's confirm dialog (type-'delete' challenge) is the only caller.
  *
  * <p><b>Who may delete:</b> the trip's Editor Admin ({@code tripMgr}, which a site admin holds implicitly)
- * who is ALSO an admin of the organization that owns the pilgrimage ({@code OrgCommands.canManageOrg}, which
+ * who is ALSO an admin of the organization that owns the trip ({@code OrgCommands.canManageOrg}, which
  * a site admin also passes). Org admins live on {@code Organization.adminIds} -- roster-style, NOT a
  * privilege row -- per the locked tenancy design.
  *
@@ -78,7 +78,7 @@ public class TripDeleteCommands {
         this.badgeSource = badgeSource;
     }
 
-    /** Whether the signed-in user may delete this pilgrimage at all (state conditions are separate). */
+    /** Whether the signed-in user may delete this trip at all (state conditions are separate). */
     public boolean canDelete(final Trip trip) {
         if (trip == null || trip.getId() == null || trip.getId().isBlank()) {
             return false;
@@ -135,7 +135,7 @@ public class TripDeleteCommands {
         final List<String> blockers = computeBlockers(trip);
         if (blockers.isEmpty()) {
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO,
-                    "This pilgrimage can be deleted now -- reload the page to get the delete button.", null);
+                    "This trip can be deleted now -- reload the page to get the delete button.", null);
             return;
         }
         for (final String blocker : blockers) {
@@ -180,7 +180,7 @@ public class TripDeleteCommands {
     }
 
     /**
-     * Permanently deletes the pilgrimage and everything that references it. The page passes its draft copy,
+     * Permanently deletes the trip and everything that references it. The page passes its draft copy,
      * but only the ID is trusted: authorization, the blocking conditions, and the cascade all work from a
      * fresh uncached read, so a stale edit-page render cannot slip a delete past a condition that has since
      * become true.
@@ -202,13 +202,13 @@ public class TripDeleteCommands {
         if (fresh == null) {
             // Someone else finished the job (or a retried cascade already took the row): goal state reached.
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO,
-                    "This pilgrimage no longer exists.", null);
+                    "This trip no longer exists.", null);
             return true;
         }
         if (!canDelete(fresh)) {
             audit(fresh, AuditOutcome.FAILURE, "refused: not an Editor Admin + organization admin");
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                    "Not allowed: deleting a pilgrimage requires its Editor Admin role AND being an admin "
+                    "Not allowed: deleting a trip requires its Editor Admin role AND being an admin "
                             + "of the organization it belongs to.", null);
             return false;
         }
@@ -225,7 +225,7 @@ public class TripDeleteCommands {
             audit(fresh, AuditOutcome.SUCCESS, summary);
             log.warn("Trip {} ('{}') permanently deleted: {}", fresh.getId(), fresh.getTitle(), summary);
             TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO,
-                    "Pilgrimage '" + fresh.getTitle() + "' was permanently deleted.", null);
+                    "Trip '" + fresh.getTitle() + "' was permanently deleted.", null);
             return true;
         } catch (final RuntimeException ex) {
             log.error("Trip delete for {} did not finish", fresh.getId(), ex);
@@ -284,7 +284,7 @@ public class TripDeleteCommands {
         final int people = trip.getPeople().size();
         if (people > 0) {
             blockers.add(people + (people == 1 ? " person is" : " people are")
-                    + " still part of this pilgrimage. Remove everyone from the trip first.");
+                    + " still part of this trip. Remove everyone from the trip first.");
         }
         final long approved = DAO.getInstance().getRegistrations(trip.getId(), Cached.NO).stream()
                 .filter(reg -> reg.getStatus() == Registration.Status.CONFIRMED)
@@ -292,7 +292,7 @@ public class TripDeleteCommands {
         if (approved > 0) {
             blockers.add(approved + " registration" + (approved == 1 ? " is" : "s are")
                     + " approved. Un-approve or move them first (unapproved registrations are deleted "
-                    + "with the pilgrimage).");
+                    + "with the trip).");
         }
         final long livePayments = DAO.getInstance().getAllPayments().stream()
                 .filter(payment -> trip.getId().equals(payment.getTripId()))
@@ -306,7 +306,7 @@ public class TripDeleteCommands {
         final int liveTxs = countLiveTransactions(trip.getId());
         if (liveTxs > 0) {
             blockers.add(liveTxs + " financial transaction" + (liveTxs == 1 ? " is" : "s are")
-                    + " still linked to this pilgrimage. Delete them on the transactions page first "
+                    + " still linked to this trip. Delete them on the transactions page first "
                     + "(they are kept as soft-deleted records).");
         }
         return blockers;
