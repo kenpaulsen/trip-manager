@@ -3,6 +3,7 @@ package org.paulsens.trip.model;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonValue;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -13,6 +14,9 @@ import lombok.With;
 
 @Value
 public class Registration implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     /**
      * Reserved {@link #options} keys, underscore-prefixed so they can never collide with the numeric
      * {@code RegistrationOption} ids (the convention the mir2026 branch established). Additive JSON: rows

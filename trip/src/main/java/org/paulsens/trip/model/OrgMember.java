@@ -2,6 +2,7 @@ package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import lombok.Builder;
@@ -19,6 +20,9 @@ import lombok.Data;
  */
 @Data
 public final class OrgMember implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     private Organization.Id orgId;
     private Person.Id personId;
     private LocalDateTime joined;

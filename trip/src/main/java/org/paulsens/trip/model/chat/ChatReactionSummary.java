@@ -3,6 +3,7 @@ package org.paulsens.trip.model.chat;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -24,6 +25,8 @@ import org.paulsens.trip.model.Person;
  */
 @Value
 public class ChatReactionSummary implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     /** Well clear of the ~100 worst case, so overflow only trips on genuinely anomalous traffic. */
     public static final int MAX_IDS_PER_EMOJI = 250;

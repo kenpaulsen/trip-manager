@@ -1,5 +1,6 @@
 package org.paulsens.trip.model.chat;
 
+import java.io.Serial;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,6 +23,8 @@ import java.util.Set;
  * <p>Pure functions only — no instance state. {@code Serializable} only to satisfy the model package sweep.
  */
 public final class ChatEmoji implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     /**
      * Deliberately small, and compared as exact strings rather than normalised.

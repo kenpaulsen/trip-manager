@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonValue;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -24,6 +25,9 @@ import org.paulsens.trip.cache.Cached;
 
 @Data
 public final class Person implements Serializable, Comparable<Person> {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     public static final Comparator<Person> PEOPLE_SORTER = (a, b) ->
             getPersonSortStr(a).compareToIgnoreCase(getPersonSortStr(b));
     private Person.Id id;
@@ -182,6 +186,9 @@ public final class Person implements Serializable, Comparable<Person> {
 
     @Value
     public static class Id implements Serializable, Comparable<Id> {
+        @Serial
+        private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
         @JsonValue
         String value;
 

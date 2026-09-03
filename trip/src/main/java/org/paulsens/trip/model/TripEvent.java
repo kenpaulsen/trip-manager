@@ -1,6 +1,7 @@
 package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -15,6 +16,9 @@ import lombok.Getter;
 
 @Data
 public final class TripEvent implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     private final String id;                    // TripEvent ID
     private Type type;                          // TripEvent.Type
     private String title;                       // Event title

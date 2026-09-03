@@ -2,6 +2,7 @@ package org.paulsens.trip.model.chat;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import lombok.Value;
 
@@ -12,6 +13,8 @@ import lombok.Value;
  */
 @Value
 public class PhotoChatMeta implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     /**
      * The synthetic reaction target standing for the photo itself. All zeros so it sorts below every real

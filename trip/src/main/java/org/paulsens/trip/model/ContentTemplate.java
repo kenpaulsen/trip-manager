@@ -2,6 +2,7 @@ package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -22,6 +23,8 @@ import lombok.Data;
 @Data
 @AllArgsConstructor
 public final class ContentTemplate implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     /** Stable slug identifying the template across versions, e.g. {@code youtube-video}. */
     @JsonProperty("id")

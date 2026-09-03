@@ -1,5 +1,6 @@
 package org.paulsens.trip.model.chat;
 
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -19,6 +20,8 @@ import org.paulsens.trip.model.Trip;
  * <p>Pure functions only — no instance state. {@code Serializable} only to satisfy the model package sweep.
  */
 public final class ChatVisibility implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     private ChatVisibility() {
     }

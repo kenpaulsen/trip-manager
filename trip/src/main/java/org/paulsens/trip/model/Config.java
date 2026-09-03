@@ -2,6 +2,7 @@ package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import lombok.Value;
@@ -21,6 +22,8 @@ import lombok.Value;
  */
 @Value
 public class Config implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     /** How the value should be interpreted and edited. Storage is always a string. */
     public enum Type {

@@ -1,5 +1,6 @@
 package org.paulsens.trip.model;
 
+import java.io.Serial;
 import java.io.Serializable;
 import java.util.Set;
 
@@ -17,6 +18,8 @@ import java.util.Set;
  * Serializable because the query it belongs to may be parked in viewScope.
  */
 public record AuditScope(String orgId, Set<String> hiddenOrgIds, boolean siteLevelOnly) implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     private static final AuditScope ALL = new AuditScope(null, Set.of(), false);
     private static final AuditScope SITE_LEVEL_ONLY = new AuditScope(null, Set.of(), true);

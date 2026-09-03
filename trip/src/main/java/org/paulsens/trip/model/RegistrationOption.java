@@ -2,11 +2,15 @@ package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import lombok.Data;
 
 @Data
 public final class RegistrationOption implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     private int id;
     private String shortDesc;
     private String longDesc;

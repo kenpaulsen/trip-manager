@@ -1,6 +1,7 @@
 package org.paulsens.trip.model;
 
 import java.io.IOException;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -10,6 +11,9 @@ import org.paulsens.trip.dynamo.DAO;
 
 @EqualsAndHashCode
 public final class TodoStatus implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     public static final String TODO_PERSON_DATA_VALUE_TYPE = "todo";
 
     // The todoItem is stored for convenience, it is not altered

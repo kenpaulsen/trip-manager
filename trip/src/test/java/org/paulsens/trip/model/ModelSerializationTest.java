@@ -7,6 +7,8 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.net.URL;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -138,6 +140,114 @@ public class ModelSerializationTest {
         // a client that already holds the message, so losing them silently disables all three.
         Assert.assertEquals(revived.getReactionsVersion(), 3L);
         Assert.assertEquals(revived.getMutationsVersion(), 7L);
+    }
+
+    /**
+     * Every Serializable class pins {@code serialVersionUID}. Without the pin the JVM derives the UID from
+     * the class shape, so adding one field makes every session written before the deploy unreadable -- the
+     * 2026-08-14 outage ({@code Trip} gained {@code badgeImages}). The sweep covers the model package
+     * recursively AND the action/chat packages, because pages park rows declared there (RegRow, ChatSummary,
+     * PrivacyView, the payment Quote) in viewScope too. {@link SerializationCompatibilityTest} says when a
+     * pinned value must be bumped.
+     */
+    @Test
+    public void everySerializableClassPinsItsSerialVersionUID() throws Exception {
+        final List<Class<?>> candidates = new ArrayList<>(modelClasses());
+        candidates.addAll(classesUnder("org.paulsens.trip.action"));
+        candidates.addAll(classesUnder("org.paulsens.trip.chat"));
+        final List<String> offenders = new ArrayList<>();
+        for (final Class<?> type : candidates) {
+            if (needsPin(type) && !declaresSerialVersionUID(type)) {
+                offenders.add(type.getName());
+            }
+        }
+        Assert.assertEquals(offenders, List.of(),
+                "These Serializable classes do not pin serialVersionUID, so any field change silently invalidates "
+                        + "every live session. Add to each: `private static final long serialVersionUID = 1L; "
+                        + "// Pinned: SerializationCompatibilityTest says when to bump.` -- " + offenders);
+    }
+
+    @Test
+    public void thePinRatchetReachesTheSweptPackages() throws Exception {
+        // Guard against the sweep silently finding nothing: the two outside-the-model rows that exist today.
+        final List<Class<?>> swept = classesUnder("org.paulsens.trip.action");
+        Assert.assertTrue(swept.contains(org.paulsens.trip.action.RegistrationCommands.RegRow.class));
+        Assert.assertTrue(swept.contains(org.paulsens.trip.action.ChatCommands.ChatSummary.class));
+        Assert.assertTrue(classesUnder("org.paulsens.trip.chat")
+                .contains(org.paulsens.trip.chat.ChatNotification.class));
+    }
+
+    @Test
+    public void thePinCheckSeesTheFieldAndNothingElse() throws Exception {
+        Assert.assertTrue(declaresSerialVersionUID(Trip.class), "Trip pins by hand");
+        Assert.assertTrue(declaresSerialVersionUID(AuditScope.class), "records take the field too");
+        Assert.assertFalse(declaresSerialVersionUID(WithoutPin.class), "the negative must fail the ratchet");
+        Assert.assertFalse(declaresSerialVersionUID(WrongShape.class), "an instance or non-long field is no pin");
+        Assert.assertTrue(needsPin(WithoutPin.class));
+        Assert.assertFalse(needsPin(Serializable.class), "interfaces hold no state");
+        Assert.assertFalse(needsPin(AuditAction.class), "enums are stream-invariant by name");
+        Assert.assertFalse(needsPin(String.class), "only our own classes are swept");
+    }
+
+    /** Test-only negative for the ratchet's own check: Serializable, unpinned. Never reaches a scope. */
+    private static final class WithoutPin implements Serializable {
+    }
+
+    /** Test-only negative: the name is there but neither static nor final nor a long. */
+    private static final class WrongShape implements Serializable {
+        @SuppressWarnings("unused")
+        private int serialVersionUID;
+    }
+
+    private static boolean needsPin(final Class<?> type) {
+        return Serializable.class.isAssignableFrom(type) && !type.isInterface() && !type.isEnum()
+                && !type.isAnonymousClass() && !type.isSynthetic()
+                && type.getName().startsWith("org.paulsens.trip.")
+                // Lombok builders and Jackson (de)serializers never reach a scope; the sweep above exempts them.
+                && EXEMPT.stream().noneMatch(name -> type.getSimpleName().endsWith(name));
+    }
+
+    private static boolean declaresSerialVersionUID(final Class<?> type) {
+        try {
+            final Field field = type.getDeclaredField("serialVersionUID");
+            final int mods = field.getModifiers();
+            return field.getType() == long.class && Modifier.isStatic(mods) && Modifier.isFinal(mods);
+        } catch (final NoSuchFieldException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Every class under {@code pkg} (recursively) WITHOUT initializing it: the action package has beans whose
+     * static state reaches the DAO, and this sweep only needs their declared fields.
+     */
+    private static List<Class<?>> classesUnder(final String pkg) throws IOException, ClassNotFoundException {
+        final List<Class<?>> found = new ArrayList<>();
+        final ClassLoader loader = Thread.currentThread().getContextClassLoader();
+        final Enumeration<URL> roots = loader.getResources(pkg.replace('.', '/'));
+        while (roots.hasMoreElements()) {
+            final File dir = new File(roots.nextElement().getFile());
+            if (dir.getPath().contains("test-classes")) {
+                continue;
+            }
+            collectClassNames(dir, pkg, found, loader);
+        }
+        return found;
+    }
+
+    private static void collectClassNames(final File dir, final String pkg, final List<Class<?>> found,
+            final ClassLoader loader) throws ClassNotFoundException {
+        final File[] files = dir.listFiles();
+        if (files == null) {
+            return;
+        }
+        for (final File file : files) {
+            if (file.isDirectory()) {
+                collectClassNames(file, pkg + "." + file.getName(), found, loader);
+            } else if (file.getName().endsWith(".class")) {
+                found.add(Class.forName(pkg + "." + file.getName().replace(".class", ""), false, loader));
+            }
+        }
     }
 
     private static <T> T roundTrip(final T value) throws Exception {

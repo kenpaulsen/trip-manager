@@ -1,5 +1,6 @@
 package org.paulsens.trip.model;
 
+import java.io.Serial;
 import java.io.Serializable;
 import lombok.Builder;
 import lombok.NonNull;
@@ -8,6 +9,9 @@ import lombok.Value;
 @Value
 @Builder
 public class CompositeKey implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     private static final char SEPARATOR = ',';
 
     @NonNull

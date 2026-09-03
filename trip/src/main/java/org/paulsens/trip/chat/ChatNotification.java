@@ -1,5 +1,6 @@
 package org.paulsens.trip.chat;
 
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.List;
@@ -14,6 +15,8 @@ import org.paulsens.trip.model.chat.ChatMessage;
  */
 @Value
 public class ChatNotification implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     public enum Reason {
         MENTION,

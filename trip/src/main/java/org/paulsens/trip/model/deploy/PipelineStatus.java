@@ -1,5 +1,6 @@
 package org.paulsens.trip.model.deploy;
 
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.List;
@@ -16,6 +17,8 @@ import lombok.Value;
  */
 @Value
 public class PipelineStatus implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     /**
      * Shown when nothing is configured, so the page still renders and explains itself.

@@ -1,12 +1,16 @@
 package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDate;
 import lombok.Data;
 
 @Data
 public final class Passport implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     private String number;
     private String country;
     private LocalDate expires;

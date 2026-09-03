@@ -3,6 +3,7 @@ package org.paulsens.trip.model.chat;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalTime;
 import lombok.Value;
@@ -22,6 +23,8 @@ import lombok.Value;
  */
 @Value
 public class ChatNotifyPref implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     /**
      * The old single-mode field. Retained only to read rows written before the split — never written back.

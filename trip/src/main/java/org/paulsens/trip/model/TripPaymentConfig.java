@@ -3,6 +3,7 @@ package org.paulsens.trip.model;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
@@ -17,6 +18,9 @@ import lombok.Data;
  */
 @Data
 public final class TripPaymentConfig implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     private String processorConfigId;
     private FeesPaidBy feesPaidBy;
     private Boolean donationEnabled;

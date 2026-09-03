@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonValue;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.List;
@@ -16,6 +17,8 @@ import org.paulsens.trip.model.TripLink;
  */
 @Value
 public class ChatChannel implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     public static final int CURRENT_SCHEMA = 1;
 
@@ -36,6 +39,9 @@ public class ChatChannel implements Serializable {
 
     @Value
     public static class Id implements Serializable, Comparable<Id> {
+        @Serial
+        private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
         @JsonValue
         String value;
 

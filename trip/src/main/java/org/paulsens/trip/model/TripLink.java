@@ -2,6 +2,7 @@ package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serial;
 import java.io.Serializable;
 import java.net.URI;
 import java.util.Locale;
@@ -17,6 +18,8 @@ import lombok.Value;
  */
 @Value
 public class TripLink implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     private static final Set<String> ALLOWED_SCHEMES = Set.of("http", "https");
 

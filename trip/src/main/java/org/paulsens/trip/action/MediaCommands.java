@@ -4,6 +4,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.io.InputStream;
+import java.io.Serial;
 import java.io.Serializable;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -339,6 +340,9 @@ public class MediaCommands {
 
     /** One landing-page album: a qualifying trip and its publicly-visible chat photos. */
     public record TripAlbum(Trip trip, List<MediaItem> photos) implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     }
 
     /**
@@ -559,6 +563,9 @@ public class MediaCommands {
 
     /** What S3 reports about a stored object, for confirming a direct upload without trusting the caller. */
     public record StoredObject(long size, String contentType) implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
     }
 
     /**

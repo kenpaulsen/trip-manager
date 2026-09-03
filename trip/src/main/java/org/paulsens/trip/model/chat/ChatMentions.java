@@ -1,5 +1,6 @@
 package org.paulsens.trip.model.chat;
 
+import java.io.Serial;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -24,6 +25,8 @@ import org.paulsens.trip.model.Person;
  * is.
  */
 public final class ChatMentions implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
     /** Matches {@code @{id}} where the id is a UUID-ish token; deliberately strict so prose cannot match. */
     private static final Pattern MENTION = Pattern.compile("@\\{([A-Za-z0-9._@+-]{1,128})}");
