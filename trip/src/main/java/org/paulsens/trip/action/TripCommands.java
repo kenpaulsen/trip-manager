@@ -33,6 +33,7 @@ import static java.time.temporal.ChronoUnit.DAYS;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
+import org.paulsens.trip.util.RichText;
 
 @Slf4j
 @Named("trip")
@@ -234,20 +235,46 @@ public class TripCommands {
      * <p>Resolving by id inside the trip makes the note land on the object that gets written, whatever the row
      * happened to be bound to.
      *
+     * <p>The note is stored as line-per-{@code <br />} HTML ({@link RichText#paragraphsToBreaks}): it is typed in
+     * the site's WYSIWYG editor, whose paragraph-per-Enter output reads as double spacing in the itinerary table.
+     *
      * @return true when saved; false when the event is not part of this trip.
      */
     public boolean saveEventNote(
             final Trip trip, final TripEvent event, final Person.Id personId, final String note) {
-        if (trip == null || event == null || personId == null) {
+        return event != null && saveEventNoteById(trip, event.getId(), personId, note);
+    }
+
+    /**
+     * {@link #saveEventNote(Trip, TripEvent, Person.Id, String)} by event id -- the form the itinerary's note
+     * dialog uses, since a dialog opened from a row carries the row's id (baked in at render), not the row.
+     */
+    public boolean saveEventNoteById(
+            final Trip trip, final String eventId, final Person.Id personId, final String note) {
+        if (trip == null || eventId == null || personId == null) {
             return false;
         }
-        final TripEvent owned = trip.getTripEvent(event.getId());
+        final TripEvent owned = trip.getTripEvent(eventId);
         if (owned == null) {
-            log.warn("Refusing to note event {}: not part of trip {}", event.getId(), trip.getId());
+            log.warn("Refusing to note event {}: not part of trip {}", eventId, trip.getId());
             return false;
         }
-        owned.getPrivNotes().put(personId, (note == null) ? "" : note);
+        owned.getPrivNotes().put(personId, RichText.paragraphsToBreaks(note));
         return saveTrip(trip);
+    }
+
+    /**
+     * One person's private note on a trip event, for seeding the note dialog's editor.
+     *
+     * @return the stored note, or "" when there is none (or the event is not on this trip); never {@code null}.
+     */
+    public String getEventNote(final Trip trip, final String eventId, final Person.Id personId) {
+        final TripEvent owned = (trip == null || eventId == null) ? null : trip.getTripEvent(eventId);
+        if (owned == null || personId == null) {
+            return "";
+        }
+        final String note = owned.getPrivNotes().get(personId);
+        return (note == null) ? "" : note;
     }
 
     /** @return whether this event's participant list actually changed. */

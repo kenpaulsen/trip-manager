@@ -190,6 +190,47 @@ public class TripEventParticipationTest {
     }
 
     @Test
+    public void aNoteSavedByEventIdLandsOnThatEvent() {
+        // The note dialog carries the row's event id (baked in at render), not the row object.
+        final Trip theTrip = trip();
+        final Person.Id who = FakeData.getFakePeople().get(0).getId();
+        final TripEvent event = theTrip.getTripEvents().get(1);
+
+        Assert.assertTrue(trip.saveEventNoteById(theTrip, event.getId(), who, "by id"));
+
+        Assert.assertEquals(DAO.getInstance().getTripEvent(event.getId(), Cached.NO).getPrivNotes().get(who), "by id");
+        Assert.assertEquals(trip.getEventNote(theTrip, event.getId(), who), "by id",
+                "the dialog seeds its editor from the same place the save wrote to");
+    }
+
+    @Test
+    public void aNoteFromTheEditorIsStoredWithBreaksNotParagraphs() {
+        // The itinerary's note editor is the site's WYSIWYG editor, which wraps every Enter in a <p>; the
+        // table renders those with paragraph spacing, which is the double-spacing complaint this exists for.
+        final Trip theTrip = trip();
+        final Person.Id who = FakeData.getFakePeople().get(0).getId();
+        final TripEvent event = theTrip.getTripEvents().get(2);
+
+        Assert.assertTrue(trip.saveEventNote(theTrip, event, who, "<p>Seat 14C</p><p><br></p><p>Aisle</p>"));
+
+        Assert.assertEquals(DAO.getInstance().getTripEvent(event.getId(), Cached.NO).getPrivNotes().get(who),
+                "Seat 14C<br /><br />Aisle");
+    }
+
+    @Test
+    public void readingANoteNeverAnswersNull() {
+        final Trip theTrip = trip();
+        final Person.Id who = FakeData.getFakePeople().get(0).getId();
+        Assert.assertEquals(trip.getEventNote(theTrip, new TripEvent().getId(), who), "", "unknown event");
+        Assert.assertEquals(trip.getEventNote(null, theTrip.getTripEvents().get(0).getId(), who), "", "no trip");
+        Assert.assertEquals(trip.getEventNote(theTrip, null, who), "", "no event id");
+        Assert.assertEquals(trip.getEventNote(theTrip, theTrip.getTripEvents().get(0).getId(), null), "",
+                "no person");
+        Assert.assertEquals(trip.getEventNote(theTrip, theTrip.getTripEvents().get(3).getId(), who), "",
+                "an event nobody has noted yet");
+    }
+
+    @Test
     public void anEventFromAnotherTripIsRefused() {
         // Resolving by id inside the trip means a foreign event finds no home; it must be refused, not silently
         // noted onto nothing or appended to this trip.
