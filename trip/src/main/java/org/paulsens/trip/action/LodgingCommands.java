@@ -1085,16 +1085,25 @@ public class LodgingCommands {
         final List<Reservation> reservations = DAO.getInstance().getReservations(tripId, Cached.YES);
         for (final ReservationOffer offer : getOffers(tripId)) {
             final Accommodation acc = findAccommodation(idValue(offer.getAccommodationId()));
-            final RoomType type = (acc == null) ? null : acc.roomType(offer.getRoomTypeId());
             final TripEvent event = trip.getTripEvent(offer.getTripEventId());
             final int count = (int) reservations.stream()
                     .filter(res -> res.isActive() && offer.getId().equals(res.getOfferId())).count();
             rows.add(new OfferRow(offer.getId().getValue(), offer.getName(), acc == null ? "?" : acc.getName(),
-                    type == null ? "?" : type.getName(), event == null ? "" : event.getTitle(), pricingLabel(offer),
+                    roomTypeNames(acc, offer), event == null ? "" : event.getTitle(), pricingLabel(offer),
                     range(offer.getValidFrom(), offer.getValidUntil()),
                     range(offer.getDefaultStart(), offer.getDefaultEnd()), count, offer.isEnabled()));
         }
         return rows;
+    }
+
+    /** "Double / Triple": the option's room types by name, in its order. */
+    static String roomTypeNames(final Accommodation acc, final ReservationOffer offer) {
+        final List<String> names = new ArrayList<>();
+        for (final String typeId : offer.getRoomTypeIds()) {
+            final RoomType type = (acc == null) ? null : acc.roomType(typeId);
+            names.add(type == null ? "?" : type.getName());
+        }
+        return names.isEmpty() ? "?" : String.join(" / ", names);
     }
 
     static String pricingLabel(final ReservationOffer offer) {
@@ -1117,17 +1126,21 @@ public class LodgingCommands {
         final OfferForm form = new OfferForm();
         final ReservationOffer offer = findOffer(tripId, offerId);
         if (offer == null) {
+            // A new option covers the trip's dates and defaults to the whole stay at the usual hotel hours.
             final Trip trip = tripSource.get().getTrip(tripId);
-            form.setDefaultStart(trip.getStartDate());
-            form.setDefaultEnd(trip.getEndDate());
-            form.setValidFrom(LocalDateTime.now().withSecond(0).withNano(0));
-            form.setValidUntil(trip.getStartDate());
+            form.setValidFrom(startOfDay(trip.getStartDate()));
+            form.setValidUntil(endOfDay(trip.getEndDate()));
+            form.setDefaultStart(trip.getStartDate() == null ? null
+                    : trip.getStartDate().toLocalDate().atTime(OfferForm.DEFAULT_ARRIVAL));
+            form.setDefaultEnd(trip.getEndDate() == null ? null
+                    : trip.getEndDate().toLocalDate().atTime(OfferForm.DEFAULT_DEPARTURE));
+            form.fillRanges();
             return form;
         }
         form.setId(offer.getId().getValue());
         form.setName(offer.getName());
         form.setAccommodationId(idValue(offer.getAccommodationId()));
-        form.setRoomTypeId(offer.getRoomTypeId());
+        form.setRoomTypeIds(new ArrayList<>(offer.getRoomTypeIds()));
         form.setTripEventId(offer.getTripEventId());
         form.setPricingModel(offer.getPricingModel().name());
         form.setNightlyPrice(dollars(offer.getNightlyPriceCents()));
@@ -1151,7 +1164,37 @@ public class LodgingCommands {
                     : dollars(offer.getCancelFeeFixedCents()));
         }
         form.setDisabled(!offer.isEnabled());
+        form.fillRanges();
         return form;
+    }
+
+    private static LocalDateTime startOfDay(final LocalDateTime when) {
+        return (when == null) ? null : when.toLocalDate().atStartOfDay();
+    }
+
+    private static LocalDateTime endOfDay(final LocalDateTime when) {
+        return (when == null) ? null : when.toLocalDate().atTime(23, 59);
+    }
+
+    /**
+     * Names the option after its room types ("Double / Triple room") when the name is still blank: the dialog
+     * calls it as room types are picked, and {@link #saveOffer} falls back to it.
+     */
+    public void suggestOfferName(final OfferForm form) {
+        if (form == null || (form.getName() != null && !form.getName().isBlank())) {
+            return;
+        }
+        final Accommodation acc = findAccommodation(form.getAccommodationId());
+        final List<String> names = new ArrayList<>();
+        for (final String typeId : form.getRoomTypeIds()) {
+            final RoomType type = (acc == null) ? null : acc.roomType(typeId);
+            if (type != null && type.getName() != null && !names.contains(type.getName())) {
+                names.add(type.getName());
+            }
+        }
+        if (!names.isEmpty()) {
+            form.setName(String.join(" / ", names) + " room");
+        }
     }
 
     /** The nights of the form's default stay, for the per-night price table. */
@@ -1160,6 +1203,7 @@ public class LodgingCommands {
         if (form == null) {
             return dates;
         }
+        form.resolveDates();
         for (final LocalDate night : LodgingPricing.nightsOf(form.getDefaultStart(), form.getDefaultEnd())) {
             dates.add(night.toString());
         }
@@ -1173,10 +1217,10 @@ public class LodgingCommands {
      */
     public boolean saveOffer(final String tripId, final OfferForm form) {
         if (!canManageTripLodging(tripId)) {
-            return failed("Not allowed: only the trip's managers and lodging admins can edit offers.");
+            return failed("Not allowed: only the trip's managers and lodging admins can edit lodging options.");
         }
-        if (form == null || form.getName() == null || form.getName().isBlank()) {
-            return failed("An offer needs a name.");
+        if (form == null) {
+            return failed("Nothing to save.");
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         if (!tripId.equals(trip.getId())) {
@@ -1186,9 +1230,22 @@ public class LodgingCommands {
         if (acc == null || acc.isRetired()) {
             return failed("Choose an accommodation.");
         }
-        if (acc.roomType(form.getRoomTypeId()) == null) {
-            return failed("Choose a room type.");
+        final List<String> typeIds = new ArrayList<>(new LinkedHashSet<>(form.getRoomTypeIds()));
+        typeIds.removeIf(id -> id == null || id.isBlank());
+        if (typeIds.isEmpty()) {
+            return failed("Choose at least one room type.");
         }
+        for (final String typeId : typeIds) {
+            if (acc.roomType(typeId) == null) {
+                return failed("That room type is not at " + acc.getName() + ".");
+            }
+        }
+        form.setRoomTypeIds(typeIds);
+        suggestOfferName(form);
+        if (form.getName() == null || form.getName().isBlank()) {
+            return failed("A lodging option needs a name.");
+        }
+        form.resolveDates();
         final String problem = offerProblem(form);
         if (problem != null) {
             return failed(problem);
@@ -1198,12 +1255,13 @@ public class LodgingCommands {
                 : DAO.getInstance().getReservationOffer(tripId, ReservationOffer.Id.from(form.getId()), Cached.NO)
                         .orElse(null);
         if (offer == null) {
-            return failed("This offer no longer exists.");
+            return failed("This lodging option no longer exists.");
         }
         final String eventId = resolveEvent(trip, form, acc);
         if (eventId == null) {
             return false;
         }
+        final boolean editing = offer.getVersion() > 0L;
         applyOfferForm(offer, form, acc, eventId);
         if (offer.getVersion() == 0L) {
             offer.setOrgId(trip.getOrgId());
@@ -1212,19 +1270,49 @@ public class LodgingCommands {
         }
         try {
             if (!DAO.getInstance().saveReservationOffer(offer)) {
-                return failed("The offer could not be saved.");
+                return failed("The lodging option could not be saved.");
             }
         } catch (final ConditionalCheckFailedException ex) {
             return failed("Saved by someone else: reload the page and try again.");
         } catch (final IOException ex) {
             log.error("Unable to save offer {}", offer.getId(), ex);
-            return failed("The offer could not be saved: " + ex.getMessage());
+            return failed("The lodging option could not be saved: " + ex.getMessage());
         }
         recordOrgUse(acc, trip);
         auditSource.get().lodging(AuditEventBuilder.TARGET_OFFER, offer.getId().getValue(), trip.getOrgId(),
-                "Saved offer '" + offer.getName() + "' (" + acc.getName() + ") on '" + trip.getTitle() + "'",
+                "Saved lodging option '" + offer.getName() + "' (" + acc.getName() + ") on '" + trip.getTitle() + "'",
                 caller().auditActor());
+        if (editing) {
+            recomputeAfterOfferEdit(trip, offer);
+        }
         return true;
+    }
+
+    /**
+     * An edited option (price, supplement, per-night overrides) changes what its reservations cost: recompute
+     * every ACTIVE reservation on it, by room where placed, when automatic recompute is on.
+     */
+    private void recomputeAfterOfferEdit(final Trip trip, final ReservationOffer offer) {
+        if (!autoRecompute(trip.getOrgId())) {
+            warn("Lodging bills were not recomputed (automatic recompute is off): press Recompute.");
+            return;
+        }
+        final Set<String> rooms = new LinkedHashSet<>();
+        LodgingBiller.Result total = LodgingBiller.Result.none();
+        for (final Reservation res : DAO.getInstance().getReservations(trip.getId(), Cached.NO)) {
+            if (!res.isActive() || !offer.getId().equals(res.getOfferId())) {
+                continue;
+            }
+            if (res.getRoomId() == null) {
+                total = total.plus(recomputeOne(trip.getId(), res));
+            } else if (rooms.add(res.getRoomId())) {
+                total = total.plus(recomputeRoom(trip.getId(), res.getRoomId()));
+            }
+        }
+        if (total.written() > 0 || total.removed() > 0) {
+            auditSource.get().lodging(AuditEventBuilder.TARGET_OFFER, offer.getId().getValue(), trip.getOrgId(),
+                    "Lodging bills recomputed after the option changed: " + total.summary(), caller().auditActor());
+        }
     }
 
     private static String offerProblem(final OfferForm form) {
@@ -1234,9 +1322,17 @@ public class LodgingCommands {
         if (form.getSingleSupplement() != null && form.getSingleSupplement() < 0) {
             return "The single supplement cannot be negative.";
         }
+        if (form.getValidFrom() != null && form.getValidUntil() != null
+                && !form.getValidUntil().isAfter(form.getValidFrom())) {
+            return "The option's last date must be after its first.";
+        }
         if (form.getDefaultStart() == null || form.getDefaultEnd() == null
                 || !form.getDefaultEnd().isAfter(form.getDefaultStart())) {
-            return "The default check-out must be after the default check-in.";
+            return "The default departure must be after the default arrival.";
+        }
+        if ((form.getValidFrom() != null && form.getDefaultStart().isBefore(form.getValidFrom()))
+                || (form.getValidUntil() != null && form.getDefaultEnd().isAfter(form.getValidUntil()))) {
+            return "The default stay must lie within the option's date range.";
         }
         if (form.getCancelFeeAmount() != null && form.getCancelFeeAmount() < 0) {
             return "The cancellation fee cannot be negative.";
@@ -1300,7 +1396,7 @@ public class LodgingCommands {
             final String eventId) {
         offer.setName(form.getName().trim());
         offer.setAccommodationId(acc.getId());
-        offer.setRoomTypeId(form.getRoomTypeId());
+        offer.setRoomTypeIds(new ArrayList<>(form.getRoomTypeIds()));
         offer.setTripEventId(eventId);
         offer.setPricingModel("PER_PERSON".equals(form.getPricingModel()) ? PricingModel.PER_PERSON
                 : PricingModel.PER_ROOM);
@@ -1507,6 +1603,7 @@ public class LodgingCommands {
         form.setRoomId(res.getRoomId());
         form.setNotes(res.getNotes());
         form.setWaiveSingleSupplement(res.isSupplementWaived());
+        form.fillRanges();
         return form;
     }
 
@@ -1517,6 +1614,7 @@ public class LodgingCommands {
         }
         form.setStart(offer.getDefaultStart());
         form.setEnd(offer.getDefaultEnd());
+        form.fillRanges();
     }
 
     /**
@@ -1535,9 +1633,10 @@ public class LodgingCommands {
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         final ReservationOffer offer = (form == null) ? null : findOffer(tripId, form.getOfferId());
         if (!tripId.equals(trip.getId()) || offer == null) {
-            failed("Choose an offer.");
+            failed("Choose a lodging option.");
             return 0;
         }
+        form.resolveDates();
         final List<Person.Id> people = new ArrayList<>();
         for (final String id : new LinkedHashSet<>(form.getPersonIds())) {
             people.add(Person.Id.from(id));
@@ -1594,14 +1693,15 @@ public class LodgingCommands {
             }
         }
         if (start == null || end == null || !end.isAfter(start)) {
-            return "Check-out must be after check-in.";
+            return "Departure must be after arrival.";
         }
         if (Reservation.nightsBetween(start, end) < offer.getMinNights()) {
             return "'" + offer.getName() + "' requires at least " + offer.getMinNights()
                     + (offer.getMinNights() == 1 ? " night." : " nights.");
         }
-        if (!offer.isOpenAt(LocalDateTime.now())) {
-            warn("'" + offer.getName() + "' is outside its offer window; reserved anyway.");
+        if (!offer.coversStay(start, end)) {
+            return "The stay must fall within the dates of '" + offer.getName() + "' ("
+                    + range(offer.getValidFrom(), offer.getValidUntil()) + "); widen the option's dates first.";
         }
         return null;
     }
@@ -1627,6 +1727,7 @@ public class LodgingCommands {
         if (people.isEmpty()) {
             return failed("A reservation needs at least one person.");
         }
+        form.resolveDates();
         final String problem = stayProblem(trip, offer, people, form.getStart(), form.getEnd());
         if (problem != null) {
             return failed(problem);
@@ -1710,8 +1811,8 @@ public class LodgingCommands {
             publishParam("overCapacityMsg", msg);
             return outcome(false, true, msg, personId, res.getVersion() == 0L ? "" : res.getId().getValue(), roomId);
         }
-        if (type != null && type.getName() != null && !room.getRoomTypeId().equals(offer.getRoomTypeId())) {
-            warn("Room " + room.getRoomNumber() + " is a " + type.getName() + ", not the offer's room type.");
+        if (type != null && type.getName() != null && !offer.covers(room.getRoomTypeId())) {
+            warn("Room " + room.getRoomNumber() + " is a " + type.getName() + ", not one of the option's room types.");
         }
         final String previousRoom = res.getRoomId();
         res.setRoomId(roomId);
@@ -2035,8 +2136,12 @@ public class LodgingCommands {
         board.setAccommodationId(acc.getId().getValue());
         board.setAccommodationName(acc.getName());
         board.setFloors(sortedFloors(acc));
-        final LocalDateTime from = (winStart == null) ? offer.getDefaultStart() : winStart;
-        final LocalDateTime to = (winEnd == null) ? offer.getDefaultEnd() : winEnd;
+        // The window defaults to the option's whole date range, which every stay on it lies within (a second
+        // stay on other dates was invisible while the default was the default stay alone).
+        final LocalDateTime from = (winStart != null) ? winStart
+                : (offer.getValidFrom() != null ? offer.getValidFrom() : offer.getDefaultStart());
+        final LocalDateTime to = (winEnd != null) ? winEnd
+                : (offer.getValidUntil() != null ? offer.getValidUntil() : offer.getDefaultEnd());
         final List<Reservation> all = DAO.getInstance().getReservations(tripId, Cached.NO);
         final Map<String, List<Reservation>> byRoom = new HashMap<>();
         final Set<Person.Id> housed = new HashSet<>();
@@ -2174,7 +2279,7 @@ public class LodgingCommands {
             final Room room = (acc == null) ? null : acc.room(res.getRoomId());
             // The ASSIGNED room's type when there is one (a Triple stays a Triple), else the offer's.
             final String typeId = (room != null) ? room.getRoomTypeId()
-                    : (offer == null ? null : offer.getRoomTypeId());
+                    : (offer == null ? null : offer.firstRoomTypeId());
             final RoomType type = (acc == null) ? null : acc.roomType(typeId);
             for (final Person.Id person : res.getOccupants()) {
                 reserved.add(person);
@@ -2326,7 +2431,7 @@ public class LodgingCommands {
                 }
                 final Room room = acc.room(res.getRoomId());
                 final RoomType type = acc.roomType(room != null ? room.getRoomTypeId()
-                        : (offer == null ? null : offer.getRoomTypeId()));
+                        : (offer == null ? null : offer.firstRoomTypeId()));
                 if (type != null) {
                     row.setRoomTypeName(type.getName());
                 }

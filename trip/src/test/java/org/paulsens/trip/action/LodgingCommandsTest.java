@@ -35,6 +35,7 @@ import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
@@ -336,7 +337,7 @@ public class LodgingCommandsTest {
         final OfferForm offerForm = new OfferForm();
         offerForm.setName("Double room " + RandomData.genAlpha(4));
         offerForm.setAccommodationId(accId);
-        offerForm.setRoomTypeId(typeId);
+        offerForm.setRoomTypeIds(new ArrayList<>(List.of(typeId)));
         offerForm.setTripEventId(OfferForm.NEW_EVENT);
         offerForm.setPricingModel("PER_ROOM");
         offerForm.setNightlyPrice(120.0);
@@ -359,7 +360,7 @@ public class LodgingCommandsTest {
         final OfferForm offerForm = new OfferForm();
         offerForm.setName("Double room");
         offerForm.setAccommodationId(stay.accId());
-        offerForm.setRoomTypeId(stay.typeId());
+        offerForm.setRoomTypeIds(new ArrayList<>(List.of(stay.typeId())));
         offerForm.setTripEventId(OfferForm.NEW_EVENT);
         offerForm.setNightlyPrice(120.0);
         offerForm.setDefaultStart(CHECK_IN);
@@ -425,7 +426,7 @@ public class LodgingCommandsTest {
         final OfferForm single = admin.offerFormFor(trip.getId(), null);
         single.setName("Single room");
         single.setAccommodationId(stay.accId());
-        single.setRoomTypeId(stay.typeId());
+        single.setRoomTypeIds(new ArrayList<>(List.of(stay.typeId())));
         single.setTripEventId(event.getId());
         single.setPricingModel("PER_PERSON");
         single.setNightlyPrice(55.0);
@@ -721,9 +722,9 @@ public class LodgingCommandsTest {
         form.getPerNight().put("2027-09-21", "abc");
         assertFalse(admin.saveOffer(trip.getId(), form), "Not a price");
         form.getPerNight().put("2027-09-21", "5");
-        form.setRoomTypeId("nope");
+        form.setRoomTypeIds(new ArrayList<>(List.of("nope")));
         assertFalse(admin.saveOffer(trip.getId(), form), "Unknown room type");
-        form.setRoomTypeId(stay.typeId());
+        form.setRoomTypeIds(new ArrayList<>(List.of(stay.typeId())));
         form.setId(ReservationOffer.Id.newInstance().getValue());
         assertFalse(admin.saveOffer(trip.getId(), form), "Editing an offer that no longer exists");
 
@@ -734,7 +735,7 @@ public class LodgingCommandsTest {
         final OfferForm onBus = admin.offerFormFor(trip.getId(), null);
         onBus.setName("On the bus");
         onBus.setAccommodationId(stay.accId());
-        onBus.setRoomTypeId(stay.typeId());
+        onBus.setRoomTypeIds(new ArrayList<>(List.of(stay.typeId())));
         onBus.setTripEventId(busId);
         onBus.setDefaultStart(CHECK_IN);
         onBus.setDefaultEnd(CHECK_OUT);
@@ -757,7 +758,7 @@ public class LodgingCommandsTest {
         final OfferForm theirOffer = admin.offerFormFor(theirs.getId(), null);
         theirOffer.setName("Their double");
         theirOffer.setAccommodationId(sharedId);
-        theirOffer.setRoomTypeId(admin.roomTypeRows(sharedId).get(0).getId());
+        theirOffer.setRoomTypeIds(new ArrayList<>(List.of(admin.roomTypeRows(sharedId).get(0).getId())));
         theirOffer.setDefaultStart(CHECK_IN);
         theirOffer.setDefaultEnd(CHECK_OUT);
         assertTrue(admin.saveOffer(theirs.getId(), theirOffer));
@@ -770,7 +771,7 @@ public class LodgingCommandsTest {
         // Deleting a room someone actively occupies is refused (the scan spans every trip using the hotel).
         final ReservationForm res = admin.reservationFormFor(theirs.getId(), null);
         res.setPersonIds(List.of(bob.getId().getValue()));
-        assertEquals(admin.bulkAddRooms(sharedId, "", 1, 1, "1", theirOffer.getRoomTypeId()), 1);
+        assertEquals(admin.bulkAddRooms(sharedId, "", 1, 1, "1", theirOffer.getRoomTypeIds().get(0)), 1);
         final String room1 = admin.roomRows(sharedId).get(0).getId();
         res.setRoomId(room1);
         assertEquals(admin.createReservations(theirs.getId(), res), 1);
@@ -814,5 +815,185 @@ public class LodgingCommandsTest {
                 .birthdate(java.time.LocalDate.of(1990, 5, 5)).build();
         assertTrue(DAO.getInstance().savePerson(person));
         return person;
+    }
+
+    // ------------------------------------------------------------------ 2026-09-07 round: options and the board
+
+    /** An option sells several room types, names itself after them, and keeps its default stay inside its dates. */
+    @Test
+    public void optionsSellSeveralRoomTypesNameThemselvesAndKeepTheDefaultStayInsideTheirDates() {
+        final Stay stay = stay(false);
+        final RoomTypeForm triple = new RoomTypeForm();
+        triple.setName("Triple");
+        triple.setMinPeople(1);
+        triple.setMaxPeople(3);
+        assertTrue(admin.saveRoomType(stay.accId(), triple));
+        final String tripleId = admin.roomTypeRows(stay.accId()).get(1).getId();
+
+        final OfferForm form = admin.offerFormFor(trip.getId(), null);
+        assertEquals(form.getValidFrom(), trip.getStartDate().toLocalDate().atStartOfDay(),
+                "a new option covers the trip's dates");
+        assertEquals(form.getDefaultRange().size(), 2, "and the pickers are pre-filled");
+        form.setAccommodationId(stay.accId());
+        form.setRoomTypeIds(new ArrayList<>(List.of(stay.typeId(), tripleId)));
+        admin.suggestOfferName(form);
+        assertEquals(form.getName(), "Double / Triple room", "the name follows the room types while blank");
+        form.setName("Keep me");
+        admin.suggestOfferName(form);
+        assertEquals(form.getName(), "Keep me", "a typed name is never overwritten");
+        form.setName("");
+        form.setNightlyPrice(80.0);
+        // The default stay outside the option's dates is the bug of 2026-09-07: refused now.
+        form.setDefaultStart(trip.getStartDate().minusDays(3));
+        form.setDefaultEnd(trip.getStartDate().plusDays(1));
+        assertFalse(admin.saveOffer(trip.getId(), form), "a default stay outside the option's dates is refused");
+        form.setDefaultStart(CHECK_IN);
+        form.setDefaultEnd(CHECK_OUT);
+        assertTrue(admin.saveOffer(trip.getId(), form));
+        final ReservationOffer offer = admin.getOffers(trip.getId()).stream()
+                .filter(o -> o.getName().equals("Double / Triple room")).findFirst().orElseThrow();
+        assertEquals(offer.getRoomTypeIds(), List.of(stay.typeId(), tripleId));
+        assertTrue(offer.covers(tripleId));
+        assertEquals(offer.firstRoomTypeId(), stay.typeId());
+        assertEquals(admin.offerRows(trip.getId()).stream().filter(r -> r.getId().equals(offer.getId().getValue()))
+                .findFirst().orElseThrow().getRoomTypeName(), "Double / Triple");
+        // The pickers read back what the date-times say, and the dialog's shape writes the date-times.
+        final OfferForm edit = admin.offerFormFor(trip.getId(), offer.getId().getValue());
+        assertEquals(edit.getDefaultRange(), List.of(CHECK_IN.toLocalDate(), CHECK_OUT.toLocalDate()));
+        assertEquals(edit.getArrivalTime(), CHECK_IN.toLocalTime());
+        edit.setDefaultRange(List.of(CHECK_IN.toLocalDate().plusDays(1), CHECK_OUT.toLocalDate()));
+        edit.setArrivalTime(java.time.LocalTime.of(16, 30));
+        assertEquals(edit.getDefaultStart(), CHECK_IN.toLocalDate().plusDays(1).atTime(16, 30));
+        assertTrue(admin.saveOffer(trip.getId(), edit));
+        assertEquals(admin.findOffer(trip.getId(), offer.getId().getValue()).getDefaultStart(),
+                CHECK_IN.toLocalDate().plusDays(1).atTime(16, 30));
+        // Back to the shared fixture's dates: the trip's first option is what other tests' forms default from.
+        edit.setDefaultStart(CHECK_IN);
+        edit.setDefaultEnd(CHECK_OUT);
+        assertTrue(admin.saveOffer(trip.getId(), edit));
+
+        // A stay outside the option's dates is refused too, with the dates in the message.
+        final ReservationForm res = admin.reservationFormFor(trip.getId(), null);
+        res.setOfferId(offer.getId().getValue());
+        res.setPersonIds(List.of(ada.getId().getValue()));
+        res.setStart(trip.getStartDate().minusDays(2));
+        res.setEnd(CHECK_OUT);
+        assertEquals(admin.createReservations(trip.getId(), res), 0, "outside the option's dates");
+        res.setRange(List.of(CHECK_IN.toLocalDate(), CHECK_OUT.toLocalDate()));
+        res.setArrivalTime(java.time.LocalTime.of(14, 0));
+        assertEquals(res.getStart(), CHECK_IN.toLocalDate().atTime(14, 0), "the range picker sets the dates");
+        assertEquals(admin.createReservations(trip.getId(), res), 1);
+    }
+
+    /** Editing an option's price recomputes the bills of its reservations (no Recompute press needed). */
+    @Test
+    public void editingAnOptionRecomputesItsReservationsBills() {
+        final Stay stay = stay(true);
+        final ReservationForm res = admin.reservationFormFor(trip.getId(), null);
+        res.setOfferId(stay.offer().getId().getValue());
+        res.setPersonIds(List.of(cy.getId().getValue()));
+        res.setStart(CHECK_IN);
+        res.setEnd(CHECK_OUT);
+        assertEquals(admin.createReservations(trip.getId(), res), 1);
+        final Reservation cyRes = admin.activeReservationsFor(trip.getId(), cy.getId()).stream()
+                .filter(r -> r.getOfferId().equals(stay.offer().getId())).findFirst().orElseThrow();
+        final LodgingBiller biller = new LodgingBiller(new TransactionsCommands());
+        assertEquals(biller.billedByPerson(cyRes), Map.of(cy.getId(), 3 * 12000L));
+
+        final OfferForm edit = admin.offerFormFor(trip.getId(), stay.offer().getId().getValue());
+        edit.setNightlyPrice(100.0);
+        assertTrue(admin.saveOffer(trip.getId(), edit));
+        assertEquals(biller.billedByPerson(cyRes), Map.of(cy.getId(), 3 * 10000L),
+                "the bill follows the option's new price without an explicit recompute");
+    }
+
+    /**
+     * One person, two reservations on disjoint dates (a valid shape): both stand on the board as their own
+     * card, each is placed on its own, and the board counts both rooms because its window is the option's
+     * whole date range, not the default stay.
+     */
+    @Test
+    public void twoStaysForOnePersonAreTwoCardsPlacedSeparately() {
+        final Stay stay = stay(true);
+        final OfferForm widen = admin.offerFormFor(trip.getId(), stay.offer().getId().getValue());
+        widen.setValidFrom(CHECK_IN.minusDays(10));
+        widen.setValidUntil(CHECK_OUT.plusDays(10));
+        widen.setMinNights(1);
+        assertTrue(admin.saveOffer(trip.getId(), widen));
+        final ReservationForm first = admin.reservationFormFor(trip.getId(), null);
+        first.setOfferId(stay.offer().getId().getValue());
+        first.setPersonIds(List.of(bob.getId().getValue()));
+        first.setStart(CHECK_IN);
+        first.setEnd(CHECK_OUT);
+        assertEquals(admin.createReservations(trip.getId(), first), 1);
+        final ReservationForm second = admin.reservationFormFor(trip.getId(), null);
+        second.setOfferId(stay.offer().getId().getValue());
+        second.setPersonIds(List.of(bob.getId().getValue()));
+        second.setStart(CHECK_OUT.plusDays(3));
+        second.setEnd(CHECK_OUT.plusDays(5));
+        assertEquals(admin.createReservations(trip.getId(), second), 1);
+
+        RoomBoard board = admin.roomBoard(trip.getId(), stay.offer().getId().getValue(), null, null);
+        final List<String> bobCards = board.getUnassigned().stream()
+                .filter(c -> c.getPersonId().equals(bob.getId().getValue())).map(c -> c.getReservationId()).toList();
+        assertEquals(bobCards.size(), 2, "two stays, two cards");
+        assertNotEquals(bobCards.get(0), bobCards.get(1), "each card carries its own reservation");
+
+        assertTrue(admin.assignRoom(trip.getId(), stay.offer().getId().getValue(), bob.getId().getValue(),
+                bobCards.get(0), stay.r101(), false, null, null).isAssigned());
+        assertTrue(admin.assignRoom(trip.getId(), stay.offer().getId().getValue(), bob.getId().getValue(),
+                bobCards.get(1), stay.r102(), false, null, null).isAssigned());
+        board = admin.roomBoard(trip.getId(), stay.offer().getId().getValue(), null, null);
+        assertEquals(board.getUnassigned().stream().filter(c -> c.getPersonId().equals(bob.getId().getValue()))
+                .count(), 0L, "both placed");
+        final RoomCell r101 = board.getRooms().stream().filter(c -> c.getRoomId().equals(stay.r101())).findFirst()
+                .orElseThrow();
+        final RoomCell r102 = board.getRooms().stream().filter(c -> c.getRoomId().equals(stay.r102())).findFirst()
+                .orElseThrow();
+        assertEquals(r101.getCount(), 1, "the first stay shows in 101");
+        assertEquals(r102.getCount(), 1, "the second stay, on later dates, shows in 102 as well");
+        assertEquals(admin.findReservation(trip.getId(), bobCards.get(1)).getRoomId(), stay.r102());
+    }
+
+    /** Toggling the single-supplement waiver on a solo reservation changes the bill, placed or not. */
+    @Test
+    public void waivingTheSupplementChangesTheBillEitherWay() {
+        final Stay stay = stay(false);
+        final OfferForm single = admin.offerFormFor(trip.getId(), null);
+        single.setName("Solo " + RandomData.genAlpha(4));
+        single.setAccommodationId(stay.accId());
+        single.setRoomTypeIds(new ArrayList<>(List.of(stay.typeId())));
+        single.setPricingModel("PER_PERSON");
+        single.setNightlyPrice(70.0);
+        single.setSingleSupplement(20.0);
+        single.setDefaultStart(CHECK_IN);
+        single.setDefaultEnd(CHECK_OUT);
+        assertTrue(admin.saveOffer(trip.getId(), single));
+        final ReservationOffer offer = admin.getOffers(trip.getId()).stream()
+                .filter(o -> o.getName().equals(single.getName())).findFirst().orElseThrow();
+        final ReservationForm res = admin.reservationFormFor(trip.getId(), null);
+        res.setOfferId(offer.getId().getValue());
+        res.setPersonIds(List.of(ada.getId().getValue()));
+        res.setStart(CHECK_IN);
+        res.setEnd(CHECK_OUT);
+        assertEquals(admin.createReservations(trip.getId(), res), 1);
+        final Reservation adaRes = admin.activeReservationsFor(trip.getId(), ada.getId()).stream()
+                .filter(r -> r.getOfferId().equals(offer.getId())).findFirst().orElseThrow();
+        final LodgingBiller biller = new LodgingBiller(new TransactionsCommands());
+        assertEquals(biller.billedByPerson(adaRes), Map.of(ada.getId(), 3 * 9000L), "alone, unplaced: $70 + $20");
+
+        final ReservationForm edit = admin.reservationFormFor(trip.getId(), adaRes.getId().getValue());
+        edit.setWaiveSingleSupplement(true);
+        assertTrue(admin.updateReservation(trip.getId(), edit));
+        assertEquals(biller.billedByPerson(adaRes), Map.of(ada.getId(), 3 * 7000L), "waived: $70");
+        final ReservationForm back = admin.reservationFormFor(trip.getId(), adaRes.getId().getValue());
+        assertTrue(back.isWaiveSingleSupplement(), "the waiver is stored");
+        back.setWaiveSingleSupplement(false);
+        assertTrue(admin.updateReservation(trip.getId(), back));
+        assertEquals(biller.billedByPerson(adaRes), Map.of(ada.getId(), 3 * 9000L), "reinstated: $90 again");
+        // Placed alone in a room: still alone, still the supplement; placed with someone: gone.
+        assertTrue(admin.assignRoom(trip.getId(), offer.getId().getValue(), ada.getId().getValue(),
+                adaRes.getId().getValue(), stay.r101(), false, null, null).isAssigned());
+        assertEquals(biller.billedByPerson(adaRes), Map.of(ada.getId(), 3 * 9000L));
     }
 }

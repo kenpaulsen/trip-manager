@@ -471,7 +471,7 @@ public class PaymentCommandsTest {
     // ------------------------------------------------------------------ helpers
 
     private Trip trip() {
-        return DAO.getInstance().getTrip("faketrip", Cached.NO).orElseThrow();
+        return DAO.getInstance().getTrip(FakeData.FAKE_TRIP_ID, Cached.NO).orElseThrow();
     }
 
     private static String paymentIdFrom(final String approvalUrl) {

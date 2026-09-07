@@ -121,7 +121,9 @@ public final class LodgingPricing {
             final long price = offer.nightlyPriceCents(night);
             if (offer.isPerPerson()) {
                 amount += price;
-                if (reservation.isAssigned() && present.size() == 1 && !reservation.isSupplementWaived()
+                // Alone that night: the sole occupant of their room, or a one-person reservation not yet
+                // placed (its own occupants are all that is known; placing them with someone recomputes).
+                if (present.size() == 1 && !reservation.isSupplementWaived()
                         && offer.getSingleSupplementCents() > 0) {
                     amount += offer.getSingleSupplementCents();
                     supplementNights++;
@@ -147,11 +149,13 @@ public final class LodgingPricing {
         final StringBuilder sb = new StringBuilder("Lodging: ").append(offer.getName());
         if (accommodation != null) {
             sb.append(" — ").append(accommodation.getName());
-            final RoomType type = accommodation.roomType(offer.getRoomTypeId());
+            // The ASSIGNED room's type when there is one (an option may sell several), else the option's first.
+            final Room room = accommodation.room(reservation.getRoomId());
+            final RoomType type = accommodation.roomType(room != null ? room.getRoomTypeId()
+                    : offer.firstRoomTypeId());
             if (type != null) {
                 sb.append(", ").append(type.getName());
             }
-            final Room room = accommodation.room(reservation.getRoomId());
             if (room != null) {
                 sb.append(", Room ").append(room.getRoomNumber());
             }

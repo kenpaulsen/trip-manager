@@ -60,12 +60,12 @@ public class ReservationOfferTest {
         assertTrue(offer.hasCancellationFee());
         assertTrue(ReservationOffer.builder().cancelFeeFixedCents(100L).build().hasCancellationFee());
         assertFalse(ReservationOffer.builder().cancelFeeFixedCents(0L).cancelFeeBps(0).build().hasCancellationFee());
-        assertTrue(offer.isOpenAt(AT));
-        assertTrue(offer.isOpenAt(AT.plusDays(10)));
-        assertFalse(offer.isOpenAt(AT.minusMinutes(1)));
-        assertFalse(offer.isOpenAt(AT.plusDays(10).plusMinutes(1)));
-        assertFalse(offer.isOpenAt(null));
-        assertTrue(ReservationOffer.builder().build().isOpenAt(AT), "Unset bounds are open");
+        assertTrue(offer.coversStay(AT, AT.plusDays(10)));
+        assertTrue(offer.coversStay(AT.plusDays(2), AT.plusDays(5)));
+        assertFalse(offer.coversStay(AT.minusMinutes(1), AT.plusDays(5)));
+        assertFalse(offer.coversStay(AT, AT.plusDays(10).plusMinutes(1)));
+        assertFalse(offer.coversStay(null, AT));
+        assertTrue(ReservationOffer.builder().build().coversStay(AT, AT.plusDays(400)), "Unset bounds are open");
         assertTrue(ReservationOffer.builder().disabled(false).build().isEnabled());
     }
 

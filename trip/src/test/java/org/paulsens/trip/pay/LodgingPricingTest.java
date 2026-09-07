@@ -72,17 +72,24 @@ public class LodgingPricingTest {
     }
 
     @Test
-    public void supplementIsNeverChargedWhenWaivedUnassignedOrPerRoom() {
+    public void supplementFollowsBeingAloneAndIsNeverChargedWhenWaivedOrPerRoom() {
         final ReservationOffer offer = perPerson(5500, 2000);
         final Reservation waived = reservation(List.of(ADA), 0, 3, "r-114");
         waived.setWaiveSingleSupplement(true);
         assertEquals(LodgingPricing.price(waived, offer, PANSION, List.of(waived), NAMES::get).get(0)
                 .amountCents(), 3 * 5500L, "Waived: the plain per-person rate");
+        // Not placed yet, and alone on the reservation: alone every night until someone joins the room.
         final Reservation unassigned = reservation(List.of(ADA), 0, 3, null);
         final LodgingPricing.Line line = LodgingPricing.price(unassigned, offer, PANSION, null, NAMES::get).get(0);
-        assertEquals(line.amountCents(), 3 * 5500L, "No room yet: no supplement");
+        assertEquals(line.amountCents(), 3 * 7500L, "No room yet, one person: the supplement applies");
         assertEquals(line.description(), "Lodging: Double room — Pansion, Double: 3 nights Sep 21–Sep 24, 2026, "
-                + "$55.00/night per person");
+                + "$55.00/night per person, + single supplement $20.00 × 3 nights");
+        unassigned.setWaiveSingleSupplement(true);
+        assertEquals(LodgingPricing.price(unassigned, offer, PANSION, null, NAMES::get).get(0).amountCents(),
+                3 * 5500L, "...and the waiver removes it again");
+        final Reservation pair = reservation(List.of(ADA, BOB), 0, 3, null);
+        assertEquals(LodgingPricing.price(pair, offer, PANSION, null, NAMES::get).get(0).amountCents(),
+                3 * 5500L, "Two on one unplaced reservation are not alone");
         final ReservationOffer perRoom = perRoom(12000);
         perRoom.setSingleSupplementCents(2000);
         final Reservation solo = reservation(List.of(ADA), 0, 1, "r-114");

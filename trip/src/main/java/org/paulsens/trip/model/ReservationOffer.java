@@ -8,7 +8,9 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.Builder;
@@ -40,7 +42,8 @@ public final class ReservationOffer implements Serializable {
     private OfferType type;
     private String name;
     private Accommodation.Id accommodationId;
-    private String roomTypeId;
+    /** The room types this option sells (several often share one price); never empty once saved. */
+    private List<String> roomTypeIds;
     private String tripEventId;
     private PricingModel pricingModel;
     private long nightlyPriceCents;
@@ -70,6 +73,7 @@ public final class ReservationOffer implements Serializable {
             @JsonProperty("name") final String name,
             @JsonProperty("accommodationId") final Accommodation.Id accommodationId,
             @JsonProperty("roomTypeId") final String roomTypeId,
+            @JsonProperty("roomTypeIds") final List<String> roomTypeIds,
             @JsonProperty("tripEventId") final String tripEventId,
             @JsonProperty("pricingModel") final PricingModel pricingModel,
             @JsonProperty("nightlyPriceCents") final long nightlyPriceCents,
@@ -93,7 +97,14 @@ public final class ReservationOffer implements Serializable {
         this.type = (type == null) ? OfferType.LODGING : type;
         this.name = (name == null) ? null : name.trim();
         this.accommodationId = accommodationId;
-        this.roomTypeId = roomTypeId;
+        // roomTypeId is the single-type shape rows were first written in; it folds into the list.
+        this.roomTypeIds = new ArrayList<>();
+        if (roomTypeIds != null) {
+            this.roomTypeIds.addAll(roomTypeIds);
+        }
+        if (roomTypeId != null && !roomTypeId.isBlank() && !this.roomTypeIds.contains(roomTypeId)) {
+            this.roomTypeIds.add(0, roomTypeId);
+        }
         this.tripEventId = tripEventId;
         this.pricingModel = (pricingModel == null) ? PricingModel.PER_ROOM : pricingModel;
         this.nightlyPriceCents = Math.max(0L, nightlyPriceCents);
@@ -115,8 +126,8 @@ public final class ReservationOffer implements Serializable {
     }
 
     public ReservationOffer() {
-        this(null, null, null, null, null, null, null, null, null, 0L, null, 0L, 0, null, null, null, null, null,
-                null, null, null, null, null, 0L);
+        this(null, null, null, null, null, null, null, null, null, null, 0L, null, 0L, 0, null, null, null, null,
+                null, null, null, null, null, null, 0L);
     }
 
     /** The price of one night: the per-date override when one exists, else the flat rate. */
@@ -143,13 +154,28 @@ public final class ReservationOffer implements Serializable {
                 || (cancelFeeBps != null && cancelFeeBps > 0);
     }
 
-    /** True inside [validFrom, validUntil]; an unset bound is open. */
-    @JsonIgnore
-    public boolean isOpenAt(final LocalDateTime when) {
-        if (when == null) {
+    /**
+     * Whether a stay lies within the option's date range ({@code validFrom}..{@code validUntil}, the dates the
+     * option covers; an unset bound is open). The default stay must lie within it, and so must every
+     * reservation.
+     */
+    public boolean coversStay(final LocalDateTime start, final LocalDateTime end) {
+        if (start == null || end == null) {
             return false;
         }
-        return (validFrom == null || !when.isBefore(validFrom)) && (validUntil == null || !when.isAfter(validUntil));
+        return (validFrom == null || !start.isBefore(validFrom)) && (validUntil == null || !end.isAfter(validUntil));
+    }
+
+    /** Whether the option sells this room type. */
+    @JsonIgnore
+    public boolean covers(final String roomTypeId) {
+        return roomTypeId != null && roomTypeIds.contains(roomTypeId);
+    }
+
+    /** The first room type, for the places that name ONE type (descriptions, legacy labels); null when none. */
+    @JsonIgnore
+    public String firstRoomTypeId() {
+        return roomTypeIds.isEmpty() ? null : roomTypeIds.get(0);
     }
 
     @Value

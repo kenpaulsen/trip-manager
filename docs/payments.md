@@ -149,7 +149,8 @@ restart). `FakeProcessor` + `trip/fakeCheckout.xhtml` drive the whole flow local
 ## Local mode seeds
 
 CFPW org (`FakeData.CFPW_ORG_ID`, same UUID as `org-migrate.sh`) holds every fake person; payment defaults
-= FAKE processor + payer-pays + donations on, so `faketrip` is payable out of the box. "Acme Inc" +
+= FAKE processor + payer-pays + donations on, so the Spring Demo seed (`FakeData.FAKE_TRIP_ID`) is
+payable out of the box. "Acme Inc" +
 Kevin/user3 as its NON-site-admin org admin is the tenant-isolation demo.
 
 ## Go-live (user-run, in order)

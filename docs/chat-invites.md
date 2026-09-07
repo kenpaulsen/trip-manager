@@ -58,7 +58,7 @@ Non-trip-members can participate in a trip's chat two ways (2026-08-12):
 ## Tests
 
 `ChatGuestAccessTest` (behavior), `ChatMembershipTest` (marker survival), `ChatInviteDAOTest` (rows),
-`ChatInvitePwIT` (browser end-to-end on Fake2: mint w/ QR, logged-out login round-trip, guest posts,
+`ChatInvitePwIT` (browser end-to-end on the Summer Demo seed: mint w/ QR, logged-out login round-trip, guest posts,
 guest-only Chat tab, admin badge + revoke).
 
 ## Ops

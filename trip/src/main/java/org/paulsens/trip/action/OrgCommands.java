@@ -1139,8 +1139,15 @@ public class OrgCommands {
                     + "organization. Add the person to the organization first.");
         }
         final PrivilegeCommands priv = privCommands();
-        final Privilege row = priv.getOrCreate(base, trip.getId(),
-                base + " for trip '" + trip.getTitle() + "'");
+        final Privilege row;
+        try {
+            row = priv.getOrCreate(base, trip.getId(), base + " for trip '" + trip.getTitle() + "'");
+        } catch (final IllegalArgumentException notStorable) {
+            // A trip whose id is not a canonical UUID cannot carry a scoped row (it would read back as
+            // GLOBAL): say so instead of 500-ing the page. The demo seeds carry UUIDs now, so this guards
+            // imported or hand-made rows -- it fired on the readable seed ids until 2026-09-07.
+            return fail("Not stored", notStorable.getMessage());
+        }
         final Privilege changed = granted ? row.withNewPerson(personId) : row.withoutPerson(personId);
         // Same-object means no membership change; skip the no-op save (and its "unchanged" audit row).
         return changed == row || priv.savePrivilege(changed, caller().auditActor());

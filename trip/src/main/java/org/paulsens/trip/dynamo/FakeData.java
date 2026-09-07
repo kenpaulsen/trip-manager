@@ -1,6 +1,7 @@
 package org.paulsens.trip.dynamo;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -10,6 +11,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import lombok.Getter;
@@ -124,8 +126,8 @@ public final class FakeData {
 
     /**
      * The lodging demo: "Pansion Dragićević" with the exact inventory the old hard-coded rooms page listed
-     * (floors 0, 1, 2; the notes are the pansion's own), one PER_ROOM offer on {@code faketrip} tracking the
-     * existing LODGING event {@code t1e2}, Dave (user5) alone in room 114 for the whole stay, and Matt (user6)
+     * (floors 0, 1, 2; the notes are the pansion's own), one PER_ROOM offer on the Spring Demo trip tracking
+     * its existing LODGING event, Dave (user5) alone in room 114 for the whole stay, and Matt (user6)
      * joining him four days later under his OWN reservation -- the late-arriver case the itinerary override
      * exists for. Bills recompute, so the local ledger shows lodging rows. Through the REAL writers, as a site
      * admin, and idempotent (the accommodation's fixed id is the guard). The two people are deliberately the
@@ -147,20 +149,20 @@ public final class FakeData {
         // Reservations are guarded separately: every initFakeData mints fresh person ids (the trips are
         // re-saved with them), so the CURRENT Dave and Matt must hold the demo reservations, whoever held
         // them under the previous ids.
-        final String offerId = lodging.defaultOfferId("faketrip");
+        final String offerId = lodging.defaultOfferId(FAKE_TRIP_ID);
         // From the static people list, not the email index: these are the ids the re-saved roster holds.
         final Person dave = fakePersona("user5");
         final Person matt = fakePersona("user6");
         if (offerId.isEmpty() || dave == null || matt == null) {
             throw new IllegalStateException("Fake lodging seed: the offer or the user5/user6 personas are missing");
         }
-        final org.paulsens.trip.model.ReservationOffer offer = lodging.findOffer("faketrip", offerId);
+        final org.paulsens.trip.model.ReservationOffer offer = lodging.findOffer(FAKE_TRIP_ID, offerId);
         final String room114 = lodging.findAccommodation(CFPW_ACCOMMODATION_ID).getRooms().stream()
                 .filter(room -> "114".equals(room.getRoomNumber())).findFirst().orElseThrow().getId();
-        if (lodging.activeReservationsFor("faketrip", dave.getId()).isEmpty()) {
+        if (lodging.activeReservationsFor(FAKE_TRIP_ID, dave.getId()).isEmpty()) {
             seedReservation(lodging, offer, dave, room114, 0, null);
         }
-        if (lodging.activeReservationsFor("faketrip", matt.getId()).isEmpty()) {
+        if (lodging.activeReservationsFor(FAKE_TRIP_ID, matt.getId()).isEmpty()) {
             seedReservation(lodging, offer, matt, room114, 4, "Arrives four days after the group (late flight).");
         }
     }
@@ -193,16 +195,18 @@ public final class FakeData {
                 new org.paulsens.trip.action.LodgingViews.OfferForm();
         offer.setName("Double room, shared");
         offer.setAccommodationId(CFPW_ACCOMMODATION_ID);
-        offer.setRoomTypeId(pansion.getRoomTypes().get(1).getId());
-        offer.setTripEventId("t1e2");
+        offer.setRoomTypeIds(new java.util.ArrayList<>(java.util.List.of(pansion.getRoomTypes().get(1).getId())));
+        offer.setTripEventId(FAKE_TRIP_LODGING_EVENT_ID);
         offer.setPricingModel("PER_ROOM");
         offer.setNightlyPrice(60.0);
+        offer.setValidFrom(LocalDateTime.now().plusDays(48).toLocalDate().atStartOfDay());
+        offer.setValidUntil(LocalDateTime.now().plusDays(60).toLocalDate().atTime(23, 59));
         offer.setDefaultStart(LocalDateTime.now().plusDays(48).withHour(15).withMinute(0).withSecond(0).withNano(0));
         offer.setDefaultEnd(LocalDateTime.now().plusDays(60).withHour(10).withMinute(0).withSecond(0).withNano(0));
         offer.setCancelFeeKind("PERCENT");
         offer.setCancelFeeAmount(10.0);
         offer.setPolicyHtml("<p>Cancellations within 30 days of arrival forfeit 10% of the stay.</p>");
-        if (!lodging.saveOffer("faketrip", offer)) {
+        if (!lodging.saveOffer(FAKE_TRIP_ID, offer)) {
             throw new IllegalStateException("Fake lodging seed: could not save the offer");
         }
     }
@@ -218,7 +222,7 @@ public final class FakeData {
         form.setEnd(offer.getDefaultEnd());
         form.setRoomId(roomId);
         form.setNotes(notes);
-        if (lodging.createReservations("faketrip", form) != 1) {
+        if (lodging.createReservations(FAKE_TRIP_ID, form) != 1) {
             throw new IllegalStateException("Fake lodging seed: could not reserve for " + who.getEmail());
         }
     }
@@ -271,7 +275,7 @@ public final class FakeData {
      * Gives the demo trips' chat channels limits no test run can trip.
      *
      * <p>The shipped burst limit is 5 messages per 10 SECONDS per person per channel, which is right for people
-     * and wrong for a test suite: half a dozen classes drive the same {@code faketrip} channel as the same
+     * and wrong for a test suite: half a dozen classes drive the Spring Demo trip's channel as the same
      * admin, some through the REST client and some by clicking Send on the page, and the server counts them all
      * against one bucket. The API client paces itself, but it cannot see the page-driven sends, so whether a
      * class overruns depends purely on how the classes interleave -- which is why this passed locally for
@@ -283,7 +287,7 @@ public final class FakeData {
      */
     private static void relaxChatLimitsForFakeTrips() {
         final ChatCommands chat = new ChatCommands();
-        for (final String tripId : List.of("faketrip", "Fake2")) {
+        for (final String tripId : List.of(FAKE_TRIP_ID, FAKE2_TRIP_ID)) {
             final ChatChannel channel = chat.ensureChannel(tripId, AuditActor.system());
             if (channel == null) {
                 continue;   // chat disabled for this trip; nothing to relax
@@ -402,6 +406,42 @@ public final class FakeData {
 
     /** Fixed id of the seeded Acme trip, so webtests and re-seeds agree (the fixed-UUID convention). */
     public static final String ACME_TRIP_ID = "3f7a9c15-6d28-4e0b-8a54-1c9e7b3d5f82";
+
+    /*
+     * The seeded trips, people and events carry FIXED, CANONICAL UUIDs -- the same shape production mints
+     * (Trip.builder, Person.Id.newInstance, TripEvent all use UUID.randomUUID). They were readable strings
+     * (a trip called "faketrip", an event "t1e2", the person "admin") from before ids became UUIDs, and that
+     * drift was not cosmetic: a privilege scoped to a non-UUID trip id reads back as GLOBAL, so
+     * Privilege.requireStorableScope refuses it, and every trip-role write on a demo trip threw instead of
+     * saving (trip/edit.jsf, seen 2026-09-06).
+     * Fixed rather than random so a re-seed, a bookmarked local URL and the webtests' mirrored copies
+     * (medjugorje/webtest .../pw/SeededIds.java) all keep agreeing.
+     */
+
+    /** "Spring Demo Trip": the CFPW demo trip most local pages and webtests work against. */
+    public static final String FAKE_TRIP_ID = "30692184-e927-4398-b8f9-a6e1eda1ea7b";
+    /** "Summer Demo Trip": the legacy-shaped seed (pre-migration state the modern API cannot create). */
+    public static final String FAKE2_TRIP_ID = "ba492733-ccc1-4be7-b542-d01469285f71";
+    /** The public, joinable seeds behind the landing page and the registration flows. */
+    public static final String PUB_EN_1_TRIP_ID = "707c4352-3f5e-498c-aac0-39859c729446";
+    public static final String PUB_EN_2_TRIP_ID = "81f829e0-d44c-4dd1-9a9c-76e741e15f09";
+    public static final String PUB_ES_1_TRIP_ID = "f0a65a39-3bca-4944-bc1b-87b51ffb0048";
+    public static final String PUB_EXT_1_TRIP_ID = "85463bdc-e751-4c31-99da-bd682a4d92fd";
+    public static final String PUB_PAST_3D_TRIP_ID = "496bfbde-cede-46fe-a533-c301cd9cf8b7";
+    public static final String PUB_PAST_30D_TRIP_ID = "3d1e0db4-03b4-465f-9f80-008191693b90";
+    public static final String PUB_HIDDEN_TRIP_ID = "d80b4653-b521-4547-8cf3-a0945f40314f";
+    /** The seeded site administrator ("admin"/"admin"); the only fake person with a fixed id. */
+    public static final String ADMIN_PERSON_ID = "0e24634e-bbd7-4ad7-9598-02e6f552c5fd";
+    /** The Spring trip's LODGING event: the lodging seed hangs its offer on this one. */
+    public static final String FAKE_TRIP_LODGING_EVENT_ID = "6564bba7-1b59-4431-ad41-377c019963c9";
+
+    private static final String FAKE_TRIP_PDX_EWR_EVENT_ID = "9cded809-0f4b-45c5-88a9-bd011ec40481";
+    private static final String FAKE_TRIP_CHARTER_EVENT_ID = "977c6c52-07b1-441e-9d49-4089602b9b60";
+    private static final String FAKE_TRIP_SEA_EWR_EVENT_ID = "17e18119-98a5-42ef-8a5e-b2d942426950";
+    private static final String FAKE_TRIP_SPU_SEA_EVENT_ID = "f981c3a4-36e4-49c6-99f8-67268ebf0cfb";
+    private static final String FAKE2_SEA_LGW_EVENT_ID = "2912a4b2-fb1d-4efa-bc19-788056300960";
+    private static final String FAKE2_LODGING_EVENT_ID = "8892f4d8-0bce-47cb-9284-a72d384ddb6e";
+    private static final String FAKE2_DBV_KEF_EVENT_ID = "4a09a5b8-18f9-4907-874d-657d7daa63f3";
 
     /**
      * Matt (user6), a plain Acme member, is Acme's SITE editor: {@code contentAdmin} and {@code mediaAdmin}
@@ -644,18 +684,18 @@ public final class FakeData {
                 now.minusDays(2), "fake-seed", null, null, ACME_ORG_ID));
         // The galleria trip's album: 12 photos, one hidden -> 11 visible, above the min-count of 10.
         for (int i = 1; i <= 12; i++) {
-            saveMedia(new MediaItem("fake-photo-past-" + i, "chat/pub-past-3d/fake-" + i + ".jpg",
+            saveMedia(new MediaItem("fake-photo-past-" + i, chatPhotoKey(PUB_PAST_3D_TRIP_ID, i),
                     "Fake photo " + i, "Seeded album photo", "image/jpeg", 500_000L,
-                    "tripChat-pub-past-3d", 0, now.minusDays(13).plusHours(i), "fake-seed", null,
+                    "tripChat-" + PUB_PAST_3D_TRIP_ID, 0, now.minusDays(13).plusHours(i), "fake-seed", null,
                     i == 12 ? Boolean.TRUE : null));
-            seedPhotoBytes("chat/pub-past-3d/fake-" + i + ".jpg");
+            seedPhotoBytes(chatPhotoKey(PUB_PAST_3D_TRIP_ID, i));
         }
         // Below the minimum: no album on the landing page.
         for (int i = 1; i <= 4; i++) {
-            saveMedia(new MediaItem("fake-photo-f2-" + i, "chat/Fake2/fake-" + i + ".jpg",
-                    "Fake2 photo " + i, "Seeded album photo", "image/jpeg", 500_000L,
-                    "tripChat-Fake2", 0, now.minusDays(2).plusHours(i), "fake-seed", null, null));
-            seedPhotoBytes("chat/Fake2/fake-" + i + ".jpg");
+            saveMedia(new MediaItem("fake-photo-f2-" + i, chatPhotoKey(FAKE2_TRIP_ID, i),
+                    "Summer Demo photo " + i, "Seeded album photo", "image/jpeg", 500_000L,
+                    "tripChat-" + FAKE2_TRIP_ID, 0, now.minusDays(2).plusHours(i), "fake-seed", null, null));
+            seedPhotoBytes(chatPhotoKey(FAKE2_TRIP_ID, i));
         }
     }
 
@@ -785,7 +825,7 @@ public final class FakeData {
         people.add(new Person(null, "Joe", "Joseph", "Bob", "Smith", Sex.Male,
                 LocalDate.of(1947, 2, 11), null, "u1", null, null, null, null, null, null, null, null));
         people.add(Person.builder()
-                .id(Person.Id.from("admin"))
+                .id(Person.Id.from(ADMIN_PERSON_ID))
                 .first("admin")
                 .last("user")
                 .email(localEmail("admin"))
@@ -814,6 +854,11 @@ public final class FakeData {
         return people;
     }
 
+    /** Where a seeded album photo lives, the same {@code chat/{tripId}/...} shape the upload servlet writes. */
+    private static String chatPhotoKey(final String tripId, final int index) {
+        return "chat/" + tripId + "/fake-" + index + ".jpg";
+    }
+
     /** The mailable address a persona's seeded Person holds. Signing in still uses the bare persona. */
     static String localEmail(final String persona) {
         return persona.contains("@") ? persona : persona + LOCAL_EMAIL_DOMAIN;
@@ -826,16 +871,16 @@ public final class FakeData {
         final List<Trip> trips = new ArrayList<>();
         final List<Person.Id> allPeople = getFakePeople().stream().map(Person::getId).collect(Collectors.toList());
         final List<TripEvent> events = new ArrayList<>();
-        events.add(newTripEvent("t1e2", TripEvent.Type.LODGING, "Hotel", "Super Duper Palace",
+        events.add(newTripEvent(FAKE_TRIP_LODGING_EVENT_ID, TripEvent.Type.LODGING, "Hotel", "Super Duper Palace",
                 LocalDateTime.now().plusDays(48), LocalDateTime.now().plusDays(60), List.of(allPeople.get(2)), null));
-        events.add(newTripEvent("t1e4", TripEvent.Type.FLIGHT, "SEA -> EWR", "Alaska flight 94",
+        events.add(newTripEvent(FAKE_TRIP_SEA_EWR_EVENT_ID, TripEvent.Type.FLIGHT, "SEA -> EWR", "Alaska flight 94",
                 LocalDateTime.now().plusDays(50), null, List.of(allPeople.get(2)), null));
-        events.add(newTripEvent("t1e1", TripEvent.Type.FLIGHT, "PDX -> EWR", "Alaska flight 54",
-                LocalDateTime.now().plusDays(48), null, List.of(allPeople.get(3)), null));
-        events.add(newTripEvent("t1e5", TripEvent.Type.FLIGHT, "SPU -> SEA", "Direct charter flight",
-                LocalDateTime.now().plusDays(55), null, List.of(allPeople.get(2)), null));
-        final TripEvent charter = newTripEvent("t1e3", TripEvent.Type.FLIGHT, "SPU -> SEA", "Direct charter flight",
-                LocalDateTime.now().plusDays(60), null, null, null);
+        events.add(newTripEvent(FAKE_TRIP_PDX_EWR_EVENT_ID, TripEvent.Type.FLIGHT, "PDX -> EWR",
+                "Alaska flight 54", LocalDateTime.now().plusDays(48), null, List.of(allPeople.get(3)), null));
+        events.add(newTripEvent(FAKE_TRIP_SPU_SEA_EVENT_ID, TripEvent.Type.FLIGHT, "SPU -> SEA",
+                "Direct charter flight", LocalDateTime.now().plusDays(55), null, List.of(allPeople.get(2)), null));
+        final TripEvent charter = newTripEvent(FAKE_TRIP_CHARTER_EVENT_ID, TripEvent.Type.FLIGHT, "SPU -> SEA",
+                "Direct charter flight", LocalDateTime.now().plusDays(60), null, null, null);
         charter.getParticipants().add(allPeople.get(2));
         charter.getParticipants().add(allPeople.get(5));
         charter.getParticipants().add(allPeople.get(3));
@@ -849,7 +894,7 @@ public final class FakeData {
                 .map(Person::getId)
                 .collect(Collectors.toList());
         trips.add(Trip.builder()
-                .id("faketrip")
+                .id(FAKE_TRIP_ID)
                 .title("Spring Demo Trip")
                 .orgId(CFPW_ORG_ID)
                 .openToPublic(false)
@@ -869,14 +914,14 @@ public final class FakeData {
                 .map(Person::getId)
                 .collect(Collectors.toList());
         final List<TripEvent> events2 = new ArrayList<>();
-        events2.add(newTripEvent("t2e2", TripEvent.Type.LODGING, "Hotel", "Hilton",
+        events2.add(newTripEvent(FAKE2_LODGING_EVENT_ID, TripEvent.Type.LODGING, "Hotel", "Hilton",
                 LocalDateTime.now().minusDays(4), LocalDateTime.now(), null, null));
-        events2.add(newTripEvent("t2e1", TripEvent.Type.FLIGHT, "SEA -> LGW", "Alaska flight 255",
+        events2.add(newTripEvent(FAKE2_SEA_LGW_EVENT_ID, TripEvent.Type.FLIGHT, "SEA -> LGW", "Alaska flight 255",
                 LocalDateTime.now().minusDays(5), null, null, null));
-        events2.add(newTripEvent("t2e3", TripEvent.Type.FLIGHT, "DBV -> KEF", "Trip for 1 to Iceland",
+        events2.add(newTripEvent(FAKE2_DBV_KEF_EVENT_ID, TripEvent.Type.FLIGHT, "DBV -> KEF", "Trip for 1 to Iceland",
                 LocalDateTime.now(), null, null, null));
         trips.add(Trip.builder()
-                .id("Fake2")
+                .id(FAKE2_TRIP_ID)
                 .title("Summer Demo Trip")
                 .orgId(CFPW_ORG_ID)
                 .openToPublic(true)
@@ -902,7 +947,7 @@ public final class FakeData {
     private static void addLandingPageSeeds(final List<Trip> trips, final List<Person.Id> allPeople,
             final List<Person.Id> tripStaff) {
         trips.add(Trip.builder()
-                .id("pub-en-1")
+                .id(PUB_EN_1_TRIP_ID)
                 .title("2026 Sep: Holy Angels Demo")     // prefixed title exercises getShortTitle
                 .openToPublic(true)
                 .provider("CFPW")
@@ -915,10 +960,10 @@ public final class FakeData {
                 .people(new ArrayList<>(List.of(allPeople.get(2))))
                 .regLimit(40)
                 .regOptions(getDefaultOptions())
-                .tripEvents(seedEvents("pub-en-1", 30))
+                .tripEvents(seedEvents(PUB_EN_1_TRIP_ID, 30))
                 .build());
         trips.add(Trip.builder()
-                .id("pub-en-2")
+                .id(PUB_EN_2_TRIP_ID)
                 .title("2027 Jan: Winter Demo")
                 .openToPublic(true)
                 .provider("CFPW")
@@ -927,10 +972,10 @@ public final class FakeData {
                 .endDate(LocalDateTime.now().plusDays(130))
                 .regLimit(40)
                 .regOptions(getDefaultOptions())
-                .tripEvents(seedEvents("pub-en-2", 120))
+                .tripEvents(seedEvents(PUB_EN_2_TRIP_ID, 120))
                 .build());
         trips.add(Trip.builder()
-                .id("pub-es-1")
+                .id(PUB_ES_1_TRIP_ID)
                 .title("2026 dic: Bajo el Manto Demo")
                 .openToPublic(true)
                 .provider("CFPW")
@@ -939,13 +984,13 @@ public final class FakeData {
                 .endDate(LocalDateTime.now().plusDays(110))
                 .regLimit(40)
                 .regOptions(getDefaultOptions())
-                .tripEvents(seedEvents("pub-es-1", 100))
+                .tripEvents(seedEvents(PUB_ES_1_TRIP_ID, 100))
                 // The registration webtests submit against THIS trip (joinable: future start, no seeded
                 // roster), so it needs facilitators for the confirmation popup's contact block.
                 .facilitatorIds(tripStaff)
                 .build());
         trips.add(Trip.builder()
-                .id("pub-ext-1")
+                .id(PUB_EXT_1_TRIP_ID)
                 .title("2026 Oct: External Demo")
                 .openToPublic(true)
                 .provider("Queen of Peace Medjugorje Centre, Toronto, Canada")
@@ -955,10 +1000,10 @@ public final class FakeData {
                 .startDate(LocalDateTime.now().plusDays(70))
                 .endDate(LocalDateTime.now().plusDays(80))
                 .regLimit(45)
-                .tripEvents(seedEvents("pub-ext-1", 70))
+                .tripEvents(seedEvents(PUB_EXT_1_TRIP_ID, 70))
                 .build());
         trips.add(Trip.builder()
-                .id("pub-past-3d")
+                .id(PUB_PAST_3D_TRIP_ID)
                 .title("2026 Aug: Just Ended Demo")     // within the 7-day window; the galleria album trip
                 .openToPublic(true)
                 .provider("CFPW")
@@ -967,34 +1012,43 @@ public final class FakeData {
                 .endDate(LocalDateTime.now().minusDays(3))
                 .people(allPeople)
                 .regOptions(getDefaultOptions())
-                .tripEvents(seedEvents("pub-past-3d", -13))
+                .tripEvents(seedEvents(PUB_PAST_3D_TRIP_ID, -13))
                 .build());
         trips.add(Trip.builder()
-                .id("pub-past-30d")
+                .id(PUB_PAST_30D_TRIP_ID)
                 .title("2026 Jul: Long Gone Demo")     // past the 7-day window: must NOT be listed
                 .openToPublic(true)
                 .provider("CFPW")
                 .language(Language.English)
                 .startDate(LocalDateTime.now().minusDays(40))
                 .endDate(LocalDateTime.now().minusDays(30))
-                .tripEvents(seedEvents("pub-past-30d", -40))
+                .tripEvents(seedEvents(PUB_PAST_30D_TRIP_ID, -40))
                 .build());
         trips.add(Trip.builder()
-                .id("pub-hidden")
+                .id(PUB_HIDDEN_TRIP_ID)
                 .title("2026 Nov: Unlisted Demo")     // openToPublic=false: must NOT be listed
                 .openToPublic(false)
                 .provider("CFPW")
                 .language(Language.English)
                 .startDate(LocalDateTime.now().plusDays(90))
                 .endDate(LocalDateTime.now().plusDays(97))
-                .tripEvents(seedEvents("pub-hidden", 90))
+                .tripEvents(seedEvents(PUB_HIDDEN_TRIP_ID, 90))
                 .build());
     }
 
     /** One minimal event per seed trip (a FakeData invariant: every fake trip has at least one). */
     private static List<TripEvent> seedEvents(final String tripId, final int startOffsetDays) {
-        return List.of(newTripEvent(tripId + "-e1", TripEvent.Type.LODGING, "Hotel", "Seeded lodging",
+        return List.of(newTripEvent(seedEventId(tripId), TripEvent.Type.LODGING, "Hotel", "Seeded lodging",
                 LocalDateTime.now().plusDays(startOffsetDays), null, null, null));
+    }
+
+    /**
+     * A canonical UUID derived from the trip's, so each public seed's event id is stable across re-seeds
+     * without another hand-written constant. {@code tripId + "-e1"} was neither a UUID nor able to become
+     * one once the trip ids did.
+     */
+    private static String seedEventId(final String tripId) {
+        return UUID.nameUUIDFromBytes(("trip-event:" + tripId).getBytes(StandardCharsets.UTF_8)).toString();
     }
 
     private static TripEvent newTripEvent(

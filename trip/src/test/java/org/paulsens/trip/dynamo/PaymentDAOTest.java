@@ -57,7 +57,7 @@ public class PaymentDAOTest {
 
     private static Payment payment() {
         return Payment.builder()
-                .tripId("faketrip")
+                .tripId(FakeData.FAKE_TRIP_ID)
                 .payerId(Person.Id.newInstance())
                 .allocations(List.of(new Payment.Allocation(Person.Id.newInstance(), 47500L)))
                 .feesPaidBy(FeesPaidBy.PAYER)

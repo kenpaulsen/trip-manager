@@ -2,7 +2,9 @@ package org.paulsens.trip.action;
 
 import java.io.Serial;
 import java.io.Serializable;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -82,10 +84,13 @@ public final class LodgingViews {
         @Serial
         private static final long serialVersionUID = 1L;
         public static final String NEW_EVENT = "NEW";
+        /** The arrival and departure times a stay defaults to when the dialog names none. */
+        public static final LocalTime DEFAULT_ARRIVAL = LocalTime.of(15, 0);
+        public static final LocalTime DEFAULT_DEPARTURE = LocalTime.of(10, 0);
         private String id;
         private String name;
         private String accommodationId;
-        private String roomTypeId;
+        private List<String> roomTypeIds = new ArrayList<>();
         /** An existing LODGING event id, or {@link #NEW_EVENT} to create one from the default stay. */
         private String tripEventId;
         private String newEventTitle;
@@ -104,11 +109,106 @@ public final class LodgingViews {
         private LocalDateTime validUntil;
         private LocalDateTime defaultStart;
         private LocalDateTime defaultEnd;
+        /**
+         * The dialog's RANGE pickers and times: the option's date range and the default stay as [from, to]
+         * dates, plus arrival and departure times (a range picker has no time of day). {@link #resolveDates}
+         * folds them into the four date-times above, which the commands and the REST door read.
+         */
+        private List<LocalDate> validRange = new ArrayList<>();
+        private List<LocalDate> defaultRange = new ArrayList<>();
+        private LocalTime arrivalTime;
+        private LocalTime departureTime;
         private String policyHtml;
         /** "FLAT" or "PERCENT". */
         private String cancelFeeKind = "FLAT";
         private Double cancelFeeAmount;
         private boolean disabled;
+
+        /*
+         * The two shapes stay in sync through their setters: the dialog writes the ranges and times (in
+         * whatever order the components decode), the commands, the REST door and the tests write the
+         * date-times, and either side reads either. No explicit "resolve" step, which the callers forgot.
+         */
+        public void setValidRange(final List<LocalDate> range) {
+            validRange = (range == null) ? new ArrayList<>() : new ArrayList<>(range);
+            if (hasRange(validRange)) {
+                validFrom = validRange.get(0).atStartOfDay();
+                validUntil = validRange.get(validRange.size() - 1).atTime(LocalTime.of(23, 59));
+            }
+        }
+
+        public void setDefaultRange(final List<LocalDate> range) {
+            defaultRange = (range == null) ? new ArrayList<>() : new ArrayList<>(range);
+            syncDefaultsFromRange();
+        }
+
+        public void setArrivalTime(final LocalTime time) {
+            arrivalTime = time;
+            syncDefaultsFromRange();
+        }
+
+        public void setDepartureTime(final LocalTime time) {
+            departureTime = time;
+            syncDefaultsFromRange();
+        }
+
+        public void setValidFrom(final LocalDateTime when) {
+            validFrom = when;
+            validRange = rangeOf(validFrom, validUntil);
+        }
+
+        public void setValidUntil(final LocalDateTime when) {
+            validUntil = when;
+            validRange = rangeOf(validFrom, validUntil);
+        }
+
+        public void setDefaultStart(final LocalDateTime when) {
+            defaultStart = when;
+            defaultRange = rangeOf(defaultStart, defaultEnd);
+            arrivalTime = (when == null) ? arrivalTime : when.toLocalTime();
+        }
+
+        public void setDefaultEnd(final LocalDateTime when) {
+            defaultEnd = when;
+            defaultRange = rangeOf(defaultStart, defaultEnd);
+            departureTime = (when == null) ? departureTime : when.toLocalTime();
+        }
+
+        private void syncDefaultsFromRange() {
+            if (hasRange(defaultRange)) {
+                defaultStart = defaultRange.get(0).atTime(arrivalTime == null ? DEFAULT_ARRIVAL : arrivalTime);
+                defaultEnd = defaultRange.get(defaultRange.size() - 1)
+                        .atTime(departureTime == null ? DEFAULT_DEPARTURE : departureTime);
+            }
+        }
+
+        /** Kept for callers that used to fold the pickers explicitly; the setters already did. */
+        public void resolveDates() {
+            syncDefaultsFromRange();
+        }
+
+        /** Kept for symmetry; the date-time setters already fill the pickers. */
+        public void fillRanges() {
+            if (arrivalTime == null) {
+                arrivalTime = (defaultStart == null) ? DEFAULT_ARRIVAL : defaultStart.toLocalTime();
+            }
+            if (departureTime == null) {
+                departureTime = (defaultEnd == null) ? DEFAULT_DEPARTURE : defaultEnd.toLocalTime();
+            }
+        }
+    }
+
+    static boolean hasRange(final List<LocalDate> range) {
+        return range != null && !range.isEmpty() && range.get(0) != null && range.get(range.size() - 1) != null;
+    }
+
+    static List<LocalDate> rangeOf(final LocalDateTime from, final LocalDateTime to) {
+        final List<LocalDate> range = new ArrayList<>();
+        if (from != null && to != null) {
+            range.add(from.toLocalDate());
+            range.add(to.toLocalDate());
+        }
+        return range;
     }
 
     /** The reservation dialogs' inputs (create and edit share it; create may name several people). */
@@ -122,11 +222,63 @@ public final class LodgingViews {
         private List<String> personIds = new ArrayList<>();
         private LocalDateTime start;
         private LocalDateTime end;
+        /** The dialog's range picker and times (see {@link OfferForm#resolveDates}). */
+        private List<LocalDate> range = new ArrayList<>();
+        private LocalTime arrivalTime;
+        private LocalTime departureTime;
         private String roomId;
         private String notes;
         private boolean waiveSingleSupplement;
         /** Create only: one reservation per person (false) or everyone in one shared reservation (true). */
         private boolean shareOneRoom;
+
+        public void setRange(final List<LocalDate> dates) {
+            range = (dates == null) ? new ArrayList<>() : new ArrayList<>(dates);
+            syncFromRange();
+        }
+
+        public void setArrivalTime(final LocalTime time) {
+            arrivalTime = time;
+            syncFromRange();
+        }
+
+        public void setDepartureTime(final LocalTime time) {
+            departureTime = time;
+            syncFromRange();
+        }
+
+        public void setStart(final LocalDateTime when) {
+            start = when;
+            range = rangeOf(start, end);
+            arrivalTime = (when == null) ? arrivalTime : when.toLocalTime();
+        }
+
+        public void setEnd(final LocalDateTime when) {
+            end = when;
+            range = rangeOf(start, end);
+            departureTime = (when == null) ? departureTime : when.toLocalTime();
+        }
+
+        private void syncFromRange() {
+            if (hasRange(range)) {
+                start = range.get(0).atTime(arrivalTime == null ? OfferForm.DEFAULT_ARRIVAL : arrivalTime);
+                end = range.get(range.size() - 1)
+                        .atTime(departureTime == null ? OfferForm.DEFAULT_DEPARTURE : departureTime);
+            }
+        }
+
+        public void resolveDates() {
+            syncFromRange();
+        }
+
+        public void fillRanges() {
+            if (arrivalTime == null) {
+                arrivalTime = (start == null) ? OfferForm.DEFAULT_ARRIVAL : start.toLocalTime();
+            }
+            if (departureTime == null) {
+                departureTime = (end == null) ? OfferForm.DEFAULT_DEPARTURE : end.toLocalTime();
+            }
+        }
     }
 
     /** One line of the accommodations list. */

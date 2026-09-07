@@ -123,7 +123,7 @@ public class LodgingResourceTest extends ResourceTestSupport {
         final Map<String, Object> offerBody = new HashMap<>();
         offerBody.put("name", "Double room");
         offerBody.put("accommodationId", accId);
-        offerBody.put("roomTypeId", typeIds.get("Double"));
+        offerBody.put("roomTypeIds", List.of(typeIds.get("Double")));
         offerBody.put("pricingModel", "PER_ROOM");
         offerBody.put("nightlyPrice", 60);
         offerBody.put("singleSupplement", 10);

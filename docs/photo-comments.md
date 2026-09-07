@@ -183,7 +183,7 @@ Unit (all TestNG): `PhotoChatModelTest` (id shape, PHOTO_ROOT, foldCounts SUM in
 `ChatFeedLongPollTest.aWokenEmptyPageStillCarriesTheVersionCounters` (the long-poll fix). Webtests:
 `TripPhotoCommentsPwIT`, `PhotoCommentsPublicPwIT` (anonymous + login round-trip + XSS), and
 `ChatPhotoCommentsPwIT` (roll-up end-to-end in the browser, badge totals, roster mentions — runs against
-trip `Fake2` so it cannot photograph `ChatPhotoPwIT`'s chat).
+the Summer Demo seed (`FakeData.FAKE2_TRIP_ID`) so it cannot photograph `ChatPhotoPwIT`'s chat).
 
 ## Notes
 

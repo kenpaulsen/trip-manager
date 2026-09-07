@@ -1123,6 +1123,15 @@ public class OrgCommandsTest {
                 PrivilegeCommands.TRIP_FIN_ADMIN, true), "The allow-list bounds trip roles too");
         assertTrue(admin().setTripRole(trip.getId(), manager.getId(),
                 PrivilegeCommands.TRIP_FIN_ADMIN, true), "Site admins bypass the allow-list");
+
+        // A trip whose id is not a UUID (the local demo trips) cannot carry a scoped row: a refusal with a
+        // message, not the exception that 500-ed trip/edit locally (2026-09-06).
+        final org.paulsens.trip.model.Trip demo = org.paulsens.trip.model.Trip.builder().id("demo-" + unique())
+                .title("Demo " + unique()).build();
+        demo.setOrgId(orgId);
+        assertTrue(dao.saveTrip(demo));
+        assertFalse(admin().setTripRole(demo.getId(), manager.getId(), PrivilegeCommands.TRIP_FIN_ADMIN, true),
+                "a non-UUID trip id is refused, not thrown");
         assertTrue(realPrivs(orgAdmin).setTripRole(trip.getId(), manager.getId(),
                 PrivilegeCommands.TRIP_MGR, false), "Revoke through the same path");
         assertFalse(new PrivilegeCommands().check(PrivilegeCommands.TRIP_MGR, trip.getId(), manager.getId()));

@@ -34,7 +34,7 @@ public class SiteReachTest {
     private static final Organization.Id ACME = Organization.Id.from(FakeData.ACME_ORG_ID);
     private static final SiteContext SHARED = SiteContext.shared("localhost");
     private static final SiteContext ACME_SITE = SiteContext.org(ACME, "acme", "acme.localhost");
-    private static final String CFPW_TRIP = "faketrip";
+    private static final String CFPW_TRIP = FakeData.FAKE_TRIP_ID;
 
     private final TripCommands trips = new TripCommands();
     private final TransactionsCommands txs = new TransactionsCommands();

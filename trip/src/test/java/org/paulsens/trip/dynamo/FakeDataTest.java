@@ -195,7 +195,7 @@ public class FakeDataTest {
     public void seededChatChannelsPassTheSettingsValidator() {
         FakeData.addFakeData();
         final ChatCommands chat = new ChatCommands();
-        for (final String tripId : new String[] {"faketrip", "Fake2"}) {
+        for (final String tripId : new String[] {FakeData.FAKE_TRIP_ID, FakeData.FAKE2_TRIP_ID}) {
             final ChatChannel channel = chat.ensureChannel(tripId, AuditActor.system());
             assertNotNull(channel, tripId + " should have a chat channel");
             assertNull(ChatCommands.validateSettings(channel.getSettings()),

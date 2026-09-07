@@ -1,5 +1,6 @@
 package org.paulsens.trip.pay;
 
+import org.paulsens.trip.dynamo.FakeData;
 import java.util.List;
 import java.util.Map;
 import org.paulsens.trip.action.PersonCommands;
@@ -209,7 +210,7 @@ public class PaymentRecorderTest {
             final long donation, final FeesPaidBy feesPaidBy, final long creditFee, final long donationFee,
             final long total) {
         return Payment.builder()
-                .tripId("faketrip")
+                .tripId(FakeData.FAKE_TRIP_ID)
                 .payerId(payer)
                 .processorType(ProcessorType.PAYPAL)
                 .allocations(allocations)

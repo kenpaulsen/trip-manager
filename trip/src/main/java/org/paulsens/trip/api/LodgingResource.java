@@ -124,9 +124,10 @@ public class LodgingResource extends BaseResource {
     }
 
     /**
-     * Creates an offer on a trip. Body: {@code {name, accommodationId, roomTypeId, pricingModel,
-     * nightlyPrice, singleSupplement, minNights, defaultStart, defaultEnd, tripEventId ("NEW" default),
-     * cancelFeeKind, cancelFeeAmount}}. Answers {@code {id}}.
+     * Creates an offer on a trip. Body: {@code {name, accommodationId, roomTypeIds:[...] (or roomTypeId),
+     * pricingModel, nightlyPrice, singleSupplement, minNights, validFrom, validUntil, defaultStart, defaultEnd,
+     * tripEventId ("NEW" default), cancelFeeKind, cancelFeeAmount}}; dates default to the trip's. Answers
+     * {@code {id, tripEventId}}.
      */
     @POST
     @Path("trips/{tripId}/offers")
@@ -144,13 +145,24 @@ public class LodgingResource extends BaseResource {
         final LodgingViews.OfferForm form = lodging.offerFormFor(tripId, null);
         form.setName(str(body, "name"));
         form.setAccommodationId(str(body, "accommodationId"));
-        form.setRoomTypeId(str(body, "roomTypeId"));
+        for (final Object typeId : listOf(body, "roomTypeIds")) {
+            form.getRoomTypeIds().add(typeId.toString());
+        }
+        if (body.containsKey("roomTypeId")) {
+            form.getRoomTypeIds().add(str(body, "roomTypeId"));
+        }
         form.setTripEventId(body.containsKey("tripEventId") ? str(body, "tripEventId")
                 : LodgingViews.OfferForm.NEW_EVENT);
         form.setPricingModel(body.containsKey("pricingModel") ? str(body, "pricingModel") : "PER_ROOM");
         form.setNightlyPrice(dbl(body, "nightlyPrice"));
         form.setSingleSupplement(dbl(body, "singleSupplement"));
         form.setMinNights(intOf(body, "minNights", 1));
+        if (body.containsKey("validFrom")) {
+            form.setValidFrom(LocalDateTime.parse(str(body, "validFrom")));
+        }
+        if (body.containsKey("validUntil")) {
+            form.setValidUntil(LocalDateTime.parse(str(body, "validUntil")));
+        }
         if (body.containsKey("defaultStart")) {
             form.setDefaultStart(LocalDateTime.parse(str(body, "defaultStart")));
         }

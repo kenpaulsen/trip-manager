@@ -108,7 +108,7 @@ public class MediaVisibilityTest {
                 "3 photos is under the minimum");
         Assert.assertTrue(albums.stream().noneMatch(a -> a.trip().getId().equals("vis-future-trip")),
                 "a not-yet-started trip must not show its photos");
-        Assert.assertTrue(albums.stream().noneMatch(a -> a.trip().getId().equals("faketrip")),
+        Assert.assertTrue(albums.stream().noneMatch(a -> a.trip().getId().equals(FakeData.FAKE_TRIP_ID)),
                 "a non-public trip is unlisted here too");
     }
 
@@ -116,7 +116,7 @@ public class MediaVisibilityTest {
     public void inProgressTripQualifies() {
         // Fake2 runs now; give it enough photos under a distinct id prefix and it must appear.
         final List<MediaCommands.TripAlbum> before = media.getHomeAlbums(365, 3);
-        Assert.assertTrue(before.stream().anyMatch(a -> a.trip().getId().equals("Fake2")),
+        Assert.assertTrue(before.stream().anyMatch(a -> a.trip().getId().equals(FakeData.FAKE2_TRIP_ID)),
                 "an in-progress public trip with enough photos shows (FakeData seeds 4)");
     }
 

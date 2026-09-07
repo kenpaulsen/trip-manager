@@ -1,5 +1,6 @@
 package org.paulsens.trip.action;
 
+import org.paulsens.trip.dynamo.FakeData;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -73,7 +74,7 @@ public class TransactionsCommandsTest {
         org.paulsens.trip.dynamo.FakeData.initFakeData();
         org.paulsens.trip.dynamo.FakeData.addFakeData();     // seeds faketrip with the CFPW org id
         final Transaction tx = new Transaction(createPerson(), null, null);
-        assertTrue(txCmds.saveTransaction(tx, "faketrip"));
+        assertTrue(txCmds.saveTransaction(tx, FakeData.FAKE_TRIP_ID));
         assertEquals(tx.getOrgId(), org.paulsens.trip.dynamo.FakeData.CFPW_ORG_ID);
     }
 
@@ -83,7 +84,7 @@ public class TransactionsCommandsTest {
         org.paulsens.trip.dynamo.FakeData.addFakeData();
         final Transaction preTenanted = new Transaction(createPerson(), null, null);
         preTenanted.setOrgId("some-other-org");
-        assertTrue(txCmds.saveTransaction(preTenanted, "faketrip"));
+        assertTrue(txCmds.saveTransaction(preTenanted, FakeData.FAKE_TRIP_ID));
         assertEquals(preTenanted.getOrgId(), "some-other-org", "Re-saving never re-tenants a row");
 
         final Transaction noTrip = new Transaction(createPerson(), null, null);
@@ -102,7 +103,7 @@ public class TransactionsCommandsTest {
         final List<Person.Id> groupUsers = List.of(createPerson(), createPerson());
         assertTrue(txCmds.saveGroupTransaction(null, null, Transaction.Type.Shared,
                 Transaction.TransactionType.Payment, LocalDateTime.now(), 100f, "Payment", "org stamp test",
-                "faketrip", null, groupUsers));
+                FakeData.FAKE_TRIP_ID, null, groupUsers));
         for (final Person.Id uid : groupUsers) {
             final Transaction row = txCmds.getTransactions(uid).get(0);
             assertEquals(row.getOrgId(), org.paulsens.trip.dynamo.FakeData.CFPW_ORG_ID,

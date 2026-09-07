@@ -19,7 +19,7 @@ hard-coded HTML table, and admins pasted EL into event notes to show rooms. Lodg
 | `RoomType` | Name, description, `photoIds`, `minPeople` (>= 1), `maxPeople` (>= min, default 2). `getDisplayLabel()` is `"Double (1-2)"`. |
 | `Room` | `roomTypeId`, `roomNumber`, `floor`, public `notes`, `adminNotes`, optional `MapRegion` (`kind` = `"rect"`, `x y w h` in PERCENT of the floor image; the `kind` field keeps polygons additive). |
 | `FloorMap` | `floor` -> `mediaId` of the plan image. |
-| `ReservationOffer` | Per trip: `type` (`LODGING`), name, `accommodationId`, `roomTypeId`, `tripEventId`, `PricingModel` (`PER_ROOM` / `PER_PERSON`), `nightlyPriceCents`, `nightlyPriceOverrides` (ISO date -> cents), `singleSupplementCents`, `minNights`, `validFrom/Until`, `defaultStart/End`, `policyHtml`, `cancelFeeFixedCents`, `cancelFeeBps`, `disabled`, `version`. |
+| `ReservationOffer` ("lodging option" in every label; "offer" only in code) | Per trip: `type` (`LODGING`), name, `accommodationId`, `roomTypeIds` (one or MORE room types, which often share a price; the legacy `roomTypeId` JSON property folds into the list on read), `tripEventId`, `PricingModel` (`PER_ROOM` / `PER_PERSON`), `nightlyPriceCents`, `nightlyPriceOverrides` (ISO date -> cents), `singleSupplementCents`, `minNights`, `validFrom/Until` (the option's DATE RANGE: the dates it covers; the default stay and every reservation must lie within it), `defaultStart/End`, `policyHtml`, `cancelFeeFixedCents`, `cancelFeeBps`, `disabled`, `version`. |
 | `Reservation` | Per trip: `offerId`, `accommodationId`, `occupants` (`Person.Id[]`), minute-granular `start`/`end`, optional `roomId`, `status` (`ACTIVE`/`CANCELLED`), notes, `waiveSingleSupplement`, cancel fields (`cancelledAt/By`, `cancelFeeCents`, `credited`, `cancelReason`), `version`. |
 
 Every row carries a top-level `version` and is written with the conditional-put recipe (`attribute_not_exists`
@@ -103,8 +103,9 @@ kinds `accPhoto`, `roomTypePhoto`, `floorMap` (floor plans are stored whole, 200
 - A NIGHT is a calendar date `d` with `start.toLocalDate() <= d < end.toLocalDate()`; times are informational.
   Same date = 0 nights; end before start = 0. (Deliberately not the 4 a.m. fudge of `getLodgingDays`.)
 - `PER_PERSON`: each occupant pays `nightlyPriceCents(date)` per night. The single supplement is added on a
-  night when the reservation is ASSIGNED to a room and that room has exactly ONE occupant that night, unless
-  `waiveSingleSupplement` is set. Room type is irrelevant; an unassigned reservation never pays it.
+  night the person is ALONE: the only occupant of their assigned room that night, or a one-person
+  reservation not placed yet (its own occupants are all that is known; placing them with someone recomputes
+  it away). `waiveSingleSupplement` removes it either way. Room type is irrelevant.
 - `PER_ROOM`: the room price for a night is split with `MoneyMath.splitEvenly` among that night's occupants
   of the room, sorted by person id (remainder cents to the lowest ids, so a recompute is deterministic). An
   unassigned reservation splits among its own occupants. A `PER_ROOM` offer ignores the supplement (the sole
@@ -116,10 +117,13 @@ kinds `accPhoto`, `roomTypePhoto`, `floorMap` (floor plans are stored whole, 200
   TRIP_EVENT. Same amount and note = unchanged; zero = no row (an existing one is soft-deleted). A $0 offer
   writes nothing. There is no Invoice model.
 - Bills recompute AUTOMATICALLY (audited) on every reservation create, date change, room change, waiver
-  change and cancel, for the affected room(s) or the reservation alone when unassigned, while
+  change and cancel, for the affected room(s) or the reservation alone when unassigned, AND on every edit of
+  the option itself (price, supplement, per-night overrides: all of its active reservations), while
   `KnownSettings.LODGING_AUTO_RECOMPUTE` (`lodging.bills.autoRecompute`, default on, org-overridable) is on;
-  off, the page growls "press Recompute". The explicit Recompute button stays. Auto-recompute can RAISE a
-  paid occupant's bill after a roommate cancels; that is audited, not notified.
+  off, the page growls "press Recompute". The explicit Recompute button stays for two cases only: the
+  setting is off, or a bill was deleted by hand / the ledger and the reservations drifted (a repair, not a
+  routine step). Auto-recompute can RAISE a paid occupant's bill after a roommate cancels; that is audited,
+  not notified.
 - Because a soft-deleted transaction is invisible through the DAO, a lodging bill an admin deleted by hand
   RETURNS on the next recompute.
 
@@ -135,9 +139,12 @@ idempotent.
 
 ## Reservations and the event
 
-Every reservation requires an offer (a $0 offer is allowed). Occupants must be on the trip roster; nights
-must reach the offer's `minNights`; a disabled offer refuses; outside the validity window is a warning;
-a room-type mismatch or over-capacity is a WARNING, never a refusal (owner requirement). Separate
+Every reservation requires an option (a $0 option is allowed). Occupants must be on the trip roster; nights
+must reach the option's `minNights`; a disabled option refuses; a stay outside the option's date range
+REFUSES with the range in the message (widen the option first; the default stay is held to the same rule
+when the option is saved); a room-type mismatch (a room whose type the option does not sell) or
+over-capacity is a WARNING, never a refusal (owner requirement). One person may hold several reservations
+on disjoint dates; each is its own card on the board and is placed on its own. Separate
 reservations per distinct date range: the late arriver on a shared room is her own reservation on the same
 room. Creating a reservation joins its occupants to the offer's `TripEvent`
 (`TripCommands.updateEventParticipants`); reservations are admin-only for now (self-service is a later
@@ -169,10 +176,18 @@ fallback is a filed GitHub issue on the private repo.
   with tabs Details (edit, retire, managers), Room Types, Rooms (bulk add), Floor Maps (upload, the
   rectangle annotator in `trip-js/floorMap.js`, saved through `saveFloorRegions` JSON), Photos. Reached from
   the Admin menu and the org hub's Lodging card (`?orgId=` only drives the Done button and the contact's org).
-- `trip/lodging.jsf` (gate `canManageTripLodging`): Rooms workspace (`trip-js/roomAssign.js`:
-  click a person, click a room card or map region; the server decides, `assignRoom` minting a reservation
-  from the offer defaults when needed; over-capacity opens a confirm with "Assign anyway"), Reservations
-  (new / edit / cancel-with-credit / recompute), Offers (the dialog can create the LODGING event).
+- `trip/lodging.jsf` (gate `canManageTripLodging`; `?offer=` opens the board on a given option): under a
+  "Rooms" heading, the Assignments workspace (`trip-js/roomAssign.js`: click a person card, click a room card
+  or map region; the selection is keyed by RESERVATION so two stays of one person are two cards; the server
+  decides, `assignRoom` minting a reservation from the option's default stay when needed; over-capacity
+  opens a confirm with "Assign anyway"; the board's window defaults to the option's whole date range; a
+  card shows age and reveals the registration answers on hover, and in the flow while selected),
+  Reservations (new / edit / cancel-with-credit / recompute; dates are ONE range picker "arrival -
+  departure" plus arrival and departure times, the labels are arrival/departure never check-in/out), Offers
+  (the "Lodging option" dialog asks for the accommodation and room types FIRST and names the option after
+  the room types while the name is blank; then the option's dates and the default stay as range pickers
+  with times; it can create the LODGING event). The forms keep their range/time fields and their date-time
+  fields in sync through setters, so pages, REST and tests may write either shape.
 - NB inside a JSFT `initPage`, nothing may follow `jsft.redirect(...)` outside an `else`: the script keeps
   running and reads a view map that is gone (the refused-visitor 500 of 2026-09-06).
 

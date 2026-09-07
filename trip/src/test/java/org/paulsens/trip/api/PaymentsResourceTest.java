@@ -50,7 +50,7 @@ public class PaymentsResourceTest extends ResourceTestSupport {
 
     @Test
     public void everyMutationRequiresTheCsrfHeader() {
-        assertError(resource.start(null, body("faketrip", "10", RETURN_URL)), 403, ApiErrors.CSRF);
+        assertError(resource.start(null, body(FakeData.FAKE_TRIP_ID, "10", RETURN_URL)), 403, ApiErrors.CSRF);
         assertError(resource.complete("x", null, null), 403, ApiErrors.CSRF);
         assertError(resource.cancel("x", null), 403, ApiErrors.CSRF);
     }
@@ -68,17 +68,17 @@ public class PaymentsResourceTest extends ResourceTestSupport {
     public void returnUrlsOutsideTheAllowlistAreRefused() {
         final Person payer = savedPerson();
         signedInAs(payer.getId());
-        assertError(resource.start(CSRF_OK, body("faketrip", "10", "https://evil.example/return")), 400,
+        assertError(resource.start(CSRF_OK, body(FakeData.FAKE_TRIP_ID, "10", "https://evil.example/return")), 400,
                 ApiErrors.BAD_REQUEST);
         assertError(resource.start(CSRF_OK,
-                new PaymentsResource.PaymentStart("faketrip", Map.of(), null, null, null)), 400,
+                new PaymentsResource.PaymentStart(FakeData.FAKE_TRIP_ID, Map.of(), null, null, null)), 400,
                 ApiErrors.BAD_REQUEST);
     }
 
     @Test
     public void quoteAnswersTheSameMathAsThePage() {
         signedInAs(savedPerson().getId());
-        final Response response = resource.quote(new PaymentsResource.PaymentStart("faketrip",
+        final Response response = resource.quote(new PaymentsResource.PaymentStart(FakeData.FAKE_TRIP_ID,
                 Map.of("anyone", "475"), "1000", null, null));
         assertOk(response);
         @SuppressWarnings("unchecked")
@@ -95,7 +95,7 @@ public class PaymentsResourceTest extends ResourceTestSupport {
         signedInAs(payer.getId());
 
         final Response started = resource.start(CSRF_OK,
-                body("faketrip", "40", RETURN_URL));
+                body(FakeData.FAKE_TRIP_ID, "40", RETURN_URL));
         assertOk(started);
         @SuppressWarnings("unchecked")
         final String approvalUrl =
@@ -139,10 +139,10 @@ public class PaymentsResourceTest extends ResourceTestSupport {
         final Person payer = savedPerson();
         signedInAs(payer.getId());
         assertOk(resource.start(CSRF_OK,
-                body("faketrip", "10", "https://" + slug + ".unitetrip.com/trip/payment.jsf")));
-        assertError(resource.start(CSRF_OK, body("faketrip", "10", "https://nobody.unitetrip.com/pay")), 400,
+                body(FakeData.FAKE_TRIP_ID, "10", "https://" + slug + ".unitetrip.com/trip/payment.jsf")));
+        assertError(resource.start(CSRF_OK, body(FakeData.FAKE_TRIP_ID, "10", "https://nobody.unitetrip.com/pay")), 400,
                 ApiErrors.BAD_REQUEST);
-        assertError(resource.start(CSRF_OK, body("faketrip", "10", "http://" + slug + ".unitetrip.com/pay")),
+        assertError(resource.start(CSRF_OK, body(FakeData.FAKE_TRIP_ID, "10", "http://" + slug + ".unitetrip.com/pay")),
                 400, ApiErrors.BAD_REQUEST);
     }
 
@@ -150,7 +150,7 @@ public class PaymentsResourceTest extends ResourceTestSupport {
     public void aRefusedStartMapsTo400() {
         final Person payer = savedPerson();
         signedInAs(payer.getId());
-        assertError(resource.start(CSRF_OK, body("faketrip", "not-money", RETURN_URL)), 400,
+        assertError(resource.start(CSRF_OK, body(FakeData.FAKE_TRIP_ID, "not-money", RETURN_URL)), 400,
                 ApiErrors.BAD_REQUEST);
     }
 

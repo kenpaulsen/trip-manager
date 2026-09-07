@@ -135,7 +135,7 @@ public class SiteScopedMenuAndMediaTest {
         Assert.assertTrue(acmeDocs.stream().allMatch(item -> FakeData.ACME_ORG_ID.equals(item.getOrgId())));
         Assert.assertFalse(acmeDocs.isEmpty(), "Acme's own brochure lists on Acme's site");
         // A chat slot is scoped by its trip, not per item: old null-org photos still show in their album.
-        Assert.assertFalse(media.getVisibleInSlot("tripChat-pub-past-3d", 0).isEmpty());
+        Assert.assertFalse(media.getVisibleInSlot("tripChat-" + FakeData.PUB_PAST_3D_TRIP_ID, 0).isEmpty());
         Assert.assertNotNull(DAO.getInstance().getMedia("fake-acme-doc", Cached.NO).orElse(null));
     }
 }

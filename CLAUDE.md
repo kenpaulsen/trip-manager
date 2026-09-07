@@ -258,6 +258,12 @@ repo's `scripts/` — see `docs/family-accounts.md`.
 - The entire suite runs in local mode (surefire sets `trip.local.mode=true`): fake persistence, in-memory
   cache, `Pepper.none()`. This means **no unit test can catch a production-only mode/wiring bug** — verify
   those against the container image.
+- **Seeded fixtures carry fixed, canonical UUIDs** — `FakeData` exposes one constant per seed
+  (`FAKE_TRIP_ID`, `PUB_EN_1_TRIP_ID`, `ADMIN_PERSON_ID`, …); reference those, never a literal id. Trips,
+  people and events are UUIDs in production, and a privilege scoped to anything else parses back as GLOBAL,
+  so `Privilege.requireStorableScope` refuses it: the readable ids the seeds once used ("faketrip") made
+  every trip-role write on a demo trip throw. The browser tests keep a mirrored copy in
+  `../medjugorje/webtest/.../pw/SeededIds.java`, guarded against drift by `SeededFixturesPwIT`.
 - Valkey integration tests auto-skip unless `TRIP_VALKEY_URI` is set (see the Testing section of
   `../medjugorje/setup-instructions.txt`). Pointing tests at a *configured* cache in local mode additionally
   requires the sysprop-only `trip.cache.local.useConfigured` guard.
