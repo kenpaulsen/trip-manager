@@ -11,10 +11,12 @@ import org.paulsens.trip.action.LodgingViews.AssignOutcome;
 import org.paulsens.trip.action.LodgingViews.CancelPreview;
 import org.paulsens.trip.action.LodgingViews.ItineraryRow;
 import org.paulsens.trip.action.LodgingViews.OfferForm;
+import org.paulsens.trip.action.LodgingViews.PersonCard;
 import org.paulsens.trip.action.LodgingViews.PlacementForm;
 import org.paulsens.trip.action.LodgingViews.ReservationForm;
 import org.paulsens.trip.action.LodgingViews.RoomBoard;
 import org.paulsens.trip.action.LodgingViews.RoomCell;
+import org.paulsens.trip.action.LodgingViews.RoomDetail;
 import org.paulsens.trip.action.LodgingViews.RoomForm;
 import org.paulsens.trip.action.LodgingViews.RoomRow;
 import org.paulsens.trip.action.LodgingViews.RoomTypeForm;
@@ -25,6 +27,8 @@ import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Registration;
+import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Reservation;
 import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.Transaction;
@@ -345,7 +349,20 @@ public class LodgingCommandsTest {
             String eventId) {
     }
 
+    /** Saves a registration, turning the DAO's checked IOException into a test failure. */
+    private boolean saveRegistration(final Registration reg) {
+        try {
+            return DAO.getInstance().saveRegistration(reg);
+        } catch (final IOException e) {
+            throw new IllegalStateException("Could not seed a registration", e);
+        }
+    }
+
     private Stay stay(final boolean withOffer) {
+        return stay(withOffer, trip);
+    }
+
+    private Stay stay(final boolean withOffer, final Trip onTrip) {
         final String accId = admin.saveAccommodation(accommodationForm("Stay " + RandomData.genAlpha(6)), orgId);
         final RoomTypeForm dbl = new RoomTypeForm();
         dbl.setName("Double");
@@ -371,8 +388,8 @@ public class LodgingCommandsTest {
         offerForm.setCancelFeeKind("PERCENT");
         offerForm.setCancelFeeAmount(10.0);
         offerForm.setPolicyHtml("<p>No refunds after Sep 1</p>");
-        assertTrue(admin.saveOffer(trip.getId(), offerForm));
-        final ReservationOffer offer = admin.getOffers(trip.getId()).stream()
+        assertTrue(admin.saveOffer(onTrip.getId(), offerForm));
+        final ReservationOffer offer = admin.getOffers(onTrip.getId()).stream()
                 .filter(o -> o.getName().equals(offerForm.getName())).findFirst().orElseThrow();
         return new Stay(accId, typeId, r101, r102, offer, offer.getTripEventId());
     }
@@ -1047,6 +1064,119 @@ public class LodgingCommandsTest {
         assertTrue(admin.assignRoom(trip.getId(), adaRes.getId().getValue(), stay.r101(), false, null, null)
                 .isAssigned());
         assertEquals(biller.billedByPerson(adaRes), Map.of(ada.getId(), 3 * 9000L));
+    }
+
+    /**
+     * The itinerary is ordered by the date each row SHOWS. A late arriver's hotel row carries her own
+     * check-in, days after the group's, so ordering by the event put the hotel above the flight that brought
+     * her to it -- the dates read right and the sequence read wrong (reported 2026-09-07).
+     */
+    @Test
+    public void aLateArriversItineraryIsOrderedByTheDatesItShows() throws IOException {
+        final Person rey = savedPerson("Rey");
+        final Trip own = Trip.builder().id(java.util.UUID.randomUUID().toString()).title("Late arriver trip")
+                .startDate(CHECK_IN).endDate(CHECK_OUT.plusDays(2))
+                .people(new ArrayList<>(List.of(rey.getId()))).build();
+        own.setOrgId(orgId);
+        assertTrue(DAO.getInstance().saveTrip(own));
+        final Stay stay = stay(true, own);
+
+        // Her flight lands the day after the group checks in, so it falls INSIDE the hotel event.
+        final Trip saved = DAO.getInstance().getTrip(own.getId(), Cached.NO).orElseThrow();
+        final String flightId = saved.addTripEvent(TripEvent.Type.FLIGHT, "Late flight", "",
+                CHECK_IN.plusDays(1).minusHours(3), CHECK_IN.plusDays(1).minusHours(1));
+        assertTrue(DAO.getInstance().saveTrip(saved));
+        final TripCommands trips = new TripCommands();
+        assertTrue(trips.updateEventParticipants(DAO.getInstance().getTrip(own.getId(), Cached.NO).orElseThrow(),
+                flightId, List.of(rey.getId()), List.of()));
+
+        final ReservationForm late = admin.reservationFormFor(own.getId(), null);
+        late.setOfferId(stay.offer().getId().getValue());
+        late.setPersonIds(List.of(rey.getId().getValue()));
+        late.setStart(CHECK_IN.plusDays(1));
+        late.setEnd(CHECK_OUT);
+        assertEquals(admin.createReservations(own.getId(), late), 1);
+
+        final List<ItineraryRow> rows = admin.itineraryRowsFor(
+                DAO.getInstance().getTrip(own.getId(), Cached.NO).orElseThrow(), rey.getId());
+        assertEquals(rows.stream().map(ItineraryRow::getTitle).toList().indexOf("Late flight"), 0,
+                "the flight that brought her comes first");
+        final int hotel = rows.stream().map(ItineraryRow::getId).toList().indexOf(stay.eventId());
+        assertEquals(hotel, 1, "the hotel follows, on HER check-in date rather than the group's");
+        assertEquals(rows.get(hotel).getEffectiveStart(), CHECK_IN.plusDays(1));
+        for (int i = 1; i < rows.size(); i++) {
+            assertTrue(!rows.get(i).getEffectiveStart().isBefore(rows.get(i - 1).getEffectiveStart()),
+                    "every row is on or after the one above it");
+        }
+    }
+
+    /**
+     * Clicking a room with nobody selected asks who is in it. The answer has to carry the registration
+     * answers and both kinds of room note, because that is the whole reason to ask mid-assignment.
+     */
+    @Test
+    public void aRoomTellsYouWhoIsInItAndWhatTheyAskedFor() throws IOException {
+        // Its OWN trip and people: this test houses somebody, and the shared trip's rooming list and bills
+        // are asserted elsewhere (fixture side effects here are load-bearing).
+        final Person pat = savedPerson("Pat");
+        final Person quinn = savedPerson("Quinn");
+        final Trip own = Trip.builder().id(java.util.UUID.randomUUID().toString()).title("Room dialog trip")
+                .startDate(CHECK_IN).endDate(CHECK_OUT.plusDays(2))
+                .people(new ArrayList<>(List.of(pat.getId(), quinn.getId())))
+                .regOptions(List.of(new RegistrationOption(1, "Dietary needs", "", true),
+                        new RegistrationOption(2, "Roommate request", "", true),
+                        new RegistrationOption(3, "Join the trip?", "", true),
+                        new RegistrationOption(4, "Shirt size", "", true)))
+                .build();
+        own.setOrgId(orgId);
+        assertTrue(DAO.getInstance().saveTrip(own));
+        final Stay stay = stay(true, own);
+        final Registration reg = new Registration(own.getId(), pat.getId());
+        reg.getOptions().put("1", "Vegetarian");
+        reg.getOptions().put("2", "With Cy please");
+        reg.getOptions().put("3", "Yes");
+        assertTrue(saveRegistration(reg));
+
+        final RoomForm room = admin.roomFormFor(stay.accId(), stay.r101());
+        room.setNotes("Mountain view");
+        room.setAdminNotes("Radiator bangs");
+        assertTrue(admin.saveRoom(stay.accId(), room));
+
+        final ReservationForm shared = admin.reservationFormFor(own.getId(), null);
+        shared.setOfferId(stay.offer().getId().getValue());
+        shared.setPersonIds(List.of(pat.getId().getValue(), quinn.getId().getValue()));
+        shared.setShareOneRoom(true);
+        shared.setStart(CHECK_IN);
+        shared.setEnd(CHECK_OUT);
+        shared.setRoomId(stay.r101());
+        assertEquals(admin.createReservations(own.getId(), shared), 1);
+
+        final RoomDetail detail = admin.roomDetail(own.getId(), stay.accId(), stay.r101(), null, null);
+        assertEquals(detail.getRoomNumber(), "101");
+        assertEquals(detail.getTypeName(), "Double");
+        assertEquals(detail.getFloor(), "1");
+        assertEquals(detail.getCount(), 2);
+        assertEquals(detail.getMaxPeople(), 2);
+        assertEquals(detail.getState(), "rs-full");
+        assertEquals(detail.getNotes(), "Mountain view");
+        assertEquals(detail.getAdminNotes(), "Radiator bangs", "the private note is for the person assigning");
+        assertEquals(detail.getOccupants().size(), 2, "both people on the shared reservation");
+        final PersonCard card = detail.getOccupants().stream()
+                .filter(c -> c.getPersonId().equals(pat.getId().getValue())).findFirst().orElseThrow();
+        assertEquals(List.copyOf(card.getAnswers().keySet()), List.of("Roommate request", "Dietary needs"),
+                "the roommate request leads; a 'Join' question and an unanswered one never show");
+        assertEquals(card.getAnswers().get("Roommate request"), "With Cy please");
+        assertEquals(card.getStart(), CHECK_IN, "the card carries the stay, not the option's default");
+
+        final RoomDetail empty = admin.roomDetail(own.getId(), stay.accId(), stay.r102(), null, null);
+        assertEquals(empty.getState(), "rs-empty");
+        assertTrue(empty.getOccupants().isEmpty());
+        assertEquals(admin.roomDetail(own.getId(), stay.accId(), "nope", null, null).getRoomId(), null);
+        assertEquals(admin.roomDetail(own.getId(), stay.accId(), " ", null, null).getRoomId(), null);
+        assertEquals(admin.roomDetail(own.getId(), "nope", stay.r101(), null, null).getRoomId(), null);
+        final LodgingCommands outsider = new LodgingCommands(() -> TestCallers.person(ada.getId()));
+        assertEquals(outsider.roomDetail(own.getId(), stay.accId(), stay.r101(), null, null).getRoomId(), null,
+                "a room is only visible to somebody who manages this trip's lodging");
     }
 
     /**

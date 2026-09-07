@@ -11,6 +11,7 @@ import java.time.Period;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -38,6 +39,7 @@ import org.paulsens.trip.action.LodgingViews.ReservationForm;
 import org.paulsens.trip.action.LodgingViews.ReservationRow;
 import org.paulsens.trip.action.LodgingViews.RoomBoard;
 import org.paulsens.trip.action.LodgingViews.RoomCell;
+import org.paulsens.trip.action.LodgingViews.RoomDetail;
 import org.paulsens.trip.action.LodgingViews.RoomForm;
 import org.paulsens.trip.action.LodgingViews.RoomRow;
 import org.paulsens.trip.action.LodgingViews.RoomTypeForm;
@@ -2359,6 +2361,58 @@ public class LodgingCommands {
         return board;
     }
 
+    /**
+     * One room's occupancy over the board's window: the room's own details plus a full person card per
+     * occupant. The board carries only names in its chips, so "who is in 104, and what did they ask for?"
+     * had no answer without leaving the workspace.
+     *
+     * @return a detail whose roomId is blank when the caller may not see it, or the room is gone.
+     */
+    public RoomDetail roomDetail(final String tripId, final String accId, final String roomId,
+            final LocalDateTime winStart, final LocalDateTime winEnd) {
+        final RoomDetail detail = new RoomDetail();
+        if (!canManageTripLodging(tripId) || roomId == null || roomId.isBlank()) {
+            return detail;
+        }
+        final Accommodation acc = findAccommodation(accId);
+        final Room room = (acc == null) ? null : acc.room(roomId);
+        if (room == null) {
+            return detail;
+        }
+        final Trip trip = tripSource.get().getTrip(tripId);
+        final LocalDateTime from = (winStart != null) ? winStart : spanStart(tripId, acc, trip);
+        final LocalDateTime to = (winEnd != null) ? winEnd : spanEnd(tripId, acc, trip);
+        final List<Reservation> onRoom = new ArrayList<>();
+        for (final Reservation res : DAO.getInstance().getReservations(tripId, Cached.NO)) {
+            if (res.isActive() && acc.getId().equals(res.getAccommodationId()) && roomId.equals(res.getRoomId())
+                    && overlaps(res, from, to)) {
+                onRoom.add(res);
+            }
+        }
+        final RoomCell cell = cellFor(acc, room, onRoom, from, to);
+        detail.setRoomId(cell.getRoomId());
+        detail.setRoomNumber(cell.getRoomNumber());
+        detail.setFloor(cell.getFloor());
+        detail.setTypeName(cell.getTypeName());
+        detail.setMinPeople(cell.getMinPeople());
+        detail.setMaxPeople(cell.getMaxPeople());
+        detail.setCount(cell.getCount());
+        detail.setState(cell.getState());
+        detail.setNotes(cell.getNotes());
+        detail.setAdminNotes(cell.getAdminNotes());
+        // Every occupant of every stay on the room, not one card per reservation: two people sharing one
+        // reservation are two people in the room, and a second stay on other dates is a third card.
+        final Set<String> seen = new LinkedHashSet<>();
+        for (final Reservation res : onRoom) {
+            for (final Person.Id person : res.getOccupants()) {
+                if (seen.add(res.getId().getValue() + "/" + person.getValue())) {
+                    detail.getOccupants().add(cardFor(trip, person, res));
+                }
+            }
+        }
+        return detail;
+    }
+
     /** The earliest date any of this hotel's options covers on the trip; the trip's start when none say. */
     private LocalDateTime spanStart(final String tripId, final Accommodation acc, final Trip trip) {
         LocalDateTime earliest = null;
@@ -2636,6 +2690,11 @@ public class LodgingCommands {
         for (final TripEvent event : tripSource.get().eventsForFrozenIds(trip, frozenEventIds)) {
             rows.add(rowFor(event, personId, byEvent.get(event.getId())));
         }
+        // By the date the row SHOWS, not the event's own: a late arriver's reservation starts days after the
+        // group's hotel event, so ordering by the event put her hotel above the flights that got her there.
+        // A stable sort, so events sharing a moment keep the order the trip gave them; undated rows sink.
+        rows.sort(Comparator.comparing(ItineraryRow::getEffectiveStart,
+                Comparator.nullsLast(Comparator.naturalOrder())));
         return rows;
     }
 

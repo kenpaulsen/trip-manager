@@ -536,6 +536,30 @@ public final class LodgingViews {
         private double h;
     }
 
+    /**
+     * One room opened from the board: what the room card shows, plus the people in it with their
+     * registration answers. Clicking a room with nobody selected asks "who is in here?", which the chips on
+     * the card and the tooltip on the map could not answer.
+     */
+    @Data
+    @NoArgsConstructor
+    public static final class RoomDetail implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String roomId;
+        private String roomNumber;
+        private String floor;
+        private String typeName;
+        private int minPeople;
+        private int maxPeople;
+        private int count;
+        /** The same CSS state the board cell carries, so the dialog reads the same as the card. */
+        private String state;
+        private String notes;
+        private String adminNotes;
+        private List<PersonCard> occupants = new ArrayList<>();
+    }
+
     /** The whole assignment workspace for one offer and window: people needing a room, and the rooms. */
     @Data
     @NoArgsConstructor

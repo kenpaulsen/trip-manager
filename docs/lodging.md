@@ -192,6 +192,15 @@ Free-text floor names also reach the floor chooser's links, so they are URL-enco
 `tripUtil.encodeParam`: an unencoded `&` ENDS the parameter and a `+` arrives as a space, which would select
 a floor nobody named.
 
+## The itinerary is ordered by the date each row shows
+
+`itineraryRows` sorts on `effectiveStart`, not on the event's own start. A reservation overrides the shared
+LODGING event's dates for that person, so a late arriver's hotel row moves days down the trip while the
+event stays put: ordering by the event listed her hotel above the flight that brought her to it, with both
+rows showing the right dates (reported 2026-09-07). The sort is stable, so rows sharing a moment keep the
+order the trip gave them, and undated rows sink to the bottom. The print and badge pages read the same
+rows, so all three agree.
+
 ## Pages (private repo)
 
 - `admin/lodging.jsf` (site-level; gate `canOpenLodgingAdmin`): list mode (managed + all) and detail mode
@@ -204,7 +213,9 @@ a floor nobody named.
   or map region; the selection is keyed by RESERVATION so two stays of one person are two cards; the server
   decides, `assignRoom` minting a reservation from the option's default stay when needed; over-capacity
   opens a confirm with "Assign anyway"; the board's window defaults to the option's whole date range; a
-  card shows age and reveals the registration answers on hover, and in the flow while selected). The board
+  card shows age and reveals the registration answers on hover, and in the flow while selected; clicking a
+  room with NOBODY selected opens it instead, `roomDetail` answering who is in it over the board's window,
+  with each occupant's card open and both kinds of room note). The board
   is scoped to an ACCOMMODATION, never to one lodging option: the toolbar names the hotel (a menu only when
   the trip has options at more than one), and everybody waiting for a room there is listed whichever option
   pays for them -- scoping the column to one option hid people while the room grid showed the whole hotel.
