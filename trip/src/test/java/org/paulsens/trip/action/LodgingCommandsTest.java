@@ -1067,7 +1067,7 @@ public class LodgingCommandsTest {
     }
 
     /**
-     * A trip-scoped {@code hotelMgr} is the hotel's own staff: they room the trip's people and nothing
+     * A trip-scoped {@code lodgingManager} is the hotel's own staff: they room the trip's people and nothing
      * else. The board and both of its assignment commands answer to them; every command that touches an
      * option, a reservation or money refuses, and so does the same board on any OTHER trip.
      */
@@ -1084,7 +1084,7 @@ public class LodgingCommandsTest {
         final Stay stay = stay(true, hotelTrip);
         final Person hotelier = savedPerson("Hotelier");
         final PrivilegeCommands priv = new PrivilegeCommands();
-        assertTrue(priv.savePrivilege(priv.getOrCreate(PrivilegeCommands.HOTEL_MGR, hotelTrip.getId(),
+        assertTrue(priv.savePrivilege(priv.getOrCreate(PrivilegeCommands.LODGING_MANAGER, hotelTrip.getId(),
                 "Rooms this trip").withNewPerson(hotelier.getId())));
         final LodgingCommands hotel = new LodgingCommands(() -> TestCallers.person(hotelier.getId()));
 

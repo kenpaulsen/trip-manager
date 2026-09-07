@@ -817,7 +817,7 @@ public class OrgCommands {
             PrivilegeCommands.TRIP_VIEW, "Viewer",
             PrivilegeCommands.CHAT_MGR, "Chat Admin",
             PrivilegeCommands.REGISTRATION_ADMIN, "Registration Admin",
-            PrivilegeCommands.HOTEL_MGR, "Hotel Manager");
+            PrivilegeCommands.LODGING_MANAGER, "Lodging Manager");
 
     /**
      * The trip editor's manager-role definitions ({@code name} / {@code desc} / {@code base} maps), built

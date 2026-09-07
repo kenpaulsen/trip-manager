@@ -63,7 +63,7 @@ Retirement (`retireAccommodation`) hides a hotel from the pickers; existing offe
 | `lodgingAdmin` | an ORG (`ORG_SCOPED_BASES`, on the org hub allow-list) | manage offers and reservations for that org's trips; open the site-level lodging admin page; create accommodations |
 | `lodgingAdmin` | GLOBAL (`GLOBAL_BASES`, the `contentAdmin` dual pattern) | everything above for every org, plus edit every accommodation |
 | `accommodationAdmin` | one ACCOMMODATION (`ACCOMMODATION_SCOPED_BASES`, scope = the hotel's UUID) | edit that hotel: details, room types, rooms, floor maps, photos, managers. Grants NOTHING on offers or reservations. |
-| `hotelMgr` | one TRIP (`TRIP_SCOPED_BASES`, granted on the Trip Managers roster) | room the trip's people: the Assignments board, `assignRoom` and `unassignRoom`, and the room dialog. NOT the Offers or Reservations tabs, no prices, no bills, no other trip, and NOT `place` (minting a reservation chooses the option that prices the stay). This is what a HOTEL's own staff get; added 2026-09-07, reversing "reservations are admin-only". |
+| `lodgingManager` | one TRIP (`TRIP_SCOPED_BASES`, granted on the Trip Managers roster) | room the trip's people: the Assignments board, `assignRoom` and `unassignRoom`, and the room dialog. NOT the Offers or Reservations tabs, no prices, no bills, no other trip, and NOT `place` (minting a reservation chooses the option that prices the stay). This is what a HOTEL's own staff get; added 2026-09-07, reversing "reservations are admin-only". |
 | `tripMgr` | a trip | manage that trip's offers and reservations (the trip's Lodging tab) |
 | site admin | | everything |
 
@@ -208,10 +208,10 @@ Two gates, deliberately different:
 
 - `canManageTripLodging(tripId)` is the full tab: site admin, global `lodgingAdmin`, `lodgingAdmin` on the
   trip's org, or `tripMgr` on the trip. Offers, reservations, cancellations, recompute, every price.
-- `canAssignRooms(tripId)` is that set PLUS a trip-scoped `hotelMgr`, and it is what the Assignments board,
+- `canAssignRooms(tripId)` is that set PLUS a trip-scoped `lodgingManager`, and it is what the Assignments board,
   `roomBoard`, `roomDetail`, `assignRoom` and `unassignRoom` answer to.
 
-For a `hotelMgr` the page renders the Assignments tab alone, forces the tab index to 0 (a `?tab=` they
+For a `lodgingManager` the page renders the Assignments tab alone, forces the tab index to 0 (a `?tab=` they
 cannot open would index a tab that was never built), drops the "No reservation yet" column (its clicks
 would all be refused, since placing an unreserved person picks the option that prices them) and hides the
 person card's "Full registration" link (that page would bounce them). `cancelPreview` is gated too: what
@@ -219,7 +219,7 @@ was billed and what comes back is the trip's business, not the hotel's. The tab 
 well, carrying Lodging alone, the way `registrationAdmin` carries Registrations alone.
 
 An organization with an explicit `grantablePrivileges` allow-list will not offer the new role until
-`hotelMgr` is added to that list; orgs with no list offer it already, and site admins always see it.
+`lodgingManager` is added to that list; orgs with no list offer it already, and site admins always see it.
 
 ## Pages (private repo)
 

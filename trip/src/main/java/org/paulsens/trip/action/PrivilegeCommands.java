@@ -65,7 +65,7 @@ public class PrivilegeCommands {
      * deliberately weaker than {@link #LODGING_ADMIN} -- it is what a HOTEL's own staff get, so it shows no
      * prices, no bills, and no other trip. Reversing the "lodging is admin-only" decision of 2026-09-06.
      */
-    public static final String HOTEL_MGR = "hotelMgr";
+    public static final String LODGING_MANAGER = "lodgingManager";
     public static final String ADD_TRIP = "addTrip";
     /** May flip the payment page into SANDBOX mode (sandbox APIs, no real ledger writes). Org-scoped:
      *  sandbox mode exercises the trip's org's sandbox credentials, so the grant follows the org. */
@@ -90,7 +90,7 @@ public class PrivilegeCommands {
      * name dropdown -- content containers may still reference arbitrary names beyond it.
      */
     public static final List<String> TRIP_SCOPED_BASES = List.of(TRIP_MGR, TRIP_FIN_ADMIN, TRIP_FIN_VIEW,
-            TRIP_VIEW, CHAT_MGR, REGISTRATION_ADMIN, HOTEL_MGR);
+            TRIP_VIEW, CHAT_MGR, REGISTRATION_ADMIN, LODGING_MANAGER);
     /**
      * The org-scoped grants. {@link #CONTENT_ADMIN}, {@link #MEDIA_ADMIN} and {@link #AUDIT_ADMIN} are BOTH
      * here and global: the global row edits every site (reads every trail), the org-scoped row ({@code
@@ -131,7 +131,7 @@ public class PrivilegeCommands {
             java.util.Map.entry(TRIP_VIEW, "View the trip's admin pages (read-only)"),
             java.util.Map.entry(CHAT_MGR, "Moderate the trip's chat"),
             java.util.Map.entry(REGISTRATION_ADMIN, "Work the trip's registrations page"),
-            java.util.Map.entry(HOTEL_MGR, "Assign the trip's rooms (no prices, bills or other trips)"),
+            java.util.Map.entry(LODGING_MANAGER, "Assign the trip's rooms (no prices, bills or other trips)"),
             java.util.Map.entry(PEOPLE_ADMIN, "Manage the organization's people"),
             java.util.Map.entry(ADD_TRIP, "Create new trips for the organization"),
             java.util.Map.entry(EMAIL_ADMIN, "Send email to the organization's members"),

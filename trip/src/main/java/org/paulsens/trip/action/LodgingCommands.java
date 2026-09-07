@@ -142,7 +142,7 @@ public class LodgingCommands {
 
     /**
      * May work the Assignments board: everyone who manages the trip's lodging, plus a trip-scoped
-     * {@code hotelMgr}. That is the hotel's own staff: they room people and nothing else -- no lodging
+     * {@code lodgingManager}. That is the hotel's own staff: they room people and nothing else -- no lodging
      * options, no reservations, no prices, no bills, and no other trip. Creating a reservation stays with
      * the managers, because choosing the option that pays for a stay is choosing what the pilgrim is
      * charged.
@@ -151,7 +151,7 @@ public class LodgingCommands {
         if (tripId == null || tripId.isBlank()) {
             return false;
         }
-        return canManageTripLodging(tripId) || caller().has(PrivilegeCommands.HOTEL_MGR, tripId);
+        return canManageTripLodging(tripId) || caller().has(PrivilegeCommands.LODGING_MANAGER, tripId);
     }
 
     /** May edit THIS accommodation's data: global admins, or a holder of {@code accommodationAdmin@acc}. */
@@ -2371,7 +2371,7 @@ public class LodgingCommands {
             board.getRooms().add(cellFor(acc, room, byRoom.getOrDefault(room.getId(), List.of()), from, to));
         }
         // Placing one of these mints a reservation on a lodging OPTION, which is a price: that is the
-        // trip's call, so a hotel manager is not shown a column whose clicks would all be refused.
+        // trip's call, so a lodging manager is not shown a column whose clicks would all be refused.
         if (canManageTripLodging(tripId)) {
             for (final Person.Id person : trip.getPeople()) {
                 if (!housed.contains(person)) {
