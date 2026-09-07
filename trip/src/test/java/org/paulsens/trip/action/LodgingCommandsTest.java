@@ -301,6 +301,29 @@ public class LodgingCommandsTest {
         assertTrue(admin.setFloorMap(accId, "1", "media-2"), "Replacing keeps one entry per floor");
         assertEquals(admin.floorMapMediaId(accId, "1"), "media-2");
         assertFalse(admin.setFloorMap(accId, " ", "media-2"));
+        assertTrue(admin.setFloorMap(accId, "9", "media-9"), "A plan may land on a floor with no rooms yet");
+        assertTrue(admin.floorsOf(accId).contains("9"), "...but it then shows up as a floor of its own");
+
+        // The repair for a plan that ended up on a floor its rooms are not on: move it, keeping the image.
+        assertFalse(admin.moveTargets(accId, "9").contains("9"), "Not to the floor it is already on");
+        assertFalse(admin.moveTargets(accId, "9").contains("1"), "Floor 1 has a plan of its own");
+        assertFalse(admin.moveFloorMap(accId, "9", "1"), "That would silently replace floor 1's plan");
+        assertTrue(admin.saveFloorRegions(accId, "1", "[{\"roomId\":\"" + r101 + "\",\"x\":1,\"y\":1,"
+                + "\"w\":2,\"h\":2}]"));
+        assertTrue(admin.removeFloorMap(accId, "1"));
+        assertTrue(admin.moveTargets(accId, "9").contains("1"), "Now floor 1 is free to receive it");
+        assertFalse(admin.moveFloorMap(accId, "9", "9"), "Already there");
+        assertFalse(admin.moveFloorMap(accId, "8", "1"), "Floor 8 has no plan to move");
+        assertFalse(admin.moveFloorMap(accId, "9", " "));
+        assertTrue(admin.moveFloorMap(accId, "9", "1"));
+        assertEquals(admin.floorMapMediaId(accId, "1"), "media-9", "The image moved with the floor");
+        assertFalse(admin.floorsOf(accId).contains("9"), "...and the floor that only the plan named is gone");
+        assertTrue(admin.mappedRoomsOnFloor(accId, "1").isEmpty(), "Boxes were drawn on the OTHER plan");
+
+        assertFalse(admin.removeFloorMap(accId, "8"), "Floor 8 never had a plan");
+        assertFalse(admin.removeFloorMap(accId, " "));
+        assertTrue(admin.removeFloorMap(accId, "1"));
+        assertEquals(admin.floorMapMediaId(accId, "1"), "");
         assertEquals(admin.mediaUrl("no-such-media"), "");
         assertTrue(admin.countrySuggestions("bosn").contains("Bosnia and Herzegovina"));
         assertEquals(admin.countrySuggestions(null).size(), LodgingCommands.COUNTRIES.size());
@@ -655,6 +678,8 @@ public class LodgingCommandsTest {
         assertFalse(stranger.saveRoom(stay.accId(), new RoomForm()));
         assertFalse(stranger.deleteRoomType(stay.accId(), stay.typeId()));
         assertFalse(stranger.setFloorMap(stay.accId(), "1", "m"));
+        assertFalse(stranger.removeFloorMap(stay.accId(), "1"));
+        assertFalse(stranger.moveFloorMap(stay.accId(), "1", "2"));
         assertFalse(stranger.saveFloorRegions(stay.accId(), "1", ""));
         assertFalse(stranger.addPhoto(stay.accId(), null, "m"));
         assertFalse(stranger.movePhoto(stay.accId(), null, "m", 1));
@@ -684,6 +709,9 @@ public class LodgingCommandsTest {
         assertFalse(admin.deleteRoom(gone, "x"));
         assertEquals(admin.bulkAddRooms(gone, "", 1, 2, "1", stay.typeId()), 0);
         assertFalse(admin.setFloorMap(gone, "1", "m"));
+        assertFalse(admin.removeFloorMap(gone, "1"));
+        assertFalse(admin.moveFloorMap(gone, "1", "2"));
+        assertTrue(admin.moveTargets(gone, "1").isEmpty());
         assertFalse(admin.saveFloorRegions(gone, "1", ""));
         assertFalse(admin.addPhoto(gone, null, "m"));
         assertFalse(admin.movePhoto(gone, null, "m", 1));

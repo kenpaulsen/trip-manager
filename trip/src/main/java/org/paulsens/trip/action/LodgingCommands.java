@@ -885,7 +885,91 @@ public class LodgingCommands {
         } else {
             existing.setMediaId(mediaId);
         }
+        if (acc.roomsOnFloor(floor.trim()).isEmpty()) {
+            // Silently attaching a plan to a floor no room is on is how a mismatch hides: the plan looks
+            // uploaded, nothing can be mapped on it, and the floor list grows an entry with no rooms.
+            warn("No rooms are on floor '" + floor.trim() + "', so this plan has nothing to map yet.");
+        }
         return store(acc) && audited(acc, "Floor plan set for floor " + floor.trim());
+    }
+
+    /**
+     * Takes the plan off a floor. The image stays in the media library, exactly as removing a gallery photo
+     * does, and a floor that existed only because a plan named it leaves the floor list with it.
+     */
+    public boolean removeFloorMap(final String accId, final String floor) {
+        if (!canEditAccommodation(accId)) {
+            return failed("Not allowed: you do not manage this accommodation.");
+        }
+        if (floor == null || floor.isBlank()) {
+            return failed("Which floor?");
+        }
+        final Accommodation acc = freshAccommodation(accId);
+        if (acc == null) {
+            return failed("This accommodation no longer exists.");
+        }
+        final String wanted = floor.trim();
+        if (!acc.getFloorMaps().removeIf(map -> wanted.equals(map.getFloor()))) {
+            return failed("Floor " + wanted + " has no plan to remove.");
+        }
+        return store(acc) && audited(acc, "Floor plan removed for floor " + wanted);
+    }
+
+    /**
+     * The floors a plan on {@code from} could be moved to: every floor of the hotel except the one it is on
+     * and any floor that already has its own plan.
+     */
+    public List<String> moveTargets(final String accId, final String from) {
+        final Accommodation acc = findAccommodation(accId);
+        if (acc == null || from == null) {
+            return List.of();
+        }
+        final List<String> targets = new ArrayList<>();
+        for (final String floor : acc.floors()) {
+            if (!floor.equals(from.trim()) && acc.floorMap(floor) == null) {
+                targets.add(floor);
+            }
+        }
+        return targets;
+    }
+
+    /**
+     * Re-points a plan at another floor, keeping the image. This is the repair for a plan and its rooms
+     * ending up on differently named floors -- renaming the rooms' floor orphans the plan on the old name,
+     * leaving a floor with a picture nothing can be mapped on and rooms with no picture (2026-09-07).
+     * Both floors' regions are cleared: boxes on the source floor were drawn against an image it no longer
+     * has, and boxes on the target floor were drawn against the plan this one replaces.
+     */
+    public boolean moveFloorMap(final String accId, final String from, final String to) {
+        if (!canEditAccommodation(accId)) {
+            return failed("Not allowed: you do not manage this accommodation.");
+        }
+        if (from == null || from.isBlank() || to == null || to.isBlank()) {
+            return failed("Which floor should this plan move to?");
+        }
+        final String source = from.trim();
+        final String target = to.trim();
+        if (source.equals(target)) {
+            return failed("That plan is already on floor " + target + ".");
+        }
+        final Accommodation acc = freshAccommodation(accId);
+        if (acc == null) {
+            return failed("This accommodation no longer exists.");
+        }
+        final FloorMap moving = acc.floorMap(source);
+        if (moving == null) {
+            return failed("Floor " + source + " has no plan to move.");
+        }
+        if (acc.floorMap(target) != null) {
+            return failed("Floor " + target + " already has a plan. Remove that one first.");
+        }
+        moving.setFloor(target);
+        for (final Room room : acc.getRooms()) {
+            if (source.equals(room.getFloor()) || target.equals(room.getFloor())) {
+                room.setMapRegion(null);
+            }
+        }
+        return store(acc) && audited(acc, "Floor plan moved from floor " + source + " to floor " + target);
     }
 
     /**

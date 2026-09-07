@@ -170,11 +170,34 @@ tripRooms report are DERIVED lists (`roomingList`); the free-text inputs are gon
 room is the trip's Lodging tab. Converting COMPLETED trips' legacy values into static notes and dropping the
 fallback is a filed GitHub issue on the private repo.
 
+## Floors are free text, so a plan can land on the wrong one
+
+`Accommodation.floors()` is the union of the floors its ROOMS name and the floors its PLANS name, so nothing
+constrains the two to agree. Rename the rooms' floor (`Ground` to `0 - Ground`, say) and the plan is orphaned
+on the old name: a floor with a picture and no rooms to map on it, beside a floor with rooms and no picture.
+That is exactly the state reported on 2026-09-07, and every part of it is by design except that there was no
+way out of it. Three guards, all cheap:
+
+- The Floor Maps tab REFUSES a `?floor=` naming a floor the hotel does not have, falling back to the first
+  one, so a stale link or bookmark can never create a floor by visiting it.
+- `setFloorMap` warns when the target floor has no rooms: the plan is still stored (a plan may legitimately
+  arrive before the rooms), but the admin is told it has nothing to map yet.
+- `moveFloorMap(accId, from, to)` re-points a plan at another floor, keeping the image; `moveTargets` offers
+  only floors that have no plan of their own, and `removeFloorMap` takes a plan off a floor entirely (the
+  image stays in the media library, as removing a gallery photo does). A move CLEARS the map regions on both
+  floors: boxes are percentages of a particular image, and after a move neither floor's boxes describe the
+  image it now shows.
+
+Free-text floor names also reach the floor chooser's links, so they are URL-encoded through
+`tripUtil.encodeParam`: an unencoded `&` ENDS the parameter and a `+` arrives as a space, which would select
+a floor nobody named.
+
 ## Pages (private repo)
 
 - `admin/lodging.jsf` (site-level; gate `canOpenLodgingAdmin`): list mode (managed + all) and detail mode
   with tabs Details (edit, retire, managers), Room Types, Rooms (bulk add), Floor Maps (upload, the
-  rectangle annotator in `trip-js/floorMap.js`, saved through `saveFloorRegions` JSON), Photos. Reached from
+  rectangle annotator in `trip-js/floorMap.js`, saved through `saveFloorRegions` JSON, plus Move plan and
+  Remove plan), Photos. Reached from
   the Admin menu and the org hub's Lodging card (`?orgId=` only drives the Done button and the contact's org).
 - `trip/lodging.jsf` (gate `canManageTripLodging`; `?acc=` opens the board on a given hotel): under a
   "Rooms" heading, the Assignments workspace (`trip-js/roomAssign.js`: click a person card, click a room card

@@ -54,6 +54,15 @@ public class TripUtilCommandsTest {
         assertTrue(tripUtil.loginUrl().startsWith("/account/login.jsf?to="));
     }
 
+    /** A free-text value that reaches a link: unencoded, an ampersand ENDS the parameter and a plus is a space. */
+    @Test
+    public void queryValuesAreEncoded() {
+        assertEquals(tripUtil.encodeParam("0 & Ground"), "0+%26+Ground");
+        assertEquals(tripUtil.encodeParam("1 + Mezz"), "1+%2B+Mezz");
+        assertEquals(tripUtil.encodeParam("plain"), "plain");
+        assertEquals(tripUtil.encodeParam(null), "");
+    }
+
     /** The with-context halves: the stash round-trip and the current-request path builder. */
     @Test
     public void returnPathStashAndCurrentPathWorkAgainstARealishContext() {

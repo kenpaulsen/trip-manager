@@ -128,6 +128,15 @@ public class TripUtilCommands {
     }
 
     /**
+     * A value safe to drop into a query string. Free text reaches links unencoded otherwise: an ampersand
+     * then ENDS the parameter and a plus arrives as a space, which is how a floor named "0 & Ground" became
+     * a floor called "0 " and grew a phantom entry nobody could delete (2026-09-07).
+     */
+    public String encodeParam(final String value) {
+        return (value == null) ? "" : URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    /**
      * {@code afterLoginURL} exposed as a form value so the STATELESS login pages carry it through their own
      * POSTs (an {@code h:inputHidden} re-stashes it into whatever session the POST lands on). The setter is
      * fed by a user-controlled field, so it accepts only same-site absolute paths -- anything else (foreign
