@@ -114,6 +114,12 @@ whole `admin/tripRegistrations.jsf` page — approve, move, rooms, approval mail
 `reqPriv` door, and the REST roster (`RegistrationsResource.isTripStaff`) all honor it; it deliberately
 does NOT light up the other trip tabs, the way an invited chat guest gets exactly the Chat tab.
 
+`hotelMgr@trip` (display name "Hotel Manager") is the narrowest trip role: the Lodging tab's Assignments
+board and nothing else, for the hotel's OWN staff. They room people the trip has already reserved for; the
+Offers and Reservations tabs, every price and bill, and every other trip stay closed to them. Added
+2026-09-07, reversing the "lodging is admin-only" decision, because the alternative on offer was
+`lodgingAdmin@org` -- every trip the org will ever run, plus the money. Details in `lodging.md`.
+
 **Creating a trip** stamps `openToPublic=false` (never public until chosen) and auto-grants the creator
 their standard roles on the new trip -- `tripMgr` (Editor Admin), `tripView` (Viewer), and
 `registrationAdmin` -- via `OrgCommands.grantCreatorTripRoles`, called only from the create paths (page

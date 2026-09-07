@@ -140,6 +140,20 @@ public class LodgingCommands {
         return current.isAuthenticated() && (current.isSiteAdmin() || current.has(PrivilegeCommands.LODGING_ADMIN));
     }
 
+    /**
+     * May work the Assignments board: everyone who manages the trip's lodging, plus a trip-scoped
+     * {@code hotelMgr}. That is the hotel's own staff: they room people and nothing else -- no lodging
+     * options, no reservations, no prices, no bills, and no other trip. Creating a reservation stays with
+     * the managers, because choosing the option that pays for a stay is choosing what the pilgrim is
+     * charged.
+     */
+    public boolean canAssignRooms(final String tripId) {
+        if (tripId == null || tripId.isBlank()) {
+            return false;
+        }
+        return canManageTripLodging(tripId) || caller().has(PrivilegeCommands.HOTEL_MGR, tripId);
+    }
+
     /** May edit THIS accommodation's data: global admins, or a holder of {@code accommodationAdmin@acc}. */
     public boolean canEditAccommodation(final String accId) {
         if (accId == null || accId.isBlank()) {
@@ -1855,8 +1869,8 @@ public class LodgingCommands {
      */
     public AssignOutcome assignRoom(final String tripId, final String reservationId, final String roomId,
             final boolean force, final LocalDateTime winStart, final LocalDateTime winEnd) {
-        if (!canManageTripLodging(tripId)) {
-            return outcome(false, false, "Not allowed: only the trip's managers and lodging admins assign rooms.",
+        if (!canAssignRooms(tripId)) {
+            return outcome(false, false, "Not allowed: you do not room this trip's people.",
                     null, reservationId, roomId);
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
@@ -1966,7 +1980,7 @@ public class LodgingCommands {
      */
     public AssignOutcome place(final String tripId, final PlacementForm form) {
         if (!canManageTripLodging(tripId)) {
-            return outcome(false, false, "Not allowed: only the trip's managers and lodging admins assign rooms.",
+            return outcome(false, false, "Not allowed: you do not room this trip's people.",
                     null, null, null);
         }
         if (form == null || form.getPersonId() == null || form.getPersonId().isBlank()) {
@@ -2057,8 +2071,8 @@ public class LodgingCommands {
     }
 
     public boolean unassignRoom(final String tripId, final String reservationId) {
-        if (!canManageTripLodging(tripId)) {
-            return failed("Not allowed: only the trip's managers and lodging admins assign rooms.");
+        if (!canAssignRooms(tripId)) {
+            return failed("Not allowed: you do not room this trip's people.");
         }
         final Reservation res = findReservation(tripId, reservationId);
         if (res == null || !res.isActive()) {
@@ -2138,6 +2152,9 @@ public class LodgingCommands {
 
     /** The cancel dialog's numbers: what the ledger says was billed, the offer's fee, and the difference. */
     public CancelPreview cancelPreview(final String tripId, final String reservationId) {
+        if (!canManageTripLodging(tripId)) {
+            return new CancelPreview();     // what was billed and what comes back is the trip's business
+        }
         final Reservation res = findReservation(tripId, reservationId);
         if (res == null) {
             return new CancelPreview();
@@ -2321,7 +2338,7 @@ public class LodgingCommands {
     public RoomBoard roomBoard(final String tripId, final String accId, final LocalDateTime winStart,
             final LocalDateTime winEnd) {
         final RoomBoard board = new RoomBoard();
-        if (!canManageTripLodging(tripId)) {
+        if (!canAssignRooms(tripId)) {
             return board;
         }
         final Trip trip = tripSource.get().getTrip(tripId);
@@ -2353,9 +2370,13 @@ public class LodgingCommands {
         for (final Room room : sortedRooms(acc)) {
             board.getRooms().add(cellFor(acc, room, byRoom.getOrDefault(room.getId(), List.of()), from, to));
         }
-        for (final Person.Id person : trip.getPeople()) {
-            if (!housed.contains(person)) {
-                board.getNoReservation().add(cardFor(trip, person, null));
+        // Placing one of these mints a reservation on a lodging OPTION, which is a price: that is the
+        // trip's call, so a hotel manager is not shown a column whose clicks would all be refused.
+        if (canManageTripLodging(tripId)) {
+            for (final Person.Id person : trip.getPeople()) {
+                if (!housed.contains(person)) {
+                    board.getNoReservation().add(cardFor(trip, person, null));
+                }
             }
         }
         return board;
@@ -2371,7 +2392,7 @@ public class LodgingCommands {
     public RoomDetail roomDetail(final String tripId, final String accId, final String roomId,
             final LocalDateTime winStart, final LocalDateTime winEnd) {
         final RoomDetail detail = new RoomDetail();
-        if (!canManageTripLodging(tripId) || roomId == null || roomId.isBlank()) {
+        if (!canAssignRooms(tripId) || roomId == null || roomId.isBlank()) {
             return detail;
         }
         final Accommodation acc = findAccommodation(accId);

@@ -60,6 +60,12 @@ public class PrivilegeCommands {
     public static final String CHAT_MGR = "chatMgr";
     /** Works the trip's registrations page (approve, move, rooms, approval mail). Trip-scoped. */
     public static final String REGISTRATION_ADMIN = "registrationAdmin";
+    /**
+     * Rooms a trip's people: the Lodging tab's Assignments board and nothing else. Trip-scoped, and
+     * deliberately weaker than {@link #LODGING_ADMIN} -- it is what a HOTEL's own staff get, so it shows no
+     * prices, no bills, and no other trip. Reversing the "lodging is admin-only" decision of 2026-09-06.
+     */
+    public static final String HOTEL_MGR = "hotelMgr";
     public static final String ADD_TRIP = "addTrip";
     /** May flip the payment page into SANDBOX mode (sandbox APIs, no real ledger writes). Org-scoped:
      *  sandbox mode exercises the trip's org's sandbox credentials, so the grant follows the org. */
@@ -83,8 +89,8 @@ public class PrivilegeCommands {
      * {@code Organization}'s allow-list draws from both. {@link #GLOBAL_BASES} exists for the privilege editor's
      * name dropdown -- content containers may still reference arbitrary names beyond it.
      */
-    public static final List<String> TRIP_SCOPED_BASES =
-            List.of(TRIP_MGR, TRIP_FIN_ADMIN, TRIP_FIN_VIEW, TRIP_VIEW, CHAT_MGR, REGISTRATION_ADMIN);
+    public static final List<String> TRIP_SCOPED_BASES = List.of(TRIP_MGR, TRIP_FIN_ADMIN, TRIP_FIN_VIEW,
+            TRIP_VIEW, CHAT_MGR, REGISTRATION_ADMIN, HOTEL_MGR);
     /**
      * The org-scoped grants. {@link #CONTENT_ADMIN}, {@link #MEDIA_ADMIN} and {@link #AUDIT_ADMIN} are BOTH
      * here and global: the global row edits every site (reads every trail), the org-scoped row ({@code
@@ -125,6 +131,7 @@ public class PrivilegeCommands {
             java.util.Map.entry(TRIP_VIEW, "View the trip's admin pages (read-only)"),
             java.util.Map.entry(CHAT_MGR, "Moderate the trip's chat"),
             java.util.Map.entry(REGISTRATION_ADMIN, "Work the trip's registrations page"),
+            java.util.Map.entry(HOTEL_MGR, "Assign the trip's rooms (no prices, bills or other trips)"),
             java.util.Map.entry(PEOPLE_ADMIN, "Manage the organization's people"),
             java.util.Map.entry(ADD_TRIP, "Create new trips for the organization"),
             java.util.Map.entry(EMAIL_ADMIN, "Send email to the organization's members"),

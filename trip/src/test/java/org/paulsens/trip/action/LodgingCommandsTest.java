@@ -1067,6 +1067,77 @@ public class LodgingCommandsTest {
     }
 
     /**
+     * A trip-scoped {@code hotelMgr} is the hotel's own staff: they room the trip's people and nothing
+     * else. The board and both of its assignment commands answer to them; every command that touches an
+     * option, a reservation or money refuses, and so does the same board on any OTHER trip.
+     */
+    @Test
+    public void aHotelManagerRoomsPeopleAndNothingElse() throws IOException {
+        // Its own trip: this test houses somebody, and the shared trip's rooming list is asserted elsewhere.
+        final Person guest = savedPerson("Guest");
+        final Person mate = savedPerson("Mate");
+        final Trip hotelTrip = Trip.builder().id(java.util.UUID.randomUUID().toString()).title("Hotel mgr trip")
+                .startDate(CHECK_IN).endDate(CHECK_OUT.plusDays(2))
+                .people(new ArrayList<>(List.of(guest.getId(), mate.getId()))).build();
+        hotelTrip.setOrgId(orgId);
+        assertTrue(DAO.getInstance().saveTrip(hotelTrip));
+        final Stay stay = stay(true, hotelTrip);
+        final Person hotelier = savedPerson("Hotelier");
+        final PrivilegeCommands priv = new PrivilegeCommands();
+        assertTrue(priv.savePrivilege(priv.getOrCreate(PrivilegeCommands.HOTEL_MGR, hotelTrip.getId(),
+                "Rooms this trip").withNewPerson(hotelier.getId())));
+        final LodgingCommands hotel = new LodgingCommands(() -> TestCallers.person(hotelier.getId()));
+
+        assertTrue(hotel.canAssignRooms(hotelTrip.getId()));
+        assertFalse(hotel.canManageTripLodging(hotelTrip.getId()), "rooming is not managing");
+        assertFalse(hotel.canAssignRooms(null));
+        assertFalse(hotel.canAssignRooms(" "));
+        final Trip other = Trip.builder().id(java.util.UUID.randomUUID().toString()).title("Not theirs")
+                .startDate(CHECK_IN).endDate(CHECK_OUT).build();
+        other.setOrgId(orgId);
+        assertTrue(DAO.getInstance().saveTrip(other));
+        assertFalse(hotel.canAssignRooms(other.getId()), "the grant is one trip's");
+
+        // The board is theirs, minus the column whose clicks would all be refused.
+        final RoomBoard board = hotel.roomBoard(hotelTrip.getId(), stay.accId(), null, null);
+        assertEquals(board.getAccommodationId(), stay.accId());
+        assertFalse(board.getRooms().isEmpty());
+        assertTrue(board.getNoReservation().isEmpty(),
+                "placing somebody with no reservation picks the option that prices their stay");
+        assertFalse(admin.roomBoard(hotelTrip.getId(), stay.accId(), null, null).getNoReservation().isEmpty(),
+                "...which the trip's own managers still do");
+
+        // Rooming: a reservation the trip made can be placed, moved and taken out again.
+        final ReservationForm form = admin.reservationFormFor(hotelTrip.getId(), null);
+        form.setOfferId(stay.offer().getId().getValue());
+        form.setPersonIds(List.of(guest.getId().getValue()));
+        form.setStart(CHECK_IN);
+        form.setEnd(CHECK_OUT);
+        assertEquals(admin.createReservations(hotelTrip.getId(), form), 1);
+        final Reservation res = admin.activeReservationsFor(hotelTrip.getId(), guest.getId()).stream()
+                .filter(r -> r.getRoomId() == null).findFirst().orElseThrow();
+        final String resId = res.getId().getValue();
+        assertTrue(hotel.assignRoom(hotelTrip.getId(), resId, stay.r101(), false, null, null).isAssigned());
+        assertEquals(hotel.roomDetail(hotelTrip.getId(), stay.accId(), stay.r101(), null, null).getOccupants()
+                .size(), 1, "and they can see who they just put in there");
+        assertTrue(hotel.unassignRoom(hotelTrip.getId(), resId));
+
+        // Everything with a price on it refuses.
+        final PlacementForm placement = admin.placementFormFor(hotelTrip.getId(), stay.accId(),
+                mate.getId().getValue(), stay.r102());
+        placement.setOfferId(stay.offer().getId().getValue());
+        assertFalse(hotel.place(hotelTrip.getId(), placement).isAssigned(), "creating a reservation is a price");
+        assertFalse(hotel.updateReservation(hotelTrip.getId(), admin.reservationFormFor(hotelTrip.getId(), resId)));
+        assertFalse(hotel.saveOffer(hotelTrip.getId(), admin.offerFormFor(hotelTrip.getId(),
+                stay.offer().getId().getValue())));
+        assertTrue(hotel.reservationRows(hotelTrip.getId(), false).isEmpty(), "no reservation list");
+        assertNull(hotel.cancelPreview(hotelTrip.getId(), resId).getReservationId());
+        assertFalse(hotel.cancelReservation(hotelTrip.getId(), resId, true, null, "no"));
+        assertTrue(hotel.roomBoard(other.getId(), stay.accId(), null, null).getRooms().isEmpty());
+        assertNull(hotel.roomDetail(other.getId(), stay.accId(), stay.r101(), null, null).getRoomId());
+    }
+
+    /**
      * The itinerary is ordered by the date each row SHOWS. A late arriver's hotel row carries her own
      * check-in, days after the group's, so ordering by the event put the hotel above the flight that brought
      * her to it -- the dates read right and the sequence read wrong (reported 2026-09-07).
