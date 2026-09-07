@@ -8,6 +8,10 @@ import org.paulsens.trip.model.Trip;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 import org.paulsens.trip.action.ChatCommands;
+import org.paulsens.trip.model.ReservationOffer;
+import org.paulsens.trip.model.Reservation;
+import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.action.LodgingCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.model.chat.ChatChannel;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -204,5 +208,49 @@ public class FakeDataTest {
                     "the seed exists to keep the suite clear of the limiter: "
                             + channel.getSettings().getBurstLimit());
         }
+    }
+
+    /**
+     * The demo hotel stay reads the way a real one does: the option that tracks the LODGING event agrees
+     * with it to the minute, so only the late arriver's itinerary row is marked as coming from her
+     * reservation. The event used to take whatever time of day the seed ran at, so it never matched the
+     * option's 3pm check-in and EVERY occupant's row claimed an override -- the hint exists to spot exactly
+     * one of them. (How the rows then render is {@code ItineraryLodgingPwIT}'s, on fixtures it owns.)
+     */
+    @Test
+    public void theSeededHotelStayAndItsLodgingOptionAgree() {
+        final Trip trip = DAO.getInstance().getTrip(FakeData.FAKE_TRIP_ID, Cached.NO).orElseThrow();
+        final org.paulsens.trip.model.TripEvent hotel = trip.getTripEvent(FakeData.FAKE_TRIP_LODGING_EVENT_ID);
+        assertNotNull(hotel, "the demo trip has its lodging event");
+        final LodgingCommands lodging = new LodgingCommands(FakeDataTest::siteAdmin);
+        final ReservationOffer offer = lodging.getOffers(FakeData.FAKE_TRIP_ID).stream()
+                .filter(o -> FakeData.FAKE_TRIP_LODGING_EVENT_ID.equals(o.getTripEventId())).findFirst()
+                .orElseThrow();
+        assertEquals(offer.getDefaultStart(), hotel.getStart(), "the option's stay is the event's, to the minute");
+        assertEquals(offer.getDefaultEnd(), hotel.getEnd());
+
+        int withTheGroup = 0;
+        int late = 0;
+        for (final Reservation res : DAO.getInstance().getReservations(FakeData.FAKE_TRIP_ID, Cached.NO)) {
+            if (!res.isActive() || !offer.getId().equals(res.getOfferId())) {
+                continue;
+            }
+            assertFalse(res.getStart().isBefore(hotel.getStart()), "nobody checks in before the stay opens");
+            if (res.getStart().equals(hotel.getStart())) {
+                withTheGroup++;
+            } else {
+                late++;
+            }
+        }
+        // Counts, not exact numbers: the suite shares one local store and re-seeds after a cache clear,
+        // which mints fresh people and so fresh reservations for the same two personas.
+        assertTrue(withTheGroup > 0, "somebody arrives with the group, and their row must not claim an override");
+        assertTrue(late > 0, "and somebody arrives late: the case the whole feature exists for");
+    }
+
+    private static org.paulsens.trip.action.Caller siteAdmin() {
+        return new org.paulsens.trip.action.Caller(Person.Id.from(FakeData.ADMIN_PERSON_ID), true,
+                new AuditActor("admin@example.com", FakeData.ADMIN_PERSON_ID),
+                new org.paulsens.trip.action.PrivilegeCommands());
     }
 }

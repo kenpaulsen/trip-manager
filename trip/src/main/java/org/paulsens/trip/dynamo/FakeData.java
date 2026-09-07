@@ -199,10 +199,10 @@ public final class FakeData {
         offer.setTripEventId(FAKE_TRIP_LODGING_EVENT_ID);
         offer.setPricingModel("PER_ROOM");
         offer.setNightlyPrice(60.0);
-        offer.setValidFrom(LocalDateTime.now().plusDays(48).toLocalDate().atStartOfDay());
-        offer.setValidUntil(LocalDateTime.now().plusDays(60).toLocalDate().atTime(23, 59));
-        offer.setDefaultStart(LocalDateTime.now().plusDays(48).withHour(15).withMinute(0).withSecond(0).withNano(0));
-        offer.setDefaultEnd(LocalDateTime.now().plusDays(60).withHour(10).withMinute(0).withSecond(0).withNano(0));
+        offer.setValidFrom(fakeStayStart().toLocalDate().atStartOfDay());
+        offer.setValidUntil(fakeStayEnd().toLocalDate().atTime(23, 59));
+        offer.setDefaultStart(fakeStayStart());
+        offer.setDefaultEnd(fakeStayEnd());
         offer.setCancelFeeKind("PERCENT");
         offer.setCancelFeeAmount(10.0);
         offer.setPolicyHtml("<p>Cancellations within 30 days of arrival forfeit 10% of the stay.</p>");
@@ -225,6 +225,21 @@ public final class FakeData {
         if (lodging.createReservations(FAKE_TRIP_ID, form) != 1) {
             throw new IllegalStateException("Fake lodging seed: could not reserve for " + who.getEmail());
         }
+    }
+
+    /**
+     * The demo trip's hotel stay: check in on day 48 at 3pm, check out on day 60 at 10am. The LODGING event
+     * and the lodging option that tracks it MUST agree on these to the minute. When they differ, every
+     * occupant's itinerary says "(dates from your reservation)" -- a hint meant to mark the late arriver,
+     * not the four people who arrived with the group. The event used to take whatever time of day the seed
+     * happened to run at, so it always differed.
+     */
+    private static LocalDateTime fakeStayStart() {
+        return LocalDateTime.now().plusDays(48).withHour(15).withMinute(0).withSecond(0).withNano(0);
+    }
+
+    private static LocalDateTime fakeStayEnd() {
+        return LocalDateTime.now().plusDays(60).withHour(10).withMinute(0).withSecond(0).withNano(0);
     }
 
     private static Person fakePersona(final String persona) {
@@ -872,15 +887,23 @@ public final class FakeData {
         final List<Person.Id> allPeople = getFakePeople().stream().map(Person::getId).collect(Collectors.toList());
         final List<TripEvent> events = new ArrayList<>();
         events.add(newTripEvent(FAKE_TRIP_LODGING_EVENT_ID, TripEvent.Type.LODGING, "Hotel", "Super Duper Palace",
-                LocalDateTime.now().plusDays(48), LocalDateTime.now().plusDays(60), List.of(allPeople.get(2)), null));
+                fakeStayStart(), fakeStayEnd(), List.of(allPeople.get(2)), null));
+        // The flights are dated FROM the stay, at plausible hours: land after check-in, fly home after
+        // check-out. They used to carry whatever time of day the seed ran at, which put a "departure" flight
+        // hours before check-out and an arrival flight before check-in -- and left the flight-based
+        // inference (getLodgingArrivalDate/getLodgingDepartureDate, and the two tests that pin it) resting
+        // on the order two now() calls happened to be evaluated in.
         events.add(newTripEvent(FAKE_TRIP_SEA_EWR_EVENT_ID, TripEvent.Type.FLIGHT, "SEA -> EWR", "Alaska flight 94",
-                LocalDateTime.now().plusDays(50), null, List.of(allPeople.get(2)), null));
+                fakeStayStart().plusDays(2).withHour(14), null, List.of(allPeople.get(2)), null));
         events.add(newTripEvent(FAKE_TRIP_PDX_EWR_EVENT_ID, TripEvent.Type.FLIGHT, "PDX -> EWR",
-                "Alaska flight 54", LocalDateTime.now().plusDays(48), null, List.of(allPeople.get(3)), null));
+                // Takes off two hours before check-in; an end-less flight lands three hours later, so Kevin
+                // reaches the hotel an hour after it opens -- the "arrived with the group" case.
+                "Alaska flight 54", fakeStayStart().minusHours(2), null, List.of(allPeople.get(3)), null));
         events.add(newTripEvent(FAKE_TRIP_SPU_SEA_EVENT_ID, TripEvent.Type.FLIGHT, "SPU -> SEA",
-                "Direct charter flight", LocalDateTime.now().plusDays(55), null, List.of(allPeople.get(2)), null));
+                "Direct charter flight", fakeStayStart().plusDays(7).withHour(9), null,
+                List.of(allPeople.get(2)), null));
         final TripEvent charter = newTripEvent(FAKE_TRIP_CHARTER_EVENT_ID, TripEvent.Type.FLIGHT, "SPU -> SEA",
-                "Direct charter flight", LocalDateTime.now().plusDays(60), null, null, null);
+                "Direct charter flight", fakeStayEnd().plusHours(3), null, null, null);
         charter.getParticipants().add(allPeople.get(2));
         charter.getParticipants().add(allPeople.get(5));
         charter.getParticipants().add(allPeople.get(3));

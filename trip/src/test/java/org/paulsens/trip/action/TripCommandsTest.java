@@ -113,7 +113,8 @@ public class TripCommandsTest {
         assertTrue(p3Arrival.isAfter(lodging.getStart()),
                 String.format("\np3Arrival = %s\n  lodging = %s", p3Arrival, lodging.getStart()));
         assertNotEquals(p2Arrival.getDayOfMonth(), p3Arrival.getDayOfMonth());
-        assertTrue(Math.abs(Duration.between(p3Arrival, lodging.getStart()).toHours()) < 4L);
+        assertTrue(Math.abs(Duration.between(p3Arrival, lodging.getStart()).toHours()) < 4L,
+                String.format("p3 lands near check-in: p3Arrival=%s lodging=%s", p3Arrival, lodging.getStart()));
     }
 
     @Test
