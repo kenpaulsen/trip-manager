@@ -176,14 +176,27 @@ fallback is a filed GitHub issue on the private repo.
   with tabs Details (edit, retire, managers), Room Types, Rooms (bulk add), Floor Maps (upload, the
   rectangle annotator in `trip-js/floorMap.js`, saved through `saveFloorRegions` JSON), Photos. Reached from
   the Admin menu and the org hub's Lodging card (`?orgId=` only drives the Done button and the contact's org).
-- `trip/lodging.jsf` (gate `canManageTripLodging`; `?offer=` opens the board on a given option): under a
+- `trip/lodging.jsf` (gate `canManageTripLodging`; `?acc=` opens the board on a given hotel): under a
   "Rooms" heading, the Assignments workspace (`trip-js/roomAssign.js`: click a person card, click a room card
   or map region; the selection is keyed by RESERVATION so two stays of one person are two cards; the server
   decides, `assignRoom` minting a reservation from the option's default stay when needed; over-capacity
   opens a confirm with "Assign anyway"; the board's window defaults to the option's whole date range; a
-  card shows age and reveals the registration answers on hover, and in the flow while selected),
+  card shows age and reveals the registration answers on hover, and in the flow while selected). The board
+  is scoped to an ACCOMMODATION, never to one lodging option: the toolbar names the hotel (a menu only when
+  the trip has options at more than one), and everybody waiting for a room there is listed whichever option
+  pays for them -- scoping the column to one option hid people while the room grid showed the whole hotel.
+  Which option pays is asked when somebody with NO reservation is placed, in the "Place in a room" dialog
+  (option, then the stay as a range picker plus arrival and departure times, defaulted from the option, with
+  the capacity refusal shown in the dialog and a "Place anyway"); a person who already holds a reservation
+  keeps the one-click path, since their option and dates already exist. Every write updates the WHOLE tab
+  view, and the Assignments tab re-reads the option list on a wrapper that always renders: a child's
+  `rendered=` cannot refresh the value that decides whether that child exists, which is why the first option
+  a trip ever got needed a browser reload to appear. The board's own dialogs (reservation, cancel) and
   Reservations (new / edit / cancel-with-credit / recompute; dates are ONE range picker "arrival -
-  departure" plus arrival and departure times, the labels are arrival/departure never check-in/out), Offers
+  departure" plus arrival and departure times, the labels are arrival/departure never check-in/out; a
+  `p:datePicker` renders `span > input + button`, so NEVER put a width on the component -- that sizes the
+  wrapper and drops the calendar button onto its own line: size the input through `.lo-time`/`.lo-range`
+  and keep each label glued to its picker in a `.lo-when`, the `.lo-daterow` recipe in `lodging.css`), Offers
   (the "Lodging option" dialog asks for the accommodation and room types FIRST and names the option after
   the room types while the name is blank; then the option's dates and the default stay as range pickers
   with times; it can create the LODGING event). The forms keep their range/time fields and their date-time

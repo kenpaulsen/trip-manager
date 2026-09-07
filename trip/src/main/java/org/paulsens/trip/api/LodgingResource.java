@@ -270,8 +270,7 @@ public class LodgingResource extends BaseResource {
             return lodging.unassignRoom(tripId, reservationId) ? ok(Map.of("assigned", false))
                     : error(400, ApiErrors.VALIDATION_FAILED, "The room was not cleared.");
         }
-        final LodgingViews.AssignOutcome outcome = lodging.assignRoom(tripId, res.getOfferId().getValue(),
-                res.getOccupants().isEmpty() ? null : res.getOccupants().get(0).getValue(), reservationId, roomId,
+        final LodgingViews.AssignOutcome outcome = lodging.assignRoom(tripId, reservationId, roomId,
                 Boolean.TRUE.equals(body.get("force")), null, null);
         return outcome.isAssigned() ? ok(outcome) : error(409, ApiErrors.CONFLICT, outcome.getMessage());
     }

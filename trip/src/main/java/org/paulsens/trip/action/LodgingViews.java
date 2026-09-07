@@ -281,6 +281,90 @@ public final class LodgingViews {
         }
     }
 
+    /**
+     * The board's occupancy window: which nights the room counts are for. A range picker plus arrival and
+     * departure times, like every other stay control. Typed, rather than raw view-map entries, so JSF
+     * converts the picker's value to dates instead of guessing.
+     */
+    @Data
+    @NoArgsConstructor
+    public static final class StayWindowForm implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private List<LocalDate> range = new ArrayList<>();
+        private LocalTime arrivalTime;
+        private LocalTime departureTime;
+
+        public void setRange(final List<LocalDate> dates) {
+            range = (dates == null) ? new ArrayList<>() : new ArrayList<>(dates);
+        }
+
+        public LocalDateTime start() {
+            return hasRange(range)
+                    ? range.get(0).atTime(arrivalTime == null ? LocalTime.MIN : arrivalTime) : null;
+        }
+
+        public LocalDateTime end() {
+            return hasRange(range) ? range.get(range.size() - 1)
+                    .atTime(departureTime == null ? LocalTime.of(23, 59) : departureTime) : null;
+        }
+    }
+
+    /**
+     * The "place this person in this room" dialog: which lodging option pays for the stay, and the stay
+     * itself. A person who already holds a reservation never sees it -- their option and dates exist -- so
+     * this is only ever the CREATE path, where leaving the option implicit was the confusing part.
+     */
+    @Data
+    @NoArgsConstructor
+    public static final class PlacementForm implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String personId;
+        private String personName;
+        private String accommodationId;
+        private String roomId;
+        private String roomLabel;
+        private String offerId;
+        private List<LocalDate> range = new ArrayList<>();
+        private LocalTime arrivalTime;
+        private LocalTime departureTime;
+        /** Set by "Place anyway" after the capacity warning. */
+        private boolean force;
+        /** Shown in the dialog when the room cannot take them on those dates. */
+        private String problem;
+
+        public void setRange(final List<LocalDate> dates) {
+            range = (dates == null) ? new ArrayList<>() : new ArrayList<>(dates);
+        }
+
+        public void setArrivalTime(final LocalTime time) {
+            arrivalTime = time;
+        }
+
+        public void setDepartureTime(final LocalTime time) {
+            departureTime = time;
+        }
+
+        /** The stay these three fields describe; null when no range has been picked. */
+        public LocalDateTime start() {
+            return hasRange(range)
+                    ? range.get(0).atTime(arrivalTime == null ? OfferForm.DEFAULT_ARRIVAL : arrivalTime) : null;
+        }
+
+        public LocalDateTime end() {
+            return hasRange(range) ? range.get(range.size() - 1)
+                    .atTime(departureTime == null ? OfferForm.DEFAULT_DEPARTURE : departureTime) : null;
+        }
+
+        /** Fills the stay from an option's default, for the first render and whenever the option changes. */
+        public void applyDefaults(final LocalDateTime defaultStart, final LocalDateTime defaultEnd) {
+            range = rangeOf(defaultStart, defaultEnd);
+            arrivalTime = (defaultStart == null) ? OfferForm.DEFAULT_ARRIVAL : defaultStart.toLocalTime();
+            departureTime = (defaultEnd == null) ? OfferForm.DEFAULT_DEPARTURE : defaultEnd.toLocalTime();
+        }
+    }
+
     /** One line of the accommodations list. */
     @Data
     @NoArgsConstructor

@@ -33,6 +33,7 @@ import org.paulsens.trip.action.LodgingViews.OccupantChip;
 import org.paulsens.trip.action.LodgingViews.OfferForm;
 import org.paulsens.trip.action.LodgingViews.OfferRow;
 import org.paulsens.trip.action.LodgingViews.PersonCard;
+import org.paulsens.trip.action.LodgingViews.PlacementForm;
 import org.paulsens.trip.action.LodgingViews.ReservationForm;
 import org.paulsens.trip.action.LodgingViews.ReservationRow;
 import org.paulsens.trip.action.LodgingViews.RoomBoard;
@@ -42,6 +43,7 @@ import org.paulsens.trip.action.LodgingViews.RoomRow;
 import org.paulsens.trip.action.LodgingViews.RoomTypeForm;
 import org.paulsens.trip.action.LodgingViews.RoomTypeRow;
 import org.paulsens.trip.action.LodgingViews.RoomingRow;
+import org.paulsens.trip.action.LodgingViews.StayWindowForm;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
@@ -1765,53 +1767,37 @@ public class LodgingCommands {
      * {@code force}, answering an {@link AssignOutcome} the page pins for its confirmation dialog and the
      * {@code overCapacity} / {@code overCapacityMsg} callback params for the JS.
      */
-    public AssignOutcome assignRoom(final String tripId, final String offerId, final String personId,
-            final String reservationId, final String roomId, final boolean force, final LocalDateTime winStart,
-            final LocalDateTime winEnd) {
+    public AssignOutcome assignRoom(final String tripId, final String reservationId, final String roomId,
+            final boolean force, final LocalDateTime winStart, final LocalDateTime winEnd) {
         if (!canManageTripLodging(tripId)) {
             return outcome(false, false, "Not allowed: only the trip's managers and lodging admins assign rooms.",
-                    personId, reservationId, roomId);
+                    null, reservationId, roomId);
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
-        Reservation res = findReservation(tripId, reservationId);
-        final ReservationOffer offer = findOffer(tripId, res == null ? offerId : idValue(res.getOfferId()));
-        if (offer == null || !tripId.equals(trip.getId())) {
-            return outcome(false, false, "Choose an offer first.", personId, reservationId, roomId);
-        }
-        final Accommodation acc = findAccommodation(idValue(offer.getAccommodationId()));
-        final Room room = (acc == null || roomId == null) ? null : acc.room(roomId);
-        if (room == null) {
-            return outcome(false, false, "That room is not at the accommodation.", personId, reservationId, roomId);
-        }
-        final Person.Id person = (personId == null || personId.isBlank()) ? null : Person.Id.from(personId);
-        if (res == null) {
-            if (person == null) {
-                return outcome(false, false, "Who is being assigned?", personId, reservationId, roomId);
-            }
-            final String problem = stayProblem(trip, offer, List.of(person), offer.getDefaultStart(),
-                    offer.getDefaultEnd());
-            if (problem != null) {
-                return outcome(false, false, problem, personId, reservationId, roomId);
-            }
-            res = Reservation.builder().tripId(tripId).orgId(trip.getOrgId()).offerId(offer.getId())
-                    .accommodationId(offer.getAccommodationId()).occupants(List.of(person))
-                    .start(offer.getDefaultStart()).end(offer.getDefaultEnd()).createdBy(caller().personId())
-                    .created(LocalDateTime.now()).build();
+        final Reservation res = findReservation(tripId, reservationId);
+        if (res == null || !tripId.equals(trip.getId())) {
+            // Creating one is the placement dialog's job: it asks which lodging option pays for the stay.
+            return outcome(false, false, "That reservation no longer exists.", null, reservationId, roomId);
         }
         if (!res.isActive()) {
-            return outcome(false, false, "That reservation is cancelled.", personId, reservationId, roomId);
+            return outcome(false, false, "That reservation is cancelled.", null, reservationId, roomId);
+        }
+        final ReservationOffer offer = findOffer(tripId, idValue(res.getOfferId()));
+        final Accommodation acc = findAccommodation(idValue(res.getAccommodationId()));
+        final Room room = (acc == null || roomId == null) ? null : acc.room(roomId);
+        if (room == null) {
+            return outcome(false, false, "That room is not at the accommodation.", null, reservationId, roomId);
+        }
+        final String personId = res.getOccupants().isEmpty() ? null : res.getOccupants().get(0).getValue();
+        final String tooFull = capacityProblem(tripId, acc, room, res, windowStart(winStart, res),
+                windowEnd(winEnd, res));
+        if (tooFull != null && !force) {
+            publishParam("overCapacity", true);
+            publishParam("overCapacityMsg", tooFull);
+            return outcome(false, true, tooFull, personId, res.getId().getValue(), roomId);
         }
         final RoomType type = acc.roomType(room.getRoomTypeId());
-        final int max = (type == null) ? Integer.MAX_VALUE : type.getMaxPeople();
-        final int would = occupancyOver(tripId, roomId, res, windowStart(winStart, res), windowEnd(winEnd, res));
-        if (would > max && !force) {
-            final String msg = "Room " + room.getRoomNumber() + (type == null ? "" : " (" + type.getName() + ")")
-                    + " sleeps " + max + ". Assigning " + names(res.getOccupants()) + " makes it " + would + ".";
-            publishParam("overCapacity", true);
-            publishParam("overCapacityMsg", msg);
-            return outcome(false, true, msg, personId, res.getVersion() == 0L ? "" : res.getId().getValue(), roomId);
-        }
-        if (type != null && type.getName() != null && !offer.covers(room.getRoomTypeId())) {
+        if (type != null && type.getName() != null && offer != null && !offer.covers(room.getRoomTypeId())) {
             warn("Room " + room.getRoomNumber() + " is a " + type.getName() + ", not one of the option's room types.");
         }
         final String previousRoom = res.getRoomId();
@@ -1820,9 +1806,134 @@ public class LodgingCommands {
             return outcome(false, false, "The assignment could not be saved.", personId, reservationId, roomId);
         }
         final String msg = names(res.getOccupants()) + " assigned to room " + room.getRoomNumber()
-                + (would > max ? " (over capacity: " + would + "/" + max + ")" : "") + ".";
+                + (tooFull == null ? "" : " (over capacity)") + ".";
         info(msg);
-        return outcome(true, would > max, msg, personId, res.getId().getValue(), roomId);
+        return outcome(true, tooFull != null, msg, personId, res.getId().getValue(), roomId);
+    }
+
+    /**
+     * Whether the room would hold more people than its type sleeps over the window, as a sentence; null when
+     * it fits. The stay's own dates when no window is pinned, so a placement is judged on the nights it
+     * actually occupies.
+     */
+    private String capacityProblem(final String tripId, final Accommodation acc, final Room room,
+            final Reservation res, final LocalDateTime from, final LocalDateTime to) {
+        final RoomType type = acc.roomType(room.getRoomTypeId());
+        final int max = (type == null) ? Integer.MAX_VALUE : type.getMaxPeople();
+        final int would = occupancyOver(tripId, room.getId(), res, from, to);
+        return (would <= max) ? null
+                : "Room " + room.getRoomNumber() + (type == null ? "" : " (" + type.getName() + ")")
+                        + " sleeps " + max + ". Assigning " + names(res.getOccupants()) + " makes it " + would + ".";
+    }
+
+    // ---------------------------------------------------------------- placing someone who has no reservation
+
+    /**
+     * The dialog behind "click a person, click a room" for somebody with no reservation yet: which lodging
+     * option pays for the stay, and the stay itself. The option was implicit in a toolbar menu before, which
+     * made it easy to bill the wrong price to the wrong person.
+     */
+    public PlacementForm placementFormFor(final String tripId, final String accId, final String personId,
+            final String roomId) {
+        final PlacementForm form = new PlacementForm();
+        form.setPersonId(personId);
+        form.setAccommodationId(accId);
+        form.setRoomId(roomId);
+        final Accommodation acc = findAccommodation(accId);
+        final Room room = (acc == null) ? null : acc.room(roomId);
+        form.setRoomLabel(room == null ? "" : nullSafe(acc.roomLabel(roomId)));
+        form.setPersonName(personId == null ? "" : displayName(Person.Id.from(personId)));
+        final Map<String, String> options = optionChoices(tripId, accId);
+        if (options.size() == 1) {
+            form.setOfferId(options.keySet().iterator().next());
+        }
+        applyPlacementOption(tripId, form);
+        return form;
+    }
+
+    /** The stay follows the chosen option's default; called again whenever the dialog's option changes. */
+    public void applyPlacementOption(final String tripId, final PlacementForm form) {
+        if (form == null) {
+            return;
+        }
+        final ReservationOffer offer = findOffer(tripId, form.getOfferId());
+        if (offer != null) {
+            form.applyDefaults(offer.getDefaultStart(), offer.getDefaultEnd());
+        }
+    }
+
+    /** The lodging options at one accommodation on this trip, as id -> "name (pricing)". */
+    public Map<String, String> optionChoices(final String tripId, final String accId) {
+        final Map<String, String> choices = new LinkedHashMap<>();
+        for (final ReservationOffer offer : getOffers(tripId)) {
+            if (accId != null && accId.equals(idValue(offer.getAccommodationId())) && offer.isEnabled()) {
+                choices.put(offer.getId().getValue(), offer.getName() + " (" + pricingLabel(offer) + ")");
+            }
+        }
+        return choices;
+    }
+
+    /**
+     * Creates the reservation the placement dialog describes and puts it in the room. Refusals (no option, a
+     * stay outside the option's dates, under the minimum, not on the roster) come back on the form so the
+     * dialog can show them; a room that cannot hold them is the warning that {@code force} overrides.
+     */
+    public AssignOutcome place(final String tripId, final PlacementForm form) {
+        if (!canManageTripLodging(tripId)) {
+            return outcome(false, false, "Not allowed: only the trip's managers and lodging admins assign rooms.",
+                    null, null, null);
+        }
+        if (form == null || form.getPersonId() == null || form.getPersonId().isBlank()) {
+            return outcome(false, false, "Who is being placed?", null, null, null);
+        }
+        final String personId = form.getPersonId();
+        final String roomId = form.getRoomId();
+        final Trip trip = tripSource.get().getTripForEdit(tripId);
+        final ReservationOffer offer = findOffer(tripId, form.getOfferId());
+        if (offer == null || !tripId.equals(trip.getId())) {
+            return placementProblem(form, "Choose a lodging option.", personId, roomId);
+        }
+        final Accommodation acc = findAccommodation(idValue(offer.getAccommodationId()));
+        final Room room = (acc == null || roomId == null) ? null : acc.room(roomId);
+        if (room == null) {
+            return placementProblem(form, "That room is not at the accommodation.", personId, roomId);
+        }
+        final Person.Id person = Person.Id.from(personId);
+        final String problem = stayProblem(trip, offer, List.of(person), form.start(), form.end());
+        if (problem != null) {
+            return placementProblem(form, problem, personId, roomId);
+        }
+        final Reservation res = Reservation.builder().tripId(tripId).orgId(trip.getOrgId()).offerId(offer.getId())
+                .accommodationId(offer.getAccommodationId()).occupants(List.of(person))
+                .start(form.start()).end(form.end()).createdBy(caller().personId())
+                .created(LocalDateTime.now()).build();
+        final String tooFull = capacityProblem(tripId, acc, room, res, form.start(), form.end());
+        if (tooFull != null && !form.isForce()) {
+            form.setProblem(tooFull);
+            publishParam("overCapacity", true);
+            return outcome(false, true, tooFull, personId, null, roomId);
+        }
+        if (!offer.covers(room.getRoomTypeId())) {
+            final RoomType type = acc.roomType(room.getRoomTypeId());
+            warn("Room " + room.getRoomNumber() + (type == null ? "" : " is a " + type.getName())
+                    + ", not one of the option's room types.");
+        }
+        res.setRoomId(roomId);
+        if (!persistReservation(trip, offer, acc, res, null)) {
+            return placementProblem(form, "The reservation could not be saved.", personId, roomId);
+        }
+        form.setProblem(null);
+        final String msg = names(res.getOccupants()) + " placed in room " + room.getRoomNumber()
+                + " on '" + offer.getName() + "'" + (tooFull == null ? "" : " (over capacity)") + ".";
+        info(msg);
+        return outcome(true, tooFull != null, msg, personId, res.getId().getValue(), roomId);
+    }
+
+    /** A refusal the dialog shows in place, rather than a growl behind a modal. */
+    private static AssignOutcome placementProblem(final PlacementForm form, final String message,
+            final String personId, final String roomId) {
+        form.setProblem(message);
+        return new AssignOutcome(false, false, message, personId, null, roomId);
     }
 
     private static LocalDateTime windowStart(final LocalDateTime winStart, final Reservation res) {
@@ -2121,27 +2232,24 @@ public class LodgingCommands {
      * offer's accommodation whose stay overlaps it), people with a reservation on this offer but no room, and
      * roster members with no active reservation at this accommodation yet.
      */
-    public RoomBoard roomBoard(final String tripId, final String offerId, final LocalDateTime winStart,
+    public RoomBoard roomBoard(final String tripId, final String accId, final LocalDateTime winStart,
             final LocalDateTime winEnd) {
         final RoomBoard board = new RoomBoard();
         if (!canManageTripLodging(tripId)) {
             return board;
         }
         final Trip trip = tripSource.get().getTrip(tripId);
-        final ReservationOffer offer = findOffer(tripId, offerId);
-        final Accommodation acc = (offer == null) ? null : findAccommodation(idValue(offer.getAccommodationId()));
+        final Accommodation acc = findAccommodation(accId);
         if (acc == null) {
             return board;
         }
         board.setAccommodationId(acc.getId().getValue());
         board.setAccommodationName(acc.getName());
         board.setFloors(sortedFloors(acc));
-        // The window defaults to the option's whole date range, which every stay on it lies within (a second
-        // stay on other dates was invisible while the default was the default stay alone).
-        final LocalDateTime from = (winStart != null) ? winStart
-                : (offer.getValidFrom() != null ? offer.getValidFrom() : offer.getDefaultStart());
-        final LocalDateTime to = (winEnd != null) ? winEnd
-                : (offer.getValidUntil() != null ? offer.getValidUntil() : offer.getDefaultEnd());
+        // The board is the HOTEL's, not one lodging option's: which option pays for a stay is asked when the
+        // person is placed. The window spans every option at this hotel, so a stay on any of them is visible.
+        final LocalDateTime from = (winStart != null) ? winStart : spanStart(tripId, acc, trip);
+        final LocalDateTime to = (winEnd != null) ? winEnd : spanEnd(tripId, acc, trip);
         final List<Reservation> all = DAO.getInstance().getReservations(tripId, Cached.NO);
         final Map<String, List<Reservation>> byRoom = new HashMap<>();
         final Set<Person.Id> housed = new HashSet<>();
@@ -2152,7 +2260,7 @@ public class LodgingCommands {
             housed.addAll(res.getOccupants());
             if (res.getRoomId() != null && overlaps(res, from, to)) {
                 byRoom.computeIfAbsent(res.getRoomId(), k -> new ArrayList<>()).add(res);
-            } else if (res.getRoomId() == null && offer.getId().equals(res.getOfferId())) {
+            } else if (res.getRoomId() == null) {
                 board.getUnassigned().add(cardFor(trip, res.getOccupants().get(0), res));
             }
         }
@@ -2165,6 +2273,79 @@ public class LodgingCommands {
             }
         }
         return board;
+    }
+
+    /** The earliest date any of this hotel's options covers on the trip; the trip's start when none say. */
+    private LocalDateTime spanStart(final String tripId, final Accommodation acc, final Trip trip) {
+        LocalDateTime earliest = null;
+        for (final ReservationOffer offer : offersAt(tripId, acc)) {
+            final LocalDateTime start = (offer.getValidFrom() != null) ? offer.getValidFrom()
+                    : offer.getDefaultStart();
+            if (start != null && (earliest == null || start.isBefore(earliest))) {
+                earliest = start;
+            }
+        }
+        return (earliest == null) ? trip.getStartDate() : earliest;
+    }
+
+    /** The latest date any of this hotel's options covers on the trip; the trip's end when none say. */
+    private LocalDateTime spanEnd(final String tripId, final Accommodation acc, final Trip trip) {
+        LocalDateTime latest = null;
+        for (final ReservationOffer offer : offersAt(tripId, acc)) {
+            final LocalDateTime end = (offer.getValidUntil() != null) ? offer.getValidUntil()
+                    : offer.getDefaultEnd();
+            if (end != null && (latest == null || end.isAfter(latest))) {
+                latest = end;
+            }
+        }
+        return (latest == null) ? trip.getEndDate() : latest;
+    }
+
+    private List<ReservationOffer> offersAt(final String tripId, final Accommodation acc) {
+        final List<ReservationOffer> offers = new ArrayList<>();
+        for (final ReservationOffer offer : getOffers(tripId)) {
+            if (acc.getId().equals(offer.getAccommodationId())) {
+                offers.add(offer);
+            }
+        }
+        return offers;
+    }
+
+    /** A blank occupancy window for the board's dialog. */
+    public StayWindowForm newStayWindow() {
+        return new StayWindowForm();
+    }
+
+    /** The accommodations this trip has lodging options at, as id -> name; the board picks among these. */
+    public Map<String, String> accommodationChoices(final String tripId) {
+        final Map<String, String> choices = new LinkedHashMap<>();
+        for (final ReservationOffer offer : getOffers(tripId)) {
+            final String accId = idValue(offer.getAccommodationId());
+            if (accId != null && !choices.containsKey(accId)) {
+                final Accommodation acc = findAccommodation(accId);
+                choices.put(accId, acc == null ? accId : acc.getName());
+            }
+        }
+        return choices;
+    }
+
+    /** The accommodation the board opens on: the first one this trip has an option at. */
+    public String defaultAccommodationId(final String tripId) {
+        final Map<String, String> choices = accommodationChoices(tripId);
+        return choices.isEmpty() ? "" : choices.keySet().iterator().next();
+    }
+
+    /**
+     * The floor to show for an accommodation: the one already chosen when that hotel has it (switching
+     * hotels used to drop you back to the first floor, losing your place), else its first.
+     */
+    public String floorFor(final String accId, final String current) {
+        final Accommodation acc = findAccommodation(accId);
+        final List<String> floors = (acc == null) ? List.of() : sortedFloors(acc);
+        if (current != null && !current.isBlank() && floors.contains(current)) {
+            return current;
+        }
+        return floors.isEmpty() ? "" : floors.get(0);
     }
 
     private static boolean overlaps(final Reservation res, final LocalDateTime from, final LocalDateTime to) {
