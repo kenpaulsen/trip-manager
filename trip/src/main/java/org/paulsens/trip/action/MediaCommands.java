@@ -245,7 +245,7 @@ public class MediaCommands {
     public List<MediaItem> getCurated() {
         final List<MediaItem> curated = new ArrayList<>();
         for (final MediaItem item : getAll()) {
-            if (!ChatPhotos.isChatSlot(item.getSlot())) {
+            if (!ChatPhotos.isChatSlot(item.getSlot()) && !LodgingUploadCommands.isLodgingSlot(item.getSlot())) {
                 curated.add(item);
             }
         }

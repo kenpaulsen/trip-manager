@@ -223,6 +223,34 @@ public class TripCommands {
     }
 
     /**
+     * Joins and/or leaves several people on ONE of the trip's events and saves the trip once -- the lodging
+     * reservation path (a reservation adds its occupants to the offer's LODGING event; a cancellation removes
+     * them). Resolves the event INSIDE the trip by id (the {@link #setEventParticipation} trap: only the trip's
+     * own instances are what {@code saveTrip} serializes).
+     *
+     * @return true when saved or when nothing changed; false when the event is not on this trip.
+     */
+    public boolean updateEventParticipants(final Trip trip, final String eventId,
+            final Collection<Person.Id> join, final Collection<Person.Id> leave) {
+        if (trip == null || eventId == null) {
+            return false;
+        }
+        final TripEvent owned = trip.getTripEvent(eventId);
+        if (owned == null) {
+            log.warn("Refusing to update participants of event {}: not part of trip {}", eventId, trip.getId());
+            return false;
+        }
+        boolean changed = false;
+        for (final Person.Id personId : (join == null) ? List.<Person.Id>of() : join) {
+            changed |= setParticipation(owned, personId, true);
+        }
+        for (final Person.Id personId : (leave == null) ? List.<Person.Id>of() : leave) {
+            changed |= setParticipation(owned, personId, false);
+        }
+        return !changed || saveTrip(trip);
+    }
+
+    /**
      * Sets one person's private note on a trip event and saves the trip.
      *
      * <p>Same trap as {@link #setEventParticipation}, reached a different way. The itinerary's event table is

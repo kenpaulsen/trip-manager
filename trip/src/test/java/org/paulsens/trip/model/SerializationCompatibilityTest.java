@@ -132,6 +132,9 @@ public class SerializationCompatibilityTest {
             of(ContentTemplate.class, SerializationCompatibilityTest::contentTemplate, ContentTemplate::getId),
             of(MediaItem.class, SerializationCompatibilityTest::mediaItem, MediaItem::getId),
             of(BadgeImage.class, () -> new BadgeImage("badgeImages/trip-rome/1.jpg", "Rome"), BadgeImage::getKey),
+            of(Accommodation.class, SerializationCompatibilityTest::accommodation, Accommodation::getName),
+            of(ReservationOffer.class, SerializationCompatibilityTest::reservationOffer, ReservationOffer::getName),
+            of(Reservation.class, SerializationCompatibilityTest::reservation, Reservation::getNotes),
             of(Payment.class, SerializationCompatibilityTest::payment, Payment::getOrderRef),
             of(Privilege.class, () -> new Privilege("peopleAdmin", "People admin", List.of(ADA)), Privilege::getId),
             of(TodoItem.class, SerializationCompatibilityTest::todoItem, TodoItem::getDataId),
@@ -188,6 +191,29 @@ public class SerializationCompatibilityTest {
         return Organization.builder().id(Organization.Id.from("org-acme")).name("Acme Inc").abbreviation("Acme")
                 .contactEmail("info@acme.example").adminIds(List.of(ADA)).createdBy(ADA).created(AT).version(3L)
                 .build();
+    }
+
+    private static Accommodation accommodation() {
+        return Accommodation.builder().id(Accommodation.Id.from("acc-pansion")).name("Pansion")
+                .address(new Address("Podbrdo 25", "Medjugorje", null, "88266")).email("info@pansion.example")
+                .roomTypes(List.of(RoomType.builder().id("rt-double").name("Double").build()))
+                .rooms(List.of(Room.builder().id("room-114").roomNumber("114").floor("1").roomTypeId("rt-double")
+                        .mapRegion(Room.MapRegion.rect(10, 10, 5, 5)).build()))
+                .floorMaps(List.of(new FloorMap("1", "media-1"))).createdBy(ADA).created(AT).build();
+    }
+
+    private static ReservationOffer reservationOffer() {
+        return ReservationOffer.builder().id(ReservationOffer.Id.from("offer-double")).tripId("trip-rome")
+                .name("Double room").accommodationId(Accommodation.Id.from("acc-pansion")).roomTypeId("rt-double")
+                .tripEventId("event-1").nightlyPriceCents(5500).defaultStart(AT).defaultEnd(AT.plusDays(3))
+                .createdBy(ADA).created(AT).build();
+    }
+
+    private static Reservation reservation() {
+        return Reservation.builder().id(Reservation.Id.from("res-1")).tripId("trip-rome")
+                .offerId(ReservationOffer.Id.from("offer-double")).accommodationId(Accommodation.Id.from("acc-pansion"))
+                .occupants(List.of(ADA, BOB)).start(AT).end(AT.plusDays(3)).roomId("room-114").notes("late arrival")
+                .createdBy(ADA).created(AT).build();
     }
 
     private static Family family() {

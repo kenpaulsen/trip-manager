@@ -1469,6 +1469,36 @@ public class OrgCommandsTest {
         return none;
     }
 
+    // ------------------------------------------------------------------ lodging contacts
+
+    @Test
+    public void lodgingContactJoinsTheOrgForAdminsAndLodgingAdminsOnly() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+        final Person contact = savedPerson();
+        final Person stranger = savedPerson();
+
+        assertFalse(commandsFor(stranger).addLodgingContact(orgId, contact.getId()),
+                "A plain member of nothing cannot pull a person into an org");
+        assertFalse(commandsFor(orgAdmin).addLodgingContact(orgId, null));
+        assertFalse(commandsFor(orgAdmin).addLodgingContact("no-such-org", contact.getId()));
+        assertTrue(commandsFor(orgAdmin).addLodgingContact(orgId, contact.getId()), "An org admin may");
+        assertTrue(admin().isMember(orgId, contact.getId()));
+        assertTrue(commandsFor(orgAdmin).addLodgingContact(orgId, contact.getId()), "Idempotent");
+
+        // An org-scoped lodging admin (a REAL privilege row) may add a contact to that org, and only that org.
+        final Person lodgingAdmin = savedPerson();
+        assertTrue(admin().addMember(orgId, lodgingAdmin.getId()));
+        assertTrue(admin().grantOrgPrivilege(orgId, lodgingAdmin.getId(), PrivilegeCommands.LODGING_ADMIN));
+        final Person second = savedPerson();
+        assertTrue(realPrivs(lodgingAdmin).addLodgingContact(orgId, second.getId()));
+        assertTrue(admin().isMember(orgId, second.getId()));
+        final Organization other = admin().createOrganization("Other " + unique(), null, null);
+        assertFalse(realPrivs(lodgingAdmin).addLodgingContact(other.getId().getValue(), second.getId()),
+                "lodgingAdmin@acme grants nothing on another org");
+    }
+
     // ------------------------------------------------------------------ sending domains
 
     @Test

@@ -23,6 +23,7 @@ import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.MediaItem;
+import org.paulsens.trip.model.Address;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.PaymentProcessorConfig;
 import org.paulsens.trip.model.Person;
@@ -116,7 +117,150 @@ public final class FakeData {
             addFakeContent();
             addFakeFamily();
             addFakeOrgs();
+            addFakeLodging();
             relaxChatLimitsForFakeTrips();
+        }
+    }
+
+    /**
+     * The lodging demo: "Pansion Dragićević" with the exact inventory the old hard-coded rooms page listed
+     * (floors 0, 1, 2; the notes are the pansion's own), one PER_ROOM offer on {@code faketrip} tracking the
+     * existing LODGING event {@code t1e2}, Dave (user5) alone in room 114 for the whole stay, and Matt (user6)
+     * joining him four days later under his OWN reservation -- the late-arriver case the itinerary override
+     * exists for. Bills recompute, so the local ledger shows lodging rows. Through the REAL writers, as a site
+     * admin, and idempotent (the accommodation's fixed id is the guard). The two people are deliberately the
+     * ones no legacy room test writes a free-text room for.
+     */
+    private static void addFakeLodging() {
+        final Person admin = DAO.getInstance().getPersonByEmail(localEmail("admin"), Cached.NO);
+        if (admin == null) {
+            return;
+        }
+        final org.paulsens.trip.action.LodgingCommands lodging = new org.paulsens.trip.action.LodgingCommands(
+                () -> new org.paulsens.trip.action.Caller(admin.getId(), true,
+                        org.paulsens.trip.audit.AuditActor.system(),
+                        new org.paulsens.trip.action.PrivilegeCommands()));
+        if (DAO.getInstance().getAccommodation(
+                org.paulsens.trip.model.Accommodation.Id.from(CFPW_ACCOMMODATION_ID), Cached.NO).isEmpty()) {
+            seedPansion(lodging, admin);
+        }
+        // Reservations are guarded separately: every initFakeData mints fresh person ids (the trips are
+        // re-saved with them), so the CURRENT Dave and Matt must hold the demo reservations, whoever held
+        // them under the previous ids.
+        final String offerId = lodging.defaultOfferId("faketrip");
+        // From the static people list, not the email index: these are the ids the re-saved roster holds.
+        final Person dave = fakePersona("user5");
+        final Person matt = fakePersona("user6");
+        if (offerId.isEmpty() || dave == null || matt == null) {
+            throw new IllegalStateException("Fake lodging seed: the offer or the user5/user6 personas are missing");
+        }
+        final org.paulsens.trip.model.ReservationOffer offer = lodging.findOffer("faketrip", offerId);
+        final String room114 = lodging.findAccommodation(CFPW_ACCOMMODATION_ID).getRooms().stream()
+                .filter(room -> "114".equals(room.getRoomNumber())).findFirst().orElseThrow().getId();
+        if (lodging.activeReservationsFor("faketrip", dave.getId()).isEmpty()) {
+            seedReservation(lodging, offer, dave, room114, 0, null);
+        }
+        if (lodging.activeReservationsFor("faketrip", matt.getId()).isEmpty()) {
+            seedReservation(lodging, offer, matt, room114, 4, "Arrives four days after the group (late flight).");
+        }
+    }
+
+    private static void seedPansion(final org.paulsens.trip.action.LodgingCommands lodging, final Person admin) {
+        final org.paulsens.trip.model.Accommodation pansion = org.paulsens.trip.model.Accommodation.builder()
+                .id(org.paulsens.trip.model.Accommodation.Id.from(CFPW_ACCOMMODATION_ID))
+                .name("Pansion Dragićević")
+                .description("Family-run pansion at the foot of Apparition Hill; 2 singles, 15 doubles, 3 triples.")
+                .address(pansionAddress())
+                .email("pansion@example.com").phone("+387 36 651 000").website("https://pansion.example")
+                .orgIds(List.of(Organization.Id.from(CFPW_ORG_ID)))
+                .createdBy(admin.getId()).created(LocalDateTime.now())
+                .build();
+        seedPansionInventory(pansion);
+        final Person.Id contact = lodging.findOrCreateContact("pansion@example.com", "Ivan Dragićević", CFPW_ORG_ID);
+        pansion.setContactId(contact);
+        try {
+            if (!DAO.getInstance().saveAccommodation(pansion)) {
+                throw new IllegalStateException("Fake lodging seed: could not save the pansion");
+            }
+        } catch (final IOException ex) {
+            throw new IllegalStateException("Fake lodging seed: could not save the pansion", ex);
+        }
+        if (contact == null || !lodging.addManager(CFPW_ACCOMMODATION_ID, contact)
+                || !lodging.addManager(CFPW_ACCOMMODATION_ID, admin.getId())) {
+            throw new IllegalStateException("Fake lodging seed: could not grant accommodationAdmin");
+        }
+        final org.paulsens.trip.action.LodgingViews.OfferForm offer =
+                new org.paulsens.trip.action.LodgingViews.OfferForm();
+        offer.setName("Double room, shared");
+        offer.setAccommodationId(CFPW_ACCOMMODATION_ID);
+        offer.setRoomTypeId(pansion.getRoomTypes().get(1).getId());
+        offer.setTripEventId("t1e2");
+        offer.setPricingModel("PER_ROOM");
+        offer.setNightlyPrice(60.0);
+        offer.setDefaultStart(LocalDateTime.now().plusDays(48).withHour(15).withMinute(0).withSecond(0).withNano(0));
+        offer.setDefaultEnd(LocalDateTime.now().plusDays(60).withHour(10).withMinute(0).withSecond(0).withNano(0));
+        offer.setCancelFeeKind("PERCENT");
+        offer.setCancelFeeAmount(10.0);
+        offer.setPolicyHtml("<p>Cancellations within 30 days of arrival forfeit 10% of the stay.</p>");
+        if (!lodging.saveOffer("faketrip", offer)) {
+            throw new IllegalStateException("Fake lodging seed: could not save the offer");
+        }
+    }
+
+    private static void seedReservation(final org.paulsens.trip.action.LodgingCommands lodging,
+            final org.paulsens.trip.model.ReservationOffer offer, final Person who, final String roomId,
+            final int daysLate, final String notes) {
+        final org.paulsens.trip.action.LodgingViews.ReservationForm form =
+                new org.paulsens.trip.action.LodgingViews.ReservationForm();
+        form.setOfferId(offer.getId().getValue());
+        form.setPersonIds(List.of(who.getId().getValue()));
+        form.setStart(offer.getDefaultStart().plusDays(daysLate));
+        form.setEnd(offer.getDefaultEnd());
+        form.setRoomId(roomId);
+        form.setNotes(notes);
+        if (lodging.createReservations("faketrip", form) != 1) {
+            throw new IllegalStateException("Fake lodging seed: could not reserve for " + who.getEmail());
+        }
+    }
+
+    private static Person fakePersona(final String persona) {
+        return getFakePeople().stream().filter(p -> localEmail(persona).equals(p.getEmail())).findFirst()
+                .orElse(null);
+    }
+
+    private static Address pansionAddress() {
+        final Address address = new Address("Podbrdo 25", "Medjugorje", null, "88266");
+        address.setCountry("Bosnia and Herzegovina");
+        return address;
+    }
+
+    /** The rooms page's old hard-coded table, room for room: number, max, note; floor = first digit. */
+    private static final String[][] PANSION_ROOMS = {
+        {"001", "2", "min 2"}, {"002", "3", "min 2"}, {"003", "2", ""}, {"004", "1", ""},
+        {"005", "2", "small - single ok"},
+        {"101", "2", "min 2 (big)"}, {"102", "2", "2 (1 bed)"}, {"103", "2", "min 2 (big)"}, {"104", "1", ""},
+        {"105", "2", "small"}, {"106", "5", "5 (4 beds)"}, {"107", "2", "very nice"}, {"108", "1", "very nice"},
+        {"109", "2", "2 (1 bed)"}, {"110", "2", "small but nice"}, {"111", "1", ""}, {"112", "2", "big"},
+        {"114", "3", "garden balcony"}, {"115", "2", "app hill balcony, small bath"}, {"116", "2", "big"},
+        {"117", "2", "terrace, hang clothes, big bath"},
+        {"201", "2", "min 2"}, {"202", "4", "min 2 people"}, {"203", "2", "ok for single"},
+        {"204", "2", "ok for single"}, {"205", "2", "ok for single"}, {"206", "2", "ok for single"},
+        {"207", "2", "2 (1 bed)"},
+    };
+
+    private static void seedPansionInventory(final org.paulsens.trip.model.Accommodation pansion) {
+        final java.util.Map<Integer, org.paulsens.trip.model.RoomType> byMax = new java.util.LinkedHashMap<>();
+        byMax.put(1, org.paulsens.trip.model.RoomType.builder().name("Single").minPeople(1).maxPeople(1).build());
+        byMax.put(2, org.paulsens.trip.model.RoomType.builder().name("Double").minPeople(1).maxPeople(2).build());
+        byMax.put(3, org.paulsens.trip.model.RoomType.builder().name("Triple").minPeople(2).maxPeople(3).build());
+        byMax.put(4, org.paulsens.trip.model.RoomType.builder().name("Quad").minPeople(2).maxPeople(4).build());
+        byMax.put(5, org.paulsens.trip.model.RoomType.builder().name("Family").minPeople(3).maxPeople(5).build());
+        pansion.getRoomTypes().addAll(byMax.values());
+        for (final String[] row : PANSION_ROOMS) {
+            final org.paulsens.trip.model.RoomType type = byMax.get(Integer.parseInt(row[1]));
+            pansion.getRooms().add(org.paulsens.trip.model.Room.builder().roomNumber(row[0])
+                    .floor(row[0].substring(0, 1)).roomTypeId(type.getId())
+                    .notes(row[2].isEmpty() ? null : row[2]).build());
         }
     }
 
@@ -200,6 +344,8 @@ public final class FakeData {
     public static final String BETA_ORG_ID = "b2e5d7a1-4c39-4f8e-9a60-2d7c1e8f5b34";
     /** The platform's own organization (slug {@code www}): www.localhost is its site, the marketing page. */
     public static final String PLATFORM_ORG_ID = "c4f1e8d2-7a35-4b9c-8e21-5d6f0a3b7c19";
+    /** The seeded Pansion (a global accommodation), fixed so re-seeds and webtests agree. */
+    public static final String CFPW_ACCOMMODATION_ID = "e7a3c9d1-52b4-4f6e-8a1d-3c5b7e9f0a2d";
 
     /**
      * Seeds the two demo organizations through the REAL {@code OrgCommands} membership path (so the
@@ -320,6 +466,11 @@ public final class FakeData {
         if (!commands.grantOrgPrivilege(CFPW_ORG_ID, user4.getId(),
                 org.paulsens.trip.action.PrivilegeCommands.PEOPLE_ADMIN)) {
             throw new IllegalStateException("Fake org seed: could not grant peopleAdmin@CFPW to user4");
+        }
+        // A non-site-admin lodging admin, so the trip Lodging tab and the hotel pages are demoable as Ken.
+        if (!commands.grantOrgPrivilege(CFPW_ORG_ID, user2.getId(),
+                org.paulsens.trip.action.PrivilegeCommands.LODGING_ADMIN)) {
+            throw new IllegalStateException("Fake org seed: could not grant lodgingAdmin@CFPW to user2");
         }
         final Person matt = DAO.getInstance().getPersonByEmail(localEmail("user6"), Cached.NO);
         if (matt == null || !commands.addMember(ACME_ORG_ID, matt.getId())) {

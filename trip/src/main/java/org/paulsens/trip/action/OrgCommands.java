@@ -481,6 +481,24 @@ public class OrgCommands {
     }
 
     /**
+     * Membership write for an accommodation's CONTACT person: a hotel is global, so its contact joins the org
+     * of whoever created it and, later, each org whose trip first uses the hotel. Gate: the org's admins, or a
+     * lodging admin of that org, or a global lodging admin -- the people who create and use accommodations.
+     * Idempotent; audited as a membership write with the reason.
+     */
+    public boolean addLodgingContact(final String orgId, final Person.Id personId) {
+        if (findOrganization(orgId) == null || personId == null) {
+            return fail("Unable to add", "Unknown organization or person.");
+        }
+        final Caller current = caller();
+        if (!canManageOrg(orgId) && !current.has(PrivilegeCommands.LODGING_ADMIN, orgId)
+                && !current.has(PrivilegeCommands.LODGING_ADMIN)) {
+            return fail("Not allowed", "Only this organization's admins or lodging admins can add a lodging contact.");
+        }
+        return writeMembership(orgId, personId, "lodging contact");
+    }
+
+    /**
      * Removes a person from an organization. Refused for an org admin (revoke admin first -- keeps
      * {@code adminIds} inside the roster) and for the person's LAST org (every person must belong to at
      * least one organization; move them by adding the new org first).
@@ -1040,7 +1058,8 @@ public class OrgCommands {
             PrivilegeCommands.PAYMENTS_ADMIN, "Payments Admin",
             PrivilegeCommands.CONTENT_ADMIN, "Site Content Editor",
             PrivilegeCommands.MEDIA_ADMIN, "Site Media Editor",
-            PrivilegeCommands.AUDIT_ADMIN, "Audit Viewer");
+            PrivilegeCommands.AUDIT_ADMIN, "Audit Viewer",
+            PrivilegeCommands.LODGING_ADMIN, "Lodging Admin");
 
     /**
      * The org-scoped privileges this person holds here, each as a {@code name}/{@code desc}/{@code base}

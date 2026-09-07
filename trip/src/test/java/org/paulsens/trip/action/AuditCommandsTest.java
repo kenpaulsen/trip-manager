@@ -82,6 +82,16 @@ public class AuditCommandsTest {
     }
 
     @Test
+    public void lodgingRecordsTargetAndReturnsTheMessage() {
+        final String out = captureStdout(() -> audit.lodging(
+                org.paulsens.trip.audit.AuditEventBuilder.TARGET_RESERVATION, "res-1", "org-1",
+                "Reserved room 114 for Ann Jones"));
+        Assert.assertTrue(out.contains("LODGING") && out.contains("reservation:res-1"), out);
+        Assert.assertEquals(audit.lodging(org.paulsens.trip.audit.AuditEventBuilder.TARGET_ACCOMMODATION,
+                "acc-1", null, "Created Pansion", null), "Created Pansion");
+    }
+
+    @Test
     public void everyMethodReturnsTheMessageItRecorded() {
         // Pages send this same text as a notification email, which is why they used to build it themselves.
         final Person target = person("Ann", null, "Jones", "ann@example.com");

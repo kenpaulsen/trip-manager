@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.ContentInstance;
@@ -195,6 +196,35 @@ public class TripCommandsTest {
         assertEquals(tripCommands.getLodgingDays(
                 LocalDateTime.of(2025, 5, 23,  5, 0, 0),
                 LocalDateTime.of(2025, 5, 27,  2, 0, 0)), 4);
+    }
+
+    // ------------------------------------------------------------------ bulk participation (lodging)
+
+    @Test
+    public void updateEventParticipantsJoinsAndLeavesOnTheTripsOwnEventAndSavesOnce() {
+        final Trip trip = Trip.builder().id("participants-" + System.nanoTime()).title("Participants").build();
+        trip.setOrgId(FakeData.CFPW_ORG_ID);
+        final Person.Id ada = people.get(0).getId();
+        final Person.Id bob = people.get(1).getId();
+        trip.setPeople(new ArrayList<>(List.of(ada, bob)));
+        final String lodgingId = trip.addTripEvent(TripEvent.Type.LODGING, "Pansion", "",
+                LocalDateTime.of(2026, 9, 20, 15, 0), LocalDateTime.of(2026, 9, 30, 10, 0));
+        assertTrue(tripCommands.saveTrip(trip));
+
+        assertFalse(tripCommands.updateEventParticipants(trip, "no-such-event", List.of(ada), null),
+                "An event that is not on the trip is refused");
+        assertFalse(tripCommands.updateEventParticipants(null, lodgingId, List.of(ada), null));
+        assertTrue(tripCommands.updateEventParticipants(trip, lodgingId, null, null), "Nothing to do");
+        assertTrue(tripCommands.updateEventParticipants(trip, lodgingId, List.of(ada, bob), null));
+        final Trip fresh = org.paulsens.trip.dynamo.DAO.getInstance()
+                .getTrip(trip.getId(), org.paulsens.trip.cache.Cached.NO).orElseThrow();
+        assertEquals(fresh.getTripEvent(lodgingId).getParticipants(), List.of(ada, bob),
+                "Persisted on the trip's OWN event instance");
+        assertTrue(tripCommands.updateEventParticipants(fresh, lodgingId, List.of(ada), List.of(bob)),
+                "Joining someone already in and leaving someone out is one save");
+        final Trip again = org.paulsens.trip.dynamo.DAO.getInstance()
+                .getTrip(trip.getId(), org.paulsens.trip.cache.Cached.NO).orElseThrow();
+        assertEquals(again.getTripEvent(lodgingId).getParticipants(), List.of(ada));
     }
 
     // ------------------------------------------------------------------ provider <- org sync

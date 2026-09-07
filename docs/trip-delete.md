@@ -54,6 +54,8 @@ LAST so a crash mid-cascade leaves a findable trip, and a re-run finishes the jo
    `person_data` sweep for those dataIds plus `room{tripId}`: candidates (roster + registrants + privilege
    holders, captured before their rows went) via the cached read path, then one raw table scan for anyone
    else — room rows are created lazily by mere page READS, so no roster predicts who has one.
+   Since the lodging feature (2026-09) a mere READ of a room no longer creates a `room{tripId}` row (the
+   page value is transient until `saveRoom`), so the sweep only meets rows an admin actually wrote.
 4. **Trip-scoped privilege rows** (`tripMgr{id}`, `tripView{id}`, `tripFinAdmin{id}`, `tripFinView{id}`,
    `chatMgr{id}`) — deleted outright via `PrivilegesDAO.deletePrivilege` (the tripId is fused into their
    partition key; a deleted trip would strand them forever).
@@ -61,7 +63,11 @@ LAST so a crash mid-cascade leaves a findable trip, and a re-run finishes the jo
    is the only handle on them.
 6. **Badge images** — `BadgePhotoCommands.deleteAllForTrip`: every key on `Trip.badgeImages` plus a store
    sweep of `badgeImages/{tripId}/` (superseded versions, never-saved uploads).
-7. **The trip row** — `TripDAO.deleteTrip`: the item, its point-cache entry, and both `TripIndex` sorted
+7. **Lodging** — every `ReservationOffer` and `Reservation` in the trip's two partitions
+   (`DAO.deleteLodgingForTrip`, raw reads so rows the cache never saw go too). Their lodging Bill rows are
+   transactions and follow the transaction rule: never destroyed, soft-deleted by the blocker before the
+   delete could start. See `docs/lodging.md`.
+8. **The trip row** — `TripDAO.deleteTrip`: the item, its point-cache entry, and both `TripIndex` sorted
    sets (`idx:trips`, `idx:person_trips` — the previously dead `removed` branch of `TripIndex.update`).
 
 Audited as `AuditAction.TRIP_DELETE` (success with a per-table tally; refusals and failures as FAILURE).

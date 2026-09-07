@@ -80,6 +80,29 @@ public class AddressTest {
     }
 
     @Test
+    public void street2AndCountryAreSetterPopulatedAndSurviveJson() throws IOException {
+        final Address addr = getTestAddress(STREET, CITY, STATE, ZIP);
+        Assert.assertNull(addr.getStreet2(), "The four-arg creator leaves the newer fields null");
+        Assert.assertNull(addr.getCountry());
+        addr.setStreet2("Suite 4");
+        addr.setCountry("Bosnia and Herzegovina");
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
+        final Address restored = mapper.readValue(mapper.writeValueAsString(addr), Address.class);
+        Assert.assertEquals(restored.getStreet2(), "Suite 4");
+        Assert.assertEquals(restored.getCountry(), "Bosnia and Herzegovina");
+        Assert.assertEquals(restored, addr);
+    }
+
+    @Test
+    public void oldJsonWithoutTheNewFieldsStillReads() throws IOException {
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
+        final Address restored = mapper.readValue(
+                "{\"street\":\"1 Main\",\"city\":\"Rome\",\"state\":null,\"zip\":\"00100\"}", Address.class);
+        Assert.assertEquals(restored.getStreet(), "1 Main");
+        Assert.assertNull(restored.getCountry());
+    }
+
+    @Test
     public void canSerializeAddress() throws IOException {
         final ObjectMapper mapper = DAO.getInstance().getMapper();
         final Address orig = getTestAddress(STREET, CITY, STATE, ZIP);

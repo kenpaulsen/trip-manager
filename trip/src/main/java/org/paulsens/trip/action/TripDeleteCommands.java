@@ -268,6 +268,9 @@ public class TripDeleteCommands {
                 privs++;
             }
         }
+        // Lodging offers and reservations: both trip partitions. Their Bill rows stay (soft-deleted by the
+        // "live transactions" blocker before this ran), like every other transaction.
+        final int lodging = DAO.getInstance().deleteLodgingForTrip(tripId);
         final List<String> eventIds = trip.getTripEventIds();
         for (final String eventId : eventIds) {
             DAO.getInstance().deleteTripEvent(eventId);
@@ -276,7 +279,7 @@ public class TripDeleteCommands {
         DAO.getInstance().deleteTrip(trip);
         return "deleted trip '" + trip.getTitle() + "' with " + regs + " registrations, " + todoIds.size()
                 + " todos (" + pdvRows + " person-data rows), " + privs + " privilege rows, "
-                + eventIds.size() + " events, " + badges + " badge objects; chat purged";
+                + eventIds.size() + " events, " + lodging + " lodging rows, " + badges + " badge objects; chat purged";
     }
 
     private List<String> computeBlockers(final Trip trip) {

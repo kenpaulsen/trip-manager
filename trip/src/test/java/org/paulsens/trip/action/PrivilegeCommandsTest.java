@@ -44,6 +44,14 @@ public class PrivilegeCommandsTest {
         assertEquals(privCmds.knownBases("TRIP"), PrivilegeCommands.TRIP_SCOPED_BASES);
         assertEquals(privCmds.knownBases("ORG"), PrivilegeCommands.ORG_SCOPED_BASES);
         assertEquals(privCmds.knownBases(null), PrivilegeCommands.GLOBAL_BASES);
+        assertEquals(privCmds.knownBases("ACCOMMODATION"), PrivilegeCommands.ACCOMMODATION_SCOPED_BASES);
+        assertTrue(PrivilegeCommands.ORG_SCOPED_BASES.contains(PrivilegeCommands.LODGING_ADMIN)
+                && PrivilegeCommands.GLOBAL_BASES.contains(PrivilegeCommands.LODGING_ADMIN)
+                && PrivilegeCommands.ORG_HUB_BASES.contains(PrivilegeCommands.LODGING_ADMIN),
+                "lodgingAdmin is both org-scoped (offers, reservations) and global (every hotel), like contentAdmin");
+        for (final String base : privCmds.knownBases("ACCOMMODATION")) {
+            assertFalse(privCmds.baseDescription(base).isBlank(), "Missing description: " + base);
+        }
     }
 
     @Test

@@ -54,6 +54,15 @@ public final class CacheKeys {
     public static final String ORG_MEMBER_PREFIX = FORMAT_VERSION + "org_member:";
     // Payment-processor configs: per-org partition hash (append the orgId) -- the org IS the tenancy boundary.
     public static final String PROCESSOR_PREFIX = FORMAT_VERSION + "processor:";
+    /**
+     * Lodging: accommodations are one whole-table hash (global hotels, the organizations shape); offers and
+     * reservations are per-trip partition hashes. Reads that precede a bill write pass {@code Cached.NO}.
+     */
+    public static final String LODGING_ACC_PREFIX = FORMAT_VERSION + "lodging_acc:";
+    public static final String LODGING_ACC_PARTITION = "__all__";
+    public static final String LODGING_ACC_LOADED = FORMAT_VERSION + "lodging_acc_loaded";
+    public static final String LODGING_OFFER_PREFIX = FORMAT_VERSION + "lodging_offer:";
+    public static final String LODGING_RES_PREFIX = FORMAT_VERSION + "lodging_res:";
 
     // Email lookup hash: field = lowercased email, value = personId. Lazy cache in front of the email-index GSI
     // (and the authoritative store in local mode, where every save goes through write-through).

@@ -70,6 +70,12 @@ public enum AuditAction {
     /** A privilege was granted or revoked. */
     PRIVILEGE,
     /**
+     * Lodging: an accommodation, room offer or reservation was created, changed or cancelled, or lodging
+     * bills were recomputed. One constant for the whole feature: its records target the specific
+     * accommodation / offer / reservation, which is the axis anyone filters on.
+     */
+    LODGING,
+    /**
      * A deployment was started from the admin UI.
      *
      * <p>Its own constant rather than {@code ADMIN}: a deployment replaces the running site, so "who released

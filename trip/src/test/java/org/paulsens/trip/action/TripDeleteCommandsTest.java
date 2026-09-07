@@ -15,6 +15,8 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.Registration;
+import org.paulsens.trip.model.Reservation;
+import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
@@ -232,6 +234,11 @@ public class TripDeleteCommandsTest {
         assertTrue(dao.savePrivilege(new Privilege(Privilege.idFor(PrivilegeCommands.TRIP_MGR, tripId),
                 "Doomed - Editor Admin", List.of(exMember.getId()))));
 
+        // A lodging offer and a reservation in the trip's partitions.
+        assertTrue(dao.saveReservationOffer(ReservationOffer.builder().tripId(tripId).name("Double").build()));
+        assertTrue(dao.saveReservation(Reservation.builder().tripId(tripId)
+                .occupants(List.of(exMember.getId())).build()));
+
         // A soft-deleted transaction, bound to the trip: allowed, and its rows must SURVIVE the delete.
         final Transaction tx = new Transaction(exMember.getId(), null, Transaction.Type.Tx);
         tx.delete();
@@ -251,6 +258,8 @@ public class TripDeleteCommandsTest {
                         RegistrationCommands.tripRoomDataId(tripId), Cached.NO).isEmpty(),
                 "room person_data row must be gone");
         assertTrue(dao.getTripPrivileges(tripId, Cached.NO).isEmpty(), "trip-scoped privs must be gone");
+        assertTrue(dao.getReservationOffers(tripId, Cached.NO).isEmpty(), "lodging offers must be gone");
+        assertTrue(dao.getReservations(tripId, Cached.NO).isEmpty(), "lodging reservations must be gone");
         Mockito.verify(badges).deleteAllForTrip(Mockito.argThat(t -> tripId.equals(t.getId())));
 
         // The financial record survives, dangling on purpose. (The tx row itself is unobservable here:

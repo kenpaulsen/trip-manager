@@ -36,6 +36,9 @@ public final class AuditEventBuilder {
     public static final String TARGET_PIPELINE = "pipeline";
     public static final String TARGET_ORGANIZATION = "organization";
     public static final String TARGET_PAYMENT = "payment";
+    public static final String TARGET_ACCOMMODATION = "accommodation";
+    public static final String TARGET_OFFER = "offer";
+    public static final String TARGET_RESERVATION = "reservation";
 
     private final AuditAction action;
     private final AuditOutcome outcome;

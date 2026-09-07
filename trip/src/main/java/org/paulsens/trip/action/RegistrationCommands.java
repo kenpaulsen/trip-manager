@@ -33,6 +33,8 @@ public class RegistrationCommands {
     private final java.util.function.Supplier<MailCommands> mailSource;
     private final java.util.function.Supplier<MailAddressCommands> mailAddrSource;
     private final java.util.function.Supplier<OrgCommands> orgSource;
+    /** The lodging reservations, consulted before the legacy free-text room (see {@link #getRoomPDV}). */
+    private final java.util.function.Supplier<LodgingCommands> lodgingSource;
 
     public RegistrationCommands() {
         this(Caller::current);
@@ -68,6 +70,7 @@ public class RegistrationCommands {
         this.mailSource = mailSource;
         this.mailAddrSource = mailAddrSource;
         this.orgSource = orgSource;
+        this.lodgingSource = () -> new LodgingCommands(callerSource);
     }
 
     public Registration createRegistration(final String tripId, final Person.Id userId) {
@@ -727,6 +730,15 @@ public class RegistrationCommands {
         }
     }
 
+    /**
+     * One person's room on a trip, as the pages have always read it ({@code #{reg.getRoomPDV(...).content}},
+     * pasted into itinerary notes for years). Since the lodging feature (2026-09) the answer comes from an
+     * ACTIVE {@code Reservation} with a room FIRST ({@code LodgingCommands.roomLabelFor}: "114", or
+     * "114 / 201" across two stays), returned as a TRANSIENT value that is never stored; only when no
+     * reservation names a room does the legacy free-text {@code person_data} row answer. A miss on both is
+     * a transient empty value -- a mere page READ no longer creates rows (the trip-delete sweep used to have
+     * to hunt for rows nobody predicted). {@link #saveRoom} still persists on write.
+     */
     public PersonDataValue getRoomPDV(final String tripId, final Person.Id userId) {
         if (tripId == null) {
             log.error("getRoom() called with null tripId");
@@ -736,12 +748,27 @@ public class RegistrationCommands {
             log.error("getRoom() called with null userId");
             return null;
         }
-        PersonDataValue pdv = PersonDataValueCommands.getPersonDataValue(userId, getTripRoomDataId(tripId));
-        if (pdv == null) {
-            pdv = PersonDataValueCommands.createPersonDataValue(userId, getTripRoomDataId(tripId), ROOM);
-            pdv.setContent("");
-            PersonDataValueCommands.savePersonDataValue(pdv);
+        final String reserved = reservedRoomLabel(tripId, userId);
+        if (reserved != null) {
+            return transientRoom(tripId, userId, reserved);
         }
+        final PersonDataValue pdv = PersonDataValueCommands.getPersonDataValue(userId, getTripRoomDataId(tripId));
+        return (pdv == null) ? transientRoom(tripId, userId, "") : pdv;
+    }
+
+    private String reservedRoomLabel(final String tripId, final Person.Id userId) {
+        try {
+            return lodgingSource.get().roomLabelFor(tripId, userId);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to read lodging reservations for {} on {}", userId, tripId, ex);
+            return null;
+        }
+    }
+
+    private PersonDataValue transientRoom(final String tripId, final Person.Id userId, final String label) {
+        final PersonDataValue pdv = PersonDataValueCommands.createPersonDataValue(userId, getTripRoomDataId(tripId),
+                ROOM);
+        pdv.setContent(label);
         return pdv;
     }
 
@@ -761,6 +788,11 @@ public class RegistrationCommands {
     public boolean saveRoom(final String tripId, final Person.Id userId, final String room) {
         if (tripId == null || userId == null) {
             log.error("saveRoom() requires both a tripId and a userId");
+            return false;
+        }
+        if (reservedRoomLabel(tripId, userId) != null) {
+            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
+                    "This room is set by a lodging reservation: change it on the trip's Lodging page.", "");
             return false;
         }
         final PersonDataValue pdv = getRoomPDV(tripId, userId);

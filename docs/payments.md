@@ -91,6 +91,9 @@ See the sending-domain section of `org-admin.md` for the allow-list itself.
 
 ## The money rules (user-locked; the golden test is `PaymentRecorderTest`)
 
+Lodging bills (`pay/LodgingBiller`, 2026-09) follow these rules too: NEGATIVE `Bill` rows with deterministic
+ids, a POSITIVE `Bill` for a cancellation credit, fees in descriptions — `docs/lodging.md`.
+
 Entered amounts are ALWAYS the amounts credited. All math in **long cents** (`pay/MoneyMath`);
 `Transaction.amount`'s Float is produced once at the boundary.
 

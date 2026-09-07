@@ -91,7 +91,12 @@ public class InMemoryPersistence implements Persistence {
             // Payments round-trip locally (the FAKE-processor flow is fully webtestable), and their
             // conditional state transitions must be honestly rejectable or the double-capture race is
             // untestable.
-            Map.entry(PaymentDAO.PAYMENTS_TABLE, new TableKeys(PaymentDAO.PAYMENT_ID, null)));
+            Map.entry(PaymentDAO.PAYMENTS_TABLE, new TableKeys(PaymentDAO.PAYMENT_ID, null)),
+            // Lodging rows round-trip locally (FakeData seeds a hotel, the lodging pages edit them) and their
+            // optimistic-version puts must be honestly rejectable: an accommodation's whole inventory is one row.
+            Map.entry(LodgingDAO.ACCOMMODATIONS_TABLE, new TableKeys(LodgingDAO.ID, null)),
+            Map.entry(LodgingDAO.OFFERS_TABLE, new TableKeys(LodgingDAO.TRIP_ID, LodgingDAO.ID)),
+            Map.entry(LodgingDAO.RESERVATIONS_TABLE, new TableKeys(LodgingDAO.TRIP_ID, LodgingDAO.ID)));
 
     /** table -> (pk -> (sk -> item)). sk is "" for PK-only tables. */
     private final Map<String, Map<String, Map<String, Map<String, AttributeValue>>>> store =

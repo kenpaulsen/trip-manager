@@ -4,5 +4,5 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 
 /** A postal address on the wire. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record AddressDto(String street, String city, String state, String zip) {
+public record AddressDto(String street, String street2, String city, String state, String zip, String country) {
 }

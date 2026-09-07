@@ -84,6 +84,7 @@ public record PersonDto(
         if (address == null || !chosen.cityVisible()) {
             return null;
         }
-        return chosen.streetVisible() ? address : new AddressDto(null, address.city(), address.state(), null);
+        return chosen.streetVisible() ? address
+                : new AddressDto(null, null, address.city(), address.state(), null, address.country());
     }
 }

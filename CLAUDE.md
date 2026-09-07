@@ -76,6 +76,8 @@ per-feature gates (e.g. `BackgroundRemover.GATE`).
 - `DAO` — singleton composing the domain DAOs: Person, Family, Trip, TripEvent, Registration, Transaction,
   Credentials, Todo, PersonDataValue, Privileges, Binding, Config, Media, Template, Content, Audit, Chat.
   Payments add: Organization/OrgMember (org_members is the membership source of truth, Person.orgIds the derived edge), PaymentProcessorConfig (org-partitioned; secrets live in Secrets Manager via `security/ProcessorSecrets`, never in rows), and Payment (UNCACHED state machine CREATED/CAPTURED/RECORDED with conditional-put transitions) — read `docs/payments.md` before touching any of them.
+  Lodging adds `LodgingDAO` (`lodging_accommodations` whole-table `PartitionScanCache`; `lodging_offers`
+  and `lodging_reservations` per-trip `PartitionCache`s; versioned conditional puts) — `docs/lodging.md`.
   The `family` row is the source of truth for household membership (optimistic-version conditional puts);
   managers' `Person.managedUsers` lists are DERIVED from it — see `docs/family-accounts.md` before touching
   anything family-related.
@@ -137,7 +139,11 @@ the new-page checklist.
 Lombok-annotated, Jackson-serialized to/from DynamoDB. Core types: `Person` (nested `Person.Id`), `Family`, `Trip`,
 `TripEvent`, `Registration`, `RegistrationOption`, `Transaction`, `Creds`, `TodoItem`/`TodoStatus`,
 `PersonDataValue`, `Privilege`, `BindingType`, `Config`/`SettingDef`/`SettingSection`, `MediaItem`,
-`AuditEvent`/`AuditQuery`/`AuditPage`, plus `model/chat/*` (15 chat types) and `model/deploy/*`.
+`AuditEvent`/`AuditQuery`/`AuditPage`, lodging (`Accommodation` with inline `RoomType`/`Room`/`FloorMap`,
+`ReservationOffer`, `Reservation`, `PricingModel`, `OfferType` — `docs/lodging.md`), plus `model/chat/*`
+(15 chat types) and `model/deploy/*`. **Accommodations are GLOBAL, not org-owned** — the one deliberate
+exception to the organization tenancy rule, like `Person`; `Accommodation.orgIds` records the orgs USING a
+hotel, and editing is gated by the per-hotel `accommodationAdmin` privilege, never a field on the row.
 **Every type that can land in viewScope must be `Serializable`** — a non-serializable one breaks the session
 save and 500s every later request (looks like a site-wide outage). `ModelSerializationTest` is the guard.
 
@@ -169,7 +175,14 @@ org-only Branding settings; neutral/null on every other host so shared pages kee
 uploads through the shared crop dialog, ONE bean carrying the `BrandingRole` chosen when the dialog opens)
 and `brandingPhotos` (BrandingPhotos — their versioned `org/{orgId}/branding/{role}-{version}.{ext}` store,
 whose KEPT previous versions are what makes a replaced image recoverable; see `docs/org-admin.md`
-"Uploading the four images"), `deploy`, `json`, `tripUtil`.
+"Uploading the four images"), `lodging` (LodgingCommands — accommodations, room types, rooms, floor maps,
+offers, reservations, the room-assignment board, lodging bills, the itinerary rows; see `docs/lodging.md`
+before touching) and `lodgingUpload` (LodgingUploadCommands — hotel photos, room-type photos and floor plans
+through the shared crop dialog into slot `lodging-{accId}`), `deploy`, `json`, `tripUtil`.
+
+- A `Person` comes into being through exactly four paths: sign-up, a family manager's add-member flow, the
+  REST people API, and a lodging contact auto-created by `LodgingCommands.findOrCreateContact` (no
+  credentials, no mail; email-code activation on first sign-in). Never add a fifth without the owner.
 
 - `ChatPhotos.getChatPhotos()` is ONE static instance on purpose — never give it ChatCommands'
   FacesContext/application-map lookup: the upload servlet has no FacesContext and the JSF send does, so a
@@ -185,9 +198,9 @@ whose KEPT previous versions are what makes a replaced image recoverable; see `d
 ### REST API (`org.paulsens.trip.api`, served at `/api/*`)
 
 Jersey servlet (declared in the live web.xml, sibling repo) running `TripApiApplication` — resources are
-registered **explicitly** in `getClasses()`, no package scanning; a new resource must be added there. 15
+registered **explicitly** in `getClasses()`, no package scanning; a new resource must be added there. 16
 resources (auth, people, trips, registrations, transactions, todos, privileges, chat, chat-admin,
-photo-chat, audit, config, mail, payments, deploy) + `TripAuthFilter`, `JsonExceptionMapper`,
+photo-chat, audit, config, mail, payments, deploy, lodging) + `TripAuthFilter`, `JsonExceptionMapper`,
 `ObjectMapperProvider`. DTOs in `api/dto`, MapStruct mappers in `api/mapper`. Versioning is via the
 `Accept` media type, not a URL segment.
 

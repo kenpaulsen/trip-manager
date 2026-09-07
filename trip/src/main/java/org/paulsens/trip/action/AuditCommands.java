@@ -209,6 +209,29 @@ public class AuditCommands {
         return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who, orgOf(to));
     }
 
+    /**
+     * A lodging change: accommodation, offer or reservation created/edited/cancelled, or bills recomputed.
+     *
+     * @param targetType {@code AuditEventBuilder.TARGET_ACCOMMODATION}, {@code TARGET_OFFER} or
+     *                   {@code TARGET_RESERVATION}.
+     * @param orgId      the trip's org for offers and reservations; null for a (global) accommodation.
+     */
+    public String lodging(final String targetType, final String targetId, final String orgId, final String msg) {
+        return lodging(targetType, targetId, orgId, msg, AuditActor.current());
+    }
+
+    /** @see #lodging(String, String, String, String) */
+    public String lodging(final String targetType, final String targetId, final String orgId, final String msg,
+            final AuditActor who) {
+        Audit.builder(AuditAction.LODGING, AuditOutcome.SUCCESS)
+                .actor(who == null ? AuditActor.current() : who)
+                .target(targetType, targetId)
+                .org(orgId)
+                .message(msg)
+                .log();
+        return msg;
+    }
+
     /** A registration was cancelled. */
     public String registrationRemoved(final Person target, final Trip trip) {
         return registrationRemoved(target, trip, AuditActor.current());

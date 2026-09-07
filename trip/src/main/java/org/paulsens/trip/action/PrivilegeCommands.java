@@ -64,6 +64,17 @@ public class PrivilegeCommands {
     /** May flip the payment page into SANDBOX mode (sandbox APIs, no real ledger writes). Org-scoped:
      *  sandbox mode exercises the trip's org's sandbox credentials, so the grant follows the org. */
     public static final String PAYMENTS_ADMIN = "paymentsAdmin";
+    /**
+     * Lodging. ORG-scoped: manages offers and reservations on that org's trips and may create accommodations.
+     * GLOBAL: also edits EVERY accommodation (hotels are global, the one entity that is not org-owned).
+     */
+    public static final String LODGING_ADMIN = "lodgingAdmin";
+    /**
+     * Edits ONE accommodation's data (details, room types, rooms, floor plans, photos) -- scoped to the
+     * accommodation's UUID. Granted to whoever created it and to its contact, the future hotel-owner login.
+     * Grants nothing on offers or reservations: those belong to the trips.
+     */
+    public static final String ACCOMMODATION_ADMIN = "accommodationAdmin";
 
     /**
      * The scope each base name is used with. A privilege row does not record what kind of thing its scope UUID
@@ -82,7 +93,13 @@ public class PrivilegeCommands {
      * privilege-only: an org's admins do not edit content, or read the trail, by being admins.
      */
     public static final List<String> ORG_SCOPED_BASES =
-            List.of(PEOPLE_ADMIN, ADD_TRIP, EMAIL_ADMIN, PAYMENTS_ADMIN, CONTENT_ADMIN, MEDIA_ADMIN, AUDIT_ADMIN);
+            List.of(PEOPLE_ADMIN, ADD_TRIP, EMAIL_ADMIN, PAYMENTS_ADMIN, CONTENT_ADMIN, MEDIA_ADMIN, AUDIT_ADMIN,
+                    LODGING_ADMIN);
+    /**
+     * Bases scoped to ONE accommodation (a global hotel, not a trip or an org): the hotel-level grant behind
+     * the lodging admin page. {@link #knownBases} answers it for the kind {@code ACCOMMODATION}.
+     */
+    public static final List<String> ACCOMMODATION_SCOPED_BASES = List.of(ACCOMMODATION_ADMIN);
     /**
      * The org-scoped bases that open the org DASHBOARD (hub) to their holders. It was the operational grants
      * alone while an editor's whole job was the org's site in edit mode; the hub is now also where the org's
@@ -91,9 +108,10 @@ public class PrivilegeCommands {
      * itself: every card on it is gated separately, so an editor arrives at a page showing only their own.
      */
     public static final List<String> ORG_HUB_BASES =
-            List.of(PEOPLE_ADMIN, ADD_TRIP, EMAIL_ADMIN, PAYMENTS_ADMIN, CONTENT_ADMIN, MEDIA_ADMIN, AUDIT_ADMIN);
+            List.of(PEOPLE_ADMIN, ADD_TRIP, EMAIL_ADMIN, PAYMENTS_ADMIN, CONTENT_ADMIN, MEDIA_ADMIN, AUDIT_ADMIN,
+                    LODGING_ADMIN);
     public static final List<String> GLOBAL_BASES = List.of(PRIVILEGE_ADMIN, CONFIG_ADMIN, AUDIT_ADMIN,
-            SITE_DEPLOYER, CONTENT_ADMIN, MEDIA_ADMIN, EVENT_ADMIN);
+            SITE_DEPLOYER, CONTENT_ADMIN, MEDIA_ADMIN, EVENT_ADMIN, LODGING_ADMIN);
 
     /**
      * One-line description per canonical base, defaulted into a new row's description by the privilege
@@ -117,7 +135,12 @@ public class PrivilegeCommands {
             java.util.Map.entry(SITE_DEPLOYER, "Deploy committed changes to AWS"),
             java.util.Map.entry(CONTENT_ADMIN, "Edit templates and template-driven page content"),
             java.util.Map.entry(MEDIA_ADMIN, "Manage the media library"),
-            java.util.Map.entry(EVENT_ADMIN, "Edit the home page's Events section"));
+            java.util.Map.entry(EVENT_ADMIN, "Edit the home page's Events section"),
+            java.util.Map.entry(LODGING_ADMIN,
+                    "Manage lodging: offers and reservations on the organization's trips (every accommodation "
+                            + "too, when global)"),
+            java.util.Map.entry(ACCOMMODATION_ADMIN,
+                    "Edit this accommodation: details, room types, rooms, floor plans and photos"));
 
     /** The canonical description for a base name, or "" for custom names -- see {@link #BASE_DESCRIPTIONS}. */
     public String baseDescription(final String baseName) {
@@ -235,6 +258,9 @@ public class PrivilegeCommands {
         }
         if ("ORG".equalsIgnoreCase(scopeKind)) {
             return ORG_SCOPED_BASES;
+        }
+        if ("ACCOMMODATION".equalsIgnoreCase(scopeKind)) {
+            return ACCOMMODATION_SCOPED_BASES;
         }
         return GLOBAL_BASES;
     }

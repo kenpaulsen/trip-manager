@@ -14,6 +14,14 @@ public final class Address implements Serializable {
     private String city;
     private String state;
     private String zip;
+    /**
+     * Second address line and country -- added 2026-09 for lodging (a hotel needs a country; international
+     * pilgrimages). Deliberately OUTSIDE the four-arg creator: Jackson fills them through the setters, every
+     * existing {@code new Address(street, city, state, zip)} call site stays untouched, and a stream written
+     * before they existed reads back with nulls (the pinned UID holds).
+     */
+    private String street2;
+    private String country;
 
     public Address(
             @JsonProperty("street") String street,

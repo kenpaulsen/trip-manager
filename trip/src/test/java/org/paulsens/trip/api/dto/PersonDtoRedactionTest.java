@@ -165,7 +165,7 @@ public class PersonDtoRedactionTest {
     @Test
     public void aDtoWithoutPrivacyRedactsAsTheDefaults() {
         final PersonDto bare = new PersonDto(null, null, "Ken", null, "Paulsen", null, "Male", null, "555-1212",
-                "ken@example.com", null, new AddressDto("1 Main St", "Portland", "OR", "97201"), null, null,
+                "ken@example.com", null, new AddressDto("1 Main St", null, "Portland", "OR", "97201", null), null, null,
                 null, null, null, false, null);
         final PersonDto dto = bare.redactedFor(AccessLevel.PEER);
         Assert.assertEquals(dto.email(), "ken@example.com");

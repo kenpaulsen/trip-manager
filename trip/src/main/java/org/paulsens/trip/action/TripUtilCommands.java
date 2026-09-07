@@ -343,6 +343,28 @@ public class TripUtilCommands {
         return options;
     }
 
+    /**
+     * One named ajax callback param from a page's jsft script ({@code args.name} in the button's oncomplete):
+     * how a dialog's Save says "keep me open" or "go here" after the server decided. A no-op outside an ajax
+     * request.
+     */
+    public void setCallbackParam(final String name, final Object value) {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (ctx == null) {
+            return;
+        }
+        final org.primefaces.PrimeFaces pf = org.primefaces.PrimeFaces.current();
+        if (pf.isAjaxRequest()) {
+            pf.ajax().addCallbackParam(name, value);
+        }
+    }
+
+    /** The deployment's context path ("" at the root), for scripts composing an absolute page URL. */
+    public String getContextPath() {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        return (ctx == null) ? "" : ctx.getExternalContext().getRequestContextPath();
+    }
+
     public Object evalEL(final String str) {
         if (str == null) {
             return null;

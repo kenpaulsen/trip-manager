@@ -436,6 +436,19 @@ public final class KnownSettings {
                     + "registration-option answers from the registration page. Off makes the expanded view "
                     + "read-only; registering itself is unaffected.").withOrgOverride();
 
+    // --- lodging ---
+
+    /**
+     * Lodging bills depend on who else is in the room each night (PER_ROOM splits, the single supplement), so
+     * every reservation write recomputes the affected room's bills and rewrites its deterministic Bill rows in
+     * place, audited. Off means an admin presses Recompute on the trip's Lodging page instead.
+     */
+    public static final SettingDef LODGING_AUTO_RECOMPUTE = new SettingDef(
+            "lodging.bills.autoRecompute", Config.Type.BOOLEAN, "true", "Recompute lodging bills automatically",
+            "Whether every reservation change (create, dates, room, cancel) re-derives the affected room's "
+                    + "lodging bills at once. Off leaves the ledger untouched until an admin presses Recompute "
+                    + "on the trip's Lodging page.").withOrgOverride();
+
     // --- registration email ---
 
     public static final SettingDef REG_MAIL_FROM = new SettingDef(

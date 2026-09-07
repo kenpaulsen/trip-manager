@@ -114,6 +114,12 @@ public class ModelSerializationTest {
         Assert.assertTrue(Serializable.class.isAssignableFrom(summary),
                 summary.getName() + " is placed in viewScope by chats.xhtml, so it must be Serializable or the "
                         + "session save throws and every later request on that session fails");
+        // The lodging pages park their dialog FORMS (and the pending-assignment outcome) in viewScope.
+        for (final Class<?> view : org.paulsens.trip.action.LodgingViews.class.getDeclaredClasses()) {
+            Assert.assertTrue(Serializable.class.isAssignableFrom(view),
+                    view.getName() + " is a lodging page view type, so it must be Serializable");
+            roundTrip(view.getDeclaredConstructor().newInstance());
+        }
     }
 
     @Test

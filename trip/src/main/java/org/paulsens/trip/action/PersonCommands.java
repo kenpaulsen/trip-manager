@@ -102,7 +102,9 @@ public class PersonCommands {
     /**
      * {@link #savePerson} for the profile EDITOR pages: saves an EXISTING person only. A person comes into
      * being through sign-up (createAccount, where they see the privacy and legal text themselves), a family
-     * manager's add-member flow, or the REST API -- never through an admin opening a profile page. Without
+     * manager's add-member flow, the REST API, or as a lodging contact auto-created by
+     * {@code LodgingCommands.findOrCreateContact} (docs/lodging.md) -- never through an admin opening a
+     * profile page. Without
      * this guard {@code /account/person.jsf?id=<unknown>} handed an admin a blank Person under a fresh id
      * (the never-null {@code getPersonForEdit} contract) whose Save created a junk row; the People page's
      * "New Person" button was exactly that path (removed 2026-09-01).

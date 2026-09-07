@@ -79,6 +79,27 @@ public class RoomAssignmentTest {
     }
 
     @Test
+    public void aLodgingReservationWinsAndBlocksTheLegacyEdit() {
+        // FakeData seeds Matt (user6) into room 114 of the pansion under a reservation: the page reads the
+        // reservation's room, and the legacy free-text edit is refused so the two stores cannot disagree.
+        final Person.Id matt = FakeData.getFakePeople().stream()
+                .filter(p -> "user6@example.com".equals(p.getEmail())).findFirst().orElseThrow().getId();
+        Assert.assertEquals(reg.getRoomPDV(tripId(), matt).getContent(), "114");
+        Assert.assertFalse(reg.saveRoom(tripId(), matt, "999"));
+        Assert.assertEquals(reg.getRoomPDV(tripId(), matt).getContent(), "114");
+    }
+
+    @Test
+    public void aReadNeverCreatesARow() {
+        final Person.Id who = Person.Id.newInstance();
+        Assert.assertEquals(reg.getRoomPDV(tripId(), who).getContent(), "", "A transient empty value");
+        Assert.assertNull(org.paulsens.trip.action.PersonDataValueCommands.getPersonDataValue(who,
+                RegistrationCommands.tripRoomDataId(tripId())), "...and nothing was written");
+        Assert.assertNull(reg.getRoomPDV(null, who));
+        Assert.assertNull(reg.getRoomPDV(tripId(), null));
+    }
+
+    @Test
     public void missingArgumentsAreRefused() {
         Assert.assertFalse(reg.saveRoom(null, someone(0), "1"));
         Assert.assertFalse(reg.saveRoom(tripId(), null, "1"));

@@ -61,6 +61,9 @@ card. The separate "Email Templates" entry is gone — it was the same page with
 
 ## Org-scoped privileges
 
+Lodging (2026-09) adds `lodgingAdmin` (org-scoped AND global) and the per-hotel `accommodationAdmin`;
+accommodations themselves are GLOBAL, the one exception to the tenancy rule above — `docs/lodging.md`.
+
 `Privilege` scope suffixes are opaque UUIDs; the base name decides whether a row scopes to a trip or an
 org (`PrivilegeCommands.TRIP_SCOPED_BASES` / `ORG_SCOPED_BASES` are the authority). Migrated from global
 to org scope — the global variants grant NOTHING anymore; inert global rows can be deleted from the Global

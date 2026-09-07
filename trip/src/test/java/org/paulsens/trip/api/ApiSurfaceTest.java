@@ -22,7 +22,7 @@ public class ApiSurfaceTest {
 
     private static final List<Class<?>> RESOURCES = List.of(
             AuditResource.class, AuthResource.class, ChatAdminResource.class, ChatResource.class,
-            ConfigResource.class, DeployResource.class, MailResource.class, MediaResource.class,
+            ConfigResource.class, DeployResource.class, LodgingResource.class, MailResource.class, MediaResource.class,
             PasskeyResource.class, PaymentsResource.class, PeopleResource.class, PrivilegesResource.class,
             RegistrationsResource.class, TodosResource.class, TransactionsResource.class, TripsResource.class);
 

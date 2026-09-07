@@ -39,7 +39,10 @@ import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.OrgMember;
 import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Payment;
+import org.paulsens.trip.model.Reservation;
+import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.PaymentProcessorConfig;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
@@ -75,6 +78,7 @@ public final class DAO {
     private final OrganizationDAO orgDao;
     private final OrgMemberDAO orgMemberDao;
     private final PaymentProcessorDAO paymentProcessorDao;
+    private final LodgingDAO lodgingDao;
     private final PaymentDAO paymentDao;
     private final TripEventDAO tripEventDao;
     private final TripDAO tripDao;
@@ -110,6 +114,7 @@ public final class DAO {
         this.orgDao = new OrganizationDAO(mapper, persistence, cacheClient);
         this.orgMemberDao = new OrgMemberDAO(mapper, persistence, cacheClient);
         this.paymentProcessorDao = new PaymentProcessorDAO(mapper, persistence, cacheClient);
+        this.lodgingDao = new LodgingDAO(mapper, persistence, cacheClient);
         // No cacheClient: payment rows authorize captures and steer money; a stale read double-charges.
         this.paymentDao = new PaymentDAO(mapper, persistence);
         this.tripEventDao = new TripEventDAO(mapper, persistence, cacheClient);
@@ -313,6 +318,44 @@ public final class DAO {
     public Boolean deletePaymentProcessorConfig(
             final Organization.Id orgId, final PaymentProcessorConfig.Id configId) {
         return paymentProcessorDao.deleteConfig(orgId, configId);
+    }
+
+    // Lodging (see LodgingDAO): global accommodations in one hash, trip-partitioned offers and reservations.
+    // Money-adjacent: a reader about to write bills or assign a room passes Cached.NO.
+    public Boolean saveAccommodation(final Accommodation acc) throws IOException {
+        return lodgingDao.saveAccommodation(acc);
+    }
+    public Optional<Accommodation> getAccommodation(final Accommodation.Id id, final Cached cached) {
+        return NearCacheContext.call(cached, () -> lodgingDao.getAccommodation(id));
+    }
+    public List<Accommodation> getAccommodations(final Cached cached) {
+        return NearCacheContext.call(cached, () -> lodgingDao.getAccommodations());
+    }
+    public Boolean saveReservationOffer(final ReservationOffer offer) throws IOException {
+        return lodgingDao.saveOffer(offer);
+    }
+    public List<ReservationOffer> getReservationOffers(final String tripId, final Cached cached) {
+        return NearCacheContext.call(cached, () -> lodgingDao.getOffers(tripId));
+    }
+    public Optional<ReservationOffer> getReservationOffer(
+            final String tripId, final ReservationOffer.Id id, final Cached cached) {
+        return NearCacheContext.call(cached, () -> lodgingDao.getOffer(tripId, id));
+    }
+    public Boolean deleteReservationOffer(final String tripId, final ReservationOffer.Id id) {
+        return lodgingDao.deleteOffer(tripId, id);
+    }
+    public Boolean saveReservation(final Reservation res) throws IOException {
+        return lodgingDao.saveReservation(res);
+    }
+    public List<Reservation> getReservations(final String tripId, final Cached cached) {
+        return NearCacheContext.call(cached, () -> lodgingDao.getReservations(tripId));
+    }
+    public Optional<Reservation> getReservation(final String tripId, final Reservation.Id id, final Cached cached) {
+        return NearCacheContext.call(cached, () -> lodgingDao.getReservation(tripId, id));
+    }
+    /** The trip-delete cascade: every offer and reservation of the trip; returns the rows deleted. */
+    public int deleteLodgingForTrip(final String tripId) {
+        return lodgingDao.deleteAllForTrip(tripId);
     }
 
     // Payments (uncached state machine; see PaymentDAO). Transitions throw ConditionalCheckFailedException
@@ -788,7 +831,7 @@ public final class DAO {
      */
     public enum CacheScope {
         PERSON, FAMILY, TRIP, TRIP_EVENT, REG, TX, TODO, PDV, PRIV, CONFIG, MEDIA, TEMPLATE, CONTENT,
-        ORG, BINDING, ALL
+        ORG, BINDING, LODGING, ALL
     }
 
     /**
@@ -820,6 +863,7 @@ public final class DAO {
             case CONTENT -> clearContentScope();
             case ORG -> clearOrgScope();
             case BINDING -> clearBindingScope();
+            case LODGING -> clearLodgingScope();
             case ALL -> clearPrefix(CacheKeys.FORMAT_VERSION);
         };
     }
@@ -896,6 +940,15 @@ public final class DAO {
         cacheClient.clearNamespace(CacheKeys.PROCESSOR_PREFIX);
         return List.of(CacheKeys.ORG_PREFIX, CacheKeys.ORG_LOADED, CacheKeys.ORG_MEMBER_PREFIX,
                 CacheKeys.PROCESSOR_PREFIX);
+    }
+
+    /** Accommodations (whole-table hash) plus every trip's offer and reservation partitions. */
+    private List<String> clearLodgingScope() {
+        lodgingDao.clearCache();
+        cacheClient.clearNamespace(CacheKeys.LODGING_OFFER_PREFIX);
+        cacheClient.clearNamespace(CacheKeys.LODGING_RES_PREFIX);
+        return List.of(CacheKeys.LODGING_ACC_PREFIX, CacheKeys.LODGING_ACC_LOADED, CacheKeys.LODGING_OFFER_PREFIX,
+                CacheKeys.LODGING_RES_PREFIX);
     }
 
     private List<String> clearBindingScope() {
