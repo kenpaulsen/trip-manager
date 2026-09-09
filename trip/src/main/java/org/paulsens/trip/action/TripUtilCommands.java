@@ -29,6 +29,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.dynamo.LocalMode;
 import org.paulsens.trip.util.ScopeUtil;
 import org.paulsens.trip.web.Sessions;
+import org.primefaces.PrimeFaces;
 import org.primefaces.model.SortMeta;
 import org.primefaces.model.SortOrder;
 
@@ -89,6 +90,24 @@ public class TripUtilCommands {
     }
     static void addFacesMessage(final Severity severity, final String summary, final String detail) {
         addMessage(null, new FacesMessage(severity, summary, detail));
+    }
+
+    /**
+     * Publishes one named ajax callback param, readable as {@code args.<name>} in a component's
+     * {@code oncomplete}. A no-op outside a Faces ajax request (seeds, REST, unit tests), so a command that
+     * publishes one stays callable from anywhere.
+     *
+     * @param name   the callback param name.
+     * @param value  its value; serialized into the partial response by PrimeFaces.
+     */
+    public static void addCallbackParam(final String name, final Object value) {
+        if (FacesContext.getCurrentInstance() == null) {
+            return;
+        }
+        final PrimeFaces pf = PrimeFaces.current();
+        if (pf != null && pf.isAjaxRequest()) {
+            pf.ajax().addCallbackParam(name, value);
+        }
     }
 
     /**

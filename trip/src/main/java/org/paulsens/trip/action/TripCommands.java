@@ -7,6 +7,7 @@ import jakarta.inject.Named;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -44,6 +45,9 @@ public class TripCommands {
     private static final int RECENT_TRIP_LIMIT = 100;
     /** How long a finished pilgrimage stays on the public landing page (user-set product rule). */
     private static final int PUBLIC_PAST_DAYS = 7;
+
+    /** How a refused event's start is spelled back to the manager, e.g. "Oct 13, 2026 6:55 PM". */
+    private static final DateTimeFormatter EVENT_WHEN = DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a");
 
     @Inject
     private BindingCommands bind;
@@ -182,6 +186,56 @@ public class TripCommands {
         }
         final List<Person.Id> keeping = updated.getPeople();
         return stored.getPeople().stream().filter(id -> id != null && !keeping.contains(id)).toList();
+    }
+
+    /**
+     * Adds an event to the WORKING COPY of a trip (nothing is persisted; the edit page's Save writes it), and
+     * reports a duplicate as a message on the page instead of an exception.
+     *
+     * <p>{@link Trip#addTripEvent} throws {@code IllegalStateException} on a duplicate title+start, which is a
+     * real invariant worth keeping -- {@code LodgingCommands} leans on it too. What was wrong was letting it
+     * escape. The add dialogs called {@code theTrip.addTripEvent(...)} straight from a JSFT command, so the
+     * throw unwound into Mojarra's ajax exception handler, which routes to the {@code web.xml} catch-all error
+     * page ({@code /index.jsf}) and answers with a redirect. The manager was dumped on the home page, and
+     * because a fresh GET of the edit page starts a NEW draft from saved state, every unsaved edit since their
+     * last Save went with it. On 2026-09-08 one trip manager hit this four times in eleven minutes re-adding
+     * flights she had already added, losing work each time.
+     *
+     * <p>Duplicate detection is title+start only, so the same flight at a different time is allowed on purpose
+     * (a rescheduled segment), and two genuinely different events may share a start.
+     *
+     * @param trip   the working copy to add to; nothing happens when null.
+     * @param type   the event type; EL coerces the enum NAME the dialogs hold in viewScope.
+     * @param title  the event title, half of the duplicate key.
+     * @param notes  free-form notes, may be null.
+     * @param start  the start, the other half of the duplicate key.
+     * @param end    the end, may be null.
+     * @return true when the event was added; false when it was refused, with the reason already growled.
+     */
+    public boolean addTripEvent(final Trip trip, final TripEvent.Type type, final String title,
+            final String notes, final LocalDateTime start, final LocalDateTime end) {
+        if (trip == null || type == null || title == null || title.isBlank() || start == null) {
+            return refuseEvent("The event needs a type, a title and a start time before it can be added.");
+        }
+        try {
+            trip.addTripEvent(type, title, notes, start, end);
+        } catch (final IllegalStateException ex) {
+            return refuseEvent("\"" + title + "\" already starts at " + EVENT_WHEN.format(start)
+                    + " on this trip, so it was not added again.");
+        }
+        return true;
+    }
+
+    /**
+     * Growls why an event was refused and asks the page to keep its dialog open, so the typed values are still
+     * there to correct. The whole reason goes in the SUMMARY: the template's growl renders a detail only when
+     * the page sets {@code hasDetail}, so a detail-only explanation would be invisible.
+     */
+    private static boolean refuseEvent(final String reason) {
+        log.info("Refused a trip event: {}", reason);
+        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, reason, "");
+        TripUtilCommands.addCallbackParam("keepOpen", true);
+        return false;
     }
 
     /**
