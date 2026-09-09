@@ -112,7 +112,10 @@ public class MediaUploadServlet extends HttpServlet {
             error(resp, 503, "store", "The file could not be stored. Try again.");
             return;
         }
-        json(resp, 200, Map.of("key", key, "slot", slot));
+        // The dialog shows the URL as a link the moment the upload finishes: the item is in the library, but
+        // putting it ON the page is a separate step, and without the link there is no way back to the file.
+        final String url = media.publicUrl(key);
+        json(resp, 200, Map.of("key", key, "slot", slot, "url", (url == null) ? "" : url));
     }
 
     /**

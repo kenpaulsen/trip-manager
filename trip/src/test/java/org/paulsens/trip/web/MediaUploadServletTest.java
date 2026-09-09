@@ -205,6 +205,8 @@ public class MediaUploadServletTest {
 
     @Test
     public void successReturnsTheStoredKey() throws Exception {
+        Mockito.when(media.publicUrl("downloads/Travel-Guide-2026.pdf"))
+                .thenReturn("https://media.example.com/downloads/Travel-Guide-2026.pdf");
         final Part fine = part("Travel Guide 2026.pdf", 5);
         Mockito.when(req.getPart("file")).thenReturn(fine);
         Mockito.when(media.upload(ArgumentMatchers.eq("downloads/Travel-Guide-2026.pdf"),
@@ -217,6 +219,24 @@ public class MediaUploadServletTest {
         Assert.assertEquals(status.get(), 200);
         Assert.assertEquals(body.get("key").asText(), "downloads/Travel-Guide-2026.pdf");
         Assert.assertEquals(body.get("slot").asText(), "home-docs");
+        Assert.assertEquals(body.get("url").asText(),
+                "https://media.example.com/downloads/Travel-Guide-2026.pdf");
+    }
+
+    /** No media base URL configured (no bucket host): the response still carries the field, empty. */
+    @Test
+    public void successWithoutAPublicUrlReturnsAnEmptyUrl() throws Exception {
+        final Part fine = part("guide.pdf", 5);
+        Mockito.when(req.getPart("file")).thenReturn(fine);
+        Mockito.when(media.upload(ArgumentMatchers.anyString(), ArgumentMatchers.any(InputStream.class),
+                        ArgumentMatchers.anyLong(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                        ArgumentMatchers.any(), ArgumentMatchers.anyString(), ArgumentMatchers.anyInt(),
+                        ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(true);
+        Mockito.when(media.publicUrl(ArgumentMatchers.anyString())).thenReturn(null);
+        final JsonNode body = post();
+        Assert.assertEquals(status.get(), 200);
+        Assert.assertEquals(body.get("url").asText(), "");
     }
 
     /** On an organization's host the stored key is the org's namespace, and the response names it. */
