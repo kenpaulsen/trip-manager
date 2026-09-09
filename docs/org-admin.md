@@ -128,10 +128,11 @@ admin) but the org's allow-list still bounds it: withheld roles surface in a war
 page, and a `[support:trip-roles]` notice (no duplicate guard -- one per trip) goes to the support channel
 so a site admin can grant them or adjust the allow-list. A create-save then continues to
 `/trip/edit.jsf?id=` (or the itinerary when Editor Admin itself was withheld). On that editor, the
-settings rows answer to per-trip roles rather than `showAll`: "Show on homepage?" (`tripMgr`), Edit
-Registration Options (`registrationAdmin`), Payment Settings (`tripFinAdmin`), "Enable Trip Chat?"
-(`chatMgr`) -- the dialogs themselves render only for their gate's holders, which is also the decode-time
-refusal for forged submits.
+settings rows answer to per-trip roles rather than `showAll`: the trip TITLE (`tripMgr`, so a creator can
+name the trip they just made), "Show on homepage?" (`tripMgr`), Edit Registration Options
+(`registrationAdmin`), Payment Settings (`tripFinAdmin`), "Enable Trip Chat?" (`chatMgr`) -- the dialogs
+themselves render only for their gate's holders, which is also the decode-time refusal for forged
+submits.
 
 **Trip staff are people** (2026-08-24): `Trip.facilitatorIds`/`directorIds` (lists of `Person.Id`)
 supersede the deprecated free-form `facilitators`/`director` strings. The hand-written
