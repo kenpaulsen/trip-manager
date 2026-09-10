@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.io.IOException;
 import java.util.HashMap;
@@ -38,15 +37,13 @@ public class PersonDataValueCommands {
         try {
             result = DAO.getInstance().savePersonDataValue(pdv);
         } catch (final RuntimeException ex) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                    "Error saving PersonDataValue '" + pdv.getDataId() + "' of type '" + pdv.getType()
+            PageFeedback.error("Error saving PersonDataValue '" + pdv.getDataId() + "' of type '" + pdv.getType()
                             + "' for user: '" + pdv.getUserId() + "'!",
                     ex.getMessage());
             log.error("Error while saving PersonDataValue: ", ex);
             result = false;
         } catch (final IOException ex) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                    "Error saving PersonDataValue '" + pdv.getDataId() + "' of type '" + pdv.getType()
+            PageFeedback.error("Error saving PersonDataValue '" + pdv.getDataId() + "' of type '" + pdv.getType()
                             + "' for user: '" + pdv.getUserId() + "'!", ex.getMessage());
             log.warn("Error while saving PersonDataValue: ", ex);
             result = false;

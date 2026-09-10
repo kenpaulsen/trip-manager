@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import java.io.IOException;
@@ -54,12 +53,11 @@ public class TransactionsCommands {
         try {
             result = DAO.getInstance().saveTransaction(tx);
         } catch (final RuntimeException ex) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                    "Unable to save transaction for userId: " + tx.getUserId().getValue(), ex.getMessage());
+            PageFeedback.error("Unable to save transaction for userId: " + tx.getUserId().getValue(), ex.getMessage());
             log.error("Error while saving transaction: ", ex);
             result = false;
         } catch (final IOException ex) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Unable to save transaction for userId: "
+            PageFeedback.error("Unable to save transaction for userId: "
                     + tx.getUserId().getValue(), ex.getMessage());
             log.error("Error while saving transaction: ", ex);
             result = false;

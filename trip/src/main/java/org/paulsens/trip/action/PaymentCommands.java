@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.io.IOException;
 import java.io.Serial;
@@ -575,8 +574,7 @@ public class PaymentCommands {
     }
 
     private boolean fail(final String summary, final String detail) {
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, summary + ": " + detail, detail);
-        return false;
+        return PageFeedback.refuse(summary, detail);
     }
 
     private String failNull(final String summary, final String detail) {

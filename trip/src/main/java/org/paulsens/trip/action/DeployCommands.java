@@ -309,7 +309,7 @@ public class DeployCommands {
     }
 
     private static void growl(final FacesMessage.Severity severity, final String summary, final String detail) {
-        TripUtilCommands.addFacesMessage(severity, summary, detail);
+        PageFeedback.message(severity, summary, detail);
     }
 
     private static String pipelineName() {

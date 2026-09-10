@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import java.io.IOException;
@@ -131,12 +130,12 @@ public class TripCommands {
         try {
             result = DAO.getInstance().saveTrip(sortTripPeople(trip));
         } catch (final RuntimeException ex) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Error saving '" + trip.getId()
+            PageFeedback.error("Error saving '" + trip.getId()
                     + "': " + trip.getTitle(), ex.getMessage());
             log.error("Error while saving trip: ", ex);
             result = false;
         } catch (final IOException ex) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Unable to save '" + trip.getId() + "': "
+            PageFeedback.error("Unable to save '" + trip.getId() + "': "
                     + trip.getTitle(), ex.getMessage());
             log.warn("Error while saving trip: ", ex);
             result = false;

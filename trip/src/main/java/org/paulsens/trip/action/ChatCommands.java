@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import java.io.IOException;
@@ -2817,11 +2816,11 @@ public class ChatCommands {
     }
 
     private void growlWarn(final String msg) {
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN, msg, null);
+        PageFeedback.warn(msg);
     }
 
     private void growlError(final String msg) {
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, msg, null);
+        PageFeedback.error(msg);
     }
 
     /**

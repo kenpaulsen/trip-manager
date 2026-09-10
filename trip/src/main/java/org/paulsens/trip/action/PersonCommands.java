@@ -2,7 +2,6 @@ package org.paulsens.trip.action;
 
 import com.sun.jsft.util.ELUtil;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import jakarta.servlet.http.HttpSession;
@@ -77,7 +76,7 @@ public class PersonCommands {
 
     public boolean savePerson(final Person person) {
         if (emailTakenByAnother(person)) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Email already in use",
+            PageFeedback.error("Email already in use",
                     "'" + person.getEmail() + "' already belongs to another person. Use a different address, "
                             + "or clear the email field.");
             return false;
@@ -86,12 +85,12 @@ public class PersonCommands {
         try {
             result = DAO.getInstance().savePerson(person);
         } catch (final RuntimeException ex) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Error saving: " + person.getFirst()
+            PageFeedback.error("Error saving: " + person.getFirst()
                     + " " + person.getLast(), ex.getMessage());
             log.error("Error while saving user: ", ex);
             result = false;
         } catch (final IOException ex) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Unable to save: " + person.getFirst()
+            PageFeedback.error("Unable to save: " + person.getFirst()
                     + " " + person.getLast(), ex.getMessage());
             log.error("Error while saving user: ", ex);
             result = false;
@@ -111,9 +110,8 @@ public class PersonCommands {
      */
     public boolean saveProfile(final Person person) {
         if (person == null || person.getId() == null || !personExists(person.getId())) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                    "Not saved: this profile does not exist. A person is created by signing up, not from "
-                            + "a profile page.", "");
+            PageFeedback.error("Not saved: this profile does not exist. A person is created by signing up, not from "
+                            + "a profile page.");
             return false;
         }
         return savePerson(person);
@@ -452,12 +450,11 @@ public class PersonCommands {
     /** Test seam: the servlet session is not reachable without a FacesContext. */
     boolean viewAs(final HttpSession session, final Person.Id targetId) {
         if (!Sessions.pushViewAs(session, targetId)) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN, "Cannot view as user",
+            PageFeedback.warn("Cannot view as user",
                     "Only a signed-in admin can do that.");
             return false;
         }
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO,
-                "Viewing as user " + getPerson(targetId).getPreferredName(), "");
+        PageFeedback.info("Viewing as user " + getPerson(targetId).getPreferredName());
         return true;
     }
 
@@ -471,7 +468,7 @@ public class PersonCommands {
         if (!Sessions.popViewAs(session)) {
             return false;
         }
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO, "Back to admin!",
+        PageFeedback.info("Back to admin!",
                 getCurrentPerson().getPreferredName());
         return true;
     }
@@ -500,7 +497,7 @@ public class PersonCommands {
             // Never refuse silently: the pre-fix topbar offered every family member, and a refused
             // click navigated away still "Viewing: self" with no explanation.
             setSessionValue(ACTING_FOR, null);
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN, "Cannot view as "
+            PageFeedback.warn("Cannot view as "
                     + getPerson(target).getPreferredName(),
                     "Only a family manager can act for another family member.");
         } else {

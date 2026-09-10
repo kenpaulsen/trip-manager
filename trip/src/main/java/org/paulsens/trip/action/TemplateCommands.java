@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -143,19 +142,19 @@ public class TemplateCommands {
         normalizeScope(template);
         if (!mayAuthor(caller, template, storedTemplate(template.getId()))) {
             log.warn("Refusing template save of '{}': caller may not author it", template.getId());
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved",
+            PageFeedback.error("Not saved",
                     "You may only author templates scoped to an organization whose site you edit.");
             return false;
         }
         if (template.isOrgOwned() && findOrg(template.getOrgId()) == null) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved",
+            PageFeedback.error("Not saved",
                     "The template's organization does not exist.");
             return false;
         }
         final String problem = validateForSave(template);
         if (problem != null) {
             log.warn("Refusing template save of '{}': {}", template.getId(), problem);
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", problem);
+            PageFeedback.error("Not saved", problem);
             return false;
         }
         normalizePlaceholders(template);
@@ -429,8 +428,8 @@ public class TemplateCommands {
             return false;
         }
         if (siteDefault(stored) == null) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not reverted: '" + id
-                    + "' is this organization's own template, not a customization of a site default.", "");
+            PageFeedback.error("Not reverted: '" + id
+                    + "' is this organization's own template, not a customization of a site default.");
             return false;
         }
         return deleteTemplate(id);
@@ -539,10 +538,9 @@ public class TemplateCommands {
         }
         // The SUMMARY carries the whole warning: growl details are shown only for the URL-parameter
         // messages (see template.xhtml's hasDetail), so a detail-only explanation never reaches anyone.
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN,
-                "Saved, but check the layout: rich text (" + String.join(", ", nested)
+        PageFeedback.warn("Saved, but check the layout: rich text (" + String.join(", ", nested)
                         + ") sits inside a <p>. The editor writes paragraphs, which cannot nest, so the "
-                        + "value will break out of it -- use a block container such as <div>.", "");
+                        + "value will break out of it -- use a block container such as <div>.");
     }
 
     /**
@@ -560,8 +558,8 @@ public class TemplateCommands {
             return false;
         }
         if (isReferenced(id)) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN,
-                    "Not deleted", "Content still uses template '" + id + "'. Delete or re-template it first.");
+            PageFeedback.warn("Not deleted",
+                    "Content still uses template '" + id + "'. Delete or re-template it first.");
             return false;
         }
         final boolean deleted;

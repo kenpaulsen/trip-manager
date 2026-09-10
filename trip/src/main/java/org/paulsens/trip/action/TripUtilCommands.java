@@ -75,17 +75,22 @@ public class TripUtilCommands {
         return new FacesMessage(sevObj, summary, detail);
     }
 
+    /**
+     * The page-side growls ({@code tripUtil.errorMsg("Not saved", "...")}), routed through
+     * {@link PageFeedback#message} so a page's explanation is shown the same way a bean's is -- 55 pages
+     * were passing one that never rendered.
+     */
     public void infoMsg(final String summary, final String detail) {
-        addFacesMessage(FacesMessage.SEVERITY_INFO, summary, detail);
+        PageFeedback.info(summary, detail);
     }
     public void warnMsg(final String summary, final String detail) {
-        addFacesMessage(FacesMessage.SEVERITY_WARN, summary, detail);
+        PageFeedback.warn(summary, detail);
     }
     public void errorMsg(final String summary, final String detail) {
-        addFacesMessage(FacesMessage.SEVERITY_ERROR, summary, detail);
+        PageFeedback.error(summary, detail);
     }
     public void fatalMsg(final String summary, final String detail) {
-        addFacesMessage(FacesMessage.SEVERITY_FATAL, summary, detail);
+        PageFeedback.message(FacesMessage.SEVERITY_FATAL, summary, detail);
     }
     static void addFacesMessage(final Severity severity, final String summary, final String detail) {
         addMessage(null, new FacesMessage(severity, summary, detail));

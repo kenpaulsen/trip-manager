@@ -245,19 +245,18 @@ public class PassCommands {
      */
     public Boolean setPass(final String email, final String currPass, final String pass, final String pass2) {
         if (!pass.equals(pass2)) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Passwords do not match!", "");
+            PageFeedback.error("Passwords do not match!");
             return false;
         }
         final DAO dao = DAO.getInstance();
         final Person person = dao.getPersonByEmail(email, Cached.NO);
         final Creds currCreds = getCreds(email, currPass);
         if ((currCreds == null) || (person == null)) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Person or credentials missing!", "");
+            PageFeedback.error("Person or credentials missing!");
             return false;
         }
         if (!currCreds.getUserId().equals(person.getId())) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                    "You do not have permission to change this person's password!", "");
+            PageFeedback.error("You do not have permission to change this person's password!");
             return false;
         }
         return setPass(email, pass);
@@ -351,8 +350,7 @@ public class PassCommands {
         final DAO dao = DAO.getInstance();
         final Person person = dao.getPersonByEmail(email, Cached.NO);
         if (person == null) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                    "Check email address, and make sure you have registered.", "");
+            PageFeedback.error("Check email address, and make sure you have registered.");
             return false;
         }
         final Creds creds = new Creds(email, person.getId(), pass);
@@ -382,15 +380,14 @@ public class PassCommands {
      */
     public Boolean setPassAfterCodeLogin(final String pass, final String pass2) {
         if (Util.isBlank(pass) || !pass.equals(pass2)) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Passwords do not match!", "");
+            PageFeedback.error("Passwords do not match!");
             return false;
         }
         final HttpSession session = currentRequest().getSession(false);
         final Object flag = session == null ? null : session.getAttribute(Sessions.CODE_LOGIN);
         final Object email = session == null ? null : session.getAttribute(Sessions.LOGIN_EMAIL);
         if (!Boolean.TRUE.equals(flag) || email == null) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                    "You do not have permission to change this password!", "");
+            PageFeedback.error("You do not have permission to change this password!");
             return false;
         }
         // One shot: consumed before the attempt, so a failed save cannot leave the authorization behind.

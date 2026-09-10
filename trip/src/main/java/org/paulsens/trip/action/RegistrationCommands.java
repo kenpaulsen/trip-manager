@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.io.IOException;
 import java.io.Serial;
@@ -82,14 +81,13 @@ public class RegistrationCommands {
         try {
             result = DAO.getInstance().saveRegistration(reg);
         } catch (final RuntimeException ex) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                    "Error saving registration for '" + reg.getUserId() + "': " + reg.getTripId(),
+            PageFeedback.error("Error saving registration for '" + reg.getUserId() + "': " + reg.getTripId(),
                     ex.getMessage());
             log.error("Error while saving registration: ", ex);
             result = false;
         } catch (final IOException ex) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                    "Unable to save registration '" + reg.getUserId() + "': " + reg.getTripId(), ex.getMessage());
+            PageFeedback.error("Unable to save registration '" + reg.getUserId() + "': " + reg.getTripId(),
+                    ex.getMessage());
             log.warn("Error while saving registration: ", ex);
             result = false;
         }
@@ -124,7 +122,7 @@ public class RegistrationCommands {
         final List<Person> registered = new java.util.ArrayList<>();
         final Person me = currentPerson();
         if (trip == null || me == null || selected == null || regs == null) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Nothing registered",
+            PageFeedback.error("Nothing registered",
                     "Select at least one traveler.");
             return registered;
         }
@@ -137,7 +135,7 @@ public class RegistrationCommands {
             final Person.Id travelerId = Person.Id.from(entry.getKey());
             final Person traveler = people.getPerson(travelerId);
             if (!canRegisterFor(me, travelerId)) {
-                TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not registered",
+                PageFeedback.error("Not registered",
                         "You cannot register " + traveler.getPreferredName() + ".");
                 continue;
             }
@@ -149,7 +147,7 @@ public class RegistrationCommands {
             // people get added to trips by hand, and filing/maintaining their registration row afterwards
             // must keep working -- the pre-merge single-traveler page allowed exactly that.
             if (!trip.canJoin(travelerId) && !trip.getPeople().contains(travelerId)) {
-                TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN, "Not registered",
+                PageFeedback.warn("Not registered",
                         traveler.getPreferredName() + " cannot join this trip.");
                 continue;
             }
@@ -168,10 +166,10 @@ public class RegistrationCommands {
         }
         final List<String> updated = saveResponseEdits(trip, regs, digests, me, people);
         if (registered.isEmpty() && updated.isEmpty()) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN, "Nothing registered",
+            PageFeedback.warn("Nothing registered",
                     "No travelers were registered.");
         } else if (!updated.isEmpty()) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO, "Changes saved",
+            PageFeedback.info("Changes saved",
                     "Updated responses for " + String.join(", ", updated) + ".");
         }
         return registered;
@@ -555,8 +553,7 @@ public class RegistrationCommands {
             return false;   // the row already moved on (or a bad status name): nothing to do
         }
         if (!allowedStatuses(current.getStatus().getDescription()).contains(newStatus)) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN,
-                    "Cannot change " + current.getStatus().getDescription() + " to " + newStatus + ".", null);
+            PageFeedback.warn("Cannot change " + current.getStatus().getDescription() + " to " + newStatus + ".");
             return false;
         }
         return switch (to) {
@@ -571,8 +568,7 @@ public class RegistrationCommands {
         final TripCommands trips = tripSource.get();
         final org.paulsens.trip.model.Trip trip = trips.getTripForEdit(reg.getTripId());
         if (!trip.canJoin(reg.getUserId())) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN,
-                    "User lacks permission to join: " + reg.getUserId().getValue(), null);
+            PageFeedback.warn("User lacks permission to join: " + reg.getUserId().getValue());
             return false;
         }
         final Registration confirmed = reg.withStatus(Registration.Status.CONFIRMED);
@@ -791,8 +787,7 @@ public class RegistrationCommands {
             return false;
         }
         if (reservedRoomLabel(tripId, userId) != null) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                    "This room is set by a lodging reservation: change it on the trip's Lodging page.", "");
+            PageFeedback.error("This room is set by a lodging reservation: change it on the trip's Lodging page.");
             return false;
         }
         final PersonDataValue pdv = getRoomPDV(tripId, userId);

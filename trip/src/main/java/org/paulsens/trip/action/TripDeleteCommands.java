@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import java.util.ArrayList;
@@ -134,12 +133,11 @@ public class TripDeleteCommands {
         }
         final List<String> blockers = computeBlockers(trip);
         if (blockers.isEmpty()) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO,
-                    "This trip can be deleted now -- reload the page to get the delete button.", null);
+            PageFeedback.info("This trip can be deleted now -- reload the page to get the delete button.");
             return;
         }
         for (final String blocker : blockers) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN, "Cannot delete: " + blocker, null);
+            PageFeedback.warn("Cannot delete: " + blocker);
         }
     }
 
@@ -194,29 +192,26 @@ public class TripDeleteCommands {
             return false;
         }
         if (!CHALLENGE.equalsIgnoreCase(challenge == null ? "" : challenge.trim())) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN,
-                    "Not deleted: type '" + CHALLENGE + "' in the box to confirm.", null);
+            PageFeedback.warn("Not deleted: type '" + CHALLENGE + "' in the box to confirm.");
             return false;
         }
         final Trip fresh = DAO.getInstance().getTrip(trip.getId(), Cached.NO).orElse(null);
         if (fresh == null) {
             // Someone else finished the job (or a retried cascade already took the row): goal state reached.
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO,
-                    "This trip no longer exists.", null);
+            PageFeedback.info("This trip no longer exists.");
             return true;
         }
         if (!canDelete(fresh)) {
             audit(fresh, AuditOutcome.FAILURE, "refused: not an Editor Admin + organization admin");
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                    "Not allowed: deleting a trip requires its Editor Admin role AND being an admin "
-                            + "of the organization it belongs to.", null);
+            PageFeedback.error("Not allowed: deleting a trip requires its Editor Admin role AND being an admin "
+                            + "of the organization it belongs to.");
             return false;
         }
         final List<String> blockers = computeBlockers(fresh);
         if (!blockers.isEmpty()) {
             audit(fresh, AuditOutcome.FAILURE, "refused: " + String.join(" | ", blockers));
             for (final String blocker : blockers) {
-                TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN, "Cannot delete: " + blocker, null);
+                PageFeedback.warn("Cannot delete: " + blocker);
             }
             return false;
         }
@@ -224,15 +219,13 @@ public class TripDeleteCommands {
             final String summary = cascade(fresh);
             audit(fresh, AuditOutcome.SUCCESS, summary);
             log.warn("Trip {} ('{}') permanently deleted: {}", fresh.getId(), fresh.getTitle(), summary);
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO,
-                    "Trip '" + fresh.getTitle() + "' was permanently deleted.", null);
+            PageFeedback.info("Trip '" + fresh.getTitle() + "' was permanently deleted.");
             return true;
         } catch (final RuntimeException ex) {
             log.error("Trip delete for {} did not finish", fresh.getId(), ex);
             audit(fresh, AuditOutcome.FAILURE, "cascade failed: " + ex.getMessage());
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                    "The delete did not finish: " + ex.getMessage()
-                            + " Some data may already be removed; running the delete again is safe.", null);
+            PageFeedback.error("The delete did not finish: " + ex.getMessage()
+                            + " Some data may already be removed; running the delete again is safe.");
             return false;
         }
     }

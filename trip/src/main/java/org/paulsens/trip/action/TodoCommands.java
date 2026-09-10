@@ -58,14 +58,13 @@ public class TodoCommands {
         try {
             result = DAO.getInstance().saveTodo(todo);
         } catch (final RuntimeException ex) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                    "Error saving todo '" + todo.getDescription() + "': " + todo.getTripId(),
+            PageFeedback.error("Error saving todo '" + todo.getDescription() + "': " + todo.getTripId(),
                     ex.getMessage());
             log.error("Error while saving todo: ", ex);
             result = false;
         } catch (final IOException ex) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                    "Unable to save todo '" + todo.getDescription() + "': " + todo.getTripId(), ex.getMessage());
+            PageFeedback.error("Unable to save todo '" + todo.getDescription() + "': " + todo.getTripId(),
+                    ex.getMessage());
             log.warn("Error while saving todo: ", ex);
             result = false;
         }
@@ -237,7 +236,7 @@ public class TodoCommands {
         }
         setRunScript("newTodoError = false;");
         final String msg = "'" + desc + "' Todo Created!";
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO, msg, msg);
+        PageFeedback.info(msg);
     }
 
     private boolean checkRequiredInputs(final Person.Id[] people, final String desc) {

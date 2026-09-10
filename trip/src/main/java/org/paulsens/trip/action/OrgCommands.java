@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -350,8 +349,7 @@ public class OrgCommands {
             return addr;
         }
         if (writeMembership(orgId, match.getId())) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO,
-                    "Added " + match.getPreferredName() + " " + match.getLast() + ".", null);
+            PageFeedback.info("Added " + match.getPreferredName() + " " + match.getLast() + ".");
         }
         return null;
     }
@@ -404,8 +402,7 @@ public class OrgCommands {
                     + "installed?");
         }
         audit(current, org, "Invited " + addr + " to organization '" + org.getName() + "'");
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO, "Invitation sent to " + addr + ".",
-                null);
+        PageFeedback.info("Invitation sent to " + addr + ".");
         return true;
     }
 
@@ -1231,8 +1228,8 @@ public class OrgCommands {
                 .toList();
         final int rejected = toList.size() - accepted.size();
         if (rejected > 0) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN, rejected + " recipient(s) outside "
-                    + "your organization(s) were skipped.", null);
+            PageFeedback.warn(rejected + " recipient(s) outside "
+                    + "your organization(s) were skipped.");
         }
         if (accepted.isEmpty()) {
             return fail("Nobody to mail", "No recipients are within your organization(s).");
@@ -1867,8 +1864,7 @@ public class OrgCommands {
         if (failure != null) {
             return fail("Connection failed", failure);
         }
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO,
-                "Connection OK: '" + config.getLabel() + "'" + (sandbox ? " (sandbox)" : ""), null);
+        PageFeedback.info("Connection OK: '" + config.getLabel() + "'" + (sandbox ? " (sandbox)" : ""));
         return true;
     }
 
@@ -2011,8 +2007,7 @@ public class OrgCommands {
         if (!sent) {
             return fail("Not sent", "The test email could not be sent; is the template installed?");
         }
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO,
-                "Test email sent to " + addr, null);
+        PageFeedback.info("Test email sent to " + addr);
         return true;
     }
 
@@ -2195,7 +2190,7 @@ public class OrgCommands {
             return false;
         }
         audit(current, fresh, "Settings changed: " + String.join("; ", changed));
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO, "Settings saved.", null);
+        PageFeedback.info("Settings saved.");
         return true;
     }
 
@@ -2307,9 +2302,7 @@ public class OrgCommands {
     }
 
     private boolean fail(final String summary, final String detail) {
-        // Growl detail is never rendered site-wide; the summary must carry the message on its own.
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, summary + ": " + detail, detail);
-        return false;
+        return PageFeedback.refuse(summary, detail);
     }
 
     private Organization failOrg(final String summary, final String detail) {

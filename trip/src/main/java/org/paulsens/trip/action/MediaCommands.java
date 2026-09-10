@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.io.InputStream;
 import java.io.Serial;
@@ -502,18 +501,18 @@ public class MediaCommands {
         // the site's org below, so what they may write is decided here whatever they asked for.
         final String bucket = bucket();
         if (bucket == null) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Uploads unavailable",
+            PageFeedback.error("Uploads unavailable",
                     BUCKET_VAR + " is not configured, so there is nowhere to put the file.");
             return false;
         }
         final String cleanKey = siteKey(key);
         if (cleanKey == null) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not uploaded", "A file name is required.");
+            PageFeedback.error("Not uploaded", "A file name is required.");
             return false;
         }
         final String refusal = claimRefusal(cleanKey);
         if (refusal != null) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not uploaded", refusal);
+            PageFeedback.error("Not uploaded", refusal);
             return false;
         }
         try {
@@ -530,7 +529,7 @@ public class MediaCommands {
                     RequestBody.fromInputStream(content, size));
         } catch (final RuntimeException ex) {
             log.error("Unable to store media object: " + cleanKey, ex);
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not uploaded", ex.getMessage());
+            PageFeedback.error("Not uploaded", ex.getMessage());
             return false;
         }
 
@@ -542,13 +541,13 @@ public class MediaCommands {
             if (!DAO.getInstance().saveMedia(item)) {
                 // The object is stored but unlisted: say so plainly rather than reporting success, because the
                 // file exists at its URL and a retry would upload it again.
-                TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Partly uploaded",
+                PageFeedback.error("Partly uploaded",
                         "The file was stored but could not be recorded. It is reachable at its URL.");
                 return false;
             }
         } catch (final RuntimeException ex) {
             log.error("Stored object but failed to save its media row: " + cleanKey, ex);
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Partly uploaded", ex.getMessage());
+            PageFeedback.error("Partly uploaded", ex.getMessage());
             return false;
         }
         // Announce the change; whoever cares about this prefix reacts. See MediaEvents.
@@ -778,7 +777,7 @@ public class MediaCommands {
             final String slot, final Integer position, final boolean hidden, final String editedBy) {
         final MediaItem existing = getForEdit(id);
         if (existing == null || !mayManage(existing)) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", "No such media item.");
+            PageFeedback.error("Not saved", "No such media item.");
             return false;
         }
         // A rename stays in the OWNER's namespace whatever was typed (an org's file cannot be moved onto a
@@ -789,7 +788,7 @@ public class MediaCommands {
         if (renamed) {
             final String refusal = renameRefusal(existing, cleanKey);
             if (refusal != null) {
-                TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not renamed", refusal);
+                PageFeedback.error("Not renamed", refusal);
                 return false;
             }
             if (!moveObject(existing.getS3Key(), cleanKey)) {
@@ -804,12 +803,12 @@ public class MediaCommands {
                 existing.getOrgId());
         try {
             if (!DAO.getInstance().saveMedia(updated)) {
-                TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", "The save failed.");
+                PageFeedback.error("Not saved", "The save failed.");
                 return false;
             }
         } catch (final RuntimeException ex) {
             log.error("Unable to save media row: " + id, ex);
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", ex.getMessage());
+            PageFeedback.error("Not saved", ex.getMessage());
             return false;
         }
         // A rename is a remove-then-add as far as anything watching a path prefix is concerned (see
@@ -857,7 +856,7 @@ public class MediaCommands {
                     .build());
         } catch (final RuntimeException ex) {
             log.error("Unable to copy " + from + " to " + to, ex);
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not renamed",
+            PageFeedback.error("Not renamed",
                     "The stored file could not be copied to the new name; nothing was changed.");
             return false;
         }
@@ -867,7 +866,7 @@ public class MediaCommands {
             // The copy succeeded, so the new URL works. A leftover object at the old key is untidy, and it also
             // means the OLD url keeps working -- worth reporting, not worth failing the rename for.
             log.error("Copied to " + to + " but could not remove " + from, ex);
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN, "Renamed, old copy remains",
+            PageFeedback.warn("Renamed, old copy remains",
                     "The file is available at its new name, but the old one could not be removed.");
         }
         return true;
@@ -1035,7 +1034,7 @@ public class MediaCommands {
                 // The row is gone, so the site no longer references it; an orphaned object is a tidiness
                 // problem, not a correctness one. Report it rather than failing the whole delete.
                 log.error("Deleted media row but not the object: " + item.getS3Key(), ex);
-                TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN, "Partly deleted",
+                PageFeedback.warn("Partly deleted",
                         "Removed from the site, but the stored file could not be deleted.");
             }
         }

@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.time.Duration;
 import java.time.Instant;
@@ -580,8 +579,7 @@ public class SupportChatCommands {
     }
 
     private boolean fail(final String summary, final String detail) {
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, summary, detail);
-        return false;
+        return PageFeedback.refuse(summary, detail);
     }
 
     private DAO dao() {

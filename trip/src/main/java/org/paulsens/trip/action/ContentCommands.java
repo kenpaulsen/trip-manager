@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -132,7 +131,7 @@ public class ContentCommands {
         final Caller caller = callerSource.get();
         if (!mayEdit(caller, instance.getSection())) {
             log.warn("Refusing content save in '{}': caller lacks edit rights", instance.getSection());
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved",
+            PageFeedback.error("Not saved",
                     "You do not have permission to edit this section.");
             return false;
         }
@@ -140,7 +139,7 @@ public class ContentCommands {
         final String problem = validateForSave(instance);
         if (problem != null) {
             log.warn("Refusing content save of '{}': {}", instance.getId(), problem);
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", problem);
+            PageFeedback.error("Not saved", problem);
             return false;
         }
         normalizeRichText(instance);
@@ -153,7 +152,7 @@ public class ContentCommands {
             return false;
         }
         if (!saved) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved",
+            PageFeedback.error("Not saved",
                     "The content could not be saved. It may have been edited by someone else; reopen it and try "
                             + "again.");
         }
@@ -893,7 +892,7 @@ public class ContentCommands {
         final ContentTemplate from = resolveTemplate(instance);
         final ContentTemplate to = loadTemplateVersion(instance.getTemplateId(), wanted);
         if (to == null) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Version unavailable",
+            PageFeedback.error("Version unavailable",
                     "v" + wanted + " of this template is no longer retained.");
             return false;
         }
@@ -904,8 +903,7 @@ public class ContentCommands {
         instance.setValues(result.values());
         // The whole report goes in the SUMMARY: this site's growl renders details only for the
         // URL-parameter messages (template.xhtml's hasDetail), so a detail-only warning is invisible.
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO,
-                "Now editing v" + wanted + " -- " + migrationSummary(result), "");
+        PageFeedback.info("Now editing v" + wanted + " -- " + migrationSummary(result));
         return true;
     }
 

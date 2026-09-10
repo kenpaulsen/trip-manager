@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.time.LocalDateTime;
 import java.util.Comparator;
@@ -397,13 +396,13 @@ public class ConfigCommands {
      */
     public boolean save(final Config config, final String modifiedBy) {
         if (config == null || config.getName() == null || config.getName().isBlank()) {
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", "A setting needs a name.");
+            PageFeedback.error("Not saved", "A setting needs a name.");
             return false;
         }
         final String rejection = rejection(config);
         if (rejection != null) {
             log.warn("Refusing config '{}': {}", config.getName(), rejection);
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", rejection);
+            PageFeedback.error("Not saved", rejection);
             return false;
         }
         final Config stamped = new Config(config.getName().trim(), config.getValue(), config.getType(),
@@ -426,7 +425,7 @@ public class ConfigCommands {
             return saved;
         } catch (final RuntimeException ex) {
             log.error("Unable to save config: " + stamped.getName(), ex);
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not saved", ex.getMessage());
+            PageFeedback.error("Not saved", ex.getMessage());
             return false;
         }
     }
@@ -443,7 +442,7 @@ public class ConfigCommands {
             DAO.getInstance().clearAllCaches();
         } catch (final RuntimeException ex) {
             log.error("Unable to clear the shared caches", ex);
-            TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Caches NOT cleared",
+            PageFeedback.error("Caches NOT cleared",
                     "The cache could not be reached; see the server log.");
             return false;
         }
@@ -452,7 +451,7 @@ public class ConfigCommands {
                 .target(AuditEventBuilder.TARGET_CONFIG, "caches")
                 .message("Cleared the shared data-cache namespace (all instances)")
                 .log();
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO, "Caches cleared",
+        PageFeedback.info("Caches cleared",
                 "Pages now reload their data from DynamoDB as they are viewed.");
         return true;
     }
