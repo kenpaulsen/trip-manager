@@ -50,6 +50,17 @@ public final class PageFeedback {
         message(FacesMessage.SEVERITY_ERROR, summary, detail);
     }
 
+    /**
+     * An unexpected exception the caller has already logged. The page gets the headline and a fixed line;
+     * it never gets {@code ex.getMessage()}. That text is an SDK's or Jackson's -- request ids,
+     * {@code Unrecognized field "x" (class org.paulsens.trip.model.Trip)} -- which tells a user nothing and
+     * tells anyone else about the internals. Sixteen save paths used to pass it as the growl detail, which
+     * was harmless only because the detail never rendered.
+     */
+    public static void failure(final String summary) {
+        error(summary, "It did not complete; the error has been logged. Try again.");
+    }
+
     /** Growls the reason and answers {@code false}: the shape of a command the page reads as a boolean. */
     public static boolean refuse(final String reason) {
         error(reason);

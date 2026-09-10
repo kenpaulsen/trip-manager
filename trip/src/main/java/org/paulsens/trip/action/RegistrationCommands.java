@@ -81,13 +81,11 @@ public class RegistrationCommands {
         try {
             result = DAO.getInstance().saveRegistration(reg);
         } catch (final RuntimeException ex) {
-            PageFeedback.error("Error saving registration for '" + reg.getUserId() + "': " + reg.getTripId(),
-                    ex.getMessage());
+            PageFeedback.failure("Error saving registration for '" + reg.getUserId() + "': " + reg.getTripId());
             log.error("Error while saving registration: ", ex);
             result = false;
         } catch (final IOException ex) {
-            PageFeedback.error("Unable to save registration '" + reg.getUserId() + "': " + reg.getTripId(),
-                    ex.getMessage());
+            PageFeedback.failure("Unable to save registration '" + reg.getUserId() + "': " + reg.getTripId());
             log.warn("Error while saving registration: ", ex);
             result = false;
         }

@@ -224,8 +224,8 @@ public class TripDeleteCommands {
         } catch (final RuntimeException ex) {
             log.error("Trip delete for {} did not finish", fresh.getId(), ex);
             audit(fresh, AuditOutcome.FAILURE, "cascade failed: " + ex.getMessage());
-            PageFeedback.error("The delete did not finish: " + ex.getMessage()
-                            + " Some data may already be removed; running the delete again is safe.");
+            PageFeedback.error("The delete did not finish; the error has been logged. Some data may already be "
+                    + "removed, and running the delete again is safe.");
             return false;
         }
     }

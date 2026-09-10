@@ -130,13 +130,13 @@ public class TripCommands {
         try {
             result = DAO.getInstance().saveTrip(sortTripPeople(trip));
         } catch (final RuntimeException ex) {
-            PageFeedback.error("Error saving '" + trip.getId()
-                    + "': " + trip.getTitle(), ex.getMessage());
+            PageFeedback.failure("Error saving '" + trip.getId()
+                    + "': " + trip.getTitle());
             log.error("Error while saving trip: ", ex);
             result = false;
         } catch (final IOException ex) {
-            PageFeedback.error("Unable to save '" + trip.getId() + "': "
-                    + trip.getTitle(), ex.getMessage());
+            PageFeedback.failure("Unable to save '" + trip.getId() + "': "
+                    + trip.getTitle());
             log.warn("Error while saving trip: ", ex);
             result = false;
         }

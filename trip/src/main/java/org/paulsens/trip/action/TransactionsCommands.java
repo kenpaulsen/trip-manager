@@ -53,12 +53,12 @@ public class TransactionsCommands {
         try {
             result = DAO.getInstance().saveTransaction(tx);
         } catch (final RuntimeException ex) {
-            PageFeedback.error("Unable to save transaction for userId: " + tx.getUserId().getValue(), ex.getMessage());
+            PageFeedback.failure("Unable to save transaction for userId: " + tx.getUserId().getValue());
             log.error("Error while saving transaction: ", ex);
             result = false;
         } catch (final IOException ex) {
-            PageFeedback.error("Unable to save transaction for userId: "
-                    + tx.getUserId().getValue(), ex.getMessage());
+            PageFeedback.failure("Unable to save transaction for userId: "
+                    + tx.getUserId().getValue());
             log.error("Error while saving transaction: ", ex);
             result = false;
         }

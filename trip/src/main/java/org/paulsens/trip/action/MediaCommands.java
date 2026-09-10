@@ -529,7 +529,7 @@ public class MediaCommands {
                     RequestBody.fromInputStream(content, size));
         } catch (final RuntimeException ex) {
             log.error("Unable to store media object: " + cleanKey, ex);
-            PageFeedback.error("Not uploaded", ex.getMessage());
+            PageFeedback.failure("Not uploaded");
             return false;
         }
 
@@ -547,7 +547,7 @@ public class MediaCommands {
             }
         } catch (final RuntimeException ex) {
             log.error("Stored object but failed to save its media row: " + cleanKey, ex);
-            PageFeedback.error("Partly uploaded", ex.getMessage());
+            PageFeedback.failure("Partly uploaded");
             return false;
         }
         // Announce the change; whoever cares about this prefix reacts. See MediaEvents.
@@ -808,7 +808,7 @@ public class MediaCommands {
             }
         } catch (final RuntimeException ex) {
             log.error("Unable to save media row: " + id, ex);
-            PageFeedback.error("Not saved", ex.getMessage());
+            PageFeedback.failure("Not saved");
             return false;
         }
         // A rename is a remove-then-add as far as anything watching a path prefix is concerned (see

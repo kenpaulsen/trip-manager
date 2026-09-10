@@ -58,13 +58,11 @@ public class TodoCommands {
         try {
             result = DAO.getInstance().saveTodo(todo);
         } catch (final RuntimeException ex) {
-            PageFeedback.error("Error saving todo '" + todo.getDescription() + "': " + todo.getTripId(),
-                    ex.getMessage());
+            PageFeedback.failure("Error saving todo '" + todo.getDescription() + "': " + todo.getTripId());
             log.error("Error while saving todo: ", ex);
             result = false;
         } catch (final IOException ex) {
-            PageFeedback.error("Unable to save todo '" + todo.getDescription() + "': " + todo.getTripId(),
-                    ex.getMessage());
+            PageFeedback.failure("Unable to save todo '" + todo.getDescription() + "': " + todo.getTripId());
             log.warn("Error while saving todo: ", ex);
             result = false;
         }

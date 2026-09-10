@@ -425,7 +425,7 @@ public class ConfigCommands {
             return saved;
         } catch (final RuntimeException ex) {
             log.error("Unable to save config: " + stamped.getName(), ex);
-            PageFeedback.error("Not saved", ex.getMessage());
+            PageFeedback.failure("Not saved");
             return false;
         }
     }

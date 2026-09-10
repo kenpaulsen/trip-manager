@@ -43,6 +43,7 @@ public class PageFeedbackTest {
         Assert.assertFalse(PageFeedback.refuse("r"));
         Assert.assertFalse(PageFeedback.refuse("r", "d"));
         Assert.assertEquals(PageFeedback.refuseAction("r"), "");
+        PageFeedback.failure("f");
         PageFeedback.callbackParam("k", true);
     }
 }

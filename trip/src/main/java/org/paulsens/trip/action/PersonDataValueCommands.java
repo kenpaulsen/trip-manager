@@ -37,14 +37,13 @@ public class PersonDataValueCommands {
         try {
             result = DAO.getInstance().savePersonDataValue(pdv);
         } catch (final RuntimeException ex) {
-            PageFeedback.error("Error saving PersonDataValue '" + pdv.getDataId() + "' of type '" + pdv.getType()
-                            + "' for user: '" + pdv.getUserId() + "'!",
-                    ex.getMessage());
+            PageFeedback.failure("Error saving PersonDataValue '" + pdv.getDataId() + "' of type '" + pdv.getType()
+                            + "' for user: '" + pdv.getUserId() + "'!");
             log.error("Error while saving PersonDataValue: ", ex);
             result = false;
         } catch (final IOException ex) {
-            PageFeedback.error("Error saving PersonDataValue '" + pdv.getDataId() + "' of type '" + pdv.getType()
-                            + "' for user: '" + pdv.getUserId() + "'!", ex.getMessage());
+            PageFeedback.failure("Error saving PersonDataValue '" + pdv.getDataId() + "' of type '" + pdv.getType()
+                            + "' for user: '" + pdv.getUserId() + "'!");
             log.warn("Error while saving PersonDataValue: ", ex);
             result = false;
         }

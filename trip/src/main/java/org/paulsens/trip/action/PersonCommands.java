@@ -85,13 +85,13 @@ public class PersonCommands {
         try {
             result = DAO.getInstance().savePerson(person);
         } catch (final RuntimeException ex) {
-            PageFeedback.error("Error saving: " + person.getFirst()
-                    + " " + person.getLast(), ex.getMessage());
+            PageFeedback.failure("Error saving: " + person.getFirst()
+                    + " " + person.getLast());
             log.error("Error while saving user: ", ex);
             result = false;
         } catch (final IOException ex) {
-            PageFeedback.error("Unable to save: " + person.getFirst()
-                    + " " + person.getLast(), ex.getMessage());
+            PageFeedback.failure("Unable to save: " + person.getFirst()
+                    + " " + person.getLast());
             log.error("Error while saving user: ", ex);
             result = false;
         }
