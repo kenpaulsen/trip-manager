@@ -13,9 +13,7 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -24,6 +22,7 @@ import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.media.LocalObjectStore;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.media.ChatPhotoStaging;
 import org.paulsens.trip.media.PhotoProcessor;
@@ -74,15 +73,8 @@ public class ChatPhotos {
     private final PhotoProcessor processor = new PhotoProcessor();
     private final ChatPhotoStaging staging;
     private final SecureRandom random = new SecureRandom();
-    /** Instance rather than the constant so a test can exercise eviction without 200 MB of fixtures. */
-    private long localStoreMaxBytes = LOCAL_STORE_MAX_BYTES;
-
-    /** Local-mode object store: key -> bytes+type. Guarded by its own monitor; access is rare and brief. */
-    private final Map<String, LocalObject> localObjects = new LinkedHashMap<>();
-    private long localBytes;
-
-    private record LocalObject(byte[] bytes, String contentType) {
-    }
+    /** Local-mode object store, the media bucket's stand-in when none is configured. */
+    private final LocalObjectStore localStore = new LocalObjectStore(LOCAL_STORE_MAX_BYTES);
 
     /** One staged photo, as the upload endpoint reports it back to the composer. */
     public record StagedPhoto(
@@ -103,7 +95,7 @@ public class ChatPhotos {
     }
 
     void localStoreMaxBytesForTest(final long maxBytes) {
-        this.localStoreMaxBytes = maxBytes;
+        localStore.maxBytes(maxBytes);
     }
 
     /**
@@ -406,16 +398,7 @@ public class ChatPhotos {
                 media.invalidateCdn(List.of("/" + prefix + "*"));
             }
         } else {
-            synchronized (localObjects) {
-                final var iterator = localObjects.entrySet().iterator();
-                while (iterator.hasNext()) {
-                    final var entry = iterator.next();
-                    if (entry.getKey().startsWith(prefix)) {
-                        localBytes -= entry.getValue().bytes().length;
-                        iterator.remove();
-                    }
-                }
-            }
+            localStore.removeByPrefix(prefix);
         }
         return rows.size();
     }
@@ -470,11 +453,7 @@ public class ChatPhotos {
 
     /** Local-mode read-back, for the upload servlet's GET. Empty when remote or unknown. */
     public Optional<ServedPhoto> localGet(final String key) {
-        synchronized (localObjects) {
-            final LocalObject stored = localObjects.get(key);
-            return stored == null
-                    ? Optional.empty() : Optional.of(new ServedPhoto(stored.bytes(), stored.contentType()));
-        }
+        return localStore.stored(key).map(stored -> new ServedPhoto(stored.bytes(), stored.contentType()));
     }
 
     public record ServedPhoto(byte[] bytes, String contentType) {
@@ -488,15 +467,7 @@ public class ChatPhotos {
             }
             return;
         }
-        synchronized (localObjects) {
-            localBytes += bytes.length;
-            localObjects.put(key, new LocalObject(bytes, contentType));
-            final var iterator = localObjects.entrySet().iterator();
-            while (localBytes > localStoreMaxBytes && iterator.hasNext()) {
-                localBytes -= iterator.next().getValue().bytes().length;
-                iterator.remove();
-            }
-        }
+        localStore.put(key, bytes, contentType);
     }
 
     private void deleteStored(final String key) {
@@ -504,12 +475,7 @@ public class ChatPhotos {
             media.deleteObject(key);
             return;
         }
-        synchronized (localObjects) {
-            final LocalObject removed = localObjects.remove(key);
-            if (removed != null) {
-                localBytes -= removed.bytes().length;
-            }
-        }
+        localStore.remove(key);
     }
 
     /** Deletes the stored objects of staged photos nobody ever sent. Called from the upload path. */

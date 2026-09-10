@@ -10,7 +10,7 @@ import jakarta.faces.event.ExceptionQueuedEvent;
 import jakarta.faces.event.ExceptionQueuedEventContext;
 import java.util.Iterator;
 import lombok.extern.slf4j.Slf4j;
-import org.paulsens.trip.action.TripUtilCommands;
+import org.paulsens.trip.action.PageFeedback;
 
 /**
  * Keeps an unhandled exception during an AJAX postback on the page it happened on.
@@ -90,7 +90,7 @@ public class TripAjaxExceptionHandler extends ExceptionHandlerWrapper {
         ctx.addMessage(null, new FacesMessage(FacesMessage.SEVERITY_ERROR, MESSAGE, ""));
         // Best effort: a page without the standard template still gets the message in its own message list.
         ctx.getPartialViewContext().getRenderIds().add(GROWL_ID);
-        TripUtilCommands.addCallbackParam("actionFailed", true);
+        PageFeedback.callbackParam("actionFailed", true);
         ctx.renderResponse();
     }
 

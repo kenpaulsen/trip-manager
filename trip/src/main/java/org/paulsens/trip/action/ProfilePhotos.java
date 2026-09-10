@@ -8,13 +8,13 @@ import jakarta.inject.Named;
 import java.io.Serial;
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.media.LocalObjectStore;
 import org.paulsens.trip.model.Person;
 
 /**
@@ -65,9 +65,8 @@ public class ProfilePhotos {
     private final Map<String, ConcurrentSkipListMap<Integer, Entry>> byPerson = new ConcurrentHashMap<>();
     private volatile boolean seeded;
 
-    /** Local-mode object store: key -> jpeg bytes. Guarded by its own monitor; access is rare and brief. */
-    private final Map<String, byte[]> localObjects = new LinkedHashMap<>();
-    private long localBytes;
+    /** Local-mode object store, the media bucket's stand-in when none is configured. */
+    private final LocalObjectStore localStore = new LocalObjectStore(LOCAL_STORE_MAX_BYTES);
 
     @Inject
     private MediaCommands media;
@@ -239,16 +238,12 @@ public class ProfilePhotos {
         if (media.isUploadEnabled()) {
             return media.getObject(current.key());
         }
-        synchronized (localObjects) {
-            return Optional.ofNullable(localObjects.get(current.key()));
-        }
+        return localStore.get(current.key());
     }
 
     /** Local-mode read-back, for the profile-photo servlet's GET. Empty when remote or unknown. */
     public Optional<byte[]> localGet(final String key) {
-        synchronized (localObjects) {
-            return Optional.ofNullable(localObjects.get(key));
-        }
+        return localStore.get(key);
     }
 
     /**
@@ -311,15 +306,7 @@ public class ProfilePhotos {
         if (media.isUploadEnabled()) {
             return media.putObject(key, jpeg, "image/jpeg", CACHE_SECONDS, false);
         }
-        synchronized (localObjects) {
-            localBytes += jpeg.length;
-            localObjects.put(key, jpeg);
-            final var iterator = localObjects.entrySet().iterator();
-            while (localBytes > LOCAL_STORE_MAX_BYTES && iterator.hasNext()) {
-                localBytes -= iterator.next().getValue().length;
-                iterator.remove();
-            }
-        }
+        localStore.put(key, jpeg);
         return true;
     }
 
@@ -329,12 +316,7 @@ public class ProfilePhotos {
             media.deleteObject(key);
             media.invalidateCdn(List.of("/" + key));
         } else {
-            synchronized (localObjects) {
-                final byte[] removed = localObjects.remove(key);
-                if (removed != null) {
-                    localBytes -= removed.length;
-                }
-            }
+            localStore.remove(key);
         }
         MediaEvents.fire(MediaEvents.Change.REMOVED, key);
     }

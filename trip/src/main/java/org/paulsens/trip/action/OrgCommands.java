@@ -2,7 +2,6 @@ package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.application.FacesMessage;
-import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -38,7 +37,6 @@ import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.ProcessorType;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPaymentConfig;
-import org.primefaces.PrimeFaces;
 import org.paulsens.trip.pay.ProcessorPing;
 import org.paulsens.trip.security.ProcessorSecrets;
 import org.paulsens.trip.site.SiteUrls;
@@ -348,7 +346,7 @@ public class OrgCommands {
         }
         final Person match = DAO.getInstance().getPersonByEmail(addr, Cached.NO);
         if (match == null) {
-            publishParam("showInvite", true);
+            PageFeedback.callbackParam("showInvite", true);
             return addr;
         }
         if (writeMembership(orgId, match.getId())) {
@@ -430,17 +428,6 @@ public class OrgCommands {
         final String addr = (email == null) ? "" : email.trim();
         final int at = addr.indexOf('@');
         return (at < 1 || at == addr.length() - 1) ? null : addr;
-    }
-
-    /** One named ajax callback param; a no-op outside a Faces ajax request (unit tests, REST). */
-    private static void publishParam(final String name, final Object value) {
-        if (jakarta.faces.context.FacesContext.getCurrentInstance() == null) {
-            return;
-        }
-        final org.primefaces.PrimeFaces pf = org.primefaces.PrimeFaces.current();
-        if (pf.isAjaxRequest()) {
-            pf.ajax().addCallbackParam(name, value);
-        }
     }
 
     private boolean writeMembership(final String orgId, final Person.Id personId) {
@@ -917,7 +904,7 @@ public class OrgCommands {
         if (!missing.isEmpty()) {
             supportSource.get().fileMissingTripRolesNotice(trip.getId(), trip.getTitle(),
                     owner.getName(), missing);
-            publishParam("showRoleWarning", true);
+            PageFeedback.callbackParam("showRoleWarning", true);
         }
         return missing;
     }
@@ -1967,11 +1954,9 @@ public class OrgCommands {
     }
 
     /** Mirrors the outcome to the client so the dialog stays OPEN on a bad address (the growl alone,
-     *  with the dialog closing, reads as "saved anyway"). Seam-safe: no FacesContext in unit tests. */
+     *  with the dialog closing, reads as "saved anyway"). */
     private boolean publishFromOk(final boolean ok) {
-        if (FacesContext.getCurrentInstance() != null && PrimeFaces.current().isAjaxRequest()) {
-            PrimeFaces.current().ajax().addCallbackParam("payFromOk", ok);
-        }
+        PageFeedback.callbackParam("payFromOk", ok);
         return ok;
     }
 

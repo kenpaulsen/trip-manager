@@ -228,14 +228,11 @@ public class TripCommands {
 
     /**
      * Growls why an event was refused and asks the page to keep its dialog open, so the typed values are still
-     * there to correct. The whole reason goes in the SUMMARY: the template's growl renders a detail only when
-     * the page sets {@code hasDetail}, so a detail-only explanation would be invisible.
+     * there to correct.
      */
     private static boolean refuseEvent(final String reason) {
-        log.info("Refused a trip event: {}", reason);
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, reason, "");
-        TripUtilCommands.addCallbackParam("keepOpen", true);
-        return false;
+        PageFeedback.callbackParam("keepOpen", true);
+        return PageFeedback.refuse(reason);
     }
 
     /**

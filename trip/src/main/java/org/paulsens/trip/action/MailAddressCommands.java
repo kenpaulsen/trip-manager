@@ -1,7 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.application.FacesMessage;
 import jakarta.inject.Named;
 import java.util.HashMap;
 import java.util.List;
@@ -453,9 +452,7 @@ public class MailAddressCommands {
     }
 
     private static String fail(final String where, final String problem) {
-        // Growl detail is never rendered site-wide; the summary must carry the message on its own.
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR,
-                where + " " + problem + " Nothing was saved.", null);
+        PageFeedback.error(where + " " + problem + " Nothing was saved.");
         return null;
     }
 

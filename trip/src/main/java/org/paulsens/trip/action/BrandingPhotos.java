@@ -11,7 +11,6 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -20,6 +19,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.media.LocalObjectStore;
 
 /**
  * The images that make up an organization's own look — its logo, favicon, link-preview picture and page
@@ -73,11 +73,8 @@ public class BrandingPhotos {
     /** Orgs whose stored prefix has been listed once; the index is event-free, so this is the only seed. */
     private final Set<String> seeded = ConcurrentHashMap.newKeySet();
 
-    /** Local-mode object store: key -> bytes. Guarded by its own monitor; access is rare and brief. */
-    private final Map<String, byte[]> localObjects = new LinkedHashMap<>();
-    private long localBytes;
-    /** Instance rather than the constant so a test can exercise eviction without 32 MB of fixtures. */
-    private long localStoreMaxBytes = LOCAL_STORE_MAX_BYTES;
+    /** Local-mode object store, the media bucket's stand-in when none is configured. */
+    private final LocalObjectStore localStore = new LocalObjectStore(LOCAL_STORE_MAX_BYTES);
 
     @Inject
     private MediaCommands media;
@@ -97,7 +94,7 @@ public class BrandingPhotos {
     }
 
     void localStoreMaxBytesForTest(final long maxBytes) {
-        this.localStoreMaxBytes = maxBytes;
+        localStore.maxBytes(maxBytes);
     }
 
     /** @return the object key a new image for this org and role is stored under. Derivable state only. */
@@ -233,9 +230,7 @@ public class BrandingPhotos {
 
     /** Local-mode read-back, for the branding-photo servlet's GET. Empty when remote or unknown. */
     public Optional<byte[]> localGet(final String key) {
-        synchronized (localObjects) {
-            return Optional.ofNullable(localObjects.get(key));
-        }
+        return localStore.get(key);
     }
 
     /** Seam: the tenancy rule. Tests answer it directly rather than standing up a caller and a roster. */
@@ -262,15 +257,7 @@ public class BrandingPhotos {
         if (media.isUploadEnabled()) {
             return media.putObject(key, bytes, contentType, CACHE_SECONDS, false);
         }
-        synchronized (localObjects) {
-            localBytes += bytes.length;
-            localObjects.put(key, bytes);
-            final var iterator = localObjects.entrySet().iterator();
-            while (localBytes > localStoreMaxBytes && iterator.hasNext()) {
-                localBytes -= iterator.next().getValue().length;
-                iterator.remove();
-            }
-        }
+        localStore.put(key, bytes, contentType);
         return true;
     }
 
@@ -280,12 +267,7 @@ public class BrandingPhotos {
             media.deleteObject(key);
             media.invalidateCdn(List.of("/" + key));
         } else {
-            synchronized (localObjects) {
-                final byte[] removed = localObjects.remove(key);
-                if (removed != null) {
-                    localBytes -= removed.length;
-                }
-            }
+            localStore.remove(key);
         }
     }
 

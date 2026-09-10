@@ -458,9 +458,7 @@ public class TemplateCommands {
     }
 
     private static String refuseCopy(final String reason) {
-        // The SUMMARY carries the reason: growl details are never rendered for messages raised from Java.
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, "Not copied: " + reason, "");
-        return "";
+        return PageFeedback.refuseAction("Not copied: " + reason);
     }
 
     private static String blankToNull(final String value) {

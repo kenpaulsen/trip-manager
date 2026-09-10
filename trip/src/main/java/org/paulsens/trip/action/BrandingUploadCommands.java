@@ -1,8 +1,6 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.faces.application.FacesMessage;
-import jakarta.faces.context.FacesContext;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import java.util.List;
@@ -17,32 +15,27 @@ import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.media.PhotoRejectedException;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
-import org.paulsens.trip.model.Person;
-import org.paulsens.trip.util.ScopeUtil;
-import org.primefaces.PrimeFaces;
-import org.primefaces.event.FileUploadEvent;
 import org.primefaces.model.CroppedImage;
 
 /**
  * Uploading an organization's own logo, favicon, link-preview image or page background, exposed as
- * {@code #{brandingUpload}}: the shared upload+crop dialog's contract, the per-role processing, and the step
- * that points the org's setting at what was stored.
+ * {@code #{brandingUpload}}: the branding side of the shared upload+crop dialog ({@link PhotoUploadBean}
+ * carries the contract and the token flow), the per-role processing, and the step that points the org's
+ * setting at what was stored.
  *
  * <p><b>One bean, four roles.</b> The shared dialog ({@code WEB-INF/photoUploadDialog.xhtml}) has fixed
- * component ids and a single {@code widgetVar}, so a view can mount it exactly once — four includes with
+ * component ids and a single {@code widgetVar}, so a view can mount it exactly once -- four includes with
  * four {@code uploadBean} params would be four dialogs fighting over one id. The role is therefore chosen
  * when the dialog OPENS ({@link #startUpload}) and rides the session beside the pending-upload token, which
- * is also where {@code ProfilePhotoCommands} keeps its own dialog state and for the same reason: the
- * cropper's image is streamed OUTSIDE the view, where viewScope answers null. Everything the dialog asks of
- * the bean — {@link #handleUpload}, {@link #isUploadPending()}, {@link #confirmCrop()},
- * {@link #confirmFullPhoto()}, {@link #cancelUpload()} — is unchanged; only the crop ASPECT is new, and the
- * dialog now takes it as a parameter ({@link #getCropAspect()}) rather than choosing between square and free.
+ * is also where the token itself lives and for the same reason (see the base class). Only the crop ASPECT
+ * is role-specific, and the dialog takes it as a parameter ({@link #getCropAspect()}) rather than choosing
+ * between square and free.
  *
  * <p><b>Where the URL lands.</b> A stored image is not a saved setting: the public URL is written into the
  * Appearance page's own PREVIEW ({@code BrandCommands.preview}) and the browser is sent back to the page,
  * so an upload previews exactly like a typed URL and the page's existing Save / Cancel decide its fate. The
- * dialog's forms post without the page's {@code orgId} parameter — they are siblings of the main form, not
- * part of it — so the preview is read and written through {@code BrandCommands.previewFor(orgId)}, which
+ * dialog's forms post without the page's {@code orgId} parameter -- they are siblings of the main form, not
+ * part of it -- so the preview is read and written through {@code BrandCommands.previewFor(orgId)}, which
  * keys on the organization rather than on the request being a render of its page.
  *
  * <p>Authorization is per call, never inherited from the dialog being open: every entry point re-asks
@@ -51,10 +44,7 @@ import org.primefaces.model.CroppedImage;
 @Slf4j
 @Named("brandingUpload")
 @ApplicationScoped
-public class BrandingUploadCommands {
-
-    /** Session key holding the pending-upload token while the crop dialog is open (see PendingPhotoView). */
-    static final String TOKEN_KEY = PendingUploads.SESSION_TOKEN_KEY;
+public class BrandingUploadCommands extends PhotoUploadBean {
 
     /** What a pending branding upload is marked as, so no other dialog's token can be finalized here. */
     static final String PURPOSE = "branding";
@@ -62,12 +52,6 @@ public class BrandingUploadCommands {
     /** Session keys naming what the open dialog is uploading, and for whom. Scalars only. */
     static final String ROLE_KEY = "brandingUploadRole";
     static final String ORG_KEY = "brandingUploadOrg";
-
-    /** Belt-and-braces size gate; the real transport cap is the Faces Servlet's multipart-config. */
-    static final long MAX_UPLOAD_BYTES = 16L * 1024 * 1024;
-
-    private final PhotoProcessor processor = new PhotoProcessor();
-    private PendingUploads pendingUploads = PendingUploads.getPendingUploads();
 
     @Inject
     private BrandingPhotos brandingPhotos;
@@ -78,13 +62,9 @@ public class BrandingUploadCommands {
     @Inject
     private OrgCommands orgs;
 
-    void setPendingUploadsForTest(final PendingUploads pendingUploads) {
-        this.pendingUploads = pendingUploads;
-    }
-
     /**
      * Opens the dialog for one role: remembers what is being uploaded and drops anything left parked from a
-     * dialog that was abandoned. Refuses — with a message and no state change — for a caller who may not
+     * dialog that was abandoned. Refuses -- with a message and no state change -- for a caller who may not
      * manage the organization, so the dialog cannot be opened into someone else's site.
      */
     public void startUpload(final String orgId, final String roleKey) {
@@ -102,38 +82,27 @@ public class BrandingUploadCommands {
         sessionPut(ROLE_KEY, role.get().getKey());
     }
 
-    /**
-     * {@code p:fileUpload} listener: validates, builds the browser-renderable preview, and parks the bytes
-     * behind a token for the crop step. Errors surface as faces messages — this runs mid-postback.
-     */
-    public void handleUpload(final FileUploadEvent event) {
-        final BrandingRole role = role();
-        final String orgId = orgId();
-        if (role == null || !orgs.canManageOrg(orgId)) {
-            error("Not allowed: only this organization's administrators can change its appearance.");
-            return;
-        }
-        if (event.getFile() == null || event.getFile().getSize() == 0) {
-            error("No image: no image was included in the upload.");
-            return;
-        }
-        if (event.getFile().getSize() > MAX_UPLOAD_BYTES) {
-            error("Too large: images can be at most " + (MAX_UPLOAD_BYTES / (1024 * 1024)) + " MB.");
-            return;
-        }
-        try {
-            final byte[] bytes = event.getFile().getContent();
-            final PhotoProcessor.PreviewImage preview = processor.preview(bytes);
-            sessionPut(TOKEN_KEY, pendingUploads.put(bytes, preview, callerId(), PURPOSE,
-                    targetId(orgId, role)).token());
-        } catch (final PhotoRejectedException ex) {
-            error("Image rejected: " + ex.getMessage());
-        }
+    @Override
+    protected String purpose() {
+        return PURPOSE;
     }
 
-    /** Whether an upload is parked and claimable — what swaps the dialog from upload to cropper. */
-    public boolean isUploadPending() {
-        return pending().isPresent();
+    @Override
+    protected String targetId() {
+        final BrandingRole role = role();
+        return role == null ? null : targetIdFor(orgId(), role);
+    }
+
+    @Override
+    protected UploadGate uploadGate() {
+        return (role() != null && orgs.canManageOrg(orgId())) ? UploadGate.allow()
+                : UploadGate.deny("Not allowed: only this organization's administrators can change its "
+                        + "appearance.");
+    }
+
+    @Override
+    protected void confirm(final CroppedImage crop) {
+        publishOutcome(applyCrop(crop));
     }
 
     /** The dialog's title while this role is being uploaded. */
@@ -154,33 +123,14 @@ public class BrandingUploadCommands {
         return role == null ? "" : role.getKey();
     }
 
-    /** The stored versions of one role, newest first — the page's "Previous images" disclosure. */
+    /** The stored versions of one role, newest first -- the page's "Previous images" disclosure. */
     public List<BrandingPhotos.Version> history(final String orgId, final String roleKey) {
         return brandingPhotos.history(orgId, roleKey);
     }
 
     /**
-     * The shared dialog's Save action: applies the cropper's rectangle ({@code viewScope.photoCrop}) and
-     * reports the outcome in the {@code cropStored} ajax param, which is what closes the dialog on success.
-     */
-    public void confirmCrop() {
-        publishOutcome(applyCrop(viewMap("photoCrop")));
-    }
-
-    /** "Use full photo": {@link #confirmCrop} with no rect, which takes the largest well-shaped region. */
-    public void confirmFullPhoto() {
-        publishOutcome(applyCrop(null));
-    }
-
-    /** Cancels the dialog: the parked bytes are dropped immediately rather than waiting out their TTL. */
-    public void cancelUpload() {
-        pending().ifPresent(this::drop);
-        sessionPut(TOKEN_KEY, null);
-    }
-
-    /**
      * Processes the confirmed crop for the open role, stores it as a NEW version, and points the
-     * organization's setting at it through the Appearance page's preview — so the image shows immediately
+     * organization's setting at it through the Appearance page's preview -- so the image shows immediately
      * and the page's own Save is still what commits it.
      *
      * @return true when stored; false leaves the dialog open with a message explaining why.
@@ -192,13 +142,11 @@ public class BrandingUploadCommands {
             error("Not allowed: only this organization's administrators can change its appearance.");
             return false;
         }
-        final Optional<PendingUploads.Pending> found = pending();
-        if (found.isEmpty() || !PURPOSE.equals(found.get().purpose())
-                || !targetId(orgId, role).equals(found.get().targetId())) {
-            error("Upload expired: the uploaded image is no longer available. Upload it again.");
+        final Optional<PendingUploads.Pending> claimed = claim();
+        if (claimed.isEmpty()) {
             return false;
         }
-        final PendingUploads.Pending pending = found.get();
+        final PendingUploads.Pending pending = claimed.get();
         final PhotoProcessor.CropRect rect = scaledRect(crop, pending);
         final byte[] stored;
         try {
@@ -215,8 +163,7 @@ public class BrandingUploadCommands {
         }
         warnIfSmall(role, rect, pending);
         applyToPreview(orgId, role, brandingPhotos.urlFor(key));
-        pendingUploads.consume(pending.token());
-        sessionPut(TOKEN_KEY, null);
+        finish(pending);
         audit(orgId, role, key, "uploaded");
         info(role.getLabel() + " uploaded. It is not saved yet: check it, then use Save.");
         return true;
@@ -276,8 +223,8 @@ public class BrandingUploadCommands {
     }
 
     /**
-     * When the chosen area is smaller than the role's recommendation: growls it (summary only — details
-     * never render) rather than refusing. The image is still stored, at whatever size it really is.
+     * When the chosen area is smaller than the role's recommendation: growls it rather than refusing. The
+     * image is still stored, at whatever size it really is.
      */
     private void warnIfSmall(final BrandingRole role, final PhotoProcessor.CropRect rect,
             final PendingUploads.Pending pending) {
@@ -292,25 +239,9 @@ public class BrandingUploadCommands {
         }
     }
 
-    /** Preview-space cropper coords scaled into the full-resolution space the crop is applied in. */
-    private static PhotoProcessor.CropRect scaledRect(final CroppedImage crop,
-            final PendingUploads.Pending pending) {
-        return crop == null ? null
-                : pending.scaleToFull(crop.getLeft(), crop.getTop(), crop.getWidth(), crop.getHeight());
-    }
-
     /** What the parked upload is FOR, so a token minted for one role or org cannot be spent on another. */
-    private static String targetId(final String orgId, final BrandingRole role) {
+    private static String targetIdFor(final String orgId, final BrandingRole role) {
         return orgId + "#" + role.getKey();
-    }
-
-    private void drop(final PendingUploads.Pending pending) {
-        pendingUploads.consume(pending.token());
-    }
-
-    private Optional<PendingUploads.Pending> pending() {
-        final String token = sessionGet(TOKEN_KEY);
-        return token == null ? Optional.empty() : pendingUploads.peek(token, callerId());
     }
 
     private BrandingRole role() {
@@ -321,77 +252,11 @@ public class BrandingUploadCommands {
         return sessionGet(ORG_KEY);
     }
 
-    private String callerId() {
-        final Person.Id id = caller().personId();
-        return id == null ? null : id.getValue();
-    }
-
-    /** Seam: tests hand back a constructed {@link Caller} instead of the FacesContext-resolved one. */
-    protected Caller caller() {
-        return Caller.current();
-    }
-
-    /** Seam: dialog-local viewScope reads; tests override. */
-    protected <T> T viewMap(final String key) {
-        return ScopeUtil.getInstance().getViewMap(key);
-    }
-
-    /** Seam: hands the outcome to the dialog's oncomplete JS; a test records it instead. */
-    protected void publishOutcome(final boolean stored) {
-        publishParam("cropStored", stored);
-    }
-
-    /** Seam: a single named ajax callback param; a test records it instead. */
-    protected void publishParam(final String name, final Object value) {
-        if (FacesContext.getCurrentInstance() == null) {
-            return;
-        }
-        final PrimeFaces pf = PrimeFaces.current();
-        if (pf.isAjaxRequest()) {
-            pf.ajax().addCallbackParam(name, value);
-        }
-    }
-
-    /** Seam: the deployment's context path, which the dialog's JS prefixes onto the page URL. */
-    protected String contextPath() {
-        final FacesContext ctx = FacesContext.getCurrentInstance();
-        return ctx == null ? "" : ctx.getExternalContext().getRequestContextPath();
-    }
-
-    /** Seams around the session map — the FacesContext is absent in unit tests. */
-    protected String sessionGet(final String key) {
-        return ScopeUtil.getInstance().getSessionMap(key);
-    }
-
-    protected void sessionPut(final String key, final String value) {
-        final FacesContext ctx = FacesContext.getCurrentInstance();
-        if (ctx == null) {
-            return;
-        }
-        if (value == null) {
-            ctx.getExternalContext().getSessionMap().remove(key);
-        } else {
-            ctx.getExternalContext().getSessionMap().put(key, value);
-        }
-    }
-
     private void audit(final String orgId, final BrandingRole role, final String key, final String what) {
         Audit.builder(AuditAction.MEDIA, AuditOutcome.SUCCESS)
                 .actor(caller().auditActor())
                 .target(AuditEventBuilder.TARGET_MEDIA, key)
                 .message("Organization " + orgId + " " + role.getKey() + " image " + what)
                 .log();
-    }
-
-    private static void info(final String summary) {
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_INFO, summary, "");
-    }
-
-    private static void warn(final String summary) {
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_WARN, summary, "");
-    }
-
-    private static void error(final String summary) {
-        TripUtilCommands.addFacesMessage(FacesMessage.SEVERITY_ERROR, summary, "");
     }
 }
