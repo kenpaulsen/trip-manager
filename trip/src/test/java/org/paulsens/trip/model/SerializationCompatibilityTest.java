@@ -28,6 +28,7 @@ import org.paulsens.trip.action.PrivacyView;
 import org.paulsens.trip.action.ProfilePhotos;
 import org.paulsens.trip.action.RegistrationCommands;
 import org.paulsens.trip.action.SupportChatCommands;
+import org.paulsens.trip.action.TripEventForm;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatPage;
@@ -123,6 +124,7 @@ public class SerializationCompatibilityTest {
             of(Person.class, SerializationCompatibilityTest::person, p -> p.getId().getValue()),
             of(Trip.class, () -> Trip.builder().id("trip-rome").build(), Trip::getId),
             of(TripEvent.class, SerializationCompatibilityTest::tripEvent, TripEvent::getId),
+            of(TripEventForm.class, SerializationCompatibilityTest::tripEventForm, TripEventForm::getEventId),
             of(Registration.class, () -> new Registration("trip-rome", ADA, AT, Registration.Status.PENDING, null),
                     r -> r.getUserId().getValue()),
             of(Transaction.class, SerializationCompatibilityTest::transaction, t -> t.getUserId().getValue()),
@@ -175,6 +177,20 @@ public class SerializationCompatibilityTest {
 
     private static Person person() {
         return Person.builder().id(ADA).first("Ada").last("Lovelace").build();
+    }
+
+    private static TripEventForm tripEventForm() {
+        final TripEventForm form = new TripEventForm();
+        form.setMode(TripEventForm.EDIT);
+        form.setEventId("event-1");
+        form.setType("FLIGHT");
+        form.setFrom("PDX");
+        form.setTo("FCO");
+        form.setFlightNumber("AS 123");
+        form.setStart(AT);
+        form.setEnd(AT.plusHours(9));
+        form.getParticipants().add(ADA);
+        return form;
     }
 
     private static TripEvent tripEvent() {

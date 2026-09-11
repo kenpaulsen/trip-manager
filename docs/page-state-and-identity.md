@@ -71,7 +71,7 @@ appears, a chat send that loses its attachments. Beans read `theTripId` and reso
 
 ### Sanctioned exceptions
 
-Small edit buffers for non-Trip dialogs (`person`/`newPerson`/`tx`/`editEvent`/`editContent`/
+Small edit buffers for non-Trip dialogs (`person`/`newPerson`/`tx`/`evtForm`/`editContent`/
 `editTemplate`), `pv` (a frozen `PrivacyView` — masking must not flip mid-view), `auditPage` (AuditDAO is
 deliberately uncached, so per-request means a DynamoDB query per postback), `dashModel` (third-party
 PrimeFaces layout state), scalar row models, `regDraft`, `viewAsStack`, and PrimeFaces'

@@ -158,9 +158,18 @@ the bills; a recompute heals.
 with the person's ACTIVE reservation(s) on an offer referencing it, `effectiveStart/End` are the earliest
 start / latest end of those reservations, `roomLabel` joins the assigned rooms' labels, `nights` and
 `reservationNotes` come along, and `overridden` is true only when the effective dates DIFFER from the
-event's (the page shows "(dates from your reservation)" then). Otherwise the row carries the event's own
-dates. `trip/itinerary.xhtml`, `itinerary-print.xhtml` and `itinerary-badge.xhtml` sort and render from
-these rows.
+event's. Otherwise the row carries the event's own dates. `trip/itinerary.xhtml`, `itinerary-print.xhtml`
+and `itinerary-badge.xhtml` sort and render from these rows; the stay reads "Room 106 (Family), 10 nights"
+(`ItineraryRow.getStayTail`), on its own line beside the person's note.
+
+**Room numbers can be withheld.** `Trip.roomNumbersShown` (null = shown, the `chatEnabled` pattern) is the
+Assignments tab's "Show room numbers on itineraries" switch (`LodgingCommands.setRoomNumbersShown`, gated on
+`canAssignRooms`). Off while assignments are still being planned, `rowFor` leaves `roomLabel` null on every
+itinerary page and the stay reads "Family, 10 nights"; the board and the Reservations tab are unaffected.
+
+**A new lodging event starts with the hotel's address in its notes** (`LodgingCommands.lodgingEventNotes`,
+HTML-escaped), so the itinerary shows where the stay is under its name. The title stays the accommodation's
+name alone: it is the duplicate-detection key and what the offer dialog's event menu shows.
 
 ## Legacy room strings
 

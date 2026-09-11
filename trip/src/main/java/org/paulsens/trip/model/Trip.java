@@ -57,6 +57,17 @@ public final class Trip implements Serializable {
     @Getter(AccessLevel.NONE)
     @Setter(AccessLevel.NONE)
     private Boolean chatEnabled;
+    /**
+     * Whether participants' itineraries show their room NUMBER. Null means shown, for the same reason as
+     * {@link #chatEnabled}: every trip that existed before this flag has assignments its people can already
+     * see. An admin turns it off while room planning is in progress -- temporary assignments are part of that
+     * work and must not read as decisions -- and back on when the plan is done. Room type and nights stay
+     * visible either way; only the number is withheld.
+     */
+    @JsonProperty("roomNumbersShown")
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    private Boolean roomNumbersShown;
     @JsonProperty("description")
     private String description;                         // Describes the trip
     @JsonProperty("startDate")
@@ -165,6 +176,15 @@ public final class Trip implements Serializable {
 
     public void setChatEnabled(final boolean enabled) {
         this.chatEnabled = enabled;
+    }
+
+    /** Plain boolean both ways, as {@link #getChatEnabled()}: null reads as shown. */
+    public boolean getRoomNumbersShown() {
+        return roomNumbersShown == null || roomNumbersShown;
+    }
+
+    public void setRoomNumbersShown(final boolean shown) {
+        this.roomNumbersShown = shown;
     }
 
     /**

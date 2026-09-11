@@ -1,5 +1,7 @@
 package org.paulsens.trip.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serial;
 import java.io.Serializable;
@@ -27,6 +29,18 @@ public final class TripEvent implements Serializable {
     private LocalDateTime end;                  // End of the event
     private List<Person.Id> participants;          // Who's doing this thing?
     private final Map<Person.Id, String> privNotes; // Mapping of userId to Status
+
+    /**
+     * The components a manager typed into a bespoke editor (a flight's airports and number, a bus's route and
+     * carrier), keyed by {@link Detail}; {@code title} and {@code notes} are always the composed rendering of
+     * them. Absent on every event that predates the editor and on events typed as free text, which is the
+     * signal the editor uses to fall back to its generic form -- parsing the composed text back apart was
+     * rejected because notes get hand-edited ("CHANGED TO: 15:40", "Cancelled"). Set through the setter, not
+     * the creator: the 8-argument constructor is the JSON and API shape and stays as it is, so a row written
+     * without this field reads back with it null (the {@code Address.street2} precedent).
+     */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    private Map<String, String> details;
 
     public TripEvent(
             @JsonProperty("id") String id,
@@ -87,8 +101,41 @@ public final class TripEvent implements Serializable {
         return participants.remove(personId);
     }
 
+    /** Whether a bespoke editor has the components it needs; false for every legacy or free-text event. */
+    @JsonIgnore
+    public boolean hasDetails() {
+        return details != null && !details.isEmpty();
+    }
+
+    /** One typed component, or null when it was never recorded. */
+    public String detail(final Detail which) {
+        return details == null ? null : details.get(which.key());
+    }
+
     public List<Type> tripEventTypes() {
         return Arrays.stream(Type.values()).sorted(Comparator.comparing(Enum::name)).toList();
+    }
+
+    /**
+     * The keys of {@link #getDetails()}. An enum rather than string constants so a caller cannot misspell one,
+     * and so the stored key ({@link #key()}) can stay stable if a constant is ever renamed.
+     */
+    public enum Detail {
+        FROM("from"),
+        TO("to"),
+        FLIGHT_NUMBER("flightNumber"),
+        DURATION("duration"),
+        CARRIER("carrier");
+
+        private final String key;
+
+        Detail(final String key) {
+            this.key = key;
+        }
+
+        public String key() {
+            return key;
+        }
     }
 
     public enum Type {

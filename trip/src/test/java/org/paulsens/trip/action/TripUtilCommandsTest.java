@@ -145,49 +145,13 @@ public class TripUtilCommandsTest {
                 "/trip/itinerary.jsf?trip=x&info=ok", "An existing query string joins with &");
     }
 
+    /** The page-facing helpers are thin, but a page calls them outside a request too (no FacesContext). */
     @Test
-    public void flightTitleUppercasesAndTrimsTheAirportCodes() {
-        assertEquals(tripUtil.composeFlightTitle("pdx", "fco"), "PDX -> FCO");
-        assertEquals(tripUtil.composeFlightTitle("  pdx ", " Fco"), "PDX -> FCO", "Typed whitespace is not a code");
-    }
-
-    @Test
-    public void flightNotesCarryTheNumberTimesAndDuration() {
-        assertEquals(tripUtil.composeFlightNotes("Alaska Airlines AS 123",
-                        LocalDateTime.of(2028, 5, 1, 8, 15), LocalDateTime.of(2028, 5, 1, 11, 45), "9h 10m"),
-                "Alaska Airlines AS 123: 8:15am -> 11:45am (9h 10m)");
-    }
-
-    /**
-     * The old inline script formatted the departure with {@code K} (hour 0-11), so an afternoon departure read
-     * {@code 0:15pm}. Arrival used {@code h} and was correct, which is why nobody noticed.
-     */
-    @Test
-    public void aNoonDepartureIsTwelveNotZero() {
-        assertEquals(tripUtil.composeFlightNotes("AS 1", LocalDateTime.of(2028, 5, 1, 12, 15),
-                LocalDateTime.of(2028, 5, 1, 14, 0), "1h 45m"), "AS 1: 12:15pm -> 2:00pm (1h 45m)");
-    }
-
-    @Test
-    public void anOvernightFlightIsMarked() {
-        assertEquals(tripUtil.composeFlightNotes("AS 2", LocalDateTime.of(2028, 5, 1, 22, 30),
-                LocalDateTime.of(2028, 5, 2, 6, 5), "7h 35m"), "AS 2: 10:30pm -> 6:05am +1 (7h 35m)");
-    }
-
-    /**
-     * The marker used to compare {@code dayOfYear}, which goes NEGATIVE across New Year -- a 31-Dec red-eye
-     * silently lost its {@code +1}.
-     */
-    @Test
-    public void anOvernightFlightAcrossNewYearIsStillMarked() {
-        assertEquals(tripUtil.composeFlightNotes("AS 3", LocalDateTime.of(2028, 12, 31, 23, 30),
-                LocalDateTime.of(2029, 1, 1, 7, 0), "7h 30m"), "AS 3: 11:30pm -> 7:00am +1 (7h 30m)");
-    }
-
-    /** A null field used to abort the whole JSFT block; composing must degrade instead. */
-    @Test
-    public void missingPiecesDegradeRatherThanThrow() {
-        assertEquals(tripUtil.composeFlightTitle(null, null), " -> ");
-        assertEquals(tripUtil.composeFlightNotes(null, null, null, null), ":  ->  ()");
+    public void pageHelpersAreSafeWithoutAFacesContext() {
+        tripUtil.setCallbackParam("goTo", "/x");   // a no-op, never a NullPointerException
+        assertEquals(tripUtil.getContextPath(), "", "no context means the root context path");
+        assertNull(tripUtil.evalEL(null), "a null expression evaluates to nothing");
+        assertNull(tripUtil.evalEL("plain text"), "and outside a request so does everything else");
+        assertTrue(tripUtil.mapList(java.util.List.of(), "length()").isEmpty(), "nothing to map, nothing evaluated");
     }
 }

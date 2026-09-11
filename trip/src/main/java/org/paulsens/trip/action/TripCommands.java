@@ -213,16 +213,75 @@ public class TripCommands {
      */
     public boolean addTripEvent(final Trip trip, final TripEvent.Type type, final String title,
             final String notes, final LocalDateTime start, final LocalDateTime end) {
+        return addEvent(trip, type, title, notes, start, end) != null;
+    }
+
+    /** {@link #addTripEvent}, answering the new event's id -- null when refused (the reason already growled). */
+    private static String addEvent(final Trip trip, final TripEvent.Type type, final String title,
+            final String notes, final LocalDateTime start, final LocalDateTime end) {
         if (trip == null || type == null || title == null || title.isBlank() || start == null) {
-            return refuseEvent("The event needs a type, a title and a start time before it can be added.");
+            refuseEvent("The event needs a type, a title and a start time before it can be added.");
+            return null;
         }
         try {
-            trip.addTripEvent(type, title, notes, start, end);
+            return trip.addTripEvent(type, title, notes, start, end);
         } catch (final IllegalStateException ex) {
-            return refuseEvent("\"" + title + "\" already starts at " + EVENT_WHEN.format(start)
-                    + " on this trip, so it was not added again.");
+            refuseEvent(alreadyStarts(title, start) + ", so it was not added again.");
+            return null;
+        }
+    }
+
+    /**
+     * Changes one of the working copy's events in place, with the same contract as {@link #addTripEvent}:
+     * every failure is a growl plus {@code keepOpen}, never a throw out of the command. The duplicate rule is
+     * title+start against the OTHER events, so re-saving an event unchanged (or with only its notes or people
+     * changed) is never a collision with itself.
+     *
+     * @return true when applied; false when refused, with the reason growled. A vanished event (deleted in a
+     *         parallel tab) refuses WITHOUT keepOpen: the dialog closes on the table as it really is.
+     */
+    public boolean editTripEvent(final Trip trip, final String eventId, final TripEvent.Type type,
+            final String title, final String notes, final LocalDateTime start, final LocalDateTime end,
+            final List<Person.Id> participants, final Map<String, String> details) {
+        if (trip == null || type == null || title == null || title.isBlank() || start == null) {
+            return refuseEvent("The event needs a type, a title and a start time before it can be saved.");
+        }
+        final TripEvent owned = eventId == null ? null : trip.getTripEvent(eventId);
+        if (owned == null) {
+            return PageFeedback.refuse("That event is no longer on this trip.");
+        }
+        if (hasOtherEventAt(trip, eventId, title, start)) {
+            return refuseEvent(alreadyStarts(title, start) + ", so this change would make a duplicate.");
+        }
+        owned.setType(type);
+        owned.setTitle(title);
+        owned.setNotes(notes == null ? "" : notes);
+        owned.setStart(start);
+        owned.setEnd(end);
+        owned.setParticipants(participants == null ? new ArrayList<>() : new ArrayList<>(participants));
+        owned.setDetails(details);
+        try {
+            trip.editTripEvent(owned);
+        } catch (final IllegalArgumentException | IllegalStateException ex) {
+            return refuseEvent("The event could not be updated: " + ex.getMessage());
         }
         return true;
+    }
+
+    /** Whether an event OTHER than {@code eventId} already occupies this title+start. */
+    private static boolean hasOtherEventAt(final Trip trip, final String eventId, final String title,
+            final LocalDateTime start) {
+        for (final TripEvent other : trip.getTripEvents()) {
+            if (!eventId.equals(other.getId()) && title.equals(other.getTitle())
+                    && start.equals(other.getStart())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String alreadyStarts(final String title, final LocalDateTime start) {
+        return "\"" + title + "\" already starts at " + EVENT_WHEN.format(start) + " on this trip";
     }
 
     /**
@@ -232,6 +291,169 @@ public class TripCommands {
     private static boolean refuseEvent(final String reason) {
         PageFeedback.callbackParam("keepOpen", true);
         return PageFeedback.refuse(reason);
+    }
+
+    // ------------------------------------------------------------------ the event dialog's form
+
+    /**
+     * The event dialog's state for one open: a fresh form of {@code typeName} to ADD, or the trip's event
+     * {@code eventId} copied out to EDIT. Every opener on the editor is this one call; the form is what
+     * viewScope holds (a small Serializable buffer, never the event itself).
+     *
+     * @return the form, or null when {@code eventId} names an event the working copy no longer has -- the
+     *         reason is growled and {@code openFailed} published so the page does not show an empty dialog.
+     */
+    public TripEventForm eventFormFor(final Trip trip, final String typeName, final String eventId) {
+        final TripEventForm form = new TripEventForm();
+        if (eventId == null || eventId.isBlank()) {
+            form.setMode(TripEventForm.ADD);
+            form.setType(typeName == null || typeName.isBlank() ? TripEvent.Type.EVENT.name() : typeName.trim());
+            form.setStart(LocalDateTime.now());
+            form.setEnd(LocalDateTime.now());
+            return form;
+        }
+        final TripEvent event = trip == null ? null : trip.getTripEvent(eventId);
+        if (event == null) {
+            PageFeedback.callbackParam("openFailed", true);
+            PageFeedback.error("That event is no longer on this trip.");
+            return null;
+        }
+        form.setMode(TripEventForm.EDIT);
+        form.setEventId(event.getId());
+        form.setType(event.getType() == null ? TripEvent.Type.EVENT.name() : event.getType().name());
+        form.setGeneric(!event.hasDetails());
+        form.setTitle(event.getTitle());
+        form.setNotes(event.getNotes());
+        form.setStart(event.getStart());
+        form.setEnd(event.getEnd());
+        form.setFrom(event.detail(TripEvent.Detail.FROM));
+        form.setTo(event.detail(TripEvent.Detail.TO));
+        form.setFlightNumber(event.detail(TripEvent.Detail.FLIGHT_NUMBER));
+        form.setDuration(event.detail(TripEvent.Detail.DURATION));
+        form.setCarrier(event.detail(TripEvent.Detail.CARRIER));
+        form.setParticipants(new ArrayList<>(event.getParticipants()));
+        return form;
+    }
+
+    /**
+     * The Type menu changed mid-entry: a legacy event opts INTO the bespoke editor for its new type. The typed
+     * values stay on the form; the sections simply re-render for the new type.
+     */
+    public void retypeEventForm(final TripEventForm form) {
+        if (form != null) {
+            form.setGeneric(false);
+        }
+    }
+
+    /**
+     * The departure calendar's convenience: an end three hours after the start, filled only when the end is
+     * empty or no longer after the start -- an edit's real end is never clobbered by picking a new start.
+     */
+    public void defaultEventEnd(final TripEventForm form) {
+        if (form == null || form.getStart() == null) {
+            return;
+        }
+        if (form.getEnd() == null || !form.getEnd().isAfter(form.getStart())) {
+            form.setEnd(form.getStart().plusHours(3));
+        }
+    }
+
+    /**
+     * The dialog's Add/Apply: composes title, notes and the stored components for the form's section, then
+     * adds to or edits the working copy through the refusing commands above. Nothing is persisted here; the
+     * page's Save writes the trip.
+     *
+     * @return true when the event is on the working copy; false when refused, with the reason growled and
+     *         (except for a vanished event) {@code keepOpen} published.
+     */
+    public boolean saveEventForm(final Trip trip, final TripEventForm form) {
+        if (trip == null || form == null) {
+            return refuseEvent("Nothing to save.");
+        }
+        final TripEvent.Type type = typeOf(form.getType());
+        if (type == null) {
+            return refuseEvent("Choose the kind of event first.");
+        }
+        if (form.getStart() == null) {
+            return refuseEvent("The event needs a start date and time.");
+        }
+        if (form.isLodgingCreate()) {
+            return refuseEvent("Lodging is added as a lodging option on the trip's Lodging tab, so its rooms and "
+                    + "reservations can attach to it.");
+        }
+        final String title;
+        final String notes;
+        final Map<String, String> details;
+        if (form.isFlight()) {
+            if (blank(form.getFrom()) || blank(form.getTo()) || blank(form.getFlightNumber())) {
+                return refuseEvent("A flight needs its airports and flight number.");
+            }
+            title = TripEventComposer.composeRouteTitle(form.getFrom(), form.getTo(), true);
+            notes = TripEventComposer.composeFlightNotes(form.getFlightNumber(), form.getStart(), form.getEnd(),
+                    form.getDuration());
+            details = flightDetails(form);
+        } else if (form.isGround()) {
+            if (blank(form.getFrom()) || blank(form.getTo())) {
+                return refuseEvent("Ground transport needs where it leaves from and where it goes.");
+            }
+            title = TripEventComposer.composeRouteTitle(form.getFrom(), form.getTo(), false);
+            notes = TripEventComposer.composeGroundNotes(form.getCarrier(), form.getStart(), form.getEnd());
+            details = groundDetails(form);
+        } else {
+            if (blank(form.getTitle())) {
+                return refuseEvent("The event needs a title.");
+            }
+            title = form.getTitle().trim();
+            notes = form.getNotes();
+            details = null;
+        }
+        if (form.isEditing()) {
+            return editTripEvent(trip, form.getEventId(), type, title, notes, form.getStart(), form.getEnd(),
+                    form.getParticipants(), details);
+        }
+        final String id = addEvent(trip, type, title, notes, form.getStart(), form.getEnd());
+        if (id == null) {
+            return false;
+        }
+        trip.getTripEvent(id).setDetails(details);
+        return true;
+    }
+
+    private static Map<String, String> flightDetails(final TripEventForm form) {
+        final Map<String, String> details = new LinkedHashMap<>();
+        details.put(TripEvent.Detail.FROM.key(), form.getFrom().trim());
+        details.put(TripEvent.Detail.TO.key(), form.getTo().trim());
+        details.put(TripEvent.Detail.FLIGHT_NUMBER.key(), form.getFlightNumber().trim());
+        if (!blank(form.getDuration())) {
+            details.put(TripEvent.Detail.DURATION.key(), form.getDuration().trim());
+        }
+        return details;
+    }
+
+    private static Map<String, String> groundDetails(final TripEventForm form) {
+        final Map<String, String> details = new LinkedHashMap<>();
+        details.put(TripEvent.Detail.FROM.key(), form.getFrom().trim());
+        details.put(TripEvent.Detail.TO.key(), form.getTo().trim());
+        if (!blank(form.getCarrier())) {
+            details.put(TripEvent.Detail.CARRIER.key(), form.getCarrier().trim());
+        }
+        return details;
+    }
+
+    /** The enum for a menu's NAME string; null for a blank or unknown one (a forged submit, not a user). */
+    private static TripEvent.Type typeOf(final String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        try {
+            return TripEvent.Type.valueOf(name.trim());
+        } catch (final IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    private static boolean blank(final String value) {
+        return value == null || value.isBlank();
     }
 
     /**

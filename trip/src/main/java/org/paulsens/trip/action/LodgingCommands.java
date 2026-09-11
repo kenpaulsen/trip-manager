@@ -1481,8 +1481,8 @@ public class LodgingCommands {
                     return existing.getId();
                 }
             }
-            final String id = trip.addTripEvent(TripEvent.Type.LODGING, title, "", form.getDefaultStart(),
-                    form.getDefaultEnd());
+            final String id = trip.addTripEvent(TripEvent.Type.LODGING, title, lodgingEventNotes(acc),
+                    form.getDefaultStart(), form.getDefaultEnd());
             if (!tripSource.get().saveTrip(trip)) {
                 refuse("The lodging event could not be added to the trip.");
                 return null;
@@ -2702,6 +2702,39 @@ public class LodgingCommands {
 
     // ================================================================== itinerary
 
+    /** Whether this trip's itineraries show room numbers (the Assignments tab's toggle); unknown trips: yes. */
+    public boolean roomNumbersShown(final String tripId) {
+        final Trip trip = (tripId == null || tripId.isBlank()) ? null
+                : DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
+        return trip == null || trip.getRoomNumbersShown();
+    }
+
+    /**
+     * The Assignments tab's "Show room numbers on itineraries" switch. Off while assignments are still being
+     * worked out, so a temporary placement never reads as a decision; on when the plan is done. Read-modify-write
+     * on a FRESH trip, never a cached one, and saved at once -- this is a setting, not part of any edit draft.
+     */
+    public boolean setRoomNumbersShown(final String tripId, final boolean shown) {
+        if (!canAssignRooms(tripId)) {
+            return refuse("Not allowed: you do not assign rooms on this trip.");
+        }
+        final Trip trip = tripSource.get().getTripForEdit(tripId);
+        // getTripForEdit answers a blank trip with a fresh id for an unknown one; the same-id probe is the test.
+        if (trip == null || !tripId.equals(trip.getId())) {
+            return refuse("This trip no longer exists.");
+        }
+        trip.setRoomNumbersShown(shown);
+        if (!tripSource.get().saveTrip(trip)) {
+            return refuse("The setting could not be saved.");
+        }
+        auditSource.get().lodging(AuditEventBuilder.TARGET_TRIP, tripId, trip.getOrgId(),
+                (shown ? "Room numbers shown" : "Room numbers hidden") + " on itineraries for '" + trip.getTitle()
+                        + "'", caller().auditActor());
+        info(shown ? "Room numbers are shown on itineraries again."
+                : "Room numbers are hidden from itineraries until you turn this back on.");
+        return true;
+    }
+
     /**
      * The itinerary's rows in the page's FROZEN event order: every event as it is, except a LODGING event for
      * which the person holds an ACTIVE reservation on an offer that tracks it -- that row carries the
@@ -2714,8 +2747,9 @@ public class LodgingCommands {
             return rows;
         }
         final Map<String, List<Reservation>> byEvent = reservationsByEvent(trip.getId(), personId);
+        final boolean showRooms = trip.getRoomNumbersShown();
         for (final TripEvent event : tripSource.get().eventsForFrozenIds(trip, frozenEventIds)) {
-            rows.add(rowFor(event, personId, byEvent.get(event.getId())));
+            rows.add(rowFor(event, personId, byEvent.get(event.getId()), showRooms));
         }
         // By the date the row SHOWS, not the event's own: a late arriver's reservation starts days after the
         // group's hotel event, so ordering by the event put her hotel above the flights that got her there.
@@ -2748,7 +2782,8 @@ public class LodgingCommands {
         return byEvent;
     }
 
-    private ItineraryRow rowFor(final TripEvent event, final Person.Id personId, final List<Reservation> mine) {
+    private ItineraryRow rowFor(final TripEvent event, final Person.Id personId, final List<Reservation> mine,
+            final boolean showRooms) {
         final ItineraryRow row = new ItineraryRow();
         row.setId(event.getId());
         row.setType(event.getType() == null ? "EVENT" : event.getType().name());
@@ -2798,7 +2833,9 @@ public class LodgingCommands {
         // its room line, but no "dates from your reservation" hint.
         row.setOverridden(!Objects.equals(row.getEffectiveStart(), event.getStart())
                 || !Objects.equals(row.getEffectiveEnd(), event.getEnd()));
-        row.setRoomLabel(labels.isEmpty() ? null : String.join(" / ", labels));
+        // The number is withheld while the trip's admin is still planning (the Assignments tab's switch); the
+        // type and the nights are still theirs to see.
+        row.setRoomLabel(labels.isEmpty() || !showRooms ? null : String.join(" / ", labels));
         row.setReservationNotes(notes.isEmpty() ? null : String.join(" ", notes));
         row.setNights(Reservation.nightsBetween(row.getEffectiveStart(), row.getEffectiveEnd()));
         return row;
@@ -2859,6 +2896,41 @@ public class LodgingCommands {
 
     private String preferredName(final Person.Id id) {
         return DAO.getInstance().getPerson(id, Cached.YES).map(Person::getPreferredName).orElse(id.getValue());
+    }
+
+    /**
+     * The notes a NEW lodging event starts with: the hotel's address, so the itinerary shows where the stay is
+     * under its name. Escaped here because event notes render as HTML everywhere.
+     */
+    static String lodgingEventNotes(final Accommodation acc) {
+        return acc == null ? "" : escape(fullAddress(acc.getAddress()));
+    }
+
+    /**
+     * {@code "Podbrdo 25, Medjugorje 88266, Bosnia and Herzegovina"}: street and street2, then city, state and
+     * zip, then country -- each group only when it has something in it, the shape the admin page prints.
+     */
+    static String fullAddress(final Address address) {
+        if (address == null) {
+            return "";
+        }
+        final List<String> groups = new ArrayList<>();
+        addressGroup(groups, address.getStreet(), address.getStreet2());
+        addressGroup(groups, address.getCity(), address.getState(), address.getZip());
+        addressGroup(groups, address.getCountry());
+        return String.join(", ", groups);
+    }
+
+    private static void addressGroup(final List<String> groups, final String... parts) {
+        final List<String> present = new ArrayList<>();
+        for (final String part : parts) {
+            if (part != null && !part.isBlank()) {
+                present.add(part.trim());
+            }
+        }
+        if (!present.isEmpty()) {
+            groups.add(String.join(" ", present));
+        }
     }
 
     private static String place(final Address address) {

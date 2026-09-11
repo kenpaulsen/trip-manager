@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 import org.paulsens.trip.action.LodgingViews.OfferForm;
+import org.paulsens.trip.action.LodgingViews.ItineraryRow;
 import org.paulsens.trip.action.LodgingViews.PlacementForm;
 import org.paulsens.trip.action.LodgingViews.ReservationForm;
 import org.paulsens.trip.action.LodgingViews.StayWindowForm;
@@ -149,5 +150,22 @@ public class LodgingViewsTest {
         form.setRange(null);
         assertTrue(form.getRange().isEmpty());
         assertNull(form.start());
+    }
+
+    /** The stay line's tail: the room type is parenthetical only when it qualifies a shown room number. */
+    @Test
+    public void theStayTailFollowsWhateverTheRowIsAllowedToShow() {
+        final ItineraryRow row = new ItineraryRow();
+        row.setNights(3);
+        row.setRoomLabel("101");
+        row.setRoomTypeName("Double");
+        assertEquals(row.getStayTail(), " (Double), 3 nights", "after a shown room the type qualifies it");
+        row.setRoomLabel(" ");
+        assertEquals(row.getStayTail(), "Double, 3 nights", "a withheld number leaves the type on its own");
+        row.setRoomTypeName(null);
+        assertEquals(row.getStayTail(), "3 nights", "nothing else known, just the stay");
+        row.setRoomLabel("7");
+        row.setNights(1);
+        assertEquals(row.getStayTail(), ", 1 night", "a room without a type, and the singular");
     }
 }

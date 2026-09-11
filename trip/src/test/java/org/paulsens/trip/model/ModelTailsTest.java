@@ -49,6 +49,23 @@ public class ModelTailsTest {
         Assert.assertNull(trip.getTripEvent(id));
     }
 
+    /** Editing the list's own instance (the editor's path) re-sorts by the new start, no copy needed. */
+    @Test
+    public void editingAnOwnedTripEventInPlaceReSorts() {
+        final Trip trip = Trip.builder().id("owned-edit").title("T")
+                .startDate(LocalDateTime.now()).endDate(LocalDateTime.now().plusDays(3)).build();
+        final LocalDateTime day1 = LocalDateTime.now().plusDays(1);
+        final String first = trip.addTripEvent(TripEvent.Type.EVENT, "First", null, day1, null);
+        final String second = trip.addTripEvent(TripEvent.Type.EVENT, "Second", null, day1.plusDays(1), null);
+        Assert.assertEquals(trip.getTripEvents().get(0).getId(), first);
+
+        final TripEvent owned = trip.getTripEvent(first);
+        owned.setStart(day1.plusDays(5));
+        trip.editTripEvent(owned);
+        Assert.assertEquals(trip.getTripEvents().get(0).getId(), second, "the moved event sorted after");
+        Assert.assertSame(trip.getTripEvent(first), owned, "still the same instance in the list");
+    }
+
     /** The duplicate check is (title, start): the same title at the same time is almost always a double-click. */
     @Test
     public void addingADuplicateTripEventIsRefused() {

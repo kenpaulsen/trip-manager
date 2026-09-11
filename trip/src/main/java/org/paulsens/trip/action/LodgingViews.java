@@ -646,5 +646,23 @@ public final class LodgingViews {
         private String roomLabel;
         private String reservationNotes;
         private int nights;
+
+        /**
+         * What follows "Room N" on the itinerary's stay line: {@code " (Double), 3 nights"} after a shown room,
+         * {@code "Double, 3 nights"} when the number is withheld (the type is parenthetical only when it
+         * qualifies a room), {@code "3 nights"} when there is neither.
+         */
+        public String getStayTail() {
+            final boolean room = roomLabel != null && !roomLabel.isBlank();
+            final boolean type = roomTypeName != null && !roomTypeName.isBlank();
+            final String nightsText = nights + (nights == 1 ? " night" : " nights");
+            if (room && type) {
+                return " (" + roomTypeName + "), " + nightsText;
+            }
+            if (room) {
+                return ", " + nightsText;
+            }
+            return type ? roomTypeName + ", " + nightsText : nightsText;
+        }
     }
 }
