@@ -238,6 +238,35 @@ fan-out is membership-row based behind `support.mail.enabled` (deliberately NOT 
 switch, which ships off). The admin UI is the dedicated `admin/support.xhtml` (membership-gated, not
 role-gated) — NOT chat.xhtml: `ChatResource`'s ~15 endpoints hard-gate on `trip:` ids on purpose.
 
+## REST (`/api/family`, 2026-09 — the native client's family page)
+
+`FamilyResource` is the family page for a client without a page: the same bean, the same rules, no second
+implementation. The bean's write methods gained `*Outcome` siblings (`addFamilyMemberForOutcome`,
+`setManagerOutcome`, `deleteFamilyMemberOutcome`) that RETURN a `FamilyResult` — a code, the page's own
+headline and explanation, and the member/family after the write — and the page-facing methods now delegate
+to them and growl the result. A refusal therefore reads identically on both edges, and a new rule is written
+once.
+
+| Endpoint | Auth | Answer |
+|---|---|---|
+| `GET /api/family[?personId=]` | self; or a manager of / site admin over `personId` (403 else, 404 unknown) | `FamilyDto` — `id` null when there is no family yet (`members` = the subject alone); `canManage` is the caller's reach over THIS family; each member carries `manager`, `missingProfileFields`, `deleteBlockReason` (managers only) and their `PersonDto` redacted for the caller |
+| `POST /api/family/members` | a family manager, or a site admin; `forPersonId` grows that person's family | `{member, family}` — create-and-link, the one self-service way in |
+| `PUT /api/family/members/{id}/manager` `{manager}` | manager / site admin of the MEMBER's family | the family after the change |
+| `DELETE /api/family/members/{id}` | manager / site admin; only while the member has no history | `{deleted, family}` |
+
+Refusal codes travel as the wire `error` when a client's remedy depends on them — `NOT_MANAGER` (403),
+`EMAIL_IN_USE` and `FAMILY_CHANGED` (409), and the 422 family: `NAME_REQUIRED`, `SEX_REQUIRED`,
+`BIRTHDATE_REQUIRED`, `BIRTHDATE_FUTURE`, `MANAGER_NEEDS_EMAIL`, `FAMILY_FULL`, `LAST_MANAGER`,
+`CANNOT_DELETE_SELF`, `HAS_HISTORY`. The generic ones map onto the API's generic codes (`NOT_AUTHENTICATED`,
+`FORBIDDEN`, `NOT_FOUND`, `STORE_FAILED`). Admin linking of EXISTING people (`adminLink`) is deliberately not
+exposed — it is the one write that accepts an arbitrary person id.
+
+Party registration has the same shape: `RegistrationCommands.registerPartyOutcome` returns a `PartyOutcome`
+(registered, updated, refused-with-code per traveler), `registerParty` delegates and growls, and
+`POST /api/trips/{id}/registrations/party` reports it per traveler with a 200 — one refused traveler never
+blocks the rest of the family. The two registration mails (office note + registrant receipt) moved out of
+`joinTrip.xhtml`'s EL into `RegistrationCommands.sendRegistrationMail`, which both edges call.
+
 ## Migration (one-time, user-run; scripts in `medjugorje/scripts/`)
 
 1. `report-duplicate-emails.sh` — clean duplicates by hand first.

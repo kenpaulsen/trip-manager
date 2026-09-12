@@ -10,6 +10,7 @@ import org.paulsens.trip.chat.MailTemplates;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.ContentTemplate;
+import org.mockito.ArgumentMatchers;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.TemplateKind;
@@ -282,6 +283,94 @@ public class FamilyRegistrationAndMailTest {
         final List<ContentTemplate> choices = new ContentCommands().getTemplateChoicesFor("page:trip-index");
         assertTrue(choices.stream().noneMatch(t -> t.getKind() == TemplateKind.MAIL),
                 "No Add dialog may ever offer a MAIL template");
+    }
+
+    // ------------------------------------------------------------------ outcome + mail (the REST edge's view)
+
+    @Test
+    public void registerPartyOutcomeNamesEveryRefusal() throws IOException {
+        final Person owner = savedPerson("own");
+        final Person kid = familyFor(owner).createFamilyMember("Kid",
+                "Party", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
+        assertNotNull(kid);
+        final Person stranger = savedPerson("str");
+        final Trip trip = savedTrip();
+        final Trip started = Trip.builder().id("started-" + RandomData.genAlpha(8)).title("Started")
+                .startDate(LocalDateTime.now().minusDays(1)).endDate(LocalDateTime.now().plusDays(4)).build();
+        assertTrue(dao.saveTrip(started));
+
+        final Map<String, Registration> regs = new HashMap<>();
+        final Map<String, Object> selected = new HashMap<>();
+        for (final Person traveler : List.of(owner, kid, stranger)) {
+            regs.put(traveler.getId().getValue(), new Registration(trip.getId(), traveler.getId()));
+            selected.put(traveler.getId().getValue(), Boolean.TRUE);
+        }
+        final RegistrationCommands commands = regCommandsFor(owner);
+        final RegistrationCommands.PartyOutcome first = commands.registerPartyOutcome(trip, selected, regs, null);
+        assertEquals(first.registered().stream().map(Person::getId).toList(), List.of(owner.getId(), kid.getId()));
+        assertTrue(first.updated().isEmpty());
+        assertEquals(first.refused(), Map.of(stranger.getId().getValue(),
+                RegistrationCommands.PartyOutcome.NOT_ALLOWED));
+
+        // The same party again: everyone the store now has is ALREADY_REGISTERED, the stranger still refused.
+        final Map<String, Registration> again = new HashMap<>();
+        for (final Person traveler : List.of(owner, kid, stranger)) {
+            again.put(traveler.getId().getValue(), commands.getRegistration(trip.getId(), traveler.getId()));
+        }
+        final RegistrationCommands.PartyOutcome second = commands.registerPartyOutcome(trip, selected, again, null);
+        assertTrue(second.registered().isEmpty());
+        assertEquals(second.refused().get(owner.getId().getValue()),
+                RegistrationCommands.PartyOutcome.ALREADY_REGISTERED);
+        assertEquals(second.refused().get(kid.getId().getValue()),
+                RegistrationCommands.PartyOutcome.ALREADY_REGISTERED);
+        assertEquals(second.refused().get(stranger.getId().getValue()),
+                RegistrationCommands.PartyOutcome.NOT_ALLOWED);
+
+        final Map<String, Registration> late = new HashMap<>();
+        late.put(kid.getId().getValue(), new Registration(started.getId(), kid.getId()));
+        final RegistrationCommands.PartyOutcome third = commands.registerPartyOutcome(started,
+                Map.of(kid.getId().getValue(), Boolean.TRUE), late, null);
+        assertEquals(third.refused(), Map.of(kid.getId().getValue(), RegistrationCommands.PartyOutcome.CANNOT_JOIN));
+
+        assertTrue(commands.registerPartyOutcome(null, selected, regs, null).refused().isEmpty(),
+                "a missing trip is an empty outcome, not an exception");
+    }
+
+    @Test
+    public void registrationMailIsOneNoteAndOneReceiptForTheWholeParty() throws IOException {
+        final Person owner = savedPerson("own");
+        final Person kid = familyFor(owner).createFamilyMember("Kid",
+                "Party", LocalDate.of(2000, 1, 1), Person.Sex.Female, null, false);
+        final Trip trip = savedTrip();
+        final MailCommands mail = org.mockito.Mockito.mock(MailCommands.class);
+        final MailAddressCommands addresses = org.mockito.Mockito.mock(MailAddressCommands.class);
+        org.mockito.Mockito.when(addresses.fromFor("reg.notify.from")).thenReturn("notify@example.com");
+        org.mockito.Mockito.when(addresses.recipientFor("reg.notify.email", trip)).thenReturn("office@example.com");
+        org.mockito.Mockito.when(addresses.fromFor("reg.mail.from")).thenReturn("from@example.com");
+        org.mockito.Mockito.when(addresses.replyToFor("reg.mail.replyTo", trip)).thenReturn("reply@example.com");
+        final RegistrationCommands commands = new RegistrationCommands(() -> callerFor(owner), TripCommands::new,
+                AuditCommands::new, () -> mail, () -> addresses);
+
+        commands.sendRegistrationMail(trip, List.of(owner, kid));
+
+        org.mockito.Mockito.verify(mail).send(ArgumentMatchers.eq("notify@example.com"),
+                ArgumentMatchers.eq("office@example.com"), ArgumentMatchers.isNull(),
+                ArgumentMatchers.isNull(), ArgumentMatchers.eq("New Registration - Party Trip"),
+                ArgumentMatchers.contains(kid.getPreferredName()), ArgumentMatchers.any());
+        org.mockito.Mockito.verify(mail).sendManagedTemplateForOrg(ArgumentMatchers.eq("registration-received"),
+                ArgumentMatchers.eq(""), ArgumentMatchers.any(),
+                ArgumentMatchers.eq(owner.getEmail()), ArgumentMatchers.eq("from@example.com"),
+                ArgumentMatchers.eq("reply@example.com"), ArgumentMatchers.isNull(),
+                ArgumentMatchers.any());
+
+        // Nothing registered, nothing sent; and a mail failure never reaches the caller -- the rows are saved.
+        commands.sendRegistrationMail(trip, List.of());
+        org.mockito.Mockito.verifyNoMoreInteractions(mail);
+        org.mockito.Mockito.when(mail.send(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenThrow(new IllegalStateException("SES down"));
+        commands.sendRegistrationMail(trip, List.of(owner));
     }
 
     // ------------------------------------------------------------------ helpers

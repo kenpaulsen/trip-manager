@@ -369,4 +369,108 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
     public void theProducedTypeIsTheRegistrationsMediaType() {
         Assert.assertEquals(new RegistrationsResource().versionedType(), ApiMediaTypes.REGISTRATIONS_V1);
     }
+
+
+    // --- party registration ---
+
+    private static final Person.Id THIRD = Person.Id.from("reg-third");
+
+    /** The party endpoint's bean is caller-bound (built with this::caller), so it is substituted by seam. */
+    private RegistrationsResource partyResource() {
+        return resource(new RegistrationsResource() {
+            @Override
+            protected RegistrationCommands callerBoundRegistrations() {
+                return registrations;
+            }
+        });
+    }
+
+    private static org.paulsens.trip.api.dto.RegisterPartyRequest.TravelerRequest traveler(final Person.Id id,
+            final Map<String, String> options, final Boolean digest) {
+        return new org.paulsens.trip.api.dto.RegisterPartyRequest.TravelerRequest(id.getValue(), options, digest);
+    }
+
+    private static org.paulsens.trip.api.dto.RegisterPartyRequest party(
+            final org.paulsens.trip.api.dto.RegisterPartyRequest.TravelerRequest... travelers) {
+        return new org.paulsens.trip.api.dto.RegisterPartyRequest(List.of(travelers));
+    }
+
+    @Test
+    public void partyFilesTheRowsThroughTheBeanAndReportsPerTraveler() {
+        signedInAs(ME);
+        final Trip trip = Trip.builder().id(TRIP_ID).title("Party").chatEnabled(true)
+                .regOptions(List.of(new org.paulsens.trip.model.RegistrationOption(1, "Diet", "Needs?", true)))
+                .build();
+        Mockito.when(trips.getTrip(TRIP_ID)).thenReturn(trip);
+        Mockito.when(registrations.getRegistration(TRIP_ID, ME)).thenReturn(new Registration(TRIP_ID, ME));
+        Mockito.when(registrations.getRegistration(TRIP_ID, OTHER)).thenReturn(registration(OTHER,
+                Registration.Status.PENDING));
+        Mockito.when(registrations.getRegistration(TRIP_ID, THIRD)).thenReturn(new Registration(TRIP_ID, THIRD));
+        final Person me = new Person();
+        me.setId(ME);
+        final Person other = new Person();
+        other.setId(OTHER);
+        @SuppressWarnings("unchecked")
+        final ArgumentCaptor<Map<String, Registration>> regsCaptor = ArgumentCaptor.forClass(Map.class);
+        @SuppressWarnings("unchecked")
+        final ArgumentCaptor<Map<String, Object>> digestCaptor = ArgumentCaptor.forClass(Map.class);
+        final Map<String, String> refused = new java.util.LinkedHashMap<>();
+        refused.put(THIRD.getValue(), RegistrationCommands.PartyOutcome.CANNOT_JOIN);
+        Mockito.when(registrations.registerPartyOutcome(ArgumentMatchers.eq(trip), ArgumentMatchers.any(),
+                regsCaptor.capture(), digestCaptor.capture()))
+                .thenReturn(new RegistrationCommands.PartyOutcome(List.of(me), List.of(other), refused));
+
+        final Response response = partyResource().registerParty(TRIP_ID, CSRF_OK, party(
+                traveler(ME, Map.of("1", "vegan", "_party", "forged", "9", "not a question"), false),
+                traveler(OTHER, null, null),
+                traveler(THIRD, Map.of(), true)));
+
+        assertOk(response);
+        final org.paulsens.trip.api.dto.RegisterPartyResponse body =
+                (org.paulsens.trip.api.dto.RegisterPartyResponse) response.getEntity();
+        Assert.assertEquals(body.registered().size(), 1);
+        Assert.assertEquals(body.registered().get(0).status(), "PENDING", "the filed row is echoed as Pending");
+        Assert.assertEquals(body.registered().get(0).options().get("1"), "vegan");
+        Assert.assertFalse(body.registered().get(0).options().containsKey("_party"),
+                "only the trip's own question keys are taken from the client");
+        Assert.assertFalse(body.registered().get(0).options().containsKey("9"));
+        Assert.assertEquals(body.updated().size(), 1);
+        Assert.assertEquals(body.updated().get(0).userId(), OTHER.getValue());
+        Assert.assertEquals(body.refused(), refused);
+
+        final Map<String, Registration> regs = regsCaptor.getValue();
+        Assert.assertEquals(regs.keySet(), java.util.Set.of(ME.getValue(), OTHER.getValue(), THIRD.getValue()));
+        Assert.assertEquals(regs.get(OTHER.getValue()).getOptions().get("diet"), "vegetarian",
+                "no options posted leaves the stored answers alone");
+        final Map<String, Object> digests = digestCaptor.getValue();
+        Assert.assertEquals(digests.get(ME.getValue()), Boolean.FALSE, "an explicit digest answer is kept");
+        Assert.assertEquals(digests.get(OTHER.getValue()), Boolean.TRUE, "absent means the form default: on");
+        Mockito.verify(audit).registered(me, trip, resource.actor());
+        Mockito.verify(audit, Mockito.never()).registered(ArgumentMatchers.eq(other), ArgumentMatchers.any(),
+                ArgumentMatchers.any());
+        Mockito.verify(registrations).sendRegistrationMail(trip, List.of(me));
+    }
+
+    @Test
+    public void partyRefusesMalformedRequestsBeforeTouchingTheBean() {
+        signedInAs(ME);
+        final RegistrationsResource party = partyResource();
+        assertError(party.registerParty(TRIP_ID, null, party(traveler(ME, null, null))), 403, ApiErrors.CSRF);
+        assertError(party.registerParty(TRIP_ID, CSRF_OK, null), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(party.registerParty(TRIP_ID, CSRF_OK, party()), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(party.registerParty(TRIP_ID, CSRF_OK, party(
+                new org.paulsens.trip.api.dto.RegisterPartyRequest.TravelerRequest(" ", null, null))),
+                400, ApiErrors.VALIDATION_FAILED);
+        Mockito.when(registrations.getRegistration(TRIP_ID, ME)).thenReturn(new Registration(TRIP_ID, ME));
+        assertError(party.registerParty(TRIP_ID, CSRF_OK, party(traveler(ME, null, null), traveler(ME, null, null))),
+                400, ApiErrors.VALIDATION_FAILED);
+        tripIsMissing("gone");
+        assertThrown(() -> party.registerParty("gone", CSRF_OK, party(traveler(ME, null, null))), 404,
+                ApiErrors.NOT_FOUND);
+        personIsMissing(THIRD);
+        assertThrown(() -> party.registerParty(TRIP_ID, CSRF_OK, party(traveler(THIRD, null, null))), 404,
+                ApiErrors.NOT_FOUND);
+        Mockito.verify(registrations, Mockito.never()).registerPartyOutcome(ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+    }
 }

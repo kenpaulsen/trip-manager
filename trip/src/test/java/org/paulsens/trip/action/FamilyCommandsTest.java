@@ -676,4 +676,65 @@ public class FamilyCommandsTest {
     private static String unique() {
         return RandomData.genAlpha(10);
     }
+
+
+    // ------------------------------------------------------------------ outcomes (the REST edge's view)
+
+    @Test
+    public void outcomesCarryTheCodeBehindEveryGrowl() throws IOException {
+        final Person owner = savedOwner();
+        final FamilyCommands commands = commandsFor(owner);
+        final LocalDate born = LocalDate.of(2010, 1, 1);
+        final FamilyCommands.FamilyResult created = commands.addFamilyMemberForOutcome(null, "Kid", "Paulsen",
+                born, Person.Sex.Male, null, false);
+        assertTrue(created.isOk());
+        assertNotNull(created.member());
+        assertTrue(created.family().isManager(owner.getId()), "the family row comes back with the outcome");
+        final Person kid = created.member();
+
+        assertEquals(commands.addFamilyMemberForOutcome(null, " ", "X", born, Person.Sex.Male, null, false).code(),
+                FamilyCommands.FamilyResult.NAME_REQUIRED);
+        assertEquals(commands.addFamilyMemberForOutcome(null, "A", "X", born, null, null, false).code(),
+                FamilyCommands.FamilyResult.SEX_REQUIRED);
+        assertEquals(commands.addFamilyMemberForOutcome(null, "A", "X", null, Person.Sex.Male, null, false).code(),
+                FamilyCommands.FamilyResult.BIRTHDATE_REQUIRED);
+        assertEquals(commands.addFamilyMemberForOutcome(null, "A", "X", LocalDate.now().plusDays(1),
+                Person.Sex.Male, null, false).code(), FamilyCommands.FamilyResult.BIRTHDATE_FUTURE);
+        assertEquals(commands.addFamilyMemberForOutcome(null, "A", "X", born, Person.Sex.Male, "nope", true).code(),
+                FamilyCommands.FamilyResult.MANAGER_NEEDS_EMAIL);
+        assertEquals(commands.addFamilyMemberForOutcome(null, "A", "X", born, Person.Sex.Male,
+                owner.getEmail(), false).code(), FamilyCommands.FamilyResult.EMAIL_IN_USE);
+        final Person stranger = savedOwner();
+        assertEquals(commands.addFamilyMemberForOutcome(stranger.getId().getValue(), "A", "X", born,
+                Person.Sex.Male, null, false).code(), FamilyCommands.FamilyResult.NOT_ALLOWED);
+        assertEquals(commandsFor(kid).addFamilyMemberForOutcome(null, "A", "X", born, Person.Sex.Male, null,
+                false).code(), FamilyCommands.FamilyResult.NOT_MANAGER);
+
+        assertEquals(commands.deleteFamilyMemberOutcome(owner.getId()).code(),
+                FamilyCommands.FamilyResult.CANNOT_DELETE_SELF);
+        assertEquals(commands.deleteFamilyMemberOutcome(stranger.getId()).code(),
+                FamilyCommands.FamilyResult.NO_FAMILY);
+        assertEquals(commands.setManagerOutcome(kid.getId(), true).code(),
+                FamilyCommands.FamilyResult.MANAGER_NEEDS_EMAIL);
+        assertEquals(commands.setManagerOutcome(owner.getId(), false).code(),
+                FamilyCommands.FamilyResult.LAST_MANAGER);
+        assertTrue(commands.setManagerOutcome(kid.getId(), false).isOk(), "a no-op revoke is a success");
+        assertEquals(commandsFor(kid).setManagerOutcome(owner.getId(), false).code(),
+                FamilyCommands.FamilyResult.NOT_MANAGER);
+
+        final Trip trip = Trip.builder().id("fam-trip-" + unique()).title("Fam Trip")
+                .startDate(LocalDateTime.now().plusDays(30)).endDate(LocalDateTime.now().plusDays(40))
+                .people(List.of(kid.getId())).build();
+        assertTrue(dao.saveTrip(trip));
+        final FamilyCommands.FamilyResult blocked = commands.deleteFamilyMemberOutcome(kid.getId());
+        assertEquals(blocked.code(), FamilyCommands.FamilyResult.HAS_HISTORY);
+        assertEquals(blocked.message(), "Cannot delete: " + commands.deleteBlockReason(kid.getId()),
+                "the message is the page's growl, headline and explanation");
+
+        final ConfigCommands tinyLimit = Mockito.mock(ConfigCommands.class);
+        Mockito.when(tinyLimit.getInt(KnownSettings.FAMILY_MAX_MEMBERS, 1, 100)).thenReturn(2);
+        assertEquals(new FamilyCommands(tinyLimit, new AuditCommands(), callerOf(owner, false))
+                .addFamilyMemberForOutcome(null, "B", "Two", born, Person.Sex.Female, null, false).code(),
+                FamilyCommands.FamilyResult.FAMILY_FULL);
+    }
 }

@@ -198,11 +198,21 @@ through the shared crop dialog into slot `lodging-{accId}`), `deploy`, `json`, `
 ### REST API (`org.paulsens.trip.api`, served at `/api/*`)
 
 Jersey servlet (declared in the live web.xml, sibling repo) running `TripApiApplication` — resources are
-registered **explicitly** in `getClasses()`, no package scanning; a new resource must be added there. 16
-resources (auth, people, trips, registrations, transactions, todos, privileges, chat, chat-admin,
-photo-chat, audit, config, mail, payments, deploy, lodging) + `TripAuthFilter`, `JsonExceptionMapper`,
-`ObjectMapperProvider`. DTOs in `api/dto`, MapStruct mappers in `api/mapper`. Versioning is via the
-`Accept` media type, not a URL segment.
+registered **explicitly** in `getClasses()`, no package scanning; a new resource must be added there (and to
+`ApiSurfaceTest.RESOURCES`). 17 resources (auth, people, trips, registrations, transactions, todos,
+privileges, chat, chat-admin, photo-chat, audit, config, mail, payments, deploy, lodging, family) +
+`TripAuthFilter`, `JsonExceptionMapper`, `ObjectMapperProvider`. DTOs in `api/dto`, MapStruct mappers in
+`api/mapper`. Versioning is via the `Accept` media type, not a URL segment.
+
+- The API is the native client's (UniteTrip iOS, `../UniteTrip`) only door, so a page feature the app needs
+  gets a resource that WRAPS the page's bean — never a second implementation. Where a bean only growled,
+  it gained an `*Outcome` sibling that returns a coded result and the page method delegates to it
+  (`FamilyCommands.FamilyResult`, `RegistrationCommands.PartyOutcome`, `ProfilePhotoCommands.PhotoResult`).
+- Photo uploads on the API are RAW bodies (`image/*` or `application/octet-stream`, crop in query params),
+  read through `BaseResource.readUpload`, which refuses over-cap bodies before buffering. The API servlet
+  has no `multipart-config` and must not get one (Tomcat's `maxPartCount` counts ordinary fields).
+- Every URL that leaves the API is absolute (`BaseResource.absoluteUrl`): a mobile client cannot resolve a
+  context-relative `/profile-photos/...` the way a page can. `GET /api/media/bases` names the photo bases.
 
 - `PhotoChatResource` is deliberately NOT `@TripApi`: the auth filter is name-bound, so its GETs serve
   anonymous readers (comments follow the photo — `docs/photo-comments.md`); mutations enforce the session

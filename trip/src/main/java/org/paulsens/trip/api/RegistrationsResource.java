@@ -3,23 +3,30 @@ package org.paulsens.trip.api;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.AuditCommands;
+import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.RegistrationCommands;
+import org.paulsens.trip.api.dto.RegisterPartyRequest;
+import org.paulsens.trip.api.dto.RegisterPartyResponse;
 import org.paulsens.trip.api.dto.RegistrationDto;
 import org.paulsens.trip.api.mapper.RegistrationMapper;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.Registration;
+import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Trip;
 
 /**
@@ -134,6 +141,90 @@ public class RegistrationsResource extends BaseResource {
         audit(trip, person, existing, toSave);
         // Echo the object just saved; a re-read can still serve the pre-save value while the cache catches up.
         return ok(RegistrationMapper.INSTANCE.toDto(toSave));
+    }
+
+    /**
+     * Self-registration, the way the join page does it: a party of travelers the caller may act for (themselves
+     * and the family members they manage; site admins anyone), each filed PENDING with their answers, one
+     * party stamp across the submit, the digest choice parked, the office notified and the registrant mailed
+     * once for the whole party. Already-registered travelers in the party get their answers updated instead,
+     * when the {@code reg.allowEdits} setting permits. Refusals are per traveler, in the response, not a
+     * status: one refused traveler never blocks the rest of the family.
+     */
+    @POST
+    @Path("party")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response registerParty(
+            @PathParam("tripId") final String tripId,
+            @HeaderParam(CSRF_HEADER) final String csrf,
+            final RegisterPartyRequest body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        if (body == null || body.travelers() == null || body.travelers().isEmpty()) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "Name at least one traveler.");
+        }
+        final Trip trip = requireTrip(tripId);
+        final RegistrationCommands registrations = callerBoundRegistrations();
+        final ChatCommands chat = new ChatCommands();
+        final Map<String, Registration> regs = new LinkedHashMap<>();
+        final Map<String, Object> selected = new LinkedHashMap<>();
+        final Map<String, Object> digests = new LinkedHashMap<>();
+        for (final RegisterPartyRequest.TravelerRequest traveler : body.travelers()) {
+            if (traveler == null || traveler.personId() == null || traveler.personId().isBlank()) {
+                return error(400, ApiErrors.VALIDATION_FAILED, "Every traveler needs a personId.");
+            }
+            final String key = traveler.personId().trim();
+            if (regs.containsKey(key)) {
+                return error(400, ApiErrors.VALIDATION_FAILED, "A traveler is named twice: " + key + ".");
+            }
+            final Person.Id travelerId = Person.Id.from(key);
+            requireSubject(travelerId);
+            final Registration existing = registrations.getRegistration(tripId, travelerId);
+            regs.put(key, traveler.options() == null ? existing : withAnswers(existing, trip, traveler.options()));
+            selected.put(key, Boolean.TRUE);
+            digests.put(key, traveler.dailyDigest() != null ? traveler.dailyDigest()
+                    : chat.digestChoiceOrDefault(existing));
+        }
+        final RegistrationCommands.PartyOutcome outcome =
+                registrations.registerPartyOutcome(trip, selected, regs, digests);
+        final AuditCommands audit = Beans.get(AuditCommands.class);
+        final List<RegistrationDto> registered = new ArrayList<>();
+        for (final Person person : outcome.registered()) {
+            audit.registered(person, trip, actor());
+            // The saved row is the party's transient row with the stamps, now Pending -- echoed, not re-read.
+            registered.add(RegistrationMapper.INSTANCE.toDto(
+                    regs.get(person.getId().getValue()).withStatusString("Pending")));
+        }
+        registrations.sendRegistrationMail(trip, outcome.registered());
+        final List<RegistrationDto> updated = outcome.updated().stream()
+                .map(person -> RegistrationMapper.INSTANCE.toDto(regs.get(person.getId().getValue())))
+                .toList();
+        return ok(new RegisterPartyResponse(registered, updated, outcome.refused()));
+    }
+
+    /**
+     * The party's row for one traveler with the posted answers on it: only the trip's own question keys are
+     * taken (the page's form can send nothing else), so a client cannot write the reserved stamps.
+     */
+    private static Registration withAnswers(final Registration existing, final Trip trip,
+            final Map<String, String> posted) {
+        final Map<String, String> options = new LinkedHashMap<>(existing.getOptions());
+        if (trip.getRegOptions() != null) {
+            for (final RegistrationOption option : trip.getRegOptions()) {
+                if (posted.containsKey(option.getKey())) {
+                    options.put(option.getKey(), posted.get(option.getKey()));
+                }
+            }
+        }
+        return new Registration(existing.getTripId(), existing.getUserId(), existing.getCreated(),
+                existing.getStatus(), options);
+    }
+
+    /** Seam: the bean bound to THIS caller (its per-traveler authorization needs one); tests substitute. */
+    protected RegistrationCommands callerBoundRegistrations() {
+        return new RegistrationCommands(this::caller);
     }
 
     /** The room this person is assigned to on this trip. */

@@ -110,6 +110,27 @@ public class RegistrationCommands {
     }
 
     /**
+     * How a party submit went, traveler by traveler: who was newly registered, whose already-filed answers
+     * were updated, and who was refused with why. The refusal codes are the REST edge's vocabulary; the page
+     * turns them into its growls in {@link #registerParty}.
+     */
+    public record PartyOutcome(List<Person> registered, List<Person> updated,
+            java.util.Map<String, String> refused) {
+
+        /** The caller may not act for this traveler (not themselves, not managed, not a site admin). */
+        public static final String NOT_ALLOWED = "NOT_ALLOWED";
+        /** Already pending or confirmed: nothing to file, the page shows their status instead of a form. */
+        public static final String ALREADY_REGISTERED = "ALREADY_REGISTERED";
+        /** The trip has started (or the traveler is otherwise unjoinable) and they are not on the roster. */
+        public static final String CANNOT_JOIN = "CANNOT_JOIN";
+
+        static PartyOutcome empty() {
+            return new PartyOutcome(new java.util.ArrayList<>(), new java.util.ArrayList<>(),
+                    new java.util.LinkedHashMap<>());
+        }
+    }
+
+    /**
      * @param digests personId value -> Boolean daily-digest answers, parked on each registration BEFORE its
      *                save (approval is what turns the answer into a real chat preference); null skips.
      */
@@ -117,12 +138,44 @@ public class RegistrationCommands {
             final java.util.Map<String, Object> selected,
             final java.util.Map<String, Registration> regs,
             final java.util.Map<String, Object> digests) {
-        final List<Person> registered = new java.util.ArrayList<>();
-        final Person me = currentPerson();
-        if (trip == null || me == null || selected == null || regs == null) {
+        if (trip == null || currentPerson() == null || selected == null || regs == null) {
             PageFeedback.error("Nothing registered",
                     "Select at least one traveler.");
-            return registered;
+            return new java.util.ArrayList<>();
+        }
+        final PartyOutcome outcome = registerPartyOutcome(trip, selected, regs, digests);
+        final PersonCommands people = PersonCommands.getPersonCommands();
+        for (final java.util.Map.Entry<String, String> refusal : outcome.refused().entrySet()) {
+            final String name = people.getPerson(Person.Id.from(refusal.getKey())).getPreferredName();
+            if (PartyOutcome.NOT_ALLOWED.equals(refusal.getValue())) {
+                PageFeedback.error("Not registered", "You cannot register " + name + ".");
+            } else if (PartyOutcome.CANNOT_JOIN.equals(refusal.getValue())) {
+                PageFeedback.warn("Not registered", name + " cannot join this trip.");
+            }
+        }
+        if (outcome.registered().isEmpty() && outcome.updated().isEmpty()) {
+            PageFeedback.warn("Nothing registered",
+                    "No travelers were registered.");
+        } else if (!outcome.updated().isEmpty()) {
+            PageFeedback.info("Changes saved", "Updated responses for "
+                    + String.join(", ", outcome.updated().stream().map(Person::getPreferredName).toList()) + ".");
+        }
+        return outcome.registered();
+    }
+
+    /**
+     * {@link #registerParty} with the outcome returned instead of growled: the same saves, in the same
+     * order, with the same authorization per traveler; the REST party endpoint reports it per traveler and
+     * the page turns it into its messages. Nobody signed in, or a missing argument, is an empty outcome.
+     */
+    public PartyOutcome registerPartyOutcome(final org.paulsens.trip.model.Trip trip,
+            final java.util.Map<String, Object> selected,
+            final java.util.Map<String, Registration> regs,
+            final java.util.Map<String, Object> digests) {
+        final PartyOutcome outcome = PartyOutcome.empty();
+        final Person me = currentPerson();
+        if (trip == null || me == null || selected == null || regs == null) {
+            return outcome;
         }
         final String party = java.util.UUID.randomUUID().toString();
         final PersonCommands people = PersonCommands.getPersonCommands();
@@ -131,22 +184,21 @@ public class RegistrationCommands {
                 continue;
             }
             final Person.Id travelerId = Person.Id.from(entry.getKey());
-            final Person traveler = people.getPerson(travelerId);
             if (!canRegisterFor(me, travelerId)) {
-                PageFeedback.error("Not registered",
-                        "You cannot register " + traveler.getPreferredName() + ".");
+                outcome.refused().put(entry.getKey(), PartyOutcome.NOT_ALLOWED);
                 continue;
             }
             final Registration reg = regs.get(entry.getKey());
             if (reg == null || reg.getStatus() != Registration.Status.NOT_REGISTERED) {
-                continue;   // already pending/confirmed: the page shows their status instead of a form
+                // Already pending/confirmed: nothing to file (their answers may still be edited below).
+                outcome.refused().put(entry.getKey(), PartyOutcome.ALREADY_REGISTERED);
+                continue;
             }
             // A traveler already ON the roster bypasses canJoin (which is false for them by definition):
             // people get added to trips by hand, and filing/maintaining their registration row afterwards
             // must keep working -- the pre-merge single-traveler page allowed exactly that.
             if (!trip.canJoin(travelerId) && !trip.getPeople().contains(travelerId)) {
-                PageFeedback.warn("Not registered",
-                        traveler.getPreferredName() + " cannot join this trip.");
+                outcome.refused().put(entry.getKey(), PartyOutcome.CANNOT_JOIN);
                 continue;
             }
             reg.getOptions().put(Registration.OPT_REGISTERED_BY, me.getId().getValue());
@@ -155,22 +207,40 @@ public class RegistrationCommands {
                 new ChatCommands().setDigestChoice(reg, Boolean.TRUE.equals(digests.get(entry.getKey())));
             }
             if (saveRegistration(reg.withStatusString("Pending"))) {
-                registered.add(traveler);
+                outcome.registered().add(people.getPerson(travelerId));
                 // Join-on-registration (user-locked 2026-09-01): an accepted registration is what makes an
                 // existing account a member of the trip's organization -- browsing its site never does.
                 // After the save, so a refused registration joins nobody; a failed join never undoes it.
                 orgSource.get().joinOnRegistration(trip, travelerId);
             }
         }
-        final List<String> updated = saveResponseEdits(trip, regs, digests, me, people);
-        if (registered.isEmpty() && updated.isEmpty()) {
-            PageFeedback.warn("Nothing registered",
-                    "No travelers were registered.");
-        } else if (!updated.isEmpty()) {
-            PageFeedback.info("Changes saved",
-                    "Updated responses for " + String.join(", ", updated) + ".");
+        outcome.updated().addAll(saveResponseEdits(trip, regs, digests, me, people));
+        return outcome;
+    }
+
+    /**
+     * The two mails a party submit sends, once, for the whole party: the office's "New Registration" note and
+     * the registrant's "registration received" copy (the TRIP's org picks the template; blank for a legacy
+     * org-less trip is the site default). One method so the page and the REST edge cannot drift; a mail
+     * failure is logged, never thrown -- the registrations are already saved and must not look otherwise.
+     */
+    public void sendRegistrationMail(final org.paulsens.trip.model.Trip trip, final List<Person> registered) {
+        if (trip == null || registered == null || registered.isEmpty()) {
+            return;
         }
-        return registered;
+        final Person me = currentPerson();
+        final MailCommands mail = mailSource.get();
+        final MailAddressCommands addresses = mailAddrSource.get();
+        final org.paulsens.trip.audit.AuditActor actor = callerSource.get().auditActor();
+        try {
+            mail.send(addresses.fromFor("reg.notify.from"), addresses.recipientFor("reg.notify.email", trip),
+                    null, null, "New Registration - " + trip.getTitle(), partySummary(registered, trip), actor);
+            mail.sendManagedTemplateForOrg("registration-received", trip.getOrgId() == null ? "" : trip.getOrgId(),
+                    receivedMailValues(trip, registered), me == null ? null : me.getEmail(),
+                    addresses.fromFor("reg.mail.from"), addresses.replyToFor("reg.mail.replyTo", trip), null, actor);
+        } catch (final RuntimeException ex) {
+            log.error("Registration mail for trip {} failed after the rows were saved", trip.getId(), ex);
+        }
     }
 
     /**
@@ -182,13 +252,13 @@ public class RegistrationCommands {
      * reserved keys are untouched. No-op rows are detected and skipped, so an untouched submit writes
      * nothing and says nothing.
      *
-     * @return the preferred names whose registrations were actually updated
+     * @return the travelers whose registrations were actually updated
      */
-    private List<String> saveResponseEdits(final org.paulsens.trip.model.Trip trip,
+    private List<Person> saveResponseEdits(final org.paulsens.trip.model.Trip trip,
             final java.util.Map<String, Registration> regs,
             final java.util.Map<String, Object> digests,
             final Person me, final PersonCommands people) {
-        final List<String> updated = new java.util.ArrayList<>();
+        final List<Person> updated = new java.util.ArrayList<>();
         if (!new ConfigCommands().getBoolean(org.paulsens.trip.config.KnownSettings.REG_ALLOW_EDITS)) {
             return updated;
         }
@@ -215,7 +285,7 @@ public class RegistrationCommands {
                 }
             }
             if (changed && saveRegistration(stored)) {
-                updated.add(people.getPerson(who).getPreferredName());
+                updated.add(people.getPerson(who));
                 regs.put(entry.getKey(), stored);   // the page's (session-draft) copy follows the saved row
             }
         }
