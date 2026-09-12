@@ -38,6 +38,7 @@ public class ChatPhotoUploadTest {
     private long maxBytes;
     private ChatPhotos chatPhotos;
     private PendingUploads pendingUploads;
+    private org.paulsens.trip.media.UploadRateLimiter limiter;
     private ChatPhotoUpload bean;
 
     @BeforeMethod
@@ -51,6 +52,8 @@ public class ChatPhotoUploadTest {
         maxBytes = 10L * 1024 * 1024;
         chatPhotos = Mockito.mock(ChatPhotos.class);
         pendingUploads = new PendingUploads();
+        // The shared limiter is process-wide; a private one keeps this class from limiting the REST tests.
+        limiter = new org.paulsens.trip.media.UploadRateLimiter(ChatPhotoUpload.UPLOADS_PER_WINDOW, 600);
         bean = new ChatPhotoUpload() {
             @Override
             protected Caller caller() {
@@ -68,7 +71,12 @@ public class ChatPhotoUploadTest {
                 Mockito.when(settings.getMaxAttachmentBytes()).thenReturn(maxBytes);
                 final ChatChannel channel = Mockito.mock(ChatChannel.class);
                 Mockito.when(channel.getSettings()).thenReturn(settings);
-                return new ChatCommands.AttachGate(channel, denial);
+                return new ChatCommands.AttachGate(channel, denial == null ? null : "forbidden", denial);
+            }
+
+            @Override
+            protected org.paulsens.trip.media.UploadRateLimiter limiter() {
+                return limiter;
             }
 
             @Override

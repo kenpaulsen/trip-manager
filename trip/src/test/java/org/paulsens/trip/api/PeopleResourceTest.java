@@ -9,10 +9,13 @@ import org.mockito.Mockito;
 import org.paulsens.trip.action.AuditCommands;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.action.PersonDataValueCommands;
+import org.paulsens.trip.action.ProfilePhotoCommands;
 import org.paulsens.trip.action.ProfilePhotos;
 import org.paulsens.trip.api.dto.PersonDataValueDto;
 import org.paulsens.trip.api.dto.PersonDto;
 import org.paulsens.trip.api.dto.PrivacyDto;
+import org.paulsens.trip.api.dto.ProfilePhotoDto;
+import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
@@ -299,13 +302,25 @@ public class PeopleResourceTest extends ResourceTestSupport {
         Mockito.when(photos.hasPhoto(ME.getValue())).thenReturn(true);
         Mockito.when(photos.getUrl(ME.getValue())).thenReturn("/photo/me.jpg");
 
+        Mockito.when(photos.getSelectedSlot(ME.getValue())).thenReturn(2);
+        Mockito.when(photos.getSlots(ME.getValue())).thenReturn(List.of(
+                new ProfilePhotos.Slot(1, "profilePics/me/1-1.jpg", "/photo/one.jpg"),
+                new ProfilePhotos.Slot(2, "profilePics/me/2-1.jpg", "/photo/me.jpg")));
+        Mockito.when(request.getScheme()).thenReturn("https");
+        Mockito.when(request.getServerName()).thenReturn("visitqueenofpeace.com");
+        Mockito.when(request.getServerPort()).thenReturn(443);
+
         final Response response = resource.photo(ME.getValue());
 
         assertOk(response);
-        @SuppressWarnings("unchecked")
-        final Map<String, Object> body = (Map<String, Object>) response.getEntity();
-        Assert.assertEquals(body.get("hasPhoto"), true);
-        Assert.assertEquals(body.get("url"), "/photo/me.jpg");
+        final ProfilePhotoDto body = (ProfilePhotoDto) response.getEntity();
+        Assert.assertTrue(body.hasPhoto());
+        Assert.assertEquals(body.url(), "https://visitqueenofpeace.com/photo/me.jpg",
+                "a context-relative photo path leaves the API absolute");
+        Assert.assertEquals(body.selectedSlot(), 2);
+        Assert.assertEquals(body.slots().size(), 2);
+        Assert.assertEquals(body.slots().get(0).url(), "https://visitqueenofpeace.com/photo/one.jpg");
+        Assert.assertNull(body.storedSlot(), "only an upload names a stored slot");
     }
 
     @Test
@@ -317,11 +332,150 @@ public class PeopleResourceTest extends ResourceTestSupport {
         final Response response = resource.photo(ME.getValue());
 
         assertOk(response);
-        @SuppressWarnings("unchecked")
-        final Map<String, Object> body = (Map<String, Object>) response.getEntity();
-        Assert.assertEquals(body.get("hasPhoto"), false);
-        Assert.assertNull(body.get("url"));
+        final ProfilePhotoDto body = (ProfilePhotoDto) response.getEntity();
+        Assert.assertFalse(body.hasPhoto());
+        Assert.assertNull(body.url());
+        Assert.assertEquals(body.selectedSlot(), 0);
+        Assert.assertTrue(body.slots().isEmpty());
         Mockito.verify(photos, Mockito.never()).getUrl(ArgumentMatchers.anyString());
+    }
+
+    private ProfilePhotoCommands photoCommandsAllowing(final boolean allowed) {
+        final ProfilePhotoCommands commands = bindMock(ProfilePhotoCommands.class);
+        Mockito.when(commands.mayEdit(ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(allowed);
+        return commands;
+    }
+
+    private static java.io.InputStream bodyOf(final byte[] bytes) {
+        return new java.io.ByteArrayInputStream(bytes);
+    }
+
+    @Test
+    public void uploadPhotoStoresThroughTheBeanAndAnswersTheNewState() {
+        signedInAs(ME);
+        exists(person(ME, "Me"));
+        final ProfilePhotoCommands commands = photoCommandsAllowing(true);
+        final byte[] bytes = org.paulsens.trip.media.PhotoFixtures.jpeg(600, 400);
+        Mockito.when(commands.storeFor(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.eq(bytes), ArgumentMatchers.eq(new PhotoProcessor.CropRect(10, 20, 300, 300)),
+                ArgumentMatchers.eq(2))).thenReturn(new ProfilePhotoCommands.PhotoResult(null, null, 2));
+        final ProfilePhotos photos = bindMock(ProfilePhotos.class);
+        Mockito.when(photos.hasPhoto(ME.getValue())).thenReturn(true);
+        Mockito.when(photos.getUrl(ME.getValue())).thenReturn("/profile-photos/x.jpg");
+        Mockito.when(photos.getSelectedSlot(ME.getValue())).thenReturn(2);
+        Mockito.when(photos.getSlots(ME.getValue()))
+                .thenReturn(List.of(new ProfilePhotos.Slot(2, "x.jpg", "/profile-photos/x.jpg")));
+
+        final Response response = resource.uploadPhoto(ME.getValue(), CSRF_OK, (long) bytes.length, 2,
+                10, 20, 300, 300, bodyOf(bytes));
+
+        assertOk(response);
+        final ProfilePhotoDto body = (ProfilePhotoDto) response.getEntity();
+        Assert.assertEquals(body.storedSlot(), Integer.valueOf(2));
+        Assert.assertTrue(body.hasPhoto());
+        Assert.assertEquals(body.slots().size(), 1);
+    }
+
+    @Test
+    public void uploadPhotoRefusalsMapOntoTheStatuses() {
+        signedInAs(ME);
+        exists(person(ME, "Me"));
+        final byte[] bytes = org.paulsens.trip.media.PhotoFixtures.jpeg(60, 40);
+        assertError(resource.uploadPhoto(ME.getValue(), null, null, null, null, null, null, null, bodyOf(bytes)),
+                403, ApiErrors.CSRF);
+        assertError(resource.uploadPhoto(OTHER.getValue(), CSRF_OK, null, null, null, null, null, null,
+                bodyOf(bytes)), 404, ApiErrors.NOT_FOUND);
+
+        final ProfilePhotoCommands commands = photoCommandsAllowing(false);
+        assertError(resource.uploadPhoto(ME.getValue(), CSRF_OK, null, null, null, null, null, null,
+                bodyOf(bytes)), 403, ApiErrors.FORBIDDEN);
+
+        Mockito.when(commands.mayEdit(ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+        assertError(resource.uploadPhoto(ME.getValue(), CSRF_OK, null, 5, null, null, null, null, bodyOf(bytes)),
+                400, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.uploadPhoto(ME.getValue(), CSRF_OK, null, null, 1, 2, null, null, bodyOf(bytes)),
+                400, ApiErrors.BAD_REQUEST);
+        // Declared too large: refused before a byte is read.
+        assertError(resource.uploadPhoto(ME.getValue(), CSRF_OK, 17L * 1024 * 1024, null, null, null, null, null,
+                bodyOf(bytes)), 413, ApiErrors.PAYLOAD_TOO_LARGE);
+        assertError(resource.uploadPhoto(ME.getValue(), CSRF_OK, null, null, null, null, null, null,
+                bodyOf(new byte[0])), 400, ApiErrors.VALIDATION_FAILED);
+
+        final Person.Id[] ignored = {};
+        Mockito.when(commands.storeFor(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(new ProfilePhotoCommands.PhotoResult(
+                        ProfilePhotoCommands.PhotoResult.NO_FREE_SLOT, "No free slot", 0))
+                .thenReturn(new ProfilePhotoCommands.PhotoResult(
+                        ProfilePhotoCommands.PhotoResult.REJECTED, "Photo rejected: garbage", 0))
+                .thenReturn(new ProfilePhotoCommands.PhotoResult(
+                        ProfilePhotoCommands.PhotoResult.STORE_FAILED, "Not stored", 0))
+                .thenReturn(new ProfilePhotoCommands.PhotoResult(
+                        ProfilePhotoCommands.PhotoResult.NOT_ALLOWED, "Not allowed", 0));
+        assertError(resource.uploadPhoto(ME.getValue(), CSRF_OK, null, null, null, null, null, null,
+                bodyOf(bytes)), 409, ApiErrors.CONFLICT);
+        assertError(resource.uploadPhoto(ME.getValue(), CSRF_OK, null, null, null, null, null, null,
+                bodyOf(bytes)), 422, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.uploadPhoto(ME.getValue(), CSRF_OK, null, null, null, null, null, null,
+                bodyOf(bytes)), 500, ApiErrors.STORE_FAILED);
+        assertError(resource.uploadPhoto(ME.getValue(), CSRF_OK, null, null, null, null, null, null,
+                bodyOf(bytes)), 403, ApiErrors.FORBIDDEN);
+        Assert.assertEquals(ignored.length, 0);
+    }
+
+    @Test
+    public void deletePhotoAnswersTheRemainingStateOr404ForAnEmptySlot() {
+        signedInAs(ME);
+        exists(person(ME, "Me"));
+        final ProfilePhotoCommands commands = photoCommandsAllowing(true);
+        Mockito.when(commands.deleteSlotFor(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.eq(1)))
+                .thenReturn(new ProfilePhotoCommands.PhotoResult(null, null, 1));
+        Mockito.when(commands.deleteSlotFor(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.eq(3)))
+                .thenReturn(new ProfilePhotoCommands.PhotoResult(ProfilePhotoCommands.PhotoResult.EMPTY_SLOT, null, 0));
+        final ProfilePhotos photos = bindMock(ProfilePhotos.class);
+        Mockito.when(photos.hasPhoto(ME.getValue())).thenReturn(false);
+
+        assertError(resource.deletePhoto(ME.getValue(), 1, null), 403, ApiErrors.CSRF);
+        assertError(resource.deletePhoto(OTHER.getValue(), 1, CSRF_OK), 404, ApiErrors.NOT_FOUND);
+        assertError(resource.deletePhoto(ME.getValue(), 0, CSRF_OK), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.deletePhoto(ME.getValue(), 3, CSRF_OK), 404, ApiErrors.NOT_FOUND);
+
+        final Response response = resource.deletePhoto(ME.getValue(), 1, CSRF_OK);
+        assertOk(response);
+        Assert.assertFalse(((ProfilePhotoDto) response.getEntity()).hasPhoto());
+    }
+
+    @Test
+    public void selectPhotoNeedsAnOccupiedSlotAndSavesThroughPersonCommands() {
+        signedInAs(ME);
+        final Person me = person(ME, "Me");
+        exists(me);
+        photoCommandsAllowing(true);
+        final ProfilePhotos photos = bindMock(ProfilePhotos.class);
+        Mockito.when(photos.hasPhoto(ME.getValue())).thenReturn(true);
+        Mockito.when(photos.getUrl(ME.getValue())).thenReturn("/p/2.jpg");
+        Mockito.when(photos.getSelectedSlot(ME.getValue())).thenReturn(2);
+        Mockito.when(photos.getSlots(ME.getValue())).thenReturn(List.of(
+                new ProfilePhotos.Slot(1, "k1", "/p/1.jpg"), new ProfilePhotos.Slot(2, "k2", "/p/2.jpg")));
+        Mockito.when(people.selectProfilePhoto(me, 2)).thenReturn(true);
+
+        assertError(resource.selectPhoto(ME.getValue(), null, Map.of("slot", 2)), 403, ApiErrors.CSRF);
+        assertError(resource.selectPhoto(OTHER.getValue(), CSRF_OK, Map.of("slot", 2)), 404, ApiErrors.NOT_FOUND);
+        assertError(resource.selectPhoto(ME.getValue(), CSRF_OK, Map.of()), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.selectPhoto(ME.getValue(), CSRF_OK, Map.of("slot", "two")), 400,
+                ApiErrors.VALIDATION_FAILED);
+        assertError(resource.selectPhoto(ME.getValue(), CSRF_OK, Map.of("slot", 3)), 404, ApiErrors.NOT_FOUND);
+
+        final Response response = resource.selectPhoto(ME.getValue(), CSRF_OK, Map.of("slot", 2));
+        assertOk(response);
+        Assert.assertEquals(((ProfilePhotoDto) response.getEntity()).selectedSlot(), 2);
+        Mockito.verify(people).selectProfilePhoto(me, 2);
+
+        Mockito.when(people.selectProfilePhoto(me, 1)).thenReturn(false);
+        assertError(resource.selectPhoto(ME.getValue(), CSRF_OK, Map.of("slot", 1)), 500, ApiErrors.STORE_FAILED);
+
+        photoCommandsAllowing(false);
+        assertError(resource.selectPhoto(ME.getValue(), CSRF_OK, Map.of("slot", 2)), 403, ApiErrors.FORBIDDEN);
     }
 
     @Test

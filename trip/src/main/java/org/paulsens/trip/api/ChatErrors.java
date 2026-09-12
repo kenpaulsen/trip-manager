@@ -42,6 +42,8 @@ public final class ChatErrors {
      * Not terminal: the composer keeps the text, tells the person, and they re-attach.
      */
     public static final String BAD_ATTACHMENT = "BAD_ATTACHMENT";
+    /** An upload body over the channel's per-photo cap (413). The client shrinks the photo and tries again. */
+    public static final String ATTACHMENT_TOO_LARGE = "ATTACHMENT_TOO_LARGE";
     public static final String CSRF = "CSRF_REQUIRED";
     public static final String UNSUPPORTED_MEDIA_TYPE = "UNSUPPORTED_MEDIA_TYPE";
     public static final String NOT_ACCEPTABLE = "NOT_ACCEPTABLE";

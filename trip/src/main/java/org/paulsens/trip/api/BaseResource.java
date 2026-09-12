@@ -8,12 +8,16 @@ import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.security.BearerTokens;
@@ -268,6 +272,47 @@ public abstract class BaseResource {
             url.append(context);
         }
         return url.append(path).toString();
+    }
+
+    /**
+     * Reads a raw upload body, refusing anything over {@code maxBytes} BEFORE buffering it: a declared
+     * {@code Content-Length} over the cap is refused unread, and an undeclared or understated one is read
+     * only one byte past the cap. Empty means too large; the caller answers 413.
+     *
+     * <p>Raw bytes rather than multipart on purpose: the API servlet has no {@code multipart-config} and must
+     * not get one (Tomcat's {@code maxPartCount} counts ordinary fields), and a mobile client sends one photo
+     * per request anyway.
+     */
+    protected static Optional<byte[]> readUpload(final InputStream body, final Long declaredLength,
+            final long maxBytes) throws IOException {
+        if (declaredLength != null && declaredLength > maxBytes) {
+            return Optional.empty();
+        }
+        if (body == null) {
+            return Optional.of(new byte[0]);
+        }
+        final byte[] bytes = body.readNBytes((int) Math.min(Integer.MAX_VALUE - 8L, maxBytes + 1));
+        return bytes.length > maxBytes ? Optional.empty() : Optional.of(bytes);
+    }
+
+    /**
+     * The crop rectangle named by the four {@code crop*} query parameters: none of them means no crop; all
+     * four means one; anything in between is a malformed request.
+     *
+     * @throws IllegalArgumentException when only some of the four are present, or the size is not positive.
+     */
+    protected static PhotoProcessor.CropRect cropRect(final Integer x, final Integer y, final Integer width,
+            final Integer height) {
+        if (x == null && y == null && width == null && height == null) {
+            return null;
+        }
+        if (x == null || y == null || width == null || height == null) {
+            throw new IllegalArgumentException("A crop needs all four of cropX, cropY, cropW and cropH.");
+        }
+        if (x < 0 || y < 0 || width < 1 || height < 1) {
+            throw new IllegalArgumentException("A crop needs a non-negative origin and a positive size.");
+        }
+        return new PhotoProcessor.CropRect(x, y, width, height);
     }
 
     /**

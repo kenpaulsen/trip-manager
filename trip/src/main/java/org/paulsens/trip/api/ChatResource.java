@@ -15,8 +15,11 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.NotAuthorizedException;
 import jakarta.ws.rs.core.Response;
+import java.io.IOException;
+import java.io.InputStream;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.LinkedHashMap;
@@ -25,7 +28,11 @@ import java.util.Map;
 import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.ChatPhotos;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.api.dto.ChatPhotoDto;
 import org.paulsens.trip.chat.ChatNudgeRegistry;
+import org.paulsens.trip.media.PhotoProcessor;
+import org.paulsens.trip.media.PhotoRejectedException;
+import org.paulsens.trip.media.UploadRateLimiter;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMessage;
@@ -297,6 +304,98 @@ public class ChatResource extends BaseResource {
             return error(400, code, message);
         }
         return error(500, code, message);
+    }
+
+    /**
+     * Stages one photo for a later send: the body IS the image (any {@code image/*} type, or
+     * {@code application/octet-stream} when the client would rather not guess), optionally cropped by the four
+     * {@code crop*} query parameters in source-pixel space. The answer carries the keys a {@code POST messages}
+     * attaches by; nothing is posted here, and an unsent photo expires with the staging registry.
+     *
+     * <p>The same gates as the page's upload dialog, in the same order: the shared per-person rate limit
+     * (429 with {@code Retry-After}), {@code checkAttach} (the send refusals: muted, not a member, archived,
+     * photos off), then the channel's byte cap -- enforced against {@code Content-Length} before a byte is read,
+     * and again on the stream for a client that lied.
+     */
+    @POST
+    @Path("photos")
+    @Consumes({"image/*", MediaType.APPLICATION_OCTET_STREAM})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response uploadPhoto(
+            @PathParam("channelId") final String channelId,
+            @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf,
+            @HeaderParam("Content-Length") final Long contentLength,
+            @QueryParam("cropX") final Integer cropX,
+            @QueryParam("cropY") final Integer cropY,
+            @QueryParam("cropW") final Integer cropW,
+            @QueryParam("cropH") final Integer cropH,
+            final InputStream body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
+        }
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        final Person.Id me = personId();
+        final PhotoProcessor.CropRect rect;
+        try {
+            rect = cropRect(cropX, cropY, cropW, cropH);
+        } catch (final IllegalArgumentException ex) {
+            return error(400, ChatErrors.BAD_ATTACHMENT, ex.getMessage());
+        }
+        final UploadRateLimiter limiter = uploadLimiter();
+        if (!limiter.allow(me.getValue())) {
+            return Response.status(429)
+                    .type(MediaType.APPLICATION_JSON)
+                    .header("Vary", "Accept")
+                    .header("Retry-After", Integer.toString(limiter.retryAfterSeconds(me.getValue())))
+                    .entity(Map.of("error", ChatErrors.RATE_LIMITED,
+                            "message", "Too many uploads: wait a minute and try again."))
+                    .build();
+        }
+        final ChatCommands.AttachGate gate = ChatCommands.getChatCommands().checkAttach(tripId, me);
+        if (gate.denial() != null) {
+            final String code = ChatErrors.forSendResult(gate.code());
+            final int status = ChatErrors.BAD_ATTACHMENT.equals(code) ? 400 : 403;
+            return error(status, code, gate.denial());
+        }
+        final long maxBytes = gate.channel().getSettings().getMaxAttachmentBytes();
+        final Optional<byte[]> bytes;
+        try {
+            bytes = readUpload(body, contentLength, maxBytes);
+        } catch (final IOException ex) {
+            return error(400, ChatErrors.BAD_ATTACHMENT, "The upload could not be read.");
+        }
+        if (bytes.isEmpty()) {
+            return error(413, ChatErrors.ATTACHMENT_TOO_LARGE,
+                    "Photos in this chat can be at most " + (maxBytes / (1024 * 1024)) + " MB.");
+        }
+        if (bytes.get().length == 0) {
+            return error(400, ChatErrors.BAD_ATTACHMENT, "The upload was empty.");
+        }
+        final ChatPhotos photos = chatPhotos();
+        try {
+            final ChatPhotos.StagedPhoto staged = photos.stage(tripId, me, bytes.get(), rect);
+            final String base = photos.getPublicBase() != null ? photos.getPublicBase()
+                    : absoluteUrl("/chat-photos/");
+            return ok(new ChatPhotoDto(staged.key(), staged.smallKey(), staged.contentType(), staged.size(),
+                    staged.width(), staged.height(), base + staged.key(), base + staged.smallKey()));
+        } catch (final PhotoRejectedException ex) {
+            return error(422, ChatErrors.BAD_ATTACHMENT, ex.getMessage());
+        } catch (final IllegalStateException ex) {
+            log.error("Chat photo store failed for trip {}", tripId, ex);
+            return error(500, ChatErrors.STORE_FAILED, "The photo could not be stored. Try again.");
+        }
+    }
+
+    /** Seams: the photo store is the one static instance; the limiter the one shared with the page. */
+    protected ChatPhotos chatPhotos() {
+        return ChatPhotos.getChatPhotos();
+    }
+
+    protected UploadRateLimiter uploadLimiter() {
+        return UploadRateLimiter.chatPhotos();
     }
 
     /**

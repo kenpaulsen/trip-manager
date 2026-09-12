@@ -1031,8 +1031,12 @@ public class ChatCommands {
         return null;
     }
 
-    /** The upload gate's answer: the channel consulted, and why not — or {@code null} when allowed. */
-    public record AttachGate(ChatChannel channel, String denial) {
+    /**
+     * The upload gate's answer: the channel consulted, and why not -- or a {@code null} denial when allowed.
+     * The {@code code} is the same vocabulary a send refusal uses ({@link SendResult#getCode()}), so the REST
+     * upload edge maps it with the send mapping rather than a second table.
+     */
+    public record AttachGate(ChatChannel channel, String code, String denial) {
     }
 
     /**
@@ -1048,13 +1052,13 @@ public class ChatCommands {
         final ChatMembership row = dao().getChatMembership(channel.getId(), me, Cached.NO).orElse(null);
         final SendResult denial = postDenial(channel, me, row, Instant.now());
         if (denial != null) {
-            return new AttachGate(channel, denial.getMessage());
+            return new AttachGate(channel, denial.getCode(), denial.getMessage());
         }
         final ChatSettings settings = channel.getSettings();
         if (!settings.isAllowMedia() || settings.getMaxAttachmentsPerMessage() <= 0) {
-            return new AttachGate(channel, "Photos are turned off for this chat.");
+            return new AttachGate(channel, "attachment", "Photos are turned off for this chat.");
         }
-        return new AttachGate(channel, null);
+        return new AttachGate(channel, null, null);
     }
 
     public ChatPage feed(

@@ -1,6 +1,7 @@
 package org.paulsens.trip.api;
 
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
@@ -12,22 +13,28 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.util.LinkedHashMap;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.AuditCommands;
 import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.action.PersonDataValueCommands;
+import org.paulsens.trip.action.PhotoUploadBean;
+import org.paulsens.trip.action.ProfilePhotoCommands;
 import org.paulsens.trip.action.ProfilePhotos;
 import org.paulsens.trip.api.dto.AddressDto;
 import org.paulsens.trip.api.dto.PassportDto;
 import org.paulsens.trip.api.dto.PersonDataValueDto;
 import org.paulsens.trip.api.dto.PersonDto;
 import org.paulsens.trip.api.dto.PrivacyDto;
+import org.paulsens.trip.api.dto.ProfilePhotoDto;
 import org.paulsens.trip.api.mapper.PersonMapper;
+import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
@@ -202,17 +209,160 @@ public class PeopleResource extends BaseResource {
         return ok(dto(person, level));
     }
 
-    /** Whether this person has a profile photo, and where it is. Names are public to any signed-in user. */
+    /**
+     * This person's profile pictures: THE picture and every occupied slot. Readable by any signed-in user,
+     * like the name -- a photo is shown wherever a name is.
+     */
     @GET
     @Path("{id}/photo")
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response photo(@PathParam("id") final String id) {
+        return ok(profilePhotoDto(id, null));
+    }
+
+    /**
+     * Stores a profile picture from a raw image body (any {@code image/*}, or {@code application/octet-stream}),
+     * cropped by the four {@code crop*} query parameters in source-pixel space when given, forced square
+     * either way. {@code slot} names the slot to replace; absent, the next free one. The same rule as the
+     * profile page: yourself, someone you manage, or a site admin.
+     */
+    @POST
+    @Path("{id}/photo")
+    @Consumes({"image/*", MediaType.APPLICATION_OCTET_STREAM})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response uploadPhoto(
+            @PathParam("id") final String id,
+            @HeaderParam(CSRF_HEADER) final String csrf,
+            @HeaderParam("Content-Length") final Long contentLength,
+            @QueryParam("slot") final Integer slot,
+            @QueryParam("cropX") final Integer cropX,
+            @QueryParam("cropY") final Integer cropY,
+            @QueryParam("cropW") final Integer cropW,
+            @QueryParam("cropH") final Integer cropH,
+            final InputStream body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final Person subject = findPerson(Person.Id.from(id));
+        if (subject == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such person.");
+        }
+        final ProfilePhotoCommands photos = Beans.get(ProfilePhotoCommands.class);
+        if (!photos.mayEdit(caller(), subject)) {
+            return error(403, ApiErrors.FORBIDDEN, "Not permitted to change this person's photo.");
+        }
+        if (slot != null && (slot < 1 || slot > ProfilePhotos.MAX_SLOTS)) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "slot must be 1-" + ProfilePhotos.MAX_SLOTS + ".");
+        }
+        final PhotoProcessor.CropRect rect;
+        try {
+            rect = cropRect(cropX, cropY, cropW, cropH);
+        } catch (final IllegalArgumentException ex) {
+            return error(400, ApiErrors.BAD_REQUEST, ex.getMessage());
+        }
+        final Optional<byte[]> bytes;
+        try {
+            bytes = readUpload(body, contentLength, PhotoUploadBean.MAX_UPLOAD_BYTES);
+        } catch (final IOException ex) {
+            return error(400, ApiErrors.BAD_REQUEST, "The upload could not be read.");
+        }
+        if (bytes.isEmpty()) {
+            return error(413, ApiErrors.PAYLOAD_TOO_LARGE,
+                    "A profile picture can be at most " + (PhotoUploadBean.MAX_UPLOAD_BYTES / (1024 * 1024)) + " MB.");
+        }
+        if (bytes.get().length == 0) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "The upload was empty.");
+        }
+        final ProfilePhotoCommands.PhotoResult result = photos.storeFor(caller(), subject, bytes.get(), rect, slot);
+        if (!result.isOk()) {
+            return photoError(result);
+        }
+        return ok(profilePhotoDto(id, result.slot()));
+    }
+
+    /** Removes one slot's picture. 404 when the slot holds none. */
+    @DELETE
+    @Path("{id}/photo/{slot}")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response deletePhoto(
+            @PathParam("id") final String id,
+            @PathParam("slot") final int slot,
+            @HeaderParam(CSRF_HEADER) final String csrf) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final Person subject = findPerson(Person.Id.from(id));
+        if (subject == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such person.");
+        }
+        if (slot < 1 || slot > ProfilePhotos.MAX_SLOTS) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "slot must be 1-" + ProfilePhotos.MAX_SLOTS + ".");
+        }
+        final ProfilePhotoCommands.PhotoResult result =
+                Beans.get(ProfilePhotoCommands.class).deleteSlotFor(caller(), subject, slot);
+        if (!result.isOk()) {
+            return photoError(result);
+        }
+        return ok(profilePhotoDto(id, null));
+    }
+
+    /** Makes one occupied slot THE picture: {@code {"slot": n}}. */
+    @PUT
+    @Path("{id}/photo/selected")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response selectPhoto(
+            @PathParam("id") final String id,
+            @HeaderParam(CSRF_HEADER) final String csrf,
+            final Map<String, Object> body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final Person subject = findPerson(Person.Id.from(id));
+        if (subject == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such person.");
+        }
+        if (!Beans.get(ProfilePhotoCommands.class).mayEdit(caller(), subject)) {
+            return error(403, ApiErrors.FORBIDDEN, "Not permitted to change this person's photo.");
+        }
+        final Object raw = body == null ? null : body.get("slot");
+        final int slot = raw instanceof Number number ? number.intValue() : 0;
+        if (slot < 1 || slot > ProfilePhotos.MAX_SLOTS) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "slot must be 1-" + ProfilePhotos.MAX_SLOTS + ".");
+        }
         final ProfilePhotos photos = Beans.get(ProfilePhotos.class);
-        final Map<String, Object> result = new LinkedHashMap<>();
+        if (photos.getSlots(id).stream().noneMatch(occupied -> occupied.number() == slot)) {
+            return error(404, ApiErrors.NOT_FOUND, "That slot holds no picture.");
+        }
+        if (!Beans.get(PersonCommands.class).selectProfilePhoto(subject, slot)) {
+            return error(500, ApiErrors.STORE_FAILED, "Could not save the choice.");
+        }
+        return ok(profilePhotoDto(id, null));
+    }
+
+    private Response photoError(final ProfilePhotoCommands.PhotoResult result) {
+        return switch (result.code()) {
+            case ProfilePhotoCommands.PhotoResult.NOT_ALLOWED -> error(403, ApiErrors.FORBIDDEN, result.message());
+            case ProfilePhotoCommands.PhotoResult.NO_FREE_SLOT -> error(409, ApiErrors.CONFLICT, result.message());
+            case ProfilePhotoCommands.PhotoResult.REJECTED ->
+                    error(422, ApiErrors.VALIDATION_FAILED, result.message());
+            case ProfilePhotoCommands.PhotoResult.EMPTY_SLOT ->
+                    error(404, ApiErrors.NOT_FOUND, "That slot holds no picture.");
+            default -> error(500, ApiErrors.STORE_FAILED, result.message());
+        };
+    }
+
+    private ProfilePhotoDto profilePhotoDto(final String id, final Integer storedSlot) {
+        final ProfilePhotos photos = Beans.get(ProfilePhotos.class);
         final boolean has = photos.hasPhoto(id);
-        result.put("hasPhoto", has);
-        result.put("url", has ? photos.getUrl(id) : null);
-        return ok(result);
+        final List<ProfilePhotoDto.SlotDto> slots = has
+                ? photos.getSlots(id).stream().map(this::slotDto).toList() : List.of();
+        return new ProfilePhotoDto(has, has ? absoluteUrl(photos.getUrl(id)) : null,
+                has ? photos.getSelectedSlot(id) : 0, slots, storedSlot);
+    }
+
+    private ProfilePhotoDto.SlotDto slotDto(final ProfilePhotos.Slot slot) {
+        return new ProfilePhotoDto.SlotDto(slot.number(), absoluteUrl(slot.url()));
     }
 
     /** Everything stored against this person by data id. Self, their manager, or an admin. */

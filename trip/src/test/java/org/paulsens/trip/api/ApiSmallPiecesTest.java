@@ -155,4 +155,26 @@ public class ApiSmallPiecesTest {
         Assert.assertEquals(probe(false, null).privileges.levelFor(viewer, subject, "t1"),
                 AccessLevel.PEER);
     }
+
+
+    /** The raw-upload helpers on BaseResource: the cap is enforced before buffering, the crop is all-or-nothing. */
+    @Test
+    public void rawUploadHelpersRefuseBeforeBufferingAndCropsAreAllOrNothing() throws Exception {
+        final byte[] five = {1, 2, 3, 4, 5};
+        Assert.assertTrue(BaseResource.readUpload(new java.io.ByteArrayInputStream(five), 5L, 5).isPresent());
+        Assert.assertTrue(BaseResource.readUpload(new java.io.ByteArrayInputStream(five), 6L, 5).isEmpty(),
+                "a declared length over the cap is refused without reading");
+        Assert.assertTrue(BaseResource.readUpload(new java.io.ByteArrayInputStream(five), null, 4).isEmpty(),
+                "an undeclared length is read one byte past the cap and then refused");
+        Assert.assertEquals(BaseResource.readUpload(new java.io.ByteArrayInputStream(five), 3L, 5).get().length, 5,
+                "an understated length does not truncate: the stream is the truth");
+        Assert.assertEquals(BaseResource.readUpload(null, null, 5).get().length, 0);
+
+        Assert.assertNull(BaseResource.cropRect(null, null, null, null));
+        Assert.assertEquals(BaseResource.cropRect(1, 2, 30, 40),
+                new org.paulsens.trip.media.PhotoProcessor.CropRect(1, 2, 30, 40));
+        Assert.assertThrows(IllegalArgumentException.class, () -> BaseResource.cropRect(1, null, 30, 40));
+        Assert.assertThrows(IllegalArgumentException.class, () -> BaseResource.cropRect(1, 2, 0, 40));
+        Assert.assertThrows(IllegalArgumentException.class, () -> BaseResource.cropRect(-1, 2, 3, 4));
+    }
 }

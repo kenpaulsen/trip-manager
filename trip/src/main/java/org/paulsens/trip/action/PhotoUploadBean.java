@@ -49,8 +49,11 @@ public abstract class PhotoUploadBean {
     /** Session key holding the pending-upload token while the crop dialog is open (see PendingPhotoView). */
     static final String TOKEN_KEY = PendingUploads.SESSION_TOKEN_KEY;
 
-    /** Belt-and-braces size gate; the real transport cap is the Faces Servlet's multipart-config. */
-    static final long MAX_UPLOAD_BYTES = 16L * 1024 * 1024;
+    /**
+     * Belt-and-braces size gate; the real transport cap is the Faces Servlet's multipart-config. Public
+     * because the REST upload edge, which has no multipart-config, enforces the same number itself.
+     */
+    public static final long MAX_UPLOAD_BYTES = 16L * 1024 * 1024;
 
     /**
      * What the pre-upload gate answers: a reason to refuse, or the byte cap to enforce. The cap is part of

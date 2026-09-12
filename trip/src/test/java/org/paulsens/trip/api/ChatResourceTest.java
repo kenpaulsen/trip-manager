@@ -571,4 +571,131 @@ public class ChatResourceTest extends ResourceTestSupport {
         Mockito.verify(chat).clearDraft(TRIP_ID, ME);
         assertError(resource.deleteDraft("junk-channel", CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
     }
+
+
+    // --- photo upload ---
+
+    private ChatCommands.AttachGate gateAllowing(final long maxBytes) {
+        final org.paulsens.trip.model.chat.ChatSettings settings =
+                Mockito.mock(org.paulsens.trip.model.chat.ChatSettings.class);
+        Mockito.when(settings.getMaxAttachmentBytes()).thenReturn(maxBytes);
+        final ChatChannel channel = Mockito.mock(ChatChannel.class);
+        Mockito.when(channel.getSettings()).thenReturn(settings);
+        return new ChatCommands.AttachGate(channel, null, null);
+    }
+
+    private static java.io.InputStream bodyOf(final byte[] bytes) {
+        return new java.io.ByteArrayInputStream(bytes);
+    }
+
+    /** A resource whose store and limiter are this test's, not the process-wide singletons. */
+    private ChatResource uploader(final org.paulsens.trip.action.ChatPhotos photos,
+            final org.paulsens.trip.media.UploadRateLimiter limiter) {
+        return resource(new ChatResource() {
+            @Override
+            protected org.paulsens.trip.action.ChatPhotos chatPhotos() {
+                return photos;
+            }
+
+            @Override
+            protected org.paulsens.trip.media.UploadRateLimiter uploadLimiter() {
+                return limiter;
+            }
+        });
+    }
+
+    @Test
+    public void uploadPhotoStagesTheBytesAndAnswersKeysWithAbsoluteUrls() {
+        final org.paulsens.trip.action.ChatPhotos photos = Mockito.mock(org.paulsens.trip.action.ChatPhotos.class);
+        final byte[] bytes = org.paulsens.trip.media.PhotoFixtures.jpeg(640, 480);
+        final org.paulsens.trip.action.ChatPhotos.StagedPhoto staged =
+                new org.paulsens.trip.action.ChatPhotos.StagedPhoto("chat/trip-chat/a.jpg",
+                        "chat/trip-chat/a-small.jpg", "image/jpeg", bytes.length, 640, 480);
+        Mockito.when(photos.stage(TRIP_ID, ME, bytes,
+                new org.paulsens.trip.media.PhotoProcessor.CropRect(0, 0, 400, 400))).thenReturn(staged);
+        final ChatCommands.AttachGate open = gateAllowing(10L * 1024 * 1024);
+        Mockito.when(chat.checkAttach(TRIP_ID, ME)).thenReturn(open);
+        Mockito.when(request.getScheme()).thenReturn("http");
+        Mockito.when(request.getServerName()).thenReturn("localhost");
+        Mockito.when(request.getServerPort()).thenReturn(8080);
+        final ChatResource uploader = uploader(photos, new org.paulsens.trip.media.UploadRateLimiter(5, 60));
+
+        final Response response = uploader.uploadPhoto(CHANNEL, CSRF_OK, (long) bytes.length, 0, 0, 400, 400,
+                bodyOf(bytes));
+
+        assertOk(response);
+        final org.paulsens.trip.api.dto.ChatPhotoDto dto =
+                (org.paulsens.trip.api.dto.ChatPhotoDto) response.getEntity();
+        Assert.assertEquals(dto.key(), "chat/trip-chat/a.jpg");
+        Assert.assertEquals(dto.smallKey(), "chat/trip-chat/a-small.jpg");
+        Assert.assertEquals(dto.url(), "http://localhost:8080/chat-photos/chat/trip-chat/a.jpg");
+        Assert.assertEquals(dto.smallUrl(), "http://localhost:8080/chat-photos/chat/trip-chat/a-small.jpg");
+        Assert.assertEquals(dto.width(), 640);
+
+        // With a CDN configured the base is the CDN's, untouched.
+        Mockito.when(photos.getPublicBase()).thenReturn("https://cdn.example/");
+        Mockito.when(photos.stage(TRIP_ID, ME, bytes, null)).thenReturn(staged);
+        final Response remote = uploader.uploadPhoto(CHANNEL, CSRF_OK, null, null, null, null, null, bodyOf(bytes));
+        assertOk(remote);
+        Assert.assertEquals(((org.paulsens.trip.api.dto.ChatPhotoDto) remote.getEntity()).url(),
+                "https://cdn.example/chat/trip-chat/a.jpg");
+    }
+
+    @Test
+    public void uploadPhotoGatesInTheDialogsOrder() {
+        final org.paulsens.trip.action.ChatPhotos photos = Mockito.mock(org.paulsens.trip.action.ChatPhotos.class);
+        final byte[] bytes = org.paulsens.trip.media.PhotoFixtures.jpeg(64, 48);
+        final org.paulsens.trip.media.UploadRateLimiter limiter = new org.paulsens.trip.media.UploadRateLimiter(2, 60);
+        final ChatResource uploader = uploader(photos, limiter);
+
+        assertError(uploader.uploadPhoto(CHANNEL, null, null, null, null, null, null, bodyOf(bytes)),
+                403, ChatErrors.CSRF);
+        assertError(uploader.uploadPhoto("dm:x", CSRF_OK, null, null, null, null, null, bodyOf(bytes)),
+                400, ChatErrors.BAD_CHANNEL);
+        assertError(uploader.uploadPhoto(CHANNEL, CSRF_OK, null, 1, null, null, null, bodyOf(bytes)),
+                400, ChatErrors.BAD_ATTACHMENT);
+        Mockito.verify(chat, Mockito.never()).checkAttach(ArgumentMatchers.any(), ArgumentMatchers.any());
+
+        // The send-time refusals keep their codes; photos-off is the send's BAD_ATTACHMENT, a 400.
+        Mockito.when(chat.checkAttach(TRIP_ID, ME))
+                .thenReturn(new ChatCommands.AttachGate(null, "muted", "You are muted."))
+                .thenReturn(new ChatCommands.AttachGate(null, "attachment", "Photos are turned off for this chat."));
+        assertError(uploader.uploadPhoto(CHANNEL, CSRF_OK, null, null, null, null, null, bodyOf(bytes)),
+                403, ChatErrors.MUTED);
+        // The limiter counted the first gated attempt; this one is the second and last allowed.
+        assertError(uploader.uploadPhoto(CHANNEL, CSRF_OK, null, null, null, null, null, bodyOf(bytes)),
+                400, ChatErrors.BAD_ATTACHMENT);
+        final Response limited = uploader.uploadPhoto(CHANNEL, CSRF_OK, null, null, null, null, null, bodyOf(bytes));
+        assertError(limited, 429, ChatErrors.RATE_LIMITED);
+        Assert.assertNotNull(limited.getHeaderString("Retry-After"), "a 429 always says when to come back");
+        Mockito.verify(photos, Mockito.never()).stage(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any());
+    }
+
+    @Test
+    public void uploadPhotoEnforcesTheChannelsCapAndReportsTheStoresAnswers() {
+        final org.paulsens.trip.action.ChatPhotos photos = Mockito.mock(org.paulsens.trip.action.ChatPhotos.class);
+        final byte[] bytes = org.paulsens.trip.media.PhotoFixtures.jpeg(64, 48);
+        final ChatCommands.AttachGate tight = gateAllowing(bytes.length - 1);
+        Mockito.when(chat.checkAttach(TRIP_ID, ME)).thenReturn(tight);
+        final ChatResource uploader = uploader(photos, new org.paulsens.trip.media.UploadRateLimiter(50, 60));
+
+        // Declared over the cap: refused unread. Undeclared but over: refused one byte past the cap.
+        assertError(uploader.uploadPhoto(CHANNEL, CSRF_OK, (long) bytes.length, null, null, null, null,
+                bodyOf(bytes)), 413, ChatErrors.ATTACHMENT_TOO_LARGE);
+        assertError(uploader.uploadPhoto(CHANNEL, CSRF_OK, null, null, null, null, null, bodyOf(bytes)),
+                413, ChatErrors.ATTACHMENT_TOO_LARGE);
+
+        final ChatCommands.AttachGate roomy = gateAllowing(1024 * 1024);
+        Mockito.when(chat.checkAttach(TRIP_ID, ME)).thenReturn(roomy);
+        assertError(uploader.uploadPhoto(CHANNEL, CSRF_OK, null, null, null, null, null, bodyOf(new byte[0])),
+                400, ChatErrors.BAD_ATTACHMENT);
+        Mockito.when(photos.stage(TRIP_ID, ME, bytes, null))
+                .thenThrow(new org.paulsens.trip.media.PhotoRejectedException("Not an image."))
+                .thenThrow(new IllegalStateException("bucket down"));
+        assertError(uploader.uploadPhoto(CHANNEL, CSRF_OK, null, null, null, null, null, bodyOf(bytes)),
+                422, ChatErrors.BAD_ATTACHMENT);
+        assertError(uploader.uploadPhoto(CHANNEL, CSRF_OK, null, null, null, null, null, bodyOf(bytes)),
+                500, ChatErrors.STORE_FAILED);
+    }
 }

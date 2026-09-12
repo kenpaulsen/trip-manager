@@ -68,7 +68,7 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
 
     @Override
     protected UploadGate uploadGate() {
-        return mayEdit(subject()) ? UploadGate.allow()
+        return mayEdit(caller(), subject()) ? UploadGate.allow()
                 : UploadGate.deny("Not allowed: you may not change this profile picture.");
     }
 
@@ -84,6 +84,31 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
     }
 
     /**
+     * Why a store or delete was refused, in a vocabulary the REST edge maps onto statuses. {@code null} when
+     * the operation succeeded; the message is the same text the page growls.
+     */
+    public record PhotoResult(String code, String message, int slot) {
+
+        public static final String NOT_ALLOWED = "not_allowed";
+        public static final String NO_FREE_SLOT = "no_free_slot";
+        public static final String REJECTED = "rejected";
+        public static final String STORE_FAILED = "store";
+        public static final String EMPTY_SLOT = "empty_slot";
+
+        static PhotoResult ok(final int slot) {
+            return new PhotoResult(null, null, slot);
+        }
+
+        static PhotoResult refused(final String code, final String message) {
+            return new PhotoResult(code, message, 0);
+        }
+
+        public boolean isOk() {
+            return code == null;
+        }
+    }
+
+    /**
      * Applies the confirmed crop: coordinates arrive in preview-pixel space (the image the cropper showed),
      * are scaled to the full-resolution space, forced square, and re-cropped from the ORIGINAL bytes.
      *
@@ -93,7 +118,7 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
      * @return true when stored; false leaves the dialog open with a message explaining why.
      */
     public boolean applyCrop(final Person subject, final CroppedImage crop, final Integer targetSlot) {
-        if (!mayEdit(subject)) {
+        if (!mayEdit(caller(), subject)) {
             error("Not allowed: you may not change this profile picture.");
             return false;
         }
@@ -102,28 +127,53 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
             return false;
         }
         final PendingUploads.Pending pending = claimed.get();
-        final int slot = (targetSlot == null || targetSlot < 1)
-                ? profilePhotos.nextFreeSlot(subject.getId().getValue()) : targetSlot;
-        if (slot < 1 || slot > ProfilePhotos.MAX_SLOTS) {
-            error("No free slot: all " + ProfilePhotos.MAX_SLOTS + " picture slots are in use. "
-                    + "Replace or delete one instead.");
-            return false;
-        }
-        final byte[] jpeg;
-        try {
-            jpeg = processor.processProfile(pending.original(), scaledRect(crop, pending));
-        } catch (final PhotoRejectedException ex) {
-            error("Photo rejected: " + ex.getMessage());
-            return false;
-        }
-        if (!profilePhotos.store(subject.getId().getValue(), slot, jpeg)) {
-            error("Not stored: the photo could not be stored. Try again.");
+        final PhotoResult result =
+                storeFor(caller(), subject, pending.original(), scaledRect(crop, pending), targetSlot);
+        if (!result.isOk()) {
+            error(result.message());
             return false;
         }
         finish(pending);
-        audit("Profile picture stored", subject, slot);
-        info("Profile picture saved: slot " + slot + " updated.");
+        info("Profile picture saved: slot " + result.slot() + " updated.");
         return true;
+    }
+
+    /**
+     * The store step on its own, for a caller that already holds the bytes (the REST upload endpoint; the
+     * page reaches it through {@link #applyCrop} after claiming its parked upload): authorization, slot
+     * choice, the square profile rendition, the store, the audit record. Reports through the returned
+     * {@link PhotoResult} only -- no growl, so an edge without a page is not talking to nobody.
+     *
+     * @param who        the caller, explicit because the REST edge resolves its own
+     * @param subject    whose profile
+     * @param original   the uploaded bytes, untouched
+     * @param rect       the crop in source-pixel space, or null for the whole image (forced square either way)
+     * @param targetSlot the slot to replace, or null/0 to take the next free slot
+     */
+    public PhotoResult storeFor(final Caller who, final Person subject, final byte[] original,
+            final PhotoProcessor.CropRect rect, final Integer targetSlot) {
+        if (!mayEdit(who, subject)) {
+            return PhotoResult.refused(PhotoResult.NOT_ALLOWED,
+                    "Not allowed: you may not change this profile picture.");
+        }
+        final int slot = (targetSlot == null || targetSlot < 1)
+                ? profilePhotos.nextFreeSlot(subject.getId().getValue()) : targetSlot;
+        if (slot < 1 || slot > ProfilePhotos.MAX_SLOTS) {
+            return PhotoResult.refused(PhotoResult.NO_FREE_SLOT, "No free slot: all " + ProfilePhotos.MAX_SLOTS
+                    + " picture slots are in use. Replace or delete one instead.");
+        }
+        final byte[] jpeg;
+        try {
+            jpeg = processor.processProfile(original, rect);
+        } catch (final PhotoRejectedException ex) {
+            return PhotoResult.refused(PhotoResult.REJECTED, "Photo rejected: " + ex.getMessage());
+        }
+        if (!profilePhotos.store(subject.getId().getValue(), slot, jpeg)) {
+            return PhotoResult.refused(PhotoResult.STORE_FAILED,
+                    "Not stored: the photo could not be stored. Try again.");
+        }
+        audit(who, "Profile picture stored", subject, slot);
+        return PhotoResult.ok(slot);
     }
 
     /**
@@ -131,16 +181,29 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
      * server-side check -- by the time this runs the challenge already passed).
      */
     public boolean deleteSlot(final Person subject, final int slot) {
-        if (!mayEdit(subject)) {
-            error("Not allowed: you may not change this profile picture.");
+        final PhotoResult result = deleteSlotFor(caller(), subject, slot);
+        if (!result.isOk()) {
+            if (result.message() != null) {
+                error(result.message());
+            }
             return false;
         }
-        if (!profilePhotos.deleteSlot(subject.getId().getValue(), slot)) {
-            return false;
-        }
-        audit("Profile picture deleted", subject, slot);
         info("Profile picture deleted: slot " + slot + " removed.");
         return true;
+    }
+
+    /** {@link #deleteSlot} with the caller explicit and the outcome returned rather than growled. */
+    public PhotoResult deleteSlotFor(final Caller who, final Person subject, final int slot) {
+        if (!mayEdit(who, subject)) {
+            return PhotoResult.refused(PhotoResult.NOT_ALLOWED,
+                    "Not allowed: you may not change this profile picture.");
+        }
+        if (!profilePhotos.deleteSlot(subject.getId().getValue(), slot)) {
+            // The page's delete dialog only offers occupied slots, so it has never needed a message here.
+            return PhotoResult.refused(PhotoResult.EMPTY_SLOT, null);
+        }
+        audit(who, "Profile picture deleted", subject, slot);
+        return PhotoResult.ok(slot);
     }
 
     /** EL number literals land in viewScope as Long, setPropertyActionListener values as Integer -- accept both. */
@@ -156,7 +219,7 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
      * until {@link #applyBackground}.
      */
     public void startBgRemoval(final Person subject, final int slot) {
-        if (!mayEdit(subject) || !bgRemovalEnabled()) {
+        if (!mayEdit(caller(), subject) || !bgRemovalEnabled()) {
             error("Not available: background replacement is not available.");
             publishParam("bgReady", false);
             return;
@@ -196,7 +259,7 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
      * key in the same slot -- the original object is replaced only here, on explicit confirm.
      */
     public boolean applyBackground(final Person subject) {
-        if (!mayEdit(subject) || !bgRemovalEnabled()) {
+        if (!mayEdit(caller(), subject) || !bgRemovalEnabled()) {
             error("Not available: background replacement is not available.");
             publishParam("bgApplied", false);
             return false;
@@ -234,7 +297,7 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
         }
         pendingUploads().consume(pending.token());
         sessionPut(BG_TOKEN_KEY, null);
-        audit("Profile picture background replaced", subject, slot);
+        audit(caller(), "Profile picture background replaced", subject, slot);
         info("Background replaced: slot " + slot + " updated.");
         publishParam("bgApplied", true);
         return true;
@@ -252,19 +315,18 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
         return Integer.parseInt(hex, 16);
     }
 
-    /** Yourself, someone you manage, or a site admin -- the same rule the page enforces for its fields. */
-    private boolean mayEdit(final Person subject) {
-        if (subject == null || subject.getId() == null) {
+    /**
+     * Yourself, someone you manage, or a site admin -- the same rule the page enforces for its fields.
+     * Public with the caller explicit so the REST edge asks the one rule rather than restating it.
+     */
+    public boolean mayEdit(final Caller who, final Person subject) {
+        if (subject == null || subject.getId() == null || who == null || !who.isAuthenticated()) {
             return false;
         }
-        final Caller caller = caller();
-        if (!caller.isAuthenticated()) {
-            return false;
-        }
-        if (caller.isSiteAdmin() || subject.getId().equals(caller.personId())) {
+        if (who.isSiteAdmin() || subject.getId().equals(who.personId())) {
             return true;
         }
-        return people.canAccessUserId(people.getPerson(caller.personId()), subject.getId());
+        return people.canAccessUserId(people.getPerson(who.personId()), subject.getId());
     }
 
     /** Seam: the page's subject ({@code viewScope.person}); tests override. */
@@ -282,9 +344,9 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
         return config != null && config.getBoolean(KnownSettings.PROFILE_BG_REMOVAL_ENABLED);
     }
 
-    private void audit(final String what, final Person subject, final int slot) {
+    private void audit(final Caller who, final String what, final Person subject, final int slot) {
         Audit.builder(AuditAction.MEDIA, AuditOutcome.SUCCESS)
-                .actor(caller().auditActor())
+                .actor(who.auditActor())
                 .target(AuditEventBuilder.TARGET_MEDIA, "profilePics/" + subject.getId().getValue())
                 .message(what + " (slot " + slot + ") for " + subject.getPreferredName())
                 .log();

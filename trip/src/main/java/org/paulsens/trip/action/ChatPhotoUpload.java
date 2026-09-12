@@ -2,14 +2,11 @@ package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.media.PhotoRejectedException;
+import org.paulsens.trip.media.UploadRateLimiter;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.ScopeUtil;
 import org.primefaces.model.CroppedImage;
@@ -18,7 +15,7 @@ import org.primefaces.model.CroppedImage;
  * The chat side of the shared upload+crop dialog, exposed as {@code #{chatPhotoUpload}} --
  * {@link PhotoUploadBean}'s contract applied to chat's rules: trip membership via
  * {@code ChatCommands.checkAttach}, the channel's per-photo byte cap, and the per-person upload rate limit
- * that used to live in the retired upload servlet's POST path.
+ * ({@link UploadRateLimiter#chatPhotos()}, shared with the REST upload endpoint so the allowance is one).
  *
  * <p>A confirmed crop runs {@link ChatPhotos#stage} -- everything downstream (the composer tray, send-time
  * claiming through {@code ChatPhotoStaging}, album rows, retention) is untouched; the dialog merely replaced
@@ -30,15 +27,10 @@ import org.primefaces.model.CroppedImage;
 @ApplicationScoped
 public class ChatPhotoUpload extends PhotoUploadBean {
 
-    /** Uploads per person per window -- far above honest use (10/message), low enough to stop a loop. */
-    static final int UPLOADS_PER_WINDOW = 40;
-    static final int WINDOW_SECONDS = 600;
+    static final int UPLOADS_PER_WINDOW = UploadRateLimiter.CHAT_UPLOADS_PER_WINDOW;
 
     /** What a pending chat upload is marked as, so a profile token cannot be staged into a chat. */
     static final String PURPOSE = "chat";
-
-    /** Per-person upload timestamps. Process-local like the staging registry, and the same trade. */
-    private final Map<String, Deque<Long>> recentUploads = new ConcurrentHashMap<>();
 
     @Override
     protected String purpose() {
@@ -63,7 +55,7 @@ public class ChatPhotoUpload extends PhotoUploadBean {
         if (tripId == null || me == null) {
             return UploadGate.deny("Not allowed: sign in and open a trip chat to attach photos.");
         }
-        if (!allowUpload(me.getValue())) {
+        if (!limiter().allow(me.getValue())) {
             return UploadGate.deny("Too many uploads: wait a minute and try again.");
         }
         final ChatCommands.AttachGate gate = checkAttach(tripId, me);
@@ -99,23 +91,11 @@ public class ChatPhotoUpload extends PhotoUploadBean {
         }
     }
 
-    private boolean allowUpload(final String personId) {
-        final long now = System.currentTimeMillis();
-        final Deque<Long> times = recentUploads.computeIfAbsent(personId, key -> new ArrayDeque<>());
-        synchronized (times) {
-            final long cutoff = now - WINDOW_SECONDS * 1_000L;
-            while (!times.isEmpty() && times.peekFirst() < cutoff) {
-                times.pollFirst();
-            }
-            if (times.size() >= UPLOADS_PER_WINDOW) {
-                return false;
-            }
-            times.addLast(now);
-            return true;
-        }
+    /** Seams: tests supply the trip, the gate, the limiter and the store directly. */
+    protected UploadRateLimiter limiter() {
+        return UploadRateLimiter.chatPhotos();
     }
 
-    /** Seams: tests supply the trip, the gate and the store directly. */
     protected String tripId() {
         final Object tripId = ScopeUtil.getInstance().getViewMap("theTripId");
         return tripId == null ? null : tripId.toString();

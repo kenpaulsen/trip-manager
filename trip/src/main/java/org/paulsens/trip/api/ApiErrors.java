@@ -38,6 +38,8 @@ public final class ApiErrors {
     public static final String BAD_REQUEST = "BAD_REQUEST";
     public static final String VALIDATION_FAILED = "VALIDATION_FAILED";
     public static final String CONFLICT = "CONFLICT";
+    /** A raw upload body over the endpoint's byte cap (413), refused before it is buffered. */
+    public static final String PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE";
     /** The write was understood and attempted, and the store refused it. Retryable, unlike the 4xx codes. */
     public static final String STORE_FAILED = ChatErrors.STORE_FAILED;
     public static final String CSRF = ChatErrors.CSRF;
