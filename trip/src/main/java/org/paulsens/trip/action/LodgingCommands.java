@@ -1907,11 +1907,17 @@ public class LodgingCommands {
             warn("Room " + room.getRoomNumber() + " is a " + type.getName() + ", not one of the option's room types.");
         }
         final String previousRoom = res.getRoomId();
+        if (roomId.equals(previousRoom)) {
+            info(names(res.getOccupants()) + " already in room " + room.getRoomNumber() + ".");
+            return outcome(true, false, "already there", personId, res.getId().getValue(), roomId);
+        }
         res.setRoomId(roomId);
         if (!persistReservation(trip, offer, acc, res, previousRoom)) {
             return outcome(false, false, "The assignment could not be saved.", personId, reservationId, roomId);
         }
-        final String msg = names(res.getOccupants()) + " assigned to room " + room.getRoomNumber()
+        // A card from the board's Assigned list is a MOVE: say where from, so a mis-click reads as one.
+        final String msg = names(res.getOccupants()) + (previousRoom == null ? " assigned to room "
+                : " moved from room " + nullSafe(acc.roomLabel(previousRoom)) + " to room ") + room.getRoomNumber()
                 + (tooFull == null ? "" : " (over capacity)") + ".";
         info(msg);
         return outcome(true, tooFull != null, msg, personId, res.getId().getValue(), roomId);
@@ -2012,6 +2018,7 @@ public class LodgingCommands {
         final Reservation res = Reservation.builder().tripId(tripId).orgId(trip.getOrgId()).offerId(offer.getId())
                 .accommodationId(offer.getAccommodationId()).occupants(List.of(person))
                 .start(form.start()).end(form.end()).createdBy(caller().personId())
+                .waiveSingleSupplement(form.isWaiveSingleSupplement() ? Boolean.TRUE : null)
                 .created(LocalDateTime.now()).build();
         final String tooFull = capacityProblem(tripId, acc, room, res, form.start(), form.end());
         if (tooFull != null && !form.isForce()) {
@@ -2028,9 +2035,14 @@ public class LodgingCommands {
         if (!persistReservation(trip, offer, acc, res, null)) {
             return placementProblem(form, "The reservation could not be saved.", personId, roomId);
         }
+        if (res.isSupplementWaived()) {
+            auditSource.get().lodging(AuditEventBuilder.TARGET_RESERVATION, res.getId().getValue(), trip.getOrgId(),
+                    "Waived the single supplement for " + names(res.getOccupants()), caller().auditActor());
+        }
         form.setProblem(null);
         final String msg = names(res.getOccupants()) + " placed in room " + room.getRoomNumber()
-                + " on '" + offer.getName() + "'" + (tooFull == null ? "" : " (over capacity)") + ".";
+                + " on '" + offer.getName() + "'" + (res.isSupplementWaived() ? ", single supplement waived" : "")
+                + (tooFull == null ? "" : " (over capacity)") + ".";
         info(msg);
         return outcome(true, tooFull != null, msg, personId, res.getId().getValue(), roomId);
     }
@@ -2372,7 +2384,13 @@ public class LodgingCommands {
             } else if (res.getRoomId() == null) {
                 board.getUnassigned().add(cardFor(trip, res.getOccupants().get(0), res));
             }
+            if (res.getRoomId() != null) {
+                final PersonCard placed = cardFor(trip, res.getOccupants().get(0), res);
+                placed.setRoomLabel(nullSafe(acc.roomLabel(res.getRoomId())));
+                board.getAssigned().add(placed);
+            }
         }
+        board.getAssigned().sort(Comparator.comparing(PersonCard::getRoomLabel).thenComparing(PersonCard::getName));
         for (final Room room : sortedRooms(acc)) {
             board.getRooms().add(cellFor(acc, room, byRoom.getOrDefault(room.getId(), List.of()), from, to));
         }
@@ -2903,34 +2921,7 @@ public class LodgingCommands {
      * under its name. Escaped here because event notes render as HTML everywhere.
      */
     static String lodgingEventNotes(final Accommodation acc) {
-        return acc == null ? "" : escape(fullAddress(acc.getAddress()));
-    }
-
-    /**
-     * {@code "Podbrdo 25, Medjugorje 88266, Bosnia and Herzegovina"}: street and street2, then city, state and
-     * zip, then country -- each group only when it has something in it, the shape the admin page prints.
-     */
-    static String fullAddress(final Address address) {
-        if (address == null) {
-            return "";
-        }
-        final List<String> groups = new ArrayList<>();
-        addressGroup(groups, address.getStreet(), address.getStreet2());
-        addressGroup(groups, address.getCity(), address.getState(), address.getZip());
-        addressGroup(groups, address.getCountry());
-        return String.join(", ", groups);
-    }
-
-    private static void addressGroup(final List<String> groups, final String... parts) {
-        final List<String> present = new ArrayList<>();
-        for (final String part : parts) {
-            if (part != null && !part.isBlank()) {
-                present.add(part.trim());
-            }
-        }
-        if (!present.isEmpty()) {
-            groups.add(String.join(" ", present));
-        }
+        return acc == null || acc.getAddress() == null ? "" : escape(acc.getAddress().oneLine());
     }
 
     private static String place(final Address address) {

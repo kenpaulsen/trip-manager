@@ -114,4 +114,22 @@ public class AddressTest {
     private Address getTestAddress(final String street, final String city, final String state, final String zip) {
         return new Address(street, city, state, zip);
     }
+
+    /** The one-line form groups street, town and country and drops whatever is blank. */
+    @Test
+    public void oneLineDropsBlanksAndKeepsTheGroups() {
+        final Address full = new Address();
+        full.setStreet("Podbrdo 25");
+        full.setCity("Medjugorje");
+        full.setZip("88266");
+        full.setCountry("Bosnia and Herzegovina");
+        Assert.assertEquals(full.oneLine(), "Podbrdo 25, Medjugorje 88266, Bosnia and Herzegovina");
+        full.setStreet2(" Apt 3 ");
+        full.setState("");
+        Assert.assertEquals(full.oneLine(), "Podbrdo 25 Apt 3, Medjugorje 88266, Bosnia and Herzegovina");
+        Assert.assertEquals(new Address().oneLine(), "", "nothing known, nothing printed");
+        final Address townOnly = new Address();
+        townOnly.setCity("Split");
+        Assert.assertEquals(townOnly.oneLine(), "Split");
+    }
 }

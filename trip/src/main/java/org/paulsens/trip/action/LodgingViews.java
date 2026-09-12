@@ -333,6 +333,8 @@ public final class LodgingViews {
         private boolean force;
         /** Shown in the dialog when the room cannot take them on those dates. */
         private String problem;
+        /** The reservation dialog's concession, offered at placement too (2026-09-11). */
+        private boolean waiveSingleSupplement;
 
         public void setRange(final List<LocalDate> dates) {
             range = (dates == null) ? new ArrayList<>() : new ArrayList<>(dates);
@@ -497,6 +499,8 @@ public final class LodgingViews {
         /** label -> answer, the roommate request first. */
         private Map<String, String> answers = new LinkedHashMap<>();
         private String notes;
+        /** The room they are in, on the board's Assigned list; null on the other lists. */
+        private String roomLabel;
     }
 
     @Data
@@ -572,6 +576,9 @@ public final class LodgingViews {
         private List<RoomCell> rooms = new ArrayList<>();
         private List<PersonCard> unassigned = new ArrayList<>();
         private List<PersonCard> noReservation = new ArrayList<>();
+        /** Everyone already in a room at this hotel, by room then name: selecting one and clicking another
+         *  room MOVES them (2026-09-11). */
+        private List<PersonCard> assigned = new ArrayList<>();
         private String floorMapMediaId;
     }
 

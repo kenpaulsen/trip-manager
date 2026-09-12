@@ -1311,4 +1311,39 @@ public class LodgingCommandsTest {
         assertEquals(admin.floorFor(stay.accId(), ""), "1");
         assertEquals(admin.floorFor("nope", "1"), "", "no hotel, no floor");
     }
+
+    /**
+     * The board's Assigned list (2026-09-11): everyone in a room, with the room; a selected assigned card
+     * dropped on another room is a MOVE and says so; the same room again is a no-op; and the placement
+     * dialog can waive the single supplement the way the reservation dialog can.
+     */
+    @Test
+    public void theAssignedListMovesPeopleAndAPlacementCanWaiveTheSupplement() {
+        final Stay stay = stay(true);
+        final PlacementForm form = admin.placementFormFor(trip.getId(), stay.accId(), bob.getId().getValue(),
+                stay.r101());
+        form.setWaiveSingleSupplement(true);
+        assertTrue(admin.place(trip.getId(), form).isAssigned());
+        // The class shares one trip, so bob may hold stays from other scenarios: this one is on THIS offer.
+        final Reservation res = admin.activeReservationsFor(trip.getId(), bob.getId()).stream()
+                .filter(r -> stay.offer().getId().equals(r.getOfferId())).findFirst().orElseThrow();
+        assertTrue(res.isSupplementWaived(), "the placement dialog's concession lands on the reservation");
+
+        RoomBoard board = admin.roomBoard(trip.getId(), stay.accId(), null, null);
+        assertEquals(board.getAssigned().size(), 1, "one card per placed stay");
+        assertEquals(board.getAssigned().get(0).getRoomLabel(), "101", "and the card names the room");
+        assertEquals(board.getAssigned().get(0).getReservationId(), res.getId().getValue());
+        assertTrue(board.getUnassigned().isEmpty(), "a placed person is not also waiting");
+
+        final AssignOutcome same = admin.assignRoom(trip.getId(), res.getId().getValue(), stay.r101(), false,
+                null, null);
+        assertTrue(same.isAssigned(), "the room they are in is not a refusal");
+        final AssignOutcome moved = admin.assignRoom(trip.getId(), res.getId().getValue(), stay.r102(), false,
+                null, null);
+        assertTrue(moved.isAssigned());
+        assertTrue(moved.getMessage().contains("moved from room 101 to room 102"), moved.getMessage());
+        board = admin.roomBoard(trip.getId(), stay.accId(), null, null);
+        assertEquals(board.getAssigned().get(0).getRoomLabel(), "102", "the move shows on the list");
+        assertEquals(admin.findReservation(trip.getId(), res.getId().getValue()).getRoomId(), stay.r102());
+    }
 }
