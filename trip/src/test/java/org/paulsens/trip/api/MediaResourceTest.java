@@ -586,4 +586,23 @@ public class MediaResourceTest extends ResourceTestSupport {
     public void theProducedTypeIsTheMediaMediaType() {
         Assert.assertEquals(new MediaResource().versionedType(), ApiMediaTypes.MEDIA_V1);
     }
+
+
+    /** Locally the bases are this server's own servlets, made absolute from the request; both end in a slash. */
+    @Test
+    public void basesNameTheServletsLocallyAndAreAbsolute() {
+        signedInAs(USER);
+        Mockito.when(media.isUploadEnabled()).thenReturn(false);
+        Mockito.when(request.getScheme()).thenReturn("http");
+        Mockito.when(request.getServerName()).thenReturn("localhost");
+        Mockito.when(request.getServerPort()).thenReturn(8080);
+
+        final Response response = resource.bases();
+        assertOk(response);
+        final org.paulsens.trip.api.dto.MediaBasesDto bases =
+                (org.paulsens.trip.api.dto.MediaBasesDto) response.getEntity();
+        Assert.assertEquals(bases.chatPhotos(), "http://localhost:8080/chat-photos/");
+        Assert.assertEquals(bases.profilePhotos(), "http://localhost:8080/profile-photos/");
+        Assert.assertFalse(bases.remote(), "no bucket in tests");
+    }
 }

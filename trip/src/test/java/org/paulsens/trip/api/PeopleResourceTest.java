@@ -425,4 +425,65 @@ public class PeopleResourceTest extends ResourceTestSupport {
                 .content(content)
                 .build();
     }
+
+
+    /** Address, passport and sex are writable by the same people who may edit the rest; strings follow the
+     *  absent-unchanged / empty-clears rule and dates cannot be cleared. */
+    @Test
+    public void selfCanWriteAddressPassportAndSex() {
+        signedInAs(ME);
+        final Person me = person(ME, "Me");
+        me.getAddress().setStreet("1 Old Street");
+        me.getAddress().setCity("Portland");
+        me.getPassport().setNumber("OLD-1");
+        me.getPassport().setExpires(java.time.LocalDate.of(2030, 1, 1));
+        exists(me);
+        Mockito.when(people.savePerson(me)).thenReturn(true);
+
+        final PersonDto body = new PersonDto(null, null, null, null, null, null, "female", null, null, null, null,
+                new org.paulsens.trip.api.dto.AddressDto("", null, "Seattle", "WA", null, null),
+                new org.paulsens.trip.api.dto.PassportDto("NEW-9", "US", null, null, "Portland"),
+                null, null, null, null, false, null);
+        assertOk(resource.update(ME.getValue(), CSRF_OK, body));
+
+        Assert.assertEquals(me.getSex(), Person.Sex.Female, "sex is parsed case-insensitively");
+        Assert.assertEquals(me.getAddress().getStreet(), "", "an empty string clears a line");
+        Assert.assertEquals(me.getAddress().getCity(), "Seattle");
+        Assert.assertEquals(me.getAddress().getState(), "WA");
+        Assert.assertEquals(me.getPassport().getNumber(), "NEW-9");
+        Assert.assertEquals(me.getPassport().getExpires(), java.time.LocalDate.of(2030, 1, 1),
+                "an absent date leaves the stored one alone");
+        Assert.assertEquals(me.getPassport().getPlaceOfBirth(), "Portland");
+    }
+
+    @Test
+    public void anUnknownSexIsAValidationFailureNotABadRequest() {
+        signedInAs(ME);
+        final Person me = person(ME, "Me");
+        exists(me);
+
+        final PersonDto body = new PersonDto(null, null, null, null, null, null, "Other", null, null, null, null,
+                null, null, null, null, null, null, false, null);
+        assertError(resource.update(ME.getValue(), CSRF_OK, body), 400, ApiErrors.VALIDATION_FAILED);
+        Mockito.verify(people, Mockito.never()).savePerson(ArgumentMatchers.any());
+    }
+
+    /** The redacted round-trip hazard: a body without a passport must not touch the stored one. */
+    @Test
+    public void anAbsentPassportAndAddressLeaveTheStoredOnesAlone() {
+        signedInAs(ME);
+        final Person me = person(ME, "Me");
+        me.getAddress().setStreet("1 Old Street");
+        me.getPassport().setNumber("OLD-1");
+        exists(me);
+        Mockito.when(people.savePerson(me)).thenReturn(true);
+
+        final PersonDto body = new PersonDto(null, "Kenny", null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, false, null);
+        assertOk(resource.update(ME.getValue(), CSRF_OK, body));
+
+        Assert.assertEquals(me.getAddress().getStreet(), "1 Old Street");
+        Assert.assertEquals(me.getPassport().getNumber(), "OLD-1");
+        Assert.assertEquals(me.getNickname(), "Kenny");
+    }
 }

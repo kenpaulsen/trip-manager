@@ -381,15 +381,18 @@ public class TripsResourceTest extends ResourceTestSupport {
         final TripDto append = new TripDto(null, null, null, null, false, null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null, null,
                 List.of(new TripEventDto(null, "LODGING", "Hotel Ruža", null,
-                        LocalDateTime.now().plusDays(31), null, null, null, null)));
+                        LocalDateTime.now().plusDays(31), null, null, null, null,
+                        Map.of("from", "SEA", "carrier", "Alaska"))));
         assertOk(resource.update(TRIP_ID, CSRF_OK, append));
         Assert.assertEquals(existing.getTripEvents().size(), 2, "the new event appends after evt-1");
+        Assert.assertEquals(existing.getTripEvents().get(1).getDetails().get("carrier"), "Alaska",
+                "structured details ride along on an appended event");
         Assert.assertEquals(existing.getTripEvents().get(1).getTitle(), "Hotel Ruža");
         Assert.assertEquals(existing.getTripEvents().get(1).getType(), TripEvent.Type.LODGING);
 
         final TripDto withId = new TripDto(null, null, null, null, false, null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null, null,
-                List.of(new TripEventDto("evt-1", null, "Rewritten", null, null, null, null, null, null)));
+                List.of(new TripEventDto("evt-1", null, "Rewritten", null, null, null, null, null, null, null)));
         assertError(resource.update(TRIP_ID, CSRF_OK, withId), 400, ApiErrors.VALIDATION_FAILED);
     }
 
@@ -482,5 +485,96 @@ public class TripsResourceTest extends ResourceTestSupport {
     @Test
     public void theProducedTypeIsTheTripsMediaType() {
         Assert.assertEquals(new TripsResource().versionedType(), ApiMediaTypes.TRIPS_V1);
+    }
+
+
+    /** Structured details are sent only when the event has some; a free-text event carries no map at all. */
+    @Test
+    public void eventDetailsAreOnTheWireOnlyWhenPresent() {
+        signedInAs(ME);
+        final Trip existing = trip(TRIP_ID, ME);
+        existing.getTripEvents().get(0).setDetails(new java.util.LinkedHashMap<>(
+                Map.of("from", "PDX", "to", "EWR", "flightNumber", "UA 1234")));
+        final TripEvent plain = event("evt-2");
+        existing.getTripEvents().add(plain);
+        tripExists(existing);
+
+        final Response response = resource.events(TRIP_ID);
+        assertOk(response);
+        @SuppressWarnings("unchecked")
+        final List<TripEventDto> events = (List<TripEventDto>) response.getEntity();
+        Assert.assertEquals(events.get(0).details().get("flightNumber"), "UA 1234");
+        Assert.assertNull(events.get(1).details(), "no details means no map, not an empty one");
+    }
+
+    @Test
+    public void rosterNamesEveryoneWithTheirRolesAndIsMembersOnly() {
+        signedInAs(ME);
+        final Trip existing = trip(TRIP_ID, ME);
+        existing.setDirectorIds(List.of(OTHER));
+        existing.setFacilitatorIds(List.of(ME));
+        existing.setLocalGuide("Ivana");
+        tripExists(existing);
+        final PersonCommands people = bean(PersonCommands.class);
+        final Person me = new Person();
+        me.setId(ME);
+        me.setFirst("Ken");
+        me.setLast("Paulsen");
+        me.setNickname("Kenny");
+        final Person other = new Person();
+        other.setId(OTHER);
+        other.setFirst("Fr. Legacy");
+        other.setLast("Director");
+        Mockito.when(people.getPerson(ME)).thenReturn(me);
+        Mockito.when(people.getPerson(OTHER)).thenReturn(other);
+        final org.paulsens.trip.action.ProfilePhotos photos = bindMock(org.paulsens.trip.action.ProfilePhotos.class);
+        Mockito.when(photos.hasPhoto(OTHER.getValue())).thenReturn(true);
+        Mockito.when(photos.getUrl(OTHER.getValue())).thenReturn("/profile-photos/profilePics/x/1-9.jpg");
+        Mockito.when(request.getScheme()).thenReturn("http");
+        Mockito.when(request.getServerName()).thenReturn("localhost");
+        Mockito.when(request.getServerPort()).thenReturn(8080);
+
+        final Response response = resource.roster(TRIP_ID);
+        assertOk(response);
+        final org.paulsens.trip.api.dto.TripRosterDto roster =
+                (org.paulsens.trip.api.dto.TripRosterDto) response.getEntity();
+        Assert.assertEquals(roster.people().size(), 2, "the director who is not on the roster is still listed");
+        final org.paulsens.trip.api.dto.TripRosterDto.RosterEntryDto first = roster.people().get(0);
+        Assert.assertEquals(first.id(), ME.getValue());
+        Assert.assertEquals(first.preferredName(), "Kenny");
+        Assert.assertEquals(first.roles(), List.of("MEMBER", "FACILITATOR"));
+        Assert.assertNull(first.photoUrl(), "no photo, no URL");
+        final org.paulsens.trip.api.dto.TripRosterDto.RosterEntryDto director = roster.people().get(1);
+        Assert.assertEquals(director.roles(), List.of("DIRECTOR"));
+        Assert.assertEquals(director.photoUrl(), "http://localhost:8080/profile-photos/profilePics/x/1-9.jpg",
+                "a context-relative photo path leaves the API absolute");
+        Assert.assertEquals(roster.directorIds(), List.of(OTHER.getValue()));
+        Assert.assertEquals(roster.localGuide(), "Ivana");
+
+        signedInAs(OTHER);
+        final TripsResource asStranger = resource(new TripsResource());
+        final Trip closed = trip("trip-2", ME);
+        tripExists(closed);
+        assertError(asStranger.roster("trip-2"), 403, ApiErrors.FORBIDDEN);
+        assertError(asStranger.roster("no-such-trip"), 404, ApiErrors.NOT_FOUND);
+    }
+
+    /** A roster id whose person no longer exists is skipped, never an NPE or a blank stranger. */
+    @Test
+    public void rosterSkipsAnIdWithNoPersonBehindIt() {
+        signedInAs(ME);
+        final Trip existing = trip(TRIP_ID, ME, OTHER);
+        tripExists(existing);
+        final PersonCommands people = bean(PersonCommands.class);
+        final Person me = new Person();
+        me.setId(ME);
+        me.setFirst("Ken");
+        Mockito.when(people.getPerson(ME)).thenReturn(me);
+        Mockito.when(people.getPerson(OTHER)).thenReturn(new Person());
+        bindMock(org.paulsens.trip.action.ProfilePhotos.class);
+
+        final Response response = resource.roster(TRIP_ID);
+        assertOk(response);
+        Assert.assertEquals(((org.paulsens.trip.api.dto.TripRosterDto) response.getEntity()).people().size(), 1);
     }
 }

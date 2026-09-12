@@ -124,8 +124,11 @@ public class SiteCommands {
         return orgSiteUrl(slug, request instanceof HttpServletRequest http ? http : null);
     }
 
-    /** {@link #orgSiteUrl(String)} for an explicit request (null off-request): the testable half. */
-    static String orgSiteUrl(final String slug, final HttpServletRequest request) {
+    /**
+     * {@link #orgSiteUrl(String)} for an explicit request (null off-request): the testable half, and what the
+     * REST edge calls, since a JAX-RS resource has the servlet request but no FacesContext.
+     */
+    public static String orgSiteUrl(final String slug, final HttpServletRequest request) {
         if (request != null) {
             return orgSiteUrl(slug, request.getServerName(), request.getServerPort(), baseDomain());
         }

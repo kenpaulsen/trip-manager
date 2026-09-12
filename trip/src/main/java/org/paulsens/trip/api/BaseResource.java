@@ -241,6 +241,36 @@ public abstract class BaseResource {
     }
 
     /**
+     * An absolute URL for a context-relative path, built from THIS request's scheme, host and port. Only
+     * local mode needs it -- production media is served from the CDN and arrives absolute already -- but a
+     * mobile client cannot resolve {@code /profile-photos/...} against "the server it talked to" the way a
+     * browser page can, so every URL that leaves this API goes through here. Absolute inputs pass through;
+     * off a request (a unit test with an unstubbed mock) the path is returned as it was.
+     */
+    protected String absoluteUrl(final String pathOrUrl) {
+        if (pathOrUrl == null || pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
+            return pathOrUrl;
+        }
+        final String scheme = request == null ? null : request.getScheme();
+        if (scheme == null || request.getServerName() == null) {
+            return pathOrUrl;
+        }
+        final int port = request.getServerPort();
+        final boolean standardPort = ("http".equals(scheme) && port == 80) || ("https".equals(scheme) && port == 443);
+        final StringBuilder url = new StringBuilder(scheme).append("://").append(request.getServerName());
+        if (port > 0 && !standardPort) {
+            url.append(':').append(port);
+        }
+        final String context = request.getContextPath() == null ? "" : request.getContextPath();
+        final String path = pathOrUrl.startsWith("/") ? pathOrUrl : "/" + pathOrUrl;
+        // ProfilePhotos.getUrl already prefixes the context path when a FacesContext is in hand.
+        if (!context.isEmpty() && !path.startsWith(context + "/")) {
+            url.append(context);
+        }
+        return url.append(path).toString();
+    }
+
+    /**
      * Whether a mutating request is missing its CSRF sentinel.
      *
      * <p>The defence is that a cross-origin form cannot set an arbitrary header at all, so the value carries no

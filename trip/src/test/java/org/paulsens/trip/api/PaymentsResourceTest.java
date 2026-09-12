@@ -202,4 +202,25 @@ public class PaymentsResourceTest extends ResourceTestSupport {
         final String returnUrl = java.net.URLDecoder.decode(encoded, java.nio.charset.StandardCharsets.UTF_8);
         return returnUrl.substring(returnUrl.indexOf("payment=") + 8);
     }
+
+
+    /** The sandbox toggle's gate reaches the client through the quote: site admins yes, ordinary payers no. */
+    @Test
+    public void quoteReportsWhetherSandboxIsAllowed() {
+        final Person payer = savedPerson();
+        signedInAs(payer.getId());
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> asPayer = (Map<String, Object>) resource.quote(
+                new PaymentsResource.PaymentStart(FakeData.FAKE_TRIP_ID, Map.of("anyone", "1"), null, null, null))
+                .getEntity();
+        Assert.assertEquals(asPayer.get("sandboxAllowed"), false);
+
+        signedInAsSiteAdmin(payer.getId());
+        final PaymentsResource asAdmin = resource(new PaymentsResource());
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> adminQuote = (Map<String, Object>) asAdmin.quote(
+                new PaymentsResource.PaymentStart(FakeData.FAKE_TRIP_ID, Map.of("anyone", "1"), null, null, null))
+                .getEntity();
+        Assert.assertEquals(adminQuote.get("sandboxAllowed"), true);
+    }
 }

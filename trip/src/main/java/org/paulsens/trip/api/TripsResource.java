@@ -15,14 +15,18 @@ import jakarta.ws.rs.core.Response;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.OrgCommands;
+import org.paulsens.trip.action.ProfilePhotos;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.api.dto.RegOptionDto;
 import org.paulsens.trip.api.dto.TripDto;
 import org.paulsens.trip.api.dto.TripEventDto;
+import org.paulsens.trip.api.dto.TripRosterDto;
 import org.paulsens.trip.api.mapper.TripMapper;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.RegistrationOption;
@@ -170,6 +174,60 @@ public class TripsResource extends BaseResource {
         result.put("departure", departure);
         result.put("nights", trips.getLodgingDays(arrival, departure));
         return ok(result);
+    }
+
+    /**
+     * Who is on this trip, as names: the roster plus the director(s) and facilitator(s), each with the
+     * roles they hold and a profile photo URL when they have one. Membership authorizes the answer -- the
+     * same rule as the trip itself -- and the shape is deliberately names-only (PEER-visible fields), so a
+     * traveller learns who is travelling with them and nothing more. The bulk person search stays behind
+     * {@code peopleAdmin}; this is the roster a member is entitled to.
+     */
+    @GET
+    @Path("{tripId}/roster")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response roster(@PathParam("tripId") final String tripId) {
+        final Trip trip = findTrip(tripId);
+        if (trip == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such trip.");
+        }
+        if (!canRead(trip, personId())) {
+            return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
+        }
+        final List<Person.Id> directors = trip.getDirectorIds() == null ? List.of() : trip.getDirectorIds();
+        final List<Person.Id> facilitators = trip.getFacilitatorIds() == null ? List.of() : trip.getFacilitatorIds();
+        final Set<Person.Id> everyone = new LinkedHashSet<>(trip.getPeople());
+        everyone.addAll(directors);
+        everyone.addAll(facilitators);
+        final ProfilePhotos photos = Beans.get(ProfilePhotos.class);
+        final List<TripRosterDto.RosterEntryDto> entries = new ArrayList<>();
+        for (final Person.Id id : everyone) {
+            final Person person = findPerson(id);
+            if (person == null) {
+                continue;   // a stale roster id (soft-deleted, or the row is gone) is not this caller's problem
+            }
+            entries.add(rosterEntry(person, trip, directors, facilitators, photos));
+        }
+        return ok(new TripRosterDto(trip.getId(), entries, directors.stream().map(Person.Id::getValue).toList(),
+                facilitators.stream().map(Person.Id::getValue).toList(), trip.getLocalGuide()));
+    }
+
+    private TripRosterDto.RosterEntryDto rosterEntry(final Person person, final Trip trip,
+            final List<Person.Id> directors, final List<Person.Id> facilitators, final ProfilePhotos photos) {
+        final List<String> roles = new ArrayList<>();
+        if (trip.getPeople().contains(person.getId())) {
+            roles.add(TripRosterDto.ROLE_MEMBER);
+        }
+        if (directors.contains(person.getId())) {
+            roles.add(TripRosterDto.ROLE_DIRECTOR);
+        }
+        if (facilitators.contains(person.getId())) {
+            roles.add(TripRosterDto.ROLE_FACILITATOR);
+        }
+        final String personId = person.getId().getValue();
+        final String photoUrl = photos.hasPhoto(personId) ? absoluteUrl(photos.getUrl(personId)) : null;
+        return new TripRosterDto.RosterEntryDto(personId, person.getFirst(), person.getLast(), person.getNickname(),
+                person.getPreferredName(), photoUrl, roles);
     }
 
     /** The itinerary item types, for a client building a picker. */
@@ -368,11 +426,15 @@ public class TripsResource extends BaseResource {
         return trip.getTripEvents().stream().map(event -> eventDto(event, viewer)).toList();
     }
 
-    /** Fills in the two viewer-relative fields the mapper deliberately leaves alone. */
+    /**
+     * Fills in the two viewer-relative fields the mapper deliberately leaves alone, and sends the structured
+     * details only when the event has some (an empty map would read as "structured, but blank").
+     */
     private static TripEventDto eventDto(final TripEvent event, final Person.Id viewer) {
         final TripEventDto dto = TripMapper.INSTANCE.toDto(event);
         return new TripEventDto(dto.id(), dto.type(), dto.title(), dto.notes(), dto.start(), dto.end(),
-                dto.participants(), event.getParticipants().contains(viewer), event.getPrivNotes().get(viewer));
+                dto.participants(), event.getParticipants().contains(viewer), event.getPrivNotes().get(viewer),
+                event.hasDetails() ? new LinkedHashMap<>(event.getDetails()) : null);
     }
 
     private static void apply(final TripDto body, final Trip trip) {
@@ -461,9 +523,13 @@ public class TripsResource extends BaseResource {
             return;
         }
         for (final TripEventDto dto : body.tripEvents()) {
-            trip.getTripEvents().add(new TripEvent(java.util.UUID.randomUUID().toString(),
+            final TripEvent event = new TripEvent(java.util.UUID.randomUUID().toString(),
                     dto.type() == null ? TripEvent.Type.EVENT : TripEvent.Type.valueOf(dto.type()),
-                    dto.title(), dto.notes(), dto.start(), dto.end(), null, null));
+                    dto.title(), dto.notes(), dto.start(), dto.end(), null, null);
+            if (dto.details() != null) {
+                event.setDetails(new LinkedHashMap<>(dto.details()));
+            }
+            trip.getTripEvents().add(event);
         }
     }
 

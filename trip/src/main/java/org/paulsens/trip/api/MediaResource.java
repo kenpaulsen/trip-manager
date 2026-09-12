@@ -15,6 +15,7 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ChatPhotos;
 import org.paulsens.trip.action.MediaCommands;
+import org.paulsens.trip.api.dto.MediaBasesDto;
 import org.paulsens.trip.api.dto.MediaItemDto;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
@@ -75,6 +76,24 @@ public class MediaResource extends BaseResource {
         }
         final MediaCommands media = Beans.get(MediaCommands.class);
         return ok(media.getAll().stream().map(item -> toDto(media, item)).toList());
+    }
+
+    /**
+     * Where chat and profile photos are served from, so a client can turn the keys it already holds
+     * ({@code ChatAttachment.s3Key}/{@code thumbKey}, a profile slot key) into URLs: {@code base + key}.
+     * The chat message shape itself stays key-only on purpose -- {@code ChatAttachment} is a persisted,
+     * Serializable model, and a URL is a property of the deployment, not of the photo.
+     */
+    @GET
+    @Path("bases")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response bases() {
+        final MediaCommands media = Beans.get(MediaCommands.class);
+        final ChatPhotos chatPhotos = ChatPhotos.getChatPhotos();
+        final boolean remote = chatPhotos.isRemoteStore();
+        final String chatBase = remote ? chatPhotos.getPublicBase() : absoluteUrl("/chat-photos/");
+        final String profileBase = media.isUploadEnabled() ? media.publicUrl("") : absoluteUrl("/profile-photos/");
+        return ok(new MediaBasesDto(chatBase, profileBase, remote));
     }
 
     /**

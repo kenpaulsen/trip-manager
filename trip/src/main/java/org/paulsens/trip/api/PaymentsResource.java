@@ -54,6 +54,8 @@ public class PaymentsResource extends BaseResource {
         result.put("totalCents", quote.getTotalCents());
         result.put("payerPaysFee", quote.isPayerPays());
         result.put("payable", quote.isPayable());
+        // The page's sandbox toggle is gated by paymentsAdmin@org; a client has no other way to learn it.
+        result.put("sandboxAllowed", commands.isSandboxAllowed(trip));
         return ok(result);
     }
 

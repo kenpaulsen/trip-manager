@@ -209,6 +209,53 @@ public class BrandCommands {
     }
 
     /**
+     * An organization's stored look with NO request in hand -- for the REST edge, whose native clients
+     * draw their own chrome per host and cannot be told "whatever this request's host resolves to".
+     * Every getter above is bound to the request (its host, the Appearance preview, the visitor's own dark
+     * flag) by design; this reads the org's rows through the same org-only rung ({@code config.getString(def,
+     * org)}) and the same screening ({@link #safeUrl}, the palette's declared choices, the hex-color rule),
+     * so the two cannot answer differently for the same stored values. Nothing about a session is consulted.
+     */
+    public record OrgLook(
+            String palette, boolean dark, String layout, String logoUrl, String faviconUrl, String ogImageUrl,
+            String backgroundUrl, String backgroundColor, String footerTitle, String footerText,
+            String contactName, String contactPhone, String donateUrl) {
+    }
+
+    public OrgLook lookOf(final Organization org) {
+        final String chosenPalette = stored(org, KnownSettings.SITE_THEME_PALETTE);
+        final String palette = chosenPalette != null && KnownSettings.SITE_THEME_PALETTE.allows(chosenPalette)
+                ? chosenPalette : null;
+        return new OrgLook(
+                palette,
+                Boolean.parseBoolean(stored(org, KnownSettings.SITE_THEME_DARK)),
+                stored(org, KnownSettings.SITE_LAYOUT),
+                safeUrl(stored(org, KnownSettings.SITE_LOGO_URL)),
+                safeUrl(stored(org, KnownSettings.SITE_FAVICON_URL)),
+                safeUrl(stored(org, KnownSettings.SITE_OG_IMAGE_URL)),
+                safeUrl(stored(org, KnownSettings.SITE_BACKGROUND_URL)),
+                SettingDef.hexColor(stored(org, KnownSettings.SITE_BACKGROUND_COLOR)),
+                stored(org, KnownSettings.SITE_FOOTER_TITLE),
+                stored(org, KnownSettings.SITE_FOOTER_TEXT),
+                stored(org, KnownSettings.SITE_CONTACT_NAME),
+                stored(org, KnownSettings.SITE_CONTACT_PHONE),
+                safeUrl(stored(org, KnownSettings.SITE_DONATE_URL)));
+    }
+
+    /** The PrimeFaces theme a look resolves to, the same naming {@link #getTheme()} uses on the site. */
+    public String themeNameOf(final OrgLook look) {
+        if (look.palette() == null) {
+            return look.dark() ? DEFAULT_THEME_DARK : DEFAULT_THEME_LIGHT;
+        }
+        return "freya-" + look.palette() + "-" + (look.dark() ? "dark" : "light");
+    }
+
+    /** One stored branding value for an explicit org: its override, else the compiled default, else null. */
+    private String stored(final Organization org, final SettingDef def) {
+        return org == null ? null : blankToDefault(config.getString(def, org), def);
+    }
+
+    /**
      * The org's chosen palette, or null. Re-checked against the declared choices even though the save
      * path refuses others: a palette that is not shipped is a stylesheet 404 on every page of the site.
      */

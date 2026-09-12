@@ -22,6 +22,8 @@ import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.action.PersonDataValueCommands;
 import org.paulsens.trip.action.ProfilePhotos;
+import org.paulsens.trip.api.dto.AddressDto;
+import org.paulsens.trip.api.dto.PassportDto;
 import org.paulsens.trip.api.dto.PersonDataValueDto;
 import org.paulsens.trip.api.dto.PersonDto;
 import org.paulsens.trip.api.dto.PrivacyDto;
@@ -126,6 +128,9 @@ public class PeopleResource extends BaseResource {
         if (!siteAdmin && !caller().has(ApiPrivileges.PEOPLE_ADMIN, orgId)) {
             return error(403, ApiErrors.FORBIDDEN, "Not permitted to create people in this organization.");
         }
+        if (sexUnparseable(body)) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "sex must be Male or Female.");
+        }
         final PersonCommands people = Beans.get(PersonCommands.class);
         final Person person = people.createPerson();
         apply(body, person, AccessLevel.SITE_ADMIN);
@@ -177,6 +182,11 @@ public class PeopleResource extends BaseResource {
         final AccessLevel level = levelFor(personId, null);
         if (!canEdit(level)) {
             return error(403, ApiErrors.FORBIDDEN, "Not permitted to edit this person.");
+        }
+        if (sexUnparseable(body)) {
+            // Pre-checked so the answer is a validation failure naming the field, not the generic
+            // BAD_REQUEST JsonExceptionMapper makes of an IllegalArgumentException.
+            return error(400, ApiErrors.VALIDATION_FAILED, "sex must be Male or Female.");
         }
         apply(body, person, level);
         // The savePerson funnel would refuse this anyway; checking here turns an opaque 500 into a clear 409.
@@ -277,12 +287,23 @@ public class PeopleResource extends BaseResource {
             set(body.email(), person::setEmail);
             set(body.emergencyContactName(), person::setEmergencyContactName);
             set(body.emergencyContactPhone(), person::setEmergencyContactPhone);
+            if (body.address() != null) {
+                applyAddress(body.address(), person);
+            }
         }
         if (level.seesTravelDocuments()) {
             set(body.tsa(), person::setTsa);
             if (body.birthdate() != null) {
                 person.setBirthdate(body.birthdate());
             }
+            if (body.passport() != null) {
+                applyPassport(body.passport(), person);
+            }
+        }
+        if (canEdit(level) && body.sex() != null) {
+            // Validated by the endpoint before apply() runs; canEdit is the whole editing gate, so sex follows
+            // the same people who may change a name.
+            person.setSex(parseSex(body.sex()));
         }
         if (level.seesNotes()) {
             set(body.notes(), person::setNotes);
@@ -317,6 +338,44 @@ public class PeopleResource extends BaseResource {
         } catch (final IllegalArgumentException ex) {
             return null;
         }
+    }
+
+    /** The same absent-means-unchanged, empty-means-clear rule as the top-level fields, per address line. */
+    private static void applyAddress(final AddressDto dto, final Person person) {
+        final var address = person.getAddress();
+        set(dto.street(), address::setStreet);
+        set(dto.street2(), address::setStreet2);
+        set(dto.city(), address::setCity);
+        set(dto.state(), address::setState);
+        set(dto.zip(), address::setZip);
+        set(dto.country(), address::setCountry);
+    }
+
+    /** Dates cannot be cleared over the API (absent = unchanged), the same rule birthdate follows. */
+    private static void applyPassport(final PassportDto dto, final Person person) {
+        final var passport = person.getPassport();
+        set(dto.number(), passport::setNumber);
+        set(dto.country(), passport::setCountry);
+        set(dto.placeOfBirth(), passport::setPlaceOfBirth);
+        if (dto.expires() != null) {
+            passport.setExpires(dto.expires());
+        }
+        if (dto.issued() != null) {
+            passport.setIssued(dto.issued());
+        }
+    }
+
+    private static boolean sexUnparseable(final PersonDto body) {
+        return body != null && body.sex() != null && parseSex(body.sex()) == null;
+    }
+
+    private static Person.Sex parseSex(final String value) {
+        for (final Person.Sex sex : Person.Sex.values()) {
+            if (sex.name().equalsIgnoreCase(value.trim())) {
+                return sex;
+            }
+        }
+        return null;
     }
 
     private static void set(final String value, final Consumer<String> setter) {
