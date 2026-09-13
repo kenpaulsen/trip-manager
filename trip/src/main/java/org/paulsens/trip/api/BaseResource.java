@@ -104,13 +104,19 @@ public abstract class BaseResource {
     }
 
     /**
-     * The signed-in user. Prefers the attribute the auth filter already resolved, and falls back to the raw
+     * The signed-in user. Prefers the attribute the auth filter already resolved; then the bearer principal
+     * the servlet edge stashed (a resource that is deliberately NOT {@code @TripApi} -- the photo threads --
+     * never sees the filter, and a native client is a bearer caller there too); and falls back to the raw
      * session key so a resource still works if it is ever reached without the filter.
      */
     protected Person.Id personId() {
         final Object prop = request.getAttribute(TripAuthFilter.PERSON_ID_PROP);
         if (prop instanceof Person.Id pid) {
             return pid;
+        }
+        final TokenPrincipal bearer = principal();
+        if (bearer != null && bearer.personId() != null) {
+            return bearer.personId();
         }
         final HttpSession session = request.getSession(false);
         if (session != null) {

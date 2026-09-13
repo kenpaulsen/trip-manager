@@ -129,6 +129,17 @@ public abstract class ResourceTestSupport {
     }
 
     /**
+     * A bearer caller on a resource the name-bound filter never ran for ({@code PhotoChatResource}): only the
+     * principal the servlet edge stashes is present, not the filter's resolved id.
+     */
+    protected void bearerWithoutTheFilter(final org.paulsens.trip.security.TokenPrincipal principal) {
+        requestAttributes.put(org.paulsens.trip.security.BearerTokens.PRINCIPAL_ATTR, principal);
+        requestAttributes.remove(TripAuthFilter.PERSON_ID_PROP);
+        sessionAttributes.remove(PersonCommands.ACTIVE_USER_ID);
+        sessionAttributes.remove(PersonCommands.ACTIVE_USER_ROLE);
+    }
+
+    /**
      * Signs in as a BEARER-token caller ({@code docs/api-tokens.md}): stashes the principal exactly where
      * {@code BearerTokens} would, plus the filter-stamped person id {@code TripAuthFilter} sets for both
      * credential shapes. No session attributes at all -- a bearer request has no session.

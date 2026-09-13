@@ -307,7 +307,9 @@ public class FamilyRegistrationAndMailTest {
         }
         final RegistrationCommands commands = regCommandsFor(owner);
         final RegistrationCommands.PartyOutcome first = commands.registerPartyOutcome(trip, selected, regs, null);
-        assertEquals(first.registered().stream().map(Person::getId).toList(), List.of(owner.getId(), kid.getId()));
+        // `selected` is a HashMap: the party is filed in whatever order it iterates, so compare as sets.
+        assertEquals(new java.util.HashSet<>(first.registered().stream().map(Person::getId).toList()),
+                java.util.Set.of(owner.getId(), kid.getId()));
         assertTrue(first.updated().isEmpty());
         assertEquals(first.refused(), Map.of(stranger.getId().getValue(),
                 RegistrationCommands.PartyOutcome.NOT_ALLOWED));
