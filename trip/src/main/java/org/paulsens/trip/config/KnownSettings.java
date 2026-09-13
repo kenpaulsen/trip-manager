@@ -415,9 +415,10 @@ public final class KnownSettings {
                     + "early.");
 
     public static final SettingDef API_TOKEN_REFRESH_ADMIN_DAYS = new SettingDef(
-            "api.token.refresh.admin.days", Config.Type.INT, "7", "...admin refresh days",
-            "The refresh lifetime for ADMIN-scoped tokens, deliberately short: an admin token is the most "
-                    + "valuable credential this system hands out.");
+            "api.token.refresh.admin.days", Config.Type.INT, "30", "...admin refresh days",
+            "The refresh lifetime for ADMIN-scoped tokens, shorter than a member's: an admin token is the most "
+                    + "valuable credential this system hands out. A month keeps the native app's administrators "
+                    + "from signing in weekly; the clamp caps it there.");
 
     public static final SettingDef LOGIN_PASSWORD_MAX_FAILS = new SettingDef(
             "login.password.maxFails", Config.Type.INT, "10", "Wrong passwords per person",

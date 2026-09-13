@@ -234,7 +234,7 @@ Declared in `KnownSettings`, "Login & security" section; the admin Settings page
 | `api.token.enabled` | BOOLEAN / `false` | Kill switch. Off = no issuance, no refresh, AND no acceptance of existing bearer tokens (checked outside the cache read path). Default flips to `true` when a client ships. |
 | `api.token.access.minutes` | INT / `30`, clamped 5–240 | Access-token lifetime; also the role-staleness bound. |
 | `api.token.refresh.days` | INT / `60`, clamped 1–365 | Member refresh-token lifetime, absolute from issuance (rotation does not extend it — remember-me's rule). |
-| `api.token.refresh.admin.days` | INT / `7`, clamped 1–30 | Admin-scoped refresh lifetime. Deliberately short: an admin token is the most valuable thing this table holds. |
+| `api.token.refresh.admin.days` | INT / `30`, clamped 1–30 | Admin-scoped refresh lifetime. Shorter than a member's (an admin token is the most valuable thing this table holds); the default sits at the clamp so an app administrator signs in monthly, not weekly. |
 
 `AUTH_TOKEN_SOFT_TTL` is NOT a setting — soft TTLs are `CacheKeys` constants because settings cannot be read
 on a cache read path.
