@@ -78,7 +78,9 @@ website's "Login or Signup" page:
 - `POST /api/auth/lookup` — `{email}` → `{email, known}`. Whether an account exists for the address; the
   website's Next button has always answered this, so it is not a new oracle.
 - `POST /api/auth/register` — the create-account form (`email, first, last, sex, password` required;
-  `nickname, middle, cell, birthdate` optional; `scope, label` as for `token`). Creates the person and
+  `nickname, middle, cell, birthdate` optional; `scope, label` as for `token`). The password must satisfy
+  `PasswordPolicy` (8+ characters with a letter and a digit — the same rule as every website password form);
+  the 400 `VALIDATION_FAILED` message states the rule. Creates the person and
   credentials, joins an organization host's org, notifies the office, and answers a token grant. 409 when
   the address already has an account.
 

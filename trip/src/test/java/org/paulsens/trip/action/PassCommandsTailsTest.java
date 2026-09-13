@@ -36,7 +36,7 @@ public class PassCommandsTailsTest {
         } catch (final InterruptedException ex) {
             throw new IllegalStateException(ex);
         }
-        Assert.assertNotNull(pass.createCreds(person.getEmail(), "secret-" + first));
+        Assert.assertNotNull(pass.createCreds(person.getEmail(), "secret-1-" + first));
         return person;
     }
 
@@ -92,7 +92,7 @@ public class PassCommandsTailsTest {
 
     @Test
     public void createCredsForAnUnknownEmailFailsLoudlyInTheAuditTrail() {
-        Assert.assertNull(pass.createCreds("nobody-" + System.nanoTime() + "@example.org", "pw"));
+        Assert.assertNull(pass.createCreds("nobody-" + System.nanoTime() + "@example.org", "password1"));
     }
 
     @Test

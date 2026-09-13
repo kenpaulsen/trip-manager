@@ -380,8 +380,14 @@ public class AuthResourceTest extends ResourceTestSupport {
                 "Ken", null, "Paulsen", "Other", null, null, "pw", null, null)), 400, ApiErrors.VALIDATION_FAILED);
         assertError(live.register(new org.paulsens.trip.api.dto.RegisterAccountRequest("new@example.com", null,
                 "Ken", null, "Paulsen", "Male", null, null, " ", null, null)), 400, ApiErrors.VALIDATION_FAILED);
+        // The password policy (8+ characters, a letter and a digit) is the same one the website applies.
         assertError(live.register(new org.paulsens.trip.api.dto.RegisterAccountRequest("new@example.com", null,
-                "Ken", null, "Paulsen", "Male", null, null, "pw", "root", null)), 400, ApiErrors.BAD_REQUEST);
+                "Ken", null, "Paulsen", "Male", null, null, "pw", null, null)), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(live.register(new org.paulsens.trip.api.dto.RegisterAccountRequest("new@example.com", null,
+                "Ken", null, "Paulsen", "Male", null, null, "onlyletters", null, null)), 400,
+                ApiErrors.VALIDATION_FAILED);
+        assertError(live.register(new org.paulsens.trip.api.dto.RegisterAccountRequest("new@example.com", null,
+                "Ken", null, "Paulsen", "Male", null, null, "s3cret-pw", "root", null)), 400, ApiErrors.BAD_REQUEST);
         Mockito.verify(bean(PersonCommands.class), Mockito.never()).savePerson(ArgumentMatchers.any());
     }
 
@@ -407,7 +413,7 @@ public class AuthResourceTest extends ResourceTestSupport {
         Mockito.when(addresses.fromFor("account.notify.from")).thenReturn("site@example.com");
         final Creds creds = new Creds("new@example.com", created.getId(), "hashed");
         creds.setPriv("user");
-        Mockito.when(passes.createCreds("new@example.com", "s3cret")).thenReturn(creds);
+        Mockito.when(passes.createCreds("new@example.com", "s3cret-pw")).thenReturn(creds);
 
         final Response response = tokenResource().register(registration(" new@example.com "));
 
@@ -446,7 +452,7 @@ public class AuthResourceTest extends ResourceTestSupport {
 
     private static org.paulsens.trip.api.dto.RegisterAccountRequest registration(final String email) {
         return new org.paulsens.trip.api.dto.RegisterAccountRequest(email, "Kenny", "Ken", " ", "Paulsen", "male",
-                null, java.time.LocalDate.of(1980, 1, 2), "s3cret", null, "Ken's phone");
+                null, java.time.LocalDate.of(1980, 1, 2), "s3cret-pw", null, "Ken's phone");
     }
 
     /** The property the whole design hangs on: a token grant must never create or touch a session. */

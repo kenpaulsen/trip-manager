@@ -81,11 +81,13 @@ public class PassCommandsTest {
 
     @Test
     public void changingYourOwnPasswordNeedsMatchingConfirmationAndYourOwnCreds() {
-        Assert.assertFalse(commands.setPass("user2", "user", "new", "different"),
+        Assert.assertFalse(commands.setPass("user2", "user", "newpass01", "different"),
                 "Mismatched confirmation must refuse");
-        Assert.assertFalse(commands.setPass("user2", "wrong-current", "new", "new"),
+        Assert.assertFalse(commands.setPass("user2", "wrong-current", "newpass01", "newpass01"),
                 "A wrong current password must refuse");
-        Assert.assertTrue(commands.setPass("user2", "user", "new", "new"));
+        Assert.assertFalse(commands.setPass("user2", "user", "new", "new"),
+                "A password below the policy must refuse before the current one is even checked");
+        Assert.assertTrue(commands.setPass("user2", "user", "newpass01", "newpass01"));
     }
 
     /**
@@ -96,7 +98,7 @@ public class PassCommandsTest {
     public void aCredsPersonMismatchRefusesThePasswordChange() {
         // "admin2" resolves creds (starts with admin) whose userId falls back to the email, but no Person named
         // admin2 exists -- person null -> refused.
-        Assert.assertFalse(commands.setPass("admin2", "admin", "new", "new"));
+        Assert.assertFalse(commands.setPass("admin2", "admin", "newpass01", "newpass01"));
     }
 
     @Test
@@ -181,17 +183,22 @@ public class PassCommandsTest {
 
         try (MockedStatic<FacesContext> ignored = facesWithRequest(request)) {
             // Mismatched retype: refused, and the flag (not yet set) is not consumed either way.
-            Assert.assertFalse(commands.setPassAfterCodeLogin("newpass", "different"));
+            Assert.assertFalse(commands.setPassAfterCodeLogin("newpass01", "different"));
 
             // No flag: refused.
             attrs.put(org.paulsens.trip.web.Sessions.LOGIN_EMAIL, "user2");
+            Assert.assertFalse(commands.setPassAfterCodeLogin("newpass01", "newpass01"));
+
+            // Flag present but the password is below the policy: refused WITHOUT consuming the flag, so the
+            // person can try again with a better one.
+            attrs.put(org.paulsens.trip.web.Sessions.CODE_LOGIN, Boolean.TRUE);
             Assert.assertFalse(commands.setPassAfterCodeLogin("newpass", "newpass"));
+            Assert.assertEquals(attrs.get(org.paulsens.trip.web.Sessions.CODE_LOGIN), Boolean.TRUE);
 
             // Flag present: allowed, flag consumed, and a second try is refused.
-            attrs.put(org.paulsens.trip.web.Sessions.CODE_LOGIN, Boolean.TRUE);
-            Assert.assertTrue(commands.setPassAfterCodeLogin("newpass", "newpass"));
+            Assert.assertTrue(commands.setPassAfterCodeLogin("newpass01", "newpass01"));
             Assert.assertNull(attrs.get(org.paulsens.trip.web.Sessions.CODE_LOGIN));
-            Assert.assertFalse(commands.setPassAfterCodeLogin("again", "again"));
+            Assert.assertFalse(commands.setPassAfterCodeLogin("again001", "again001"));
         }
     }
 
@@ -212,10 +219,20 @@ public class PassCommandsTest {
 
     @Test
     public void createCredsPersistsAndAnswersTheNewCredentials() {
-        final Creds creds = commands.createCreds("user3", "fresh-password");
+        final Creds creds = commands.createCreds("user3", "fresh-password-1");
 
         Assert.assertNotNull(creds);
-        Assert.assertEquals(creds.getPass(), "fresh-password");
+        Assert.assertEquals(creds.getPass(), "fresh-password-1");
+    }
+
+    /** The policy gates account creation too, before any row is written. */
+    @Test
+    public void createCredsRefusesAPasswordBelowThePolicy() {
+        Assert.assertNull(commands.createCreds("user3", "fresh-password"), "no digit");
+        Assert.assertNull(commands.createCreds("user3", "12345678"), "no letter");
+        Assert.assertNull(commands.createCreds("user3", "short1"), "too short");
+        Assert.assertEquals(commands.passwordProblem("short1"), org.paulsens.trip.security.PasswordPolicy.RULE);
+        Assert.assertNull(commands.passwordProblem("long-enough-1"));
     }
 
     @Test

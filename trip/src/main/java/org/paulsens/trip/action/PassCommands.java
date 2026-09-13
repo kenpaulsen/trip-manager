@@ -21,6 +21,7 @@ import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.security.PasswordPolicy;
 import org.paulsens.trip.security.RememberMeService;
 import org.paulsens.trip.util.Util;
 import org.paulsens.trip.web.Sessions;
@@ -217,6 +218,9 @@ public class PassCommands {
      * @return The newly created Creds (which are also persisted to the db) or null if it fails.
      */
     public Creds createCreds(final String email, final String newPass) {
+        if (!acceptable(newPass)) {
+            return null;
+        }
         final DAO dao = DAO.getInstance();
         final Creds creds = dao.createCreds(email).orElse(null);
         if (creds != null) {
@@ -246,6 +250,9 @@ public class PassCommands {
     public Boolean setPass(final String email, final String currPass, final String pass, final String pass2) {
         if (!pass.equals(pass2)) {
             PageFeedback.error("Passwords do not match!");
+            return false;
+        }
+        if (!acceptable(pass)) {
             return false;
         }
         final DAO dao = DAO.getInstance();
@@ -383,6 +390,9 @@ public class PassCommands {
             PageFeedback.error("Passwords do not match!");
             return false;
         }
+        if (!acceptable(pass)) {
+            return false;
+        }
         final HttpSession session = currentRequest().getSession(false);
         final Object flag = session == null ? null : session.getAttribute(Sessions.CODE_LOGIN);
         final Object email = session == null ? null : session.getAttribute(Sessions.LOGIN_EMAIL);
@@ -393,6 +403,24 @@ public class PassCommands {
         // One shot: consumed before the attempt, so a failed save cannot leave the authorization behind.
         session.setAttribute(Sessions.CODE_LOGIN, null);
         return setPass(email.toString(), pass);
+    }
+
+    /**
+     * Why a proposed password would be refused, or {@code null} when it is fine -- for pages that want to say
+     * so before submitting the rest of a form. The same rule every setter below applies.
+     */
+    public String passwordProblem(final String pass) {
+        return PasswordPolicy.problem(pass);
+    }
+
+    /** The policy gate every password setter shares; the refusal is reported to the page, never thrown. */
+    private static boolean acceptable(final String pass) {
+        final String problem = PasswordPolicy.problem(pass);
+        if (problem == null) {
+            return true;
+        }
+        PageFeedback.error(problem);
+        return false;
     }
 
     /** The person id behind a set of credentials, when there is one. */

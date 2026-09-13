@@ -27,6 +27,7 @@ import org.paulsens.trip.api.mapper.PersonMapper;
 import org.paulsens.trip.model.AuthToken;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.security.PasswordPolicy;
 import org.paulsens.trip.security.RememberMeService;
 import org.paulsens.trip.security.TokenService;
 import org.paulsens.trip.web.Sessions;
@@ -263,10 +264,7 @@ public class AuthResource extends BaseResource {
         if (body.sex() == null || parseSex(body.sex()) == null) {
             return "sex must be Male or Female.";
         }
-        if (blank(body.password())) {
-            return "A password is required.";
-        }
-        return null;
+        return PasswordPolicy.problem(body.password());
     }
 
     private static boolean blank(final String value) {
