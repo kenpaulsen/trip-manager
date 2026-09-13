@@ -80,7 +80,13 @@ public class MailAddressCommands {
             new Slot(KnownSettings.CHAT_MAIL_FROM, "Chat email", "From", true, false),
             new Slot(KnownSettings.CHAT_MAIL_REPLY_TO, "Chat email", "Reply-To", false, true),
             new Slot(KnownSettings.SUPPORT_MAIL_FROM, "Support requests", "From", true, false),
-            new Slot(KnownSettings.SUPPORT_MAIL_REPLY_TO, "Support requests", "Reply-To", false, false));
+            new Slot(KnownSettings.SUPPORT_MAIL_REPLY_TO, "Support requests", "Reply-To", false, false),
+            new Slot(KnownSettings.MODERATION_REPORT_EMAIL, "Content reports (from the app)", "To", false, true),
+            new Slot(KnownSettings.MODERATION_REPORT_FROM, "Content reports (from the app)", "From", true, false),
+            new Slot(KnownSettings.ACCOUNT_DELETE_NOTIFY_EMAIL, "Account-deletion notices (internal)", "To",
+                    false, true),
+            new Slot(KnownSettings.ACCOUNT_DELETE_NOTIFY_FROM, "Account-deletion notices (internal)", "From",
+                    true, false));
 
     private final Supplier<ConfigCommands> configSource;
     private final Supplier<List<String>> domainsSource;

@@ -36,6 +36,8 @@ public final class ChatErrors {
     public static final String BAD_CHANNEL = "BAD_CHANNEL";
     public static final String MESSAGE_EMPTY = "MESSAGE_EMPTY";
     public static final String MESSAGE_TOO_LONG = "MESSAGE_TOO_LONG";
+    /** The body contains a term on the blocked-words list ({@code chat.blockedTerms}). Terminal: reword it. */
+    public static final String BLOCKED_CONTENT = "BLOCKED_CONTENT";
     /**
      * An attachment reference the send cannot honour: over the per-message cap, or a key that was never
      * staged by this person for this trip (expired, tampered, or a restart emptied the staging registry).
@@ -75,6 +77,7 @@ public final class ChatErrors {
             case "slow_mode" -> SLOW_MODE;
             case "empty" -> MESSAGE_EMPTY;
             case "too_long" -> MESSAGE_TOO_LONG;
+            case "blocked_content" -> BLOCKED_CONTENT;
             case "attachment", "too_many_photos" -> BAD_ATTACHMENT;
             case "forbidden" -> FORBIDDEN;
             case "store" -> STORE_FAILED;
@@ -109,6 +112,7 @@ public final class ChatErrors {
         return switch (resultCode) {
             case "empty" -> MESSAGE_EMPTY;
             case "too_long" -> MESSAGE_TOO_LONG;
+            case "blocked_content" -> BLOCKED_CONTENT;
             case "not_found" -> NOT_FOUND;
             case "store" -> STORE_FAILED;
             default -> resultCode;

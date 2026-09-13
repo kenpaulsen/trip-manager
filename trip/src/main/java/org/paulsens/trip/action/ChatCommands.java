@@ -33,6 +33,7 @@ import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.moderation.ContentFilter;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatAppearance;
@@ -71,6 +72,9 @@ public class ChatCommands {
 
     public static final String MEDIA_TYPE_V1 = "application/vnd.trip.chat.v1+json";
     public static final String CSRF_HEADER = "X-Trip-Chat";
+    /** The refusal a blocked-words hit shows; the matched term is deliberately NOT echoed back. */
+    public static final String BLOCKED_CONTENT_MESSAGE =
+            "That message contains language this chat doesn't allow. Please reword it.";
 
     /** How often a non-administrator may have an @all actually emailed to the trip. */
     private static final java.time.Duration EVERYONE_WINDOW = java.time.Duration.ofHours(24);
@@ -84,6 +88,7 @@ public class ChatCommands {
 
     private final ChatRateLimiter rateLimiter;
     private final ConfigCommands config;
+    private final BlockListCommands blocks = new BlockListCommands();
 
     public ChatCommands() {
         this(new ChatRateLimiter(DAO.getInstance().getCacheClient()));
@@ -894,6 +899,16 @@ public class ChatCommands {
         if (cps > max) {
             return SendResult.fail("too_long", "Message is too long (max " + max + " characters).");
         }
+        if (blockedTerm(text) != null) {
+            return SendResult.fail("blocked_content", BLOCKED_CONTENT_MESSAGE);
+        }
+        // The one server-side effect of a block: a blocked person cannot @mention their blocker. Everything
+        // else about a block is the blocker's own display preference, enforced by the client.
+        for (final Person.Id mentioned : ChatMentions.extract(text)) {
+            if (blocks.isBlocked(mentioned, authorId)) {
+                return SendResult.fail("forbidden", "You can't mention that person.");
+            }
+        }
 
         final ChatRateLimiter.Decision decision = rateLimiter.check(channel, authorId, now);
         if (decision.getAutoMuteUntil() != null) {
@@ -1225,6 +1240,9 @@ public class ChatCommands {
             return ReactResult.fail("too_long",
                     "Message is too long (max " + channel.getSettings().getMaxMessageChars() + " characters).");
         }
+        if (blockedTerm(text) != null) {
+            return ReactResult.fail("blocked_content", BLOCKED_CONTENT_MESSAGE);
+        }
         return dao().editChatMessage(channel.getId(), msgId, text).isPresent()
                 ? ReactResult.success()
                 : ReactResult.fail("store", "Edit was not saved. Try again.");
@@ -1260,6 +1278,14 @@ public class ChatCommands {
      */
     boolean withinEditWindow(final Instant sentAt, final Instant now) {
         return sentAt != null && !sentAt.plus(editWindowMinutes(), ChronoUnit.MINUTES).isBefore(now);
+    }
+
+    /**
+     * The blocked-words term {@code text} contains, or null when clean. Package-visible so the photo-comment
+     * path filters through the very same list and matcher rather than a second reading of the setting.
+     */
+    String blockedTerm(final String text) {
+        return ContentFilter.shared().firstMatch(config.getString(KnownSettings.CHAT_BLOCKED_TERMS), text);
     }
 
     /**

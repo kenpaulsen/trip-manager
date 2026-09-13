@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.ChatPhotos;
+import org.paulsens.trip.action.ModerationCommands;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.api.dto.ChatPhotoDto;
 import org.paulsens.trip.chat.ChatNudgeRegistry;
@@ -300,7 +301,7 @@ public class ChatResource extends BaseResource {
             return error(403, code, message);
         }
         if (ChatErrors.MESSAGE_EMPTY.equals(code) || ChatErrors.MESSAGE_TOO_LONG.equals(code)
-                || ChatErrors.BAD_ATTACHMENT.equals(code)) {
+                || ChatErrors.BAD_ATTACHMENT.equals(code) || ChatErrors.BLOCKED_CONTENT.equals(code)) {
             return error(400, code, message);
         }
         return error(500, code, message);
@@ -597,7 +598,8 @@ public class ChatResource extends BaseResource {
     private Response editError(final ChatCommands.ReactResult result) {
         final String code = ChatErrors.forEditResult(result.code());
         final String message = result.message() == null ? "Edit failed." : result.message();
-        if (ChatErrors.MESSAGE_EMPTY.equals(code) || ChatErrors.MESSAGE_TOO_LONG.equals(code)) {
+        if (ChatErrors.MESSAGE_EMPTY.equals(code) || ChatErrors.MESSAGE_TOO_LONG.equals(code)
+                || ChatErrors.BLOCKED_CONTENT.equals(code)) {
             return error(400, code, message);
         }
         if (ChatErrors.NOT_FOUND.equals(code)) {
@@ -882,6 +884,57 @@ public class ChatResource extends BaseResource {
             return error(403, ChatErrors.FORBIDDEN, "Could not save preferences for this chat.");
         }
         return ok(Map.of("mentionEmail", mention, "dailyDigest", digest));
+    }
+
+    /**
+     * "Report this message": files a {@link ModerationCommands} report from a chat member. 202 -- the report
+     * is recorded and mailed, and nothing about the message changes until a moderator acts. Body:
+     * {@code {"reason": "..."}} (optional, at most 1000 characters).
+     */
+    @POST
+    @Path("messages/{msgId}/report")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response report(
+            @PathParam("channelId") final String channelId,
+            @PathParam("msgId") final String msgId,
+            @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf,
+            final Map<String, Object> body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
+        }
+        personId();
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        final ModerationCommands.ReportOutcome outcome = Beans.get(ModerationCommands.class).report(
+                ModerationCommands.ReportTarget.message(tripId, ChatMessage.Id.from(msgId)),
+                string(body == null ? null : body.get("reason")), caller());
+        return reportResponse(outcome, msgId);
+    }
+
+    /** The one mapping for report outcomes: 202 accepted, 404 not visible, 429 throttled, 400/403 otherwise. */
+    Response reportResponse(final ModerationCommands.ReportOutcome outcome, final String id) {
+        if (outcome.ok()) {
+            return Response.status(202)
+                    .type(negotiatedType())
+                    .header("Vary", "Accept")
+                    .entity(Map.of("reported", true, "id", id == null ? "" : id,
+                            "response", ModerationCommands.RESPONSE_PROMISE))
+                    .build();
+        }
+        return switch (outcome.code() == null ? "" : outcome.code()) {
+            case ModerationCommands.REFUSED_NOT_FOUND -> error(404, ChatErrors.NOT_FOUND, outcome.message());
+            case ModerationCommands.REFUSED_RATE_LIMITED -> Response.status(429)
+                    .type(MediaType.APPLICATION_JSON)
+                    .header("Vary", "Accept")
+                    .header("Retry-After", Integer.toString(Math.max(1, outcome.retryAfterSeconds())))
+                    .entity(Map.of("error", ChatErrors.RATE_LIMITED, "message", outcome.message()))
+                    .build();
+            case ModerationCommands.REFUSED_FORBIDDEN -> error(403, ChatErrors.FORBIDDEN, outcome.message());
+            default -> error(400, ApiErrors.BAD_REQUEST, outcome.message());
+        };
     }
 
     /** Mutes somebody for a number of minutes. Chat managers and site administrators. */

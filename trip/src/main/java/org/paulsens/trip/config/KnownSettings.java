@@ -281,6 +281,36 @@ public final class KnownSettings {
             "Abuse alarms go to the audit trail, which is append-only and never expires, so they are deduped "
                     + "per person per chat over this window. Lowering it lets a script fill the trail.");
 
+    /**
+     * The objectionable-content filter (App Store guideline 1.2 asks for "a method for filtering objectionable
+     * material"): a message or photo comment containing any of these terms is refused at send time with the
+     * {@code BLOCKED_CONTENT} code. Matched as whole words, case-insensitively. The default is deliberately
+     * short -- the clearest obscenities and slurs -- because false positives silence pilgrims talking about
+     * ordinary things; a site admin extends it or empties it here.
+     */
+    public static final SettingDef CHAT_BLOCKED_TERMS = new SettingDef(
+            "chat.blockedTerms", Config.Type.STRING,
+            "fuck,fucking,fucker,motherfucker,shit,bullshit,cunt,cock,dick,pussy,asshole,bitch,bastard,"
+                    + "whore,slut,nigger,nigga,faggot,fag,dyke,tranny,retard,spic,chink,kike,wetback,raghead",
+            "Blocked words",
+            "Comma-separated. A chat message or photo comment containing one of these as a whole word is "
+                    + "refused with an explanation. Case-insensitive. Empty turns the filter off; moderation "
+                    + "(reports, mutes, removals) keeps working either way.");
+
+    public static final SettingDef MODERATION_REPORT_EMAIL = new SettingDef(
+            "moderation.report.email", Config.Type.STRING, "facilitators", "Content report recipient",
+            "Who is emailed when someone reports a chat message, photo or comment. Reports are answered "
+                    + "within 24 hours by whoever receives them; the Terms of Use promise that." + MODE_NOTE);
+
+    public static final SettingDef MODERATION_REPORT_FROM = new SettingDef(
+            "moderation.report.from", Config.Type.STRING, "site", "Content report From",
+            "The From on content-report emails. Must be SES-verified." + MODE_NOTE);
+
+    public static final SettingDef MODERATION_PLATFORM_EMAIL = new SettingDef(
+            "moderation.platform.email", Config.Type.STRING, "info@unitetrip.com", "Platform copy",
+            "A blind copy of every content report and account-deletion notice goes here, so the platform "
+                    + "operator sees them whatever an organization has configured. Blank means no copy.");
+
     // --- chat appearance ---
 
     public static final SettingDef CHAT_BACKGROUND_COLORS = new SettingDef(
@@ -419,6 +449,24 @@ public final class KnownSettings {
             "The refresh lifetime for ADMIN-scoped tokens, shorter than a member's: an admin token is the most "
                     + "valuable credential this system hands out. A month keeps the native app's administrators "
                     + "from signing in weekly; the clamp caps it there.");
+
+    // --- account deletion (self-service, from the native app) ---
+
+    public static final SettingDef ACCOUNT_DELETE_REQUIRE_SETTLED = new SettingDef(
+            "account.delete.requireSettled", Config.Type.BOOLEAN, "true", "Refuse deletion while unsettled",
+            "When on, a person cannot delete their own account while they are registered for a trip that has "
+                    + "not ended or owe a balance; the app tells them who to contact. When off, deletion "
+                    + "always proceeds (the notice email still shows what is owed). The switch exists so the "
+                    + "rule can be relaxed without a deploy if a store review requires it.");
+
+    public static final SettingDef ACCOUNT_DELETE_NOTIFY_EMAIL = new SettingDef(
+            "account.delete.notify.email", Config.Type.STRING, "org", "Account-deletion notice recipient",
+            "Who is told when a person deletes their account: one notice per organization the person "
+                    + "belonged to, each listing only that organization's trips and money." + MODE_NOTE);
+
+    public static final SettingDef ACCOUNT_DELETE_NOTIFY_FROM = new SettingDef(
+            "account.delete.notify.from", Config.Type.STRING, "site", "Account-deletion notice From",
+            "The From on account-deletion notices. Must be SES-verified." + MODE_NOTE);
 
     public static final SettingDef LOGIN_PASSWORD_MAX_FAILS = new SettingDef(
             "login.password.maxFails", Config.Type.INT, "10", "Wrong passwords per person",
@@ -656,10 +704,12 @@ public final class KnownSettings {
                     "Per-chat burst and sustained limits live on each trip's own Chat settings page. These are "
                             + "the site-wide ones.",
                     List.of(CHAT_GLOBAL_LIMIT, CHAT_GLOBAL_WINDOW_SECONDS, CHAT_EDIT_WINDOW_MINUTES)),
-            new SettingSection("Chat moderation", null,
+            new SettingSection("Chat moderation",
+                    "Reports from the app go to the report recipient below and are answered within 24 hours.",
                     List.of(CHAT_AUTO_MUTE_TRIGGER_COUNT, CHAT_AUTO_MUTE_TRIGGER_WINDOW_SECONDS,
                             CHAT_AUTO_MUTE_LADDER_MINUTES, CHAT_AUTO_MUTE_TIER_DECAY_HOURS,
-                            CHAT_ALARM_DEDUPE_WINDOW_SECONDS)),
+                            CHAT_ALARM_DEDUPE_WINDOW_SECONDS, CHAT_BLOCKED_TERMS,
+                            MODERATION_REPORT_EMAIL, MODERATION_REPORT_FROM, MODERATION_PLATFORM_EMAIL)),
             new SettingSection("Chat appearance", null,
                     List.of(CHAT_REACTIONS_PALETTE, CHAT_BACKGROUND_COLORS, CHAT_BACKGROUND_IMAGE)),
             new SettingSection("Chat invites",
@@ -680,6 +730,11 @@ public final class KnownSettings {
                             LOGIN_PASSWORD_FAIL_WINDOW_SECONDS,
                             API_TOKEN_ENABLED, API_TOKEN_ACCESS_MINUTES,
                             API_TOKEN_REFRESH_DAYS, API_TOKEN_REFRESH_ADMIN_DAYS)),
+            new SettingSection("Account deletion",
+                    "Self-service deletion from the native app: the login, profile and content go; "
+                            + "registration and money records stay under an anonymized record.",
+                    List.of(ACCOUNT_DELETE_REQUIRE_SETTLED, ACCOUNT_DELETE_NOTIFY_EMAIL,
+                            ACCOUNT_DELETE_NOTIFY_FROM)),
             new SettingSection("Family accounts", null,
                     List.of(FAMILY_MAX_MEMBERS)),
             new SettingSection("Registration", null,

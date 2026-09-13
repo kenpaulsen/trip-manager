@@ -19,6 +19,7 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.ChatCommands;
+import org.paulsens.trip.action.ModerationCommands;
 import org.paulsens.trip.action.PhotoChatCommands;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.chat.ChatMessage;
@@ -181,6 +182,63 @@ public class PhotoChatResource extends BaseResource {
         return ok(Map.of("deleted", true, "msgId", msgId));
     }
 
+    /** "Report this comment": body {@code {"reason"}}; the photo key travels as {@code ?key=} like every read. */
+    @POST
+    @Path("comments/{msgId}/report")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response reportComment(
+            @PathParam("msgId") final String msgId,
+            @QueryParam("key") final String key,
+            @HeaderParam(CSRF_HEADER) final String csrf,
+            final Map<String, Object> body) {
+        return report(ModerationCommands.ReportTarget.comment(key,
+                msgId == null || msgId.isBlank() ? null : ChatMessage.Id.from(msgId)), csrf, body, msgId);
+    }
+
+    /** "Report this photo": the image itself rather than a comment on it. */
+    @POST
+    @Path("report")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response reportPhoto(
+            @QueryParam("key") final String key,
+            @HeaderParam(CSRF_HEADER) final String csrf,
+            final Map<String, Object> body) {
+        return report(ModerationCommands.ReportTarget.photo(key), csrf, body, key);
+    }
+
+    private Response report(final ModerationCommands.ReportTarget target, final String csrf,
+            final Map<String, Object> body, final String id) {
+        if (csrfMissing(csrf)) {
+            return error(403, ChatErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        try {
+            personId();
+        } catch (final NotAuthorizedException ex) {
+            return error(401, ChatErrors.NOT_AUTHENTICATED, "Sign in required.");
+        }
+        final ModerationCommands.ReportOutcome outcome = Beans.get(ModerationCommands.class)
+                .report(target, string(body == null ? null : body.get("reason")), caller());
+        if (outcome.ok()) {
+            return Response.status(202)
+                    .type(negotiatedType())
+                    .header("Vary", "Accept")
+                    .entity(Map.of("reported", true, "id", id == null ? "" : id,
+                            "response", ModerationCommands.RESPONSE_PROMISE))
+                    .build();
+        }
+        return switch (outcome.code() == null ? "" : outcome.code()) {
+            case ModerationCommands.REFUSED_NOT_FOUND -> error(404, ApiErrors.NOT_FOUND, outcome.message());
+            case ModerationCommands.REFUSED_RATE_LIMITED -> Response.status(429)
+                    .type(MediaType.APPLICATION_JSON)
+                    .header("Vary", "Accept")
+                    .header("Retry-After", Integer.toString(Math.max(1, outcome.retryAfterSeconds())))
+                    .entity(Map.of("error", ChatErrors.RATE_LIMITED, "message", outcome.message()))
+                    .build();
+            case ModerationCommands.REFUSED_FORBIDDEN -> error(403, ChatErrors.FORBIDDEN, outcome.message());
+            default -> error(400, ApiErrors.BAD_REQUEST, outcome.message());
+        };
+    }
+
     /** Adds this person's emoji on the photo. PUT because the row key (photo, person, emoji) is idempotent. */
     @PUT
     @Path("reactions/{emoji}")
@@ -328,6 +386,7 @@ public class PhotoChatResource extends BaseResource {
             case "not_found" -> error(404, ApiErrors.NOT_FOUND, message);
             case "empty" -> error(400, ChatErrors.MESSAGE_EMPTY, message);
             case "too_long" -> error(400, ChatErrors.MESSAGE_TOO_LONG, message);
+            case "blocked_content" -> error(400, ChatErrors.BLOCKED_CONTENT, message);
             default -> error(500, ChatErrors.STORE_FAILED, message);
         };
     }

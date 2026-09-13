@@ -698,4 +698,64 @@ public class ChatResourceTest extends ResourceTestSupport {
         assertError(uploader.uploadPhoto(CHANNEL, CSRF_OK, null, null, null, null, null, bodyOf(bytes)),
                 500, ChatErrors.STORE_FAILED);
     }
+
+    // --- reports ---
+
+    @Test
+    public void aReportIsAcceptedWith202() {
+        final org.paulsens.trip.action.ModerationCommands moderation =
+                bindMock(org.paulsens.trip.action.ModerationCommands.class);
+        Mockito.when(moderation.report(ArgumentMatchers.any(), ArgumentMatchers.eq("Spam"), ArgumentMatchers.any()))
+                .thenReturn(new org.paulsens.trip.action.ModerationCommands.ReportOutcome(true, null, null, 0));
+        final Response response = resource.report(CHANNEL, "m1", CSRF_OK, Map.of("reason", "Spam"));
+        Assert.assertEquals(response.getStatus(), 202);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> body = (Map<String, Object>) response.getEntity();
+        Assert.assertEquals(body.get("reported"), true);
+        Assert.assertEquals(body.get("id"), "m1");
+        Assert.assertEquals(body.get("response"), org.paulsens.trip.action.ModerationCommands.RESPONSE_PROMISE);
+        final org.mockito.ArgumentCaptor<org.paulsens.trip.action.ModerationCommands.ReportTarget> target =
+                org.mockito.ArgumentCaptor.forClass(org.paulsens.trip.action.ModerationCommands.ReportTarget.class);
+        Mockito.verify(moderation).report(target.capture(), ArgumentMatchers.eq("Spam"), ArgumentMatchers.any());
+        Assert.assertEquals(target.getValue().tripId(), TRIP_ID);
+        Assert.assertEquals(target.getValue().messageId(), ChatMessage.Id.from("m1"));
+    }
+
+    @Test
+    public void reportRefusalsMapToStatuses() {
+        final org.paulsens.trip.action.ModerationCommands moderation =
+                bindMock(org.paulsens.trip.action.ModerationCommands.class);
+        assertError(resource.report(CHANNEL, "m1", null, Map.of()), 403, ChatErrors.CSRF);
+        assertError(resource.report("bad", "m1", CSRF_OK, Map.of()), 400, ChatErrors.BAD_CHANNEL);
+        Mockito.when(moderation.report(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(new org.paulsens.trip.action.ModerationCommands.ReportOutcome(false,
+                        org.paulsens.trip.action.ModerationCommands.REFUSED_NOT_FOUND, "gone", 0));
+        assertError(resource.report(CHANNEL, "m1", CSRF_OK, null), 404, ChatErrors.NOT_FOUND);
+        Mockito.when(moderation.report(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(new org.paulsens.trip.action.ModerationCommands.ReportOutcome(false,
+                        org.paulsens.trip.action.ModerationCommands.REFUSED_RATE_LIMITED, "slow down", 42));
+        final Response throttled = resource.report(CHANNEL, "m1", CSRF_OK, null);
+        Assert.assertEquals(throttled.getStatus(), 429);
+        Assert.assertEquals(throttled.getHeaderString("Retry-After"), "42");
+        Mockito.when(moderation.report(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(new org.paulsens.trip.action.ModerationCommands.ReportOutcome(false,
+                        org.paulsens.trip.action.ModerationCommands.REFUSED_FORBIDDEN, "no", 0));
+        assertError(resource.report(CHANNEL, "m1", CSRF_OK, null), 403, ChatErrors.FORBIDDEN);
+        Mockito.when(moderation.report(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(new org.paulsens.trip.action.ModerationCommands.ReportOutcome(false,
+                        org.paulsens.trip.action.ModerationCommands.REFUSED_BAD_REQUEST, "what", 0));
+        assertError(resource.report(CHANNEL, "m1", CSRF_OK, null), 400, ApiErrors.BAD_REQUEST);
+    }
+
+    @Test
+    public void aBlockedWordIsA400OnSendAndEdit() {
+        Mockito.when(chat.send(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(ChatCommands.SendResult.fail("blocked_content", ChatCommands.BLOCKED_CONTENT_MESSAGE));
+        assertError(send("darn"), 400, ChatErrors.BLOCKED_CONTENT);
+        Mockito.when(chat.editMessage(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME), ArgumentMatchers.any(),
+                ArgumentMatchers.any()))
+                .thenReturn(ChatCommands.ReactResult.fail("blocked_content", ChatCommands.BLOCKED_CONTENT_MESSAGE));
+        assertError(resource.edit(CHANNEL, "m1", CSRF_OK, Map.of("body", "darn")), 400, ChatErrors.BLOCKED_CONTENT);
+    }
 }

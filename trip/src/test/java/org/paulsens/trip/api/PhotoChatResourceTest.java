@@ -309,4 +309,69 @@ public class PhotoChatResourceTest extends ResourceTestSupport {
     private static ChatPage emptyPage() {
         return new ChatPage(List.of(), Map.of(), null, 0L, 0L, false, true, Map.of(), Instant.now());
     }
+
+    // --- reports ---
+
+    @Test
+    public void reportingAPhotoOrCommentIs202ForAMemberAnd401Anonymous() {
+        final org.paulsens.trip.action.ModerationCommands moderation =
+                bindMock(org.paulsens.trip.action.ModerationCommands.class);
+        anonymous();
+        assertError(resource.reportPhoto(KEY, CSRF_OK, Map.of()), 401, ChatErrors.NOT_AUTHENTICATED);
+        assertError(resource.reportComment("c1", KEY, CSRF_OK, Map.of()), 401, ChatErrors.NOT_AUTHENTICATED);
+        Mockito.verifyNoInteractions(moderation);
+
+        signedInAs(ME);
+        Mockito.when(moderation.report(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(new org.paulsens.trip.action.ModerationCommands.ReportOutcome(true, null, null, 0));
+        final Response photo = resource.reportPhoto(KEY, CSRF_OK, Map.of("reason", "ugh"));
+        Assert.assertEquals(photo.getStatus(), 202);
+        final Response comment = resource.reportComment("c1", KEY, CSRF_OK, null);
+        Assert.assertEquals(comment.getStatus(), 202);
+        final org.mockito.ArgumentCaptor<org.paulsens.trip.action.ModerationCommands.ReportTarget> target =
+                org.mockito.ArgumentCaptor.forClass(org.paulsens.trip.action.ModerationCommands.ReportTarget.class);
+        Mockito.verify(moderation, Mockito.times(2)).report(target.capture(), ArgumentMatchers.any(),
+                ArgumentMatchers.any());
+        Assert.assertEquals(target.getAllValues().get(0).kind(),
+                org.paulsens.trip.action.ModerationCommands.TargetKind.PHOTO);
+        Assert.assertEquals(target.getAllValues().get(0).photoKey(), KEY);
+        Assert.assertEquals(target.getAllValues().get(1).kind(),
+                org.paulsens.trip.action.ModerationCommands.TargetKind.COMMENT);
+        Assert.assertEquals(target.getAllValues().get(1).messageId(), ChatMessage.Id.from("c1"));
+        assertError(resource.reportPhoto(KEY, null, Map.of()), 403, ChatErrors.CSRF);
+    }
+
+    @Test
+    public void reportRefusalsMapToStatuses() {
+        final org.paulsens.trip.action.ModerationCommands moderation =
+                bindMock(org.paulsens.trip.action.ModerationCommands.class);
+        signedInAs(ME);
+        Mockito.when(moderation.report(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(new org.paulsens.trip.action.ModerationCommands.ReportOutcome(false,
+                        org.paulsens.trip.action.ModerationCommands.REFUSED_NOT_FOUND, "gone", 0));
+        assertError(resource.reportPhoto(KEY, CSRF_OK, null), 404, ApiErrors.NOT_FOUND);
+        Mockito.when(moderation.report(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(new org.paulsens.trip.action.ModerationCommands.ReportOutcome(false,
+                        org.paulsens.trip.action.ModerationCommands.REFUSED_RATE_LIMITED, "wait", 7));
+        final Response throttled = resource.reportPhoto(KEY, CSRF_OK, null);
+        Assert.assertEquals(throttled.getStatus(), 429);
+        Assert.assertEquals(throttled.getHeaderString("Retry-After"), "7");
+        Mockito.when(moderation.report(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(new org.paulsens.trip.action.ModerationCommands.ReportOutcome(false,
+                        org.paulsens.trip.action.ModerationCommands.REFUSED_FORBIDDEN, "no", 0));
+        assertError(resource.reportPhoto(KEY, CSRF_OK, null), 403, ChatErrors.FORBIDDEN);
+        Mockito.when(moderation.report(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(new org.paulsens.trip.action.ModerationCommands.ReportOutcome(false,
+                        org.paulsens.trip.action.ModerationCommands.REFUSED_BAD_REQUEST, "eh", 0));
+        assertError(resource.reportPhoto(KEY, CSRF_OK, null), 400, ApiErrors.BAD_REQUEST);
+    }
+
+    @Test
+    public void aBlockedWordInACommentIs400() {
+        signedInAs(ME);
+        Mockito.when(photoChat.comment(ArgumentMatchers.eq(KEY), ArgumentMatchers.eq(ME), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(ChatCommands.SendResult.fail("blocked_content", ChatCommands.BLOCKED_CONTENT_MESSAGE));
+        assertError(resource.comment(CSRF_OK, Map.of("key", KEY, "body", "darn")), 400, ChatErrors.BLOCKED_CONTENT);
+    }
 }

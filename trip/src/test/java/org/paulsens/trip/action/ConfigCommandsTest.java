@@ -251,4 +251,26 @@ public class ConfigCommandsTest {
     public void aNullEditMapIsSafe() {
         Assert.assertTrue(config.saveKnown(null, "editor"));
     }
+
+    @Test
+    public void aPartialMapLeavesTheOtherSettingsAlone() {
+        // The REST edge sends partial bodies (scripts); "absent" must mean unchanged, not "back to default".
+        final ConfigCommands config = new ConfigCommands();
+        final Map<String, String> first = new HashMap<>();
+        first.put(KnownSettings.SITE_ORG_NAME.getName(), "Partial Test Org");
+        Assert.assertTrue(config.saveKnown(first, "editor"));
+        final Map<String, String> second = new HashMap<>();
+        second.put(KnownSettings.API_TOKEN_ENABLED.getName(), "true");
+        Assert.assertTrue(config.saveKnown(second, "editor"));
+        Assert.assertEquals(config.getString(KnownSettings.SITE_ORG_NAME), "Partial Test Org",
+                "a setting absent from the map keeps its stored value");
+        Assert.assertTrue(config.getBoolean(KnownSettings.API_TOKEN_ENABLED));
+        final Map<String, String> blank = new HashMap<>();
+        blank.put(KnownSettings.SITE_ORG_NAME.getName(), "");
+        blank.put(KnownSettings.API_TOKEN_ENABLED.getName(), "");
+        Assert.assertTrue(config.saveKnown(blank, "editor"));
+        Assert.assertEquals(config.getString(KnownSettings.SITE_ORG_NAME),
+                KnownSettings.SITE_ORG_NAME.getDefaultValue(), "present-and-blank means back to the default");
+        Assert.assertFalse(config.getBoolean(KnownSettings.API_TOKEN_ENABLED));
+    }
 }

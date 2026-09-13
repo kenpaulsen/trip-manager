@@ -26,6 +26,7 @@ import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.moderation.ContentFilter;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatAttachment;
 import org.paulsens.trip.model.chat.ChatChannel;
@@ -374,6 +375,9 @@ public class PhotoChatCommands {
         if (text.codePointCount(0, text.length()) > max) {
             return ChatCommands.SendResult.fail("too_long",
                     "Comment is too long (max " + max + " characters).");
+        }
+        if (ContentFilter.shared().blocks(config.getString(KnownSettings.CHAT_BLOCKED_TERMS), text)) {
+            return ChatCommands.SendResult.fail("blocked_content", ChatCommands.BLOCKED_CONTENT_MESSAGE);
         }
         final Instant now = Instant.now();
         final AuditActor who = caller == null ? AuditActor.current() : caller.auditActor();

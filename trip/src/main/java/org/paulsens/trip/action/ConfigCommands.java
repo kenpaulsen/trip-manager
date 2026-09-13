@@ -334,6 +334,11 @@ public class ConfigCommands {
      * setting with a new modified-by, and blanking a field deletes the stored value rather than storing an
      * empty one -- which is what makes "blank means use the default" true rather than merely intended.
      *
+     * <p>A setting ABSENT from the map is left alone. The page always submits the whole sheet, so it never
+     * notices; the REST edge does not -- a script that PUT just {@code api.token.enabled} used to reset every
+     * other stored value to its default, because "absent" and "blanked" read the same. Absent = unchanged,
+     * present-and-blank = back to default.
+     *
      * @return true when everything valid was stored; false if any value was rejected (each reports itself).
      */
     public boolean saveKnown(final Map<String, String> values, final String modifiedBy) {
@@ -343,6 +348,9 @@ public class ConfigCommands {
         final Map<String, String> current = getKnownValues();
         boolean allSaved = true;
         for (final SettingDef def : KnownSettings.all()) {
+            if (!values.containsKey(def.getName())) {
+                continue;
+            }
             final String edited = normalize(values.get(def.getName()));
             if (edited.equals(normalize(current.get(def.getName())))) {
                 continue;

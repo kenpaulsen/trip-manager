@@ -242,7 +242,7 @@ public class MailAddressCommandsTest {
         final MailAddressCommands broken = new MailAddressCommands(MailAddressCommandsTest::sesIsDown);
         assertEquals(broken.getSendingDomains(), List.of(), "a lookup failure answers empty, not a throw");
         assertEquals(commands().getSendingDomains(), DOMAINS);
-        assertEquals(commands().getSlots().size(), 14, "every address slot is registered");
+        assertEquals(commands().getSlots().size(), 18, "every address slot is registered");
     }
 
     @Test

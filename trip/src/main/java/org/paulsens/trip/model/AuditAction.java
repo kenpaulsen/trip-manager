@@ -105,6 +105,12 @@ public enum AuditAction {
      * Not chat-specific; filter with a {@code subsystem.event:} message prefix.
      */
     ALARM,
+    /**
+     * A person reported a chat message, photo or comment as objectionable. Distinct from {@link #ALARM} (which
+     * the system raises) and {@link #CHAT_ADMIN} (what a moderator then does): the trail shows report,
+     * response and outcome as three records.
+     */
+    REPORT,
     /** Unrecognised: the record is kept, the original type text is preserved in the message. */
     UNKNOWN;
 
