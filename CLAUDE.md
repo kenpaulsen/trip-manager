@@ -216,7 +216,8 @@ privileges, chat, chat-admin, photo-chat, audit, config, mail, payments, deploy,
 
 - `PhotoChatResource` is deliberately NOT `@TripApi`: the auth filter is name-bound, so its GETs serve
   anonymous readers (comments follow the photo — `docs/photo-comments.md`); mutations enforce the session
-  themselves and answer 401 JSON.
+  themselves and answer 401 JSON. `BaseResource.personId` still recognises a bearer caller there (the
+  servlet edge resolves the principal for every `/api/` request; only the filter's stamp is missing).
 - API authentication is dual: session cookie OR `Authorization: Bearer` (feature-gated by
   `api.token.enabled`, default off). Read `docs/api-tokens.md` before touching `TripAuthFilter`,
   `AuthResource`, `TokenService`, `RememberMeService`, `SelectorTokens`, the `auth_tokens` table, or

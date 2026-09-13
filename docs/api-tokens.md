@@ -251,7 +251,10 @@ every request is a bearer, so the CSRF sentinel never applies to it — asks for
 to `member` on the 403, and refreshes on the first 401 with single-flight coordination (ten concurrent 401s
 are one refresh, which is what the 30 s rotation grace exists for). The endpoints added for it (raw-body
 photo uploads, the trip roster, the family resource, party registration, org summaries with branding,
-media URL bases) are ordinary `@TripApi` resources: the session path serves them too.
+media URL bases) are ordinary `@TripApi` resources: the session path serves them too. The one resource that
+is not `@TripApi` (`PhotoChatResource`, whose reads are anonymous) recognises bearer callers through
+`BaseResource.personId`, which consults the edge-resolved principal before the session — the first native
+build got a 401 on a photo comment for exactly that gap.
 
 ## Performance & cost
 
