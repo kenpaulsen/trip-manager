@@ -19,6 +19,7 @@ import org.paulsens.trip.action.BrandCommands;
 import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.SiteCommands;
 import org.paulsens.trip.api.dto.OrgBrandingDto;
+import org.paulsens.trip.api.dto.OrgDirectoryEntryDto;
 import org.paulsens.trip.api.dto.OrgSummaryDto;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
@@ -66,6 +67,34 @@ public class OrgsResource extends BaseResource {
                 .sorted(Comparator.comparing(Organization::getName, String.CASE_INSENSITIVE_ORDER))
                 .map(org -> summary(org, me))
                 .toList());
+    }
+
+    /**
+     * Every organization by name, for the native app's "choose your organization" list. Any signed-in
+     * caller: an organization's name, abbreviation and site are its public face (each has a public site),
+     * and nothing about its people or trips travels with them. {@code q} narrows by name or abbreviation.
+     */
+    @GET
+    @Path("directory")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response directory(@QueryParam("q") @DefaultValue("") final String query) {
+        final String needle = query == null ? "" : query.trim().toLowerCase(java.util.Locale.ROOT);
+        return ok(new OrgCommands(this::caller).getOrganizations().stream()
+                .filter(org -> needle.isEmpty() || matches(org, needle))
+                .map(this::directoryEntry)
+                .toList());
+    }
+
+    private static boolean matches(final Organization org, final String needle) {
+        return (org.getName() != null && org.getName().toLowerCase(java.util.Locale.ROOT).contains(needle))
+                || (org.getAbbreviation() != null
+                        && org.getAbbreviation().toLowerCase(java.util.Locale.ROOT).contains(needle));
+    }
+
+    private OrgDirectoryEntryDto directoryEntry(final Organization org) {
+        final String slug = org.getSlug();
+        return new OrgDirectoryEntryDto(org.getId().getValue(), org.getName(), org.getAbbreviation(), slug,
+                slug == null ? null : trimSlash(SiteCommands.orgSiteUrl(slug, request)));
     }
 
     /**

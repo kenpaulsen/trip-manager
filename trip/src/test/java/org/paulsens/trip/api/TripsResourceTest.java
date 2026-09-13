@@ -99,6 +99,20 @@ public class TripsResourceTest extends ResourceTestSupport {
         Assert.assertEquals(((TripDto) visible.get(0)).id(), "mine-1");
     }
 
+    /** The landing page's listing: joinable, publicly listed trips need no membership to be seen. */
+    @Test
+    public void openListsPublicTripsToNonMembers() {
+        signedInAs(ME);
+        Mockito.when(trips.getPublicTrips()).thenReturn(List.of(trip("open-1", OTHER)));
+
+        final Response response = resource.list("open", 50);
+
+        assertOk(response);
+        final List<?> visible = (List<?>) response.getEntity();
+        Assert.assertEquals(visible.size(), 1);
+        Assert.assertEquals(((TripDto) visible.get(0)).id(), "open-1");
+    }
+
     @Test
     public void aSiteAdminSeesEverythingInActive() {
         signedInAsSiteAdmin(ME);

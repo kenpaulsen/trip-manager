@@ -71,6 +71,42 @@ public class PeopleResourceTest extends ResourceTestSupport {
         Mockito.when(people.getPerson(person.getId())).thenReturn(person);
     }
 
+    @Test
+    public void defaultOrgIsSelfOnlyAndJoinsTheOrganization() {
+        // Real beans: the membership write goes through PersonCommands, and a mock there reports failure.
+        bind(PersonCommands.class, new PersonCommands());
+        final PersonCommands real = new PersonCommands();
+        final Person me = real.createPerson();
+        me.setFirst("Default");
+        me.setLast("Orgtester");
+        Assert.assertTrue(real.savePerson(me));
+        signedInAsSiteAdmin(me.getId());
+        final Response created = resource(new OrgsResource()).create(CSRF_OK,
+                Map.of("name", "Org " + System.nanoTime()));
+        assertOk(created);
+        final String orgId = (String) ((Map<?, ?>) created.getEntity()).get("id");
+        signedInAs(me.getId());
+        resource = resource(new PeopleResource());
+
+        assertError(resource.setDefaultOrg(OTHER.getValue(), CSRF_OK, Map.of("orgId", orgId)), 403,
+                ApiErrors.FORBIDDEN);
+        assertError(resource.setDefaultOrg(me.getId().getValue(), null, Map.of("orgId", orgId)), 403, ApiErrors.CSRF);
+        assertError(resource.setDefaultOrg(me.getId().getValue(), CSRF_OK, Map.of()), 400,
+                ApiErrors.VALIDATION_FAILED);
+        assertError(resource.setDefaultOrg(me.getId().getValue(), CSRF_OK, Map.of("orgId", "nope")), 404,
+                ApiErrors.NOT_FOUND);
+
+        final Response response = resource.setDefaultOrg(me.getId().getValue(), CSRF_OK, Map.of("orgId", orgId));
+
+        assertOk(response);
+        Assert.assertEquals(((Map<?, ?>) response.getEntity()).get("defaultOrgId"), orgId);
+        final Person saved = real.getPerson(me.getId());
+        Assert.assertEquals(saved.getDefaultOrgId().getValue(), orgId);
+        Assert.assertTrue(saved.getOrgIds().contains(org.paulsens.trip.model.Organization.Id.from(orgId)),
+                "choosing a default organization joins it");
+        Mockito.verify(audit).person(ArgumentMatchers.any(), ArgumentMatchers.eq("EDITED"), ArgumentMatchers.any());
+    }
+
     /**
      * The trap that motivated {@code BaseResource.findPerson}.
      *

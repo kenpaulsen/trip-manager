@@ -36,6 +36,7 @@ import org.paulsens.trip.api.dto.ProfilePhotoDto;
 import org.paulsens.trip.api.mapper.PersonMapper;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.model.DataId;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.PrivacySettings;
@@ -207,6 +208,55 @@ public class PeopleResource extends BaseResource {
         // Echo what was just saved rather than re-reading it. Cache invalidation is async, so a read here can
         // still return the pre-save value -- in production only, which is the worst place to discover it.
         return ok(dto(person, level));
+    }
+
+    /**
+     * Sets the person's default organization (self only) and joins it, the way signing up on that
+     * organization's site would. 404 for an unknown organization; the membership write failing is a 500
+     * rather than a half-applied preference.
+     */
+    @PUT
+    @Path("{id}/default-org")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response setDefaultOrg(
+            @PathParam("id") final String id,
+            @HeaderParam(CSRF_HEADER) final String csrf,
+            final Map<String, Object> body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final Person.Id personId = Person.Id.from(id);
+        if (!personId.equals(personId())) {
+            return error(403, ApiErrors.FORBIDDEN, "Only the person themselves can choose their organization.");
+        }
+        if (findPerson(personId) == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such person.");
+        }
+        final String orgId = body == null || body.get("orgId") == null ? null : String.valueOf(body.get("orgId"));
+        if (orgId == null || orgId.isBlank()) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "orgId is required.");
+        }
+        final OrgCommands orgs = new OrgCommands(this::caller);
+        if (orgs.findOrganization(orgId) == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such organization.");
+        }
+        if (!orgs.joinAsDefault(orgId, personId)) {
+            return error(500, ApiErrors.STORE_FAILED, "Could not join the organization.");
+        }
+        // Re-read AFTER the join: the membership write updates the person's derived orgIds, and saving the
+        // copy read before it would put the stale list back.
+        final Person person = findPerson(personId);
+        if (person == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such person.");
+        }
+        person.setDefaultOrgId(Organization.Id.from(orgId));
+        final PersonCommands people = Beans.get(PersonCommands.class);
+        if (!people.savePerson(person)) {
+            return error(500, ApiErrors.STORE_FAILED, "Could not save the person.");
+        }
+        Beans.get(AuditCommands.class).person(person, "EDITED", actor());
+        return ok(Map.of("id", id, "defaultOrgId", orgId));
     }
 
     /**

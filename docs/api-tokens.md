@@ -72,6 +72,16 @@ error shapes — a new resource would duplicate all three):
 - `POST /api/auth/token/refresh` — presents the refresh token; rotates it; returns a fresh pair.
 - `POST /api/auth/token/revoke` — kills the presented refresh token and its ACCESS children.
 
+Two more ride on the same feature switch for the native app's sign-in flow (2026-09-13), mirroring the
+website's "Login or Signup" page:
+
+- `POST /api/auth/lookup` — `{email}` → `{email, known}`. Whether an account exists for the address; the
+  website's Next button has always answered this, so it is not a new oracle.
+- `POST /api/auth/register` — the create-account form (`email, first, last, sex, password` required;
+  `nickname, middle, cell, birthdate` optional; `scope, label` as for `token`). Creates the person and
+  credentials, joins an organization host's org, notifies the office, and answers a token grant. 409 when
+  the address already has an account.
+
 All three are **sessionless**: they must never call `getSession(true)`. A token client that accidentally also
 holds a `JSESSIONID` is exactly the two-parallel-identity-models mess the `AuthResource` javadoc warns
 against, and there is an explicit test asserting no session is created.

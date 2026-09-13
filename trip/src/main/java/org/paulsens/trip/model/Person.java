@@ -71,6 +71,14 @@ public final class Person implements Serializable, Comparable<Person> {
      * setter, keeping the 17-arg creator's callers untouched.
      */
     private Integer profilePhotoSlot;
+
+    /**
+     * The organization the person treats as home in the native app: the one whose trips "Find a Trip"
+     * offers first and whose site the app talks to by default. Chosen once after the first sign-in (the
+     * app derives it from a lone trip registration, or asks); null for accounts that predate the app.
+     * Additive and nullable so Kryo and the pinned serialVersionUID stay untouched.
+     */
+    private Organization.Id defaultOrgId;
     /**
      * The person's privacy choices for the four negotiable profile fields. Never null: rows written before the
      * feature deserialize without the key, leaving this initializer in place, and the setter refuses null -- EL on

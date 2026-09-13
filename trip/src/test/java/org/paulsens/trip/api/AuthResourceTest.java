@@ -345,6 +345,110 @@ public class AuthResourceTest extends ResourceTestSupport {
                 403, ApiErrors.FORBIDDEN);
     }
 
+    @Test
+    public void lookupAndRegisterRideTheTokenSwitch() {
+        assertError(resource.lookup(Map.of("email", "me@example.com")), 404, ApiErrors.NOT_FOUND);
+        assertError(resource.register(registration("new@example.com")), 404, ApiErrors.NOT_FOUND);
+    }
+
+    @Test
+    public void lookupSaysWhetherTheAddressHasAnAccount() {
+        Mockito.when(passes.userExistsWithEmail("me@example.com")).thenReturn(true);
+        final AuthResource live = tokenResource();
+        assertError(live.lookup(null), 400, ApiErrors.BAD_REQUEST);
+        assertError(live.lookup(Map.of("email", " ")), 400, ApiErrors.BAD_REQUEST);
+
+        final Response known = live.lookup(Map.of("email", " me@example.com "));
+        final Response unknown = live.lookup(Map.of("email", "nobody@example.com"));
+
+        assertOk(known);
+        Assert.assertEquals(((Map<?, ?>) known.getEntity()).get("known"), true);
+        Assert.assertEquals(((Map<?, ?>) known.getEntity()).get("email"), "me@example.com");
+        Assert.assertEquals(((Map<?, ?>) unknown.getEntity()).get("known"), false);
+        Mockito.verify(request, Mockito.never()).getSession(true);
+    }
+
+    @Test
+    public void registerValidatesTheFormBeforeWritingAnything() {
+        final AuthResource live = tokenResource();
+        assertError(live.register(null), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(live.register(new org.paulsens.trip.api.dto.RegisterAccountRequest("not-an-address", null,
+                "Ken", null, "Paulsen", "Male", null, null, "pw", null, null)), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(live.register(new org.paulsens.trip.api.dto.RegisterAccountRequest("new@example.com", null,
+                " ", null, "Paulsen", "Male", null, null, "pw", null, null)), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(live.register(new org.paulsens.trip.api.dto.RegisterAccountRequest("new@example.com", null,
+                "Ken", null, "Paulsen", "Other", null, null, "pw", null, null)), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(live.register(new org.paulsens.trip.api.dto.RegisterAccountRequest("new@example.com", null,
+                "Ken", null, "Paulsen", "Male", null, null, " ", null, null)), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(live.register(new org.paulsens.trip.api.dto.RegisterAccountRequest("new@example.com", null,
+                "Ken", null, "Paulsen", "Male", null, null, "pw", "root", null)), 400, ApiErrors.BAD_REQUEST);
+        Mockito.verify(bean(PersonCommands.class), Mockito.never()).savePerson(ArgumentMatchers.any());
+    }
+
+    @Test
+    public void registerRefusesAnAddressThatAlreadyHasAnAccount() {
+        Mockito.when(passes.userExistsWithEmail("me@example.com")).thenReturn(true);
+        assertError(tokenResource().register(registration("me@example.com")), 409, ApiErrors.CONFLICT);
+        Mockito.verify(bean(PersonCommands.class), Mockito.never()).savePerson(ArgumentMatchers.any());
+    }
+
+    @Test
+    public void registerCreatesThePersonTheCredentialsAndAGrant() {
+        final PersonCommands people = bean(PersonCommands.class);
+        final Person created = new Person();
+        created.setId(Person.Id.from("brand-new"));
+        Mockito.when(people.createPerson()).thenReturn(created);
+        Mockito.when(people.savePerson(created)).thenReturn(true);
+        final org.paulsens.trip.action.AuditCommands audit = bindMock(org.paulsens.trip.action.AuditCommands.class);
+        final org.paulsens.trip.action.MailAddressCommands addresses =
+                bindMock(org.paulsens.trip.action.MailAddressCommands.class);
+        final org.paulsens.trip.action.MailCommands mail = bindMock(org.paulsens.trip.action.MailCommands.class);
+        Mockito.when(addresses.recipientFor("account.notify.email", null)).thenReturn("office@example.com");
+        Mockito.when(addresses.fromFor("account.notify.from")).thenReturn("site@example.com");
+        final Creds creds = new Creds("new@example.com", created.getId(), "hashed");
+        creds.setPriv("user");
+        Mockito.when(passes.createCreds("new@example.com", "s3cret")).thenReturn(creds);
+
+        final Response response = tokenResource().register(registration(" new@example.com "));
+
+        assertOk(response);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> body = (Map<String, Object>) response.getEntity();
+        Assert.assertNotNull(body.get("accessToken"));
+        Assert.assertNotNull(body.get("refreshToken"));
+        Assert.assertEquals(body.get("scope"), "member");
+        Assert.assertEquals(created.getEmail(), "new@example.com");
+        Assert.assertEquals(created.getFirst(), "Ken");
+        Assert.assertEquals(created.getLast(), "Paulsen");
+        Assert.assertEquals(created.getSex(), Person.Sex.Male);
+        Assert.assertEquals(created.getNickname(), "Kenny");
+        Assert.assertNull(created.getMiddle(), "a blank optional field stays null");
+        Mockito.verify(audit).person(ArgumentMatchers.eq(created), ArgumentMatchers.eq("CREATED"),
+                ArgumentMatchers.any());
+        Mockito.verify(mail).send(ArgumentMatchers.eq("site@example.com"), ArgumentMatchers.eq("office@example.com"),
+                ArgumentMatchers.isNull(), ArgumentMatchers.isNull(), ArgumentMatchers.eq("New Account Created"),
+                ArgumentMatchers.contains("new@example.com"), ArgumentMatchers.any());
+        Mockito.verify(request, Mockito.never()).getSession(true);
+    }
+
+    @Test
+    public void registerReportsAFailedCredentialSaveWithoutPretendingToSignIn() {
+        final PersonCommands people = bean(PersonCommands.class);
+        final Person created = new Person();
+        created.setId(Person.Id.from("brand-new-2"));
+        Mockito.when(people.createPerson()).thenReturn(created);
+        Mockito.when(people.savePerson(created)).thenReturn(true);
+        bindMock(org.paulsens.trip.action.AuditCommands.class);
+        Mockito.when(passes.createCreds(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(null);
+
+        assertError(tokenResource().register(registration("new2@example.com")), 500, ApiErrors.STORE_FAILED);
+    }
+
+    private static org.paulsens.trip.api.dto.RegisterAccountRequest registration(final String email) {
+        return new org.paulsens.trip.api.dto.RegisterAccountRequest(email, "Kenny", "Ken", " ", "Paulsen", "male",
+                null, java.time.LocalDate.of(1980, 1, 2), "s3cret", null, "Ken's phone");
+    }
+
     /** The property the whole design hangs on: a token grant must never create or touch a session. */
     @Test
     public void aTokenGrantIsCompleteAndStrictlySessionless() {

@@ -47,6 +47,29 @@ public class OrgsResourceTest extends ResourceTestSupport {
     }
 
     @Test
+    public void directoryListsEveryOrganizationByNameForAnyMember() {
+        signedInAsSiteAdmin(ME);
+        final String stamp = String.valueOf(System.nanoTime());
+        final String zeta = createOrg("Zeta Pilgrims " + stamp);
+        final String alpha = createOrg("Alpha Tours " + stamp);
+        signedInAs(somebody("Directory"));
+        resource = resource(new OrgsResource());
+
+        final List<?> all = (List<?>) resource.directory("").getEntity();
+        final List<?> zetaOnly = (List<?>) resource.directory(" ZETA pilgrims " + stamp).getEntity();
+
+        final List<String> ids = all.stream()
+                .map(entry -> ((org.paulsens.trip.api.dto.OrgDirectoryEntryDto) entry).id()).toList();
+        Assert.assertTrue(ids.contains(zeta) && ids.contains(alpha), "every org is listed");
+        Assert.assertEquals(zetaOnly.size(), 1);
+        final org.paulsens.trip.api.dto.OrgDirectoryEntryDto entry =
+                (org.paulsens.trip.api.dto.OrgDirectoryEntryDto) zetaOnly.get(0);
+        Assert.assertEquals(entry.id(), zeta);
+        Assert.assertEquals(entry.name(), "Zeta Pilgrims " + stamp);
+        Assert.assertNull(entry.siteUrl(), "no slug, no site");
+    }
+
+    @Test
     public void createIsSiteAdminOnlyAndAnswersTheNewId() {
         signedInAs(ME);
         assertError(resource.create(CSRF_OK, Map.of("name", "Nope Inc")), 403, ApiErrors.FORBIDDEN);

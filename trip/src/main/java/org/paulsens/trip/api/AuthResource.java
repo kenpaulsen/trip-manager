@@ -13,9 +13,16 @@ import jakarta.ws.rs.core.Response;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.action.AuditCommands;
 import org.paulsens.trip.action.LoginCodeCommands;
+import org.paulsens.trip.action.MailAddressCommands;
+import org.paulsens.trip.action.MailCommands;
+import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.PassCommands;
+import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.api.dto.PersonDto;
+import org.paulsens.trip.api.dto.RegisterAccountRequest;
+import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.api.mapper.PersonMapper;
 import org.paulsens.trip.model.AuthToken;
 import org.paulsens.trip.model.Creds;
@@ -165,6 +172,150 @@ public class AuthResource extends BaseResource {
         return ok(grantBody(grant));
     }
 
+    /**
+     * Whether an account exists for the address: the native app's first sign-in step, mirroring the
+     * website's "Login or Signup" page, which sends a known address to the password page and an unknown one
+     * to the create-account page. The website has always answered this question, so the API answers it
+     * too; gated with the token feature because it exists for token clients.
+     */
+    @POST
+    @Path("lookup")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response lookup(final Map<String, Object> body) {
+        if (!tokens.enabled()) {
+            return error(404, ApiErrors.NOT_FOUND, "API tokens are not enabled.");
+        }
+        final String email = string(body == null ? null : body.get("email"));
+        if (email == null || email.isBlank()) {
+            return error(400, ApiErrors.BAD_REQUEST, "Email is required.");
+        }
+        final boolean known = Beans.get(PassCommands.class).userExistsWithEmail(email.trim());
+        return ok(Map.of("email", email.trim(), "known", known));
+    }
+
+    /**
+     * Creates an account and signs it in, the way {@code account/createAccount.xhtml} does: person row,
+     * credentials, the sign-up join for an organization host, the "new account" notice to the office --
+     * then a token grant instead of a session. 409 when the address already has an account (the website
+     * sends such a visitor to the password reset page; the app does the same with its own copy).
+     */
+    @POST
+    @Path("register")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response register(final RegisterAccountRequest body) {
+        if (!tokens.enabled()) {
+            return error(404, ApiErrors.NOT_FOUND, "API tokens are not enabled.");
+        }
+        final String problem = registrationProblem(body);
+        if (problem != null) {
+            return error(400, ApiErrors.VALIDATION_FAILED, problem);
+        }
+        final AuthToken.Scope scope = body.scope() == null ? AuthToken.Scope.MEMBER
+                : requestedScope(Map.of("scope", body.scope()));
+        if (scope == null) {
+            return error(400, ApiErrors.BAD_REQUEST, "Unknown scope; use \"member\" or \"admin\".");
+        }
+        final String email = body.email().trim();
+        final PassCommands passes = Beans.get(PassCommands.class);
+        if (passes.userExistsWithEmail(email)) {
+            return error(409, ApiErrors.CONFLICT, "An account with that email already exists.");
+        }
+        final PersonCommands people = Beans.get(PersonCommands.class);
+        final Person person = people.createPerson();
+        fill(person, body, email);
+        if (people.emailTakenByAnother(person) || !people.savePerson(person)) {
+            return error(500, ApiErrors.STORE_FAILED, "Could not create the account.");
+        }
+        final AuditActor actor = new AuditActor(email, person.getId().getValue());
+        Beans.get(AuditCommands.class).person(person, "CREATED", actor);
+        final Creds creds = passes.createCreds(email, body.password());
+        if (creds == null) {
+            return error(500, ApiErrors.STORE_FAILED, "The account was created but its password could not be "
+                    + "saved; use the emailed-code sign-in.");
+        }
+        new OrgCommands(this::caller).joinSiteOrgOnSignup(person.getId());
+        notifyOffice(person, actor);
+        if (!tokens.mayGrant(creds, scope)) {
+            return error(403, ApiErrors.FORBIDDEN, "Requested scope is not available to this account.");
+        }
+        final TokenService.Grant grant = tokens.issue(creds, scope, body.label());
+        if (grant == null) {
+            return error(500, ApiErrors.STORE_FAILED, "The account was created; sign in to continue.");
+        }
+        return ok(grantBody(grant));
+    }
+
+    /** The create-account page's required fields, checked before anything is written. */
+    private static String registrationProblem(final RegisterAccountRequest body) {
+        if (body == null) {
+            return "A request body is required.";
+        }
+        final String email = body.email() == null ? "" : body.email().trim();
+        final int at = email.indexOf('@');
+        if (at < 1 || at == email.length() - 1) {
+            return "A valid email address is required.";
+        }
+        if (blank(body.first()) || blank(body.last())) {
+            return "First and last name are required.";
+        }
+        if (body.sex() == null || parseSex(body.sex()) == null) {
+            return "sex must be Male or Female.";
+        }
+        if (blank(body.password())) {
+            return "A password is required.";
+        }
+        return null;
+    }
+
+    private static boolean blank(final String value) {
+        return value == null || value.isBlank();
+    }
+
+    private static Person.Sex parseSex(final String value) {
+        for (final Person.Sex sex : Person.Sex.values()) {
+            if (sex.name().equalsIgnoreCase(value.trim())) {
+                return sex;
+            }
+        }
+        return null;
+    }
+
+    private static void fill(final Person person, final RegisterAccountRequest body, final String email) {
+        person.setEmail(email);
+        person.setNickname(trimmed(body.nickname()));
+        person.setFirst(body.first().trim());
+        person.setMiddle(trimmed(body.middle()));
+        person.setLast(body.last().trim());
+        person.setSex(parseSex(body.sex()));
+        person.setCell(trimmed(body.cell()));
+        person.setBirthdate(body.birthdate());
+    }
+
+    private static String trimmed(final String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    /**
+     * The create-account page's "New Account Created" note to the office, best effort: an account that
+     * exists but whose notice failed to send is still an account, and must not read as a failed sign-up.
+     */
+    private static void notifyOffice(final Person person, final AuditActor actor) {
+        try {
+            final MailAddressCommands addresses = Beans.get(MailAddressCommands.class);
+            final String to = addresses.recipientFor("account.notify.email", null);
+            if (to == null || to.isBlank()) {
+                return;
+            }
+            Beans.get(MailCommands.class).send(addresses.fromFor("account.notify.from"), to, null, null,
+                    "New Account Created", person.getFirst() + " " + person.getLast() + " (" + person.getEmail()
+                            + ") created a new account in the UniteTrip app.", actor);
+        } catch (final RuntimeException ex) {
+            log.warn("New-account notice not sent for {}", person.getEmail(), ex);
+        }
+    }
+
     /** Trades a refresh token for a fresh grant, rotating the refresh validator. Sessionless like token. */
     @POST
     @Path("token/refresh")
@@ -312,6 +463,8 @@ public class AuthResource extends BaseResource {
         result.put("person", dto);
         result.put("siteAdmin", privileges.isSiteAdmin());
         result.put("privileges", privilegeFlags(privileges));
+        // Self only, so it rides beside the redacted person rather than inside the shared PersonDto.
+        result.put("defaultOrgId", person.getDefaultOrgId() == null ? null : person.getDefaultOrgId().getValue());
         return ok(result);
     }
 

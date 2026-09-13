@@ -622,6 +622,28 @@ public class OrgCommands {
     }
 
     /**
+     * {@link #joinSiteOrgOnSignup()} for the REST sign-up, which establishes no session: the new person is
+     * named explicitly instead of read from the caller. Same rule -- an org host joins its org, the platform
+     * and shared hosts join nothing.
+     */
+    public boolean joinSiteOrgOnSignup(final Person.Id personId) {
+        final SiteContext site = SiteContext.current();
+        if (!site.isOrg() || site.isPlatformOrg() || personId == null) {
+            return false;
+        }
+        return selfJoin(site.orgId().getValue(), personId, "signed up on the organization's site");
+    }
+
+    /**
+     * The native app's "choose your organization" step: picking a default organization also makes the
+     * person a member of it, the way signing up on that organization's site would. Audited as a self-join
+     * so a roster reviewer can tell it from an admin's add.
+     */
+    public boolean joinAsDefault(final String orgId, final Person.Id personId) {
+        return selfJoin(orgId, personId, "chose the organization as their default in the app");
+    }
+
+    /**
      * Join-on-registration: a traveler whose registration for {@code trip} was just accepted becomes a
      * member of the trip's owning organization (a roster member who is not in the org would otherwise be
      * unremovable from a People page that never lists them). Org-less trips are a no-op.

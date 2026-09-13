@@ -57,7 +57,9 @@ public class TripsResource extends BaseResource {
     }
 
     /**
-     * Trips, scoped by {@code filter}: {@code mine} (default), {@code active}, {@code inactive}, {@code recent}.
+     * Trips, scoped by {@code filter}: {@code mine} (default), {@code active}, {@code inactive}, {@code recent},
+     * {@code open} -- the last being the publicly listed, joinable trips of this host (the landing page's list),
+     * readable by any signed-in person because it is what the anonymous public already sees.
      *
      * <p>Itineraries are omitted from every entry here. A traveller on eight trips would otherwise pull every
      * flight, hotel and bus of all eight to render a list of titles.
@@ -76,18 +78,21 @@ public class TripsResource extends BaseResource {
             case "inactive" -> trips.getInactiveTrips(me, admin, PAST_DAYS_STILL_ACTIVE, capped);
             case "recent" -> trips.getRecentTrips(capped);
             case "mine" -> trips.getTripsForUser(me);
+            case "open" -> trips.getPublicTrips();
             default -> null;
         };
         if (found == null) {
-            return error(400, ApiErrors.BAD_REQUEST, "Unknown filter; expected mine, active, inactive or recent.");
+            return error(400, ApiErrors.BAD_REQUEST,
+                    "Unknown filter; expected mine, active, inactive, recent or open.");
         }
+        final boolean listing = "open".equalsIgnoreCase(filter);
         // active/recent are not per-user queries, so they are filtered down to what this caller may see. Without
         // this, "active" would list every trip in the system to any signed-in traveller. On an organization's
         // host the list is further that org's alone -- the site boundary holds for API clients too.
         final SiteContext site = SiteContext.current();
         return ok(found.stream()
                 .filter(trip -> site.admits(trip.getOrgId()))
-                .filter(trip -> canRead(trip, me))
+                .filter(trip -> listing || canRead(trip, me))
                 .map(trip -> TripMapper.INSTANCE.toDto(trip).withoutEvents())
                 .toList());
     }
