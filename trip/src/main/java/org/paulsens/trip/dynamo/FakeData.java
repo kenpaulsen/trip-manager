@@ -941,7 +941,14 @@ public final class FakeData {
                 .title("Spring Demo Trip")
                 .orgId(CFPW_ORG_ID)
                 .openToPublic(false)
-                .description("desc")
+                // Rich HTML like the office writes on the site: the pages render it unescaped and the app
+                // must too (images, an embedded video, formatting), so the local fixture carries all three.
+                .description("<p>Join us for the <b>Spring Demo Trip</b> &mdash; ten days in Medjugorje.</p>"
+                        + "<p><img src=\"/resources/images/mary-sm.png\" alt=\"Our Lady of Medjugorje\" /></p>"
+                        + "<ul><li>Daily Mass at St. James</li><li>Climb <i>Apparition Hill</i></li></ul>"
+                        + "<p><iframe src=\"https://www.youtube.com/embed/jNQXAC9IVRw\" title=\"Video\" "
+                        + "allowfullscreen=\"\"></iframe></p>"
+                        + "<p>Questions? <a href=\"https://visitqueenofpeace.com/\">Visit our site</a>.</p>")
                 .startDate(LocalDateTime.now().plusDays(48))
                 .endDate(LocalDateTime.now().plusDays(60))
                 .people(allPeople)

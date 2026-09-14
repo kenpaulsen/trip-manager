@@ -8,9 +8,11 @@ import java.util.Optional;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.AuditCommands;
+import org.paulsens.trip.action.BindingCommands;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.action.TransactionsCommands;
 import org.paulsens.trip.api.dto.TransactionDto;
+import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 import org.testng.Assert;
@@ -34,11 +36,14 @@ public class TransactionsResourceTest extends ResourceTestSupport {
     private AuditCommands audit;
     private TransactionsResource resource;
 
+    private BindingCommands bindings;
+
     @BeforeMethod
     public void bindBeans() {
         transactions = bindMock(TransactionsCommands.class);
         audit = bindMock(AuditCommands.class);
         bindMock(PersonCommands.class);
+        bindings = bindMock(BindingCommands.class);
         resource = resource(new TransactionsResource());
     }
 
@@ -81,6 +86,24 @@ public class TransactionsResourceTest extends ResourceTestSupport {
 
         Assert.assertEquals(dto.userAmount(), 250f);
         Assert.assertEquals(dto.amount(), 1000f, "The full amount stays present for context");
+    }
+
+    /** The trip a row belongs to is its binding, the same edge the website's ledger filters on. */
+    @Test
+    public void aTransactionCarriesItsBoundTrip() {
+        signedInAs(ME);
+        final Transaction mine = tx(ME);
+        Mockito.when(transactions.getTransactions(ME)).thenReturn(List.of(mine));
+        Mockito.when(transactions.getUserAmount(ArgumentMatchers.any())).thenReturn(250f);
+        Mockito.when(bindings.key(ME.getValue(), mine.getTxId())).thenReturn("composite");
+        Mockito.when(bindings.getBindings("composite", BindingType.TRANSACTION, BindingType.TRIP))
+                .thenReturn(List.of(TRIP_ID));
+
+        final TransactionDto dto = (TransactionDto)
+                ((List<?>) resource.forPerson(ME.getValue(), null).getEntity()).get(0);
+
+        Assert.assertEquals(dto.tripIds(), List.of(TRIP_ID));
+        Assert.assertEquals(dto.withoutGroupPeople().tripIds(), List.of(TRIP_ID), "the trip survives redaction");
     }
 
     /** Group membership is who ELSE is on the bill: staff-only on the wire. */
@@ -172,9 +195,14 @@ public class TransactionsResourceTest extends ResourceTestSupport {
         Mockito.when(transactions.saveTransaction(created, TRIP_ID)).thenReturn(true);
         Mockito.when(transactions.getUserAmount(created)).thenReturn(75f);
 
+        Mockito.when(bindings.key(OTHER.getValue(), created.getTxId())).thenReturn("composite");
+
         final TransactionDto body = new TransactionDto(null, null, null, null, "Bill", null, 75f, null,
-                "lodging", "deposit", false, null);
+                "lodging", "deposit", false, null, null);
         assertOk(resource.create(OTHER.getValue(), CSRF_OK, TRIP_ID, body));
+        // Bound to the trip the way the page's Save binds it: the ledger's trip filter sees the new row.
+        Mockito.verify(bindings).setBindings("composite", BindingType.TRANSACTION, BindingType.TRIP,
+                List.of(TRIP_ID), true);
 
         Assert.assertEquals(created.getAmount(), 75f);
         Assert.assertEquals(created.getTxType(), Transaction.TransactionType.Bill);
@@ -221,12 +249,15 @@ public class TransactionsResourceTest extends ResourceTestSupport {
         Mockito.when(transactions.getUserAmount(existing)).thenReturn(80f);
 
         final TransactionDto body = new TransactionDto(null, null, null, null, null, null, 80f, null,
-                null, "amended", false, null);
+                null, "amended", false, null, null);
         assertOk(resource.update(ME.getValue(), existing.getTxId(), CSRF_OK, TRIP_ID, body));
 
         Assert.assertEquals(existing.getAmount(), 80f);
         Assert.assertEquals(existing.getNote(), "amended");
         Mockito.verify(transactions).saveTransaction(ArgumentMatchers.same(existing), ArgumentMatchers.eq(TRIP_ID));
+        Mockito.verify(bindings).setBindings(ArgumentMatchers.any(),
+                ArgumentMatchers.eq(BindingType.TRANSACTION), ArgumentMatchers.eq(BindingType.TRIP),
+                ArgumentMatchers.eq(List.of(TRIP_ID)), ArgumentMatchers.eq(true));
         Mockito.verify(audit).transaction(ArgumentMatchers.any(), ArgumentMatchers.eq(existing),
                 ArgumentMatchers.any());
     }

@@ -17,9 +17,11 @@ import java.util.Map;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.AuditCommands;
+import org.paulsens.trip.action.BindingCommands;
 import org.paulsens.trip.action.TransactionsCommands;
 import org.paulsens.trip.api.dto.TransactionDto;
 import org.paulsens.trip.api.mapper.TransactionMapper;
+import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Transaction;
 
@@ -134,8 +136,22 @@ public class TransactionsResource extends BaseResource {
         if (!transactions.saveTransaction(tx, tripId)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the transaction.");
         }
+        bindToTrip(tx, tripId);
         Beans.get(AuditCommands.class).transaction(findPerson(subject), tx, actor());
         return ok(dto(tx, true));
+    }
+
+    /**
+     * The TRANSACTION→TRIP binding the page's Save writes: it is what the website's ledger (and a client's
+     * trip filter) scope rows by, so a row recorded through the API without it belonged to no trip at all.
+     */
+    private static void bindToTrip(final Transaction tx, final String tripId) {
+        if (tripId == null || tripId.isBlank() || tx.getUserId() == null) {
+            return;
+        }
+        final BindingCommands bind = Beans.get(BindingCommands.class);
+        bind.setBindings(bind.key(tx.getUserId().getValue(), tx.getTxId()), BindingType.TRANSACTION,
+                BindingType.TRIP, List.of(tripId), true);
     }
 
     @PUT
@@ -169,6 +185,7 @@ public class TransactionsResource extends BaseResource {
         if (!transactions.saveTransaction(tx, tripId)) {    // a row that already carries an org keeps it
             return error(500, ApiErrors.STORE_FAILED, "Could not save the transaction.");
         }
+        bindToTrip(tx, tripId);
         Beans.get(AuditCommands.class).transaction(findPerson(subject), tx, actor());
         return ok(dto(tx, true));
     }
@@ -249,8 +266,22 @@ public class TransactionsResource extends BaseResource {
         final Float share = Beans.get(TransactionsCommands.class).getUserAmount(tx);
         final TransactionDto withShare = new TransactionDto(mapped.txId(), mapped.userId(), mapped.groupId(),
                 mapped.type(), mapped.txType(), mapped.txDate(), mapped.amount(), share, mapped.category(),
-                mapped.note(), mapped.deleted(), mapped.groupPeople());
+                mapped.note(), mapped.deleted(), mapped.groupPeople(), boundTrips(tx));
         return staff ? withShare : withShare.withoutGroupPeople();
+    }
+
+    /**
+     * The trip(s) a transaction belongs to. A transaction carries no trip of its own; the website's ledger
+     * scopes rows by their TRANSACTION→TRIP binding, and a client filtering by trip needs the same edge.
+     */
+    private static List<String> boundTrips(final Transaction tx) {
+        if (tx.getUserId() == null || tx.getTxId() == null) {
+            return List.of();
+        }
+        final BindingCommands bind = Beans.get(BindingCommands.class);
+        final List<String> bound = bind.getBindings(bind.key(tx.getUserId().getValue(), tx.getTxId()),
+                BindingType.TRANSACTION, BindingType.TRIP);
+        return bound == null ? List.of() : bound;
     }
 
     private static void apply(final TransactionDto body, final Transaction tx) {

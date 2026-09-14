@@ -27,11 +27,13 @@ public record TransactionDto(
         String category,
         String note,
         boolean deleted,
-        List<String> groupPeople) {
+        List<String> groupPeople,
+        // The trips this transaction is bound to (TRANSACTION->TRIP bindings): normally one, may be empty.
+        List<String> tripIds) {
 
     /** This transaction without the list of who else shares it. */
     public TransactionDto withoutGroupPeople() {
         return new TransactionDto(txId, userId, groupId, type, txType, txDate, amount, userAmount, category,
-                note, deleted, null);
+                note, deleted, null, tripIds);
     }
 }

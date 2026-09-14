@@ -21,5 +21,6 @@ public interface TransactionMapper {
     /** {@code deleted} is a soft-delete timestamp on the model and a boolean on the wire. */
     @Mapping(target = "deleted", expression = "java(tx.getDeleted() != null)")
     @Mapping(target = "userAmount", ignore = true)
+    @Mapping(target = "tripIds", ignore = true)
     TransactionDto toDto(Transaction tx);
 }
