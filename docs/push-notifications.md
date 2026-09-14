@@ -120,6 +120,17 @@ Notifications carry route-neutral candidates; each route applies its own prefere
 email route `mentionEmail` + a usable address (`EmailChatNotifier.deliver`), the push route `pushMode` +
 devices. A person with a phone and no mailbox is still told, and vice versa.
 
+**Family-manager fallback (2026-09-14, `chat/OnBehalf`):** a route that cannot reach the person hands the
+notification to their family managers on that same route — a parent registers a child and often not
+themselves, so the child is the one mentioned and has neither mailbox nor phone. Email: no usable address
+⇒ every `mailableManagers` (creator first). Push: `SKIPPED_NO_DEVICES` ⇒ every `managersOf` (a device is
+the reachability test, as for approvals). Digest: no address ⇒ the mailable managers in one send. Each
+manager is gated by their OWN preference, skipped when they were named directly (told once, as
+themselves), and deduped under a key naming the child (`EMAIL:for:{childId}`), so two children in one
+message mean two mails. Copy names the child ("Ada mentioned Lucy", "New messages … for Lucy") and the
+footer says why the manager got it. Not for `ALL_MESSAGES` (a per-person opt-in) and never for `OFF`
+(the person's own choice). Announcements follow the same fallback.
+
 `ChatNotification.imageUrl` carries the display rendition of a media message's first attachment (or the
 commented photo's full key) for the rich push — null for a content-free (short-retention) channel, like the
 snippet. Copy: snippet; `Open the chat to read it` when content-free; `📷 Photo` for a bare media message.

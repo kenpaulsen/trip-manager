@@ -184,6 +184,73 @@ public class ChatNotifierTest {
                 ArgumentMatchers.any(AuditActor.class));
     }
 
+    /**
+     * A child with no mailbox: every mailable family manager is mailed instead, subject and body naming the
+     * child, each under a dedupe key that names the child, and a manager who was named directly is told
+     * once, as themselves.
+     */
+    @Test
+    public void aRecipientWithNoAddressIsMailedToTheirMailableManagers() throws Exception {
+        mailIsConfigured();
+        final org.paulsens.trip.dynamo.DAO dao = org.paulsens.trip.dynamo.DAO.getInstance();
+        final Person child = Person.builder().first("Lucy").last("Mailed").build();
+        final Person mom = Person.builder().first("Mom").last("Mailed")
+                .email("mom-" + System.nanoTime() + "@example.org").build();
+        final Person dad = Person.builder().first("Dad").last("Mailed").build();   // no address either
+        for (final Person who : List.of(child, mom, dad)) {
+            Assert.assertTrue(dao.savePerson(who));
+        }
+        final org.paulsens.trip.model.Family family = org.paulsens.trip.model.Family.builder()
+                .id(org.paulsens.trip.model.Family.Id.from("fam-" + System.nanoTime()))
+                .memberIds(List.of(mom.getId(), dad.getId(), child.getId()))
+                .managerIds(List.of(mom.getId(), dad.getId())).createdBy(mom.getId()).build();
+        Assert.assertTrue(dao.saveFamily(family));
+        child.setFamilyId(family.getId());
+        Assert.assertTrue(dao.savePerson(child));
+        Mockito.when(mail.formatEmail(ArgumentMatchers.any()))
+                .thenAnswer(inv -> ((Person) inv.getArgument(0)).getEmail());
+
+        final ChatNotification mention = new ChatNotification(
+                ChatChannel.Id.forTrip("trip-1"), ChatMessage.Id.from("1"), "trip-1", "Rome 2027",
+                Person.Id.from("author"), "Author Name", List.of(child.getId()), "bus at 7",
+                ChatNotification.Reason.MENTION, null, Instant.now());
+        notifier.notify(mention);
+
+        final org.mockito.ArgumentCaptor<String> body = org.mockito.ArgumentCaptor.forClass(String.class);
+        Mockito.verify(mail).send(ArgumentMatchers.any(), ArgumentMatchers.eq(mom.getEmail()),
+                ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.eq("Author Name mentioned Lucy in the Rome 2027 chat"), body.capture(),
+                ArgumentMatchers.any(AuditActor.class));
+        Assert.assertTrue(body.getValue().contains("mentioned Lucy in the"), body.getValue());
+        // The footer is an escaped scalar, so the apostrophe arrives as an entity.
+        Assert.assertTrue(body.getValue().contains("as Lucy&#39;s family manager"), body.getValue());
+        Mockito.verify(cache).tryAcquireLock(
+                ArgumentMatchers.contains("|" + mom.getId().getValue() + "|EMAIL:for:" + child.getId().getValue()),
+                ArgumentMatchers.any(Duration.class));
+        Mockito.verify(mail, Mockito.times(1)).send(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(AuditActor.class));
+
+        // Mom named directly as well: told once, as herself, and the reply wording names the child.
+        Mockito.clearInvocations(mail);
+        notifier.notify(new ChatNotification(
+                ChatChannel.Id.forTrip("trip-1"), ChatMessage.Id.from("2"), "trip-1", "Rome 2027",
+                Person.Id.from("author"), "Author Name", List.of(child.getId(), mom.getId()), "bus at 7",
+                ChatNotification.Reason.REPLY, null, Instant.now()));
+        Mockito.verify(mail, Mockito.times(1)).send(ArgumentMatchers.any(), ArgumentMatchers.eq(mom.getEmail()),
+                ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.eq("Author Name replied to you in the Rome 2027 chat"), ArgumentMatchers.any(),
+                ArgumentMatchers.any(AuditActor.class));
+        Assert.assertEquals(EmailChatNotifier.subjectFor(mention, child),
+                "Author Name mentioned Lucy in the Rome 2027 chat");
+        Assert.assertEquals(OnBehalf.nameOf(null), "your family member", "never an id, never null");
+        Assert.assertEquals(OnBehalf.possessiveOf(new Person()), "your family member's");
+        Assert.assertEquals(OnBehalf.route("EMAIL", null), "EMAIL:for:-");
+        Assert.assertEquals(EmailChatNotifier.footerNote(mention, null),
+                "You are receiving this because you turned on mention notifications for this trip's chat. "
+                        + "You can turn them off on the chat page.");
+    }
+
     /** Notification must never propagate: the message it is about is already acknowledged to its sender. */
     @Test
     public void aFailureInsideDeliveryIsSwallowed() {

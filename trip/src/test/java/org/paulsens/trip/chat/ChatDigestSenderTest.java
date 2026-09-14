@@ -132,6 +132,48 @@ public class ChatDigestSenderTest {
 
     // --- sending ---
 
+    /**
+     * A child with no mailbox whose parent ticked the digest box at registration: the digest goes to every
+     * mailable family manager in one send, subject and copy naming the child.
+     */
+    @Test
+    public void aMemberWithNoAddressIsDigestedToTheirMailableManagers() throws Exception {
+        final Person mom = Person.builder().first("Mom").last("Digest")
+                .email("mom-" + System.nanoTime() + "@example.org").build();
+        final Person dad = Person.builder().first("Dad").last("Digest").build();   // no address
+        Assert.assertTrue(DAO.getInstance().savePerson(mom));
+        Assert.assertTrue(DAO.getInstance().savePerson(dad));
+        final org.paulsens.trip.model.Family family = org.paulsens.trip.model.Family.builder()
+                .id(org.paulsens.trip.model.Family.Id.from("fam-" + System.nanoTime()))
+                .memberIds(List.of(mom.getId(), dad.getId(), MEMBER)).managerIds(List.of(mom.getId(), dad.getId()))
+                .createdBy(mom.getId()).build();
+        Assert.assertTrue(DAO.getInstance().saveFamily(family));
+        final Person child = new Person();
+        child.setId(MEMBER);
+        child.setFirst("Lucy");
+        child.setFamilyId(family.getId());
+        Mockito.when(dao.getPerson(ArgumentMatchers.eq(MEMBER), ArgumentMatchers.eq(Cached.NO)))
+                .thenReturn(Optional.of(child));
+        Mockito.when(mail.formatEmail(ArgumentMatchers.argThat(p -> p != null && MEMBER.equals(p.getId()))))
+                .thenReturn(null);
+        Mockito.when(mail.formatEmail(ArgumentMatchers.argThat(p -> p != null && mom.getId().equals(p.getId()))))
+                .thenReturn("Mom <" + mom.getEmail() + ">");
+        mailAnswers(SendEmailResponse.builder().messageId("ses-2").build());
+
+        Assert.assertTrue(sender.send(candidate(pageOf(message("100", null)))));
+
+        final org.mockito.ArgumentCaptor<String> body = org.mockito.ArgumentCaptor.forClass(String.class);
+        Mockito.verify(mail).send(ArgumentMatchers.any(), ArgumentMatchers.eq("Mom <" + mom.getEmail() + ">"),
+                ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.eq("New messages in the Rome 2027 chat for Lucy"), body.capture(),
+                ArgumentMatchers.any(AuditActor.class));
+        Assert.assertTrue(body.getValue().contains("what Lucy missed"), body.getValue());
+        Assert.assertTrue(body.getValue().contains("Lucy&#39;s daily summary as their family manager"),
+                body.getValue());
+        Mockito.verify(cache).putValue(ArgumentMatchers.contains("digest"), ArgumentMatchers.anyString(),
+                ArgumentMatchers.any());
+    }
+
     @Test
     public void aConfirmedSendAdvancesTheWatermark() {
         personIsReachable();

@@ -126,6 +126,56 @@ public class PushChatNotifierTest {
         Mockito.verify(sender, Mockito.never()).sendSilent(author);
     }
 
+    /**
+     * A child with no phone: their family managers' phones are told instead, with copy naming the child and
+     * a dedupe key naming the child, and a manager who was named directly is told once, as themselves.
+     */
+    @Test
+    public void aRecipientWithNoPhoneReachesTheirManagersPhones() throws Exception {
+        final Person child = Person.builder().first("Lucy").last("Pushed").build();
+        Assert.assertTrue(DAO.getInstance().savePerson(child));
+        final Person.Id mom = person("Mom");
+        final Person.Id dad = person("Dad");
+        final org.paulsens.trip.model.Family family = org.paulsens.trip.model.Family.builder()
+                .id(org.paulsens.trip.model.Family.Id.from("fam-" + System.nanoTime()))
+                .memberIds(List.of(mom, dad, child.getId())).managerIds(List.of(mom, dad)).createdBy(mom).build();
+        Assert.assertTrue(DAO.getInstance().saveFamily(family));
+        child.setFamilyId(family.getId());
+        Assert.assertTrue(DAO.getInstance().savePerson(child));
+        Mockito.when(sender.sendAlert(ArgumentMatchers.eq(child.getId()), ArgumentMatchers.any(),
+                ArgumentMatchers.any())).thenReturn(PushSender.Report.skipped(PushSender.SKIPPED_NO_DEVICES));
+
+        // Mom is named herself; dad is only reached on Lucy's behalf.
+        notifier.notify(notification(ChatNotification.Reason.MENTION, List.of(child.getId(), mom), "bus at 7", null));
+
+        final ArgumentCaptor<PushPayload> payload = ArgumentCaptor.forClass(PushPayload.class);
+        final ArgumentCaptor<String> dedupe = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(sender).sendAlert(ArgumentMatchers.eq(dad), payload.capture(), dedupe.capture());
+        Assert.assertTrue(payload.getValue().toApns().contains("Ada Author mentioned Lucy"),
+                payload.getValue().toApns());
+        Assert.assertTrue(dedupe.getValue().endsWith("PUSH:for:" + child.getId().getValue()), dedupe.getValue());
+        Mockito.verify(sender, Mockito.times(1)).sendAlert(ArgumentMatchers.eq(mom), ArgumentMatchers.any(),
+                ArgumentMatchers.any());
+        Mockito.verify(sender).sendAlert(ArgumentMatchers.eq(mom), ArgumentMatchers.any(),
+                ArgumentMatchers.endsWith("|PUSH"));
+        Assert.assertEquals(PushChatNotifier.subtitleOf(notification(ChatNotification.Reason.REPLY, List.of(), "x",
+                null), child), "Ada Author replied to Lucy");
+        Assert.assertEquals(PushChatNotifier.subtitleOf(notification(ChatNotification.Reason.PHOTO_COMMENT,
+                List.of(), "x", null), child), "Ada Author commented on Lucy's photo");
+    }
+
+    /** Every message is a per-person opt-in; a child's silence there is not answered for by their managers. */
+    @Test
+    public void everyMessageIsNeverForwardedToManagers() throws Exception {
+        final Person child = Person.builder().first("Lucy").last("Pushed").build();
+        Assert.assertTrue(DAO.getInstance().savePerson(child));
+        Mockito.when(sender.sendAlert(ArgumentMatchers.eq(child.getId()), ArgumentMatchers.any(),
+                ArgumentMatchers.any())).thenReturn(PushSender.Report.skipped(PushSender.SKIPPED_NO_DEVICES));
+        notifier.notify(notification(ChatNotification.Reason.ALL_MESSAGES, List.of(child.getId()), "hi", null));
+        Mockito.verify(sender, Mockito.never()).sendAlert(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.contains(":for:"));
+    }
+
     @Test
     public void aSkippedAlertStillCountsAsNotAlertedForTheSilentWalk() {
         Mockito.when(sender.sendAlert(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))

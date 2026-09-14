@@ -71,8 +71,9 @@ public final class PushChatNotifier implements ChatNotifier {
 
     private void deliver(final ChatNotification notification) {
         final Trip trip = tripOf(notification.getTripId());
-        final PushPayload payload = payloadFor(notification, trip);
+        final PushPayload payload = payloadFor(notification, trip, null);
         final List<Person.Id> alerted = new ArrayList<>();
+        final List<Person.Id> unreachable = new ArrayList<>();
         for (final Person.Id recipient : notification.getRecipients()) {
             if (!wantsPush(notification, recipient)) {
                 continue;
@@ -82,10 +83,44 @@ public final class PushChatNotifier implements ChatNotifier {
             final PushSender.Report report = sender.sendAlert(recipient, payload, dedupe);
             if (report.skipped() == null) {
                 alerted.add(recipient);
+            } else if (PushSender.SKIPPED_NO_DEVICES.equals(report.skipped())) {
+                unreachable.add(recipient);
+            }
+        }
+        if (notification.getReason() != ChatNotification.Reason.ALL_MESSAGES) {
+            for (final Person.Id person : unreachable) {
+                alertManagers(notification, trip, person, alerted);
             }
         }
         if (notification.getReason() == ChatNotification.Reason.ALL_MESSAGES && isTripChannel(notification)) {
             silentRefresh(trip, notification, alerted);
+        }
+    }
+
+    /**
+     * A person with no phone is answered for by their family managers' phones (OnBehalf): every manager who
+     * was not named themselves and has not just been alerted, under the manager's own per-channel choice,
+     * with a dedupe key naming the child and copy that says whose mention it is. Not for ALL_MESSAGES: that
+     * is a per-person opt-in to every message, and a manager who wants it opts in as themselves.
+     */
+    private void alertManagers(final ChatNotification notification, final Trip trip, final Person.Id personId,
+            final List<Person.Id> alerted) {
+        final Person person = DAO.getInstance().getPerson(personId, Cached.NO).orElse(null);
+        if (person == null) {
+            return;
+        }
+        final PushPayload payload = payloadFor(notification, trip, person);
+        for (final Person manager : org.paulsens.trip.chat.OnBehalf.managers(person)) {
+            final Person.Id managerId = manager.getId();
+            if (managerId == null || alerted.contains(managerId) || notification.getRecipients().contains(managerId)
+                    || !wantsPush(notification, managerId)) {
+                continue;
+            }
+            final String dedupe = ChatNotification.dedupeKeyFor(notification.getMessageId(), managerId,
+                    org.paulsens.trip.chat.OnBehalf.route(channel().name(), personId));
+            if (sender.sendAlert(managerId, payload, dedupe).skipped() == null) {
+                alerted.add(managerId);
+            }
         }
     }
 
@@ -138,6 +173,11 @@ public final class PushChatNotifier implements ChatNotifier {
     }
 
     PushPayload payloadFor(final ChatNotification notification, final Trip trip) {
+        return payloadFor(notification, trip, null);
+    }
+
+    /** @param onBehalfOf the family member a manager is being told about; null for the person themselves */
+    PushPayload payloadFor(final ChatNotification notification, final Trip trip, final Person onBehalfOf) {
         final String tripId = notification.getTripId();
         final String photoKey = notification.getChannelId().photoKeyOrNull();
         final boolean photo = photoKey != null;
@@ -145,8 +185,8 @@ public final class PushChatNotifier implements ChatNotifier {
         final String link = photo ? PushLinks.photosLink(tripId) : PushLinks.chatLink(tripId);
         final String url = photo ? PushLinks.photoUrl(trip, tripId, photoKey, config)
                 : PushLinks.chatUrl(trip, tripId, config);
-        return PushPayload.alert(kindOf(notification), title, subtitleOf(notification), bodyOf(notification),
-                        notification.getChannelId().getValue(), link, url)
+        return PushPayload.alert(kindOf(notification), title, subtitleOf(notification, onBehalfOf),
+                        bodyOf(notification), notification.getChannelId().getValue(), link, url)
                 .withChat(notification.getChannelId().getValue(),
                         notification.getMessageId() == null ? null : notification.getMessageId().getValue())
                 .withImage(notification.getImageUrl())
@@ -164,13 +204,19 @@ public final class PushChatNotifier implements ChatNotifier {
     }
 
     static String subtitleOf(final ChatNotification notification) {
+        return subtitleOf(notification, null);
+    }
+
+    static String subtitleOf(final ChatNotification notification, final Person onBehalfOf) {
         final String author = notification.getAuthorName() == null ? "Someone" : notification.getAuthorName();
+        final String whom = onBehalfOf == null ? "you" : org.paulsens.trip.chat.OnBehalf.nameOf(onBehalfOf);
+        final String whose = onBehalfOf == null ? "your" : org.paulsens.trip.chat.OnBehalf.possessiveOf(onBehalfOf);
         return switch (notification.getReason()) {
-            case REPLY -> author + " replied to you";
-            case PHOTO_COMMENT -> author + " commented on your photo";
-            case ADMIN_ANNOUNCEMENT -> "Announcement";
+            case REPLY -> author + " replied to " + whom;
+            case PHOTO_COMMENT -> author + " commented on " + whose + " photo";
+            case ADMIN_ANNOUNCEMENT -> onBehalfOf == null ? "Announcement" : "Announcement for " + whom;
             case ALL_MESSAGES -> author;
-            default -> author + " mentioned you";
+            default -> author + " mentioned " + whom;
         };
     }
 

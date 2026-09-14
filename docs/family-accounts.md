@@ -97,6 +97,12 @@ Guard rails:
   the display (privacy hides the address from viewers) but still receives the approval email (privacy
   is not an unsubscribe). Still NOT used on reports/exports, where a substituted address would silently
   misattribute in a spreadsheet.
+- **Chat notifications reach the household (2026-09-14)**: a member with no mailbox and no phone is
+  answered for by their managers route by route — mention/reply/photo-comment mails go to
+  `mailableManagers`, pushes to every manager's phone, the daily digest (ticked at registration) to the
+  mailable managers — with copy naming the child. `trip/docs/push-notifications.md` "Family-manager
+  fallback"; code in `chat/OnBehalf`, `EmailChatNotifier.deliverToManagers`,
+  `PushChatNotifier.alertManagers`, `ChatDigestSender.managerAddresses`.
 
 ## Acting-for (the switcher)
 

@@ -169,10 +169,12 @@ public class ChatDigestSender {
         if (!member.getNotify().isDailyDigest()) {
             return false;
         }
-        // this.dao, not DAO.getInstance(): the injected one is what the tests substitute.
+        // this.dao, not DAO.getInstance(): the injected one is what the tests substitute. A person with no
+        // address of their own still gets a digest when a family manager can be mailed for them (OnBehalf):
+        // the daily-digest box is ticked by the parent registering the child.
         return dao.getPerson(member.getPersonId(), Cached.NO)
-                .map(Person::getEmail)
-                .filter(EmailAddresses::isValid)
+                .filter(person -> EmailAddresses.isValid(person.getEmail())
+                        || !OnBehalf.mailableManagers(person).isEmpty())
                 .isPresent();
     }
 
@@ -229,13 +231,20 @@ public class ChatDigestSender {
 
     private boolean deliver(final Candidate candidate) {
         final Person person = dao.getPerson(candidate.personId(), Cached.NO).orElse(null);
-        final String to = person == null ? null : mail.formatEmail(person);
+        if (person == null) {
+            return true;
+        }
+        final String own = mail.formatEmail(person);
+        // Their own address, else every mailable family manager at once, told whose digest it is.
+        final Person onBehalfOf = own == null ? person : null;
+        final String to = own != null ? own : managerAddresses(person);
         if (to == null) {
-            // Nothing to retry: they have no usable address. Treat as done so the run can finish.
+            // Nothing to retry: they have no usable address and nobody to answer for them. Treat as done so
+            // the run can finish.
             log.debug("Skipping chat digest for {}: no usable email address", candidate.personId());
             return true;
         }
-        final String body = MailTemplates.render("chat-digest", digestValues(candidate));
+        final String body = MailTemplates.render("chat-digest", digestValues(candidate, onBehalfOf));
         if (body == null) {
             return false;
         }
@@ -248,8 +257,10 @@ public class ChatDigestSender {
         // recipient behind it.
         // System, not an empty actor: nobody asked for this send, the scheduler did. An unknown actor would
         // read as "we lost track of who did this"; System is an answer.
-        final SendEmailResponse response = mail.send(from(), to, null, replyTo(candidate),
-                "New messages in the " + tripTitle(candidate) + " chat", body, AuditActor.system());
+        final String subject = "New messages in the " + tripTitle(candidate) + " chat"
+                + (onBehalfOf == null ? "" : " for " + OnBehalf.nameOf(onBehalfOf));
+        final SendEmailResponse response = mail.send(from(), to, null, replyTo(candidate), subject, body,
+                AuditActor.system());
         if (response == null) {
             return false;
         }
@@ -258,13 +269,32 @@ public class ChatDigestSender {
         return true;
     }
 
-    private Map<String, Object> digestValues(final Candidate candidate) {
+    /** The mailable managers' formatted addresses, comma-joined for one send; null when there are none. */
+    private String managerAddresses(final Person person) {
+        final List<String> addresses = new ArrayList<>();
+        for (final Person manager : OnBehalf.mailableManagers(person)) {
+            final String formatted = mail.formatEmail(manager);
+            if (formatted != null) {
+                addresses.add(formatted);
+            }
+        }
+        return addresses.isEmpty() ? null : String.join(",", addresses);
+    }
+
+    private Map<String, Object> digestValues(final Candidate candidate, final Person onBehalfOf) {
         final Map<String, Object> values = new LinkedHashMap<>();
         values.put("tripTitle", tripTitle(candidate));
         values.put("chatUrl", chatUrl(candidate));
         // The count people see must match what the body lists: tombstones are in the page but are not news.
         values.put("messageCount", newsIn(candidate.page()).size());
         values.put("messageBlock", messageBlock(candidate));
+        values.put("addressee", onBehalfOf == null ? "you" : OnBehalf.nameOf(onBehalfOf));
+        values.put("footerNote", onBehalfOf == null
+                ? "You are receiving this daily summary because you asked for it on this trip's chat page. "
+                        + "You can turn it off there at any time."
+                : "You are receiving " + OnBehalf.possessiveOf(onBehalfOf) + " daily summary as their family "
+                        + "manager: it was asked for when they were registered, and they have no email address "
+                        + "of their own. It can be turned off on the trip's chat page.");
         return values;
     }
 

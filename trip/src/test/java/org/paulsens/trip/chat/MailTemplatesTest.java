@@ -20,7 +20,8 @@ public class MailTemplatesTest {
                 "authorName", "<script>alert(1)</script>",
                 "tripTitle", "Trip & Co",
                 "chatUrl", "https://example.com/trip/chat.jsf?trip=t1",
-                "snippetBlock", new MailTemplates.Raw("")));
+                "snippetBlock", new MailTemplates.Raw(""),
+                "addressee", "you", "possessive", "your", "footerNote", "why"));
 
         Assert.assertNotNull(out, "the template must render");
         Assert.assertFalse(out.contains("<script>"), "a script tag must never survive into a mail body");
@@ -36,7 +37,8 @@ public class MailTemplatesTest {
                 "authorName", "Ken",
                 "tripTitle", "Fest",
                 "chatUrl", "https://example.com",
-                "snippetBlock", new MailTemplates.Raw("<blockquote>hi</blockquote>")));
+                "snippetBlock", new MailTemplates.Raw("<blockquote>hi</blockquote>"),
+                "addressee", "you", "possessive", "your", "footerNote", "why"));
 
         Assert.assertTrue(out.contains("<blockquote>hi</blockquote>"));
     }
@@ -50,7 +52,8 @@ public class MailTemplatesTest {
                         "authorName", "Ken",
                         "tripTitle", "Fest",
                         "chatUrl", "https://example.com",
-                        "snippetBlock", Person.Id.from("p1"))));
+                        "snippetBlock", Person.Id.from("p1"),
+                        "addressee", "you", "possessive", "your", "footerNote", "why")));
         Assert.assertTrue(ex.getMessage().contains("escaped scalars only"), ex.getMessage());
     }
 
@@ -60,7 +63,8 @@ public class MailTemplatesTest {
                 "tripTitle", "Fest",
                 "chatUrl", "https://example.com",
                 "messageCount", 7,
-                "messageBlock", new MailTemplates.Raw("<p>a</p>")));
+                "messageBlock", new MailTemplates.Raw("<p>a</p>"),
+                "addressee", "you", "footerNote", "why"));
         Assert.assertTrue(out.contains("7 new message(s)"));
     }
 
@@ -93,6 +97,9 @@ public class MailTemplatesTest {
         values.put("tripTitle", "Fest");
         values.put("chatUrl", "https://example.com");
         values.put("snippetBlock", new MailTemplates.Raw(""));
+        values.put("addressee", "you");
+        values.put("possessive", "your");
+        values.put("footerNote", "why");
         final String out = MailTemplates.render("chat-mention", values);
         Assert.assertNotNull(out);
         Assert.assertFalse(out.contains("null"), "a null value must not print as the word 'null': " + out);
