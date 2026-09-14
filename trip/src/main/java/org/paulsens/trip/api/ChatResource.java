@@ -135,13 +135,13 @@ public class ChatResource extends BaseResource {
         if (wantsHistory) {
             final ChatMessage.Id beforeId = (before == null || before.isBlank())
                     ? null : ChatMessage.Id.from(before);
-            return ok(chat.history(tripId, me, beforeId, Math.min(limit, 50)));
+            return okPage(chat.history(tripId, me, beforeId, Math.min(limit, 50)));
         }
 
         final ChatMessage.Id sinceId = (since == null || since.isBlank()) ? null : ChatMessage.Id.from(since);
         final ChatPage page = chat.feed(tripId, me, sinceId, limit);
         if (!page.isEmpty() || wait <= 0) {
-            return ok(page);
+            return okPage(page);
         }
         // A reaction, edit or tombstone writes no message, so it moves only the version counters -- and the
         // client polls with a gap between requests. Land in that gap and the nudge is published while nobody
@@ -152,6 +152,20 @@ public class ChatResource extends BaseResource {
             return ok(emptyPageAt(sinceId, page));
         }
         return awaitNudge(chat, tripId, me, sinceId, limit, wait, rver, mver);
+    }
+
+    /**
+     * A page of messages, with a profile picture for everyone it names.
+     *
+     * <p>The name map is the right key set to ask about: it already covers authors, quote authors, mentions and
+     * reactors -- exactly the people a client puts a face next to -- and it is built once per page, so the faces
+     * cannot come from a different roster than the names. An empty page names nobody and needs no lookup.
+     */
+    private Response okPage(final ChatPage page) {
+        if (page.getDisplayNames().isEmpty()) {
+            return ok(page);
+        }
+        return ok(page.withAvatars(avatarUrls(page.getDisplayNames().keySet())));
     }
 
     /**
@@ -204,14 +218,14 @@ public class ChatResource extends BaseResource {
             // message at all.
             final ChatPage afterPark = chat.feed(tripId, me, sinceId, limit);
             if (!afterPark.isEmpty()) {
-                return ok(afterPark);
+                return okPage(afterPark);
             }
             if (staleVersions(afterPark, rver, mver)) {
                 return ok(emptyPageAt(sinceId, afterPark));
             }
             nudged.await(cappedWaitSeconds(wait), TimeUnit.SECONDS);
             final ChatPage woken = chat.feed(tripId, me, sinceId, limit);
-            return ok(woken.isEmpty() ? emptyPageAt(sinceId, woken) : woken);
+            return woken.isEmpty() ? ok(emptyPageAt(sinceId, woken)) : okPage(woken);
         } catch (final InterruptedException ex) {
             // The container interrupted the request thread -- the client is gone. Answer something valid for the
             // dying connection and re-assert the flag for the container's own cleanup.

@@ -10,11 +10,13 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.PersonCommands;
+import org.paulsens.trip.action.ProfilePhotos;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.media.PhotoProcessor;
@@ -248,6 +250,28 @@ public abstract class BaseResource {
             throw new WebApplicationException(error(404, ApiErrors.NOT_FOUND, "No such person."));
         }
         return person;
+    }
+
+    /**
+     * personId to profile-picture URL, for the people a response is about.
+     *
+     * <p>Someone with no picture is <b>left out</b> rather than mapped to null: a client draws its own initials
+     * placeholder, which is also what it draws while the image loads, so an absent entry needs no special case
+     * anywhere. Answering this is an in-memory index lookup per person ({@link ProfilePhotos}), so asking it for
+     * a whole page of chat authors costs nothing worth batching.
+     */
+    protected Map<String, String> avatarUrls(final Collection<String> personIds) {
+        if (personIds == null || personIds.isEmpty()) {
+            return Map.of();
+        }
+        final ProfilePhotos photos = Beans.get(ProfilePhotos.class);
+        final Map<String, String> urls = new LinkedHashMap<>();
+        for (final String personId : personIds) {
+            if (photos.hasPhoto(personId)) {
+                urls.put(personId, absoluteUrl(photos.getUrl(personId)));
+            }
+        }
+        return urls;
     }
 
     /**

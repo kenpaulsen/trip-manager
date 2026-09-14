@@ -102,6 +102,30 @@ public class PhotoChatResourceTest extends ResourceTestSupport {
         Assert.assertEquals(photo.get("myReacted"), List.of("👍"));
     }
 
+    /** The same faces the trip chat sends, so one picture is learned once and shown in both threads. */
+    @Test
+    public void aThreadCarriesProfilePicturesForTheCommentersItNames() {
+        signedInAs(ME);
+        Mockito.when(photoChat.readDenialFor(ArgumentMatchers.eq(KEY), ArgumentMatchers.any())).thenReturn(null);
+        Mockito.when(photoChat.thread(KEY, null, 0))
+                .thenReturn(emptyPage().withDisplayNames(Map.of("p1", "Ann", "p2", "Bob")));
+        Mockito.when(photoChat.rootSummary(KEY)).thenReturn(ChatReactionSummary.empty(PhotoChatMeta.PHOTO_ROOT));
+        Mockito.when(photoChat.canSeeIdentities(ArgumentMatchers.anyString(), ArgumentMatchers.any()))
+                .thenReturn(true);
+        Mockito.when(photoChat.reactorNames(ArgumentMatchers.any())).thenReturn(Map.of());
+        final org.paulsens.trip.action.ProfilePhotos photos =
+                bindMock(org.paulsens.trip.action.ProfilePhotos.class);
+        Mockito.when(photos.hasPhoto("p2")).thenReturn(true);
+        Mockito.when(photos.getUrl("p2")).thenReturn("https://cdn.example/profilePics/p2/1-9.jpg");
+
+        final Response response = resource.thread(KEY, null, 0);
+
+        assertOk(response);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> body = (Map<String, Object>) response.getEntity();
+        Assert.assertEquals(body.get("avatars"), Map.of("p2", "https://cdn.example/profilePics/p2/1-9.jpg"));
+    }
+
     @Test
     public void aDeniedOrUnknownPhotoIs404() {
         anonymous();

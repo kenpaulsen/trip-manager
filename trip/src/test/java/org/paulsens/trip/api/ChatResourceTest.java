@@ -9,6 +9,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.Caller;
+import org.paulsens.trip.action.ProfilePhotos;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.chat.ChatChannel;
@@ -144,6 +145,50 @@ public class ChatResourceTest extends ResourceTestSupport {
 
         assertOk(feed(CHANNEL, "m1", null, null));
         Mockito.verify(chat).feed(TRIP_ID, ME, ChatMessage.Id.from("m1"), 200);
+    }
+
+    /**
+     * The faces beside the names. Asked about the WHOLE name map rather than just the authors on the page --
+     * a quote author, an @mention and a reactor are all people a client draws a face for -- and answered
+     * absolutely, because a phone cannot resolve {@code /profile-photos/...} against "the server I asked".
+     */
+    @Test
+    public void aPageCarriesAnAbsoluteProfilePictureForEveryoneItNamesAndOmitsThoseWithout() {
+        Mockito.when(chat.chatEnabledForTrip(TRIP_ID)).thenReturn(true);
+        channel();
+        Mockito.when(chat.readDenial(ArgumentMatchers.any(), ArgumentMatchers.eq(ME))).thenReturn(null);
+        final ChatPage named = pageOf(message("m1"))
+                .withDisplayNames(Map.of("p1", "Ann", "p2", "Bob"));
+        Mockito.when(chat.history(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME), ArgumentMatchers.any(),
+                ArgumentMatchers.anyInt())).thenReturn(named);
+        final ProfilePhotos photos = bindMock(ProfilePhotos.class);
+        Mockito.when(photos.hasPhoto("p1")).thenReturn(true);
+        Mockito.when(photos.getUrl("p1")).thenReturn("/profile-photos/profilePics/p1/1-7.jpg");
+        Mockito.when(request.getScheme()).thenReturn("http");
+        Mockito.when(request.getServerName()).thenReturn("localhost");
+        Mockito.when(request.getServerPort()).thenReturn(8080);
+
+        final Response response = feed(CHANNEL, null, null, "newest");
+
+        assertOk(response);
+        Assert.assertEquals(((ChatPage) response.getEntity()).getAvatars(),
+                Map.of("p1", "http://localhost:8080/profile-photos/profilePics/p1/1-7.jpg"),
+                "Bob has no picture, so Bob has no entry -- the client draws initials for a missing one");
+    }
+
+    /** An empty page names nobody, so it must not go looking for pictures (nor bind the bean to ask). */
+    @Test
+    public void anEmptyPageAsksForNoPictures() {
+        Mockito.when(chat.chatEnabledForTrip(TRIP_ID)).thenReturn(true);
+        channel();
+        Mockito.when(chat.readDenial(ArgumentMatchers.any(), ArgumentMatchers.eq(ME))).thenReturn(null);
+        Mockito.when(chat.feed(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME), ArgumentMatchers.any(),
+                ArgumentMatchers.anyInt())).thenReturn(ChatPage.empty());
+
+        final Response response = feed(CHANNEL, null, null, null);
+
+        assertOk(response);
+        Assert.assertTrue(((ChatPage) response.getEntity()).getAvatars().isEmpty());
     }
 
     @Test

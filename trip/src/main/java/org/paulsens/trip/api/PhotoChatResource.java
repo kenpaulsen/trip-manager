@@ -102,6 +102,8 @@ public class PhotoChatResource extends BaseResource {
         final Map<String, Object> out = new LinkedHashMap<>();
         out.put("messages", page.getMessages());
         out.put("displayNames", page.getDisplayNames());
+        // The same map the trip chat sends, so a face learned in one thread is the face in the other.
+        out.put("avatars", avatarUrls(page.getDisplayNames().keySet()));
         out.put("cursor", page.getCursor() == null ? null : page.getCursor().getValue());
         out.put("hasMore", page.isHasMore());
         out.put("reactionsVersion", page.getReactionsVersion());

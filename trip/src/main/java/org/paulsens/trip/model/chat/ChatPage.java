@@ -61,6 +61,15 @@ public class ChatPage implements Serializable {
      * and a rename is reflected everywhere at once.
      */
     Map<String, String> displayNames;
+    /**
+     * personId to profile-picture URL, for the same people {@link #displayNames} covers. A person with no
+     * picture is <b>absent</b> rather than mapped to null: every client falls back to initials, and a null
+     * would only invite an empty {@code src} and a broken-image icon in a chat bubble.
+     *
+     * <p>Resolved by the API layer, not here: the URL is absolute (a phone cannot use a context-relative one)
+     * and only a resource knows the request's own scheme and host.
+     */
+    Map<String, String> avatars;
     Instant serverTime;
 
     public ChatPage(
@@ -73,6 +82,22 @@ public class ChatPage implements Serializable {
             final boolean newestFirst,
             final Map<String, String> displayNames,
             final Instant serverTime) {
+        this(messages, reactions, cursor, reactionsVersion, mutationsVersion, hasMore, newestFirst, displayNames,
+                Map.of(), serverTime);
+    }
+
+    /** Avatars arrive after a page is built (the API layer resolves them), so only the copiers use this. */
+    private ChatPage(
+            final List<ChatMessage> messages,
+            final Map<ChatMessage.Id, ChatReactionSummary> reactions,
+            final ChatMessage.Id cursor,
+            final long reactionsVersion,
+            final long mutationsVersion,
+            final boolean hasMore,
+            final boolean newestFirst,
+            final Map<String, String> displayNames,
+            final Map<String, String> avatars,
+            final Instant serverTime) {
         this.messages = messages == null ? List.of() : List.copyOf(messages);
         this.reactions = reactions == null ? Map.of() : Map.copyOf(reactions);
         this.cursor = cursor;
@@ -81,6 +106,7 @@ public class ChatPage implements Serializable {
         this.hasMore = hasMore;
         this.newestFirst = newestFirst;
         this.displayNames = displayNames == null ? Map.of() : Map.copyOf(displayNames);
+        this.avatars = avatars == null ? Map.of() : Map.copyOf(avatars);
         this.serverTime = serverTime == null ? Instant.now() : serverTime;
     }
 
@@ -91,7 +117,13 @@ public class ChatPage implements Serializable {
     /** A copy of this page with display names attached; the DAO builds pages, the action layer resolves people. */
     public ChatPage withDisplayNames(final Map<String, String> names) {
         return new ChatPage(messages, reactions, cursor, reactionsVersion, mutationsVersion, hasMore, newestFirst,
-                names, serverTime);
+                names, avatars, serverTime);
+    }
+
+    /** A copy carrying profile-picture URLs for the people this page names; see {@link #avatars}. */
+    public ChatPage withAvatars(final Map<String, String> urls) {
+        return new ChatPage(messages, reactions, cursor, reactionsVersion, mutationsVersion, hasMore, newestFirst,
+                displayNames, urls, serverTime);
     }
 
     /** A copy carrying reaction summaries and both channel version counters; the DAO attaches all three. */
@@ -100,7 +132,7 @@ public class ChatPage implements Serializable {
             final long newReactionsVersion,
             final long newMutationsVersion) {
         return new ChatPage(messages, summaries, cursor, newReactionsVersion, newMutationsVersion, hasMore,
-                newestFirst, displayNames, serverTime);
+                newestFirst, displayNames, avatars, serverTime);
     }
 
     public boolean isEmpty() {
