@@ -815,6 +815,61 @@ public class ChatResource extends BaseResource {
         return ok ? ok(Map.of("left", true)) : error(500, ChatErrors.INTERNAL, "Leave failed.");
     }
 
+    // --- invite links ---
+
+    /**
+     * Whether this caller may mint an invite link for the chat, and whether links are switched on at all.
+     * Read-only on purpose: the phone asks this when a thread opens, and opening a chat must never write an
+     * invite row (the website's rule too -- the link is minted by the Invite button, never at render).
+     */
+    @GET
+    @Path("invite")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response inviteAvailability(@PathParam("channelId") final String channelId) {
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        final ChatCommands chat = ChatCommands.getChatCommands();
+        final Map<String, Object> result = new LinkedHashMap<>();
+        result.put("enabled", chat.invitesEnabled());
+        result.put("canInvite", chat.canInvite(tripId, personId()));
+        return ok(result);
+    }
+
+    /**
+     * Mints a multi-use invite link: {@code {"url": ...}}. Every call is a fresh row against the channel's
+     * outstanding-links cap, so a client keeps the answer for as long as it shows it rather than asking
+     * again on every open. 403 when the caller may not invite; 409 when they may but the chat refuses right
+     * now (archived, or the cap is reached) -- the caller can do nothing about either except wait.
+     */
+    @POST
+    @Path("invite")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response createInvite(
+            @PathParam("channelId") final String channelId,
+            @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf) {
+        if (csrfMissing(csrf)) {
+            return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
+        }
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        final ChatCommands chat = ChatCommands.getChatCommands();
+        final Person.Id me = personId();
+        if (!chat.canInvite(tripId, me)) {
+            return error(403, ChatErrors.FORBIDDEN, "You can't invite people to this chat.");
+        }
+        final String url = chat.createInvite(tripId, me, actor());
+        if (url == null) {
+            return error(409, ApiErrors.CONFLICT,
+                    "No invite link is available for this chat right now: it may be archived, or it already "
+                            + "has as many open invite links as it is allowed.");
+        }
+        return ok(Map.of("url", url));
+    }
+
     @GET
     @Path("export")
     @Produces({V1, MediaType.APPLICATION_JSON})

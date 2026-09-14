@@ -1964,8 +1964,11 @@ public class ChatCommands {
     /**
      * Mints a multi-use invite link and returns the full URL, or {@code null} when refused. The stored row
      * keeps only the validator's hash, so this return value is the only copy of the working link.
+     *
+     * <p>Public for the REST edge ({@code POST .../invite}), which is sessionless and so cannot share the
+     * JSF path's per-session reuse: a phone caches the URL for the life of the screen instead.
      */
-    String createInvite(final String tripId, final Person.Id me, final AuditActor actor) {
+    public String createInvite(final String tripId, final Person.Id me, final AuditActor actor) {
         if (tripId == null || me == null || !canInvite(tripId, me)) {
             return null;
         }

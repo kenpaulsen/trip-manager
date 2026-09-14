@@ -11,6 +11,21 @@ Non-trip-members can participate in a trip's chat two ways (2026-08-12):
    (`/trip/chatInvite.jsf?trip={id}&token={selector}.{validator}`) rides the normal `afterLoginURL` /
    `?to=` login round-trip, then writes a guest membership row and forwards into the chat.
 
+## REST (2026-09-14, for the UniteTrip app)
+
+Both on `ChatResource`, the channel path, so they share `tripIdOf`/CSRF/auth with every other channel call:
+
+- `GET /api/chat/channels/trip:{tripId}/invite` → `{"canInvite": bool, "enabled": bool}`. Read-only by
+  design: a phone asks this when a thread opens, and opening a chat must never write an invite row (the
+  website mints on the Invite button, never at render, for the same reason).
+- `POST /api/chat/channels/trip:{tripId}/invite` → `{"url": "..."}` from `ChatCommands.createInvite`
+  (made public for this; the JSF path's `createInviteFromUi` keeps its per-session reuse, which a
+  sessionless REST caller cannot share — the app caches the URL for the life of its thread screen instead).
+  403 `FORBIDDEN` when `canInvite` is false, refused BEFORE the bean is asked so it costs no row; 409
+  `CONFLICT` when the person may invite but the chat refuses right now (archived, or
+  `chat.invites.maxPerChannel` reached). Cookie sessions send `X-Trip-Api: 1`; bearer tokens are exempt.
+  Audited as `CHAT_INVITE` like the website's mint.
+
 ## Authorization model — read before touching
 
 - `ChatCommands.canParticipate(tripId, me)` is THE definition of chat access:
