@@ -190,7 +190,20 @@ public class SupportChatCommandsTest {
                 .thenAnswer(inv -> ((Person) inv.getArgument(0)).getEmail());
         final SupportChatCommands commands = new SupportChatCommands(
                 allowingLimiter(), new ConfigCommands(), mail, () -> callerFor(owner, false));
-        assertTrue(commands.fileRemovalRequest(child.getId(), "details"));
+        final org.paulsens.trip.push.PushNotifications pushes =
+                Mockito.mock(org.paulsens.trip.push.PushNotifications.class);
+        org.paulsens.trip.push.PushNotifications.setInstance(pushes);
+        try {
+            assertTrue(commands.fileRemovalRequest(child.getId(), "details"));
+        } finally {
+            org.paulsens.trip.push.PushNotifications.setInstance(null);
+        }
+        // The push facade gets EVERY joined admin (it drops the requester and the deviceless itself).
+        Mockito.verify(pushes).supportRequest(Mockito.any(),
+                Mockito.argThat(p -> owner.getId().equals(p.getId())),
+                Mockito.argThat(list -> list.stream().map(Person::getId).toList()
+                        .containsAll(java.util.List.of(mailed.getId(), noEmail.getId(), owner.getId()))),
+                Mockito.contains("Support request"));
 
         // Delivery is off-thread; verify with a timeout. Exactly ONE recipient qualifies.
         Mockito.verify(mail, Mockito.timeout(3000).times(1)).send(

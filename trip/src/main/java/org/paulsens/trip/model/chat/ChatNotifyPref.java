@@ -38,13 +38,32 @@ public class ChatNotifyPref implements Serializable {
         DIGEST_DAILY
     }
 
+    /** The per-channel push choice; the person-level master switch and quiet hours live in {@code PushPrefs}. */
+    public enum PushMode {
+        OFF,
+        /** Mentions, replies and photo comments -- the same events email considers worth an interruption. */
+        MENTIONS,
+        /** Every message in the channel. A per-channel opt-in, never a default. */
+        ALL
+    }
+
     boolean inApp;
     /** Email me when someone names me in a message. */
     boolean mentionEmail;
     /** Email me one summary a day of what I have missed. */
     boolean dailyDigest;
-    /** Reserved; inert until APNs lands. */
+    /**
+     * The old reserved push slot. Read-only-legacy like {@code email}: {@link #defaults()} and
+     * {@link #withEmail} wrote {@code OFF} into every existing row while it was inert, so it must never be
+     * interpreted -- reusing it would have switched every existing member off silently. The live choice is
+     * {@link #pushMode}.
+     */
     DeliveryMode push;
+    /**
+     * What this person's phone/browser is told about, once push exists: nothing, mentions and replies, or
+     * every message. Absent (every row written before push) means {@link PushMode#MENTIONS}.
+     */
+    PushMode pushMode;
     LocalTime quietHoursStart;
     LocalTime quietHoursEnd;
     String timeZone;
@@ -56,6 +75,7 @@ public class ChatNotifyPref implements Serializable {
             @JsonProperty("dailyDigest") final Boolean dailyDigest,
             @JsonProperty("email") final DeliveryMode legacyEmail,
             @JsonProperty("push") final DeliveryMode push,
+            @JsonProperty("pushMode") final PushMode pushMode,
             @JsonProperty("quietHoursStart") final LocalTime quietHoursStart,
             @JsonProperty("quietHoursEnd") final LocalTime quietHoursEnd,
             @JsonProperty("timeZone") final String timeZone) {
@@ -65,6 +85,7 @@ public class ChatNotifyPref implements Serializable {
         this.mentionEmail = mentionEmail != null ? mentionEmail : mentionsFrom(legacyEmail);
         this.dailyDigest = dailyDigest != null ? dailyDigest : digestFrom(legacyEmail);
         this.push = push == null ? DeliveryMode.OFF : push;
+        this.pushMode = pushMode == null ? PushMode.MENTIONS : pushMode;
         this.quietHoursStart = quietHoursStart;
         this.quietHoursEnd = quietHoursEnd;
         this.timeZone = timeZone;
@@ -84,12 +105,28 @@ public class ChatNotifyPref implements Serializable {
     }
 
     public static ChatNotifyPref defaults() {
-        return new ChatNotifyPref(true, true, false, null, DeliveryMode.OFF, null, null, null);
+        return new ChatNotifyPref(true, true, false, null, DeliveryMode.OFF, null, null, null, null);
     }
 
     /** The same preferences with the two email choices replaced. */
     public ChatNotifyPref withEmail(final boolean mentions, final boolean digest) {
-        return new ChatNotifyPref(inApp, mentions, digest, null, push, quietHoursStart, quietHoursEnd, timeZone);
+        return new ChatNotifyPref(inApp, mentions, digest, null, push, pushMode, quietHoursStart, quietHoursEnd,
+                timeZone);
+    }
+
+    /** The same preferences with the push choice replaced (null = back to the default). */
+    public ChatNotifyPref withPushMode(final PushMode mode) {
+        return new ChatNotifyPref(inApp, mentionEmail, dailyDigest, null, push, mode, quietHoursStart,
+                quietHoursEnd, timeZone);
+    }
+
+    /**
+     * Hand-written rather than Lombok's so the default holds for a Java-serialized instance too: a session
+     * (Valkey, plain serialization) written before this field existed revives with the final field null and
+     * never runs the constructor.
+     */
+    public PushMode getPushMode() {
+        return pushMode == null ? PushMode.MENTIONS : pushMode;
     }
 
     /** Whether any email at all is wanted, for callers that only need to know if this person is reachable. */

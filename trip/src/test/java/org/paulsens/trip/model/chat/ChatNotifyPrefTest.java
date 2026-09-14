@@ -27,9 +27,36 @@ public class ChatNotifyPrefTest {
         Assert.assertEquals(defaults.getPush(), DeliveryMode.OFF, "push stays off until APNs exists");
     }
 
+    /**
+     * The push choice: MENTIONS unless stored otherwise -- and the OLD reserved {@code push} field is never
+     * read. {@code defaults()}/{@code withEmail} wrote {@code "push":"OFF"} into every existing row while push
+     * was inert; interpreting it would switch every existing member off silently.
+     */
+    @Test
+    public void pushModeDefaultsToMentionsAndIgnoresTheLegacyPushField() throws Exception {
+        Assert.assertEquals(ChatNotifyPref.defaults().getPushMode(), ChatNotifyPref.PushMode.MENTIONS);
+        final ChatNotifyPref legacyOff = MAPPER.readValue(
+                "{\"inApp\":true,\"mentionEmail\":true,\"dailyDigest\":false,\"push\":\"OFF\"}",
+                ChatNotifyPref.class);
+        Assert.assertEquals(legacyOff.getPushMode(), ChatNotifyPref.PushMode.MENTIONS,
+                "a stored push:OFF is the inert legacy slot, not a choice");
+        Assert.assertEquals(legacyOff.getPush(), DeliveryMode.OFF, "the legacy field still reads");
+
+        final ChatNotifyPref all = legacyOff.withPushMode(ChatNotifyPref.PushMode.ALL);
+        Assert.assertEquals(all.getPushMode(), ChatNotifyPref.PushMode.ALL);
+        Assert.assertTrue(all.isMentionEmail(), "the email choices ride along");
+        final String json = MAPPER.writeValueAsString(all);
+        Assert.assertTrue(json.contains("\"pushMode\":\"ALL\""), json);
+        Assert.assertEquals(MAPPER.readValue(json, ChatNotifyPref.class).getPushMode(), ChatNotifyPref.PushMode.ALL);
+        Assert.assertEquals(all.withEmail(false, true).getPushMode(), ChatNotifyPref.PushMode.ALL);
+        Assert.assertEquals(all.withPushMode(null).getPushMode(), ChatNotifyPref.PushMode.MENTIONS);
+        Assert.assertEquals(MAPPER.readValue("{\"pushMode\":\"OFF\"}", ChatNotifyPref.class).getPushMode(),
+                ChatNotifyPref.PushMode.OFF);
+    }
+
     @Test
     public void anEmptyRowTakesTheDefaults() {
-        final ChatNotifyPref pref = new ChatNotifyPref(null, null, null, null, null, null, null, null);
+        final ChatNotifyPref pref = new ChatNotifyPref(null, null, null, null, null, null, null, null, null);
         Assert.assertTrue(pref.isMentionEmail());
         Assert.assertFalse(pref.isDailyDigest());
     }

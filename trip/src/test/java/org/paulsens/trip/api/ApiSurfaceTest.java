@@ -26,6 +26,7 @@ public class ApiSurfaceTest {
             ConfigResource.class, DeployResource.class, FamilyResource.class, LodgingResource.class, MailResource.class,
             MediaResource.class,
             PasskeyResource.class, PaymentsResource.class, PeopleResource.class, PrivilegesResource.class,
+            PushResource.class,
             RegistrationsResource.class, TodosResource.class, TransactionsResource.class, TripsResource.class);
 
     @Test

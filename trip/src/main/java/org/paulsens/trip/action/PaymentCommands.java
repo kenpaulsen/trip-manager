@@ -349,6 +349,8 @@ public class PaymentCommands {
             log.error("Unable to persist RECORDED for payment {}", payment.getPaymentId(), ex);
         }
         if (!payment.isSandbox()) {
+            // The payer's phone/browser hears first; off-thread and never able to fail the record.
+            org.paulsens.trip.push.PushNotifications.getInstance().paymentRecorded(payment, trip, orgName);
             final TripPaymentConfig effective = orgs.effectivePaymentConfig(trip);
             final boolean mailed = mailerSource.get().sendConfirmation(payment, trip, effective, orgName,
                     processorName, notifyEmail(), current.auditActor());

@@ -13,8 +13,11 @@ import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.chat.ChatMembership;
+import org.paulsens.trip.model.chat.ChatNotifyPref;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.site.SiteUrls;
+import org.paulsens.trip.util.EmailAddresses;
 
 /**
  * Sends chat notifications by email.
@@ -79,6 +82,16 @@ public final class EmailChatNotifier implements ChatNotifier {
     }
 
     private void deliver(final ChatNotification notification, final Person.Id recipient) {
+        if (!wantsMentionEmail(notification, recipient)) {
+            return;
+        }
+        final Person person = DAO.getInstance().getPerson(recipient, Cached.NO).orElse(null);
+        if (person == null || !EmailAddresses.isValid(person.getEmail())) {
+            // Some people have no address and the field holds a bare name; a mention is not worth a failed
+            // send per message. Checked before the claim so the push route's recipients cost nothing here.
+            log.debug("Not emailing {} about a chat mention: no usable email address", recipient);
+            return;
+        }
         final String dedupe = ChatNotification.dedupeKeyFor(
                 notification.getMessageId(), recipient, channel().name());
         // Claim first. tryAcquireLock returns false when the marker exists, so the first caller wins and a retry or
@@ -86,8 +99,7 @@ public final class EmailChatNotifier implements ChatNotifier {
         if (!claim(dedupe)) {
             return;
         }
-        final Person person = DAO.getInstance().getPerson(recipient, Cached.NO).orElse(null);
-        final String to = person == null ? null : mail.formatEmail(person);
+        final String to = mail.formatEmail(person);
         if (to == null) {
             log.debug("Skipping chat notification for {}: no usable email address", recipient);
             return;
@@ -101,6 +113,27 @@ public final class EmailChatNotifier implements ChatNotifier {
         // asynchronously, so the author is not the one asking for this particular send.
         mail.send(from(), to, null, replyTo(notification), subjectFor(notification), body,
                 AuditActor.system());
+    }
+
+    /**
+     * The email preference, read from the trip channel (photo threads have none of their own). The default is
+     * {@code MENTIONS}, so this is on unless someone turned it off -- including for an implicit member, who is
+     * JOINED with no row and therefore holds the defaults. Recipients arrive route-neutral from
+     * {@code ChatNotifications.eligible}; this is the email route's own half of the old combined check.
+     */
+    private static boolean wantsMentionEmail(final ChatNotification notification, final Person.Id recipient) {
+        final String tripId = notification.getTripId();
+        final boolean photo = notification.getChannelId() != null
+                && notification.getChannelId().photoKeyOrNull() != null;
+        final org.paulsens.trip.model.chat.ChatChannel.Id home = photo && tripId != null
+                ? org.paulsens.trip.model.chat.ChatChannel.Id.forTrip(tripId) : notification.getChannelId();
+        if (home == null) {
+            return true;
+        }
+        return DAO.getInstance().getChatMembership(home, recipient, Cached.NO)
+                .map(ChatMembership::getNotify)
+                .map(ChatNotifyPref::isMentionEmail)
+                .orElse(true);
     }
 
     private Map<String, Object> mentionValues(final ChatNotification notification) {

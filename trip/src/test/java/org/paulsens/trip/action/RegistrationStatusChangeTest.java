@@ -46,7 +46,16 @@ public class RegistrationStatusChangeTest {
         addresses = Mockito.mock(MailAddressCommands.class);
         reg = new RegistrationCommands(() -> null, TripCommands::new, () -> audit, () -> mail,
                 () -> addresses);
+        pushes = Mockito.mock(org.paulsens.trip.push.PushNotifications.class);
+        org.paulsens.trip.push.PushNotifications.setInstance(pushes);
     }
+
+    @org.testng.annotations.AfterMethod(alwaysRun = true)
+    public void restorePushFacade() {
+        org.paulsens.trip.push.PushNotifications.setInstance(null);
+    }
+
+    private org.paulsens.trip.push.PushNotifications pushes;
 
     @Test
     public void menuOffersTheReachableStatusesWithTheCurrentOneFirst() {
@@ -72,6 +81,11 @@ public class RegistrationStatusChangeTest {
         assertTrue(rosterHas(trip, traveler), "Approval must add the traveler to the trip roster");
         Mockito.verify(audit).registrationApproved(
                 ArgumentMatchers.argThat(p -> traveler.getId().equals(p.getId())), ArgumentMatchers.any());
+        // The push goes out whatever the email checkbox said: the traveler's phone, plus family managers.
+        Mockito.verify(pushes).registrationApproved(
+                ArgumentMatchers.argThat(p -> traveler.getId().equals(p.getId())),
+                ArgumentMatchers.argThat(t -> trip.getId().equals(t.getId())),
+                ArgumentMatchers.eq(List.of(traveler.getId())));
         // The TRIP's organization is threaded through: an org that customized its approval email sends
         // its own wording, whichever site the approval was made from.
         Mockito.verify(mail).sendManagedTemplateForOrg(

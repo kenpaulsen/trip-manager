@@ -625,6 +625,32 @@ public final class KnownSettings {
                     + "fee on top of the charge; ORGANIZATION absorbs it. A donation's fee share is always "
                     + "absorbed by the organization either way.");
 
+    // --- push notifications ---
+
+    public static final SettingDef PUSH_ENABLED = new SettingDef(
+            "push.enabled", Config.Type.BOOLEAN, "false", "Send push notifications",
+            "The master switch for every push notification (APNs to the app, Web Push to browsers): chat "
+                    + "mentions and replies, per-channel every-message opt-ins, registration approvals, "
+                    + "payment confirmations, support requests, badges and silent refreshes. Off means "
+                    + "nothing is pushed, whatever anyone's own preferences say. Needs the push secret "
+                    + "(APNs key + VAPID pair) to be deployed first.");
+
+    public static final SettingDef PUSH_APNS_TOPIC = new SettingDef(
+            "push.apns.topic", Config.Type.STRING, "org.paulsens.unitetrip", "APNs topic",
+            "The app's bundle id, sent as apns-topic. A token registered by an app with another bundle id is "
+                    + "refused by Apple (DeviceTokenNotForTopic) and pruned.");
+
+    public static final SettingDef PUSH_SILENT_INTERVAL_MINUTES = new SettingDef(
+            "push.silent.intervalMinutes", Config.Type.INT, "15", "Silent refresh interval (minutes)",
+            "After chat activity, phones that were NOT alerted get at most one background refresh push per "
+                    + "this many minutes (badge and unread counts stay fresh without opening the app). 0 turns "
+                    + "silent refreshes off; the range is 0-240.");
+
+    public static final SettingDef PUSH_WEB_ENABLED = new SettingDef(
+            "push.web.enabled", Config.Type.BOOLEAN, "true", "Push to browsers (Web Push)",
+            "The browser route's own switch under the master switch above: off means subscribed browsers "
+                    + "receive nothing while phones keep working.");
+
     // --- profile pictures ---
 
     public static final SettingDef PROFILE_BG_REMOVAL_ENABLED = new SettingDef(
@@ -687,6 +713,11 @@ public final class KnownSettings {
                             + "declared Cached.YES (public/render paths) are served from it; auth, payments "
                             + "and editors always bypass it.",
                     List.of(CACHE_NEAR_TTL_SECONDS, CACHE_NEAR_CHECK_SECONDS)),
+            new SettingSection("Push notifications",
+                    "Ships dark: \"Send push notifications\" is the master switch and every route, badge and "
+                            + "silent refresh sits under it. Each person still has their own switch, quiet "
+                            + "hours and per-chat choice.",
+                    List.of(PUSH_ENABLED, PUSH_APNS_TOPIC, PUSH_SILENT_INTERVAL_MINUTES, PUSH_WEB_ENABLED)),
             new SettingSection("Profile pictures", null,
                     List.of(PROFILE_BG_REMOVAL_ENABLED)),
             new SettingSection("Home page", null,

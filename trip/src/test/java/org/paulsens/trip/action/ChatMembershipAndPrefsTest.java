@@ -9,6 +9,7 @@ import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.chat.ChatRateLimiter;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.chat.ChatNotifyPref;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMembership;
@@ -148,18 +149,36 @@ public class ChatMembershipAndPrefsTest {
         // already exist made the Settings dialog's Save fail in every chat nobody had posted in yet.
         Assert.assertNull(chat.getChannel(tripId), "test premise: no channel row exists yet");
 
-        Assert.assertTrue(chat.saveChatPrefs(tripId, member, true, true, "#123456", null),
+        Assert.assertTrue(chat.saveChatPrefs(tripId, member, true, true, ChatNotifyPref.PushMode.ALL, "#123456", null),
                 "saving preferences must materialise the channel, not require it");
         Assert.assertNotNull(chat.getChannel(tripId), "the save is what creates the channel");
         Assert.assertTrue(chat.mentionEmailForTrip(tripId, member));
         Assert.assertTrue(chat.dailyDigestForTrip(tripId, member));
         Assert.assertEquals(chat.appearanceForTrip(tripId, member).getBackgroundColor(), "#123456");
+        Assert.assertEquals(chat.pushModeForTrip(tripId, member), "ALL", "the push choice rides the same write");
+    }
+
+    @Test
+    public void pushModeDefaultsToMentionsAndIsStoredOnItsOwnRow() {
+        Assert.assertEquals(chat.pushModeForTrip(tripId, member), "MENTIONS", "no row means the default");
+        Assert.assertTrue(chat.setPushMode(tripId, member, ChatNotifyPref.PushMode.OFF));
+        Assert.assertEquals(chat.pushModeForTrip(tripId, member), "OFF");
+        Assert.assertTrue(chat.mentionEmailForTrip(tripId, member), "the email choice is untouched");
+        Assert.assertFalse(chat.setPushMode(tripId, member, null), "null is not a choice");
+        Assert.assertFalse(chat.setPushMode(tripId, person("Outsider"), ChatNotifyPref.PushMode.ALL));
+        Assert.assertFalse(chat.setPushMode(null, member, ChatNotifyPref.PushMode.ALL));
+        Assert.assertEquals(ChatCommands.pushModeOf(" all "), ChatNotifyPref.PushMode.ALL);
+        Assert.assertNull(ChatCommands.pushModeOf("sometimes"));
+        Assert.assertNull(ChatCommands.pushModeOf(" "));
+        // A null push choice on the dialog save leaves the stored one alone.
+        Assert.assertTrue(chat.saveChatPrefs(tripId, member, true, false, null, "#123456", null));
+        Assert.assertEquals(chat.pushModeForTrip(tripId, member), "OFF");
     }
 
     @Test
     public void settingsDialogSaveClearsAsWellAsSets() {
-        Assert.assertTrue(chat.saveChatPrefs(tripId, member, false, false, "#123456", null));
-        Assert.assertTrue(chat.saveChatPrefs(tripId, member, false, false, "", ""),
+        Assert.assertTrue(chat.saveChatPrefs(tripId, member, false, false, null, "#123456", null));
+        Assert.assertTrue(chat.saveChatPrefs(tripId, member, false, false, null, "", ""),
                 "blank values clear the override");
         Assert.assertNull(chat.appearanceForTrip(tripId, member).getBackgroundColor());
         Assert.assertNull(chat.appearanceForTrip(tripId, member).getBackgroundImageUrl());
@@ -167,9 +186,9 @@ public class ChatMembershipAndPrefsTest {
 
     @Test
     public void settingsDialogSaveIsRefusedForSomeoneWhoCannotRead() {
-        Assert.assertFalse(chat.saveChatPrefs(tripId, person("Outsider"), true, true, "#123456", null));
-        Assert.assertFalse(chat.saveChatPrefs(tripId, null, true, true, "#123456", null));
-        Assert.assertFalse(chat.saveChatPrefs(null, member, true, true, "#123456", null));
+        Assert.assertFalse(chat.saveChatPrefs(tripId, person("Outsider"), true, true, null, "#123456", null));
+        Assert.assertFalse(chat.saveChatPrefs(tripId, null, true, true, null, "#123456", null));
+        Assert.assertFalse(chat.saveChatPrefs(null, member, true, true, null, "#123456", null));
     }
 
     @Test

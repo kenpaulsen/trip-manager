@@ -111,6 +111,10 @@ public enum AuditAction {
      * response and outcome as three records.
      */
     REPORT,
+    /** A push-notification device (phone token or browser subscription) was registered or re-registered. */
+    PUSH_DEVICE_REGISTER,
+    /** A push-notification device was removed: by its owner, by sign-out, or because the push service refused it. */
+    PUSH_DEVICE_REMOVE,
     /** Unrecognised: the record is kept, the original type text is preserved in the message. */
     UNKNOWN;
 

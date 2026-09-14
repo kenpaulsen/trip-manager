@@ -240,6 +240,14 @@ privileges, chat, chat-admin, photo-chat, audit, config, mail, payments, deploy,
   Channels are no longer only per-trip: each chat photo gets a `photo:{s3Key}` channel for its comment
   thread and image reactions, which roll up (SUM) into the carrying message's chips — read
   `docs/photo-comments.md` before touching photo threads, the summary fold, or `purgeChannel`.
+  Notification recipients are route-neutral candidates (`ChatNotifications.eligible`, membership only);
+  each route applies its own preference — email `mentionEmail`, push `ChatNotifyPref.pushMode`.
+- `push/` — push notifications: direct APNs (HTTP/2 + ES256 token auth) and standard Web Push (RFC 8291
+  aes128gcm + VAPID), all JDK, behind one `PushGateway` seam; devices in ONE reserved person-data row per
+  person (`push-devices`), pruned by every credential revocation; `PushSender` gates + dedupe + quiet hours +
+  badge; `PushChatNotifier` in the notifier chain, `PushNotifications` for approvals/payments/support; REST
+  `api/PushResource`, bean `#{push}`. Ships dark behind `push.enabled`. Read `docs/push-notifications.md`
+  before touching any of it, the `pushMode` field, or the three event hooks.
 - `media/` — the chat-photo pipeline (P4 media, landed 2026-08-07): `PhotoProcessor` (two renditions per
   upload — untouched original + ≤800px display copy; HEIC transcodes to full-res JPEG; animated GIF passes
   through), `ImageFormat` (magic-byte sniffing), `ChatPhotoStaging` (upload→send authorization). Uploads go

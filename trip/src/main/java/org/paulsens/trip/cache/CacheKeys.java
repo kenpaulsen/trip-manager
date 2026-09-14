@@ -372,6 +372,35 @@ public final class CacheKeys {
     }
 
     /**
+     * Push-notification namespace -- like chat and auth, deliberately <em>not</em> under
+     * {@link #FORMAT_VERSION}: {@code DAO.clearAllCaches()} must not release a device-row lock mid-write or
+     * reset the silent-refresh coalescing that keeps a chatty evening from waking every phone per message.
+     */
+    public static final String PUSH_FORMAT_VERSION = "push:v1:";
+
+    /**
+     * The read-merge-write lock on one person's push-device row ({@code docs/push-notifications.md}): a
+     * registration racing a prune (sign-out on another device, a DROP_DEVICE from a send) must not resurrect
+     * a token the other writer just removed. Short TTL: a crashed holder blocks the next writer for ten
+     * seconds, not forever.
+     */
+    public static String pushDeviceLockKey(final String personId) {
+        return PUSH_FORMAT_VERSION + "devlock:" + personId;
+    }
+
+    /** How long the device-row lock survives a crashed holder. */
+    public static final Duration PUSH_DEVICE_LOCK_TTL = Duration.ofSeconds(10);
+
+    /**
+     * Silent-refresh coalescing marker per person: while it exists, no further background push is sent to
+     * them. Its TTL IS the interval ({@code push.silent.intervalMinutes}), so the marker doubles as the
+     * schedule and no scheduler thread is needed.
+     */
+    public static String pushSilentKey(final String personId) {
+        return PUSH_FORMAT_VERSION + "silent:" + personId;
+    }
+
+    /**
      * Authentication namespace — like chat, deliberately <em>not</em> under {@link #FORMAT_VERSION}:
      * {@code DAO.clearAllCaches()} clears {@code t1:} and must never invalidate a login code someone is about
      * to type, or reset the rate-limit counters that throttle guessing.

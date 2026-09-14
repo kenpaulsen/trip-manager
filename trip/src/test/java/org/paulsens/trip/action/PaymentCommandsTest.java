@@ -67,8 +67,20 @@ public class PaymentCommandsTest {
         assertTrue(approvalUrl.startsWith("/trip/fakeCheckout.jsf?token=FAKE-"));
 
         final String paymentId = paymentIdFrom(approvalUrl);
-        final PaymentCommands.Completion outcome = commands.completePayment(paymentId, null);
+        final org.paulsens.trip.push.PushNotifications pushes =
+                Mockito.mock(org.paulsens.trip.push.PushNotifications.class);
+        org.paulsens.trip.push.PushNotifications.setInstance(pushes);
+        final PaymentCommands.Completion outcome;
+        try {
+            outcome = commands.completePayment(paymentId, null);
+        } finally {
+            org.paulsens.trip.push.PushNotifications.setInstance(null);
+        }
         assertEquals(outcome.getStatus(), "recorded", outcome.getMessage());
+        // The payer's phone hears about a REAL recorded payment (the sandbox path below never pushes).
+        Mockito.verify(pushes).paymentRecorded(
+                ArgumentMatchers.argThat(p -> paymentId.equals(p.getPaymentId())), ArgumentMatchers.any(),
+                ArgumentMatchers.eq("CFPW"));
 
         final Payment stored = DAO.getInstance().getPayment(paymentId).orElseThrow();
         assertEquals(stored.getStatus(), Payment.Status.RECORDED);
