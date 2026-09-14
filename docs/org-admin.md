@@ -304,7 +304,10 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   app's home host) reaches every organization's trips — `SiteContext.forApiClient()` +
   `reachesEverything()`, bound by `SessionRecoveryFilter` from the path. Membership scopes what a signed-in
   person then sees; the pages on that host keep the double gate, and an org's own site still admits only its
-  own for the app.
+  own for the app. The same bypass covers `ListingScope.shows` (the open-trips listing, `GET
+  /api/trips?filter=open`): the app lists every organization's public trips and narrows them to the
+  person's own organizations itself, so an org that opted out of shared sites still has open trips in the
+  app's Find a Trip (2026-09-14, second fix).
 - **What a site can reach (2026-09-01).** A trip's PAGES — contacts, itinerary, details, registration, chat,
   its ledger rows and payments — are served by a site only if that site LISTS the trip's organization:
   `ListingScope.forSite().reaches(orgId)` = `SiteContext.admits(orgId) && ListingScope.shows(orgId)`, with

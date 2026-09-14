@@ -96,6 +96,12 @@ public class ListingScopeTest {
         Assert.assertFalse(reach(SiteContext.shared("localhost").forApiClient(), List.of()).reaches(HOSTED));
         final SiteContext once = SiteContext.marketing("m").forApiClient();
         Assert.assertSame(once.forApiClient(), once, "idempotent");
+        // The open-trips listing (getPublicTrips -> shows) must not keep the curation the page keeps: with
+        // it, an organization that opted out of shared sites had no open trips in the app's Find a Trip.
+        Assert.assertFalse(page.shows(OPTED_OUT), "the page still curates");
+        Assert.assertTrue(app.shows(OPTED_OUT) && app.shows(HOSTED) && app.shows(UNKNOWN),
+                "the app's open listing lists every organization's public trips");
+        Assert.assertFalse(acmeApp.shows(SHARED_ONLY), "an org site still lists only its own");
     }
 
     @Test

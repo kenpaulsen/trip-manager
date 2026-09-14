@@ -86,6 +86,12 @@ public final class ListingScope {
 
     /** Whether content owned by {@code ownerOrgId} (null = org-less legacy content) lists on this site. */
     public boolean shows(final String ownerOrgId) {
+        if (site.reachesEverything()) {
+            // The app on the product's own host: an open trip lists whatever the shared-site curation says,
+            // because the person's own organizations, not the marketing page's picks, decide what they see
+            // (the client narrows the listing to those organizations).
+            return true;
+        }
         if (site.isOrg()) {
             return site.isSiteOf(ownerOrgId);
         }
