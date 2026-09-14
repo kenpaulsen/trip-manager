@@ -41,6 +41,14 @@ public class ChatMentionDispatchTest {
 
     private Person.Id author;
     private Person.Id mentioned;
+    /**
+     * The channel THIS test method is about. Dispatch is asynchronous and the notifier is a static
+     * singleton, so a dispatch started by an earlier test can land on this method's notifier -- and did,
+     * on a loaded CI runner, inside the one-second "nothing was dispatched" window. Every notification
+     * names its channel, and every method here builds its channel through {@link #channel}, so scoping
+     * the capture to that channel makes these assertions immune to a neighbour's late thread.
+     */
+    private volatile ChatChannel.Id watching;
 
     @BeforeMethod
     public void setUp() {
@@ -49,6 +57,7 @@ public class ChatMentionDispatchTest {
         everyMessage.clear();
         dispatched = new CountDownLatch(1);
         everyMessageSeen = new CountDownLatch(1);
+        watching = null;
         ChatNotifications.setNotifier(new CapturingNotifier());
         author = person("Author");
         mentioned = person("Mentioned");
@@ -72,6 +81,10 @@ public class ChatMentionDispatchTest {
 
         @Override
         public void notify(final ChatNotification notification) {
+            // Another test's in-flight dispatch, arriving after that test installed its own expectations.
+            if (watching != null && !watching.equals(notification.getChannelId())) {
+                return;
+            }
             // Every trip-channel message also dispatches an ALL_MESSAGES event (the every-message opt-in and
             // the push route's silent refresh ride it). These tests are about the mention-class routes, so
             // that event is collected separately and never counts as "a notification was dispatched".
@@ -99,8 +112,10 @@ public class ChatMentionDispatchTest {
         return who.getId();
     }
 
-    private static ChatChannel channel(final String tripId) {
-        return new ChatChannel(ChatChannel.Id.forTrip(tripId), tripId, ChatChannel.Kind.TRIP, "Test",
+    /** Builds the channel a test acts on AND scopes the capture to it -- see {@link #watching}. */
+    private ChatChannel channel(final String tripId) {
+        watching = ChatChannel.Id.forTrip(tripId);
+        return new ChatChannel(watching, tripId, ChatChannel.Kind.TRIP, "Test",
                 null, null, ChatSettings.defaults(), Instant.now(), "admin", null, null);
     }
 
@@ -372,8 +387,10 @@ public class ChatMentionDispatchTest {
 
     // --- photo comments (commenting on a picture replies to its uploader) ---
 
-    private static ChatChannel photoChannel(final String tripId, final String s3Key) {
-        return new ChatChannel(ChatChannel.Id.forPhoto(s3Key), tripId, ChatChannel.Kind.PHOTO, "Photo",
+    /** The photo-channel counterpart of {@link #channel}, scoping the capture the same way. */
+    private ChatChannel photoChannel(final String tripId, final String s3Key) {
+        watching = ChatChannel.Id.forPhoto(s3Key);
+        return new ChatChannel(watching, tripId, ChatChannel.Kind.PHOTO, "Photo",
                 null, null, ChatSettings.defaults(), Instant.now(), "admin", null, null);
     }
 
