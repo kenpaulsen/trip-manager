@@ -22,6 +22,8 @@ import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.ProfilePhotos;
+import org.paulsens.trip.action.LodgingCommands;
+import org.paulsens.trip.action.LodgingViews;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.api.dto.RegOptionDto;
 import org.paulsens.trip.api.dto.TripDto;
@@ -149,11 +151,14 @@ public class TripsResource extends BaseResource {
     }
 
     /**
-     * Lodging arrival/departure, inferred from the surrounding flights.
+     * Lodging arrival/departure for the caller: the dates of their own reservation on the event when they
+     * hold one (what the itinerary page shows, with the room when the trip reveals numbers), else the
+     * flight-inferred dates.
      *
-     * <p>Exposed because the inference is not something a client should reimplement: it treats a layover under
-     * 36 hours as part of the same journey, and a client guessing differently would show a different number of
-     * nights than the trip pages do for the same booking.
+     * <p>The inference is exposed because a client should not reimplement it: it treats a layover under 36
+     * hours as part of the same journey. But it looks at EVERY flight on the trip, so an early arriver's
+     * flight used to move everyone's hotel dates in the app (2026-09-14); the reservation is the truth when
+     * it exists.
      */
     @GET
     @Path("{tripId}/events/{eventId}/lodging")
@@ -171,14 +176,38 @@ public class TripsResource extends BaseResource {
         if (event == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such event on this trip.");
         }
+        final Map<String, Object> result = new LinkedHashMap<>();
+        final LodgingViews.ItineraryRow reserved = reservationRow(trip, event, personId());
+        if (reserved != null) {
+            result.put("arrival", reserved.getEffectiveStart());
+            result.put("departure", reserved.getEffectiveEnd());
+            result.put("nights", (long) reserved.getNights());
+            result.put("fromReservation", true);
+            result.put("accommodation", reserved.getAccommodationName());
+            result.put("roomType", reserved.getRoomTypeName());
+            result.put("room", reserved.getRoomLabel());
+            result.put("reservationNotes", reserved.getReservationNotes());
+            return ok(result);
+        }
         final TripCommands trips = Beans.get(TripCommands.class);
         final var arrival = trips.getLodgingArrivalDate(trip.getTripEvents(), event);
         final var departure = trips.getLodgingDepartureDate(trip.getTripEvents(), event);
-        final Map<String, Object> result = new LinkedHashMap<>();
         result.put("arrival", arrival);
         result.put("departure", departure);
         result.put("nights", trips.getLodgingDays(arrival, departure));
+        result.put("fromReservation", false);
         return ok(result);
+    }
+
+    /** The caller's itinerary row for this event when it carries one of their reservations, else null. */
+    private static LodgingViews.ItineraryRow reservationRow(final Trip trip, final TripEvent event,
+            final Person.Id me) {
+        for (final LodgingViews.ItineraryRow row : Beans.get(LodgingCommands.class).itineraryRowsFor(trip, me)) {
+            if (event.getId().equals(row.getId()) && row.getReservationId() != null) {
+                return row;
+            }
+        }
+        return null;
     }
 
     /**

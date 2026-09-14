@@ -220,6 +220,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         final Trip trip = trip(TRIP_ID, ME);
         tripExists(trip);
+        bindMock(org.paulsens.trip.action.LodgingCommands.class);   // no reservation rows: the fallback
         final LocalDateTime arrival = LocalDate.of(2026, 9, 1).atStartOfDay();
         final LocalDateTime departure = LocalDate.of(2026, 9, 8).atStartOfDay();
         Mockito.when(trips.getLodgingArrivalDate(ArgumentMatchers.anyList(), ArgumentMatchers.any()))
@@ -234,6 +235,43 @@ public class TripsResourceTest extends ResourceTestSupport {
         @SuppressWarnings("unchecked")
         final Map<String, Object> body = (Map<String, Object>) response.getEntity();
         Assert.assertEquals(body.get("nights"), 7L);
+        Assert.assertEquals(body.get("fromReservation"), false);
+    }
+
+    /**
+     * The caller's own reservation wins over the flight inference: the inference reads every flight on the
+     * trip, so one early arriver used to move everybody's hotel dates in the app (2026-09-14).
+     */
+    @Test
+    public void lodgingAnswersTheCallersReservationWhenTheyHoldOne() {
+        signedInAs(ME);
+        final Trip trip = trip(TRIP_ID, ME);
+        tripExists(trip);
+        final org.paulsens.trip.action.LodgingCommands lodging =
+                bindMock(org.paulsens.trip.action.LodgingCommands.class);
+        final org.paulsens.trip.action.LodgingViews.ItineraryRow row =
+                new org.paulsens.trip.action.LodgingViews.ItineraryRow();
+        row.setId("evt-1");
+        row.setReservationId("res-1");
+        row.setEffectiveStart(LocalDate.of(2026, 9, 21).atTime(23, 0));
+        row.setEffectiveEnd(LocalDate.of(2026, 10, 1).atTime(10, 0));
+        row.setNights(10);
+        row.setAccommodationName("Pansion Dragicevic");
+        row.setRoomTypeName("Family");
+        row.setRoomLabel("106");
+        Mockito.when(lodging.itineraryRowsFor(trip, ME)).thenReturn(List.of(row));
+
+        final Response response = resource.lodging(TRIP_ID, "evt-1");
+
+        assertOk(response);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> body = (Map<String, Object>) response.getEntity();
+        Assert.assertEquals(body.get("arrival"), LocalDate.of(2026, 9, 21).atTime(23, 0));
+        Assert.assertEquals(body.get("nights"), 10L);
+        Assert.assertEquals(body.get("fromReservation"), true);
+        Assert.assertEquals(body.get("room"), "106");
+        Assert.assertEquals(body.get("roomType"), "Family");
+        Mockito.verify(trips, Mockito.never()).getLodgingArrivalDate(ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     @Test
