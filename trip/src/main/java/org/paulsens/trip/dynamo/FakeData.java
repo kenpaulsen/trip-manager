@@ -17,7 +17,9 @@ import java.util.stream.Collectors;
 import lombok.Getter;
 import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.ChatPhotos;
+import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.MarketingPageBootstrap;
 import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.model.chat.ChatChannel;
@@ -407,6 +409,7 @@ public final class FakeData {
         seedCfpwPaymentDefaults();
         seedBetaBranding();
         seedPlatformBranding();
+        seedLocalApiAccess();
         seedOrgScopedPrivileges(commands, kevin);
         seedOrgSiteEditor(commands);
         // Each org SITE gets its default home page through the same once-only seeding a slug assignment
@@ -571,6 +574,23 @@ public final class FakeData {
             }
         } catch (final IOException ex) {
             throw new IllegalStateException("Fake org seed: could not save the platform org's branding", ex);
+        }
+    }
+
+    /**
+     * Local mode is where the native app is developed against, so bearer tokens are ON here and the app's
+     * PayPal return scheme is allow-listed -- the two rows {@code enable-api-tokens.sh} writes, which every
+     * client workflow used to have to run after each container start. The DECLARED defaults stay off/absent:
+     * they are the production posture (the kill switch, docs/api-tokens.md), and a blank save still falls
+     * back to them, which is why tests that need tokens off restore "true" rather than blanking.
+     */
+    private static void seedLocalApiAccess() {
+        final Map<String, String> values = new HashMap<>();
+        values.put(KnownSettings.API_TOKEN_ENABLED.getName(), "true");
+        values.put(KnownSettings.PAYMENT_RETURN_URL_PREFIXES.getName(),
+                KnownSettings.PAYMENT_RETURN_URL_PREFIXES.getDefaultValue() + ",unitetrip://pay/return/");
+        if (!new ConfigCommands().saveKnown(values, "local-seed")) {
+            throw new IllegalStateException("Fake seed: could not enable API tokens for local mode");
         }
     }
 

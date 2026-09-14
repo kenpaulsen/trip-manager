@@ -105,7 +105,7 @@ incomplete run (the client sees 500 and is told to contact support; re-running i
 `AccountDeletionCommandsTest` (real fake-persistence DAO; mail and profile pictures mocked), `AccountResourceTest`,
 `BlocksResourceTest`, report cases in `ChatResourceTest` / `PhotoChatResourceTest`, `ApiSurfaceTest`.
 
-## Curl recipes (local container, `scripts/enable-api-tokens.sh` run first)
+## Curl recipes (local container; local mode seeds API tokens on)
 
 ```sh
 TOKEN=$(curl -s -X POST localhost:8080/api/auth/token -H 'Content-Type: application/json' \

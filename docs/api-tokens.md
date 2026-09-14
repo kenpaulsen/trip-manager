@@ -253,8 +253,9 @@ on a cache read path.
 
 Turning the switch on is a setup step, so it is a script: `medjugorje/scripts/enable-api-tokens.sh`
 (cookie login as an admin → `PUT /api/config {"api.token.enabled":"true"}` → logout; `--off` is the kill
-switch). Local mode resets the setting on every container start, which is why the iOS repo's
-`scripts/local-backend.sh` runs it right after `docker run`.
+switch). Local mode does not need it: `FakeData.seedLocalApiAccess` seeds the switch ON plus the app's
+PayPal return scheme on every start, so a fresh local container accepts the iOS app straight away. A test
+that needs tokens OFF writes "false" and restores "true" -- a blank falls to the production default.
 
 ### The native client (UniteTrip, 2026-09)
 
@@ -293,9 +294,9 @@ already exist. No new infrastructure.
   the lazy migration, and the scans all run in the ordinary local-mode suite.
 - The audit-attribution regression test is non-negotiable: a token-authenticated mutation writes an actor
   with email AND id.
-- Against the local container: `medjugorje/scripts/enable-api-tokens.sh`, then
+- Against the local container (tokens seeded on):
   `curl -s -X POST localhost:8080/api/auth/token -H 'Content-Type: application/json' -d '{"email":"user2","password":"user","scope":"member"}'`
-  answers a grant; before the script it is the 404 the client renders as "tokens are not enabled".
+  answers a grant; after `enable-api-tokens.sh --off` it is the 404 the client renders as "tokens are not enabled".
 
 ## Implementation phases
 

@@ -58,25 +58,32 @@ public class BearerRequestBindingTest {
 
             TokenService.getInstance().revoke(grant.refreshToken());
         } finally {
-            // Blank deletes the row, restoring the declared default (off).
-            Assert.assertTrue(config.saveKnown(Map.of("api.token.enabled", ""), "test"));
+            // Local mode SEEDS the switch on (FakeData.seedLocalApiAccess); a blank would delete the row and
+            // fall to the production default, off, so the seeded value is restored explicitly.
+            Assert.assertTrue(config.saveKnown(Map.of("api.token.enabled", "true"), "test"));
         }
     }
 
-    /** With the feature off (the default), the same request binds anonymous -- no acceptance at all. */
+    /** With the feature off (the production default), the same request binds anonymous -- no acceptance. */
     @Test
     public void withTheFeatureOffABearerHeaderBindsNothing() throws Exception {
-        final HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
-        Mockito.when(request.getRequestURI()).thenReturn("/api/people/me");
-        Mockito.when(request.getHeader("Authorization")).thenReturn("Bearer sel:validator");
-        Mockito.when(request.getSession(false)).thenReturn(null);
+        final ConfigCommands config = new ConfigCommands();
+        Assert.assertTrue(config.saveKnown(Map.of("api.token.enabled", "false"), "test"));
+        try {
+            final HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+            Mockito.when(request.getRequestURI()).thenReturn("/api/people/me");
+            Mockito.when(request.getHeader("Authorization")).thenReturn("Bearer sel:validator");
+            Mockito.when(request.getSession(false)).thenReturn(null);
 
-        final AuditActor[] seen = new AuditActor[1];
-        final FilterChain chain = (req, res) -> seen[0] = AuditActor.current();
-        new SessionRecoveryFilter().doFilter(request, Mockito.mock(HttpServletResponse.class), chain);
+            final AuditActor[] seen = new AuditActor[1];
+            final FilterChain chain = (req, res) -> seen[0] = AuditActor.current();
+            new SessionRecoveryFilter().doFilter(request, Mockito.mock(HttpServletResponse.class), chain);
 
-        Assert.assertFalse(seen[0].isKnown());
-        Mockito.verify(request, Mockito.never()).setAttribute(Mockito.eq(BearerTokens.PRINCIPAL_ATTR),
-                Mockito.any());
+            Assert.assertFalse(seen[0].isKnown());
+            Mockito.verify(request, Mockito.never()).setAttribute(Mockito.eq(BearerTokens.PRINCIPAL_ATTR),
+                    Mockito.any());
+        } finally {
+            Assert.assertTrue(config.saveKnown(Map.of("api.token.enabled", "true"), "test"));
+        }
     }
 }
