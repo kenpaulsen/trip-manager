@@ -79,6 +79,25 @@ public class ListingScopeTest {
         return new ListingScope(site, null, id -> Optional.ofNullable(orgs.get(id.getValue())), () -> pageCuration);
     }
 
+    /** The app's home host: an API client on the marketing host reaches every org; a page there does not. */
+    @Test
+    public void anApiClientOnTheMarketingHostReachesEveryOrganization() {
+        final ListingScope page = reach(SiteContext.marketing("unitetrip.com"), List.of());
+        Assert.assertFalse(page.reaches(HOSTED), "a page on the marketing host keeps the double gate");
+        Assert.assertFalse(page.reaches(OPTED_OUT));
+        final ListingScope app = reach(SiteContext.marketing("unitetrip.com").forApiClient(), List.of());
+        Assert.assertTrue(app.reaches(HOSTED) && app.reaches(OPTED_OUT) && app.reaches(UNKNOWN)
+                && app.reaches(null), "membership, not curation, scopes the app's trips");
+        // Only the product's own host: an org's site and the shared site answer the app as they answer pages.
+        final ListingScope acmeApp = reach(SiteContext.org(Organization.Id.from(HOSTED), "acme", "acme.x")
+                .forApiClient(), List.of());
+        Assert.assertTrue(acmeApp.reaches(HOSTED));
+        Assert.assertFalse(acmeApp.reaches(SHARED_ONLY));
+        Assert.assertFalse(reach(SiteContext.shared("localhost").forApiClient(), List.of()).reaches(HOSTED));
+        final SiteContext once = SiteContext.marketing("m").forApiClient();
+        Assert.assertSame(once.forApiClient(), once, "idempotent");
+    }
+
     @Test
     public void whatASiteDoesNotListItDoesNotReach() {
         // Off a bound request there is no host to draw a boundary from: everything is reachable.

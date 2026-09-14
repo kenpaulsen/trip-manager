@@ -237,5 +237,22 @@ public class SessionRecoveryFilterTest {
                 (rq, rs) -> seen.set(org.paulsens.trip.audit.RequestContext.SCOPE.get().site()));
         Assert.assertTrue(seen.get().isOrg(), "the chain must observe the resolved org site");
         Assert.assertEquals(seen.get().slug(), slug);
+        Assert.assertFalse(seen.get().apiClient(), "a page request is not an API client");
+    }
+
+    /** A request under /api/ binds the site marked for an API client; the path decides, not the host. */
+    @Test
+    public void anApiRequestBindsTheSiteAsSeenByAnApiClient() throws Exception {
+        final SessionRecoveryFilter filter = new SessionRecoveryFilter();
+        final jakarta.servlet.http.HttpServletRequest req = requestWithSession("api@x.org");
+        org.mockito.Mockito.when(req.getServerName()).thenReturn("localhost");
+        org.mockito.Mockito.when(req.getContextPath()).thenReturn("");
+        org.mockito.Mockito.when(req.getRequestURI()).thenReturn("/api/trips");
+        final java.util.concurrent.atomic.AtomicReference<org.paulsens.trip.site.SiteContext> seen =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        filter.doFilter(req, org.mockito.Mockito.mock(jakarta.servlet.http.HttpServletResponse.class),
+                (rq, rs) -> seen.set(org.paulsens.trip.audit.RequestContext.SCOPE.get().site()));
+        Assert.assertTrue(seen.get().apiClient());
+        Assert.assertFalse(seen.get().reachesEverything(), "the shared host reaches no more for the app");
     }
 }

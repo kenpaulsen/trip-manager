@@ -300,6 +300,11 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   (`Organization.allowSharedSites`, org-admin controlled, saved through `saveOrgEdits`' 8th argument). With
   no pick, a shared site lists the orgs that have no site of their own — so assigning a subdomain also
   takes the org OFF the shared sites until a site admin curates it back in.
+- **The app on the marketing host (2026-09-14):** a request under `/api/` on unitetrip.com (the UniteTrip
+  app's home host) reaches every organization's trips — `SiteContext.forApiClient()` +
+  `reachesEverything()`, bound by `SessionRecoveryFilter` from the path. Membership scopes what a signed-in
+  person then sees; the pages on that host keep the double gate, and an org's own site still admits only its
+  own for the app.
 - **What a site can reach (2026-09-01).** A trip's PAGES — contacts, itinerary, details, registration, chat,
   its ledger rows and payments — are served by a site only if that site LISTS the trip's organization:
   `ListingScope.forSite().reaches(orgId)` = `SiteContext.admits(orgId) && ListingScope.shows(orgId)`, with

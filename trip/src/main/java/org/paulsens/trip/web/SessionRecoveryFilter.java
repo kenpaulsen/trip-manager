@@ -72,7 +72,7 @@ public class SessionRecoveryFilter implements Filter {
         // answered with a fixed static page (no session, no scopes, no database) -- the NotFoundServlet
         // load-shedding rule applies, since every *.unitetrip.com label lands here.
         final SiteContext site = (request instanceof HttpServletRequest req)
-                ? SiteIndex.getInstance().resolve(req.getServerName())
+                ? siteFor(req)
                 : SiteContext.shared(null);
         if (site.isUnknown() && response instanceof HttpServletResponse res) {
             writeNoSuchSite(res);
@@ -145,6 +145,21 @@ public class SessionRecoveryFilter implements Filter {
                 </body>
                 </html>
                 """);
+    }
+
+    /**
+     * The host's site, marked as seen by an API client when the request is under {@code /api/}: the one
+     * place that knows both the host and the path, so {@code SiteContext.reachesEverything()} can tell the
+     * app on the marketing host apart from a page on it.
+     */
+    private static SiteContext siteFor(final HttpServletRequest req) {
+        final SiteContext site = SiteIndex.getInstance().resolve(req.getServerName());
+        final String uri = req.getRequestURI();
+        final String context = req.getContextPath() == null ? "" : req.getContextPath();
+        if (uri != null && uri.startsWith(context + "/api/")) {
+            return site.forApiClient();
+        }
+        return site;
     }
 
     /** Carries the chain's checked exceptions across the ScopedValue.call boundary. */

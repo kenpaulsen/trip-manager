@@ -16,7 +16,12 @@ import org.paulsens.trip.model.Organization;
  * deliberately NOT {@link java.io.Serializable} and lives outside the {@code model} package (whose classes
  * must all serialize): an attempt to stash it in a view fails loudly at session save instead of leaking.
  */
-public record SiteContext(Mode mode, Organization.Id orgId, String slug, String host) {
+public record SiteContext(Mode mode, Organization.Id orgId, String slug, String host, boolean apiClient) {
+
+    /** A site for a page request; {@link #forApiClient()} marks the same host for an {@code /api/} request. */
+    public SiteContext(final Mode mode, final Organization.Id orgId, final String slug, final String host) {
+        this(mode, orgId, slug, host, false);
+    }
 
     /** How the host resolved. */
     public enum Mode {
@@ -69,10 +74,26 @@ public record SiteContext(Mode mode, Organization.Id orgId, String slug, String 
      * site then chooses to list is {@link ListingScope}'s double gate, on top of this.
      */
     public boolean admits(final String ownerOrgId) {
-        if (!isOrg()) {
+        if (!isOrg() || reachesEverything()) {
             return true;
         }
         return isSiteOf(ownerOrgId);
+    }
+
+    /** This host as seen by an {@code /api/} request (the app, a script) rather than by a page. */
+    public SiteContext forApiClient() {
+        return apiClient ? this : new SiteContext(mode, orgId, slug, host, true);
+    }
+
+    /**
+     * Whether this request reaches every organization's trips: an API client on the product's own host.
+     * The app's home host is unitetrip.com (user decision 2026-09-14); membership, not page curation, is
+     * what scopes a signed-in person's trips there, or the marketing host would list nothing to the app
+     * while the pages on it deliberately list nothing either. Pages on the same host keep the double gate,
+     * and an organization's own site still admits only its own for the app too.
+     */
+    public boolean reachesEverything() {
+        return apiClient && isMarketing();
     }
 
     /**

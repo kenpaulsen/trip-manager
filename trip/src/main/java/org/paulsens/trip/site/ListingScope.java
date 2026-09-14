@@ -115,7 +115,7 @@ public final class ListingScope {
      * schedulers, and unit tests) everything is reachable -- there is no host to draw a boundary from.
      */
     public boolean reaches(final String ownerOrgId) {
-        if (!site.isBound()) {
+        if (!site.isBound() || site.reachesEverything()) {
             return true;
         }
         if (!site.admits(ownerOrgId)) {
