@@ -9,6 +9,7 @@ import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.audit.Audit;
+import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.CacheClient;
 import org.paulsens.trip.cache.CacheKeys;
 import org.paulsens.trip.cache.CacheSupport;
@@ -21,6 +22,7 @@ import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.AuthToken;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.push.PushDevices;
 
 /**
  * Bearer tokens for the REST API: issuance, refresh, revocation (see {@code docs/api-tokens.md}).
@@ -252,7 +254,27 @@ public class TokenService {
                 cache().remove(token.getSelector());
             }
         }
+        pruneDevices(() -> PushDevices.getInstance().removeAll(userId, actorForPrune()));
         return deleted.size();
+    }
+
+    /**
+     * Push devices die with the credential that registered them (phones carry their refresh selector;
+     * password change and deletion take every kind). Best effort: a push-registry problem must never make a
+     * revocation fail -- the tokens are already gone by the time this runs.
+     */
+    private static void pruneDevices(final Runnable prune) {
+        try {
+            prune.run();
+        } catch (final RuntimeException ex) {
+            log.warn("Push devices not pruned after a revocation", ex);
+        }
+    }
+
+    /** The signed-in person when the revocation is their own act; otherwise the system, never half-known. */
+    private static AuditActor actorForPrune() {
+        final AuditActor current = AuditActor.current();
+        return current.isKnown() ? current : AuditActor.system();
     }
 
     /**
@@ -407,6 +429,8 @@ public class TokenService {
             }
         }
         DAO.getInstance().deleteAuthToken(refresh.getSelector());
+        pruneDevices(() -> PushDevices.getInstance()
+                .removeBySelector(refresh.getUserId(), refresh.getSelector(), actorForPrune()));
     }
 
     /** The theft signature, exactly remember-me's: kill the whole family loudly. */

@@ -35,6 +35,7 @@ public class TripApiApplication extends Application {
                 MediaResource.class,
                 OrgsResource.class,
                 PrivilegesResource.class,
+                PushResource.class,
                 PaymentsResource.class,
                 PeopleResource.class,
                 PhotoChatResource.class,

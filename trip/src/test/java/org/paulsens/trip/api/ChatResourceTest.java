@@ -421,13 +421,35 @@ public class ChatResourceTest extends ResourceTestSupport {
     public void prefsReadAndWriteTheCallersOwnSettings() {
         Mockito.when(chat.mentionEmailForTrip(TRIP_ID, ME)).thenReturn(true);
         Mockito.when(chat.dailyDigestForTrip(TRIP_ID, ME)).thenReturn(false);
+        Mockito.when(chat.pushModeForTrip(TRIP_ID, ME)).thenReturn("MENTIONS");
 
-        assertOk(resource.prefs(CHANNEL));
+        final Response got = resource.prefs(CHANNEL);
+        assertOk(got);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> body = (Map<String, Object>) got.getEntity();
+        Assert.assertEquals(body.get("pushMode"), "MENTIONS", "a fresh or absent row reads the default");
 
         Mockito.when(chat.setEmailPrefs(TRIP_ID, ME, true, true)).thenReturn(true);
         // Only dailyDigest submitted; mentionEmail falls back to the stored value rather than a default.
         assertOk(resource.savePrefs(CHANNEL, CSRF_OK, Map.of("dailyDigest", true)));
         Mockito.verify(chat).setEmailPrefs(TRIP_ID, ME, true, true);
+        Mockito.verify(chat, Mockito.never()).setPushMode(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any());
+
+        Mockito.when(chat.setPushMode(TRIP_ID, ME, org.paulsens.trip.model.chat.ChatNotifyPref.PushMode.ALL))
+                .thenReturn(true);
+        Mockito.when(chat.pushModeForTrip(TRIP_ID, ME)).thenReturn("ALL");
+        final Response saved = resource.savePrefs(CHANNEL, CSRF_OK, Map.of("dailyDigest", true, "pushMode", "all"));
+        assertOk(saved);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> savedBody = (Map<String, Object>) saved.getEntity();
+        Assert.assertEquals(savedBody.get("pushMode"), "ALL");
+
+        assertError(resource.savePrefs(CHANNEL, CSRF_OK, Map.of("pushMode", "sometimes")), 400,
+                ApiErrors.BAD_REQUEST);
+        Mockito.when(chat.setPushMode(TRIP_ID, ME, org.paulsens.trip.model.chat.ChatNotifyPref.PushMode.OFF))
+                .thenReturn(false);
+        assertError(resource.savePrefs(CHANNEL, CSRF_OK, Map.of("pushMode", "OFF")), 403, ChatErrors.FORBIDDEN);
     }
 
     // --- moderation ---

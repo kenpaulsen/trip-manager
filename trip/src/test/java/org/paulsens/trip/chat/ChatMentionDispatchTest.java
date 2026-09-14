@@ -33,8 +33,11 @@ import org.testng.annotations.Test;
 public class ChatMentionDispatchTest {
 
     private ChatNotifier previous;
-    private final List<ChatNotification> captured = new ArrayList<>();
+    // Synchronized: the mention, reply and every-message events dispatch on three virtual threads at once.
+    private final List<ChatNotification> captured = java.util.Collections.synchronizedList(new ArrayList<>());
+    private final List<ChatNotification> everyMessage = java.util.Collections.synchronizedList(new ArrayList<>());
     private CountDownLatch dispatched;
+    private CountDownLatch everyMessageSeen;
 
     private Person.Id author;
     private Person.Id mentioned;
@@ -43,7 +46,9 @@ public class ChatMentionDispatchTest {
     public void setUp() {
         previous = ChatNotifications.notifier();
         captured.clear();
+        everyMessage.clear();
         dispatched = new CountDownLatch(1);
+        everyMessageSeen = new CountDownLatch(1);
         ChatNotifications.setNotifier(new CapturingNotifier());
         author = person("Author");
         mentioned = person("Mentioned");
@@ -67,6 +72,14 @@ public class ChatMentionDispatchTest {
 
         @Override
         public void notify(final ChatNotification notification) {
+            // Every trip-channel message also dispatches an ALL_MESSAGES event (the every-message opt-in and
+            // the push route's silent refresh ride it). These tests are about the mention-class routes, so
+            // that event is collected separately and never counts as "a notification was dispatched".
+            if (notification.getReason() == ChatNotification.Reason.ALL_MESSAGES) {
+                everyMessage.add(notification);
+                everyMessageSeen.countDown();
+                return;
+            }
             captured.add(notification);
             dispatched.countDown();
         }
@@ -173,9 +186,13 @@ public class ChatMentionDispatchTest {
         Assert.assertFalse(notification.getRecipients().contains(author));
     }
 
-    /** Somebody with no usable address is dropped from the list rather than mailed into the void. */
+    /**
+     * Somebody with no usable address is still a CANDIDATE: recipients are route-neutral since the push
+     * route landed, and a phone needs no mailbox. The email route drops them at delivery
+     * ({@code ChatNotifierTest}), never the policy layer.
+     */
     @Test
-    public void aRecipientWithNoUsableAddressIsNotIncluded() throws Exception {
+    public void aRecipientWithNoUsableAddressIsStillACandidate() throws Exception {
         final String tripId = "mention-" + System.nanoTime();
         final PersonCommands people = new PersonCommands();
         final Person unreachable = people.createPerson();
@@ -187,7 +204,92 @@ public class ChatMentionDispatchTest {
                 message(mention(unreachable.getId()), tripId),
                 channel(tripId), trip(tripId, author, unreachable.getId()), "Author Notified");
 
+        Assert.assertEquals(awaitDispatch().getRecipients(), List.of(unreachable.getId()));
+    }
+
+    /** Someone who LEFT the channel is not a candidate for any route; someone with a stored OFF still is. */
+    @Test
+    public void membershipStateDecidesCandidacyAndPreferencesDoNot() throws Exception {
+        final String tripId = "mention-" + System.nanoTime();
+        final ChatChannel channel = channel(tripId);
+        final org.paulsens.trip.model.chat.ChatMembership row = org.paulsens.trip.model.chat.ChatMembership
+                .joining(channel.getId(), mentioned, Instant.now());
+        Assert.assertTrue(DAO.getInstance().saveChatMembership(row.withNotify(row.getNotify().withEmail(false, false)
+                .withPushMode(org.paulsens.trip.model.chat.ChatNotifyPref.PushMode.OFF))));
+        Assert.assertTrue(ChatNotifications.eligible(channel.getId(), author, mentioned),
+                "preferences are each route's business, not the policy layer's");
+
+        Assert.assertTrue(DAO.getInstance().saveChatMembership(row.withLeft(Instant.now(), "bye")));
+        Assert.assertFalse(ChatNotifications.eligible(channel.getId(), author, mentioned));
+        Assert.assertFalse(ChatNotifications.eligible(channel.getId(), author, author), "never the author");
+        Assert.assertFalse(ChatNotifications.eligible(channel.getId(), author, null));
+    }
+
+    /**
+     * Every trip-channel message dispatches the ALL_MESSAGES event, recipients or not: the every-message
+     * opt-ins ride it, and so does the push route's silent refresh for everyone else.
+     */
+    @Test
+    public void everyMessageEventCarriesOnlyTheAllOptInsMinusThoseAlreadyAlerted() throws Exception {
+        final String tripId = "mention-" + System.nanoTime();
+        final Person.Id subscribed = person("Subscribed");
+        final Person.Id left = person("Left");
+        final ChatChannel channel = channel(tripId);
+        final Trip trip = trip(tripId, author, mentioned, subscribed, left);
+        for (final Person.Id who : List.of(mentioned, subscribed, left, author)) {
+            final org.paulsens.trip.model.chat.ChatMembership row = org.paulsens.trip.model.chat.ChatMembership
+                    .joining(channel.getId(), who, Instant.now());
+            Assert.assertTrue(DAO.getInstance().saveChatMembership(row.withNotify(
+                    row.getNotify().withPushMode(org.paulsens.trip.model.chat.ChatNotifyPref.PushMode.ALL))));
+        }
+        Assert.assertTrue(DAO.getInstance().saveChatMembership(org.paulsens.trip.model.chat.ChatMembership
+                .joining(channel.getId(), left, Instant.now()).withLeft(Instant.now(), "bye")));
+
+        ChatNotifications.mentionsFor(message("hey " + mention(mentioned), tripId), channel, trip,
+                "Author Notified");
+
+        Assert.assertEquals(awaitDispatch().getRecipients(), List.of(mentioned));
+        Assert.assertTrue(everyMessageSeen.await(10, TimeUnit.SECONDS), "the every-message event dispatches");
+        final ChatNotification event = everyMessage.get(0);
+        Assert.assertEquals(event.getReason(), ChatNotification.Reason.ALL_MESSAGES);
+        Assert.assertEquals(event.getRecipients(), List.of(subscribed),
+                "the mentioned person is already alerted, the author never is, LEFT rows are out");
+        Assert.assertEquals(event.getTripTitle(), "Rome 2027");
+    }
+
+    @Test
+    public void aPlainMessageStillRaisesTheEveryMessageEventWithNobodyOnIt() throws Exception {
+        final String tripId = "mention-" + System.nanoTime();
+        ChatNotifications.mentionsFor(message("just chatting", tripId), channel(tripId),
+                trip(tripId, author, mentioned), "Author Notified");
+
+        Assert.assertTrue(everyMessageSeen.await(10, TimeUnit.SECONDS));
+        Assert.assertEquals(everyMessage.get(0).getRecipients(), List.of());
         assertNothingDispatched();
+    }
+
+    /** A media message carries its display rendition for the rich push; a text message carries nothing. */
+    @Test
+    public void aMediaMessageCarriesItsImageUrl() throws Exception {
+        final String tripId = "mention-" + System.nanoTime();
+        final org.paulsens.trip.model.chat.ChatAttachment photo = new org.paulsens.trip.model.chat.ChatAttachment(
+                "image", "chat/" + tripId + "/a.jpg", "image/jpeg", 10L, 800, 600, "chat/" + tripId + "/a-small.jpg",
+                null, null, null, null);
+        final ChatMessage withPhoto = message("look " + mention(mentioned), tripId).withAttachments(List.of(photo));
+
+        ChatNotifications.mentionsFor(withPhoto, channel(tripId), trip(tripId, author, mentioned),
+                "Author Notified");
+
+        final ChatNotification notification = awaitDispatch();
+        Assert.assertNotNull(notification.getImageUrl());
+        Assert.assertTrue(notification.getImageUrl().endsWith("/chat-photos/chat/" + tripId + "/a-small.jpg"),
+                notification.getImageUrl());
+        Assert.assertNull(ChatNotifications.imageUrlFor(message("text", tripId), null));
+        final org.paulsens.trip.model.chat.ChatAttachment gone = new org.paulsens.trip.model.chat.ChatAttachment(
+                "image", photo.getS3Key(), "image/jpeg", 10L, 800, 600, photo.getThumbKey(), null, null,
+                Instant.now(), "x");
+        Assert.assertNull(ChatNotifications.imageUrlFor(
+                message("text", tripId).withAttachments(List.of(gone)), null), "a deleted attachment is skipped");
     }
 
     // --- replies (a reply addresses the quoted author like a mention; user decision 2026-08-12) ---

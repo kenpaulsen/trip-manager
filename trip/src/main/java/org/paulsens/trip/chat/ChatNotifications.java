@@ -5,18 +5,21 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.util.TripThreads;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.chat.ChatAttachment;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMentions;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatNotifyPref;
 import org.paulsens.trip.model.chat.ChatQuote;
-import org.paulsens.trip.util.EmailAddresses;
+import org.paulsens.trip.push.PushChatNotifier;
+import org.paulsens.trip.push.PushLinks;
 import org.paulsens.trip.cache.Cached;
 
 /**
@@ -37,29 +40,32 @@ public final class ChatNotifications {
      */
     private static final Duration CONTENT_FREE_BELOW = Duration.ofDays(7);
 
-    private static volatile ChatNotifier sharedNotifier;
+    /**
+     * A test's override. Null means the default fan-out. Kept apart from the default itself: a lazily-built
+     * shared field was clobbered once by a late background dispatch that had read null, built the composite
+     * and stored it AFTER the next test had installed its capturing notifier (every message now dispatches an
+     * ALL_MESSAGES event, so such a thread is routine). Class-init below cannot be raced that way.
+     */
+    private static volatile ChatNotifier overrideNotifier;
 
     private ChatNotifications() {
     }
 
-    /** The process-wide fan-out. Composite so a push route can be added without touching any caller. */
-    public static ChatNotifier notifier() {
-        ChatNotifier local = sharedNotifier;
-        if (local == null) {
-            synchronized (ChatNotifications.class) {
-                local = sharedNotifier;
-                if (local == null) {
-                    local = new CompositeChatNotifier(List.of(new EmailChatNotifier()));
-                    sharedNotifier = local;
-                }
-            }
-        }
-        return local;
+    /** Built once by class initialisation, which the JVM serialises; never reassigned. */
+    private static final class DefaultHolder {
+        private static final ChatNotifier DEFAULT =
+                new CompositeChatNotifier(List.of(new EmailChatNotifier(), new PushChatNotifier()));
     }
 
-    /** Test seam. */
+    /** The process-wide fan-out. Composite so a push route can be added without touching any caller. */
+    public static ChatNotifier notifier() {
+        final ChatNotifier override = overrideNotifier;
+        return override != null ? override : DefaultHolder.DEFAULT;
+    }
+
+    /** Test seam: null restores the default fan-out. */
     public static void setNotifier(final ChatNotifier notifier) {
-        sharedNotifier = notifier;
+        overrideNotifier = notifier;
     }
 
     /**
@@ -80,44 +86,79 @@ public final class ChatNotifications {
             // so it is a wider audience, not an override of anyone's choice.
             mentioned.addAll(everyoneIn(trip, message.getAuthorId()));
         }
+        final List<Person.Id> alerted = new ArrayList<>();
         if (!mentioned.isEmpty()) {
             final ChatNotification notification = build(message, channel, trip, authorName, mentioned);
             if (!notification.getRecipients().isEmpty()) {
+                alerted.addAll(notification.getRecipients());
                 // startAs(system): the dispatch thread outlives the author's request, and the notification is the
                 // application's act, not the author's (see EmailChatNotifier). Binding System here means anything
                 // below that falls back to AuditActor.current() records System rather than nobody.
                 TripThreads.startAs(AuditActor.system(), () -> dispatch(notification));
             }
         }
-        replyFor(message, channel, trip, authorName, mentioned);
+        replyFor(message, channel, trip, authorName, mentioned).ifPresent(alerted::add);
+        everyMessageFor(message, channel, trip, authorName, alerted);
+    }
+
+    /**
+     * The "a message was posted" event, for the routes that want every message: recipients are the explicit
+     * rows whose push choice is ALL ({@code listChatMembers} -- only an explicit row can hold ALL), minus the
+     * author and minus everyone already on this message's mention or reply notification. Dispatched for every
+     * trip-channel message, recipients or not: the push route also runs its silent-refresh walk off it, so
+     * a phone nobody named still learns there is something unread. Mail ignores the reason entirely.
+     */
+    private static void everyMessageFor(final ChatMessage message, final ChatChannel channel, final Trip trip,
+            final String authorName, final List<Person.Id> alerted) {
+        if (channel.getId().tripIdOrNull() == null || channel.getId().photoKeyOrNull() != null) {
+            return;
+        }
+        final List<Person.Id> everyMessage = new ArrayList<>();
+        for (final ChatMembership row : DAO.getInstance().listChatMembers(channel.getId(), Cached.NO)) {
+            if (row.getState() == ChatMembership.MemberState.JOINED
+                    && row.getNotify().getPushMode() == ChatNotifyPref.PushMode.ALL
+                    && row.getPersonId() != null && !row.getPersonId().equals(message.getAuthorId())
+                    && !alerted.contains(row.getPersonId()) && !everyMessage.contains(row.getPersonId())) {
+                everyMessage.add(row.getPersonId());
+            }
+        }
+        final ChatNotification notification = new ChatNotification(
+                channel.getId(), message.getId(), channel.getTripId(),
+                trip == null ? null : trip.getTitle(), message.getAuthorId(), authorName, everyMessage,
+                includeContent(channel) ? snippet(message.getBody()) : null,
+                ChatNotification.Reason.ALL_MESSAGES, null, message.getSentAt(),
+                includeContent(channel) ? imageUrlFor(message, trip) : null);
+        TripThreads.startAs(AuditActor.system(), () -> dispatch(notification));
     }
 
     /**
      * A reply addresses the person it quotes as surely as typing their name (user decision 2026-08-12), so
      * the quoted author is notified under exactly the mention rules — same membership/preference/address
-     * gates via {@code wantsMentionEmail} — with reply wording rather than mention wording. Skipped when
+     * gates via {@code eligible} — with reply wording rather than mention wording. Skipped when
      * they are ALSO named (or swept in by {@code @all}): they are already on the mention notification, and
      * the per-recipient dedupe key would drop a second mail for the same message anyway.
      */
-    private static void replyFor(final ChatMessage message, final ChatChannel channel, final Trip trip,
-            final String authorName, final List<Person.Id> alreadyMentioned) {
+    private static Optional<Person.Id> replyFor(final ChatMessage message, final ChatChannel channel,
+            final Trip trip, final String authorName, final List<Person.Id> alreadyMentioned) {
         final ChatQuote quote = message.getQuote();
         if (quote == null || quote.getAuthorId() == null) {
-            return;
+            return Optional.empty();
         }
         final Person.Id repliedTo = quote.getAuthorId();
         if (repliedTo.equals(message.getAuthorId()) || alreadyMentioned.contains(repliedTo)) {
-            return;
+            return Optional.empty();
         }
-        if (!wantsMentionEmail(channel.getId(), message.getAuthorId(), repliedTo)) {
-            return;
+        if (!eligible(channel.getId(), message.getAuthorId(), repliedTo)) {
+            return Optional.empty();
         }
         final ChatNotification notification = new ChatNotification(
                 channel.getId(), message.getId(), channel.getTripId(),
                 trip == null ? null : trip.getTitle(), message.getAuthorId(), authorName,
                 List.of(repliedTo), includeContent(channel) ? snippet(message.getBody()) : null,
-                ChatNotification.Reason.REPLY, null, message.getSentAt());
+                ChatNotification.Reason.REPLY, null, message.getSentAt(),
+                includeContent(channel) ? imageUrlFor(message, trip) : null);
         TripThreads.startAs(AuditActor.system(), () -> dispatch(notification));
+        return Optional.of(repliedTo);
     }
 
     /**
@@ -148,28 +189,30 @@ public final class ChatNotifications {
         final List<Person.Id> mentioned = ChatMentions.extract(comment.getBody());
         final List<Person.Id> recipients = new ArrayList<>();
         for (final Person.Id person : mentioned) {
-            if (wantsMentionEmail(prefHome, comment.getAuthorId(), person)) {
+            if (eligible(prefHome, comment.getAuthorId(), person)) {
                 recipients.add(person);
             }
         }
+        final String image = includeContent(photoChannel)
+                ? PushLinks.imageUrl(photoChannel.getId().photoKeyOrNull(), trip, new ConfigCommands()) : null;
         if (!recipients.isEmpty()) {
             final ChatNotification notification = new ChatNotification(
                     photoChannel.getId(), comment.getId(), photoChannel.getTripId(),
                     trip == null ? null : trip.getTitle(), comment.getAuthorId(), authorName, recipients,
                     includeContent(photoChannel) ? snippet(comment.getBody()) : null,
-                    ChatNotification.Reason.MENTION, null, comment.getSentAt());
+                    ChatNotification.Reason.MENTION, null, comment.getSentAt(), image);
             TripThreads.startAs(AuditActor.system(), () -> dispatch(notification));
         }
         if (photoOwner == null || photoOwner.equals(comment.getAuthorId())
                 || mentioned.contains(photoOwner)
-                || !wantsMentionEmail(prefHome, comment.getAuthorId(), photoOwner)) {
+                || !eligible(prefHome, comment.getAuthorId(), photoOwner)) {
             return;
         }
         final ChatNotification ownerNote = new ChatNotification(
                 photoChannel.getId(), comment.getId(), photoChannel.getTripId(),
                 trip == null ? null : trip.getTitle(), comment.getAuthorId(), authorName,
                 List.of(photoOwner), includeContent(photoChannel) ? snippet(comment.getBody()) : null,
-                ChatNotification.Reason.PHOTO_COMMENT, null, comment.getSentAt());
+                ChatNotification.Reason.PHOTO_COMMENT, null, comment.getSentAt(), image);
         TripThreads.startAs(AuditActor.system(), () -> dispatch(ownerNote));
     }
 
@@ -178,10 +221,11 @@ public final class ChatNotifications {
      * is what gives family managers (full members via {@code isTripMember}, never on the roster) their
      * {@code @all} mail once they have interacted with the chat -- and it deliberately requires that row: a
      * parent who never opened the channel is not broadcast to, and no reverse who-manages-whom lookup is
-     * needed at fan-out time. Downstream {@code wantsMentionEmail} still applies its own row-state and
-     * preference filters per recipient.
+     * needed at fan-out time. Downstream {@link #eligible} still applies its own row-state filter per
+     * recipient, and each route its own preference. Public because the push route walks the same set for
+     * its silent refresh.
      */
-    private static List<Person.Id> everyoneIn(final Trip trip, final Person.Id author) {
+    public static List<Person.Id> everyoneIn(final Trip trip, final Person.Id author) {
         if (trip == null) {
             return List.of();
         }
@@ -212,7 +256,7 @@ public final class ChatNotifications {
             final List<Person.Id> mentioned) {
         final List<Person.Id> recipients = new ArrayList<>();
         for (final Person.Id person : mentioned) {
-            if (wantsMentionEmail(channel.getId(), message.getAuthorId(), person)) {
+            if (eligible(channel.getId(), message.getAuthorId(), person) && !recipients.contains(person)) {
                 recipients.add(person);
             }
         }
@@ -227,52 +271,55 @@ public final class ChatNotifications {
                 includeContent(channel) ? snippet(message.getBody()) : null,
                 ChatNotification.Reason.MENTION,
                 null,
-                message.getSentAt());
+                message.getSentAt(),
+                includeContent(channel) ? imageUrlFor(message, trip) : null);
     }
 
     /**
-     * Whether this person should hear about a mention by email.
+     * Whether this person is a route-neutral candidate for a mention-class notification: a real person, not
+     * the author, and not someone who LEFT or was REMOVED from the channel.
      *
-     * <p>The email default is {@code MENTIONS}, so this is on unless someone turned it off — including for an
-     * <b>implicit</b> member, who is JOINED with no row and therefore holds the defaults. Reading "no row" as "no"
-     * would have excluded exactly the people who never touch a settings page, which is most of a trip. An author is
-     * never notified about mentioning themselves.
-     *
-     * <p>An unusable email address counts as OFF. Some people have no address and the field holds a bare name, and
-     * a mention is not worth a failed send per message.
+     * <p>Membership state only. Each route applies its own preference at delivery -- the email route reads
+     * {@code mentionEmail} and needs a usable address, the push route reads {@code pushMode} and needs a
+     * device -- so a person with a phone and no email address is still told, and vice versa. An
+     * <b>implicit</b> member (JOINED with no row) is a candidate: reading "no row" as "no" would have excluded
+     * exactly the people who never touch a settings page, which is most of a trip.
      */
-    private static boolean wantsMentionEmail(
-            final ChatChannel.Id channelId, final Person.Id author, final Person.Id person) {
+    static boolean eligible(final ChatChannel.Id channelId, final Person.Id author, final Person.Id person) {
         if (person == null || person.equals(author)) {
+            return false;
+        }
+        if (DAO.getInstance().getPerson(person, Cached.YES).isEmpty()) {
             return false;
         }
         final Optional<ChatMembership> row = DAO.getInstance()
                 .getChatMembership(channelId, person, Cached.NO);
         if (row.isPresent()) {
             final ChatMembership member = row.get();
-            if (member.getState() == ChatMembership.MemberState.LEFT
-                    || member.getState() == ChatMembership.MemberState.REMOVED) {
-                return false;
-            }
+            return member.getState() != ChatMembership.MemberState.LEFT
+                    && member.getState() != ChatMembership.MemberState.REMOVED;
         }
         // Absent row ⇒ JOINED with default preferences, which is what makes default opt-in free.
-        final ChatNotifyPref pref = row.map(ChatMembership::getNotify).orElseGet(ChatNotifyPref::defaults);
-        if (!pref.isMentionEmail()) {
-            return false;
-        }
-        return hasUsableEmail(person);
+        return true;
     }
 
-    /** False when the person has no address, or the field holds something that is not one (e.g. {@code joe.smith}). */
-    private static boolean hasUsableEmail(final Person.Id person) {
-        final boolean usable = DAO.getInstance().getPerson(person, Cached.NO)
-                .map(Person::getEmail)
-                .filter(EmailAddresses::isValid)
-                .isPresent();
-        if (!usable) {
-            log.debug("Not emailing {} about a chat mention: no usable email address", person);
+    /**
+     * The display rendition of a media message's first attachment, absolute, for the rich push; null for a
+     * text message. Deleted or hidden attachments are skipped.
+     */
+    static String imageUrlFor(final ChatMessage message, final Trip trip) {
+        if (message.getAttachments() == null) {
+            return null;
         }
-        return usable;
+        for (final ChatAttachment attachment : message.getAttachments()) {
+            if (attachment != null && attachment.getDeletedAt() == null
+                    && !attachment.isHidden()) {
+                final String key = attachment.getThumbKey() != null ? attachment.getThumbKey()
+                        : attachment.getS3Key();
+                return PushLinks.imageUrl(key, trip, new ConfigCommands());
+            }
+        }
+        return null;
     }
 
     /** False when the channel's retention is short enough that mailing the body would outlive the policy. */

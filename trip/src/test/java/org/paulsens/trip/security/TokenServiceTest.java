@@ -247,8 +247,15 @@ public class TokenServiceTest {
         final Creds creds = login("user6", "user");
         final TokenService.Grant grant = service.issue(creds, AuthToken.Scope.MEMBER, null);
         Assert.assertNotNull(service.validateAccess(grant.accessToken()));
+        final org.paulsens.trip.push.PushDevices devices = org.paulsens.trip.push.PushDevices.getInstance();
+        Assert.assertTrue(devices.registerWeb(creds.getUserId(), "https://push.example/s/revoke-all",
+                "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4",
+                "BTBZMqHH6r4Tts7J_aSIgg", "Safari", "o", org.paulsens.trip.audit.AuditActor.system()).ok());
 
         Assert.assertTrue(service.revokeAllFor(creds.getUserId()) >= 2);
+
+        Assert.assertTrue(devices.prefsOf(creds.getUserId()).getDevices().isEmpty(),
+                "every push device of every kind dies with the credentials");
 
         Assert.assertNull(service.validateAccess(grant.accessToken()));
         Assert.assertNull(service.refresh(grant.refreshToken()));

@@ -239,6 +239,15 @@ public class PersonCommands {
      * {@link #displayableManagers} on top.
      */
     public List<Person> mailableManagers(final Person person) {
+        return managersOf(person).stream().filter(manager -> EmailAddresses.isValid(manager.getEmail())).toList();
+    }
+
+    /**
+     * This person's family managers, resolved and in the same order as {@link #mailableManagers} (creator
+     * first while still a manager), WITHOUT the address filter: the push route reaches a manager's phone
+     * whether or not they have a mailbox. Empty for someone in no family.
+     */
+    public List<Person> managersOf(final Person person) {
         if (person == null || person.getFamilyId() == null) {
             return List.of();
         }
@@ -257,10 +266,7 @@ public class PersonCommands {
         }
         final List<Person> managers = new ArrayList<>();
         for (final Person.Id id : candidates) {
-            final Person manager = DAO.getInstance().getPerson(id, Cached.NO).orElse(null);
-            if (manager != null && EmailAddresses.isValid(manager.getEmail())) {
-                managers.add(manager);
-            }
+            DAO.getInstance().getPerson(id, Cached.NO).ifPresent(managers::add);
         }
         return managers;
     }

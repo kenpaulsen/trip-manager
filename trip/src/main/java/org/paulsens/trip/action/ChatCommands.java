@@ -723,10 +723,11 @@ public class ChatCommands {
      * and the loser's field silently reverts.
      */
     public boolean saveChatPrefsFromUi(
-            final Boolean mentionEmail, final Boolean dailyDigest, final String color,
+            final Boolean mentionEmail, final Boolean dailyDigest, final String pushMode, final String color,
             final String imageUrl) {
         final boolean saved = saveChatPrefs(currentTripId(), currentUserId(),
-                mentionEmail != null && mentionEmail, dailyDigest != null && dailyDigest, color, imageUrl);
+                mentionEmail != null && mentionEmail, dailyDigest != null && dailyDigest, pushModeOf(pushMode),
+                color, imageUrl);
         if (saved) {
             growlWarn("Chat settings saved.");
         } else {
@@ -744,7 +745,8 @@ public class ChatCommands {
      * is what puts someone in the channel.
      */
     boolean saveChatPrefs(final String tripId, final Person.Id me, final boolean mentionEmail,
-            final boolean dailyDigest, final String color, final String imageUrl) {
+            final boolean dailyDigest, final ChatNotifyPref.PushMode pushMode, final String color,
+            final String imageUrl) {
         if (tripId == null || me == null) {
             return false;
         }
@@ -754,10 +756,23 @@ public class ChatCommands {
         }
         final ChatMembership row = membershipRow(channel.getId(), me)
                 .orElseGet(() -> ChatMembership.joining(channel.getId(), me, channel.getCreated()));
+        final ChatNotifyPref notify = row.getNotify().withEmail(mentionEmail, dailyDigest);
         final ChatMembership updated = row
-                .withNotify(row.getNotify().withEmail(mentionEmail, dailyDigest))
+                .withNotify(pushMode == null ? notify : notify.withPushMode(pushMode))
                 .withAppearance(new ChatAppearance(color, imageUrl));
         return dao().saveChatMembership(updated);
+    }
+
+    /** The dialog's radio value ({@code OFF|MENTIONS|ALL}, any case) as the enum; null/unknown = unchanged. */
+    static ChatNotifyPref.PushMode pushModeOf(final String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return ChatNotifyPref.PushMode.valueOf(raw.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (final IllegalArgumentException ex) {
+            return null;
+        }
     }
 
     public boolean canRead(final ChatChannel channel, final Person.Id me) {
@@ -1421,6 +1436,30 @@ public class ChatCommands {
         final ChatMembership row = membershipRow(channel.getId(), me)
                 .orElseGet(() -> ChatMembership.joining(channel.getId(), me, channel.getCreated()));
         return dao().saveChatMembership(row.withNotify(row.getNotify().withEmail(mentionEmail, dailyDigest)));
+    }
+
+    /**
+     * Stores this person's push choice for a trip's chat: OFF, MENTIONS (the default) or ALL (every message).
+     * Same shape and gates as {@link #setEmailPrefs}: the channel is created if needed, the caller must be
+     * able to read it, and an implicit member's row is materialised -- an absent row means the default, so
+     * OFF and ALL only exist as a stored row.
+     */
+    public boolean setPushMode(final String tripId, final Person.Id me, final ChatNotifyPref.PushMode mode) {
+        if (tripId == null || me == null || mode == null) {
+            return false;
+        }
+        final ChatChannel channel = ensureChannel(tripId, AuditActor.current());
+        if (channel == null || !canRead(channel, me)) {
+            return false;
+        }
+        final ChatMembership row = membershipRow(channel.getId(), me)
+                .orElseGet(() -> ChatMembership.joining(channel.getId(), me, channel.getCreated()));
+        return dao().saveChatMembership(row.withNotify(row.getNotify().withPushMode(mode)));
+    }
+
+    /** This person's push choice for a trip's chat, as the enum name ({@code OFF|MENTIONS|ALL}). */
+    public String pushModeForTrip(final String tripId, final Person.Id personId) {
+        return notifyPrefFor(tripId, personId).getPushMode().name();
     }
 
     /** Whether this person gets a mail when named. Implicit members hold the defaults, so this is on by default. */

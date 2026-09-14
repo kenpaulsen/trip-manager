@@ -37,6 +37,7 @@ import org.paulsens.trip.media.UploadRateLimiter;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMessage;
+import org.paulsens.trip.model.chat.ChatNotifyPref;
 import org.paulsens.trip.model.chat.ChatPage;
 import org.paulsens.trip.model.chat.ChatReactionSummary;
 
@@ -858,6 +859,7 @@ public class ChatResource extends BaseResource {
         final Map<String, Object> result = new LinkedHashMap<>();
         result.put("mentionEmail", chat.mentionEmailForTrip(tripId, me));
         result.put("dailyDigest", chat.dailyDigestForTrip(tripId, me));
+        result.put("pushMode", chat.pushModeForTrip(tripId, me));
         return ok(result);
     }
 
@@ -880,10 +882,31 @@ public class ChatResource extends BaseResource {
         final Person.Id me = personId();
         final boolean mention = bool(body, "mentionEmail", chat.mentionEmailForTrip(tripId, me));
         final boolean digest = bool(body, "dailyDigest", chat.dailyDigestForTrip(tripId, me));
+        final String rawMode = string(body == null ? null : body.get("pushMode"));
+        final ChatNotifyPref.PushMode pushMode = rawMode == null ? null : pushModeOf(rawMode);
+        if (rawMode != null && pushMode == null) {
+            return error(400, ApiErrors.BAD_REQUEST, "pushMode must be OFF, MENTIONS or ALL.");
+        }
         if (!chat.setEmailPrefs(tripId, me, mention, digest)) {
             return error(403, ChatErrors.FORBIDDEN, "Could not save preferences for this chat.");
         }
-        return ok(Map.of("mentionEmail", mention, "dailyDigest", digest));
+        // A second read-merge-write on the same row, sequential in this request, so neither field is lost.
+        if (pushMode != null && !chat.setPushMode(tripId, me, pushMode)) {
+            return error(403, ChatErrors.FORBIDDEN, "Could not save preferences for this chat.");
+        }
+        final Map<String, Object> result = new LinkedHashMap<>();
+        result.put("mentionEmail", mention);
+        result.put("dailyDigest", digest);
+        result.put("pushMode", chat.pushModeForTrip(tripId, me));
+        return ok(result);
+    }
+
+    private static ChatNotifyPref.PushMode pushModeOf(final String raw) {
+        try {
+            return ChatNotifyPref.PushMode.valueOf(raw.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (final IllegalArgumentException ex) {
+            return null;
+        }
     }
 
     /**

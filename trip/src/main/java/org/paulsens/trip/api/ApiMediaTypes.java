@@ -40,6 +40,7 @@ public final class ApiMediaTypes {
     public static final String FAMILY_V1 = "application/vnd.trip.family.v1+json";
     public static final String ACCOUNT_V1 = "application/vnd.trip.account.v1+json";
     public static final String BLOCKS_V1 = "application/vnd.trip.blocks.v1+json";
+    public static final String PUSH_V1 = "application/vnd.trip.push.v1+json";
 
     private static final String PREFIX = "application/";
     private static final String SUFFIX = "+json";

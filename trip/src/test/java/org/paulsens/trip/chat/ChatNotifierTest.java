@@ -198,6 +198,35 @@ public class ChatNotifierTest {
         Assert.assertNotNull(new EmailChatNotifier().channel());
     }
 
+    /** The email preference is the email route's own gate now: candidates arrive route-neutral. */
+    @Test
+    public void aRecipientWhoTurnedMentionEmailOffIsSkippedBeforeAnyClaim() {
+        mailIsConfigured();
+        final ChatChannel.Id channel = ChatChannel.Id.forTrip("trip-1");
+        final org.paulsens.trip.model.chat.ChatMembership row = org.paulsens.trip.model.chat.ChatMembership
+                .joining(channel, RECIPIENT, Instant.now());
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveChatMembership(
+                row.withNotify(row.getNotify().withEmail(false, false))));
+        try {
+            notifier.notify(notification(ChatNotification.Reason.MENTION, "hi"));
+            Mockito.verifyNoInteractions(cache);
+            Mockito.verify(mail, Mockito.never()).send(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                    ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                    ArgumentMatchers.any(AuditActor.class));
+        } finally {
+            Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveChatMembership(
+                    row.withNotify(row.getNotify().withEmail(true, false))));
+        }
+        // A photo thread reads the TRIP channel's row (now back on), so its mention is mailed.
+        final ChatNotification photo = new ChatNotification(ChatChannel.Id.forPhoto("chat/trip-1/x.jpg"),
+                ChatMessage.Id.from("2"), "trip-1", "Rome 2027", Person.Id.from("author"), "Author Name",
+                List.of(RECIPIENT), "nice", ChatNotification.Reason.MENTION, null, Instant.now(), null);
+        notifier.notify(photo);
+        Mockito.verify(mail).send(ArgumentMatchers.any(), ArgumentMatchers.eq("R <r@example.org>"),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.contains("on a photo"),
+                ArgumentMatchers.any(), ArgumentMatchers.any(AuditActor.class));
+    }
+
     // --- the rendered mail itself ---
 
     private void mailIsConfigured() {

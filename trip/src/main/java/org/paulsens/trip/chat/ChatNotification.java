@@ -48,6 +48,12 @@ public class ChatNotification implements Serializable {
      */
     String dedupeKey;
     Instant queuedAt;
+    /**
+     * Absolute URL of a display-sized image for the rich push: the first attachment of a media message,
+     * or the commented photo. Null when there is none -- and null for a content-free (short-retention)
+     * channel, for the same reason the snippet is.
+     */
+    String imageUrl;
 
     public ChatNotification(
             final ChatChannel.Id channelId,
@@ -61,6 +67,23 @@ public class ChatNotification implements Serializable {
             final Reason reason,
             final String dedupeKey,
             final Instant queuedAt) {
+        this(channelId, messageId, tripId, tripTitle, authorId, authorName, recipients, snippet, reason,
+                dedupeKey, queuedAt, null);
+    }
+
+    public ChatNotification(
+            final ChatChannel.Id channelId,
+            final ChatMessage.Id messageId,
+            final String tripId,
+            final String tripTitle,
+            final Person.Id authorId,
+            final String authorName,
+            final List<Person.Id> recipients,
+            final String snippet,
+            final Reason reason,
+            final String dedupeKey,
+            final Instant queuedAt,
+            final String imageUrl) {
         this.channelId = channelId;
         this.messageId = messageId;
         this.tripId = tripId;
@@ -72,6 +95,7 @@ public class ChatNotification implements Serializable {
         this.reason = reason;
         this.dedupeKey = dedupeKey;
         this.queuedAt = queuedAt == null ? Instant.now() : queuedAt;
+        this.imageUrl = imageUrl;
     }
 
     public static String dedupeKeyFor(

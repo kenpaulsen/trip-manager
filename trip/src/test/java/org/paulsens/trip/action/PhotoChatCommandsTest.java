@@ -407,6 +407,27 @@ public class PhotoChatCommandsTest {
         Assert.assertEquals(PhotoChatCommands.maskedEmail(" "), "no email");
     }
 
+    @Test
+    public void reactorNamesResolveEveryListedPersonOnce() throws IOException {
+        final String name = "Reactor" + System.nanoTime();
+        final Person person = new Person();
+        person.setFirst(name);
+        person.setLast("Person");
+        person.setEmail("reactor" + System.nanoTime() + "@example.org");
+        Assert.assertTrue(DAO.getInstance().savePerson(person));
+        final Person.Id reactor = person.getId();
+        final Person.Id unknown = Person.Id.from("nobody-" + System.nanoTime());
+        final org.paulsens.trip.model.chat.ChatReactionSummary summary =
+                new org.paulsens.trip.model.chat.ChatReactionSummary(ChatMessage.Id.from("1"),
+                        Map.of("👍", List.of(reactor, unknown), "❤️", List.of(reactor)), null, null);
+        final Map<String, String> names = photoChat.reactorNames(summary);
+        Assert.assertEquals(names.size(), 2, "one entry per distinct reactor, whichever emoji they used");
+        Assert.assertEquals(names.get(reactor.getValue()), name);
+        // A nameless or unknown person falls back to the id rather than NPE-ing the thread response.
+        Assert.assertEquals(names.get(unknown.getValue()), unknown.getValue());
+        Assert.assertTrue(photoChat.reactorNames(null).isEmpty());
+    }
+
     // --- fixtures ---
 
     private String seedPhoto(final boolean hidden) {
@@ -485,6 +506,11 @@ public class PhotoChatCommandsTest {
 
         @Override
         public void notify(final ChatNotification notification) {
+            if (notification.getReason() == ChatNotification.Reason.ALL_MESSAGES) {
+                // Every trip-chat message dispatches one of these off-thread, so one from an EARLIER test's
+                // carrier message can land here late; it is not a mention and must not trip the latch.
+                return;
+            }
             notifications.add(notification);
             latch.countDown();
         }

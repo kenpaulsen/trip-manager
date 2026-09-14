@@ -161,6 +161,7 @@ public class ModelSerializationTest {
         final List<Class<?>> candidates = new ArrayList<>(modelClasses());
         candidates.addAll(classesUnder("org.paulsens.trip.action"));
         candidates.addAll(classesUnder("org.paulsens.trip.chat"));
+        candidates.addAll(classesUnder("org.paulsens.trip.push"));
         final List<String> offenders = new ArrayList<>();
         for (final Class<?> type : candidates) {
             if (needsPin(type) && !declaresSerialVersionUID(type)) {
@@ -181,6 +182,8 @@ public class ModelSerializationTest {
         Assert.assertTrue(swept.contains(org.paulsens.trip.action.ChatCommands.ChatSummary.class));
         Assert.assertTrue(classesUnder("org.paulsens.trip.chat")
                 .contains(org.paulsens.trip.chat.ChatNotification.class));
+        Assert.assertTrue(classesUnder("org.paulsens.trip.push")
+                .contains(org.paulsens.trip.push.PushPrefs.class));
     }
 
     @Test

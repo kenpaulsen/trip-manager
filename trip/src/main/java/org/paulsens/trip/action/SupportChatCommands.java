@@ -471,10 +471,13 @@ public class SupportChatCommands {
      */
     private void notifyAdmins(final ChatMessage stored, final Person requester, final String subject,
             final String html) {
+        final List<Person> admins = listAdmins();
+        // Push rides push.enabled alone (the facade checks it), never the mail switch below: an admin who
+        // turned support mail off because their phone buzzes anyway must keep the buzz.
+        org.paulsens.trip.push.PushNotifications.getInstance().supportRequest(stored, requester, admins, subject);
         if (!config.getBoolean(KnownSettings.SUPPORT_MAIL_ENABLED)) {
             return;
         }
-        final List<Person> admins = listAdmins();
         TripThreads.startAs(AuditActor.system(), () -> deliver(stored, requester, subject, html, admins));
     }
 

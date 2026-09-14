@@ -455,6 +455,26 @@ public class RegistrationCommands {
         return managers.stream().map(Person::getEmail).collect(java.util.stream.Collectors.joining(","));
     }
 
+    /**
+     * Who is told about this person's approval by PUSH: the person themselves plus every manager of their
+     * family (a manager's phone is how a child's approval reaches a household), deduplicated. Unlike
+     * {@link #approvalRecipients} this needs no email address -- a device is the reachability test, and the
+     * sender applies it.
+     */
+    public List<Person.Id> approvalRecipientIds(final Person person) {
+        if (person == null || person.getId() == null) {
+            return List.of();
+        }
+        final List<Person.Id> ids = new java.util.ArrayList<>();
+        ids.add(person.getId());
+        for (final Person manager : PersonCommands.getPersonCommands().managersOf(person)) {
+            if (manager.getId() != null && !ids.contains(manager.getId())) {
+                ids.add(manager.getId());
+            }
+        }
+        return ids;
+    }
+
     /** Whether approving this person can send an email at all -- drives the dialog checkbox's enablement. */
     public boolean canEmailApproval(final Person person) {
         return approvalRecipients(person) != null;
@@ -651,6 +671,10 @@ public class RegistrationCommands {
         new ChatCommands().applyRegistrationDigestChoice(trip, confirmed);
         final Person person = PersonCommands.getPersonCommands().getPerson(reg.getUserId());
         auditSource.get().registrationApproved(person, trip);
+        // The push goes to the person AND their family managers (a phone needs no address); off-thread,
+        // never blocking the approval. The email below is the admin's choice; the push is not asked about.
+        org.paulsens.trip.push.PushNotifications.getInstance()
+                .registrationApproved(person, trip, approvalRecipientIds(person));
         // The email goes to the person, or to their family's mailable managers, and a missing
         // template/address never blocks the approval itself.
         if (sendApprovalEmail && canEmailApproval(person)) {
