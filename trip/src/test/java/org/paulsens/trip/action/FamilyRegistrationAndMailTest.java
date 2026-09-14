@@ -43,6 +43,34 @@ public class FamilyRegistrationAndMailTest {
     // ------------------------------------------------------------------ registerParty
 
     @Test
+    public void someoneAlreadyOnTheRosterIsFiledConfirmedNotPending() throws IOException {
+        final Person member = savedPerson("mem");
+        final Person newcomer = savedPerson("new");
+        final Trip trip = savedTrip();
+        trip.getPeople().add(member.getId());
+        assertTrue(dao.saveTrip(trip));
+
+        assertEquals(RegistrationCommands.initialStatus(trip, member.getId()), Registration.Status.CONFIRMED);
+        assertEquals(RegistrationCommands.initialStatus(trip, newcomer.getId()), Registration.Status.PENDING);
+        assertEquals(RegistrationCommands.initialStatus(null, member.getId()), Registration.Status.PENDING);
+
+        final Map<String, Registration> regs = new HashMap<>();
+        regs.put(member.getId().getValue(), new Registration(trip.getId(), member.getId()));
+        final Map<String, Object> selected = Map.of(member.getId().getValue(), Boolean.TRUE);
+        final RegistrationCommands.PartyOutcome outcome =
+                regCommandsFor(member).registerPartyOutcome(trip, selected, regs, null);
+        assertEquals(outcome.registered().size(), 1);
+        assertTrue(outcome.refused().isEmpty(), "a roster member bypasses canJoin: " + outcome.refused());
+
+        final Registration row = dao.getRegistration(trip.getId(), member.getId(), Cached.NO).orElseThrow();
+        assertEquals(row.getStatus(), Registration.Status.CONFIRMED,
+                "completing the form must not demote a member of the trip to Pending");
+        assertEquals(row.getRegisteredBy(), member.getId().getValue());
+        assertTrue(dao.getTrip(trip.getId(), Cached.NO).orElseThrow().getPeople().contains(member.getId()),
+                "the roster is untouched");
+    }
+
+    @Test
     public void registerPartyWritesOrdinaryRowsWithThePartyStamps() throws IOException {
         final Person owner = savedPerson("own");
         final FamilyCommands family = familyFor(owner);

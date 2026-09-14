@@ -193,9 +193,10 @@ public class RegistrationsResource extends BaseResource {
         final List<RegistrationDto> registered = new ArrayList<>();
         for (final Person person : outcome.registered()) {
             audit.registered(person, trip, actor());
-            // The saved row is the party's transient row with the stamps, now Pending -- echoed, not re-read.
-            registered.add(RegistrationMapper.INSTANCE.toDto(
-                    regs.get(person.getId().getValue()).withStatusString("Pending")));
+            // The saved row is the party's transient row with the stamps and the status the seam gave it
+            // (Confirmed for someone already on the roster) -- echoed, not re-read.
+            registered.add(RegistrationMapper.INSTANCE.toDto(regs.get(person.getId().getValue())
+                    .withStatus(RegistrationCommands.initialStatus(trip, person.getId()))));
         }
         registrations.sendRegistrationMail(trip, outcome.registered());
         final List<RegistrationDto> updated = outcome.updated().stream()

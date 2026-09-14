@@ -395,6 +395,26 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         return new org.paulsens.trip.api.dto.RegisterPartyRequest(List.of(travelers));
     }
 
+    /** Someone already on the roster is filed Confirmed by the seam, and the echo must say so too. */
+    @Test
+    public void aRosterMembersFiledRowIsEchoedConfirmed() {
+        signedInAs(ME);
+        final Trip trip = Trip.builder().id(TRIP_ID).title("Party").build();
+        trip.getPeople().add(ME);
+        Mockito.when(trips.getTrip(TRIP_ID)).thenReturn(trip);
+        Mockito.when(registrations.getRegistration(TRIP_ID, ME)).thenReturn(new Registration(TRIP_ID, ME));
+        final Person me = new Person();
+        me.setId(ME);
+        Mockito.when(registrations.registerPartyOutcome(ArgumentMatchers.eq(trip), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(new RegistrationCommands.PartyOutcome(List.of(me), List.of(), Map.of()));
+
+        final Response response = partyResource().registerParty(TRIP_ID, CSRF_OK, party(traveler(ME, null, null)));
+        assertOk(response);
+        Assert.assertEquals(((org.paulsens.trip.api.dto.RegisterPartyResponse) response.getEntity())
+                .registered().get(0).status(), "CONFIRMED", "a roster member's filed row is echoed as Confirmed");
+    }
+
     @Test
     public void partyFilesTheRowsThroughTheBeanAndReportsPerTraveler() {
         signedInAs(ME);

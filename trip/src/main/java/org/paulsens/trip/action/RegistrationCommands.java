@@ -93,8 +93,9 @@ public class RegistrationCommands {
     }
 
     /**
-     * Registers every SELECTED traveler in one family submit: one ordinary PENDING row per traveler (the
-     * admin approve flow, rosters, and exports see nothing new), stamped with who registered them and a
+     * Registers every SELECTED traveler in one family submit: one ordinary row per traveler, PENDING unless
+     * they are already on the roster ({@link #initialStatus}) (the admin approve flow, rosters, and exports
+     * see nothing new), stamped with who registered them and a
      * shared party id so the admin page can group the family. Validation is per traveler and all-or-nothing
      * per traveler (a refused traveler is reported and skipped; the others still register).
      *
@@ -164,6 +165,20 @@ public class RegistrationCommands {
     }
 
     /**
+     * The status a freshly filed registration is saved with. Someone already ON the roster -- added by hand
+     * by the office, or seeded -- is travelling whatever the registration table says, so completing their
+     * form must not file them as Pending: Pending is "awaiting a place", and un-approving a member that
+     * way took people off a trip they were already part of (reported 2026-09-14). Everyone else starts
+     * Pending and waits for approval. The page and the REST edge echo the same answer, so all three
+     * clients agree on what they just filed.
+     */
+    public static Registration.Status initialStatus(final org.paulsens.trip.model.Trip trip,
+            final Person.Id traveler) {
+        return (trip != null && trip.getPeople().contains(traveler))
+                ? Registration.Status.CONFIRMED : Registration.Status.PENDING;
+    }
+
+    /**
      * {@link #registerParty} with the outcome returned instead of growled: the same saves, in the same
      * order, with the same authorization per traveler; the REST party endpoint reports it per traveler and
      * the page turns it into its messages. Nobody signed in, or a missing argument, is an empty outcome.
@@ -206,12 +221,18 @@ public class RegistrationCommands {
             if (digests != null && trip.getChatEnabled()) {
                 new ChatCommands().setDigestChoice(reg, Boolean.TRUE.equals(digests.get(entry.getKey())));
             }
-            if (saveRegistration(reg.withStatusString("Pending"))) {
+            final Registration.Status status = initialStatus(trip, travelerId);
+            final Registration filed = reg.withStatus(status);
+            if (saveRegistration(filed)) {
                 outcome.registered().add(people.getPerson(travelerId));
                 // Join-on-registration (user-locked 2026-09-01): an accepted registration is what makes an
                 // existing account a member of the trip's organization -- browsing its site never does.
                 // After the save, so a refused registration joins nobody; a failed join never undoes it.
                 orgSource.get().joinOnRegistration(trip, travelerId);
+                if (status == Registration.Status.CONFIRMED) {
+                    // No approval step lies ahead to turn the digest answer into a chat preference.
+                    new ChatCommands().applyRegistrationDigestChoice(trip, filed);
+                }
             }
         }
         outcome.updated().addAll(saveResponseEdits(trip, regs, digests, me, people));
