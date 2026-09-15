@@ -387,6 +387,24 @@ public class ChatMembershipAndPrefsTest {
         Assert.assertFalse(chat.removeMemberUi(tripId, member.getValue(), "reason"));
     }
 
+    /**
+     * The moderation picker's no-selection option submits an EMPTY STRING, not null. Left unguarded that
+     * became a {@code Person.Id} naming nobody, and the mute or removal was written against a row no later
+     * lookup could ever find.
+     */
+    @Test
+    public void submittingTheFormWithNobodyChosenIsRefused() {
+        chat.ensureChannel(tripId, actor);
+
+        Assert.assertFalse(chat.muteMinutes(tripId, "", 10, "why"));
+        Assert.assertFalse(chat.muteMinutes(tripId, "   ", 10, "why"));
+        Assert.assertFalse(chat.unmuteUi(tripId, ""));
+        Assert.assertFalse(chat.removeMemberUi(tripId, "", "reason"));
+        Assert.assertTrue(DAO.getInstance()
+                .listChatMembers(ChatChannel.Id.forTrip(tripId), org.paulsens.trip.cache.Cached.NO).isEmpty(),
+                "nothing may be written for a person who was never chosen");
+    }
+
     @Test
     public void reactionsVersionAdvancesWithReactions() {
         chat.ensureChannel(tripId, actor);

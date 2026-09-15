@@ -562,22 +562,9 @@ public class ChatCommands {
         if (trip == null) {
             return "[]";
         }
-        final PersonCommands people = PersonCommands.getPersonCommands();
         // Roster ∪ explicit JOINED rows: family managers participate without being on the trip roster, and
         // the mention autocomplete must be able to name anyone who can post here.
-        final java.util.LinkedHashSet<Person.Id> ids = new java.util.LinkedHashSet<>(trip.getPeople());
-        for (final ChatMembership row : dao().listChatMembers(ChatChannel.Id.forTrip(tripId), Cached.NO)) {
-            if (row.getState() == ChatMembership.MemberState.JOINED) {
-                ids.add(row.getPersonId());
-            }
-        }
-        final List<Person> members = new ArrayList<>();
-        for (final Person.Id id : ids) {
-            final Person person = people.getPerson(id);
-            if (person != null) {
-                members.add(person);
-            }
-        }
+        final List<Person> members = ChatRoster.members(tripId);
         final Map<Person.Id, String> labels = uniqueLabels(members);
         final List<Map<String, String>> roster = new ArrayList<>();
         for (final Person person : members) {
@@ -2285,12 +2272,31 @@ public class ChatCommands {
                 .map(ChatMessage::getAuthorId).filter(Objects::nonNull).map(me::equals).orElse(false);
     }
 
+    /**
+     * Whether the moderation form was submitted with nobody chosen, saying so if it was.
+     *
+     * <p>The picker's no-selection option submits an empty string rather than null, and an empty string would
+     * otherwise become a {@code Person.Id} naming nobody -- a mute or a removal written against a row that can
+     * never be found again.
+     */
+    private boolean noOneChosen(final String personId) {
+        if (isBlank(personId)) {
+            growlError("Choose a person first.");
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean isBlank(final String value) {
+        return value == null || value.isBlank();
+    }
+
     /** JSF helper: mute for N minutes from now. */
     public boolean muteMinutes(
             final String tripId, final String personId, final Integer minutes,
             final String reason) {
-        if (personId == null || minutes == null || minutes <= 0) {
-            growlError("Person id and positive mute minutes are required.");
+        if (isBlank(personId) || minutes == null || minutes <= 0) {
+            growlError("Choose a person and a positive number of minutes to mute them for.");
             return false;
         }
         return mute(tripId, Person.Id.from(personId),
@@ -2298,14 +2304,14 @@ public class ChatCommands {
     }
 
     public boolean unmuteUi(final String tripId, final String personId) {
-        if (personId == null) {
+        if (noOneChosen(personId)) {
             return false;
         }
         return unmute(tripId, Person.Id.from(personId), Caller.current());
     }
 
     public boolean removeMemberUi(final String tripId, final String personId, final String reason) {
-        if (personId == null) {
+        if (noOneChosen(personId)) {
             return false;
         }
         return removeMember(tripId, Person.Id.from(personId), reason, Caller.current());
@@ -2752,6 +2758,16 @@ public class ChatCommands {
             return List.of();
         }
         return dao().listChatMembers(channel.getId(), Cached.NO);
+    }
+
+    /** The roster as the settings page shows it: every stored row joined to the person it names. */
+    public List<ChatRoster.RosterRow> rosterView(final String tripId) {
+        return ChatRoster.view(roster(tripId));
+    }
+
+    /** Everyone who can post here ({@link ChatRoster}), as the choices behind the moderation picker. */
+    public List<ChatRoster.PersonChoice> chatPeople(final String tripId) {
+        return ChatRoster.choices(tripId);
     }
 
     // --- JSF helpers ---
