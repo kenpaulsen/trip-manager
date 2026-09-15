@@ -184,7 +184,11 @@ public class MediaS3PathsTest {
 
         final MediaItem item = new MediaItem("m1", "img/pic.jpg", null, null, null, 0L, null, 0, null, null);
         Assert.assertEquals(media.getUrl(item), "https://media.example.org/img/pic.jpg");
+        // Null by contract, not by accident: getUrl needs an item. A page that wants the bare host asks
+        // getMediaBaseUrl(), which is why that exists -- admin/media.xhtml used to ask getUrl(null) and hide
+        // the blank it got back behind rendered="false".
         Assert.assertNull(media.getUrl(null));
+        Assert.assertEquals(media.getMediaBaseUrl(), "https://media.example.org");
     }
 
     @Test
@@ -195,6 +199,8 @@ public class MediaS3PathsTest {
         }
 
         Assert.assertEquals(media.publicUrl("img/pic.jpg"), "/img/pic.jpg");
+        // Empty, never null: a page rendering this must fall back to prose rather than print "null".
+        Assert.assertEquals(media.getMediaBaseUrl(), "");
     }
 
     @Test

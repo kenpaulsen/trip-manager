@@ -474,6 +474,21 @@ public class MediaCommands {
         return (item == null) ? null : baseUrl() + "/" + item.getS3Key();
     }
 
+    /**
+     * The host media is served from, for pages that want to SHOW it rather than build a link with it.
+     *
+     * <p>Distinct from {@link #getUrl(MediaItem)}, which needs an item and answers {@code null} without one --
+     * {@code admin/media.xhtml} asked it for the base URL with a {@code null} item, got null, and had to carry
+     * a {@code rendered="false"} to hide the blank.
+     *
+     * @return e.g. {@code https://files.visitqueenofpeace.com}, or EMPTY when no media host is configured
+     *     (locally and in tests, where media paths resolve against the app itself). Callers that render it
+     *     must handle the empty case; there is no host name to show then.
+     */
+    public String getMediaBaseUrl() {
+        return baseUrl();
+    }
+
     /** @return whether uploads are possible (i.e. a bucket is configured). False locally and in tests. */
     public boolean isUploadEnabled() {
         return bucket() != null;
