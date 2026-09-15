@@ -408,6 +408,10 @@ script**: assigning the org's subdomain seeds its starter page (see "Organizatio
 ## Retired v1 behaviors
 
 Documents' 92-day auto-age (a doc's visibility = media `hidden` + the child's own "Show until"),
-`home.banner.*` and `home.docs.maxAgeDays` on this page (still used by the OLD `medjugorje/index.xhtml`
-until promotion), the select-existing/`assignToSlot` dialog flow (superseded by the File picker), and the
+`home.docs.maxAgeDays`, the select-existing/`assignToSlot` dialog flow (superseded by the File picker), and the
 `home.intro`/`home.events`/`home.reflection` section keys.
+
+`home.banner.*` is NOT retired: the announcement banner moved to `/index.xhtml` (the live landing host) on
+2026-09-15 when `medjugorje/index.xhtml` was retired to a redirect. It fills a `banner` slot that
+`WEB-INF/homePage.xhtml` inserts at the top of `mainContent`, so it appears on the live site and
+deliberately not on the `/trip/index.jsf` staging host.
