@@ -163,10 +163,7 @@ public class AuthResource extends BaseResource {
             return error(401, ApiErrors.NOT_AUTHENTICATED,
                     hasPassword ? "Email or password is incorrect." : "Code is invalid or expired.");
         }
-        if (!tokens.mayGrant(creds, scope)) {
-            return error(403, ApiErrors.FORBIDDEN, "Requested scope is not available to this account.");
-        }
-        final TokenService.Grant grant = tokens.issue(creds, scope, string(body.get("label")));
+        final TokenService.Grant grant = tokens.issue(creds, grantable(creds, scope), string(body.get("label")));
         if (grant == null) {
             return error(500, ApiErrors.STORE_FAILED, "Could not issue tokens; try again.");
         }
@@ -238,14 +235,24 @@ public class AuthResource extends BaseResource {
         }
         new OrgCommands(this::caller).joinSiteOrgOnSignup(person.getId());
         notifyOffice(person, actor);
-        if (!tokens.mayGrant(creds, scope)) {
-            return error(403, ApiErrors.FORBIDDEN, "Requested scope is not available to this account.");
-        }
-        final TokenService.Grant grant = tokens.issue(creds, scope, body.label());
+        final TokenService.Grant grant = tokens.issue(creds, grantable(creds, scope), body.label());
         if (grant == null) {
             return error(500, ApiErrors.STORE_FAILED, "The account was created; sign in to continue.");
         }
         return ok(grantBody(grant));
+    }
+
+    /**
+     * The scope a grant actually gets: what was asked for, or {@code member} when {@code admin} was asked for by
+     * credentials that do not hold it. Granted, never escalated -- but also never refused once the credentials
+     * have been verified. This used to answer 403, and the native client retried with {@code member}; that
+     * retry is fine for a password and fatal for an emailed code, which is single-use and was already burned by
+     * the first request (every non-admin code sign-in failed, 2026-09-16). Downgrading after verification also
+     * tells an unauthenticated caller nothing about who is an admin, which a pre-verification check would.
+     * The body's {@code scope} says what was granted, and clients store that, not what they asked for.
+     */
+    private AuthToken.Scope grantable(final Creds creds, final AuthToken.Scope requested) {
+        return tokens.mayGrant(creds, requested) ? requested : AuthToken.Scope.MEMBER;
     }
 
     /** The create-account page's required fields, checked before anything is written. */

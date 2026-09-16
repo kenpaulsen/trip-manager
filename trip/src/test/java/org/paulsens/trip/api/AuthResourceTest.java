@@ -336,13 +336,56 @@ public class AuthResourceTest extends ResourceTestSupport {
                 400, ApiErrors.BAD_REQUEST);
     }
 
+    /**
+     * Asking for admin with member credentials gets a MEMBER grant, not a 403.
+     *
+     * <p>The native client asks for admin first and used to retry with member on the 403. A password survives
+     * that retry; an emailed code does not, because verifying it on the first request burned it, so every
+     * non-admin code sign-in failed with "invalid or expired" (production, 2026-09-16). The scope in the body
+     * is the contract: it says what was granted.
+     */
     @Test
-    public void adminScopeIsForbiddenForMemberCredentials() {
+    public void adminScopeAskedForByMemberCredentialsIsGrantedAsMember() {
         Mockito.when(passes.login(ArgumentMatchers.anyString(), ArgumentMatchers.anyString()))
                 .thenReturn(creds("user"));
-        assertError(tokenResource().token(
-                        Map.of("email", "me@example.com", "password", "secret", "scope", "admin")),
-                403, ApiErrors.FORBIDDEN);
+
+        final Response response = tokenResource().token(
+                Map.of("email", "me@example.com", "password", "secret", "scope", "admin"));
+
+        assertOk(response);
+        Assert.assertEquals(scopeOf(response), "member");
+    }
+
+    /** The case that broke in the field: the code is single-use, so the FIRST request must be the grant. */
+    @Test
+    public void aCodeLoginAskingForAdminIsGrantedAsMemberOnItsOnlyTry() {
+        final org.paulsens.trip.action.LoginCodeCommands codes =
+                bindMock(org.paulsens.trip.action.LoginCodeCommands.class);
+        Mockito.when(codes.verifyForToken("me@example.com", "123456")).thenReturn(creds("user"));
+
+        final Response response = tokenResource().token(
+                Map.of("email", "me@example.com", "code", "123456", "scope", "admin"));
+
+        assertOk(response);
+        Assert.assertEquals(scopeOf(response), "member");
+        Mockito.verify(codes, Mockito.times(1)).verifyForToken("me@example.com", "123456");
+    }
+
+    @Test
+    public void adminCredentialsStillGetTheAdminScopeTheyAskFor() {
+        Mockito.when(passes.login(ArgumentMatchers.anyString(), ArgumentMatchers.anyString()))
+                .thenReturn(creds("admin"));
+
+        final Response response = tokenResource().token(
+                Map.of("email", "me@example.com", "password", "secret", "scope", "admin"));
+
+        assertOk(response);
+        Assert.assertEquals(scopeOf(response), "admin");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static String scopeOf(final Response response) {
+        return (String) ((Map<String, Object>) response.getEntity()).get("scope");
     }
 
     @Test

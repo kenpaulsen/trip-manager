@@ -91,8 +91,8 @@ public class TokenService {
     /**
      * Issues a fresh refresh+access pair for already-verified credentials. Null when the feature is off or
      * ADMIN scope is requested by credentials that do not hold the admin role -- scope is granted, never
-     * escalated (the resource pre-checks via {@link #mayGrant} to answer 403; the check here is the
-     * belt-and-braces layer).
+     * escalated (the resource pre-checks via {@link #mayGrant} and downgrades the request to MEMBER; the
+     * check here is the belt-and-braces layer).
      */
     public Grant issue(final Creds creds, final AuthToken.Scope requestedScope, final String label) {
         if (!enabled() || creds == null) {

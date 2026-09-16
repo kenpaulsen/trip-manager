@@ -68,7 +68,10 @@ outside the `@TripApi` binding because login must work unauthenticated, already 
 error shapes — a new resource would duplicate all three):
 
 - `POST /api/auth/token` — email+password or email+code, exactly `login`'s checks including the single
-  indistinguishable failure message. Returns `{accessToken, accessExpiresIn, refreshToken, scope}`.
+  indistinguishable failure message. Returns `{accessToken, accessExpiresIn, refreshToken, scope}`. `scope`
+  is what was **granted**: `admin` asked for by non-admin credentials is issued as `member`, never refused —
+  a 403 after verification would burn a single-use login code and leave the client with nothing (it did,
+  2026-09-16). Clients store the body's `scope`, not the one they asked for.
 - `POST /api/auth/token/refresh` — presents the refresh token; rotates it; returns a fresh pair.
 - `POST /api/auth/token/revoke` — kills the presented refresh token and its ACCESS children.
 
@@ -260,8 +263,9 @@ that needs tokens OFF writes "false" and restores "true" -- a blank falls to the
 ### The native client (UniteTrip, 2026-09)
 
 The first bearer client is the UniteTrip iOS app (`../UniteTrip`, private). It holds NO session cookie —
-every request is a bearer, so the CSRF sentinel never applies to it — asks for `admin` scope and falls back
-to `member` on the 403, and refreshes on the first 401 with single-flight coordination (ten concurrent 401s
+every request is a bearer, so the CSRF sentinel never applies to it — asks for `admin` scope and stores
+whichever scope the grant says (the server downgrades to `member`; its older 403-then-retry fallback is
+still in the app and now never fires), and refreshes on the first 401 with single-flight coordination (ten concurrent 401s
 are one refresh, which is what the 30 s rotation grace exists for). The endpoints added for it (raw-body
 photo uploads, the trip roster, the family resource, party registration, org summaries with branding,
 media URL bases) are ordinary `@TripApi` resources: the session path serves them too. The one resource that
@@ -315,7 +319,7 @@ absent-field rows; fallback copies forward and deletes), `SelectorTokensTest` (f
 (plain singleton, same non-CDI rationale as `RememberMeService`); the three `AuthResource` endpoints; the
 four `KnownSettings`; `AuditAction.TOKEN_ISSUE/TOKEN_REFRESH/TOKEN_REVOKE`. Tests via `ResourceTestSupport`:
 indistinguishable failures, feature off, rotation + grace + theft alarm, **no session created**,
-admin scope refused for member credentials.
+admin scope downgraded to member for member credentials (a refusal was the original design; see `token`).
 
 **Phase 3 — dual acceptance + cached validation (the flip).** `security/BearerTokens` + `TokenPrincipal`;
 `CacheKeys.AUTH_TOKEN_SOFT_TTL` + `authTokenKey`; `SessionRecoveryFilter` resolution + principal-aware
