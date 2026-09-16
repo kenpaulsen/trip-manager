@@ -466,6 +466,15 @@ public final class DAO {
     public Boolean removeCreds(final String email) {
         return credDao.removeCreds(email);
     }
+    /**
+     * Account deletion's removal of the login row: owner-checked, and NOT gated on the JSF admin view the way
+     * {@link #removeCreds} is -- that gate answered "no row" to every self-service deletion from the app, so
+     * the password row outlived the account and a later sign-up with the same address inherited it
+     * (2026-09-16). A site admin deleting their own account loses their login like anyone else.
+     */
+    public Boolean removeCredsForAccountDeletion(final String email, final Person.Id owner) {
+        return credDao.removeCredsAfterRekey(email, owner);
+    }
     /** Deletes the row an email change moved OFF, owner-checked -- not account deletion. */
     public Boolean removeCredsAfterRekey(final String email, final Person.Id owner) {
         return credDao.removeCredsAfterRekey(email, owner);

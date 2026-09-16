@@ -15,6 +15,7 @@ import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.chat.ChatRateLimiter;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.OrgMember;
 import org.paulsens.trip.model.Organization;
@@ -43,7 +44,6 @@ public class AccountDeletionCommandsTest {
     private ChatCommands chat;
     private MailCommands mail;
     private ProfilePhotoCommands profilePhotos;
-    private PassCommands passes;
     private ConfigCommands config;
     private AccountDeletionCommands deletion;
 
@@ -55,9 +55,8 @@ public class AccountDeletionCommandsTest {
         mail = Mockito.mock(MailCommands.class);
         profilePhotos = Mockito.mock(ProfilePhotoCommands.class);
         config = Mockito.spy(new ConfigCommands());
-        passes = Mockito.mock(PassCommands.class);
         deletion = new AccountDeletionCommands(config, () -> mail, () -> new MailAddressCommands(config),
-                () -> chat, () -> photoChat, () -> profilePhotos, () -> passes, TokenService::getInstance);
+                () -> chat, () -> photoChat, () -> profilePhotos, TokenService::getInstance);
     }
 
     // ------------------------------------------------------------------ the happy path
@@ -65,6 +64,7 @@ public class AccountDeletionCommandsTest {
     @Test
     public void aSettledPersonIsErasedAndTheOrganizationIsTold() throws IOException {
         final Person me = saved("Settled");
+        Assert.assertTrue(dao.createCreds(me.getEmail()).isPresent(), "a real login to delete");
         final Person witness = saved("Witness");
         final Organization org = savedOrg("Pilgrims Inc", "office@example.org", null);
         join(me, org);
@@ -103,7 +103,7 @@ public class AccountDeletionCommandsTest {
         Assert.assertTrue(body.getValue().contains("Pilgrims Inc"));
 
         // Gone: login, profile, chat, block list, org membership, chat membership.
-        Mockito.verify(passes).deleteCreds(me.getEmail());
+        Assert.assertNull(dao.getCredsForCodeLogin(me.getEmail(), Cached.NO), "the login row is gone");
         Assert.assertTrue(dao.getPerson(me.getId(), Cached.NO).isEmpty(), "soft-deleted rows are invisible");
         Assert.assertNull(dao.getPersonByEmail(me.getEmail(), Cached.NO), "email no longer resolves");
         Assert.assertTrue(dao.getPersonDataValues(me.getId(), Cached.NO).isEmpty(), "person data gone");
@@ -175,6 +175,42 @@ public class AccountDeletionCommandsTest {
         Assert.assertFalse(flightAfter.getPrivNotes().containsKey(me.getId()), "the private note is gone");
         Assert.assertEquals(dao.deleteChatReactionsBy(ChatChannel.Id.forTrip(past.getId()), me.getId()), 0,
                 "no reaction of theirs is left to delete");
+    }
+
+    /**
+     * The login row must go with the account. It did not, from the app: the removal read the row through a
+     * JSF-admin-view gate no REST call satisfies, so the password outlived the account and the next sign-up
+     * with the same address inherited a login for a deleted person (production, 2026-09-16).
+     */
+    @Test
+    public void theLoginRowGoesWithTheAccount() throws IOException {
+        final Person me = saved("Login");
+        Assert.assertTrue(dao.createCreds(me.getEmail()).isPresent());
+        Assert.assertNotNull(dao.getCredsForCodeLogin(me.getEmail(), Cached.NO), "precondition: a login exists");
+
+        final AccountDeletionCommands.Outcome outcome = deletion.deleteOwnAccount(me.getId(),
+                AccountDeletionCommands.CONFIRMATION, actor(me));
+
+        Assert.assertTrue(outcome.ok(), outcome.message());
+        Assert.assertNull(dao.getCredsForCodeLogin(me.getEmail(), Cached.NO), "the login row is gone");
+    }
+
+    /** Somebody else's login under the leaver's old address is not ours to remove. */
+    @Test
+    public void aLoginOwnedByAnotherPersonUnderTheSameAddressIsLeftAlone() throws IOException {
+        final Person me = saved("Leaver");
+        final Person other = saved("Other");
+        other.setEmail(me.getEmail());
+        final Creds theirs = new Creds(me.getEmail(), other.getId(), "hashed");
+        Assert.assertTrue(dao.saveCreds(theirs));
+
+        final AccountDeletionCommands.Outcome outcome = deletion.deleteOwnAccount(me.getId(),
+                AccountDeletionCommands.CONFIRMATION, actor(me));
+
+        Assert.assertTrue(outcome.ok(), outcome.message());
+        final Creds after = dao.getCredsForCodeLogin(me.getEmail(), Cached.NO);
+        Assert.assertNotNull(after, "the other person's login survives");
+        Assert.assertEquals(after.getUserId(), other.getId());
     }
 
     // ------------------------------------------------------------------ settle-first

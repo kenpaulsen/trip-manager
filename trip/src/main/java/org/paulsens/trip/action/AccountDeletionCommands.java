@@ -38,7 +38,9 @@ import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.model.chat.ChatAttachment;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMessage;
+import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.chat.ChatPage;
+import org.paulsens.trip.security.RememberMeService;
 import org.paulsens.trip.security.TokenService;
 import org.paulsens.trip.util.Util;
 
@@ -144,29 +146,25 @@ public class AccountDeletionCommands {
     private final Supplier<ChatCommands> chatSource;
     private final Supplier<PhotoChatCommands> photoChatSource;
     private final Supplier<ProfilePhotoCommands> profilePhotoSource;
-    private final Supplier<PassCommands> passSource;
     private final Supplier<TokenService> tokenSource;
 
     public AccountDeletionCommands() {
         this(new ConfigCommands(), () -> org.paulsens.trip.api.Beans.get(MailCommands.class),
                 MailAddressCommands::new, ChatCommands::getChatCommands, PhotoChatCommands::getPhotoChatCommands,
-                () -> org.paulsens.trip.api.Beans.get(ProfilePhotoCommands.class),
-                () -> org.paulsens.trip.api.Beans.get(PassCommands.class), TokenService::getInstance);
+                () -> org.paulsens.trip.api.Beans.get(ProfilePhotoCommands.class), TokenService::getInstance);
     }
 
     /** Test seam: every collaborator handed in, no container needed. */
     public AccountDeletionCommands(final ConfigCommands config, final Supplier<MailCommands> mailSource,
             final Supplier<MailAddressCommands> addressSource, final Supplier<ChatCommands> chatSource,
             final Supplier<PhotoChatCommands> photoChatSource,
-            final Supplier<ProfilePhotoCommands> profilePhotoSource, final Supplier<PassCommands> passSource,
-            final Supplier<TokenService> tokenSource) {
+            final Supplier<ProfilePhotoCommands> profilePhotoSource, final Supplier<TokenService> tokenSource) {
         this.config = config;
         this.mailSource = mailSource;
         this.addressSource = addressSource;
         this.chatSource = chatSource;
         this.photoChatSource = photoChatSource;
         this.profilePhotoSource = profilePhotoSource;
-        this.passSource = passSource;
         this.tokenSource = tokenSource;
     }
 
@@ -279,17 +277,36 @@ public class AccountDeletionCommands {
         return Outcome.success();
     }
 
-    /** Password, passkeys, bearer tokens, remember-me: nothing signs in as this person after this. */
-    private void revokeAccess(final Person person) {
+    /**
+     * Password, passkeys, bearer tokens, remember-me: nothing signs in as this person after this. The login
+     * row is removed straight through the DAO, owner-checked: {@code PassCommands.deleteCreds} reads the row
+     * through a JSF-admin-view gate that no REST call satisfies, so from the app it refused every time and the
+     * password row outlived the account (2026-09-16). A row that will not go is fatal -- an account that is
+     * "deleted" but still signs in is the one outcome worse than a failed deletion.
+     */
+    private void revokeAccess(final Person person) throws IOException {
         tokenSource.get().revokeAllFor(person.getId());
         for (final PasskeyCredential passkey : dao().getPasskeysForUser(person.getId(), Cached.NO)) {
             dao().deletePasskey(passkey.getCredentialId(), person.getId());
         }
-        if (person.getEmail() != null && !person.getEmail().isBlank()) {
-            // The login row is keyed by email; removing it also revokes remember-me cookies. A person with
-            // no login (a created family member) gets a logged warning from the bean and nothing else.
-            passSource.get().deleteCreds(person.getEmail());
+        final String email = person.getEmail();
+        if (email == null || email.isBlank()) {
+            return;   // a created family member: never had a login
         }
+        final Creds login = dao().getCredsForCodeLogin(email, Cached.NO);
+        if (login == null || !person.getId().equals(login.getUserId())) {
+            return;   // no login, or the address already belongs to somebody else's login: not ours to remove
+        }
+        final boolean removed = Boolean.TRUE.equals(dao().removeCredsForAccountDeletion(email, person.getId()));
+        Audit.builder(AuditAction.DELETE_CREDS, AuditOutcome.of(removed))
+                .actor(email, person.getId().getValue())
+                .targetPerson(email, person.getId().getValue())
+                .message("Removed credentials for " + email + " (account deletion)")
+                .log();
+        if (!removed) {
+            throw new IOException("The login row for " + email + " was not removed.");
+        }
+        RememberMeService.getInstance().revokeAllFor(person.getId());
     }
 
     /** Chat messages and photos, photo comments, drafts, chat memberships, profile pictures, person data. */

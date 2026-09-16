@@ -210,14 +210,21 @@ public class AuthResourceTest extends ResourceTestSupport {
         assertOk(resource.logout(CSRF_OK));
     }
 
+    /**
+     * A deleted account with a live token: 401, never 404. The native client reads 404 as "tokens switched
+     * off" and parks there with no sign-out; a 401 plus revoked tokens sends it back to the sign-in screen.
+     */
     @Test
-    public void meAnswers404WhenTheSessionNamesSomebodyWhoIsGone() {
+    public void meAnswers401AndRevokesTheTokensWhenTheSessionNamesSomebodyWhoIsGone() {
         signedInAs(ME);
-        // A deleted account with a live session: getPerson answers a blank Person with a fresh id, so only the
-        // findPerson id comparison catches it.
+        // getPerson answers a blank Person with a fresh id, so only the findPerson id comparison catches it.
         Mockito.when(bean(PersonCommands.class).getPerson(ArgumentMatchers.any())).thenReturn(new Person());
+        final org.paulsens.trip.security.TokenService tokens =
+                Mockito.mock(org.paulsens.trip.security.TokenService.class);
 
-        assertError(resource.me(), 404, ApiErrors.NOT_FOUND);
+        assertError(resource(new AuthResource(tokens)).me(), 401, ApiErrors.NOT_AUTHENTICATED);
+
+        Mockito.verify(tokens).revokeAllFor(ME);
     }
 
     @Test
@@ -481,7 +488,7 @@ public class AuthResourceTest extends ResourceTestSupport {
     }
 
     @Test
-    public void registerReportsAFailedCredentialSaveWithoutPretendingToSignIn() {
+    public void registerRollsThePersonBackWhenTheCredentialsCannotBeSaved() {
         final PersonCommands people = bean(PersonCommands.class);
         final Person created = new Person();
         created.setId(Person.Id.from("brand-new-2"));
@@ -491,6 +498,27 @@ public class AuthResourceTest extends ResourceTestSupport {
         Mockito.when(passes.createCreds(ArgumentMatchers.anyString(), ArgumentMatchers.anyString())).thenReturn(null);
 
         assertError(tokenResource().register(registration("new2@example.com")), 500, ApiErrors.STORE_FAILED);
+
+        // No orphan owning the address: the row is soft-deleted and its email released, so a retry works.
+        Assert.assertNotNull(created.getDeleted(), "the half-made person is soft-deleted");
+        Assert.assertNull(created.getEmail(), "the address is released");
+        Mockito.verify(people, Mockito.times(2)).savePerson(created);
+    }
+
+    /** The row an incompletely deleted account leaves behind: a login with no person. Sign-up must refuse it. */
+    @Test
+    public void registerRefusesAnAddressWhoseLoginRowStillExists() throws java.io.IOException {
+        Mockito.when(passes.userExistsWithEmail("ghost@example.com")).thenReturn(false);
+        final org.paulsens.trip.dynamo.DAO dao = org.paulsens.trip.dynamo.DAO.getInstance();
+        final Person ghost = new Person();
+        ghost.setEmail("ghost@example.com");
+        ghost.setFirst("Ghost");
+        ghost.setLast("Login");
+        Assert.assertTrue(dao.savePerson(ghost));
+        Assert.assertTrue(dao.createCreds("ghost@example.com").isPresent());
+
+        assertError(tokenResource().register(registration("ghost@example.com")), 409, ApiErrors.CONFLICT);
+        Mockito.verify(bean(PersonCommands.class), Mockito.never()).createPerson();
     }
 
     private static org.paulsens.trip.api.dto.RegisterAccountRequest registration(final String email) {

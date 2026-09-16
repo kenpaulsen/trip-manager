@@ -73,6 +73,9 @@ public class InMemoryPersistence implements Persistence {
             // JSESSIONID and expects the cookie to restore the session), so the token rows need a real fake
             // store -- the legacy table too, or the lazy migration is untestable. Same for passkeys: the
             // webtest registers against a virtual authenticator and signs back in with it.
+            // Real rows for logins too, so a test can create, read and delete one. A persona (admin*/user*)
+            // with no stored row still resolves through FakeData in getItem, which is how local mode signs in.
+            Map.entry(CredentialsDAO.PASS_TABLE, new TableKeys(CredentialsDAO.EMAIL, null)),
             Map.entry(AuthTokenDAO.AUTH_TOKENS_TABLE, new TableKeys(AuthTokenDAO.SELECTOR, null)),
             Map.entry(AuthTokenDAO.LEGACY_REMEMBER_TABLE, new TableKeys(AuthTokenDAO.SELECTOR, null)),
             Map.entry(PasskeyDAO.PASSKEY_TABLE, new TableKeys(PasskeyDAO.CREDENTIAL_ID, null)),
@@ -138,6 +141,11 @@ public class InMemoryPersistence implements Persistence {
         return response.build();
     }
 
+    private static boolean isPersona(final String email) {
+        final String low = email == null ? "" : email.toLowerCase(java.util.Locale.ROOT);
+        return low.startsWith("admin") || low.startsWith("user");
+    }
+
     @Override
     public GetItemResponse getItem(final Consumer<GetItemRequest.Builder> getItemRequest) {
         final GetItemRequest.Builder builder = GetItemRequest.builder();
@@ -154,6 +162,12 @@ public class InMemoryPersistence implements Persistence {
                 .getOrDefault(giReq.tableName(), Map.of())
                 .getOrDefault(pk, Map.of())
                 .get(sk);
+        if (CredentialsDAO.PASS_TABLE.equals(giReq.tableName()) && (item == null || isPersona(pk))) {
+            // The local-mode personas (admin*/user*) always come from FakeData, never from a stored row: their
+            // passwords are fixed by contract, and the tests share one store, so a test that set a persona's
+            // password would otherwise lock every later test out of it.
+            return Persistence.super.getItem(getItemRequest);
+        }
         return GetItemResponse.builder().item(item == null ? Map.of() : item).build();
     }
 

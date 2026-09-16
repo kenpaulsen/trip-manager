@@ -25,6 +25,8 @@ import org.paulsens.trip.api.dto.RegisterAccountRequest;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.api.mapper.PersonMapper;
 import org.paulsens.trip.model.AuthToken;
+import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Creds;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.security.PasswordPolicy;
@@ -217,7 +219,11 @@ public class AuthResource extends BaseResource {
         }
         final String email = body.email().trim();
         final PassCommands passes = Beans.get(PassCommands.class);
-        if (passes.userExistsWithEmail(email)) {
+        // Both halves: a person row, or a login row without one. The latter is what an incompletely deleted
+        // account leaves; creating a person against it produced an orphan with no login and a 500
+        // (2026-09-16).
+        if (passes.userExistsWithEmail(email)
+                || DAO.getInstance().getCredsForCodeLogin(email, Cached.NO) != null) {
             return error(409, ApiErrors.CONFLICT, "An account with that email already exists.");
         }
         final PersonCommands people = Beans.get(PersonCommands.class);
@@ -230,8 +236,12 @@ public class AuthResource extends BaseResource {
         Beans.get(AuditCommands.class).person(person, "CREATED", actor);
         final Creds creds = passes.createCreds(email, body.password());
         if (creds == null) {
-            return error(500, ApiErrors.STORE_FAILED, "The account was created but its password could not be "
-                    + "saved; use the emailed-code sign-in.");
+            // Roll the person back rather than strand a row that owns the address with no way to sign in; the
+            // soft delete frees the email index, so the person can simply try again.
+            person.setEmail(null);
+            person.delete();
+            people.savePerson(person);
+            return error(500, ApiErrors.STORE_FAILED, "The account could not be created; please try again.");
         }
         new OrgCommands(this::caller).joinSiteOrgOnSignup(person.getId());
         notifyOffice(person, actor);
@@ -459,8 +469,15 @@ public class AuthResource extends BaseResource {
     public Response me() {
         final Person person = findPerson(personId());
         if (person == null) {
-            // The session names a person who is no longer there -- a deleted account with a live session.
-            return error(404, ApiErrors.NOT_FOUND, "Signed-in person not found.");
+            // The session names a person who is no longer there -- a deleted account with a live token or
+            // session. 401, not 404: the native client reads 404 as "API tokens are switched off" and parks on
+            // that screen with no way to sign out, which is exactly what a phone holding a deleted account's
+            // token did (2026-09-16). Its tokens are revoked here too, so the refresh that follows the 401
+            // fails and the client returns to the sign-in screen instead of retrying forever.
+            if (personId() != null) {
+                tokens.revokeAllFor(personId());
+            }
+            return error(401, ApiErrors.NOT_AUTHENTICATED, "Signed-in person not found.");
         }
         final ApiPrivileges privileges = privileges();
         final PersonDto dto = PersonMapper.INSTANCE.toDto(person).redactedFor(AccessLevel.SELF);
