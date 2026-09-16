@@ -52,8 +52,15 @@ pictures; every chat message and photo the person posted and every photo comment
 person-data rows (block list, todo status, registration answers); privileges (global, per-trip, per-org);
 organization memberships and admin seats; family links.
 
-**Kept, under an anonymized record:** registration rows and every transaction. Money rows are never destroyed
-(user-locked payments rule) and the trip's accounting must still add up. The `Person` row stays with
+Also gone (2026-09-16): every trip registration row, and the person's place on every trip -- roster, director and
+facilitator lists, event participation and private event notes -- plus every chat and photo reaction. A registration
+kept under an anonymized id showed as a pending registration on the home page and on tripRegistrations that nobody
+could act on; it is the person's own filing, not the organization's books. Every trip is walked, not the membership
+index, because a PENDING registration is not membership.
+
+**Kept, under an anonymized record:** every transaction. Money rows are never destroyed
+(user-locked payments rule) and the organization's books must still add up; ledgers are per person, not per
+registration, so nothing there depends on the deleted rows. The `Person` row stays with
 `first = "Deleted"`, `last = "Account"`, everything else null, and the existing soft-delete marker set, which the
 DAO already honours (invisible to lookups, email index and search). Rosters and ledgers show "Deleted Account".
 

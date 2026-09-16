@@ -416,6 +416,9 @@ public final class DAO {
     public Boolean saveRegistration(final Registration reg) throws IOException {
         return regDao.saveRegistration(reg);
     }
+    public Boolean deleteRegistration(final String tripId, final Person.Id userId) {
+        return regDao.deleteRegistration(tripId, userId);
+    }
     public int deleteRegistrationsForTrip(final String tripId) {
         return regDao.deleteAllForTrip(tripId);
     }
@@ -725,6 +728,9 @@ public final class DAO {
             final ChatChannel.Id channelId, final ChatMessage.Id targetMessageId,
             final Person.Id personId, final String emoji) {
         return chatDao.deleteReaction(channelId, targetMessageId, personId, emoji);
+    }
+    public int deleteChatReactionsBy(final ChatChannel.Id channelId, final Person.Id personId) {
+        return chatDao.deleteReactionsBy(channelId, personId);
     }
     public Map<ChatMessage.Id, ChatReactionSummary> getChatReactionSummaries(
             final ChatChannel.Id channelId, final List<ChatMessage> messages, final Cached cached) {

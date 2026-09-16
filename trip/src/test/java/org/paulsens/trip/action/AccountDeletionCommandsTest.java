@@ -22,6 +22,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatMessage;
@@ -117,12 +118,63 @@ public class AccountDeletionCommandsTest {
         Mockito.verify(profilePhotos, Mockito.times(ProfilePhotos.MAX_SLOTS))
                 .deleteSlotFor(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.anyInt());
 
-        // Kept: the money rows and the registration, under the same id.
+        // Kept: the money rows, under the same id. Gone: the registration and the seat on the trip.
         Assert.assertEquals(dao.getTransactions(me.getId(), Cached.NO).size(), 2, "money rows survive");
-        Assert.assertTrue(dao.getRegistration(trip.getId(), me.getId(), Cached.NO).isPresent(),
-                "the registration row survives");
+        Assert.assertTrue(dao.getRegistration(trip.getId(), me.getId(), Cached.NO).isEmpty(),
+                "the registration row is deleted");
+        Assert.assertFalse(dao.getTrip(trip.getId(), Cached.NO).orElseThrow().getPeople().contains(me.getId()),
+                "the person is off the roster");
         // The witness is untouched.
         Assert.assertTrue(dao.getPerson(witness.getId(), Cached.NO).isPresent());
+    }
+
+    /**
+     * The row that survived in production (2026-09-16): a PENDING registration on a trip the person was never a
+     * member of, which kept counting as a pending registration on the home page and on tripRegistrations after
+     * the account was gone. Everything that names the person on a trip goes with it: the registration, the
+     * roster, staff lists, event participation and private event notes, and the reactions they left.
+     */
+    @Test
+    public void everyRegistrationSeatAndReactionGoesEvenWhereThePersonWasNotAMember() throws IOException {
+        final Person me = saved("Pending");
+        final Person witness = saved("Witness");
+        final Organization org = savedOrg("Pilgrims Inc", "office@example.org", null);
+        join(me, org);
+        Mockito.doReturn(false).when(config).getBoolean(KnownSettings.ACCOUNT_DELETE_REQUIRE_SETTLED);
+        // Pending on an upcoming trip WITHOUT membership; staff + event participant + reactor on a past one.
+        final Trip pendingOn = savedTrip("Winter retreat", 30, 40, org, witness);
+        Assert.assertTrue(dao.saveRegistration(new Registration(pendingOn.getId(), me.getId())
+                .withStatus(Registration.Status.PENDING)));
+        final Trip past = savedTrip("Past pilgrimage", -30, -20, org, me, witness);
+        past.addDirectorId(me.getId());
+        past.addFacilitatorId(me.getId());
+        final TripEvent flight = new TripEvent(RandomData.genAlpha(8), TripEvent.Type.FLIGHT, "Flight", null,
+                past.getStartDate(), past.getStartDate().plusHours(3), new ArrayList<>(List.of(me.getId())),
+                new java.util.HashMap<>(java.util.Map.of(me.getId(), "Seat 14C")));
+        Assert.assertTrue(dao.saveTripEvent(flight));
+        past.setTripEvents(new ArrayList<>(List.of(flight)));
+        Assert.assertTrue(dao.saveTrip(past));
+        final ChatMessage theirs = sent(past, witness, "welcome aboard");
+        Assert.assertTrue(chat.react(past.getId(), me.getId(), theirs.getId(), "\uD83D\uDC4D").ok());
+
+        final AccountDeletionCommands.Preview preview = deletion.preview(me.getId());
+        Assert.assertEquals(preview.trips().size(), 2, "the pending trip is seen even without membership");
+
+        final AccountDeletionCommands.Outcome outcome = deletion.deleteOwnAccount(me.getId(),
+                AccountDeletionCommands.CONFIRMATION, actor(me));
+        Assert.assertTrue(outcome.ok(), outcome.message());
+
+        Assert.assertTrue(dao.getRegistrations(pendingOn.getId(), Cached.NO).isEmpty(), "nothing pending remains");
+        Assert.assertTrue(dao.getRegistration(past.getId(), me.getId(), Cached.NO).isEmpty());
+        final Trip after = dao.getTrip(past.getId(), Cached.NO).orElseThrow();
+        Assert.assertEquals(after.getPeople(), List.of(witness.getId()), "the witness keeps the roster");
+        Assert.assertFalse(after.getDirectorIds().contains(me.getId()));
+        Assert.assertFalse(after.getFacilitatorIds().contains(me.getId()));
+        final TripEvent flightAfter = dao.getTripEvent(flight.getId(), Cached.NO);
+        Assert.assertTrue(flightAfter.getParticipants().isEmpty(), "off the flight");
+        Assert.assertFalse(flightAfter.getPrivNotes().containsKey(me.getId()), "the private note is gone");
+        Assert.assertEquals(dao.deleteChatReactionsBy(ChatChannel.Id.forTrip(past.getId()), me.getId()), 0,
+                "no reaction of theirs is left to delete");
     }
 
     // ------------------------------------------------------------------ settle-first

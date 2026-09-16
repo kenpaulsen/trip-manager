@@ -1190,6 +1190,35 @@ public class ChatDAO {
     }
 
     /**
+     * Every reaction {@code personId} left in the channel, gone -- account deletion. The table is keyed by
+     * channel and (message, person, emoji), so this is one partition read filtered in memory; a leaving
+     * account has too few of these to justify an index.
+     */
+    protected int deleteReactionsBy(final ChatChannel.Id channelId, final Person.Id personId) {
+        if (channelId == null || personId == null) {
+            return 0;
+        }
+        final Map<String, String> names = Map.of("#channelId", ATTR_CHANNEL_ID);
+        final Map<String, AttributeValue> values = Map.of(
+                ":c", AttributeValue.builder().s(channelId.getValue()).build());
+        final List<ChatReaction> mine = persistence.queryAll(b -> b.tableName(REACTIONS_TABLE)
+                        .keyConditionExpression("#channelId = :c")
+                        .expressionAttributeNames(names)
+                        .expressionAttributeValues(values)
+                        .build())
+                .stream()
+                .map(item -> item.get(ATTR_CONTENT))
+                .filter(c -> c != null)
+                .map(c -> parseReaction(c.s()))
+                .filter(r -> r != null && personId.equals(r.getPersonId()))
+                .toList();
+        for (final ChatReaction reaction : mine) {
+            deleteReaction(channelId, reaction.getTargetMessageId(), personId, reaction.getEmoji());
+        }
+        return mine.size();
+    }
+
+    /**
      * Post-write bookkeeping shared by add and remove: drop the stale summary, bump the version, nudge.
      *
      * <p>Order matters. The summary field is dropped <em>before</em> the version is published, so a client that

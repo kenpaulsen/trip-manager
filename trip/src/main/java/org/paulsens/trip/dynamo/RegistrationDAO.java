@@ -118,6 +118,26 @@ public class RegistrationDAO {
         return userIds.size();
     }
 
+    /**
+     * Hard-deletes ONE person's registration row on a trip. Backs account deletion: a registration is the
+     * person's own filing, and a row left behind under an anonymized id kept showing as a pending
+     * registration nobody could act on. Removes the cached copy too, because in local mode the cache IS the
+     * store.
+     */
+    protected Boolean deleteRegistration(final String tripId, final Person.Id userId) {
+        try {
+            final boolean deleted = persistence.deleteItem(b -> b.tableName(REGISTRATION_TABLE).key(Map.of(
+                    TRIP_ID, AttributeValue.builder().s(tripId).build(),
+                    USER_ID, AttributeValue.builder().s(userId.getValue()).build())))
+                    .sdkHttpResponse().isSuccessful();
+            cache.remove(tripId, userId);
+            return deleted;
+        } catch (final RuntimeException ex) {
+            log.error("Failed to delete the registration of {} on trip {}", userId, tripId, ex);
+            return false;
+        }
+    }
+
     public void clearCache() {
         cacheClient.clearNamespace(CacheKeys.REG_PREFIX);
     }

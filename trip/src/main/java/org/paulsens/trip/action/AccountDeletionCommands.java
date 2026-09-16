@@ -34,7 +34,9 @@ import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.model.chat.ChatAttachment;
+import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatPage;
 import org.paulsens.trip.security.TokenService;
@@ -48,13 +50,17 @@ import org.paulsens.trip.util.Util;
  *   <li><b>Gone, immediately and permanently:</b> the login (password, passkeys, every signed-in device and
  *       remember-me cookie), the profile (name, contact details, birthdate, passport, emergency contact,
  *       privacy choices, profile pictures), every chat message and photo the person posted, every comment
- *       they left on a photo, their per-person data (block list, todo status, registration answers),
- *       privileges, organization memberships and family links.</li>
- *   <li><b>Kept, under an anonymized record:</b> registration rows and every transaction. Money rows are
- *       never destroyed (a user-locked rule of the payments system) and a trip's accounting must still add
- *       up after a traveler leaves; the row keeps the person id, but the person behind it now reads
- *       "Deleted Account". This is the "data legally required to maintain" carve-out the store rule allows,
- *       and the Terms of Use say so.</li>
+ *       and reaction they left, their per-person data (block list, todo status, push devices), privileges,
+ *       organization memberships and family links, and -- since 2026-09-16 -- every trip registration and
+ *       every seat on a trip: roster, director and facilitator lists, event participation and private event
+ *       notes. A registration is the person's own filing, not the organization's accounting; kept under an
+ *       anonymized id it showed as a pending registration nobody could act on.</li>
+ *   <li><b>Kept, under an anonymized record:</b> every transaction. Money rows are never destroyed (a
+ *       user-locked rule of the payments system) and an organization's books must still add up after a
+ *       traveler leaves; the row keeps the person id, but the person behind it now reads "Deleted Account".
+ *       This is the "data legally required to maintain" carve-out the store rule allows, and the Terms of
+ *       Use say so. Ledgers are per person, not per registration, so nothing there depends on the rows that
+ *       go.</li>
  * </ul>
  *
  * <p><b>Settle first.</b> With {@code account.delete.requireSettled} on (the default) deletion is refused
@@ -125,11 +131,12 @@ public class AccountDeletionCommands {
             "Your sign-in: password, passkeys and every signed-in device",
             "Your profile: name, email, phone, address, birthdate, passport and emergency contact",
             "Your profile pictures",
-            "Every chat message and photo you posted, and every comment you left on a photo",
+            "Every chat message and photo you posted, and every comment and reaction you left",
+            "Your trip registrations and your place on every trip",
             "Your saved preferences and blocked people");
     public static final List<String> RETAINED = List.of(
-            "Records of your trip registrations and payments, kept by the organization for its accounting, "
-                    + "with your name and contact details removed");
+            "Records of your payments, kept by the organization for its accounting, with your name and "
+                    + "contact details removed");
 
     private final ConfigCommands config;
     private final Supplier<MailCommands> mailSource;
@@ -245,6 +252,10 @@ public class AccountDeletionCommands {
                 erasePresence(dependent, who);
             }
             erasePresence(person, who);
+            for (final Person dependent : dependents) {
+                leaveTrips(dependent);
+            }
+            leaveTrips(person);
             detachFamily(person, dependents);
             for (final Person dependent : dependents) {
                 scrubAndSoftDelete(dependent);
@@ -313,7 +324,9 @@ public class AccountDeletionCommands {
             }
             for (final String key : photoKeys) {
                 eraseComments(photoChat, key, me, self);
+                dao().deleteChatReactionsBy(ChatChannel.Id.forPhoto(key), me);
             }
+            dao().deleteChatReactionsBy(summary.channel().getId(), me);
             dao().deleteChatDraft(summary.channel().getId(), me);
             chat.leave(tripId, me, who);
         }
@@ -341,6 +354,59 @@ public class AccountDeletionCommands {
                 break;
             }
             before = thread.getCursor();
+        }
+    }
+
+    /**
+     * Registrations and seats, on every trip. Every trip is walked rather than the membership index, because a
+     * PENDING registration is not membership: that is exactly the row that used to survive.
+     */
+    private void leaveTrips(final Person person) throws IOException {
+        final Person.Id me = person.getId();
+        for (final Trip trip : dao().getRecentTrips(0, Cached.NO)) {
+            if (dao().getRegistration(trip.getId(), me, Cached.NO).isPresent()
+                    && !Boolean.TRUE.equals(dao().deleteRegistration(trip.getId(), me))) {
+                throw new IOException("The registration on trip " + trip.getId() + " was not deleted.");
+            }
+            for (final TripEvent event : trip.getTripEvents()) {
+                leaveEvent(event, me);
+            }
+            if (leaveRoster(trip, me) && !Boolean.TRUE.equals(dao().saveTrip(trip))) {
+                throw new IOException("Trip " + trip.getId() + " was not saved after removing the person.");
+            }
+        }
+    }
+
+    /** Roster, directors, facilitators; true when the trip changed and needs saving. */
+    private static boolean leaveRoster(final Trip trip, final Person.Id me) {
+        final boolean member = trip.getPeople() != null && trip.getPeople().contains(me);
+        final boolean staff = (trip.getDirectorIds() != null && trip.getDirectorIds().contains(me))
+                || (trip.getFacilitatorIds() != null && trip.getFacilitatorIds().contains(me));
+        if (member) {
+            final List<Person.Id> people = new ArrayList<>(trip.getPeople());
+            people.remove(me);
+            trip.setPeople(people);
+        }
+        trip.removeDirectorId(me);
+        trip.removeFacilitatorId(me);
+        return member || staff;
+    }
+
+    /** Participation and the person's private note on an event; the event is only saved when it changed. */
+    private void leaveEvent(final TripEvent event, final Person.Id me) throws IOException {
+        final boolean participant = event.getParticipants() != null && event.getParticipants().contains(me);
+        final boolean noted = event.getPrivNotes().containsKey(me);
+        if (!participant && !noted) {
+            return;
+        }
+        if (participant) {
+            final List<Person.Id> participants = new ArrayList<>(event.getParticipants());
+            participants.remove(me);
+            event.setParticipants(participants);
+        }
+        event.getPrivNotes().remove(me);
+        if (!Boolean.TRUE.equals(dao().saveTripEvent(event))) {
+            throw new IOException("Trip event " + event.getId() + " was not saved after removing the person.");
         }
     }
 
@@ -567,8 +633,8 @@ public class AccountDeletionCommands {
             html.append("<b>Balance: settled</b>");
         }
         html.append("</p>");
-        html.append("<p>Their profile is now anonymized (\"Deleted Account\"); the registration and transaction "
-                + "rows above stay in the system under the same id for the organization's accounting. Their "
+        html.append("<p>Their profile is now anonymized (\"Deleted Account\"); the transaction rows above stay "
+                + "in the system under the same id for the organization's accounting. Their registrations, "
                 + "login, messages, photos and comments are gone and cannot be restored.</p>");
         return html.toString();
     }
@@ -579,11 +645,22 @@ public class AccountDeletionCommands {
         return personId == null ? null : dao().getPerson(personId, Cached.NO).orElse(null);
     }
 
+    /**
+     * Every trip the person is on OR has a live registration for. The membership index alone missed a
+     * PENDING registration (not membership), so an upcoming trip the person was merely waiting on neither
+     * blocked the deletion nor reached the notice.
+     */
     private List<TripLine> tripLines(final Person.Id personId) {
         final LocalDateTime now = LocalDateTime.now();
         final List<TripLine> lines = new ArrayList<>();
-        for (final Trip trip : dao().getTripsForUser(personId, Cached.NO)) {
+        for (final Trip trip : dao().getRecentTrips(0, Cached.NO)) {
+            final boolean member = trip.getPeople() != null && trip.getPeople().contains(personId);
             final Optional<Registration> registration = dao().getRegistration(trip.getId(), personId, Cached.NO);
+            final boolean filed = registration.isPresent()
+                    && registration.get().getStatus() != Registration.Status.NOT_REGISTERED;
+            if (!member && !filed) {
+                continue;
+            }
             final String status = registration.map(Registration::getStatus)
                     .map(Registration.Status::getDescription)
                     .orElse("On the trip");
