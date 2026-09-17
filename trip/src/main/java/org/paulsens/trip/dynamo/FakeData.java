@@ -7,6 +7,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -18,6 +19,7 @@ import lombok.Getter;
 import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.ChatPhotos;
 import org.paulsens.trip.action.ConfigCommands;
+import org.paulsens.trip.action.TripEventComposer;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.MarketingPageBootstrap;
@@ -457,6 +459,9 @@ public final class FakeData {
     private static final String FAKE_TRIP_CHARTER_EVENT_ID = "977c6c52-07b1-441e-9d49-4089602b9b60";
     private static final String FAKE_TRIP_SEA_EWR_EVENT_ID = "17e18119-98a5-42ef-8a5e-b2d942426950";
     private static final String FAKE_TRIP_SPU_SEA_EVENT_ID = "f981c3a4-36e4-49c6-99f8-67268ebf0cfb";
+    /** The Spring trip's two GROUND legs: the airport transfers, one editor-composed and one legacy. */
+    private static final String FAKE_TRIP_TRANSFER_IN_EVENT_ID = "cc6ec973-51ec-4119-988b-d5eb30fae1f8";
+    private static final String FAKE_TRIP_TRANSFER_OUT_EVENT_ID = "0d8e69b0-cb64-4c80-a257-62476c9e27d3";
     private static final String FAKE2_SEA_LGW_EVENT_ID = "2912a4b2-fb1d-4efa-bc19-788056300960";
     private static final String FAKE2_LODGING_EVENT_ID = "8892f4d8-0bce-47cb-9284-a72d384ddb6e";
     private static final String FAKE2_DBV_KEF_EVENT_ID = "4a09a5b8-18f9-4907-874d-657d7daa63f3";
@@ -929,6 +934,22 @@ public final class FakeData {
         charter.getParticipants().add(allPeople.get(3));
         charter.getParticipants().add(allPeople.get(0));
         events.add(charter);
+        // Ground legs, appended AFTER the flights on purpose: TripEventParticipationTest picks "the first
+        // event without person N", which must stay the lodging event. The inbound transfer is what the Add
+        // Ground Transport dialog writes (composed title and notes PLUS the stored parts), so the Ground
+        // Transportation report and the editor's Edit round-trip both have a modern row locally; the outbound
+        // one is the legacy shape, free text with no details, so the report's fallback renders somewhere too.
+        final TripEvent transferIn = newTripEvent(FAKE_TRIP_TRANSFER_IN_EVENT_ID, TripEvent.Type.GROUND,
+                TripEventComposer.composeRouteTitle("Split", "Medjugorje", false),
+                TripEventComposer.composeGroundNotes("Globtour bus", fakeStayStart().minusHours(3),
+                        fakeStayStart().minusMinutes(30)),
+                fakeStayStart().minusHours(3), fakeStayStart().minusMinutes(30),
+                List.of(allPeople.get(2), allPeople.get(3), allPeople.get(4)), null);
+        transferIn.setDetails(groundDetails("Split", "Medjugorje", "Globtour bus"));
+        events.add(transferIn);
+        events.add(newTripEvent(FAKE_TRIP_TRANSFER_OUT_EVENT_ID, TripEvent.Type.GROUND, "Medjugorje -> Split",
+                "Return transfer to the airport", fakeStayEnd(), fakeStayEnd().plusMinutes(90),
+                List.of(allPeople.get(2), allPeople.get(5)), null));
         // Person-modeled trip staff (2026-08-24): Ken and Trinity carry REAL @example.com addresses, so
         // the registration popup's facilitator contact block has something to show locally.
         final List<Person.Id> tripStaff = getFakePeople().stream()
@@ -1099,6 +1120,15 @@ public final class FakeData {
      */
     private static String seedEventId(final String tripId) {
         return UUID.nameUUIDFromBytes(("trip-event:" + tripId).getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    /** The parts a ground leg's bespoke editor stores, keyed as {@link TripEvent.Detail} spells them. */
+    private static Map<String, String> groundDetails(final String from, final String to, final String carrier) {
+        final Map<String, String> details = new LinkedHashMap<>();
+        details.put(TripEvent.Detail.FROM.key(), from);
+        details.put(TripEvent.Detail.TO.key(), to);
+        details.put(TripEvent.Detail.CARRIER.key(), carrier);
+        return details;
     }
 
     private static TripEvent newTripEvent(

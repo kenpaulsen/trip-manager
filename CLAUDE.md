@@ -156,7 +156,8 @@ touching Person field visibility, redaction, or the profile/contacts pages.
 `@Named @ApplicationScoped` beans exposed to JSF EL. Current names: `trip` (TripCommands), `people`
 (PersonCommands), `reg` (RegistrationCommands), `txCmds` (TransactionsCommands), `todo`, `bind`, `priv`,
 `pdv`, `pass`, `mail`, `chat`, `audit`, `auditView`, `config` (ConfigCommands — admin Settings page),
-`media`, `profilePhotos`, `chatPhotos` (ChatPhotos — chat photo storage/staging/album), `photoChat`
+`media`, `reports` (ReportCommands — the trip report pages' scalar rows; see `docs/reports.md`),
+`profilePhotos`, `chatPhotos` (ChatPhotos — chat photo storage/staging/album), `photoChat`
 (PhotoChatCommands — per-photo comment threads/reactions; see `docs/photo-comments.md` before touching),
 `content` (ContentCommands — template-driven page sections) and `contentTemplate` (TemplateCommands — the
 template manager; see `docs/content-templates.md` before touching either — MAIL-kind templates are

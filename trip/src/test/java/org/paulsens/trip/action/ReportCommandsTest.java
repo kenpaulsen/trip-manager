@@ -1,0 +1,161 @@
+package org.paulsens.trip.action;
+
+import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.List;
+import org.paulsens.trip.dynamo.FakeData;
+import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.TripEvent;
+import org.testng.Assert;
+import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Test;
+
+/**
+ * The Ground Transportation report's rows: which events it takes, the order it puts them in, what a leg written
+ * by the bespoke editor carries, and how a leg that predates the editor degrades. The names are the report's
+ * whole point, so their format and their order are pinned here rather than in the page.
+ */
+public class ReportCommandsTest {
+
+    private static final LocalDateTime NOON = LocalDateTime.of(2028, 5, 3, 12, 0);
+
+    private final ReportCommands reports = new ReportCommands(TripCommands::new);
+
+    @BeforeClass
+    void beforeClass() {
+        FakeData.initFakeData();
+        FakeData.addFakeData();
+    }
+
+    private static Person.Id person(final int index) {
+        return FakeData.getFakePeople().get(index).getId();
+    }
+
+    private static TripEvent leg(final String id, final LocalDateTime start, final LocalDateTime end,
+            final Person.Id... people) {
+        return new TripEvent(id, TripEvent.Type.GROUND, "A -> B", "notes", start, end, Arrays.asList(people), null);
+    }
+
+    private static TripEvent composedLeg(final String id, final LocalDateTime start, final LocalDateTime end,
+            final Person.Id... people) {
+        final TripEvent event = leg(id, start, end, people);
+        event.setDetails(java.util.Map.of(TripEvent.Detail.FROM.key(), "Split", TripEvent.Detail.TO.key(),
+                "Medjugorje", TripEvent.Detail.CARRIER.key(), "Globtour bus"));
+        return event;
+    }
+
+    private static Trip tripWith(final TripEvent... events) {
+        return Trip.builder().title("Ground Report Test").tripEvents(List.of(events)).build();
+    }
+
+    @Test
+    public void legsComeBackInDepartureOrderWithTheUndatedOnesLast() {
+        final TripEvent late = leg("late", NOON.plusDays(2), NOON.plusDays(2).plusHours(1));
+        final TripEvent early = leg("early", NOON, NOON.plusHours(1));
+        final TripEvent undated = leg("undated", NOON, NOON.plusHours(1));
+        undated.setStart(null);
+        final List<ReportCommands.GroundRow> rows = reports.groundRows(tripWith(late, undated, early));
+        Assert.assertEquals(rows.stream().map(ReportCommands.GroundRow::getId).toList(),
+                List.of("early", "late", "undated"));
+    }
+
+    @Test
+    public void onlyGroundEventsAreReported() {
+        final TripEvent flight = new TripEvent("f", TripEvent.Type.FLIGHT, "PDX -> FCO", "AS 1", NOON, null, null,
+                null);
+        final TripEvent lodging = new TripEvent("l", TripEvent.Type.LODGING, "Hotel", "", NOON, null, null, null);
+        final TripEvent plain = new TripEvent("e", TripEvent.Type.EVENT, "Mass", "", NOON, null, null, null);
+        final TripEvent untyped = new TripEvent("u", null, "Legacy", "", NOON, null, null, null);
+        final Trip trip = tripWith(flight, lodging, plain, untyped, leg("g", NOON, NOON.plusHours(1)));
+        final List<ReportCommands.GroundRow> rows = reports.groundRows(trip);
+        Assert.assertEquals(rows.size(), 1, "only the GROUND leg belongs on this report");
+        Assert.assertEquals(rows.get(0).getId(), "g");
+    }
+
+    @Test
+    public void aComposedLegCarriesItsPartsItsDurationAndItsPeople() {
+        final TripEvent event = composedLeg("in", NOON, NOON.plusHours(2).plusMinutes(30),
+                person(2), person(3), person(4));
+        final ReportCommands.GroundRow row = reports.groundRows(tripWith(event)).get(0);
+        Assert.assertTrue(row.isComposed());
+        Assert.assertEquals(row.getFrom(), "Split");
+        Assert.assertEquals(row.getTo(), "Medjugorje");
+        Assert.assertEquals(row.getCarrier(), "Globtour bus");
+        Assert.assertEquals(row.getElapsed(), "2h 30m");
+        Assert.assertFalse(row.isOvernight());
+        Assert.assertEquals(row.getCount(), 3);
+        Assert.assertEquals(row.getNames(), "Ken Paulsen, Kevin Paulsen, Trinity Paulsen",
+                "preferred name and last name, ordered by last then preferred");
+        Assert.assertEquals(row.getStart(), NOON);
+        Assert.assertEquals(row.getEnd(), NOON.plusHours(2).plusMinutes(30));
+    }
+
+    @Test
+    public void aLegacyLegFallsBackToItsTitleAndNotes() {
+        final ReportCommands.GroundRow row = reports.groundRows(tripWith(leg("old", NOON, NOON.plusHours(1)))).get(0);
+        Assert.assertFalse(row.isComposed(), "an event written before the editor stores no parts");
+        Assert.assertNull(row.getFrom());
+        Assert.assertNull(row.getTo());
+        Assert.assertNull(row.getCarrier());
+        Assert.assertEquals(row.getTitle(), "A -> B");
+        Assert.assertEquals(row.getNotes(), "notes");
+        Assert.assertEquals(row.getElapsed(), "1h", "the duration is still derived from the times");
+    }
+
+    @Test
+    public void anUnknownRiderIsCountedButNotNamed() {
+        final Person.Id ghost = Person.Id.from("3fbd4e0a-6f5d-4c66-8b02-9a5c1e2d3f44");
+        final ReportCommands.GroundRow row = reports
+                .groundRows(tripWith(leg("g", NOON, NOON.plusHours(1), person(5), person(2), ghost))).get(0);
+        Assert.assertEquals(row.getNames(), "Ken Paulsen, Dave Robinson");
+        Assert.assertEquals(row.getCount(), 3, "the head count follows the event, not what still resolves");
+    }
+
+    @Test
+    public void overnightIsTheDateChangingAndNothingElse() {
+        final LocalDateTime lateNight = LocalDateTime.of(2028, 5, 3, 23, 0);
+        Assert.assertTrue(reports.groundRows(tripWith(leg("n", lateNight, lateNight.plusHours(2)))).get(0)
+                .isOvernight());
+        Assert.assertFalse(reports.groundRows(tripWith(leg("d", NOON, NOON.plusHours(2)))).get(0).isOvernight());
+        final TripEvent open = leg("o", NOON, NOON.plusHours(1));
+        open.setEnd(null);
+        final ReportCommands.GroundRow row = reports.groundRows(tripWith(open)).get(0);
+        Assert.assertFalse(row.isOvernight());
+        Assert.assertEquals(row.getElapsed(), "", "no arrival, no duration");
+    }
+
+    @Test
+    public void aTripWithNoGroundLegsReportsNothing() {
+        Assert.assertTrue(reports.groundRows((Trip) null).isEmpty());
+        Assert.assertTrue(reports.groundRows(Trip.builder().title("Empty").build()).isEmpty());
+        Assert.assertEquals(reports.groundLegCount("dfd0a6f2-0b47-4a2e-9a0f-2f7e2a5b6c31"), 0,
+                "an id that names no trip answers a blank one, which has no events");
+    }
+
+    @Test
+    public void theSeededDemoTripListsItsTwoTransfers() {
+        final List<ReportCommands.GroundRow> rows = reports.groundRows(FakeData.FAKE_TRIP_ID);
+        Assert.assertEquals(rows.size(), 2, "the local fixture seeds one composed leg and one legacy leg");
+        Assert.assertEquals(reports.groundLegCount(FakeData.FAKE_TRIP_ID), 2);
+        final ReportCommands.GroundRow inbound = rows.get(0);
+        Assert.assertTrue(inbound.isComposed());
+        Assert.assertEquals(inbound.getFrom(), "Split");
+        Assert.assertEquals(inbound.getTo(), "Medjugorje");
+        Assert.assertEquals(inbound.getCarrier(), "Globtour bus");
+        Assert.assertEquals(inbound.getCount(), 3);
+        Assert.assertTrue(inbound.getNames().contains("Ken Paulsen"), inbound.getNames());
+        final ReportCommands.GroundRow outbound = rows.get(1);
+        Assert.assertFalse(outbound.isComposed());
+        Assert.assertEquals(outbound.getTitle(), "Medjugorje -> Split");
+        Assert.assertEquals(outbound.getCount(), 2);
+    }
+
+    @Test
+    public void theDefaultConstructorDoesNotNeedAContainerUntilItIsAsked() {
+        final List<ReportCommands.GroundRow> rows = new ReportCommands()
+                .groundRows(tripWith(leg("g", NOON, NOON.plusHours(1), person(2))));
+        Assert.assertEquals(rows.size(), 1, "a trip in hand never reaches the CDI lookup");
+        Assert.assertEquals(rows.get(0).getNames(), "Ken Paulsen");
+    }
+}
