@@ -293,6 +293,35 @@ public class TripCommands {
         return PageFeedback.refuse(reason);
     }
 
+    // ------------------------------------------------------------------ the trip's own dates
+
+    /**
+     * The trip editors' date row: the trip's start and end as the range-and-times buffer the pickers bind to
+     * ({@code viewScope.tripDates}, seeded once by the page's initPage). A range picker cannot bind to two
+     * date-times, and the working copy must not be in the view.
+     */
+    public DateSpanForm dateSpanOf(final Trip trip) {
+        final DateSpanForm span = new DateSpanForm();
+        if (trip != null) {
+            span.setStart(trip.getStartDate());
+            span.setEnd(trip.getEndDate());
+        }
+        return span;
+    }
+
+    /**
+     * Folds the date row back into the working copy. Called by the pickers' ajax as each one changes and again
+     * by every Save before it writes, so the copy never depends on which of the two ran last. A span with no
+     * start (the range picker is required, so only a never-written one) changes nothing.
+     */
+    public void applyDateSpan(final Trip trip, final DateSpanForm span) {
+        if (trip == null || span == null || span.getStart() == null) {
+            return;
+        }
+        trip.setStartDate(span.getStart());
+        trip.setEndDate(span.getEnd());
+    }
+
     // ------------------------------------------------------------------ the event dialog's form
 
     /**

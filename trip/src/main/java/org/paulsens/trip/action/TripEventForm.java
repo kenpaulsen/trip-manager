@@ -2,11 +2,12 @@ package org.paulsens.trip.action;
 
 import java.io.Serial;
 import java.io.Serializable;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.TripEvent;
 
@@ -22,10 +23,15 @@ import org.paulsens.trip.model.TripEvent;
  * event is named by {@link #eventId} and resolved from the working copy on every Apply. Same shape as
  * {@code viewScope.offerForm} on the Lodging tab. No state is established in a constructor: the session's
  * serializer runs none, so every field must be safe at its Java default.
+ *
+ * <p>The start and end live on {@link DateSpanForm}, which is what the dialog's range picker and its two time
+ * pickers bind to; the commands keep reading {@code getStart()} and {@code getEnd()} as before.
  */
 @Data
+@EqualsAndHashCode(callSuper = true)
+@ToString(callSuper = true)
 @NoArgsConstructor
-public class TripEventForm implements Serializable {
+public class TripEventForm extends DateSpanForm implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
@@ -50,8 +56,6 @@ public class TripEventForm implements Serializable {
     private String flightNumber;
     private String carrier;
     private String duration;
-    private LocalDateTime start;
-    private LocalDateTime end;
     private List<Person.Id> participants;
 
     public List<Person.Id> getParticipants() {

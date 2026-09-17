@@ -258,8 +258,9 @@ An organization with an explicit `grantablePrivileges` allow-list will not offer
   Reservations (new / edit / cancel-with-credit / recompute; dates are ONE range picker "arrival -
   departure" plus arrival and departure times, the labels are arrival/departure never check-in/out; a
   `p:datePicker` renders `span > input + button`, so NEVER put a width on the component -- that sizes the
-  wrapper and drops the calendar button onto its own line: size the input through `.lo-time`/`.lo-range`
-  and keep each label glued to its picker in a `.lo-when`, the `.lo-daterow` recipe in `lodging.css`), Offers
+  wrapper and drops the calendar button onto its own line: size the input through `.dateTime`/`.dateRange`
+  and keep each label glued to its picker in a `.dateWhen`, the `.dateRow` recipe in `trip.css`, shared
+  since 2026-09-17 with the trip editors' Trip Dates row and the trip-event dialog), Offers
   (the "Lodging option" dialog asks for the accommodation and room types FIRST and names the option after
   the room types while the name is blank; then the option's dates and the default stay as range pickers
   with times; it can create the LODGING event). The forms keep their range/time fields and their date-time

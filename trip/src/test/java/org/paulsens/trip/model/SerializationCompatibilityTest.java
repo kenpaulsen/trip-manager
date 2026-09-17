@@ -25,6 +25,7 @@ import org.paulsens.trip.action.BrandingPhotos;
 import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.PaymentCommands;
 import org.paulsens.trip.action.PrivacyView;
+import org.paulsens.trip.action.DateSpanForm;
 import org.paulsens.trip.action.ProfilePhotos;
 import org.paulsens.trip.action.RegistrationCommands;
 import org.paulsens.trip.action.SupportChatCommands;
@@ -125,6 +126,7 @@ public class SerializationCompatibilityTest {
             of(Trip.class, () -> Trip.builder().id("trip-rome").build(), Trip::getId),
             of(TripEvent.class, SerializationCompatibilityTest::tripEvent, TripEvent::getId),
             of(TripEventForm.class, SerializationCompatibilityTest::tripEventForm, TripEventForm::getEventId),
+            of(DateSpanForm.class, SerializationCompatibilityTest::dateSpanForm, DateSpanForm::getStart),
             of(Registration.class, () -> new Registration("trip-rome", ADA, AT, Registration.Status.PENDING, null),
                     r -> r.getUserId().getValue()),
             of(Transaction.class, SerializationCompatibilityTest::transaction, t -> t.getUserId().getValue()),
@@ -177,6 +179,13 @@ public class SerializationCompatibilityTest {
 
     private static Person person() {
         return Person.builder().id(ADA).first("Ada").last("Lovelace").build();
+    }
+
+    private static DateSpanForm dateSpanForm() {
+        final DateSpanForm span = new DateSpanForm();
+        span.setStart(AT);
+        span.setEnd(AT.plusDays(9));
+        return span;
     }
 
     private static TripEventForm tripEventForm() {

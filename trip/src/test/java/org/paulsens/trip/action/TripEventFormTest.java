@@ -1,6 +1,8 @@
 package org.paulsens.trip.action;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Person;
@@ -149,6 +151,39 @@ public class TripEventFormTest {
         form.setStart(null);
         trip.defaultEventEnd(form);
         trip.defaultEventEnd(null);
+    }
+
+    /** The dialog's pickers write a day range and two times, in tree order; the commands read the date-times. */
+    @Test
+    public void theRangeAndTimesFoldIntoTheStartAndEnd() {
+        final TripEventForm form = trip.eventFormFor(workingCopy(), "GROUND", null);
+        form.setRange(List.of(LocalDate.of(2028, 5, 3), LocalDate.of(2028, 5, 4)));
+        form.setStartTime(LocalTime.of(9, 0));
+        form.setEndTime(LocalTime.of(11, 30));
+        Assert.assertEquals(form.getStart(), LocalDateTime.of(2028, 5, 3, 9, 0));
+        Assert.assertEquals(form.getEnd(), LocalDateTime.of(2028, 5, 4, 11, 30));
+
+        final Trip theTrip = workingCopy();
+        Assert.assertTrue(trip.saveEventForm(theTrip, flightForm("pdx", "fco")));
+        final TripEventForm edit = trip.eventFormFor(theTrip, null, theTrip.getTripEvents().get(0).getId());
+        Assert.assertEquals(edit.getRange(), List.of(DEPART.toLocalDate(), ARRIVE.toLocalDate()),
+                "an edit opens with the pickers filled from the event");
+        Assert.assertEquals(edit.getStartTime(), DEPART.toLocalTime());
+        Assert.assertEquals(edit.getEndTime(), ARRIVE.toLocalTime());
+    }
+
+    /** A start late in the day puts the three-hour default end on the next day, and the range follows it. */
+    @Test
+    public void theDefaultEndMovesTheRangeAcrossMidnight() {
+        final TripEventForm form = trip.eventFormFor(workingCopy(), "EVENT", null);
+        final LocalDate day = LocalDate.of(2028, 5, 3);
+        form.setRange(List.of(day, day));
+        form.setStartTime(LocalTime.of(22, 0));
+        form.setEndTime(LocalTime.of(22, 0));
+        trip.defaultEventEnd(form);
+        Assert.assertEquals(form.getEnd(), day.plusDays(1).atTime(1, 0));
+        Assert.assertEquals(form.getRange(), List.of(day, day.plusDays(1)));
+        Assert.assertEquals(form.getEndTime(), LocalTime.of(1, 0));
     }
 
     // --- add ---
