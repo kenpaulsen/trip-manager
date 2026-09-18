@@ -1,6 +1,7 @@
 package org.paulsens.trip.api;
 
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.POST;
@@ -211,8 +212,15 @@ public class TransactionsResource extends BaseResource {
         if (!isFinanceAdmin(tripId)) {
             return error(403, ApiErrors.FORBIDDEN, "Trip finance administrator required.");
         }
-        if (body == null || body.people() == null || body.people().isEmpty()) {
-            return error(400, ApiErrors.BAD_REQUEST, "At least one person is required.");
+        if (body == null || body.people() == null) {
+            return error(400, ApiErrors.BAD_REQUEST, "A member list is required.");
+        }
+        // An EMPTY list is how a group is deleted: 0 members is no transaction (a Batch is a set of identical
+        // charges and an empty set is legitimate; a Shared amount has nobody to divide between). It is only
+        // meaningful as an AMENDMENT though -- creating an empty group would store nothing under a groupId the
+        // client then has no way to use.
+        if (body.people().isEmpty() && (body.groupId() == null || body.groupId().isBlank())) {
+            return error(400, ApiErrors.BAD_REQUEST, "At least one person is required for a new group.");
         }
         // The group id is minted HERE when the client did not supply one, rather than left to the bean. The
         // bean generates one internally and returns only a boolean, so a client that let it do so would have
@@ -235,6 +243,51 @@ public class TransactionsResource extends BaseResource {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the group transaction.");
         }
         return ok(Map.of("saved", true, "groupId", groupId));
+    }
+
+    /**
+     * Deletes a transaction. A row belonging to a Shared/Batch group is removed from the GROUP -- the
+     * survivors' stamped membership is rewritten, and removing the last member deletes the transaction
+     * itself -- because deleting such a row on its own leaves the Shared divisor too high and silently drops
+     * that share from every balance and report.
+     *
+     * <p>{@code confirmUndo=true} is required to remove the LAST member of a Shared group: doing so undoes a
+     * payment that may really have happened, which the pages warn about before they call this. Nothing else
+     * needs it.
+     */
+    @DELETE
+    @Path("people/{personId}/{txId}")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response delete(
+            @PathParam("personId") final String personIdParam,
+            @PathParam("txId") final String txId,
+            @HeaderParam(CSRF_HEADER) final String csrf,
+            @QueryParam("trip") final String tripId,
+            @QueryParam("confirmUndo") final boolean confirmUndo) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        if (!isFinanceAdmin(tripId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Trip finance administrator required.");
+        }
+        if (txId == null || txId.isBlank()) {
+            // Blank makes getTransaction MINT a row rather than miss, so this would "delete" a new object.
+            return error(400, ApiErrors.BAD_REQUEST, "A transaction id is required.");
+        }
+        final TransactionsCommands transactions = Beans.get(TransactionsCommands.class);
+        final Person.Id subject = Person.Id.from(personIdParam);
+        final Transaction tx = transactions.getTransaction(subject, txId);
+        if (tx == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such transaction.");
+        }
+        if (tx.isShared() && !confirmUndo && transactions.getUserIdsForGroup(tx).size() == 1) {
+            return error(409, ApiErrors.CONFLICT,
+                    "Removing the last member undoes this shared transaction; pass confirmUndo=true.");
+        }
+        if (!transactions.deleteForPerson(tx, actor())) {
+            return error(500, ApiErrors.STORE_FAILED, "Could not delete the transaction.");
+        }
+        return ok(Map.of("deleted", true, "txId", txId));
     }
 
     /** A group transaction as a client submits it -- typed, unlike the page's widget soup. */

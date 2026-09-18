@@ -6,15 +6,24 @@
 # invalidated automatically when TRIP_APP_URL and TRIP_ADMIN_EMAIL are exported (see
 # lib/cache-invalidate.sh); otherwise a manual clear-caches reminder is printed.
 #
+# --repair additionally fixes rows whose stamped groupPeople DISAGREES with the live membership.
+# Until 2026-09-17 a group row could be deleted on its own (the Delete button on trip/transaction.jsf,
+# and the group editor's member removal), which left every surviving row still naming the person who
+# went. For a Shared group that list is the divisor: a $150 payment split three ways kept reporting
+# $50 shares after a member was removed, so $50 of it stopped appearing in any balance or report. The
+# app no longer creates such rows; --repair cleans up the ones it already made. It cannot invent the
+# money back -- it makes the surviving rows agree about who is in the group, and the shares follow.
+#
 # Updates run CONCURRENCY at a time (default 25). A failed row is reported and counted but never
 # aborts the run; the script exits non-zero if any row failed, and is safe to re-run to retry them.
 #
 # Usage: migrate-group-tx-membership.sh [--profile <p>] [--region <r>] [--table <t>]
-#                                       [--concurrency <n>] [--dry-run]
+#                                       [--concurrency <n>] [--repair] [--dry-run]
 set -euo pipefail
 
 TABLE="transactions"
 DRY_RUN=0
+REPAIR=0
 CONCURRENCY=25
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -23,6 +32,7 @@ while [[ $# -gt 0 ]]; do
         --region)      export AWS_DEFAULT_REGION="$2"; shift 2 ;;
         --table)       TABLE="$2"; shift 2 ;;
         --concurrency) CONCURRENCY="$2"; shift 2 ;;
+        --repair)      REPAIR=1; shift ;;
         --dry-run)     DRY_RUN=1; shift ;;
         *) echo "Unknown arg: $1" >&2; exit 1 ;;
     esac
@@ -43,7 +53,7 @@ aws dynamodb scan --table-name "$TABLE" \
 # One compact JSON record per line for each row needing a fix. Records must NOT go through @tsv:
 # it escapes backslashes, which would double every backslash inside `content` (any note holding a
 # quote is stored as \" ) and write back invalid JSON.
-jq -c '
+jq -c --argjson repair "$REPAIR" '
     [.Items[] | {uid: .userId.S, txId: .txId.S, c: (.content.S | fromjson)}] as $rows |
     ($rows
         | map(select((.c.groupId // null) != null and (.c.deleted // null) == null))
@@ -53,13 +63,20 @@ jq -c '
     $rows[]
     | select((.c.groupId // null) != null)
     | select((.c.deleted // null) == null)
-    | select((.c.groupPeople // []) | length == 0)
     | select(($members[.c.groupId] // []) | length > 0)
-    | {uid: .uid, txId: .txId, content: ((.c + {groupPeople: $members[.c.groupId]}) | tojson)}
+    | ($members[.c.groupId]) as $live
+    | (.c.groupPeople // []) as $stamped
+    # A stamped list is compared as a SET: the stored order is whatever a save happened to write, and a
+    # row naming exactly the live members in another order is correct, not stale. Person.Id is @JsonValue,
+    # so these are bare strings, the same shape as the userIds $live is built from.
+    | select(
+        ($stamped | length == 0)
+        or ($repair == 1 and (($stamped | unique | sort) != $live)))
+    | {uid: .uid, txId: .txId, content: ((.c + {groupPeople: $live}) | tojson)}
     ' "$WORK/scan.json" > "$WORK/records.json"
 
 COUNT=$(wc -l < "$WORK/records.json" | tr -d ' ')
-echo "Rows needing groupPeople: $COUNT"
+echo "Rows needing groupPeople$([[ $REPAIR -eq 1 ]] && echo ' or repair'): $COUNT"
 if [[ "$COUNT" -eq 0 ]]; then
     echo "Nothing to do."
     exit 0

@@ -5,6 +5,9 @@ system** and probing their transaction partitions for the groupId. The app now s
 directly on each group transaction row (`groupPeople` inside the `content` JSON), written on every
 group save.
 
+There are now TWO things this script fixes. **Legacy rows** have no `groupPeople` at all (the default
+mode), and **stale rows** have one that disagrees with the live membership (`--repair`, see below).
+
 **Legacy rows** (saved before this change) have no `groupPeople`. Until they are migrated:
 
 - `getUserAmount` for a **Shared** tx falls back to "just this user" — the amount shows **unsplit**
@@ -17,16 +20,43 @@ Run this migration once per environment right after deploying the change. It is 
 **other instances of the database** (e.g. the old us-west-2 tables vs. the live us-east-1 account) —
 run it once per table location with the right `--profile`/`--region`.
 
+## `--repair`: rows whose membership went stale
+
+Until 2026-09-17 a group row could be deleted **on its own** -- the Delete button on
+`trip/transaction.jsf`, and the group editor's member removal -- which left every surviving row still naming
+the person who went. For a **Shared** group that list is the divisor, so a $150 payment split three ways kept
+reporting $50 shares after a member was removed: $50 of it appeared in no balance, total or report. The stale
+list also made the group editor offer the removed person again, and saving there recreated their row under a
+new `txId`, silently undoing the delete.
+
+The app no longer writes such rows (every removal goes through `TransactionsCommands.removeFromGroup`, which
+restamps the survivors -- `docs/payments.md`, "Group transactions"). `--repair` cleans up the ones already in
+the table:
+
+```sh
+./scripts/migrate-group-tx-membership.sh --repair --dry-run          # review first, ALWAYS
+./scripts/migrate-group-tx-membership.sh --repair --profile cdk-deploy
+```
+
+It selects, in addition to the legacy rows, any row whose stamped list differs **as a set** from the userIds
+that still have a live row in that group, and rewrites it to the live set. Order is not a difference: the
+stored order is whatever a save happened to write. One table scan, so the cost is negligible.
+
+What it does NOT do: recover money. Making the surviving rows agree about who is in the group is what puts the
+shares back on the ledger; if a row was deleted that should not have been, the amount it carried was never
+recorded anywhere else and has to be re-entered by hand. Run `--dry-run` first and read the list.
+
 ## What the script does
 
 1. Scans the `transactions` table once.
 2. Groups non-deleted rows by `groupId`; the member list for a group = the sorted set of `userId`s
    that still have a live row in that group.
 3. For every row whose `content` has a `groupId` but no `groupPeople`, rewrites `content` with
-   `groupPeople` set to that member list.
+   `groupPeople` set to that member list. With `--repair`, also every row whose `groupPeople` differs from
+   that member list as a set.
 
 Deleted rows are left untouched (they are display-history only). The script is idempotent: rows that
-already have `groupPeople` are skipped, so re-running is safe.
+already agree with the live membership are skipped, so re-running is safe in either mode.
 
 ## Run it
 

@@ -185,6 +185,45 @@ public class AuditCommandsTest {
         Assert.assertFalse(noOrg.contains("org="), "an org-less trip stamps nothing off a request: " + noOrg);
     }
 
+    /**
+     * Deleting money used to be the one ledger mutation with no trail: the Delete button, the trash icon and
+     * the group editor's member removal each wrote the soft-delete and nothing else. The amount and note have
+     * to be IN the message, because once the row is deleted no DAO will read it back.
+     */
+    @Test
+    public void deletingATransactionIsRecordedWithWhatWentAndWhose() {
+        final Person payee = person("Pat", null, "Payee", "pat@example.com");
+        final Transaction tx = new Transaction(payee.getId(), null, null);
+        tx.setAmount(25f);
+        tx.setNote("Deposit");
+        tx.setOrgId("org-of-the-row");
+
+        final String line = lineFor(captureStdout(() -> audit.transactionDeleted(payee, tx)), "pat@example.com");
+        Assert.assertTrue(line.contains("deleted $25.0"), line);
+        Assert.assertTrue(line.contains("Deposit"), line);
+        Assert.assertTrue(line.endsWith(" | org=org-of-the-row"), line);
+
+        // Null-tolerant on every field, for the same reason describe() is.
+        Assert.assertNotNull(audit.transactionDeleted(null, null, null));
+    }
+
+    /** The group record is targeted at the TRANSACTION: unlike every other one here it is about no person. */
+    @Test
+    public void deletingAWholeGroupIsRecordedAgainstTheTransaction() {
+        final Transaction tx = new Transaction("grp-tx", Person.Id.from("someone"), "grp-1",
+                Transaction.Type.Shared, Transaction.TransactionType.Payment, null, 150f, "cat", "Hotel");
+
+        final String line = lineFor(captureStdout(() -> audit.groupTransactionDeleted(tx, 3)), "grp-tx");
+        Assert.assertTrue(line.contains("Shared"), line);
+        Assert.assertTrue(line.contains("$150.0"), line);
+        Assert.assertTrue(line.contains("3 members"), line);
+        Assert.assertTrue(line.contains("target=transaction:grp-tx"), line);
+
+        final String solo = captureStdout(() -> audit.groupTransactionDeleted(tx, 1, null));
+        Assert.assertTrue(solo.contains("1 member") && !solo.contains("1 members"), solo);
+        Assert.assertNotNull(audit.groupTransactionDeleted(null, 0, null));
+    }
+
     private static String lineFor(final String out, final String needle) {
         return java.util.Arrays.stream(out.split("\\R")).filter(l -> l.contains(needle)).findFirst().orElse("");
     }

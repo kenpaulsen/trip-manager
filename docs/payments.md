@@ -110,6 +110,52 @@ Entered amounts are ALWAYS the amounts credited. All math in **long cents** (`pa
   - Every description carries the processor **capture id** (searchable in the processor console); every row
     is trip-bound and org-stamped. "split with" names the payer first, then others alphabetically.
 
+## Group transactions: membership IS the divisor (2026-09-17)
+
+A Shared or Batch transaction is not an entity -- it is the set of rows sharing a `groupId`, and each row
+carries the whole member list in `groupPeople`. That list is what `getUserAmount` divides a **Shared** amount
+by, so it is accounting data, not a convenience:
+
+- **Batch** = identical independent charges. N members, N rows, each for the full amount. 0 members is a
+  legitimate (empty) set, so it is simply no transaction.
+- **Shared** = one amount split evenly. Each member's share is `amount / groupPeople.size()`. 0 members has
+  nothing to divide between, so it is likewise no transaction -- but reaching 0 **undoes** an amount that may
+  really have changed hands, which is why the pages warn before they let it happen.
+
+Every removal therefore goes through `TransactionsCommands`, never a bare `delete()` + save:
+
+- `deleteForPerson(tx)` -- the ONE front door for every delete affordance; dispatches on the row's type.
+- `removeFromGroup(tx)` -- deletes that member's row **and rewrites `groupPeople` on every surviving row**;
+  when they were the last member, deletes the group instead.
+- `deleteGroup(tx)` / `deleteGroupById(groupId, knownMembers)` -- the whole transaction. A group save with an
+  EMPTY member list does the same thing, which is how the editor's "unselect everyone" works.
+- `deleteTransaction(tx)` -- a plain row, and it REFUSES a group row.
+- `needsGroupDeleteConfirm(groupId, selection)` -- the rule behind the editor's confirmation, in Java: it
+  publishes the `confirmGroupDelete` ajax callback param and the page opens its dialog.
+
+Each of those drops the row's `TRANSACTION->TRIP` and `TRANSACTION->TRIP_EVENT` bindings and writes an audit
+record (`AuditCommands.transactionDeleted`, plus one `groupTransactionDeleted` naming the transaction when the
+group itself goes). A delete used to be the only ledger mutation with no trail at all.
+
+**The bug this replaced, because the shape of it recurs.** `trip/transaction.xhtml`'s Delete button
+soft-deleted one row and stopped. The survivors kept dividing by a person who no longer had a row, so a $150
+payment split three ways still reported $50 shares and $50 of it appeared in **no** balance, total or report.
+The stale list also made the group editor offer the removed person again, and saving there recreated their row
+under a new `txId` -- silently undoing the delete. Rows already corrupted this way are repaired by
+`scripts/migrate-group-tx-membership.sh --repair` (`docs/migrations/group-tx-membership.md`); it makes the
+surviving rows agree about who is in the group, and the shares follow. It cannot recover money nobody recorded.
+
+Note that `getGroupTransactionForUser` returns only LIVE rows -- `TransactionDAO` filters `deleted` out of
+every partition load and evicts a deleted row from the cache. That is why a re-added member comes back under a
+new `txId` rather than having their old row revived, and why a group save can never "find" the row it just
+deleted.
+
+REST: `DELETE /api/transactions/people/{personId}/{txId}` runs the same dispatch, and needs
+`?confirmUndo=true` to remove the last member of a Shared group (409 `CONFLICT` otherwise).
+`POST /api/transactions/groups` accepts an empty `people` list as "delete this group" when a `groupId` is
+supplied; an empty list with no groupId is still a 400, since that would store nothing under an id the client
+could never use.
+
 ## The flow (`action/PaymentCommands` — Java-first, user-locked)
 
 ALL flow logic is Java; `trip/payment.xhtml` and `api/PaymentsResource` (v2: `POST payments`,

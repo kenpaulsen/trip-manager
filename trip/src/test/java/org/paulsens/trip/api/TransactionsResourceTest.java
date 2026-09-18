@@ -304,6 +304,91 @@ public class TransactionsResourceTest extends ResourceTestSupport {
                 500, ApiErrors.STORE_FAILED);
     }
 
+    /**
+     * Emptying an EXISTING group is how a client deletes the transaction (0 members is no transaction), so the
+     * blanket refusal only applies to creating one that would be empty from birth.
+     */
+    @Test
+    public void emptyingAnExistingGroupIsAllowedAndDeletesIt() {
+        signedInAsSiteAdmin(ME);
+        Mockito.when(transactions.saveGroupTransaction(ArgumentMatchers.anyString(), ArgumentMatchers.anyList(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyList())).thenReturn(true);
+
+        assertOk(resource.saveGroup(CSRF_OK, TRIP_ID, group("group-9", List.of())));
+        Mockito.verify(transactions).saveGroupTransaction(ArgumentMatchers.eq("group-9"),
+                ArgumentMatchers.anyList(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.eq(List.of()));
+    }
+
+    @Test
+    public void deleteIsGuardedLikeEveryOtherWrite() {
+        signedInAsSiteAdmin(ME);
+        assertError(resource.delete(ME.getValue(), "tx-1", null, TRIP_ID, false), 403, ApiErrors.CSRF);
+
+        final TransactionsResource ordinary = resource(new TransactionsResource());
+        signedInAs(ME);
+        assertError(ordinary.delete(ME.getValue(), "tx-1", CSRF_OK, TRIP_ID, false), 403, ApiErrors.FORBIDDEN);
+    }
+
+    /** Blank makes getTransaction MINT a row rather than miss, so "delete" would act on a brand new object. */
+    @Test
+    public void deleteRefusesABlankTransactionIdAnd404sAnUnknownOne() {
+        signedInAsSiteAdmin(ME);
+
+        assertError(resource.delete(ME.getValue(), " ", CSRF_OK, TRIP_ID, false), 400, ApiErrors.BAD_REQUEST);
+        Mockito.verify(transactions, Mockito.never())
+                .getTransaction(ArgumentMatchers.any(), ArgumentMatchers.anyString());
+
+        Mockito.when(transactions.getTransaction(ME, "gone")).thenReturn(null);
+        assertError(resource.delete(ME.getValue(), "gone", CSRF_OK, TRIP_ID, false), 404, ApiErrors.NOT_FOUND);
+    }
+
+    /**
+     * Removing the LAST member of a Shared group undoes a payment that may really have happened, so a client
+     * has to say it means it. Every other delete goes straight through.
+     */
+    @Test
+    public void deletingTheLastMemberOfASharedGroupNeedsConfirmUndo() {
+        signedInAsSiteAdmin(ME);
+        final Transaction shared = tx(ME);
+        Mockito.when(transactions.getTransaction(ME, shared.getTxId())).thenReturn(shared);
+        Mockito.when(transactions.getUserIdsForGroup(shared)).thenReturn(List.of(ME));
+
+        assertError(resource.delete(ME.getValue(), shared.getTxId(), CSRF_OK, TRIP_ID, false), 409,
+                ApiErrors.CONFLICT);
+        Mockito.verify(transactions, Mockito.never())
+                .deleteForPerson(ArgumentMatchers.any(), ArgumentMatchers.any());
+
+        Mockito.when(transactions.deleteForPerson(ArgumentMatchers.eq(shared), ArgumentMatchers.any()))
+                .thenReturn(true);
+        assertOk(resource.delete(ME.getValue(), shared.getTxId(), CSRF_OK, TRIP_ID, true));
+    }
+
+    @Test
+    public void deletingAnyOtherRowGoesStraightThroughAndReportsAFailure() {
+        signedInAsSiteAdmin(ME);
+        final Transaction shared = tx(ME);
+        Mockito.when(transactions.getTransaction(ME, shared.getTxId())).thenReturn(shared);
+        // Two members left, so this is an ordinary removal from the group.
+        Mockito.when(transactions.getUserIdsForGroup(shared)).thenReturn(List.of(ME, OTHER));
+        Mockito.when(transactions.deleteForPerson(ArgumentMatchers.eq(shared), ArgumentMatchers.any()))
+                .thenReturn(true);
+
+        final Response response = resource.delete(ME.getValue(), shared.getTxId(), CSRF_OK, TRIP_ID, false);
+        assertOk(response);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> body = (Map<String, Object>) response.getEntity();
+        Assert.assertEquals(body.get("txId"), shared.getTxId());
+
+        Mockito.when(transactions.deleteForPerson(ArgumentMatchers.eq(shared), ArgumentMatchers.any()))
+                .thenReturn(false);
+        assertError(resource.delete(ME.getValue(), shared.getTxId(), CSRF_OK, TRIP_ID, false),
+                500, ApiErrors.STORE_FAILED);
+    }
+
     @Test
     public void theProducedTypeIsTheTransactionsMediaType() {
         Assert.assertEquals(new TransactionsResource().versionedType(), ApiMediaTypes.TRANSACTIONS_V1);

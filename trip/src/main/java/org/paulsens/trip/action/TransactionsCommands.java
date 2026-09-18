@@ -13,9 +13,9 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Person;
@@ -31,6 +31,9 @@ import org.paulsens.trip.site.ListingScope;
 public class TransactionsCommands {
     @Inject
     private BindingCommands bind;
+
+    @Inject
+    private AuditCommands audit;
 
     public Transaction createTransaction(final Person.Id userId) {
         return new Transaction(userId, null, null);
@@ -184,29 +187,241 @@ public class TransactionsCommands {
                 final List<Person.Id> members) {
         final List<Person.Id> txPeople = (members == null) ? Collections.emptyList() : members;
         final String groupId = isNullOrEmpty(gid) ? UUID.randomUUID().toString() : gid;
-        final AtomicBoolean result = new AtomicBoolean(true);
-
-        // Find existing that should no longer be part of this, delete their existing tx
         final List<Person.Id> existing = (origPeople == null) ? List.of() : origPeople;
-        existing.stream().filter(uid -> !txPeople.contains(uid))
-                .map(uid -> getGroupTransactionForUser(uid, groupId))
-                .forEach(optTx -> optTx.ifPresent(tx -> {
-                    tx.delete();
-                    if (!saveTransaction(updateTx(tx, date, amount, txType, cat, note)))  {
-                        log.error("Unable to delete group tx ({}) with note: {}", groupId, note);
-                        result.set(false);
-                    }
-                }));
+        // The actor is captured ONCE, on the request thread, and handed to every record this save writes:
+        // AuditActor.current() reads a FacesContext ThreadLocal, so resolving it per row is at best repeated
+        // work and at worst (a future off-thread caller) no attribution at all.
+        final AuditActor actor = AuditActor.current();
+        if (txPeople.isEmpty()) {
+            // 0 members is no transaction. Legitimate for a Batch (a set of identical charges, and an empty
+            // set is a valid one); for a Shared amount it undoes the whole thing, which is why the pages
+            // confirm first (needsGroupDeleteConfirm).
+            return deleteGroupById(groupId, existing, actor);
+        }
+        boolean result = true;
+
+        // Members dropped from the selection lose their row -- through deleteRow, so the bindings go with it
+        // and the removal is audited, exactly as a removal from the transaction page is.
+        for (final Person.Id uid : existing) {
+            if (txPeople.contains(uid)) {
+                continue;
+            }
+            final Transaction gone = getGroupTransactionForUser(uid, groupId).orElse(null);
+            if ((gone != null) && !deleteRow(gone, actor)) {
+                log.error("Unable to delete group tx ({}) with note: {}", groupId, note);
+                result = false;
+            }
+        }
 
         // Find existing, update or create their tx (our "existing" variable doesn't contain deleted, search 1 by 1)
-        txPeople.forEach(uid -> {
+        for (final Person.Id uid : txPeople) {
             final Transaction tx = updateTx(getGroupTransactionForUser(uid, groupId)
                     .orElseGet(() -> new Transaction(uid, groupId, type)), date, amount, txType, cat, note);
             tx.setGroupPeople(txPeople);
-            persistTx(tx, tripId, eventId, result);
-        });
+            result = persistTx(tx, tripId, eventId) && result;
+        }
 
-        return result.get();
+        return result;
+    }
+
+    /**
+     * Deletes a transaction the way its TYPE requires: a plain row outright, a Shared/Batch row through
+     * {@link #removeFromGroup}.
+     *
+     * <p>The ONE front door for every delete affordance. Each of them used to dispatch for itself, and the
+     * Delete button on {@code transaction.xhtml} got it wrong -- it deleted a group row as though it were a
+     * plain one, which is the bug the group methods below exist to close.
+     */
+    public boolean deleteForPerson(final Transaction tx) {
+        return deleteForPerson(tx, AuditActor.current());
+    }
+
+    /** @see #deleteForPerson(Transaction) */
+    public boolean deleteForPerson(final Transaction tx, final AuditActor who) {
+        if (tx == null) {
+            return false;
+        }
+        return (tx.isBatch() || tx.isShared()) ? removeFromGroup(tx, who) : deleteTransaction(tx, who);
+    }
+
+    /**
+     * Whether the group editor must CONFIRM before it saves this selection, rather than saving it.
+     *
+     * <p>An empty selection on an existing group deletes the transaction. Only the page can ask the question,
+     * but the rule for when to ask belongs here, so this publishes the {@code confirmGroupDelete} ajax
+     * callback param (the {@code showRoleWarning} pattern) and answers true; the page's {@code oncomplete}
+     * opens its confirmation, whose own button calls {@link #deleteGroupById}.
+     */
+    public boolean needsGroupDeleteConfirm(final String groupId, final Collection<?> selection) {
+        if (isNullOrEmpty(groupId) || ((selection != null) && !selection.isEmpty())) {
+            return false;
+        }
+        PageFeedback.callbackParam("confirmGroupDelete", true);
+        return true;
+    }
+
+    /**
+     * Removes ONE person from a Shared/Batch group, or deletes the whole transaction when they were its last
+     * member.
+     *
+     * <p>What makes this more than a row delete: a group's membership is stamped on every row
+     * ({@code groupPeople}) and IS the divisor {@link #getUserAmount} splits a Shared amount by. Deleting one
+     * row and leaving the survivors alone left that divisor too high, so a $150 payment split three ways kept
+     * reporting $50 shares after a member was removed -- $50 of it simply stopped appearing in any balance,
+     * total or report. The stale list also made the group editor offer the removed person again, and saving
+     * there recreated their row under a NEW txId, undoing the delete.
+     *
+     * <p>Removing the last member leaves no transaction at all: a Batch is a set of identical charges and an
+     * empty set is legitimate, while a Shared amount has nobody left to divide between. Both delete the group.
+     * A Shared group's last removal undoes a payment that may really have happened, so the pages WARN before
+     * calling this; by the time it runs, that decision is made.
+     */
+    public boolean removeFromGroup(final Transaction tx) {
+        return removeFromGroup(tx, AuditActor.current());
+    }
+
+    /** @see #removeFromGroup(Transaction) */
+    public boolean removeFromGroup(final Transaction tx, final AuditActor who) {
+        if (tx == null) {
+            return false;
+        }
+        if (!tx.isBatch() && !tx.isShared()) {
+            log.error("Refusing to treat plain tx ({}) as a group row; use deleteForPerson.", tx.getTxId());
+            return false;
+        }
+        final List<Person.Id> remaining = new ArrayList<>(getUserIdsForGroup(tx));
+        remaining.remove(tx.getUserId());
+        if (remaining.isEmpty()) {
+            // Includes the legacy no-membership row: getUserIdsForGroup answers "just this user" (loudly) for
+            // one, and without a table scan that is the only membership there is to act on.
+            return deleteGroup(tx, who);
+        }
+        return deleteRow(tx, who) && restampMembership(tx.getGroupId(), remaining);
+    }
+
+    /**
+     * Deletes an entire Shared/Batch group: every live member row (bindings and per-row record included) plus
+     * one record naming the transaction itself as gone.
+     */
+    public boolean deleteGroup(final Transaction tx) {
+        return deleteGroup(tx, AuditActor.current());
+    }
+
+    /** @see #deleteGroup(Transaction) */
+    public boolean deleteGroup(final Transaction tx, final AuditActor who) {
+        if (tx == null) {
+            return false;
+        }
+        return deleteWholeGroup(tx.getGroupId(), getUserIdsForGroup(tx), tx, who);
+    }
+
+    /**
+     * Deletes a plain (non-group) transaction: soft-delete, drop its bindings, audit. A group row must go
+     * through {@link #removeFromGroup} instead, which is why this refuses one rather than quietly corrupting
+     * the group's divisor.
+     */
+    public boolean deleteTransaction(final Transaction tx) {
+        return deleteTransaction(tx, AuditActor.current());
+    }
+
+    /** @see #deleteTransaction(Transaction) */
+    public boolean deleteTransaction(final Transaction tx, final AuditActor who) {
+        if (tx == null) {
+            return false;
+        }
+        if (tx.isBatch() || tx.isShared()) {
+            log.error("Refusing to delete group tx ({}) as a plain row; use removeFromGroup.", tx.getGroupId());
+            return false;
+        }
+        return deleteRow(tx, who);
+    }
+
+    /**
+     * Deletes an entire group named by ID, seeded with the membership a page happens to know.
+     *
+     * <p>The group editor holds the group's id and its member list as scalars, never a {@link Transaction}
+     * (the page-state rule: no domain object in the view), so it has nothing to hand {@link
+     * #deleteGroup(Transaction)}. The seeds are only used to FIND a live row; the membership acted on is the
+     * one stamped on that row, which is the authority and may have changed since the editor opened.
+     *
+     * <p>Returns true when there was nothing left to delete: an already-empty group is the requested state.
+     *
+     * @param groupId       the group to delete.
+     * @param knownMembers  member ids to look for a live row among; a superset or subset is fine.
+     */
+    public boolean deleteGroupById(final String groupId, final List<Person.Id> knownMembers) {
+        return deleteGroupById(groupId, knownMembers, AuditActor.current());
+    }
+
+    /** @see #deleteGroupById(String, List) */
+    public boolean deleteGroupById(final String groupId, final List<Person.Id> knownMembers,
+            final AuditActor who) {
+        if (isNullOrEmpty(groupId)) {
+            return false;
+        }
+        final Transaction describing = ((knownMembers == null) ? List.<Person.Id>of() : knownMembers).stream()
+                .map(uid -> getGroupTransactionForUser(uid, groupId).orElse(null))
+                .filter(row -> row != null)
+                .findFirst()
+                .orElse(null);
+        return (describing == null)
+                || deleteWholeGroup(groupId, getUserIdsForGroup(describing), describing, who);
+    }
+
+    /** Every live row of a group, then the one record saying the transaction itself is gone. */
+    private boolean deleteWholeGroup(final String groupId, final Collection<Person.Id> members,
+            final Transaction describing, final AuditActor who) {
+        boolean result = true;
+        for (final Person.Id uid : members) {
+            final Transaction row = getGroupTransactionForUser(uid, groupId).orElse(null);
+            if ((row != null) && !deleteRow(row, who)) {
+                result = false;
+            }
+        }
+        getAudit().groupTransactionDeleted(describing, members.size(), who);
+        return result;
+    }
+
+    /**
+     * Rewrites the stamped membership on every live row of a group. Membership is the Shared divisor, so a
+     * removal that skipped this shrank the group's accounted total without touching a single amount.
+     */
+    private boolean restampMembership(final String groupId, final List<Person.Id> members) {
+        final List<Person.Id> stamped = List.copyOf(members);
+        boolean result = true;
+        for (final Person.Id uid : stamped) {
+            final Transaction row = getGroupTransactionForUser(uid, groupId).orElse(null);
+            if (row == null) {
+                continue;
+            }
+            row.setGroupPeople(stamped);
+            if (!saveTransaction(row)) {
+                log.error("Unable to restamp membership on group tx ({}) for user {}", groupId, uid.getValue());
+                result = false;
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Soft-deletes one row, drops its trip/event bindings, and audits it.
+     *
+     * <p>The bindings are the reason this is not two lines at each call site. They outlive the row otherwise:
+     * the trip-side ledger walks every TRIP-&gt;TRANSACTION edge and null-checks the misses, so orphans are
+     * invisible and accumulate for the life of the trip.
+     */
+    private boolean deleteRow(final Transaction tx, final AuditActor who) {
+        final String bindKey = getBind().key(tx.getUserId().getValue(), tx.getTxId());
+        tx.delete();
+        if (!saveTransaction(tx)) {
+            log.error("Unable to delete tx ({}) with note: {}", tx.getTxId(), tx.getNote());
+            return false;
+        }
+        getBind().setBindings(bindKey, BindingType.TRANSACTION, BindingType.TRIP, List.of(), true);
+        getBind().setBindings(bindKey, BindingType.TRANSACTION, BindingType.TRIP_EVENT, List.of(), true);
+        getAudit().transactionDeleted(
+                DAO.getInstance().getPerson(tx.getUserId(), Cached.YES).orElse(null), tx, who);
+        return true;
     }
 
     public void sortTxByDate(final List<Transaction> txs) {
@@ -224,24 +439,30 @@ public class TransactionsCommands {
         return txs;
     }
 
-    private void persistTx(final Transaction tx, final String tripId, final String eventId, final AtomicBoolean r) {
+    private boolean persistTx(final Transaction tx, final String tripId, final String eventId) {
+        if ((tx.getGroupId() != null) && ((tx.getGroupPeople() == null) || tx.getGroupPeople().isEmpty())) {
+            // An EMPTY membership list is worse than a missing one: getUserIdsForGroup reads it as the legacy
+            // "just this user" case, which renders a Shared row's FULL amount as one person's share.
+            log.error("Refusing to save group tx ({}) with no members", tx.getGroupId());
+            return false;
+        }
         final BindingCommands bind = getBind();
         final String txBindKey = bind.key(tx.getUserId().getValue(), tx.getTxId());
         tx.setDeleted(null); // Ensure not deleted
         stampOrgFromTrip(tx, tripId);
-        if (saveTransaction(tx)) {
-            // Now save any binding(s)
-            if ((tripId != null) && !tripId.isEmpty()) {
-                bind.setBindings(txBindKey, BindingType.TRANSACTION, BindingType.TRIP, List.of(tripId), true);
-                if ((eventId != null) && !eventId.isEmpty()) {
-                    bind.setBindings(txBindKey, BindingType.TRANSACTION, BindingType.TRIP_EVENT, List.of(eventId),
-                            true);
-                }
-            }
-        } else {
+        if (!saveTransaction(tx)) {
             log.error("Unable to save group tx ({}) with note: {}", tx.getGroupId(), tx.getNote());
-            r.set(false);
+            return false;
         }
+        // Now save any binding(s)
+        if ((tripId != null) && !tripId.isEmpty()) {
+            bind.setBindings(txBindKey, BindingType.TRANSACTION, BindingType.TRIP, List.of(tripId), true);
+            if ((eventId != null) && !eventId.isEmpty()) {
+                bind.setBindings(txBindKey, BindingType.TRANSACTION, BindingType.TRIP_EVENT, List.of(eventId),
+                        true);
+            }
+        }
+        return true;
     }
 
     /**
@@ -276,11 +497,16 @@ public class TransactionsCommands {
     }
 
     /**
-     * Returns the {@link Transaction} for the given userId if it exists. It <em>WILL</em> return deleted
-     * {@code Transaction}s.
+     * Returns this user's LIVE row in the given group, if they have one.
+     *
+     * <p>It does <em>not</em> return deleted rows, whatever this once claimed: {@code TransactionDAO} filters
+     * {@code deleted} out of every partition load and evicts a deleted row from the cache. That is why a
+     * removed member who is re-added comes back under a NEW txId rather than having their old row revived --
+     * and why a group save can never "find" the row it just deleted.
+     *
      * @param userId    The user to search.
      * @param groupId   The groupId to match.
-     * @return  Optionally the matching {@code Transaction}.
+     * @return  Optionally the matching live {@code Transaction}.
      */
     public Optional<Transaction> getGroupTransactionForUser(final Person.Id userId, final String groupId) {
         return DAO.getInstance().getTransactions(userId, Cached.NO).stream()
@@ -375,6 +601,14 @@ public class TransactionsCommands {
             bind = new BindingCommands();
         }
         return bind;
+    }
+
+    /** As {@link #getBind()}: unit tests and the odd hand-constructed instance have no container behind them. */
+    AuditCommands getAudit() {
+        if (audit == null) {
+            audit = new AuditCommands();
+        }
+        return audit;
     }
 
     private boolean isNullOrEmpty(final String str) {

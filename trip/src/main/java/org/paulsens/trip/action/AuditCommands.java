@@ -303,6 +303,66 @@ public class AuditCommands {
         return msg;
     }
 
+    /**
+     * A transaction was deleted from someone's account.
+     *
+     * <p>Deleting a money row was the one ledger mutation with no trail at all: the Delete button on
+     * {@code transaction.xhtml}, the trash icon on {@code transactions.jsf} and the group editor's member
+     * removal each wrote the soft-delete and nothing else. The amount and note are spelled into the message
+     * because a deleted row is no longer readable through any DAO, so the record is the only surviving
+     * description of what was removed.
+     */
+    public String transactionDeleted(final Person target, final Transaction tx) {
+        return transactionDeleted(target, tx, AuditActor.current());
+    }
+
+    /** @see #transactionDeleted(Person, Transaction) */
+    public String transactionDeleted(final Person target, final Transaction tx, final AuditActor who) {
+        final AuditActor actor = (who == null) ? AuditActor.current() : who;
+        final String msg = describeActor(actor) + " deleted $" + amountOf(tx) + " (" + noteOf(tx) + ") for "
+                + describe(target);
+        // Same target shape as #transaction: the transaction id, then the person, who is what the trail is
+        // usually searched by.
+        final AuditEventBuilder builder = Audit.builder(AuditAction.TRANSACTION, AuditOutcome.SUCCESS)
+                .actor(actor)
+                .org(tx == null ? null : tx.getOrgId())
+                .message(msg);
+        if (tx != null && tx.getTxId() != null) {
+            builder.target(AuditEventBuilder.TARGET_TRANSACTION, tx.getTxId());
+        }
+        builder.targetPerson(target);
+        builder.log();
+        return msg;
+    }
+
+    /**
+     * A whole Shared/Batch group was deleted -- its last member removed, which leaves no transaction at all.
+     *
+     * <p>Targeted at the TRANSACTION rather than a person: unlike every other record here, this event is not
+     * about one traveller. The per-row {@link #transactionDeleted} records that accompany it say whose rows
+     * went; only this one says the transaction itself is gone.
+     */
+    public String groupTransactionDeleted(final Transaction tx, final int members) {
+        return groupTransactionDeleted(tx, members, AuditActor.current());
+    }
+
+    /** @see #groupTransactionDeleted(Transaction, int) */
+    public String groupTransactionDeleted(final Transaction tx, final int members, final AuditActor who) {
+        final AuditActor actor = (who == null) ? AuditActor.current() : who;
+        final String msg = describeActor(actor) + " deleted the $" + amountOf(tx) + " " + typeOf(tx)
+                + " transaction (" + noteOf(tx) + "), removing its last of " + members
+                + (members == 1 ? " member" : " members");
+        final AuditEventBuilder builder = Audit.builder(AuditAction.TRANSACTION, AuditOutcome.SUCCESS)
+                .actor(actor)
+                .org(tx == null ? null : tx.getOrgId())
+                .message(msg);
+        if (tx != null && tx.getTxId() != null) {
+            builder.target(AuditEventBuilder.TARGET_TRANSACTION, tx.getTxId());
+        }
+        builder.log();
+        return msg;
+    }
+
     /** A password reset was requested through the forgot-password flow. */
     public String passwordReset(final String email, final boolean succeeded, final String detail) {
         final String msg = succeeded ? "Password reset sent" : "Password reset failed: " + detail;
@@ -417,5 +477,10 @@ public class AuditCommands {
 
     private static String noteOf(final Transaction tx) {
         return (tx == null || tx.getNote() == null) ? "" : tx.getNote();
+    }
+
+    /** "Shared", "Batch", or "" for a plain row -- a group delete's message turns on which it was. */
+    private static String typeOf(final Transaction tx) {
+        return (tx == null || tx.getType() == null) ? "" : tx.getType().name();
     }
 }
