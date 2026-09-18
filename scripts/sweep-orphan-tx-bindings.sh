@@ -17,6 +17,14 @@
 # re-run with --apply. Deletions run CONCURRENCY at a time; a failed row is reported and counted but never
 # aborts the run, the script exits non-zero if any failed, and re-running retries exactly those.
 #
+# UNDO: every run writes a JOURNAL (--journal, default ./orphan-tx-bindings-journal-<stamp>.json) holding
+# the COMPLETE rows it is about to delete, one DynamoDB item per line, written before anything is deleted.
+# A binding row is exactly four string attributes (id1, id1_type, id2, id2_type) and nothing else, so that
+# journal is a lossless copy and `--restore-from <journal>` puts every row back byte for byte. Restoring is
+# idempotent: a row that is already there is overwritten with the same content. Keep the journal until you
+# are satisfied -- it is the cheap, precise undo. PITR (35 days, table-wide, restores to a NEW table) is
+# the fallback for the case where the journal itself is lost; see docs/migrations/orphan-tx-bindings.md.
+#
 # Two classes of orphan, reported separately because the confidence differs:
 #   DEAD    -- the transaction row exists and carries `deleted`. Provably gone. Swept by default.
 #   MISSING -- no transaction row at all (hard-deleted, or a binding written against another environment's
@@ -25,7 +33,9 @@
 #
 # Usage: sweep-orphan-tx-bindings.sh [--profile <p>] [--region <r>] [--bindings-table <t>]
 #                                    [--transactions-table <t>] [--concurrency <n>]
-#                                    [--include-missing] [--apply]
+#                                    [--include-missing] [--journal <file>] [--apply]
+#        sweep-orphan-tx-bindings.sh --restore-from <journal> [--profile <p>] [--region <r>]
+#                                    [--bindings-table <t>] [--concurrency <n>]
 set -euo pipefail
 
 BINDINGS_TABLE="bindings"
@@ -33,6 +43,8 @@ TX_TABLE="transactions"
 CONCURRENCY=25
 INCLUDE_MISSING=0
 APPLY=0
+RESTORE_FROM=""
+JOURNAL="./orphan-tx-bindings-journal-$(date -u +%Y%m%dT%H%M%SZ).json"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         # Exported (not passed as flags) so the parallel workers inherit them.
@@ -42,6 +54,8 @@ while [[ $# -gt 0 ]]; do
         --transactions-table) TX_TABLE="$2"; shift 2 ;;
         --concurrency)        CONCURRENCY="$2"; shift 2 ;;
         --include-missing)    INCLUDE_MISSING=1; shift ;;
+        --journal)            JOURNAL="$2"; shift 2 ;;
+        --restore-from)       RESTORE_FROM="$2"; shift 2 ;;
         --apply)              APPLY=1; shift ;;
         *) echo "Unknown arg: $1" >&2; exit 1 ;;
     esac
@@ -54,6 +68,50 @@ command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 export WORK BINDINGS_TABLE
+
+# Restore is a standalone mode: it needs neither scan, because the journal already holds whole rows.
+if [[ -n "$RESTORE_FROM" ]]; then
+    [[ -s "$RESTORE_FROM" ]] || { echo "Journal '$RESTORE_FROM' is missing or empty." >&2; exit 1; }
+    # Refuse anything that is not a table row, rather than putting a malformed item into the bindings table.
+    # Counted, not `jq -e`: that exits 4 when a filter yields NO output, which is the healthy case here.
+    BAD=$(jq -s '[.[] | select((type != "object")
+            or (((.id1.S? // null) | type) != "string") or (((.id2.S? // null) | type) != "string")
+            or (((.id1_type.S? // null) | type) != "string")
+            or (((.id2_type.S? // null) | type) != "string"))] | length' "$RESTORE_FROM" 2>/dev/null \
+        || echo "unparsable")
+    if [[ "$BAD" == "unparsable" ]]; then
+        echo "Refusing '$RESTORE_FROM': it is not one JSON item per line." >&2
+        exit 1
+    fi
+    if [[ "$BAD" != "0" ]]; then
+        echo "Refusing '$RESTORE_FROM': $BAD line(s) are not a binding item with the four string keys." >&2
+        exit 1
+    fi
+    RCOUNT=$(wc -l < "$RESTORE_FROM" | tr -d ' ')
+    echo "Restoring $RCOUNT binding rows into '$BINDINGS_TABLE' from $RESTORE_FROM, $CONCURRENCY at a time..."
+    put_one() {
+        local rec="$1" err
+        err=$(mktemp "$WORK/err.XXXXXX")
+        # PutItem is an overwrite, so a row that never went is simply rewritten with the same content.
+        if aws dynamodb put-item --table-name "$BINDINGS_TABLE" --item "$rec" >/dev/null 2>"$err"; then
+            echo "RESTORED $(jq -r '"id1=\(.id1.S) id2=\(.id2.S)"' <<< "$rec")"
+        else
+            echo "FAILED   $(jq -r '"id1=\(.id1.S) id2=\(.id2.S)"' <<< "$rec") -- $(tr '\n' ' ' < "$err")" >&2
+            mktemp "$WORK/failed.XXXXXX" >/dev/null
+        fi
+        rm -f "$err"
+    }
+    export -f put_one
+    jq -c . "$RESTORE_FROM" | tr '\n' '\0' | xargs -0 -P "$CONCURRENCY" -n 1 bash -c 'put_one "$0"'
+    RFAILED=$(find "$WORK" -name 'failed.*' -type f | wc -l | tr -d ' ')
+    echo "Done. Restored $((RCOUNT - RFAILED)) of $RCOUNT rows."
+    trip_invalidate_cache binding
+    if [[ "$RFAILED" -gt 0 ]]; then
+        echo "$RFAILED row(s) FAILED -- re-run to retry; PutItem is idempotent." >&2
+        exit 1
+    fi
+    exit 0
+fi
 
 echo "Scanning '$TX_TABLE' and '$BINDINGS_TABLE'..."
 aws dynamodb scan --table-name "$TX_TABLE" \
@@ -85,6 +143,7 @@ jq -c --slurpfile tx "$WORK/tx.json" '
     | select(($txSides | length) > 0)
     | ($txSides | map($txState[.] // "missing")) as $states
     | {id1: $row.id1.S, id2: $row.id2.S,
+       item: $row,                      # the COMPLETE row, which is what makes the journal a lossless undo
        edge: ($row.id1_type.S + "->" + $row.id2_type.S),
        tx: ($txSides | join("|")),
        why: (if ($states | index("live")) != null then "live"
@@ -106,9 +165,13 @@ if [[ "$COUNT" -eq 0 ]]; then
     exit 0
 fi
 
+# The journal is written BEFORE any delete, and deliberately NOT under $WORK, which the EXIT trap removes.
+jq -c '.item' "$WORK/records.json" > "$JOURNAL"
+echo "Journal (the undo for this run): $JOURNAL"
+
 if [[ $APPLY -eq 0 ]]; then
     jq -r '"WOULD DELETE \(.why) \(.edge) id1=\(.id1) id2=\(.id2) (tx \(.tx))"' "$WORK/records.json"
-    echo "Done. (dry run -- nothing deleted; re-run with --apply)"
+    echo "Done. (dry run -- nothing deleted, and the journal above describes rows that are still there)"
     exit 0
 fi
 
@@ -137,6 +200,7 @@ tr '\n' '\0' < "$WORK/records.json" |
 
 FAILED=$(find "$WORK" -name 'failed.*' -type f | wc -l | tr -d ' ')
 echo "Done. Deleted $((COUNT - FAILED)) of $COUNT rows."
+echo "To put them all back:  $0 --restore-from $JOURNAL"
 trip_invalidate_cache binding
 if [[ "$FAILED" -gt 0 ]]; then
     echo "$FAILED row(s) FAILED -- see the messages above; re-run to retry just those." >&2

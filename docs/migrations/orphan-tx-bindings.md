@@ -36,6 +36,9 @@ deleting most orphans is not.
 ./scripts/sweep-orphan-tx-bindings.sh --profile cdk-deploy --region us-west-2 --apply
 ```
 
+Both forms write a **journal** of the rows in question before touching anything, and print its path; that
+file is the undo (see "If it deleted too much" below).
+
 Deletions run 25 at a time (`--concurrency <n>`). A failed row is reported and counted but never aborts the
 run; the script exits non-zero if anything failed, and re-running retries exactly those rows (DynamoDB's
 `DeleteItem` is idempotent, and a row already gone is no longer in the scan).
@@ -57,6 +60,75 @@ The script also **refuses to act on a partial scan**: a truncated transactions s
 transaction it failed to fetch as `MISSING`, which under `--include-missing` would mean proposing to delete
 live bindings. The AWS CLI paginates on its own, so a `LastEvaluatedKey` in either response means it stopped
 early, and the run aborts.
+
+## If it deleted too much: how to get it back
+
+Three routes, best first.
+
+### 1. The run's own journal (precise, seconds, no AWS ceremony)
+
+Every run writes one, **before** it deletes anything, and says where:
+
+```
+Journal (the undo for this run): ./orphan-tx-bindings-journal-20260918T051200Z.json
+```
+
+It holds the COMPLETE rows the run deletes, one DynamoDB item per line. That is a lossless copy, not a
+summary: a binding row is exactly four string attributes (`id1`, `id1_type`, `id2`, `id2_type`) and nothing
+else -- verified across all 12254 production rows -- so there is no hidden field a journal could drop. Put
+them all back with:
+
+```sh
+./scripts/sweep-orphan-tx-bindings.sh --profile cdk-deploy --region us-west-2 \
+    --restore-from ./orphan-tx-bindings-journal-20260918T051200Z.json
+```
+
+Restore is idempotent (`PutItem` is an overwrite, so a row that never went is rewritten with the same
+content), it refuses a journal that is not one binding item per line, and it invalidates the `binding` cache
+scope afterwards like the sweep does. A partial restore can simply be re-run.
+
+Pass `--journal <file>` to choose the path. **Keep the journal until you are satisfied** -- it is the only
+recovery route that is exact, instant, and needs no new table. A dry run writes one too, describing rows that
+are still there; restoring that is a harmless no-op.
+
+### 2. Point-in-time recovery (the journal is lost, or something else went wrong too)
+
+The `bindings` table has PITR on with a **35-day** window (and deletion protection, so the table itself
+cannot be dropped). Confirm the window before relying on it:
+
+```sh
+aws dynamodb describe-continuous-backups --table-name bindings --profile cdk-deploy --region us-west-2
+```
+
+The catch worth knowing in advance: **DynamoDB PITR always restores to a NEW table.** There is no in-place
+rewind and no rename, and `BindingDAO` hardcodes the table name `bindings`, so you cannot just point the app
+at the restored copy. The realistic sequence is:
+
+```sh
+# 1. Restore to a side table at a time before the sweep.
+aws dynamodb restore-table-to-point-in-time --profile cdk-deploy --region us-west-2 \
+    --source-table-name bindings --target-table-name bindings-restore \
+    --restore-date-time 2026-09-18T05:00:00Z
+
+# 2. Diff it against the live table and re-put what is missing. The rows are four string attributes, so
+#    a scan of each side plus `comm` on the sorted (id1, id2) pairs is the whole comparison; feed the
+#    missing items back through --restore-from, which takes any file of binding items.
+```
+
+Then delete `bindings-restore` so it stops costing anything. Restoring a 1.8MB table is quick and cheap, but
+it is minutes and manual steps, which is why the journal is route 1.
+
+### 3. The monthly AWS Backup snapshot (last resort)
+
+`trip-dynamodb-monthly` covers every table by wildcard with 1-year retention. Same restore-to-a-new-table
+shape as PITR, but up to a month stale, so it is only useful if both the journal and the PITR window are
+gone.
+
+### What no route can recover
+
+Nothing here reconstructs a binding whose row was never in the table. The sweep only ever deletes rows it
+read in the same run, so that case does not arise -- but it is the reason the script refuses to act on a
+partial scan rather than guessing.
 
 ## After running
 
