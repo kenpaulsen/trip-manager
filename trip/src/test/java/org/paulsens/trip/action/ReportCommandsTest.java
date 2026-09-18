@@ -20,7 +20,7 @@ public class ReportCommandsTest {
 
     private static final LocalDateTime NOON = LocalDateTime.of(2028, 5, 3, 12, 0);
 
-    private final ReportCommands reports = new ReportCommands(TripCommands::new);
+    private final ReportCommands reports = new ReportCommands(TripCommands::new, LodgingCommands::new);
 
     @BeforeClass
     void beforeClass() {
@@ -194,5 +194,88 @@ public class ReportCommandsTest {
                 .groundRows(tripWith(leg("g", NOON, NOON.plusHours(1), person(2))));
         Assert.assertEquals(rows.size(), 1, "a trip in hand never reaches the CDI lookup");
         Assert.assertEquals(rows.get(0).getNames(), "Ken Paulsen");
+    }
+
+    // --- the rooming report: one page per accommodation ---
+
+    private static LodgingViews.RoomingRow stay(final String personId, final String name, final String place,
+            final String room, final String type, final LocalDateTime start, final LocalDateTime end) {
+        return new LodgingViews.RoomingRow(personId, name, "555-1212", place, "1", room, type, start, end, null,
+                null, true);
+    }
+
+    private static LodgingViews.RoomingRow waiting(final String personId, final String name) {
+        return new LodgingViews.RoomingRow(personId, name, "555-1212", "", "", "", "", null, null, null, null,
+                false);
+    }
+
+    @Test
+    public void eachAccommodationGetsItsOwnPageInTheOrderTheTripReachesThem() {
+        final LocalDateTime sep21 = LocalDateTime.of(2026, 9, 21, 23, 0);
+        final LocalDateTime oct1 = LocalDateTime.of(2026, 10, 1, 5, 0);
+        final List<ReportCommands.RoomingPage> pages = reports.roomingPages(List.of(
+                stay("p3", "Cal Jean-Pierre", "Berulia", "3", "Double", oct1.plusHours(6), oct1.plusDays(2)),
+                stay("p1", "Angie Briguglio", "Pansion Dragicevic", "001", "Double", sep21, oct1),
+                waiting("p9", "Nobody Yet")));
+        Assert.assertEquals(pages.size(), 3);
+        Assert.assertEquals(pages.get(0).getAccommodation(), "Pansion Dragicevic", "earliest arrival prints first");
+        Assert.assertEquals(pages.get(1).getAccommodation(), "Berulia");
+        Assert.assertEquals(pages.get(2).getAccommodation(), "Not yet reserved", "and they always come last");
+        Assert.assertFalse(pages.get(2).isReserved());
+    }
+
+    @Test
+    public void aPageCountsPeopleNotStays() {
+        final LocalDateTime sep21 = LocalDateTime.of(2026, 9, 21, 23, 0);
+        final List<ReportCommands.RoomingPage> pages = reports.roomingPages(List.of(
+                stay("p1", "Angie Briguglio", "Pansion", "001", "Double", sep21, sep21.plusDays(3)),
+                stay("p1", "Angie Briguglio", "Pansion", "007", "Double", sep21.plusDays(3), sep21.plusDays(6)),
+                stay("p2", "Cathy Kennedy", "Pansion", "003", "Double", sep21, sep21.plusDays(6))));
+        final ReportCommands.RoomingPage page = pages.get(0);
+        Assert.assertEquals(page.getPeople(), 2, "someone who changes rooms is still one person");
+        Assert.assertEquals(page.getStays(), 3);
+        Assert.assertEquals(page.getLines().size(), 3, "but every stay is a line, because each is a bed");
+    }
+
+    @Test
+    public void aPageSaysWhatItCoversAndEachLineSaysItsOwnStay() {
+        final LocalDateTime sep21 = LocalDateTime.of(2026, 9, 21, 23, 0);
+        final LocalDateTime oct1 = LocalDateTime.of(2026, 10, 1, 5, 0);
+        final ReportCommands.RoomingPage page = reports.roomingPages(List.of(
+                stay("p1", "Angie Briguglio", "Pansion", "001", "Double", sep21, oct1))).get(0);
+        Assert.assertEquals(page.getDates(), "Sep 21 - Oct 1");
+        Assert.assertEquals(page.getLines().get(0).getDates(), "Sep 21 11:00 PM to Oct 1 5:00 AM");
+        Assert.assertEquals(page.getLines().get(0).getRoom(), "001");
+        Assert.assertEquals(page.getLines().get(0).getRoomType(), "Double");
+    }
+
+    @Test
+    public void theBandingChangesWithTheRoomSoASharedRoomReadsAsOneBlock() {
+        final LocalDateTime sep21 = LocalDateTime.of(2026, 9, 21, 23, 0);
+        final ReportCommands.RoomingPage page = reports.roomingPages(List.of(
+                stay("p1", "Angie", "Pansion", "001", "Double", sep21, sep21.plusDays(1)),
+                stay("p2", "Nicolina", "Pansion", "001", "Double", sep21, sep21.plusDays(1)),
+                stay("p3", "Cal", "Pansion", "002", "Triple", sep21, sep21.plusDays(1)))).get(0);
+        Assert.assertEquals(page.getLines().get(0).isStripe(), page.getLines().get(1).isStripe(),
+                "two people in room 001 share a band");
+        Assert.assertNotEquals(page.getLines().get(2).isStripe(), page.getLines().get(1).isStripe(),
+                "and the next room starts a new one");
+    }
+
+    @Test
+    public void aTripWithNoLodgingHasNoPages() {
+        Assert.assertTrue(reports.roomingPages(List.<LodgingViews.RoomingRow>of()).isEmpty());
+    }
+
+    @Test
+    public void theSeededTripRoomsItsGuestsUnderOneRoof() {
+        final List<ReportCommands.RoomingPage> pages = reports.roomingPages(FakeData.FAKE_TRIP_ID);
+        Assert.assertFalse(pages.isEmpty(), "the local fixture reserves rooms for two of its people");
+        final ReportCommands.RoomingPage hotel = pages.get(0);
+        Assert.assertTrue(hotel.isReserved(), hotel.getAccommodation());
+        Assert.assertEquals(hotel.getPeople(), reports.roomedPeopleCount(FakeData.FAKE_TRIP_ID),
+                "one hotel, so its people ARE the trip's roomed people");
+        Assert.assertEquals(pages.get(pages.size() - 1).getAccommodation(), "Not yet reserved",
+                "everyone else is still waiting, on a page of their own");
     }
 }

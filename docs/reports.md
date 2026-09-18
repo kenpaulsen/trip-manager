@@ -48,6 +48,34 @@ load. The cards use the shared `.hub-grid` / `.hub-head` / `.hub-num` / `.hub-su
 `resources/css/trip.css`, which the organization Dashboard (`admin/orgSettings.xhtml`) uses as well; it lives
 there so the two hubs cannot drift apart.
 
+## The rooming report
+
+`admin/reports/tripRooms.xhtml` prints **one page per accommodation**, in the order the trip reaches them,
+with everyone still waiting for a bed on a last page of their own. Rows come from
+`ReportCommands.roomingPages(tripId)`, which groups what `lodging.roomingList` returns.
+
+**Every count is of PEOPLE.** The underlying list emits a row per occupant PER STAY, so a trip using two
+hotels, or anyone who changes rooms part-way, has more rows than travellers. Counting rows is what made the
+old single-page header claim 58 people for a trip of 46. Each page heading names its hotel and its distinct
+head count; when the stay count differs it says so too ("Sep 21 - Oct 1, 14 stays"), so a reader who counts
+the lines and gets a different number sees why. Above the pages, one line gives the trip's own total and how
+many of those have a reservation.
+
+The page breaks are CSS, not a generated PDF: `.rmPage + .rmPage` takes `break-before: page` under
+`@media print`, which every current browser honors from its own print dialog. The rule is on the adjacent
+sibling rather than `:first-of-type` so the report never opens with a blank sheet. Two more print rules earn
+their place: `break-inside: avoid` on a row, so a person is never torn from their room across a fold, and
+`display: table-header-group` on the head, so a list long enough to spill carries its column headings onto
+the next sheet.
+
+Banding alternates per ROOM rather than per row, so the people sharing a room read as one block; it is
+decided in Java and rides the line as `stripe`, because the old page worked it out in a hidden column with a
+`beforeEncode` that compared against the previous row.
+
+Guarded by `ReportCommandsTest` (grouping, ordering, people-not-stays, the banding, the window) and
+`RoomingReportPwIT`, which seeds a trip with two hotels plus somebody holding two stays and asserts the pages,
+the counts and the print rule.
+
 ## The Ground Transportation report
 
 `admin/reports/groundTransport.xhtml` lists every `TripEvent.Type.GROUND` leg on the trip in departure order
@@ -81,7 +109,7 @@ Two behaviors worth knowing:
 ## What guards this
 
 - `ReportCommandsTest` (unit): ordering, the legacy fallback, the name format and its order, the head count,
-  the overnight flag, the derived duration, non-GROUND exclusion, and the seeded legs.
+  the overnight flag, the derived duration, non-GROUND exclusion, the seeded legs, and the rooming pages.
 - `AdminReportsPwIT`: the dashboard's seven cards and their hrefs, the ground report's rendered rows, and the
   one-way-back rule on every report.
 - `ReportsDashboardPwIT`: the per-privilege card sets (admin, finance viewer, trip viewer), the bounce for
