@@ -89,6 +89,39 @@ public class ReportCommandsTest {
                 "preferred name and last name, ordered by last then preferred");
         Assert.assertEquals(row.getStart(), NOON);
         Assert.assertEquals(row.getEnd(), NOON.plusHours(2).plusMinutes(30));
+        Assert.assertEquals(row.getRoute(), "Split \u2192 Medjugorje");
+        Assert.assertEquals(row.getDates(), "May 3, 2028", "one day, named once");
+        Assert.assertEquals(row.getTimes(), "12:00 PM \u2192 2:30 PM");
+    }
+
+    @Test
+    public void aLegRunningPastMidnightNamesBothDays() {
+        final LocalDateTime lateNight = LocalDateTime.of(2028, 5, 3, 20, 15);
+        final ReportCommands.GroundRow row = reports
+                .groundRows(tripWith(leg("n", lateNight, lateNight.plusHours(4).plusMinutes(45)))).get(0);
+        Assert.assertTrue(row.isOvernight());
+        Assert.assertEquals(row.getDates(), "May 3, 2028 \u2192 May 4, 2028",
+                "the span itself says the leg costs a night; there is no separate marker");
+        Assert.assertEquals(row.getTimes(), "8:15 PM \u2192 1:00 AM");
+        Assert.assertEquals(row.getElapsed(), "4h 45m");
+    }
+
+    @Test
+    public void aLegWithNoArrivalShowsOnlyItsDeparture() {
+        final TripEvent open = leg("o", NOON, NOON.plusHours(1));
+        open.setEnd(null);
+        final ReportCommands.GroundRow row = reports.groundRows(tripWith(open)).get(0);
+        Assert.assertEquals(row.getDates(), "May 3, 2028");
+        Assert.assertEquals(row.getTimes(), "12:00 PM", "no arrival, no arrow");
+    }
+
+    @Test
+    public void anUndatedLegFormatsToNothingRatherThanThrowing() {
+        final TripEvent undated = leg("u", NOON, NOON.plusHours(1));
+        undated.setStart(null);
+        final ReportCommands.GroundRow row = reports.groundRows(tripWith(undated)).get(0);
+        Assert.assertEquals(row.getDates(), "");
+        Assert.assertEquals(row.getTimes(), "");
     }
 
     @Test
@@ -99,6 +132,7 @@ public class ReportCommandsTest {
         Assert.assertNull(row.getTo());
         Assert.assertNull(row.getCarrier());
         Assert.assertEquals(row.getTitle(), "A -> B");
+        Assert.assertEquals(row.getRoute(), "A -> B", "with no stored endpoints the title IS the route");
         Assert.assertEquals(row.getNotes(), "notes");
         Assert.assertEquals(row.getElapsed(), "1h", "the duration is still derived from the times");
     }
@@ -136,16 +170,19 @@ public class ReportCommandsTest {
     @Test
     public void theSeededDemoTripListsItsTwoTransfers() {
         final List<ReportCommands.GroundRow> rows = reports.groundRows(FakeData.FAKE_TRIP_ID);
-        Assert.assertEquals(rows.size(), 2, "the local fixture seeds one composed leg and one legacy leg");
-        Assert.assertEquals(reports.groundLegCount(FakeData.FAKE_TRIP_ID), 2);
-        final ReportCommands.GroundRow inbound = rows.get(0);
+        Assert.assertEquals(rows.size(), 3, "the fixture seeds a composed leg, an overnight leg and a legacy one");
+        Assert.assertEquals(reports.groundLegCount(FakeData.FAKE_TRIP_ID), 3);
+        final ReportCommands.GroundRow nightRide = rows.get(0);
+        Assert.assertTrue(nightRide.isOvernight(), "the night ride sorts first and spans two days");
+        Assert.assertTrue(nightRide.getDates().contains("\u2192"), nightRide.getDates());
+        final ReportCommands.GroundRow inbound = rows.get(1);
         Assert.assertTrue(inbound.isComposed());
         Assert.assertEquals(inbound.getFrom(), "Split");
         Assert.assertEquals(inbound.getTo(), "Medjugorje");
         Assert.assertEquals(inbound.getCarrier(), "Globtour bus");
         Assert.assertEquals(inbound.getCount(), 3);
         Assert.assertTrue(inbound.getNames().contains("Ken Paulsen"), inbound.getNames());
-        final ReportCommands.GroundRow outbound = rows.get(1);
+        final ReportCommands.GroundRow outbound = rows.get(2);
         Assert.assertFalse(outbound.isComposed());
         Assert.assertEquals(outbound.getTitle(), "Medjugorje -> Split");
         Assert.assertEquals(outbound.getCount(), 2);

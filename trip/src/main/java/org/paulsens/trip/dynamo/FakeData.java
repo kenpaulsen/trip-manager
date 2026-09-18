@@ -462,6 +462,7 @@ public final class FakeData {
     /** The Spring trip's two GROUND legs: the airport transfers, one editor-composed and one legacy. */
     private static final String FAKE_TRIP_TRANSFER_IN_EVENT_ID = "cc6ec973-51ec-4119-988b-d5eb30fae1f8";
     private static final String FAKE_TRIP_TRANSFER_OUT_EVENT_ID = "0d8e69b0-cb64-4c80-a257-62476c9e27d3";
+    private static final String FAKE_TRIP_TRANSFER_NIGHT_EVENT_ID = "b7a1c85d-3e40-4fd6-9c21-5e8f0a6b4d73";
     private static final String FAKE2_SEA_LGW_EVENT_ID = "2912a4b2-fb1d-4efa-bc19-788056300960";
     private static final String FAKE2_LODGING_EVENT_ID = "8892f4d8-0bce-47cb-9284-a72d384ddb6e";
     private static final String FAKE2_DBV_KEF_EVENT_ID = "4a09a5b8-18f9-4907-874d-657d7daa63f3";
@@ -950,6 +951,16 @@ public final class FakeData {
         events.add(newTripEvent(FAKE_TRIP_TRANSFER_OUT_EVENT_ID, TripEvent.Type.GROUND, "Medjugorje -> Split",
                 "Return transfer to the airport", fakeStayEnd(), fakeStayEnd().plusMinutes(90),
                 List.of(allPeople.get(2), allPeople.get(5)), null));
+        // A leg that is still going after midnight, so the report's two date shapes (one day, and a span of
+        // two) both render locally and in the browser tests.
+        final TripEvent nightRide = newTripEvent(FAKE_TRIP_TRANSFER_NIGHT_EVENT_ID, TripEvent.Type.GROUND,
+                TripEventComposer.composeRouteTitle("SJJ", "Medjugorje", false),
+                TripEventComposer.composeGroundNotes("Gogo (bus)", fakeStayStart().minusDays(1).withHour(20),
+                        fakeStayStart().withHour(1)),
+                fakeStayStart().minusDays(1).withHour(20), fakeStayStart().withHour(1),
+                List.of(allPeople.get(0), allPeople.get(6)), null);
+        nightRide.setDetails(groundDetails("SJJ", "Medjugorje", "Gogo (bus)"));
+        events.add(nightRide);
         // Person-modeled trip staff (2026-08-24): Ken and Trinity carry REAL @example.com addresses, so
         // the registration popup's facilitator contact block has something to show locally.
         final List<Person.Id> tripStaff = getFakePeople().stream()

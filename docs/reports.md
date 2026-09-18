@@ -51,9 +51,16 @@ there so the two hubs cannot drift apart.
 ## The Ground Transportation report
 
 `admin/reports/groundTransport.xhtml` lists every `TripEvent.Type.GROUND` leg on the trip in departure order
-(undated legs last), with the fields the Add Ground Transport dialog collects: route, carrier, departure and
-arrival date and time, the derived duration, and the riders. The head count is the first line of the People
-column and the riders' preferred and last names follow in smaller type, ordered by last name then preferred.
+(undated legs last), with the fields the Add Ground Transport dialog collects. Each leg is TWO rows: Time,
+Route and Carrier across three centered columns, then the riders spanning the full width beneath, with no rule
+between the pair and one under each leg. That shape is why the page builds its own table instead of using a
+`p:dataTable`, which cannot emit a second, spanning row per record.
+
+The Time column names the day once, `Sep 19, 2026`, or names both when a leg is still going after midnight,
+`Sep 21, 2026 -> Sep 22, 2026`; the clock times sit beneath it. That span replaces a "next day" marker beside
+the arrival. The derived duration sits under the route. Those strings are composed in
+`ReportCommands` rather than by page converters, because the choice between one day and two is a decision, and
+decisions in a page are what neither a unit test nor a reviewer can see.
 
 Rows come from `ReportCommands.groundRows(tripId)` (`#{reports}`), scalars rebuilt each request into
 `requestScope`; nothing binds into them, so there is no row identity to protect. The dashboard card's metric is
@@ -83,6 +90,6 @@ Two behaviors worth knowing:
   dashboard carrying the trip id.
 - `AuthGatePwIT`: both new URLs bounce an anonymous visitor with a 302, never a 500.
 
-`FakeData` seeds FAKE_TRIP with two ground legs, one editor-composed (Split to Medjugorje, Globtour bus, three
-riders) and one legacy-shaped (no details), so both render paths are exercised locally and in the browser
-tests.
+`FakeData` seeds FAKE_TRIP with three ground legs: one editor-composed (Split to Medjugorje, Globtour bus,
+three riders), one that runs past midnight so both date shapes render, and one legacy-shaped with no stored
+parts. All three paths are exercised locally and in the browser tests.

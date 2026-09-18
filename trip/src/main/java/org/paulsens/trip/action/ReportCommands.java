@@ -5,9 +5,11 @@ import jakarta.inject.Named;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -33,6 +35,11 @@ import org.paulsens.trip.model.TripEvent;
 @Named("reports")
 @ApplicationScoped
 public class ReportCommands {
+
+    private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ROOT);
+    private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("h:mm a", Locale.ROOT);
+    /** The report writes a leg as "here to there"; composed in Java so the page never builds it from parts. */
+    private static final String ARROW = " \u2192 ";
 
     private static final Comparator<TripEvent> BY_START =
             Comparator.comparing(TripEvent::getStart, Comparator.nullsLast(Comparator.naturalOrder()));
@@ -100,6 +107,9 @@ public class ReportCommands {
         row.setStart(event.getStart());
         row.setEnd(event.getEnd());
         row.setOvernight(isOvernight(event.getStart(), event.getEnd()));
+        row.setDates(datesOf(event.getStart(), event.getEnd()));
+        row.setTimes(timesOf(event.getStart(), event.getEnd()));
+        row.setRoute(routeOf(event));
         row.setElapsed(TripEventComposer.elapsed(event.getStart(), event.getEnd()));
         row.setCount(event.getParticipants().size());
         row.setNames(namesOf(event.getParticipants()));
@@ -108,6 +118,35 @@ public class ReportCommands {
 
     private static boolean isOvernight(final LocalDateTime start, final LocalDateTime end) {
         return start != null && end != null && end.toLocalDate().isAfter(start.toLocalDate());
+    }
+
+    /**
+     * The day a leg runs on: {@code "Sep 19, 2026"}, or {@code "Sep 21, 2026 -> Sep 22, 2026"} when it is still
+     * going after midnight. The report shows the span itself rather than a "next day" marker beside the arrival,
+     * so a reader sees at a glance which legs cost them a night.
+     */
+    private static String datesOf(final LocalDateTime start, final LocalDateTime end) {
+        if (start == null) {
+            return "";
+        }
+        final String first = DAY.format(start);
+        return isOvernight(start, end) ? first + ARROW + DAY.format(end) : first;
+    }
+
+    /** {@code "12:30 PM -> 4:40 PM"}, or the departure alone when no arrival was ever recorded. */
+    private static String timesOf(final LocalDateTime start, final LocalDateTime end) {
+        if (start == null) {
+            return "";
+        }
+        return end == null ? CLOCK.format(start) : CLOCK.format(start) + ARROW + CLOCK.format(end);
+    }
+
+    /** {@code "Split -> Dubrovnik"} from the stored parts, or the composed title a legacy leg carries instead. */
+    private static String routeOf(final TripEvent event) {
+        if (!event.hasDetails()) {
+            return event.getTitle();
+        }
+        return trimmed(event.detail(TripEvent.Detail.FROM)) + ARROW + trimmed(event.detail(TripEvent.Detail.TO));
     }
 
     /**
@@ -158,8 +197,14 @@ public class ReportCommands {
         private String notes;
         private LocalDateTime start;
         private LocalDateTime end;
-        /** The leg arrives on a later calendar day than it left. */
+        /** The leg arrives on a later calendar day than it left, which is what makes {@code dates} a span. */
         private boolean overnight;
+        /** The day, or the span of days, the leg runs on. */
+        private String dates;
+        /** Departure and arrival clock times. */
+        private String times;
+        /** Where it goes: the stored endpoints, or a legacy leg's own title. */
+        private String route;
         /** {@code "2h 30m"}, empty when either end is missing or they are out of order. */
         private String elapsed;
         private int count;
