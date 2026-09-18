@@ -1558,9 +1558,12 @@ public class LodgingCommands {
 
     /**
      * Creates reservations from the dialog: one per person, or one shared reservation for everyone. Every
-     * person must be on the roster; the stay must meet the offer's minimum; a disabled offer is refused; a
-     * stay outside the offer's validity is only warned about (an admin is placing people, not a customer
-     * buying). Occupants join the offer's event; bills follow.
+     * person must be on the roster; the stay must meet the offer's minimum AND lie inside the offer's own
+     * dates; a disabled offer is refused, as is a blocked room and a second stay sharing a night with one
+     * the person already holds. Occupants join the offer's event; bills follow.
+     *
+     * <p>Every one of those is a refusal, not a warning: the only warning an admin can override here is
+     * over-capacity, and that lives in {@link #place} behind its {@code force} flag.
      *
      * @return how many reservations were created.
      */
