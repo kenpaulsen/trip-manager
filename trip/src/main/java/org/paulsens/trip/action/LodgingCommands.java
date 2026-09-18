@@ -26,8 +26,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.LodgingViews.AccommodationForm;
 import org.paulsens.trip.action.LodgingViews.AccommodationRow;
 import org.paulsens.trip.action.LodgingViews.AssignOutcome;
+import org.paulsens.trip.action.LodgingViews.BlockRow;
 import org.paulsens.trip.action.LodgingViews.CancelPreview;
 import org.paulsens.trip.action.LodgingViews.ContactHit;
+import org.paulsens.trip.action.LodgingViews.DayStay;
 import org.paulsens.trip.action.LodgingViews.ItineraryRow;
 import org.paulsens.trip.action.LodgingViews.OccupantChip;
 import org.paulsens.trip.action.LodgingViews.OfferForm;
@@ -44,6 +46,7 @@ import org.paulsens.trip.action.LodgingViews.RoomRow;
 import org.paulsens.trip.action.LodgingViews.RoomTypeForm;
 import org.paulsens.trip.action.LodgingViews.RoomTypeRow;
 import org.paulsens.trip.action.LodgingViews.RoomingRow;
+import org.paulsens.trip.action.LodgingViews.SplitForm;
 import org.paulsens.trip.action.LodgingViews.StayWindowForm;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.Cached;
@@ -53,7 +56,6 @@ import org.paulsens.trip.content.RichTextRules;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Address;
-import org.paulsens.trip.model.FloorMap;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
@@ -64,6 +66,7 @@ import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Reservation;
 import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.Room;
+import org.paulsens.trip.model.RoomBlock;
 import org.paulsens.trip.model.RoomType;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
@@ -150,7 +153,7 @@ public class LodgingCommands {
      * May work the Assignments board: everyone who manages the trip's lodging, plus a trip-scoped
      * {@code lodgingManager}. That is the hotel's own staff: they room people and nothing else -- no lodging
      * options, no reservations, no prices, no bills, and no other trip. Creating a reservation stays with
-     * the managers, because choosing the option that pays for a stay is choosing what the pilgrim is
+     * the managers, because choosing the option that pays for a stay is choosing what the traveller is
      * charged.
      */
     public boolean canAssignRooms(final String tripId) {
@@ -784,31 +787,17 @@ public class LodgingCommands {
         return store(acc) && audited(acc, "Deleted room " + room.getRoomNumber());
     }
 
-    /** Whether any ACTIVE reservation, on any trip that uses this hotel, sits in the room. */
+    /**
+     * Whether any ACTIVE reservation, on any trip at all, sits in the room. One query on the hotel's own
+     * index; this used to walk every org that uses the hotel and read each of its last 200 trips' offers.
+     */
     private boolean roomInUse(final Accommodation acc, final String roomId) {
-        for (final String tripId : tripsUsing(acc)) {
-            for (final Reservation res : DAO.getInstance().getReservations(tripId, Cached.NO)) {
-                if (res.isActive() && roomId.equals(res.getRoomId())) {
-                    return true;
-                }
+        for (final Reservation res : atHotel(acc.getId(), null)) {
+            if (res.isActive() && roomId.equals(res.getRoomId())) {
+                return true;
             }
         }
         return false;
-    }
-
-    /** The trips with an offer on this hotel -- found through the orgs that use it (recent trips only). */
-    private Set<String> tripsUsing(final Accommodation acc) {
-        final Set<String> tripIds = new LinkedHashSet<>();
-        for (final Organization.Id orgId : acc.getOrgIds()) {
-            for (final Trip trip : tripSource.get().getTripsForOrg(orgId.getValue(), 200)) {
-                for (final ReservationOffer offer : DAO.getInstance().getReservationOffers(trip.getId(), Cached.NO)) {
-                    if (acc.getId().equals(offer.getAccommodationId())) {
-                        tripIds.add(trip.getId());
-                    }
-                }
-            }
-        }
-        return tripIds;
     }
 
     /** Adds rooms {@code prefix}{from}..{prefix}{to} on a floor with a type; existing numbers are skipped. */
@@ -853,13 +842,14 @@ public class LodgingCommands {
     }
 
     // ------------------------------------------------------------------ floors and maps
+    // The editing lives in LodgingFloorMaps; these stay because the pages bind to #{lodging}.
 
     public List<String> floorsOf(final String accId) {
         final Accommodation acc = findAccommodation(accId);
         return (acc == null) ? new ArrayList<>() : sortedFloors(acc);
     }
 
-    private static List<String> sortedFloors(final Accommodation acc) {
+    static List<String> sortedFloors(final Accommodation acc) {
         final List<String> floors = acc.floors();
         floors.sort(LodgingCommands::naturalCompare);
         return floors;
@@ -867,196 +857,41 @@ public class LodgingCommands {
 
     /** The media id of this floor's plan image, or "" when none. */
     public String floorMapMediaId(final String accId, final String floor) {
-        final Accommodation acc = findAccommodation(accId);
-        final FloorMap map = (acc == null) ? null : acc.floorMap(floor);
-        return (map == null || map.getMediaId() == null) ? "" : map.getMediaId();
+        return floorMaps().floorMapMediaId(accId, floor);
     }
 
-    /**
-     * The URL of a media-library image, or "" when the id no longer resolves: the CDN when a bucket is
-     * configured, else this app's own {@code /lodging-photos/*} GET (local mode, every webtest).
-     */
+    /** A servable URL for a media id, context path included (the page may sit under any path). */
     public String mediaUrl(final String mediaId) {
-        final MediaItem item = mediaSource.get().get(mediaId);
-        if (item == null) {
-            return "";
-        }
-        return mediaSource.get().isUploadEnabled() ? nullSafe(mediaSource.get().getUrl(item))
-                : contextPath() + "/lodging-photos/" + item.getS3Key();
+        return floorMaps().mediaUrl(mediaId);
     }
 
-    private static String contextPath() {
-        final jakarta.faces.context.FacesContext ctx = jakarta.faces.context.FacesContext.getCurrentInstance();
-        return (ctx == null) ? "" : ctx.getExternalContext().getRequestContextPath();
-    }
-
+    /** Points a floor at a plan image; warns when that floor has no rooms to map on it yet. */
     public boolean setFloorMap(final String accId, final String floor, final String mediaId) {
-        if (!canEditAccommodation(accId)) {
-            return refuse("Not allowed: you do not manage this accommodation.");
-        }
-        if (floor == null || floor.isBlank()) {
-            return refuse("Which floor?");
-        }
-        final Accommodation acc = freshAccommodation(accId);
-        if (acc == null) {
-            return refuse("This accommodation no longer exists.");
-        }
-        final FloorMap existing = acc.floorMap(floor.trim());
-        if (existing == null) {
-            acc.getFloorMaps().add(new FloorMap(floor.trim(), mediaId));
-        } else {
-            existing.setMediaId(mediaId);
-        }
-        if (acc.roomsOnFloor(floor.trim()).isEmpty()) {
-            // Silently attaching a plan to a floor no room is on is how a mismatch hides: the plan looks
-            // uploaded, nothing can be mapped on it, and the floor list grows an entry with no rooms.
-            warn("No rooms are on floor '" + floor.trim() + "', so this plan has nothing to map yet.");
-        }
-        return store(acc) && audited(acc, "Floor plan set for floor " + floor.trim());
+        return floorMaps().setFloorMap(accId, floor, mediaId);
     }
 
-    /**
-     * Takes the plan off a floor. The image stays in the media library, exactly as removing a gallery photo
-     * does, and a floor that existed only because a plan named it leaves the floor list with it.
-     */
+    /** Takes a plan off a floor; the image itself stays in the media library. */
     public boolean removeFloorMap(final String accId, final String floor) {
-        if (!canEditAccommodation(accId)) {
-            return refuse("Not allowed: you do not manage this accommodation.");
-        }
-        if (floor == null || floor.isBlank()) {
-            return refuse("Which floor?");
-        }
-        final Accommodation acc = freshAccommodation(accId);
-        if (acc == null) {
-            return refuse("This accommodation no longer exists.");
-        }
-        final String wanted = floor.trim();
-        if (!acc.getFloorMaps().removeIf(map -> wanted.equals(map.getFloor()))) {
-            return refuse("Floor " + wanted + " has no plan to remove.");
-        }
-        return store(acc) && audited(acc, "Floor plan removed for floor " + wanted);
+        return floorMaps().removeFloorMap(accId, floor);
     }
 
-    /**
-     * The floors a plan on {@code from} could be moved to: every floor of the hotel except the one it is on
-     * and any floor that already has its own plan.
-     */
+    /** The floors a plan could move TO: the hotel's floors that have no plan of their own. */
     public List<String> moveTargets(final String accId, final String from) {
-        final Accommodation acc = findAccommodation(accId);
-        if (acc == null || from == null) {
-            return List.of();
-        }
-        final List<String> targets = new ArrayList<>();
-        for (final String floor : acc.floors()) {
-            if (!floor.equals(from.trim()) && acc.floorMap(floor) == null) {
-                targets.add(floor);
-            }
-        }
-        return targets;
+        return floorMaps().moveTargets(accId, from);
     }
 
-    /**
-     * Re-points a plan at another floor, keeping the image. This is the repair for a plan and its rooms
-     * ending up on differently named floors -- renaming the rooms' floor orphans the plan on the old name,
-     * leaving a floor with a picture nothing can be mapped on and rooms with no picture (2026-09-07).
-     * Both floors' regions are cleared: boxes on the source floor were drawn against an image it no longer
-     * has, and boxes on the target floor were drawn against the plan this one replaces.
-     */
+    /** Re-points a plan at another floor, keeping the image; the boxes on BOTH floors are cleared. */
     public boolean moveFloorMap(final String accId, final String from, final String to) {
-        if (!canEditAccommodation(accId)) {
-            return refuse("Not allowed: you do not manage this accommodation.");
-        }
-        if (from == null || from.isBlank() || to == null || to.isBlank()) {
-            return refuse("Which floor should this plan move to?");
-        }
-        final String source = from.trim();
-        final String target = to.trim();
-        if (source.equals(target)) {
-            return refuse("That plan is already on floor " + target + ".");
-        }
-        final Accommodation acc = freshAccommodation(accId);
-        if (acc == null) {
-            return refuse("This accommodation no longer exists.");
-        }
-        final FloorMap moving = acc.floorMap(source);
-        if (moving == null) {
-            return refuse("Floor " + source + " has no plan to move.");
-        }
-        if (acc.floorMap(target) != null) {
-            return refuse("Floor " + target + " already has a plan. Remove that one first.");
-        }
-        moving.setFloor(target);
-        for (final Room room : acc.getRooms()) {
-            if (source.equals(room.getFloor()) || target.equals(room.getFloor())) {
-                room.setMapRegion(null);
-            }
-        }
-        return store(acc) && audited(acc, "Floor plan moved from floor " + source + " to floor " + target);
+        return floorMaps().moveFloorMap(accId, from, to);
     }
 
-    /**
-     * Saves the annotator's regions for one floor: {@code [{roomId, kind, x, y, w, h}, ...]} in percent.
-     * Every listed room must be on that floor, every box inside the image; rooms on the floor that are not
-     * listed lose their region (the annotator deleted them). Answers the {@code saved} callback param.
-     */
+    /** The annotator's write: the floor's boxes as JSON, room id to rectangle. */
     public boolean saveFloorRegions(final String accId, final String floor, final String json) {
-        if (!canEditAccommodation(accId)) {
-            return refuse("Not allowed: you do not manage this accommodation.");
-        }
-        final Accommodation acc = freshAccommodation(accId);
-        if (acc == null || floor == null) {
-            return refuse("This accommodation no longer exists.");
-        }
-        final Map<String, Room.MapRegion> regions;
-        try {
-            regions = parseRegions(json);
-        } catch (final IllegalArgumentException | IOException ex) {
-            return refuse("The floor plan could not be read: " + ex.getMessage());
-        }
-        for (final String roomId : regions.keySet()) {
-            final Room room = acc.room(roomId);
-            if (room == null || !Objects.equals(floor, room.getFloor())) {
-                return refuse("A box points at a room that is not on floor " + floor + ".");
-            }
-        }
-        for (final Room room : acc.roomsOnFloor(floor)) {
-            room.setMapRegion(regions.get(room.getId()));
-        }
-        final boolean saved = store(acc)
-                && audited(acc, "Floor " + floor + " plan: " + regions.size() + " rooms mapped");
-        callbackParam("saved", saved);
-        return saved;
+        return floorMaps().saveFloorRegions(accId, floor, json);
     }
 
-    static Map<String, Room.MapRegion> parseRegions(final String json) throws IOException {
-        final Map<String, Room.MapRegion> regions = new LinkedHashMap<>();
-        if (json == null || json.isBlank()) {
-            return regions;
-        }
-        final List<Map<String, Object>> raw = DAO.getInstance().getMapper().readValue(json,
-                new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() { });
-        for (final Map<String, Object> entry : raw) {
-            final Object roomId = entry.get("roomId");
-            if (roomId == null || roomId.toString().isBlank()) {
-                continue;
-            }
-            final Room.MapRegion region = Room.MapRegion.rect(number(entry.get("x")), number(entry.get("y")),
-                    number(entry.get("w")), number(entry.get("h")));
-            if (!region.isValid()) {
-                throw new IllegalArgumentException("a box is outside the image or has no size");
-            }
-            if (regions.put(roomId.toString(), region) != null) {
-                throw new IllegalArgumentException("room " + roomId + " is mapped twice");
-            }
-        }
-        return regions;
-    }
-
-    private static double number(final Object value) {
-        if (value instanceof Number n) {
-            return Math.round(n.doubleValue() * 100.0) / 100.0;
-        }
-        throw new IllegalArgumentException("a coordinate is missing");
+    private LodgingFloorMaps floorMaps() {
+        return new LodgingFloorMaps(this, mediaSource.get());
     }
 
     // ------------------------------------------------------------------ photos (media-library rows)
@@ -1148,25 +983,9 @@ public class LodgingCommands {
 
     // ------------------------------------------------------------------ countries (a static list)
 
-    static final List<String> COUNTRIES = List.of("Argentina", "Australia", "Austria", "Belgium",
-            "Bosnia and Herzegovina", "Brazil", "Canada", "Chile", "Colombia", "Croatia", "Czechia", "Denmark",
-            "Egypt", "Fiji", "Finland", "France", "Germany", "Greece", "Guatemala", "Hungary", "India", "Indonesia",
-            "Ireland", "Israel", "Italy", "Japan", "Jordan", "Kenya", "Lebanon", "Lithuania", "Malta", "Mexico",
-            "Montenegro", "Morocco", "Netherlands", "New Zealand", "Nicaragua", "Norway", "Palestine", "Peru",
-            "Philippines", "Poland", "Portugal", "Serbia", "Slovakia", "Slovenia", "South Africa", "South Korea",
-            "Spain", "Sweden", "Switzerland", "Tanzania", "Thailand", "Turkey", "Uganda", "Ukraine",
-            "United Arab Emirates", "United Kingdom", "United States", "Vatican City", "Vietnam");
-
     /** The country autocomplete: any country containing the query (case-insensitive); free text still saves. */
     public List<String> countrySuggestions(final String query) {
-        final String q = nullSafe(query).trim().toLowerCase(Locale.ROOT);
-        final List<String> matches = new ArrayList<>();
-        for (final String country : COUNTRIES) {
-            if (country.toLowerCase(Locale.ROOT).contains(q)) {
-                matches.add(country);
-            }
-        }
-        return matches;
+        return Countries.suggest(query);
     }
 
     // ================================================================== offers
@@ -1665,6 +1484,18 @@ public class LodgingCommands {
         return active;
     }
 
+    /**
+     * Every stay at this hotel across ALL trips whose window could still matter (the by-accommodation index).
+     * The hotel is a GLOBAL row, so two organizations' trips share its rooms; nothing else in the app reads
+     * across the tenancy boundary, and what this feeds is counts and dates, never names.
+     */
+    List<Reservation> atHotel(final Accommodation.Id accId, final LocalDateTime from) {
+        if (accId == null) {
+            return List.of();
+        }
+        return DAO.getInstance().getReservationsAt(accId, from);
+    }
+
     public List<ReservationRow> reservationRows(final String tripId, final boolean showCancelled) {
         final List<ReservationRow> rows = new ArrayList<>();
         if (!canManageTripLodging(tripId)) {
@@ -1753,7 +1584,7 @@ public class LodgingCommands {
             refuse("Choose at least one person.");
             return 0;
         }
-        final String problem = stayProblem(trip, offer, people, form.getStart(), form.getEnd());
+        final String problem = stayProblem(trip, offer, people, form.getStart(), form.getEnd(), null);
         if (problem != null) {
             refuse(problem);
             return 0;
@@ -1762,6 +1593,12 @@ public class LodgingCommands {
         if (form.getRoomId() != null && !form.getRoomId().isBlank() && (acc == null
                 || acc.room(form.getRoomId()) == null)) {
             refuse("That room is not at " + (acc == null ? "the accommodation" : acc.getName()) + ".");
+            return 0;
+        }
+        final String blocked = (acc == null) ? null : RoomAvailability.blockProblem(acc.room(form.getRoomId()),
+                blocksOf(acc), form.getStart(), form.getEnd());
+        if (blocked != null) {
+            refuse(blocked);
             return 0;
         }
         final List<List<Person.Id>> groups = new ArrayList<>();
@@ -1789,9 +1626,13 @@ public class LodgingCommands {
         return created;
     }
 
-    /** The refusals shared by create and edit; null when the stay is acceptable. */
+    /**
+     * The refusals shared by create, edit and placement; null when the stay is acceptable.
+     *
+     * @param except the reservation being edited, so it does not overlap itself; null when creating.
+     */
     private String stayProblem(final Trip trip, final ReservationOffer offer, final List<Person.Id> people,
-            final LocalDateTime start, final LocalDateTime end) {
+            final LocalDateTime start, final LocalDateTime end, final Reservation.Id except) {
         if (!offer.isEnabled()) {
             return "'" + offer.getName() + "' is not being offered.";
         }
@@ -1811,7 +1652,55 @@ public class LodgingCommands {
             return "The stay must fall within the dates of '" + offer.getName() + "' ("
                     + range(offer.getValidFrom(), offer.getValidUntil()) + "); widen the option's dates first.";
         }
+        return overlappingStay(trip.getId(), people, start, end, except);
+    }
+
+    /**
+     * Whether one of these people already sleeps somewhere on this trip on a night of the new stay. Several
+     * stays per person are the point (leave and come back, or change rooms mid-stay), but two at ONCE would
+     * bill the same night twice: pricing counts a person once per night in a room and once per reservation
+     * in the ledger.
+     *
+     * <p>Nights, not instants: a stay ending on the 26th and another starting on the 26th share a DATE but
+     * no night, which is exactly the room-switch shape.
+     */
+    private String overlappingStay(final String tripId, final List<Person.Id> people, final LocalDateTime start,
+            final LocalDateTime end, final Reservation.Id except) {
+        for (final Reservation other : DAO.getInstance().getReservations(tripId, Cached.NO)) {
+            if (!other.isActive() || other.getId().equals(except) || !sharesANight(other, start, end)) {
+                continue;
+            }
+            for (final Person.Id person : people) {
+                if (other.occupies(person)) {
+                    return displayName(person) + " already has a stay " + range(other.getStart(), other.getEnd())
+                            + describeRoom(other) + "; two stays cannot share a night.";
+                }
+            }
+        }
         return null;
+    }
+
+    private static boolean sharesANight(final Reservation other, final LocalDateTime start, final LocalDateTime end) {
+        if (other.getStart() == null || other.getEnd() == null || start == null || end == null) {
+            return false;
+        }
+        return start.toLocalDate().isBefore(other.getEnd().toLocalDate())
+                && other.getStart().toLocalDate().isBefore(end.toLocalDate());
+    }
+
+    /** " (Pansion, room 105)" for a refusal that has to be actionable; "" when the stay has no room yet. */
+    private String describeRoom(final Reservation res) {
+        final Accommodation acc = findAccommodation(idValue(res.getAccommodationId()));
+        if (acc == null) {
+            return "";
+        }
+        final String label = acc.roomLabel(res.getRoomId());
+        return " (" + acc.getName() + (label == null ? "" : ", room " + label) + ")";
+    }
+
+    /** The hotel's own unavailability, read fresh: a manager may have blocked a room a moment ago. */
+    private List<RoomBlock> blocksOf(final Accommodation acc) {
+        return (acc == null) ? List.of() : DAO.getInstance().getRoomBlocks(acc.getId(), Cached.NO);
     }
 
     /** Edits dates, room, occupants, notes and the supplement waiver; recomputes both rooms. */
@@ -1836,7 +1725,7 @@ public class LodgingCommands {
             return refuse("A reservation needs at least one person.");
         }
         form.resolveDates();
-        final String problem = stayProblem(trip, offer, people, form.getStart(), form.getEnd());
+        final String problem = stayProblem(trip, offer, people, form.getStart(), form.getEnd(), res.getId());
         if (problem != null) {
             return refuse(problem);
         }
@@ -1844,6 +1733,11 @@ public class LodgingCommands {
         final String roomId = blankToNull(form.getRoomId());
         if (roomId != null && (acc == null || acc.room(roomId) == null)) {
             return refuse("That room is not at the accommodation.");
+        }
+        final String blocked = (acc == null || roomId == null) ? null
+                : RoomAvailability.blockProblem(acc.room(roomId), blocksOf(acc), form.getStart(), form.getEnd());
+        if (blocked != null) {
+            return refuse(blocked);
         }
         final String previousRoom = res.getRoomId();
         final List<Person.Id> leaving = new ArrayList<>(res.getOccupants());
@@ -1895,6 +1789,12 @@ public class LodgingCommands {
             return outcome(false, false, "That room is not at the accommodation.", null, reservationId, roomId);
         }
         final String personId = res.getOccupants().isEmpty() ? null : res.getOccupants().get(0).getValue();
+        // The hotel's own block comes first and is a refusal, not a warning: capacity is ours to overrule,
+        // a room another group holds is not ours to hand out.
+        final String blocked = RoomAvailability.blockProblem(room, blocksOf(acc), res.getStart(), res.getEnd());
+        if (blocked != null) {
+            return outcome(false, false, blocked, personId, reservationId, roomId);
+        }
         final String tooFull = capacityProblem(tripId, acc, room, res, windowStart(winStart, res),
                 windowEnd(winEnd, res));
         if (tooFull != null && !force) {
@@ -1955,12 +1855,35 @@ public class LodgingCommands {
         final Room room = (acc == null) ? null : acc.room(roomId);
         form.setRoomLabel(room == null ? "" : nullSafe(acc.roomLabel(roomId)));
         form.setPersonName(personId == null ? "" : displayName(Person.Id.from(personId)));
+        describeExistingStays(tripId, personId, form);
         final Map<String, String> options = optionChoices(tripId, accId);
         if (options.size() == 1) {
             form.setOfferId(options.keySet().iterator().next());
         }
         applyPlacementOption(tripId, form);
         return form;
+    }
+
+    /**
+     * Tells the placement dialog what this person already holds on the trip. An EXTRA stay (they leave and
+     * come back, or they move rooms) starts with a BLANK range: the option's default dates are the ones they
+     * are already here for, so offering them back would only ever come straight back as an overlap.
+     */
+    private void describeExistingStays(final String tripId, final String personId, final PlacementForm form) {
+        if (personId == null || personId.isBlank()) {
+            return;
+        }
+        final List<Reservation> mine = activeReservationsFor(tripId, Person.Id.from(personId));
+        if (mine.isEmpty()) {
+            return;
+        }
+        mine.sort((a, b) -> compareNullable(a.getStart(), b.getStart()));
+        final List<String> parts = new ArrayList<>();
+        for (final Reservation res : mine) {
+            parts.add(range(res.getStart(), res.getEnd()) + describeRoom(res));
+        }
+        form.setAnotherStay(true);
+        form.setExistingStays(String.join("; ", parts));
     }
 
     /** The stay follows the chosen option's default; called again whenever the dialog's option changes. */
@@ -2011,9 +1934,13 @@ public class LodgingCommands {
             return placementProblem(form, "That room is not at the accommodation.", personId, roomId);
         }
         final Person.Id person = Person.Id.from(personId);
-        final String problem = stayProblem(trip, offer, List.of(person), form.start(), form.end());
+        final String problem = stayProblem(trip, offer, List.of(person), form.start(), form.end(), null);
         if (problem != null) {
             return placementProblem(form, problem, personId, roomId);
+        }
+        final String blocked = RoomAvailability.blockProblem(room, blocksOf(acc), form.start(), form.end());
+        if (blocked != null) {
+            return placementProblem(form, blocked, personId, roomId);
         }
         final Reservation res = Reservation.builder().tripId(tripId).orgId(trip.getOrgId()).offerId(offer.getId())
                 .accommodationId(offer.getAccommodationId()).occupants(List.of(person))
@@ -2054,6 +1981,115 @@ public class LodgingCommands {
         return new AssignOutcome(false, false, message, personId, null, roomId);
     }
 
+    // ---------------------------------------------------------------- changing rooms part-way through a stay
+
+    /**
+     * The "switch room mid-stay" dialog for one reservation. Never null; a blank form when the caller may not
+     * room this trip's people or the stay is gone, which the page renders as nothing to do.
+     */
+    public SplitForm splitFormFor(final String tripId, final String reservationId) {
+        final SplitForm form = new SplitForm();
+        if (!canAssignRooms(tripId)) {
+            return form;
+        }
+        final Reservation res = findReservation(tripId, reservationId);
+        if (res == null || !res.isActive()) {
+            return form;
+        }
+        final Accommodation acc = findAccommodation(idValue(res.getAccommodationId()));
+        form.setReservationId(res.getId().getValue());
+        form.setAccommodationId(idValue(res.getAccommodationId()));
+        form.setNames(names(res.getOccupants()));
+        form.setRoomLabel(acc == null ? "" : nullSafe(acc.roomLabel(res.getRoomId())));
+        form.setStart(res.getStart());
+        form.setEnd(res.getEnd());
+        form.setDate(form.getMinDate());
+        return form;
+    }
+
+    /**
+     * Splits one stay in two at {@code date}: the same people, option, notes and waiver, in one room until
+     * that morning and another from it. This is ROOMING, not pricing -- the nights, the occupants and the
+     * option are untouched, and the bills recompute to the same total -- which is why the hotel's own staff
+     * may do it, unlike minting a reservation.
+     *
+     * <p>A night belongs to the date it starts on, so the halves are {@code [start, date)} and
+     * {@code [date, end)}: nothing is lost or counted twice, and the two stays never overlap.
+     */
+    public AssignOutcome splitStay(final String tripId, final SplitForm form) {
+        if (!canAssignRooms(tripId)) {
+            return outcome(false, false, "Not allowed: you do not room this trip's people.", null, null, null);
+        }
+        final Reservation res = (form == null) ? null : findReservation(tripId, form.getReservationId());
+        if (res == null || !res.isActive()) {
+            return outcome(false, false, "This reservation no longer exists or is cancelled.", null, null, null);
+        }
+        final Trip trip = tripSource.get().getTripForEdit(tripId);
+        final ReservationOffer offer = findOffer(tripId, idValue(res.getOfferId()));
+        final Accommodation acc = findAccommodation(idValue(res.getAccommodationId()));
+        final String problem = splitProblem(acc, res, form);
+        if (problem != null) {
+            form.setProblem(problem);
+            return outcome(false, false, problem, null, res.getId().getValue(), form.getRoomId());
+        }
+        final LocalDateTime changeover = form.getDate().atTime(res.getStart().toLocalTime());
+        final String newRoom = blankToNull(form.getRoomId());
+        final Reservation second = Reservation.builder().tripId(tripId).orgId(res.getOrgId())
+                .offerId(res.getOfferId()).accommodationId(res.getAccommodationId())
+                .occupants(res.getOccupants()).start(changeover).end(res.getEnd()).roomId(newRoom)
+                .notes(res.getNotes()).waiveSingleSupplement(res.getWaiveSingleSupplement())
+                .createdBy(caller().personId()).created(LocalDateTime.now()).build();
+        final String tooFull = (newRoom == null) ? null
+                : capacityProblem(tripId, acc, acc.room(newRoom), second, changeover, res.getEnd());
+        if (tooFull != null && !form.isForce()) {
+            form.setProblem(tooFull);
+            return outcome(false, true, tooFull, null, res.getId().getValue(), newRoom);
+        }
+        final LocalDateTime wholeEnd = res.getEnd();
+        final String firstRoom = res.getRoomId();
+        res.setEnd(form.getDate().atTime(wholeEnd.toLocalTime()));
+        if (!persistReservation(trip, offer, acc, res, firstRoom)) {
+            return outcome(false, false, "The stay could not be shortened.", null, res.getId().getValue(), newRoom);
+        }
+        if (!persistReservation(trip, offer, acc, second, null)) {
+            // Put the stay back the way it was: half a split is a night nobody is booked for.
+            res.setEnd(wholeEnd);
+            persistReservation(trip, offer, acc, res, firstRoom);
+            return outcome(false, false, "The second stay could not be saved; nothing was changed.", null,
+                    res.getId().getValue(), newRoom);
+        }
+        final String msg = names(res.getOccupants()) + " stay in room " + nullSafe(acc.roomLabel(firstRoom))
+                + " until " + form.getDate().format(DAY) + ", then "
+                + (newRoom == null ? "have no room yet" : "room " + nullSafe(acc.roomLabel(newRoom))) + ".";
+        auditSource.get().lodging(AuditEventBuilder.TARGET_RESERVATION, res.getId().getValue(), trip.getOrgId(),
+                "Split stay at " + form.getDate().format(DAY) + ": " + msg, caller().auditActor());
+        info(msg);
+        form.setProblem(null);
+        return outcome(true, false, msg, null, second.getId().getValue(), newRoom);
+    }
+
+    /** Why this stay cannot be split where it is asked to be; null when it can. */
+    private String splitProblem(final Accommodation acc, final Reservation res, final SplitForm form) {
+        if (res.getStart() == null || res.getEnd() == null) {
+            return "This stay has no dates to split.";
+        }
+        final LocalDate date = form.getDate();
+        if (date == null || !date.isAfter(res.getStart().toLocalDate()) || !date.isBefore(res.getEnd().toLocalDate())) {
+            return "Choose a night inside the stay (" + range(res.getStart(), res.getEnd())
+                    + "): both halves need at least one night.";
+        }
+        final String newRoom = blankToNull(form.getRoomId());
+        if (newRoom != null && (acc == null || acc.room(newRoom) == null)) {
+            return "That room is not at the accommodation.";
+        }
+        if (newRoom != null && newRoom.equals(res.getRoomId())) {
+            return "That is the room they are already in.";
+        }
+        final LocalDateTime secondStart = date.atTime(res.getStart().toLocalTime());
+        return (newRoom == null) ? null
+                : RoomAvailability.blockProblem(acc.room(newRoom), blocksOf(acc), secondStart, res.getEnd());
+    }
+
     private static LocalDateTime windowStart(final LocalDateTime winStart, final Reservation res) {
         return (winStart == null) ? res.getStart() : winStart;
     }
@@ -2062,7 +2098,11 @@ public class LodgingCommands {
         return (winEnd == null) ? res.getEnd() : winEnd;
     }
 
-    /** The most people in the room on any night of the window, counting {@code candidate} as in it. */
+    /**
+     * The most people in the room on any night of the window, counting {@code candidate} as in it. Other
+     * TRIPS at the same hotel count too: a bed another group's guest is in is not free because their
+     * reservation lives in a different partition.
+     */
     private int occupancyOver(final String tripId, final String roomId, final Reservation candidate,
             final LocalDateTime from, final LocalDateTime to) {
         final List<Reservation> onRoom = new ArrayList<>();
@@ -2071,6 +2111,8 @@ public class LodgingCommands {
                 onRoom.add(res);
             }
         }
+        onRoom.addAll(RoomAvailability.otherTrips(roomId, atHotel(candidate.getAccommodationId(), from), tripId,
+                from, to));
         onRoom.add(candidate);
         int peak = 0;
         final Map<LocalDate, List<Person.Id>> byNight = LodgingPricing.occupancyByNight(onRoom);
@@ -2372,6 +2414,8 @@ public class LodgingCommands {
         final LocalDateTime from = (winStart != null) ? winStart : spanStart(tripId, acc, trip);
         final LocalDateTime to = (winEnd != null) ? winEnd : spanEnd(tripId, acc, trip);
         final List<Reservation> all = DAO.getInstance().getReservations(tripId, Cached.NO);
+        final List<RoomBlock> blocks = blocksOf(acc);
+        final List<Reservation> elsewhere = atHotel(acc.getId(), from);
         final Map<String, List<Reservation>> byRoom = new HashMap<>();
         final Set<Person.Id> housed = new HashSet<>();
         for (final Reservation res : all) {
@@ -2381,21 +2425,32 @@ public class LodgingCommands {
             housed.addAll(res.getOccupants());
             if (res.getRoomId() != null && overlaps(res, from, to)) {
                 byRoom.computeIfAbsent(res.getRoomId(), k -> new ArrayList<>()).add(res);
-            } else if (res.getRoomId() == null) {
-                board.getUnassigned().add(cardFor(trip, res.getOccupants().get(0), res));
             }
-            if (res.getRoomId() != null) {
-                final PersonCard placed = cardFor(trip, res.getOccupants().get(0), res);
-                placed.setRoomLabel(nullSafe(acc.roomLabel(res.getRoomId())));
-                board.getAssigned().add(placed);
+            // One card per OCCUPANT of the stay, not per stay: two people sharing a reservation are two
+            // people to move, and the board used to name a shared booking after whoever sorted first.
+            for (final Person.Id person : res.getOccupants()) {
+                if (res.getRoomId() == null) {
+                    board.getUnassigned().add(cardFor(trip, person, res));
+                } else {
+                    final PersonCard placed = cardFor(trip, person, res);
+                    placed.setRoomLabel(nullSafe(acc.roomLabel(res.getRoomId())));
+                    board.getAssigned().add(placed);
+                }
             }
         }
-        board.getAssigned().sort(Comparator.comparing(PersonCard::getRoomLabel).thenComparing(PersonCard::getName));
+        // By name, then by date: a person's two stays are two cards, and reading them out of order would
+        // make "stay 1 of 2" a puzzle. The reservation ids they arrive in are UUIDs, so unsorted is random.
+        board.getUnassigned().sort(Comparator.comparing(PersonCard::getName)
+                .thenComparing(PersonCard::getStart, Comparator.nullsLast(Comparator.naturalOrder())));
+        board.getAssigned().sort(Comparator.comparing(PersonCard::getRoomLabel).thenComparing(PersonCard::getName)
+                .thenComparing(PersonCard::getStart, Comparator.nullsLast(Comparator.naturalOrder())));
         for (final Room room : sortedRooms(acc)) {
-            board.getRooms().add(cellFor(acc, room, byRoom.getOrDefault(room.getId(), List.of()), from, to));
+            board.getRooms().add(cellFor(acc, room, byRoom.getOrDefault(room.getId(), List.of()), blocks,
+                    RoomAvailability.otherTrips(room.getId(), elsewhere, tripId, from, to), from, to));
         }
         // Placing one of these mints a reservation on a lodging OPTION, which is a price: that is the
-        // trip's call, so a lodging manager is not shown a column whose clicks would all be refused.
+        // trip's call, so a lodging manager is not shown a column whose clicks would all be refused. A
+        // SECOND stay is armed from the person's own card instead, since it starts from a stay they hold.
         if (canManageTripLodging(tripId)) {
             for (final Person.Id person : trip.getPeople()) {
                 if (!housed.contains(person)) {
@@ -2403,7 +2458,32 @@ public class LodgingCommands {
                 }
             }
         }
+        stampStays(board.getUnassigned(), board.getAssigned());
         return board;
+    }
+
+    /**
+     * Numbers each person's cards "stay 1 of 2", "stay 2 of 2", in date order across the whole board. Two
+     * cards for one person are the normal shape now (leave and come back, or a room change mid-stay), and
+     * without this they read as a duplicate rather than as two different weeks.
+     */
+    @SafeVarargs
+    private static void stampStays(final List<PersonCard>... lists) {
+        final Map<String, List<PersonCard>> byPerson = new LinkedHashMap<>();
+        for (final List<PersonCard> list : lists) {
+            for (final PersonCard card : list) {
+                if (card.getReservationId() != null) {
+                    byPerson.computeIfAbsent(card.getPersonId(), p -> new ArrayList<>()).add(card);
+                }
+            }
+        }
+        for (final List<PersonCard> cards : byPerson.values()) {
+            cards.sort(Comparator.comparing(PersonCard::getStart, Comparator.nullsLast(Comparator.naturalOrder())));
+            for (int i = 0; i < cards.size(); i++) {
+                cards.get(i).setStayIndex(i + 1);
+                cards.get(i).setStayCount(cards.size());
+            }
+        }
     }
 
     /**
@@ -2434,7 +2514,10 @@ public class LodgingCommands {
                 onRoom.add(res);
             }
         }
-        final RoomCell cell = cellFor(acc, room, onRoom, from, to);
+        final List<RoomBlock> blocks = blocksOf(acc);
+        final List<Reservation> otherTrips = RoomAvailability.otherTrips(roomId, atHotel(acc.getId(), from), tripId,
+                from, to);
+        final RoomCell cell = cellFor(acc, room, onRoom, blocks, otherTrips, from, to);
         detail.setRoomId(cell.getRoomId());
         detail.setRoomNumber(cell.getRoomNumber());
         detail.setFloor(cell.getFloor());
@@ -2445,6 +2528,15 @@ public class LodgingCommands {
         detail.setState(cell.getState());
         detail.setNotes(cell.getNotes());
         detail.setAdminNotes(cell.getAdminNotes());
+        for (final RoomBlock block : RoomAvailability.blocksOn(roomId, blocks, from, to)) {
+            detail.getBlocks().add(blockRow(acc, block));
+        }
+        // Another organization's trip in the same room: the hotel is shared, its guest list is not, so this
+        // carries a count and dates and never a name (see docs/lodging.md, "The hotel's inventory").
+        for (final Reservation res : otherTrips) {
+            detail.getOtherTrips().add(new DayStay(otherTripLabel(res), null, res.getOccupants().size(),
+                    res.getStart(), res.getEnd()));
+        }
         // Every occupant of every stay on the room, not one card per reservation: two people sharing one
         // reservation are two people in the room, and a second stay on other dates is a third card.
         final Set<String> seen = new LinkedHashSet<>();
@@ -2455,7 +2547,29 @@ public class LodgingCommands {
                 }
             }
         }
+        stampStays(detail.getOccupants());
         return detail;
+    }
+
+    /** What the board may call another trip in this room: its title only to someone who may see that trip. */
+    private String otherTripLabel(final Reservation res) {
+        final Trip other = DAO.getInstance().getTrip(res.getTripId(), Cached.YES).orElse(null);
+        if (other == null) {
+            return "another trip";
+        }
+        return canManageTripLodging(other.getId()) ? other.getTitle() : "another organization's trip";
+    }
+
+    /** One block as the tables and dialogs render it. */
+    BlockRow blockRow(final Accommodation acc, final RoomBlock block) {
+        final List<String> labels = new ArrayList<>();
+        for (final String roomId : block.getRoomIds()) {
+            final String label = acc.roomLabel(roomId);
+            labels.add(label == null ? roomId : label);
+        }
+        return new BlockRow(block.getId().getValue(), String.join(", ", labels), labels.size(), block.getStart(),
+                block.getEnd(), block.getNights(), block.getReason(),
+                block.getEnd() != null && block.getEnd().isBefore(LocalDate.now()));
     }
 
     /** The earliest date any of this hotel's options covers on the trip; the trip's start when none say. */
@@ -2539,35 +2653,65 @@ public class LodgingCommands {
     }
 
     private RoomCell cellFor(final Accommodation acc, final Room room, final List<Reservation> onRoom,
-            final LocalDateTime from, final LocalDateTime to) {
+            final List<RoomBlock> blocks, final List<Reservation> otherTrips, final LocalDateTime from,
+            final LocalDateTime to) {
         final RoomType type = acc.roomType(room.getRoomTypeId());
-        final Set<Person.Id> everyone = new LinkedHashSet<>();
+        // One chip per STAY, not per person: a person with two stays in one room is two things to move, and
+        // the chip's own ✕ unassigns the stay it names.
+        final Set<String> seen = new LinkedHashSet<>();
         final List<OccupantChip> chips = new ArrayList<>();
         for (final Reservation res : onRoom) {
             for (final Person.Id person : res.getOccupants()) {
-                if (everyone.add(person)) {
-                    chips.add(new OccupantChip(res.getId().getValue(), person.getValue(), displayName(person)));
+                if (seen.add(res.getId().getValue() + "/" + person.getValue())) {
+                    chips.add(new OccupantChip(res.getId().getValue(), person.getValue(), displayName(person),
+                            range(res.getStart(), res.getEnd())));
                 }
             }
         }
+        final List<Reservation> everyStay = new ArrayList<>(onRoom);
+        everyStay.addAll(otherTrips);
         int peak = 0;
-        final Map<LocalDate, List<Person.Id>> byNight = LodgingPricing.occupancyByNight(onRoom);
+        final Map<LocalDate, List<Person.Id>> byNight = LodgingPricing.occupancyByNight(everyStay);
         for (final LocalDate night : LodgingPricing.nightsOf(from, to)) {
             peak = Math.max(peak, byNight.getOrDefault(night, List.of()).size());
         }
-        final int count = Math.max(peak, everyone.isEmpty() ? 0 : 1);
+        final int count = Math.max(peak, everyStay.isEmpty() ? 0 : 1);
         final int max = (type == null) ? 0 : type.getMaxPeople();
+        final int blockedNights = RoomAvailability.blockedNights(room.getId(), blocks, from, to).size();
+        final boolean conflict = RoomAvailability.conflicts(room.getId(), blocks, everyStay, from, to);
         final Room.MapRegion region = room.getMapRegion();
-        return new RoomCell(room.getId(), room.getRoomNumber(), room.getFloor(), type == null ? "" : type.getName(),
-                type == null ? 0 : type.getMinPeople(), max, count, stateOf(count, max), chips, room.getNotes(),
-                room.getAdminNotes(), region != null, region == null ? 0 : region.getX(),
+        final RoomCell cell = new RoomCell(room.getId(), room.getRoomNumber(), room.getFloor(),
+                type == null ? "" : type.getName(), type == null ? 0 : type.getMinPeople(), max, count,
+                stateOf(count, max, blockedNights > 0, conflict), chips, room.getNotes(), room.getAdminNotes(),
+                blockedNights > 0, blockedNights, RoomAvailability.label(room.getId(), blocks, from, to),
+                headcount(otherTrips), region != null, region == null ? 0 : region.getX(),
                 region == null ? 0 : region.getY(), region == null ? 0 : region.getW(),
                 region == null ? 0 : region.getH());
+        return cell;
+    }
+
+    private static int headcount(final List<Reservation> stays) {
+        final Set<Person.Id> people = new LinkedHashSet<>();
+        for (final Reservation res : stays) {
+            people.addAll(res.getOccupants());
+        }
+        return people.size();
     }
 
     static String stateOf(final int count, final int max) {
+        return stateOf(count, max, false, false);
+    }
+
+    /**
+     * The room's CSS state. A block the hotel put on the room outranks "empty" (it is not ours to fill), and
+     * a room both blocked and slept in reads as over: somebody has to move, which is the same urgency.
+     */
+    static String stateOf(final int count, final int max, final boolean blocked, final boolean conflict) {
+        if (conflict) {
+            return "rs-over";
+        }
         if (count == 0) {
-            return "rs-empty";
+            return blocked ? "rs-blocked" : "rs-empty";
         }
         if (max > 0 && count > max) {
             return "rs-over";
@@ -2624,71 +2768,13 @@ public class LodgingCommands {
         return answers;
     }
 
-    // ================================================================== rooming list and compatibility
+    // ================================================================== rooming list and the itinerary
+    // Built by LodgingItinerary; these stay here because the pages that ask are not the lodging pages, and
+    // the bean they bind to is #{lodging}.
 
     /** The rooming list: everyone with a reservation, room then name; the unreserved at the bottom. */
     public List<RoomingRow> roomingList(final String tripId) {
-        final List<RoomingRow> rows = new ArrayList<>();
-        final Trip trip = tripSource.get().getTrip(tripId);
-        if (!tripId.equals(trip.getId())) {
-            return rows;
-        }
-        final Set<Person.Id> reserved = new HashSet<>();
-        for (final Reservation res : DAO.getInstance().getReservations(tripId, Cached.YES)) {
-            if (!res.isActive()) {
-                continue;
-            }
-            final Accommodation acc = findAccommodation(idValue(res.getAccommodationId()));
-            final ReservationOffer offer = findOffer(tripId, idValue(res.getOfferId()));
-            final Room room = (acc == null) ? null : acc.room(res.getRoomId());
-            // The ASSIGNED room's type when there is one (a Triple stays a Triple), else the offer's.
-            final String typeId = (room != null) ? room.getRoomTypeId()
-                    : (offer == null ? null : offer.firstRoomTypeId());
-            final RoomType type = (acc == null) ? null : acc.roomType(typeId);
-            for (final Person.Id person : res.getOccupants()) {
-                reserved.add(person);
-                rows.add(new RoomingRow(person.getValue(), displayName(person), cellOf(person),
-                        acc == null ? "" : acc.getName(), room == null ? "" : nullSafe(room.getFloor()),
-                        room == null ? "" : room.getRoomNumber(), type == null ? "" : type.getName(),
-                        res.getStart(), res.getEnd(), res.getNotes(), answersLine(trip, person), true));
-            }
-        }
-        rows.sort((a, b) -> {
-            final int byRoom = naturalCompare(a.getRoom(), b.getRoom());
-            return (byRoom != 0) ? byRoom : nullSafe(a.getName()).compareToIgnoreCase(nullSafe(b.getName()));
-        });
-        // The unreserved: their room, if any, is the LEGACY free-text one (the person_data row the old
-        // rooms page wrote), so past trips keep printing what they always did.
-        final List<RoomingRow> rest = new ArrayList<>();
-        for (final Person.Id person : trip.getPeople()) {
-            if (!reserved.contains(person)) {
-                rest.add(new RoomingRow(person.getValue(), displayName(person), cellOf(person), "", "",
-                        legacyRoom(tripId, person), "", null, null, null, answersLine(trip, person), false));
-            }
-        }
-        rest.sort((a, b) -> nullSafe(a.getName()).compareToIgnoreCase(nullSafe(b.getName())));
-        rows.addAll(rest);
-        return rows;
-    }
-
-    /** The old rooms page's free-text room for someone with no reservation, or "". */
-    static String legacyRoom(final String tripId, final Person.Id person) {
-        final org.paulsens.trip.model.PersonDataValue pdv = PersonDataValueCommands.getPersonDataValue(person,
-                RegistrationCommands.tripRoomDataId(tripId));
-        return (pdv == null || pdv.getContent() == null) ? "" : pdv.getContent().toString();
-    }
-
-    private String cellOf(final Person.Id person) {
-        return DAO.getInstance().getPerson(person, Cached.YES).map(Person::getCell).map(LodgingCommands::nullSafe)
-                .orElse("");
-    }
-
-    private String answersLine(final Trip trip, final Person.Id person) {
-        final StringBuilder sb = new StringBuilder();
-        for (final Map.Entry<String, String> entry : answersFor(trip, person).entrySet()) {
-            sb.append(entry.getKey()).append(" <b>").append(escape(entry.getValue())).append("</b><br />");
-        }
-        return sb.toString();
+        return itinerary().roomingList(tripId);
     }
 
     /**
@@ -2697,28 +2783,13 @@ public class LodgingCommands {
      * before falling back to the legacy free-text room.
      */
     public String roomLabelFor(final String tripId, final Person.Id personId) {
-        if (tripId == null || personId == null) {
-            return null;
-        }
-        final List<Reservation> active = activeReservationsFor(tripId, personId);
-        active.sort((a, b) -> compareNullable(a.getStart(), b.getStart()));
-        final Set<String> labels = new LinkedHashSet<>();
-        for (final Reservation res : active) {
-            final Accommodation acc = findAccommodation(idValue(res.getAccommodationId()));
-            final String label = (acc == null) ? null : acc.roomLabel(res.getRoomId());
-            if (label != null && !label.isBlank()) {
-                labels.add(label);
-            }
-        }
-        return labels.isEmpty() ? null : String.join(" / ", labels);
+        return itinerary().roomLabelFor(tripId, personId);
     }
 
     /** {@link #roomLabelFor} for pages, never null: "" when nothing is reserved. */
     public String roomLabel(final String tripId, final Person.Id personId) {
         return nullSafe(roomLabelFor(tripId, personId));
     }
-
-    // ================================================================== itinerary
 
     /** Whether this trip's itineraries show room numbers (the Assignments tab's toggle); unknown trips: yes. */
     public boolean roomNumbersShown(final String tripId) {
@@ -2755,108 +2826,20 @@ public class LodgingCommands {
 
     /**
      * The itinerary's rows in the page's FROZEN event order: every event as it is, except a LODGING event for
-     * which the person holds an ACTIVE reservation on an offer that tracks it -- that row carries the
-     * reservation's dates (earliest start, latest end across their reservations), room and notes.
+     * which the person holds ACTIVE reservations on offers that track it -- those become ONE ROW PER STAY.
      */
     public List<ItineraryRow> itineraryRows(final Trip trip, final List<String> frozenEventIds,
             final Person.Id personId) {
-        final List<ItineraryRow> rows = new ArrayList<>();
-        if (trip == null || personId == null) {
-            return rows;
-        }
-        final Map<String, List<Reservation>> byEvent = reservationsByEvent(trip.getId(), personId);
-        final boolean showRooms = trip.getRoomNumbersShown();
-        for (final TripEvent event : tripSource.get().eventsForFrozenIds(trip, frozenEventIds)) {
-            rows.add(rowFor(event, personId, byEvent.get(event.getId()), showRooms));
-        }
-        // By the date the row SHOWS, not the event's own: a late arriver's reservation starts days after the
-        // group's hotel event, so ordering by the event put her hotel above the flights that got her there.
-        // A stable sort, so events sharing a moment keep the order the trip gave them; undated rows sink.
-        rows.sort(Comparator.comparing(ItineraryRow::getEffectiveStart,
-                Comparator.nullsLast(Comparator.naturalOrder())));
-        return rows;
+        return itinerary().itineraryRows(trip, frozenEventIds, personId);
     }
 
     /** The GET-only print pages: every event of the person, unfrozen, same rows. */
     public List<ItineraryRow> itineraryRowsFor(final Trip trip, final Person.Id personId) {
-        if (trip == null || personId == null) {
-            return new ArrayList<>();
-        }
-        return itineraryRows(trip, tripSource.get().eventIdsOf(trip.getTripEventsForUser(personId)), personId);
+        return itinerary().itineraryRowsFor(trip, personId);
     }
 
-    private Map<String, List<Reservation>> reservationsByEvent(final String tripId, final Person.Id personId) {
-        final Map<String, List<Reservation>> byEvent = new HashMap<>();
-        final Map<ReservationOffer.Id, ReservationOffer> offers = new HashMap<>();
-        for (final ReservationOffer offer : DAO.getInstance().getReservationOffers(tripId, Cached.YES)) {
-            offers.put(offer.getId(), offer);
-        }
-        for (final Reservation res : activeReservationsFor(tripId, personId)) {
-            final ReservationOffer offer = offers.get(res.getOfferId());
-            if (offer != null && offer.getTripEventId() != null) {
-                byEvent.computeIfAbsent(offer.getTripEventId(), k -> new ArrayList<>()).add(res);
-            }
-        }
-        return byEvent;
-    }
-
-    private ItineraryRow rowFor(final TripEvent event, final Person.Id personId, final List<Reservation> mine,
-            final boolean showRooms) {
-        final ItineraryRow row = new ItineraryRow();
-        row.setId(event.getId());
-        row.setType(event.getType() == null ? "EVENT" : event.getType().name());
-        row.setTitle(event.getTitle());
-        row.setNotes(event.getNotes());
-        row.setStart(event.getStart());
-        row.setEnd(event.getEnd());
-        row.setEffectiveStart(event.getStart());
-        row.setEffectiveEnd(event.getEnd());
-        row.setParticipantCount(event.getParticipants().size());
-        row.getParticipantIds().addAll(event.getParticipants());
-        row.setPrivNote(nullSafe(event.getPrivNotes().get(personId)));
-        row.setLodging(event.getType() == TripEvent.Type.LODGING);
-        if (mine == null || mine.isEmpty()) {
-            return row;
-        }
-        LocalDateTime earliest = null;
-        LocalDateTime latest = null;
-        final Set<String> labels = new LinkedHashSet<>();
-        final List<String> notes = new ArrayList<>();
-        for (final Reservation res : mine) {
-            earliest = (earliest == null || compareNullable(res.getStart(), earliest) < 0) ? res.getStart() : earliest;
-            latest = (latest == null || compareNullable(res.getEnd(), latest) > 0) ? res.getEnd() : latest;
-            final Accommodation acc = findAccommodation(idValue(res.getAccommodationId()));
-            final ReservationOffer offer = findOffer(res.getTripId(), idValue(res.getOfferId()));
-            if (acc != null) {
-                row.setAccommodationName(acc.getName());
-                final String label = acc.roomLabel(res.getRoomId());
-                if (label != null) {
-                    labels.add(label);
-                }
-                final Room room = acc.room(res.getRoomId());
-                final RoomType type = acc.roomType(room != null ? room.getRoomTypeId()
-                        : (offer == null ? null : offer.firstRoomTypeId()));
-                if (type != null) {
-                    row.setRoomTypeName(type.getName());
-                }
-            }
-            if (res.getNotes() != null && !res.getNotes().isBlank()) {
-                notes.add(res.getNotes());
-            }
-        }
-        row.setReservationId(mine.get(0).getId().getValue());
-        row.setEffectiveStart(earliest == null ? event.getStart() : earliest);
-        row.setEffectiveEnd(latest == null ? event.getEnd() : latest);
-        // "Overridden" means the DATES differ from the group's; a reservation on the group dates still gets
-        // its room line, but no "dates from your reservation" hint.
-        row.setOverridden(!Objects.equals(row.getEffectiveStart(), event.getStart())
-                || !Objects.equals(row.getEffectiveEnd(), event.getEnd()));
-        // The number is withheld while the trip's admin is still planning (the Assignments tab's switch); the
-        // type and the nights are still theirs to see.
-        row.setRoomLabel(labels.isEmpty() || !showRooms ? null : String.join(" / ", labels));
-        row.setReservationNotes(notes.isEmpty() ? null : String.join(" ", notes));
-        row.setNights(Reservation.nightsBetween(row.getEffectiveStart(), row.getEffectiveEnd()));
-        return row;
+    private LodgingItinerary itinerary() {
+        return new LodgingItinerary(this, tripSource.get());
     }
 
     // ================================================================== plumbing
@@ -2865,7 +2848,7 @@ public class LodgingCommands {
         return callerSource.get();
     }
 
-    private Accommodation freshAccommodation(final String accId) {
+    Accommodation freshAccommodation(final String accId) {
         if (accId == null || accId.isBlank()) {
             return null;
         }
@@ -2873,7 +2856,7 @@ public class LodgingCommands {
     }
 
     /** The one write path for an accommodation: prune dead media refs, conditional put, growl on a race. */
-    private boolean store(final Accommodation acc) {
+    boolean store(final Accommodation acc) {
         pruneDanglingMedia(acc);
         try {
             return DAO.getInstance().saveAccommodation(acc) || refuse("The accommodation could not be saved.");
@@ -2887,7 +2870,7 @@ public class LodgingCommands {
         }
     }
 
-    private boolean audited(final Accommodation acc, final String what) {
+    boolean audited(final Accommodation acc, final String what) {
         auditSource.get().lodging(AuditEventBuilder.TARGET_ACCOMMODATION, acc.getId().getValue(), null,
                 what + " at '" + acc.getName() + "'", caller().auditActor());
         return true;
@@ -2901,7 +2884,7 @@ public class LodgingCommands {
         return String.join(", ", names);
     }
 
-    private String displayName(final Person.Id id) {
+    String displayName(final Person.Id id) {
         return DAO.getInstance().getPerson(id, Cached.YES).map(LodgingCommands::displayName).orElse(id.getValue());
     }
 
@@ -2934,14 +2917,14 @@ public class LodgingCommands {
         return String.join(", ", parts);
     }
 
-    private static <T extends Comparable<T>> int compareNullable(final T a, final T b) {
+    static <T extends Comparable<T>> int compareNullable(final T a, final T b) {
         if (a == null) {
             return (b == null) ? 0 : 1;
         }
         return (b == null) ? -1 : a.compareTo(b);
     }
 
-    private static String idValue(final Object id) {
+    static String idValue(final Object id) {
         if (id instanceof ReservationOffer.Id offer) {
             return offer.getValue();
         }
@@ -2979,7 +2962,7 @@ public class LodgingCommands {
         return (value == null || value.isBlank()) ? null : value.trim();
     }
 
-    private static String escape(final String value) {
+    static String escape(final String value) {
         return nullSafe(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 

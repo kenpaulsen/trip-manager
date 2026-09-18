@@ -43,6 +43,7 @@ import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.Reservation;
 import org.paulsens.trip.model.ReservationOffer;
+import org.paulsens.trip.model.RoomBlock;
 import org.paulsens.trip.model.PaymentProcessorConfig;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
@@ -352,6 +353,26 @@ public final class DAO {
     }
     public Optional<Reservation> getReservation(final String tripId, final Reservation.Id id, final Cached cached) {
         return NearCacheContext.call(cached, () -> lodgingDao.getReservation(tripId, id));
+    }
+    /**
+     * Every stay at one hotel across ALL trips, ending at or after {@code endingAfter} (the by-accommodation
+     * GSI). Uncached and deliberately not org-filtered: the caller decides what a hotel's view may name.
+     */
+    public List<Reservation> getReservationsAt(final Accommodation.Id accId, final LocalDateTime endingAfter) {
+        return lodgingDao.getReservationsAt(accId, endingAfter);
+    }
+    public Boolean saveRoomBlock(final RoomBlock block) throws IOException {
+        return lodgingDao.saveBlock(block);
+    }
+    public List<RoomBlock> getRoomBlocks(final Accommodation.Id accId, final Cached cached) {
+        return NearCacheContext.call(cached, () -> lodgingDao.getBlocks(accId));
+    }
+    public Optional<RoomBlock> getRoomBlock(final Accommodation.Id accId, final RoomBlock.Id id,
+            final Cached cached) {
+        return NearCacheContext.call(cached, () -> lodgingDao.getBlock(accId, id));
+    }
+    public Boolean deleteRoomBlock(final Accommodation.Id accId, final RoomBlock.Id id) {
+        return lodgingDao.deleteBlock(accId, id);
     }
     /** The trip-delete cascade: every offer and reservation of the trip; returns the rows deleted. */
     public int deleteLodgingForTrip(final String tripId) {
@@ -957,13 +978,14 @@ public final class DAO {
                 CacheKeys.PROCESSOR_PREFIX);
     }
 
-    /** Accommodations (whole-table hash) plus every trip's offer and reservation partitions. */
+    /** Accommodations (whole-table hash), every trip's offers and reservations, every hotel's blocks. */
     private List<String> clearLodgingScope() {
         lodgingDao.clearCache();
         cacheClient.clearNamespace(CacheKeys.LODGING_OFFER_PREFIX);
         cacheClient.clearNamespace(CacheKeys.LODGING_RES_PREFIX);
+        cacheClient.clearNamespace(CacheKeys.LODGING_BLOCK_PREFIX);
         return List.of(CacheKeys.LODGING_ACC_PREFIX, CacheKeys.LODGING_ACC_LOADED, CacheKeys.LODGING_OFFER_PREFIX,
-                CacheKeys.LODGING_RES_PREFIX);
+                CacheKeys.LODGING_RES_PREFIX, CacheKeys.LODGING_BLOCK_PREFIX);
     }
 
     private List<String> clearBindingScope() {

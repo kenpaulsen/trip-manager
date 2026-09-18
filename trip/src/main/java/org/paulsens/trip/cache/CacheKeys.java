@@ -63,6 +63,8 @@ public final class CacheKeys {
     public static final String LODGING_ACC_LOADED = FORMAT_VERSION + "lodging_acc_loaded";
     public static final String LODGING_OFFER_PREFIX = FORMAT_VERSION + "lodging_offer:";
     public static final String LODGING_RES_PREFIX = FORMAT_VERSION + "lodging_res:";
+    /** Room blocks: per-accommodation partition hash (the hotel's own unavailability). */
+    public static final String LODGING_BLOCK_PREFIX = FORMAT_VERSION + "lodging_block:";
 
     // Email lookup hash: field = lowercased email, value = personId. Lazy cache in front of the email-index GSI
     // (and the authoritative store in local mode, where every save goes through write-through).

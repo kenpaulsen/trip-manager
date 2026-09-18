@@ -99,7 +99,11 @@ public class InMemoryPersistence implements Persistence {
             // optimistic-version puts must be honestly rejectable: an accommodation's whole inventory is one row.
             Map.entry(LodgingDAO.ACCOMMODATIONS_TABLE, new TableKeys(LodgingDAO.ID, null)),
             Map.entry(LodgingDAO.OFFERS_TABLE, new TableKeys(LodgingDAO.TRIP_ID, LodgingDAO.ID)),
-            Map.entry(LodgingDAO.RESERVATIONS_TABLE, new TableKeys(LodgingDAO.TRIP_ID, LodgingDAO.ID)));
+            // The by-accommodation GSI is real here too: the hotel's availability calendar is the only way
+            // to see other trips' stays, so a fake that answered nothing would make it untestable.
+            Map.entry(LodgingDAO.RESERVATIONS_TABLE, new TableKeys(LodgingDAO.TRIP_ID, LodgingDAO.ID,
+                    Map.of(LodgingDAO.BY_ACCOMMODATION, new TableKeys(LodgingDAO.ACC_ID, LodgingDAO.STAY_END)))),
+            Map.entry(LodgingDAO.BLOCKS_TABLE, new TableKeys(LodgingDAO.ACC_ID, LodgingDAO.ID)));
 
     /** table -> (pk -> (sk -> item)). sk is "" for PK-only tables. */
     private final Map<String, Map<String, Map<String, Map<String, AttributeValue>>>> store =
@@ -251,9 +255,14 @@ public class InMemoryPersistence implements Persistence {
         final QueryRequest.Builder builder = QueryRequest.builder();
         request.accept(builder);
         final QueryRequest query = builder.build();
-        final TableKeys keys = TABLES.get(query.tableName());
-        if (keys == null) {
+        final TableKeys table = TABLES.get(query.tableName());
+        if (table == null) {
             return Persistence.super.query(request);
+        }
+        final TableKeys keys = table.indexKeys(query.indexName());
+        if (keys == null) {
+            throw new IllegalArgumentException("ValidationException: The table does not have the specified index: "
+                    + query.indexName());
         }
 
         rejectUnaliasedReservedWords(query.keyConditionExpression());
@@ -277,10 +286,10 @@ public class InMemoryPersistence implements Persistence {
             return QueryResponse.builder().items(List.of()).build();
         }
 
-        final List<Map<String, AttributeValue>> result = new ArrayList<>(
-                store.getOrDefault(query.tableName(), Map.of())
-                        .getOrDefault(pkValue, Map.of())
-                        .values());
+        final List<Map<String, AttributeValue>> result = (query.indexName() == null)
+                ? new ArrayList<>(store.getOrDefault(query.tableName(), Map.of())
+                        .getOrDefault(pkValue, Map.of()).values())
+                : indexRows(query.tableName(), keys, pkValue);
 
         applySkBounds(result, keys, values, expr);
 
@@ -294,6 +303,31 @@ public class InMemoryPersistence implements Persistence {
                     .build();
         }
         return QueryResponse.builder().items(result).build();
+    }
+
+    /**
+     * A secondary index's view of a table: every row of every partition carrying the index's own keys. Rows
+     * missing either key attribute are absent, which is exactly how a SPARSE DynamoDB index behaves -- a
+     * reservation with no accommodation is simply not in the hotel's index.
+     */
+    private List<Map<String, AttributeValue>> indexRows(final String table, final TableKeys keys, final String pk) {
+        final List<Map<String, AttributeValue>> rows = new ArrayList<>();
+        for (final Map<String, Map<String, AttributeValue>> partition
+                : store.getOrDefault(table, Map.of()).values()) {
+            for (final Map<String, AttributeValue> item : partition.values()) {
+                if (hasIndexKeys(item, keys) && pk.equals(item.get(keys.pk).s())) {
+                    rows.add(item);
+                }
+            }
+        }
+        return rows;
+    }
+
+    private static boolean hasIndexKeys(final Map<String, AttributeValue> item, final TableKeys keys) {
+        if (item.get(keys.pk) == null || item.get(keys.pk).s() == null) {
+            return false;
+        }
+        return keys.sk == null || (item.get(keys.sk) != null && item.get(keys.sk).s() != null);
     }
 
     /**
@@ -339,17 +373,32 @@ public class InMemoryPersistence implements Persistence {
         if (values == null) {
             return null;
         }
-        // Prefer common placeholders used by DAOs.
-        if (values.containsKey(":day")) {
-            return values.get(":day").s();
+        // The placeholder the expression equates the partition key to, READ from the expression rather than
+        // guessed at. A query carrying a range condition has several placeholders (the by-accommodation index
+        // reads "accommodationId = :a AND stayEnd BETWEEN :lo AND :hi"), and "the first one" was only ever
+        // right because every earlier query had exactly one.
+        final String named = pkPlaceholder(expr, names, keys);
+        if (named == null || values.get(named) == null) {
+            // Loudly, like every other thing this fake cannot evaluate: a silent empty answer would be a
+            // test that passes without exercising what it names.
+            throw new IllegalArgumentException("ValidationException: Query condition missed key schema element: "
+                    + keys.pk + " (expression: " + expr + ")");
         }
-        if (values.containsKey(":c")) {
-            return values.get(":c").s();
+        return values.get(named).s();
+    }
+
+    /** The {@code :placeholder} the key-condition equates the partition key to, aliased or not; else null. */
+    private static String pkPlaceholder(final String expr, final Map<String, String> names, final TableKeys keys) {
+        if (expr == null) {
+            return null;
         }
-        // Fallback: first value whose attribute name maps to the PK.
-        for (final Map.Entry<String, AttributeValue> e : values.entrySet()) {
-            if (e.getKey().startsWith(":") && e.getValue().s() != null) {
-                return e.getValue().s();
+        final java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("([#\\w]+)\\s*=\\s*(:\\w+)").matcher(expr);
+        while (matcher.find()) {
+            final String attr = matcher.group(1);
+            final String resolved = attr.startsWith("#") ? names.get(attr) : attr;
+            if (keys.pk.equals(resolved)) {
+                return matcher.group(2);
             }
         }
         return null;
@@ -435,6 +484,18 @@ public class InMemoryPersistence implements Persistence {
                 .sum();
     }
 
-    private record TableKeys(String pk, String sk) {
+    /**
+     * A table's (or one index's) key attributes. {@code indexes} maps a secondary index's name to ITS keys;
+     * a table with none answers only the base query.
+     */
+    private record TableKeys(String pk, String sk, Map<String, TableKeys> indexes) {
+        TableKeys(final String pk, final String sk) {
+            this(pk, sk, Map.of());
+        }
+
+        /** This table's own keys for a base query, the named index's for an index query; null when unknown. */
+        TableKeys indexKeys(final String indexName) {
+            return (indexName == null) ? this : indexes.get(indexName);
+        }
     }
 }

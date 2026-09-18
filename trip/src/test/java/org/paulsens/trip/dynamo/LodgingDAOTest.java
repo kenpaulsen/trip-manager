@@ -10,6 +10,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Reservation;
 import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.Room;
+import org.paulsens.trip.model.RoomBlock;
 import org.paulsens.trip.model.RoomType;
 import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.Test;
@@ -131,12 +132,73 @@ public class LodgingDAOTest {
     }
 
     @Test
-    public void lodgingScopeClearsAllThreeNamespaces() {
+    public void lodgingScopeClearsEveryNamespace() {
         final List<String> cleared = DAO.getInstance().invalidate(DAO.CacheScope.LODGING);
         assertFalse(cleared.isEmpty());
         assertTrue(cleared.stream().anyMatch(p -> p.contains("lodging_acc")));
         assertTrue(cleared.stream().anyMatch(p -> p.contains("lodging_offer")));
         assertTrue(cleared.stream().anyMatch(p -> p.contains("lodging_res")));
+        assertTrue(cleared.stream().anyMatch(p -> p.contains("lodging_block")));
+    }
+
+    /** Blocks are the hotel's own rows, partitioned by hotel and versioned like everything else here. */
+    @Test
+    public void blocksArePartitionedByAccommodationAndVersioned() throws IOException {
+        final Accommodation.Id acc = Accommodation.Id.newInstance();
+        final Accommodation.Id other = Accommodation.Id.newInstance();
+        final RoomBlock block = block(acc, "r-101");
+        assertTrue(DAO.getInstance().saveRoomBlock(block));
+        assertEquals(block.getVersion(), 1L);
+        assertTrue(DAO.getInstance().saveRoomBlock(block(acc, "r-102")));
+        assertTrue(DAO.getInstance().saveRoomBlock(block(other, "r-101")));
+        assertEquals(DAO.getInstance().getRoomBlocks(acc, Cached.NO).size(), 2);
+        assertEquals(DAO.getInstance().getRoomBlock(acc, block.getId(), Cached.NO).orElseThrow(), block);
+        assertTrue(DAO.getInstance().getRoomBlock(other, block.getId(), Cached.NO).isEmpty(),
+                "the composite get IS the partition check");
+        assertTrue(DAO.getInstance().getRoomBlocks(null, Cached.NO).isEmpty());
+        assertTrue(DAO.getInstance().getRoomBlock(acc, null, Cached.NO).isEmpty());
+
+        final RoomBlock stale = DAO.getInstance().getRoomBlock(acc, block.getId(), Cached.NO).orElseThrow();
+        block.setReason("Winner");
+        assertTrue(DAO.getInstance().saveRoomBlock(block));
+        stale.setReason("Loser");
+        assertThrows(ConditionalCheckFailedException.class, () -> DAO.getInstance().saveRoomBlock(stale));
+        assertEquals(stale.getVersion(), 1L, "a rejected save restores the caller's version");
+
+        assertTrue(DAO.getInstance().deleteRoomBlock(acc, block.getId()));
+        assertEquals(DAO.getInstance().getRoomBlocks(acc, Cached.NO).size(), 1);
+        assertFalse(DAO.getInstance().deleteRoomBlock(null, block.getId()));
+        assertFalse(DAO.getInstance().deleteRoomBlock(acc, null));
+    }
+
+    /**
+     * The by-accommodation index: the hotel's question ("who is here in September") asked across trips,
+     * bounded by the stay's end so a hotel's whole history never loads. Sparse on purpose.
+     */
+    @Test
+    public void theAccommodationIndexReadsAcrossTripsAndIsSparse() throws IOException {
+        final Accommodation.Id acc = Accommodation.Id.newInstance();
+        final String tripA = "trip-" + RandomData.genAlpha(8);
+        final String tripB = "trip-" + RandomData.genAlpha(8);
+        final Reservation mine = atHotel(tripA, acc, AT, AT.plusDays(3));
+        final Reservation theirs = atHotel(tripB, acc, AT.plusDays(1), AT.plusDays(4));
+        final Reservation elsewhere = atHotel(tripB, Accommodation.Id.newInstance(), AT, AT.plusDays(3));
+        final Reservation unhoused = Reservation.builder().tripId(tripA).start(AT).end(AT.plusDays(3)).build();
+        for (final Reservation res : List.of(mine, theirs, elsewhere, unhoused)) {
+            assertTrue(DAO.getInstance().saveReservation(res));
+        }
+        final List<Reservation> here = DAO.getInstance().getReservationsAt(acc, null);
+        assertEquals(here.size(), 2, "both trips, and only this hotel");
+        assertTrue(here.contains(mine) && here.contains(theirs));
+        assertTrue(DAO.getInstance().getReservationsAt(acc, AT.plusDays(3)).contains(theirs),
+                "a stay ending later is still ahead of the window");
+        assertEquals(DAO.getInstance().getReservationsAt(acc, AT.plusDays(4)), List.of(theirs),
+                "the bound is inclusive: a stay ending exactly then still comes back, and the caller, which "
+                        + "counts NIGHTS, drops it");
+        assertTrue(DAO.getInstance().getReservationsAt(acc, AT.plusDays(5)).isEmpty(),
+                "past every stay the hotel has");
+        assertTrue(DAO.getInstance().getReservationsAt(null, null).isEmpty());
+        assertTrue(DAO.getInstance().getReservationsAt(Accommodation.Id.newInstance(), null).isEmpty());
     }
 
     @Test
@@ -181,6 +243,17 @@ public class LodgingDAOTest {
     private static ReservationOffer offer(final String tripId, final String name) {
         return ReservationOffer.builder().tripId(tripId).name(name).nightlyPriceCents(5500).defaultStart(AT)
                 .defaultEnd(AT.plusDays(3)).build();
+    }
+
+    private static RoomBlock block(final Accommodation.Id accId, final String roomId) {
+        return RoomBlock.builder().accommodationId(accId).roomIds(List.of(roomId))
+                .start(AT.toLocalDate()).end(AT.toLocalDate().plusDays(2)).reason("another group").build();
+    }
+
+    private static Reservation atHotel(final String tripId, final Accommodation.Id accId,
+            final LocalDateTime start, final LocalDateTime end) {
+        return Reservation.builder().tripId(tripId).accommodationId(accId)
+                .occupants(List.of(Person.Id.newInstance())).start(start).end(end).build();
     }
 
     private static Reservation reservation(final String tripId, final ReservationOffer offer) {

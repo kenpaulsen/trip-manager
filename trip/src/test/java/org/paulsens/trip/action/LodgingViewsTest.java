@@ -3,14 +3,18 @@ package org.paulsens.trip.action;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
+import org.paulsens.trip.action.LodgingViews.BlockForm;
+import org.paulsens.trip.action.LodgingViews.DayCell;
 import org.paulsens.trip.action.LodgingViews.OfferForm;
 import org.paulsens.trip.action.LodgingViews.ItineraryRow;
 import org.paulsens.trip.action.LodgingViews.PlacementForm;
 import org.paulsens.trip.action.LodgingViews.ReservationForm;
+import org.paulsens.trip.action.LodgingViews.SplitForm;
 import org.paulsens.trip.action.LodgingViews.StayWindowForm;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
@@ -168,4 +172,75 @@ public class LodgingViewsTest {
         row.setNights(1);
         assertEquals(row.getStayTail(), ", 1 night", "a room without a type, and the singular");
     }
+
+    /** An EXTRA stay keeps the option's TIMES and drops its dates: those are the nights already taken. */
+    @Test
+    public void anotherStayStartsWithNoDatesOfItsOwn() {
+        final PlacementForm first = new PlacementForm();
+        first.applyDefaults(DAY_1.atTime(15, 0), DAY_4.atTime(10, 0));
+        assertEquals(first.getRange(), List.of(DAY_1, DAY_4));
+        assertEquals(first.start(), DAY_1.atTime(15, 0));
+
+        final PlacementForm second = new PlacementForm();
+        second.setAnotherStay(true);
+        second.applyDefaults(DAY_1.atTime(15, 0), DAY_4.atTime(10, 0));
+        assertTrue(second.getRange().isEmpty(), "the dialog makes you pick nights they do not already hold");
+        assertNull(second.start());
+        assertEquals(second.getArrivalTime(), LocalTime.of(15, 0), "the times still come from the option");
+        assertEquals(second.getDepartureTime(), LocalTime.of(10, 0));
+    }
+
+    /** The changeover picker is bounded so both halves of a split keep at least one night. */
+    @Test
+    public void aSplitOffersOnlyTheNightsInsideTheStay() {
+        final SplitForm form = new SplitForm();
+        assertNull(form.getMinDate(), "no stay, no bounds");
+        assertNull(form.getMaxDate());
+        form.setStart(DAY_1.atTime(15, 0));
+        form.setEnd(DAY_4.atTime(10, 0));
+        assertEquals(form.getMinDate(), DAY_1.plusDays(1));
+        assertEquals(form.getMaxDate(), DAY_4.minusDays(1));
+    }
+
+    @Test
+    public void aBlockFormCopiesItsListsAndReadsItsRange() {
+        final BlockForm form = new BlockForm();
+        assertTrue(form.getRoomIds().isEmpty());
+        assertNull(form.start());
+        assertNull(form.end());
+        final List<String> rooms = new java.util.ArrayList<>(List.of("r-1"));
+        form.setRoomIds(rooms);
+        rooms.add("r-2");
+        assertEquals(form.getRoomIds(), List.of("r-1"), "copied, so the caller's list cannot drift into it");
+        form.setRoomIds(null);
+        assertTrue(form.getRoomIds().isEmpty(), "a cleared multi-select is empty, never null");
+        form.setRange(List.of(DAY_1, DAY_4));
+        assertEquals(form.start(), DAY_1);
+        assertEquals(form.end(), DAY_4);
+        form.setRange(null);
+        assertNull(form.start());
+    }
+
+    /** A day's pill says the numbers, because a colour band on its own tells a hotel nothing. */
+    @Test
+    public void aDayCellSpellsOutItsOccupancy() {
+        final DayCell full = new DayCell(DAY_1, 23, 28, 2, 33, 0, 0, "cal-most");
+        assertEquals(full.getSummary(), "23/28 rooms · 33 people");
+        final DayCell one = new DayCell(DAY_1, 1, 28, 0, 1, 0, 0, "cal-some");
+        assertEquals(one.getSummary(), "1/28 rooms · 1 person");
+        assertEquals(new DayCell().getSummary(), "0/0 rooms · 0 people");
+    }
+
+    /** A plain row is a first row: whatever the event says renders on it, and a plain row is all there is. */
+    @Test
+    public void anItineraryRowIsAFirstStayUntilToldOtherwise() {
+        assertTrue(new ItineraryRow().isFirstStay());
+        final ItineraryRow second = new ItineraryRow();
+        second.setFirstStay(false);
+        second.setStayIndex(2);
+        second.setStayCount(2);
+        assertFalse(second.isFirstStay());
+        assertEquals(second.getStayIndex(), 2);
+    }
+
 }

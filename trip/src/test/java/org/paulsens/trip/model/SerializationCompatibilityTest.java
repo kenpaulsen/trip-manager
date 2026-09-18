@@ -139,6 +139,7 @@ public class SerializationCompatibilityTest {
             of(Accommodation.class, SerializationCompatibilityTest::accommodation, Accommodation::getName),
             of(ReservationOffer.class, SerializationCompatibilityTest::reservationOffer, ReservationOffer::getName),
             of(Reservation.class, SerializationCompatibilityTest::reservation, Reservation::getNotes),
+            of(RoomBlock.class, SerializationCompatibilityTest::roomBlock, RoomBlock::getReason),
             of(Payment.class, SerializationCompatibilityTest::payment, Payment::getOrderRef),
             of(Privilege.class, () -> new Privilege("peopleAdmin", "People admin", List.of(ADA)), Privilege::getId),
             of(TodoItem.class, SerializationCompatibilityTest::todoItem, TodoItem::getDataId),
@@ -231,6 +232,13 @@ public class SerializationCompatibilityTest {
         return ReservationOffer.builder().id(ReservationOffer.Id.from("offer-double")).tripId("trip-rome")
                 .name("Double room").accommodationId(Accommodation.Id.from("acc-pansion")).roomTypeId("rt-double")
                 .tripEventId("event-1").nightlyPriceCents(5500).defaultStart(AT).defaultEnd(AT.plusDays(3))
+                .createdBy(ADA).created(AT).build();
+    }
+
+    private static RoomBlock roomBlock() {
+        return RoomBlock.builder().id(RoomBlock.Id.from("block-1"))
+                .accommodationId(Accommodation.Id.from("acc-pansion")).roomIds(List.of("room-114"))
+                .start(AT.toLocalDate()).end(AT.toLocalDate().plusDays(3)).reason("another group")
                 .createdBy(ADA).created(AT).build();
     }
 

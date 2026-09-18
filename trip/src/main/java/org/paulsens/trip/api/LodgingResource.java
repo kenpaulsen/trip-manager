@@ -8,14 +8,17 @@ import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.action.HotelCommands;
 import org.paulsens.trip.action.LodgingCommands;
 import org.paulsens.trip.action.LodgingViews;
 import org.paulsens.trip.model.Person;
@@ -44,6 +47,10 @@ public class LodgingResource extends BaseResource {
 
     private LodgingCommands lodging() {
         return new LodgingCommands(this::caller);
+    }
+
+    private HotelCommands hotel() {
+        return new HotelCommands(this::caller);
     }
 
     /**
@@ -121,6 +128,60 @@ public class LodgingResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN, "Lodging admin required.");
         }
         return ok(lodging.accommodationRows());
+    }
+
+    /**
+     * Blocks rooms of a hotel for nights that are not ours (another group, maintenance). Body:
+     * {@code {roomIds:[...], start:"2026-09-21", end:"2026-09-26", reason}}, dates as ISO days with the
+     * stay convention (nights {@code [start, end)}). Answers {@code {id}}.
+     */
+    @POST
+    @Path("accommodations/{accId}/blocks")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response createBlock(@PathParam("accId") final String accId,
+            @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final HotelCommands hotel = hotel();
+        if (!hotel.canEdit(accId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Accommodation admin required.");
+        }
+        final LodgingViews.BlockForm form = new LodgingViews.BlockForm();
+        for (final Object id : listOf(body, "roomIds")) {
+            form.getRoomIds().add(id.toString());
+        }
+        final String start = str(body, "start");
+        final String end = str(body, "end");
+        if (start != null && end != null) {
+            form.setRange(List.of(LocalDate.parse(start), LocalDate.parse(end)));
+        }
+        form.setReason(str(body, "reason"));
+        if (!hotel.saveBlock(accId, form)) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "The block was not saved.");
+        }
+        // The command mints the id, so read it back: the newest block on exactly these nights.
+        String created = null;
+        for (final LodgingViews.BlockRow row : hotel.blockRows(accId)) {
+            if (row.getStart().equals(form.start()) && row.getEnd().equals(form.end())) {
+                created = row.getId();
+            }
+        }
+        return ok(Map.of("id", created == null ? "" : created));
+    }
+
+    /** How full a hotel is, day by day, over every trip staying there. Query: {@code ?month=yyyy-MM}. */
+    @GET
+    @Path("accommodations/{accId}/calendar")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response calendar(@PathParam("accId") final String accId,
+            @QueryParam("month") final String month) {
+        final HotelCommands hotel = hotel();
+        if (!hotel.canRead(accId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Lodging admin required.");
+        }
+        return ok(hotel.calendar(accId, month));
     }
 
     /**

@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.paulsens.trip.action.LodgingCommands;
+import org.paulsens.trip.action.LodgingViews;
 import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
@@ -76,6 +77,7 @@ public class LodgingResourceTest extends ResourceTestSupport {
         assertError(resource.createOffer(trip.getId(), null, Map.of()), 403, ApiErrors.CSRF);
         assertError(resource.createReservations(trip.getId(), null, Map.of()), 403, ApiErrors.CSRF);
         assertError(resource.assignRoom(trip.getId(), "r", null, Map.of()), 403, ApiErrors.CSRF);
+        assertError(resource.createBlock("acc", null, Map.of()), 403, ApiErrors.CSRF);
         // Ada is on the roster but manages nothing: refused everywhere.
         assertError(resource.createAccommodation(CSRF_OK, Map.of("name", "X")), 403, ApiErrors.FORBIDDEN);
         assertError(resource.accommodations(), 403, ApiErrors.FORBIDDEN);
@@ -83,6 +85,46 @@ public class LodgingResourceTest extends ResourceTestSupport {
         assertError(resource.createReservations(trip.getId(), CSRF_OK, Map.of()), 403, ApiErrors.FORBIDDEN);
         assertError(resource.reservations(trip.getId()), 403, ApiErrors.FORBIDDEN);
         assertError(resource.assignRoom(trip.getId(), "r", CSRF_OK, Map.of()), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.createBlock("acc", CSRF_OK, Map.of()), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.calendar("acc", "2026-09"), 403, ApiErrors.FORBIDDEN);
+    }
+
+    /** Blocks and the hotel's calendar: the browser tests' door onto the availability feature. */
+    @Test
+    public void blocksAndTheCalendarRoundTrip() {
+        signedInAsSiteAdmin(admin.getId());
+        final Response created = resource.createAccommodation(CSRF_OK, accommodation("Block Pansion",
+                List.of(Map.of("name", "Double", "minPeople", 1, "maxPeople", 2)),
+                List.of(Map.of("number", "101", "floor", "1", "type", "Double"),
+                        Map.of("number", "102", "floor", "1", "type", "Double"))));
+        assertOk(created);
+        final Map<?, ?> acc = (Map<?, ?>) created.getEntity();
+        final String accId = (String) acc.get("id");
+        final Map<?, ?> roomIds = (Map<?, ?>) acc.get("roomIds");
+
+        assertError(resource.createBlock(accId, CSRF_OK, Map.of("roomIds", List.of())), 400,
+                ApiErrors.VALIDATION_FAILED);
+        final Map<String, Object> body = new HashMap<>();
+        body.put("roomIds", List.of(roomIds.get("101")));
+        body.put("start", "2027-09-22");
+        body.put("end", "2027-09-25");
+        body.put("reason", "another group");
+        final Response blocked = resource.createBlock(accId, CSRF_OK, body);
+        assertOk(blocked);
+        final String blockId = (String) ((Map<?, ?>) blocked.getEntity()).get("id");
+        assertTrue(blockId != null && !blockId.isBlank(), "the fixture needs the id back");
+
+        final Response month = resource.calendar(accId, "2027-09");
+        assertOk(month);
+        final LodgingViews.HotelCalendar calendar = (LodgingViews.HotelCalendar) month.getEntity();
+        assertEquals(calendar.getMonth(), "2027-09");
+        assertEquals(calendar.getRoomsTotal(), 2);
+        assertEquals(calendar.getDays().size(), 30);
+        final LodgingViews.DayCell night = calendar.getDays().stream()
+                .filter(d -> d.getDate().equals(java.time.LocalDate.of(2027, 9, 22))).findFirst().orElseThrow();
+        assertEquals(night.getRoomsBlocked(), 1);
+        assertEquals(night.getRoomsOccupied(), 0, "blocked is not occupied: nobody of ours is in it");
+        assertOk(resource.calendar(accId, null));
     }
 
     @Test

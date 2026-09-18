@@ -20,7 +20,9 @@ import org.paulsens.trip.action.LodgingViews.RoomDetail;
 import org.paulsens.trip.action.LodgingViews.RoomForm;
 import org.paulsens.trip.action.LodgingViews.RoomRow;
 import org.paulsens.trip.action.LodgingViews.RoomTypeForm;
+import org.paulsens.trip.action.LodgingViews.SplitForm;
 import org.paulsens.trip.action.LodgingViews.RoomingRow;
+import org.paulsens.trip.action.LodgingViews.BlockForm;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
@@ -330,7 +332,7 @@ public class LodgingCommandsTest {
         assertEquals(admin.floorMapMediaId(accId, "1"), "");
         assertEquals(admin.mediaUrl("no-such-media"), "");
         assertTrue(admin.countrySuggestions("bosn").contains("Bosnia and Herzegovina"));
-        assertEquals(admin.countrySuggestions(null).size(), LodgingCommands.COUNTRIES.size());
+        assertEquals(admin.countrySuggestions(null).size(), Countries.ALL.size());
 
         assertTrue(admin.addPhoto(accId, null, "m-1"));
         assertTrue(admin.addPhoto(accId, typeId, "m-2"));
@@ -487,67 +489,71 @@ public class LodgingCommandsTest {
     // ------------------------------------------------------------------ reservations and the board
 
     @Test
-    public void reservationsJoinTheEventBillAndTheBoardAssignsWithACapacityWarning() {
-        final Stay stay = stay(true);
+    public void reservationsJoinTheEventBillAndTheBoardAssignsWithACapacityWarning() throws IOException {
+        final Person one = savedPerson("Amara");
+        final Person two = savedPerson("Bruno");
+        final Person three = savedPerson("Cleo");
+        final Trip own = ownTrip("Reservations trip", one, two, three);
+        final Stay stay = stay(true, own);
         final String offerId = stay.offer().getId().getValue();
-        final ReservationForm create = admin.reservationFormFor(trip.getId(), null);
+        final ReservationForm create = admin.reservationFormFor(own.getId(), null);
         create.setOfferId(offerId);
         assertEquals(create.getStart(), CHECK_IN, "Dates default from the offer");
-        create.setPersonIds(new ArrayList<>(List.of(ada.getId().getValue(), bob.getId().getValue())));
-        assertEquals(admin.createReservations(trip.getId(), create), 2);
-        final Trip joined = DAO.getInstance().getTrip(trip.getId(), Cached.NO).orElseThrow();
+        create.setPersonIds(new ArrayList<>(List.of(one.getId().getValue(), two.getId().getValue())));
+        assertEquals(admin.createReservations(own.getId(), create), 2);
+        final Trip joined = DAO.getInstance().getTrip(own.getId(), Cached.NO).orElseThrow();
         assertTrue(joined.getTripEvent(stay.eventId()).getParticipants()
-                .containsAll(List.of(ada.getId(), bob.getId())), "Occupants joined the offer's event");
-        final Reservation adaRes = reservationOf(ada, offerId);
-        final Reservation bobRes = reservationOf(bob, offerId);
+                .containsAll(List.of(one.getId(), two.getId())), "Occupants joined the offer's event");
+        final Reservation oneRes = reservationOf(own, one, offerId);
+        final Reservation twoRes = reservationOf(own, two, offerId);
         final LodgingBiller biller = new LodgingBiller(new TransactionsCommands());
-        assertEquals(biller.billedByPerson(adaRes), Map.of(ada.getId(), 3 * 12000L), "Alone: the whole room");
-        final Transaction bill = DAO.getInstance().getTransaction(ada.getId(),
-                LodgingBiller.billTxId(adaRes.getId(), ada.getId()), Cached.NO).orElseThrow();
+        assertEquals(biller.billedByPerson(oneRes), Map.of(one.getId(), 3 * 12000L), "Alone: the whole room");
+        final Transaction bill = DAO.getInstance().getTransaction(one.getId(),
+                LodgingBiller.billTxId(oneRes.getId(), one.getId()), Cached.NO).orElseThrow();
         assertEquals(bill.getAmount(), -360.0f, "Bills are negative");
 
-        final ReservationForm outsider = admin.reservationFormFor(trip.getId(), null);
+        final ReservationForm outsider = admin.reservationFormFor(own.getId(), null);
         outsider.setOfferId(offerId);
         outsider.setPersonIds(List.of(Person.Id.newInstance().getValue()));
-        assertEquals(admin.createReservations(trip.getId(), outsider), 0, "Not on the roster");
-        final ReservationForm tooShort = admin.reservationFormFor(trip.getId(), null);
+        assertEquals(admin.createReservations(own.getId(), outsider), 0, "Not on the roster");
+        final ReservationForm tooShort = admin.reservationFormFor(own.getId(), null);
         tooShort.setOfferId(offerId);
-        tooShort.setPersonIds(List.of(cy.getId().getValue()));
+        tooShort.setPersonIds(List.of(three.getId().getValue()));
         tooShort.setEnd(tooShort.getStart().plusHours(2));
-        assertEquals(admin.createReservations(trip.getId(), tooShort), 0, "Under the minimum stay");
-        assertEquals(admin.createReservations(trip.getId(), new ReservationForm()), 0);
-        assertEquals(new LodgingCommands(() -> TestCallers.person(ada.getId()))
-                .createReservations(trip.getId(), create), 0);
+        assertEquals(admin.createReservations(own.getId(), tooShort), 0, "Under the minimum stay");
+        assertEquals(admin.createReservations(own.getId(), new ReservationForm()), 0);
+        assertEquals(new LodgingCommands(() -> TestCallers.person(one.getId()))
+                .createReservations(own.getId(), create), 0);
 
-        AssignOutcome outcome = admin.assignRoom(trip.getId(), adaRes.getId().getValue(), stay.r101(), false,
+        AssignOutcome outcome = admin.assignRoom(own.getId(), oneRes.getId().getValue(), stay.r101(), false,
                 null, null);
         assertTrue(outcome.isAssigned(), outcome.getMessage());
-        outcome = admin.assignRoom(trip.getId(), bobRes.getId().getValue(), stay.r101(), false, null, null);
+        outcome = admin.assignRoom(own.getId(), twoRes.getId().getValue(), stay.r101(), false, null, null);
         assertTrue(outcome.isAssigned());
-        assertEquals(biller.billedByPerson(admin.findReservation(trip.getId(), adaRes.getId().getValue())),
-                Map.of(ada.getId(), 3 * 6000L), "Two in the room: Ada's bill halved by the recompute");
+        assertEquals(biller.billedByPerson(admin.findReservation(own.getId(), oneRes.getId().getValue())),
+                Map.of(one.getId(), 3 * 6000L), "Two in the room: Ada's bill halved by the recompute");
         // Cy holds no reservation: placing him asks which lodging option pays, and for the stay.
-        final PlacementForm place = admin.placementFormFor(trip.getId(), stay.accId(), cy.getId().getValue(),
+        final PlacementForm place = admin.placementFormFor(own.getId(), stay.accId(), three.getId().getValue(),
                 stay.r101());
         assertEquals(place.getOfferId(), offerId, "one option at this hotel: preselected");
-        assertEquals(place.getPersonName(), "Cy " + cy.getLast());
+        assertEquals(place.getPersonName(), "Cleo " + three.getLast());
         assertTrue(place.getRoomLabel().contains("101"));
         assertEquals(place.getRange(), List.of(CHECK_IN.toLocalDate(), CHECK_OUT.toLocalDate()),
                 "the stay defaults to the option's");
-        outcome = admin.place(trip.getId(), place);
+        outcome = admin.place(own.getId(), place);
         assertFalse(outcome.isAssigned());
         assertTrue(outcome.isOverCapacity(), "101 sleeps 2");
         assertTrue(outcome.getMessage().contains("sleeps 2"), outcome.getMessage());
         assertEquals(place.getProblem(), outcome.getMessage(), "the dialog shows why, in place");
-        assertTrue(admin.activeReservationsFor(trip.getId(), cy.getId()).stream()
+        assertTrue(admin.activeReservationsFor(own.getId(), three.getId()).stream()
                 .noneMatch(res -> res.getOfferId().getValue().equals(offerId)), "Nothing minted on a refusal");
         place.setForce(true);
-        outcome = admin.place(trip.getId(), place);
+        outcome = admin.place(own.getId(), place);
         assertTrue(outcome.isAssigned());
         assertTrue(outcome.isOverCapacity());
-        final Reservation cyRes = reservationOf(cy, offerId);
-        assertEquals(cyRes.getRoomId(), stay.r101());
-        RoomBoard board = admin.roomBoard(trip.getId(), stay.accId(), null, null);
+        final Reservation threeRes = reservationOf(own, three, offerId);
+        assertEquals(threeRes.getRoomId(), stay.r101());
+        RoomBoard board = admin.roomBoard(own.getId(), stay.accId(), null, null);
         final RoomCell cell101 = board.getRooms().get(0);
         assertEquals(cell101.getCount(), 3);
         assertEquals(cell101.getState(), "rs-over");
@@ -560,33 +566,33 @@ public class LodgingCommandsTest {
         assertEquals(LodgingCommands.stateOf(1, 0), "rs-partial");
         assertEquals(LodgingCommands.ageAt(java.time.LocalDate.of(2000, 1, 1), CHECK_IN), "27");
         assertEquals(LodgingCommands.ageAt(null, CHECK_IN), "");
-        assertTrue(admin.roomBoard(trip.getId(), "nope", null, null).getRooms().isEmpty(), "unknown hotel");
-        assertTrue(new LodgingCommands(() -> TestCallers.person(ada.getId()))
-                .roomBoard(trip.getId(), stay.accId(), null, null).getRooms().isEmpty());
+        assertTrue(admin.roomBoard(own.getId(), "nope", null, null).getRooms().isEmpty(), "unknown hotel");
+        assertTrue(new LodgingCommands(() -> TestCallers.person(one.getId()))
+                .roomBoard(own.getId(), stay.accId(), null, null).getRooms().isEmpty());
 
-        assertTrue(admin.unassignRoom(trip.getId(), cyRes.getId().getValue()));
-        board = admin.roomBoard(trip.getId(), stay.accId(), null, null);
+        assertTrue(admin.unassignRoom(own.getId(), threeRes.getId().getValue()));
+        board = admin.roomBoard(own.getId(), stay.accId(), null, null);
         assertEquals(board.getRooms().get(0).getState(), "rs-full");
         assertEquals(board.getUnassigned().size(), 1, "Cy waits for a room again");
-        assertEquals(board.getUnassigned().get(0).getName(), "Cy " + cy.getLast());
+        assertEquals(board.getUnassigned().get(0).getName(), "Cleo " + three.getLast());
         assertEquals(board.getUnassigned().get(0).getAge(), "37");
-        assertFalse(admin.unassignRoom(trip.getId(), "nope"));
-        assertFalse(admin.assignRoom(trip.getId(), cyRes.getId().getValue(), "no-room", false, null, null)
+        assertFalse(admin.unassignRoom(own.getId(), "nope"));
+        assertFalse(admin.assignRoom(own.getId(), threeRes.getId().getValue(), "no-room", false, null, null)
                 .isAssigned());
-        assertFalse(admin.assignRoom(trip.getId(), "nope", stay.r102(), false, null, null).isAssigned(),
+        assertFalse(admin.assignRoom(own.getId(), "nope", stay.r102(), false, null, null).isAssigned(),
                 "No such reservation");
-        assertFalse(new LodgingCommands(() -> TestCallers.person(ada.getId()))
-                .assignRoom(trip.getId(), cyRes.getId().getValue(), stay.r102(), false, null, null).isAssigned(),
+        assertFalse(new LodgingCommands(() -> TestCallers.person(one.getId()))
+                .assignRoom(own.getId(), threeRes.getId().getValue(), stay.r102(), false, null, null).isAssigned(),
                 "Not a manager");
-        final PlacementForm nobody = admin.placementFormFor(trip.getId(), stay.accId(), "", stay.r102());
-        assertFalse(admin.place(trip.getId(), nobody).isAssigned(), "Nobody named");
-        final PlacementForm noOption = admin.placementFormFor(trip.getId(), stay.accId(), cy.getId().getValue(),
+        final PlacementForm nobody = admin.placementFormFor(own.getId(), stay.accId(), "", stay.r102());
+        assertFalse(admin.place(own.getId(), nobody).isAssigned(), "Nobody named");
+        final PlacementForm noOption = admin.placementFormFor(own.getId(), stay.accId(), three.getId().getValue(),
                 stay.r102());
         noOption.setOfferId("");
-        assertFalse(admin.place(trip.getId(), noOption).isAssigned(), "No option chosen");
+        assertFalse(admin.place(own.getId(), noOption).isAssigned(), "No option chosen");
         assertEquals(noOption.getProblem(), "Choose a lodging option.");
-        assertFalse(new LodgingCommands(() -> TestCallers.person(ada.getId()))
-                .place(trip.getId(), admin.placementFormFor(trip.getId(), stay.accId(), cy.getId().getValue(),
+        assertFalse(new LodgingCommands(() -> TestCallers.person(one.getId()))
+                .place(own.getId(), admin.placementFormFor(own.getId(), stay.accId(), three.getId().getValue(),
                         stay.r102())).isAssigned(), "Not a manager");
     }
 
@@ -855,8 +861,28 @@ public class LodgingCommandsTest {
     }
 
     private Reservation reservationOf(final Person person, final String offerId) {
-        return admin.activeReservationsFor(trip.getId(), person.getId()).stream()
+        return reservationOf(trip, person, offerId);
+    }
+
+    private Reservation reservationOf(final Trip onTrip, final Person person, final String offerId) {
+        return admin.activeReservationsFor(onTrip.getId(), person.getId()).stream()
                 .filter(res -> res.getOfferId().getValue().equals(offerId)).findFirst().orElseThrow();
+    }
+
+    /**
+     * A trip of this test's own, with people of its own. Stays of one person may not share a night, so a
+     * test that books somebody on the fixture dates has to book somebody nobody else is booking.
+     */
+    private Trip ownTrip(final String title, final Person... people) throws IOException {
+        final List<Person.Id> ids = new ArrayList<>();
+        for (final Person person : people) {
+            ids.add(person.getId());
+        }
+        final Trip own = Trip.builder().id(java.util.UUID.randomUUID().toString()).title(title)
+                .startDate(CHECK_IN).endDate(CHECK_OUT.plusDays(2)).people(ids).build();
+        own.setOrgId(orgId);
+        assertTrue(DAO.getInstance().saveTrip(own));
+        return own;
     }
 
     // ------------------------------------------------------------------ helpers
@@ -958,23 +984,25 @@ public class LodgingCommandsTest {
 
     /** Editing an option's price recomputes the bills of its reservations (no Recompute press needed). */
     @Test
-    public void editingAnOptionRecomputesItsReservationsBills() {
-        final Stay stay = stay(true);
-        final ReservationForm res = admin.reservationFormFor(trip.getId(), null);
+    public void editingAnOptionRecomputesItsReservationsBills() throws IOException {
+        final Person guest = savedPerson("Dara");
+        final Trip own = ownTrip("Option recompute trip", guest);
+        final Stay stay = stay(true, own);
+        final ReservationForm res = admin.reservationFormFor(own.getId(), null);
         res.setOfferId(stay.offer().getId().getValue());
-        res.setPersonIds(List.of(cy.getId().getValue()));
+        res.setPersonIds(List.of(guest.getId().getValue()));
         res.setStart(CHECK_IN);
         res.setEnd(CHECK_OUT);
-        assertEquals(admin.createReservations(trip.getId(), res), 1);
-        final Reservation cyRes = admin.activeReservationsFor(trip.getId(), cy.getId()).stream()
+        assertEquals(admin.createReservations(own.getId(), res), 1);
+        final Reservation guestRes = admin.activeReservationsFor(own.getId(), guest.getId()).stream()
                 .filter(r -> r.getOfferId().equals(stay.offer().getId())).findFirst().orElseThrow();
         final LodgingBiller biller = new LodgingBiller(new TransactionsCommands());
-        assertEquals(biller.billedByPerson(cyRes), Map.of(cy.getId(), 3 * 12000L));
+        assertEquals(biller.billedByPerson(guestRes), Map.of(guest.getId(), 3 * 12000L));
 
-        final OfferForm edit = admin.offerFormFor(trip.getId(), stay.offer().getId().getValue());
+        final OfferForm edit = admin.offerFormFor(own.getId(), stay.offer().getId().getValue());
         edit.setNightlyPrice(100.0);
-        assertTrue(admin.saveOffer(trip.getId(), edit));
-        assertEquals(biller.billedByPerson(cyRes), Map.of(cy.getId(), 3 * 10000L),
+        assertTrue(admin.saveOffer(own.getId(), edit));
+        assertEquals(biller.billedByPerson(guestRes), Map.of(guest.getId(), 3 * 10000L),
                 "the bill follows the option's new price without an explicit recompute");
     }
 
@@ -984,36 +1012,38 @@ public class LodgingCommandsTest {
      * whole date range, not the default stay.
      */
     @Test
-    public void twoStaysForOnePersonAreTwoCardsPlacedSeparately() {
-        final Stay stay = stay(true);
-        final OfferForm widen = admin.offerFormFor(trip.getId(), stay.offer().getId().getValue());
+    public void twoStaysForOnePersonAreTwoCardsPlacedSeparately() throws IOException {
+        final Person guest = savedPerson("Esme");
+        final Trip own = ownTrip("Two stays trip", guest);
+        final Stay stay = stay(true, own);
+        final OfferForm widen = admin.offerFormFor(own.getId(), stay.offer().getId().getValue());
         widen.setValidFrom(CHECK_IN.minusDays(10));
         widen.setValidUntil(CHECK_OUT.plusDays(10));
         widen.setMinNights(1);
-        assertTrue(admin.saveOffer(trip.getId(), widen));
-        final ReservationForm first = admin.reservationFormFor(trip.getId(), null);
+        assertTrue(admin.saveOffer(own.getId(), widen));
+        final ReservationForm first = admin.reservationFormFor(own.getId(), null);
         first.setOfferId(stay.offer().getId().getValue());
-        first.setPersonIds(List.of(bob.getId().getValue()));
+        first.setPersonIds(List.of(guest.getId().getValue()));
         first.setStart(CHECK_IN);
         first.setEnd(CHECK_OUT);
-        assertEquals(admin.createReservations(trip.getId(), first), 1);
-        final ReservationForm second = admin.reservationFormFor(trip.getId(), null);
+        assertEquals(admin.createReservations(own.getId(), first), 1);
+        final ReservationForm second = admin.reservationFormFor(own.getId(), null);
         second.setOfferId(stay.offer().getId().getValue());
-        second.setPersonIds(List.of(bob.getId().getValue()));
+        second.setPersonIds(List.of(guest.getId().getValue()));
         second.setStart(CHECK_OUT.plusDays(3));
         second.setEnd(CHECK_OUT.plusDays(5));
-        assertEquals(admin.createReservations(trip.getId(), second), 1);
+        assertEquals(admin.createReservations(own.getId(), second), 1);
 
-        RoomBoard board = admin.roomBoard(trip.getId(), stay.accId(), null, null);
+        RoomBoard board = admin.roomBoard(own.getId(), stay.accId(), null, null);
         final List<String> bobCards = board.getUnassigned().stream()
-                .filter(c -> c.getPersonId().equals(bob.getId().getValue())).map(c -> c.getReservationId()).toList();
+                .filter(c -> c.getPersonId().equals(guest.getId().getValue())).map(c -> c.getReservationId()).toList();
         assertEquals(bobCards.size(), 2, "two stays, two cards");
         assertNotEquals(bobCards.get(0), bobCards.get(1), "each card carries its own reservation");
 
-        assertTrue(admin.assignRoom(trip.getId(), bobCards.get(0), stay.r101(), false, null, null).isAssigned());
-        assertTrue(admin.assignRoom(trip.getId(), bobCards.get(1), stay.r102(), false, null, null).isAssigned());
-        board = admin.roomBoard(trip.getId(), stay.accId(), null, null);
-        assertEquals(board.getUnassigned().stream().filter(c -> c.getPersonId().equals(bob.getId().getValue()))
+        assertTrue(admin.assignRoom(own.getId(), bobCards.get(0), stay.r101(), false, null, null).isAssigned());
+        assertTrue(admin.assignRoom(own.getId(), bobCards.get(1), stay.r102(), false, null, null).isAssigned());
+        board = admin.roomBoard(own.getId(), stay.accId(), null, null);
+        assertEquals(board.getUnassigned().stream().filter(c -> c.getPersonId().equals(guest.getId().getValue()))
                 .count(), 0L, "both placed");
         final RoomCell r101 = board.getRooms().stream().filter(c -> c.getRoomId().equals(stay.r101())).findFirst()
                 .orElseThrow();
@@ -1021,14 +1051,16 @@ public class LodgingCommandsTest {
                 .orElseThrow();
         assertEquals(r101.getCount(), 1, "the first stay shows in 101");
         assertEquals(r102.getCount(), 1, "the second stay, on later dates, shows in 102 as well");
-        assertEquals(admin.findReservation(trip.getId(), bobCards.get(1)).getRoomId(), stay.r102());
+        assertEquals(admin.findReservation(own.getId(), bobCards.get(1)).getRoomId(), stay.r102());
     }
 
     /** Toggling the single-supplement waiver on a solo reservation changes the bill, placed or not. */
     @Test
-    public void waivingTheSupplementChangesTheBillEitherWay() {
+    public void waivingTheSupplementChangesTheBillEitherWay() throws IOException {
+        final Person guest = savedPerson("Faye");
+        final Trip own = ownTrip("Supplement trip", guest);
         final Stay stay = stay(false);
-        final OfferForm single = admin.offerFormFor(trip.getId(), null);
+        final OfferForm single = admin.offerFormFor(own.getId(), null);
         single.setName("Solo " + RandomData.genAlpha(4));
         single.setAccommodationId(stay.accId());
         single.setRoomTypeIds(new ArrayList<>(List.of(stay.typeId())));
@@ -1037,33 +1069,33 @@ public class LodgingCommandsTest {
         single.setSingleSupplement(20.0);
         single.setDefaultStart(CHECK_IN);
         single.setDefaultEnd(CHECK_OUT);
-        assertTrue(admin.saveOffer(trip.getId(), single));
-        final ReservationOffer offer = admin.getOffers(trip.getId()).stream()
+        assertTrue(admin.saveOffer(own.getId(), single));
+        final ReservationOffer offer = admin.getOffers(own.getId()).stream()
                 .filter(o -> o.getName().equals(single.getName())).findFirst().orElseThrow();
-        final ReservationForm res = admin.reservationFormFor(trip.getId(), null);
+        final ReservationForm res = admin.reservationFormFor(own.getId(), null);
         res.setOfferId(offer.getId().getValue());
-        res.setPersonIds(List.of(ada.getId().getValue()));
+        res.setPersonIds(List.of(guest.getId().getValue()));
         res.setStart(CHECK_IN);
         res.setEnd(CHECK_OUT);
-        assertEquals(admin.createReservations(trip.getId(), res), 1);
-        final Reservation adaRes = admin.activeReservationsFor(trip.getId(), ada.getId()).stream()
+        assertEquals(admin.createReservations(own.getId(), res), 1);
+        final Reservation guestRes = admin.activeReservationsFor(own.getId(), guest.getId()).stream()
                 .filter(r -> r.getOfferId().equals(offer.getId())).findFirst().orElseThrow();
         final LodgingBiller biller = new LodgingBiller(new TransactionsCommands());
-        assertEquals(biller.billedByPerson(adaRes), Map.of(ada.getId(), 3 * 9000L), "alone, unplaced: $70 + $20");
+        assertEquals(biller.billedByPerson(guestRes), Map.of(guest.getId(), 3 * 9000L), "alone, unplaced: $70 + $20");
 
-        final ReservationForm edit = admin.reservationFormFor(trip.getId(), adaRes.getId().getValue());
+        final ReservationForm edit = admin.reservationFormFor(own.getId(), guestRes.getId().getValue());
         edit.setWaiveSingleSupplement(true);
-        assertTrue(admin.updateReservation(trip.getId(), edit));
-        assertEquals(biller.billedByPerson(adaRes), Map.of(ada.getId(), 3 * 7000L), "waived: $70");
-        final ReservationForm back = admin.reservationFormFor(trip.getId(), adaRes.getId().getValue());
+        assertTrue(admin.updateReservation(own.getId(), edit));
+        assertEquals(biller.billedByPerson(guestRes), Map.of(guest.getId(), 3 * 7000L), "waived: $70");
+        final ReservationForm back = admin.reservationFormFor(own.getId(), guestRes.getId().getValue());
         assertTrue(back.isWaiveSingleSupplement(), "the waiver is stored");
         back.setWaiveSingleSupplement(false);
-        assertTrue(admin.updateReservation(trip.getId(), back));
-        assertEquals(biller.billedByPerson(adaRes), Map.of(ada.getId(), 3 * 9000L), "reinstated: $90 again");
+        assertTrue(admin.updateReservation(own.getId(), back));
+        assertEquals(biller.billedByPerson(guestRes), Map.of(guest.getId(), 3 * 9000L), "reinstated: $90 again");
         // Placed alone in a room: still alone, still the supplement; placed with someone: gone.
-        assertTrue(admin.assignRoom(trip.getId(), adaRes.getId().getValue(), stay.r101(), false, null, null)
+        assertTrue(admin.assignRoom(own.getId(), guestRes.getId().getValue(), stay.r101(), false, null, null)
                 .isAssigned());
-        assertEquals(biller.billedByPerson(adaRes), Map.of(ada.getId(), 3 * 9000L));
+        assertEquals(biller.billedByPerson(guestRes), Map.of(guest.getId(), 3 * 9000L));
     }
 
     /**
@@ -1257,9 +1289,11 @@ public class LodgingCommandsTest {
      * showing the whole hotel.
      */
     @Test
-    public void theBoardIsTheHotelsNotOneOptions() {
-        final Stay stay = stay(true);
-        final OfferForm second = admin.offerFormFor(trip.getId(), null);
+    public void theBoardIsTheHotelsNotOneOptions() throws IOException {
+        final Person guest = savedPerson("Gita");
+        final Trip own = ownTrip("Board trip", guest);
+        final Stay stay = stay(true, own);
+        final OfferForm second = admin.offerFormFor(own.getId(), null);
         second.setName("Single " + RandomData.genAlpha(4));
         second.setAccommodationId(stay.accId());
         second.setRoomTypeIds(new ArrayList<>(List.of(stay.typeId())));
@@ -1267,37 +1301,44 @@ public class LodgingCommandsTest {
         second.setNightlyPrice(70.0);
         second.setDefaultStart(CHECK_IN);
         second.setDefaultEnd(CHECK_OUT);
-        assertTrue(admin.saveOffer(trip.getId(), second));
-        final ReservationOffer single = admin.getOffers(trip.getId()).stream()
+        assertTrue(admin.saveOffer(own.getId(), second));
+        final ReservationOffer single = admin.getOffers(own.getId()).stream()
                 .filter(o -> o.getName().equals(second.getName())).findFirst().orElseThrow();
 
-        final ReservationForm onDouble = admin.reservationFormFor(trip.getId(), null);
+        final ReservationForm onDouble = admin.reservationFormFor(own.getId(), null);
         onDouble.setOfferId(stay.offer().getId().getValue());
-        onDouble.setPersonIds(List.of(cy.getId().getValue()));
+        onDouble.setPersonIds(List.of(guest.getId().getValue()));
         onDouble.setStart(CHECK_IN);
         onDouble.setEnd(CHECK_OUT);
-        assertEquals(admin.createReservations(trip.getId(), onDouble), 1);
+        assertEquals(admin.createReservations(own.getId(), onDouble), 1);
 
-        final RoomBoard board = admin.roomBoard(trip.getId(), stay.accId(), null, null);
-        assertTrue(board.getUnassigned().stream().anyMatch(c -> c.getPersonId().equals(cy.getId().getValue())),
+        final RoomBoard board = admin.roomBoard(own.getId(), stay.accId(), null, null);
+        assertTrue(board.getUnassigned().stream().anyMatch(c -> c.getPersonId().equals(guest.getId().getValue())),
                 "a person waiting for a room is on the board whatever option pays for them");
         assertEquals(board.getAccommodationId(), stay.accId());
         // Both options are offered for a placement at this hotel, and the hotel is one board.
-        assertEquals(admin.optionChoices(trip.getId(), stay.accId()).size(), 2);
-        assertTrue(admin.accommodationChoices(trip.getId()).containsKey(stay.accId()));
-        assertEquals(admin.defaultAccommodationId(trip.getId()), admin.accommodationChoices(trip.getId())
+        assertEquals(admin.optionChoices(own.getId(), stay.accId()).size(), 2);
+        assertTrue(admin.accommodationChoices(own.getId()).containsKey(stay.accId()));
+        assertEquals(admin.defaultAccommodationId(own.getId()), admin.accommodationChoices(own.getId())
                 .keySet().iterator().next());
-        assertEquals(admin.optionChoices(trip.getId(), "nope").size(), 0);
+        assertEquals(admin.optionChoices(own.getId(), "nope").size(), 0);
 
-        // A placement names the option explicitly, and its stay follows that option.
-        final PlacementForm form = admin.placementFormFor(trip.getId(), stay.accId(), bob.getId().getValue(),
+        // A placement names the option explicitly, and its stay follows that option. Somebody with no
+        // stay yet, because an EXTRA stay deliberately starts with a blank range (the dates they already
+        // hold are the ones it cannot have).
+        final Person newcomer = savedPerson("Hana");
+        final Trip roster = DAO.getInstance().getTrip(own.getId(), Cached.NO).orElseThrow();
+        roster.getPeople().add(newcomer.getId());
+        assertTrue(DAO.getInstance().saveTrip(roster));
+        final PlacementForm form = admin.placementFormFor(own.getId(), stay.accId(), newcomer.getId().getValue(),
                 stay.r102());
         assertNull(form.getOfferId(), "two options: the dialog makes you choose");
+        assertFalse(form.isAnotherStay(), "their first stay here");
         form.setOfferId(single.getId().getValue());
-        admin.applyPlacementOption(trip.getId(), form);
+        admin.applyPlacementOption(own.getId(), form);
         assertEquals(form.getRange(), List.of(CHECK_IN.toLocalDate(), CHECK_OUT.toLocalDate()));
-        assertTrue(admin.place(trip.getId(), form).isAssigned());
-        assertEquals(admin.activeReservationsFor(trip.getId(), bob.getId()).stream()
+        assertTrue(admin.place(own.getId(), form).isAssigned());
+        assertEquals(admin.activeReservationsFor(own.getId(), newcomer.getId()).stream()
                 .filter(r -> r.getOfferId().equals(single.getId())).count(), 1L, "billed on the option chosen");
     }
 
@@ -1346,4 +1387,414 @@ public class LodgingCommandsTest {
         assertEquals(board.getAssigned().get(0).getRoomLabel(), "102", "the move shows on the list");
         assertEquals(admin.findReservation(trip.getId(), res.getId().getValue()).getRoomId(), stay.r102());
     }
+
+    // ------------------------------------------------------------------ several stays for one person
+
+    /**
+     * Several stays are the point (leave and come back, change rooms part-way), but two at ONCE would bill
+     * the same night twice. Nights, not instants: a stay ending on the 24th and one starting on the 24th
+     * share a date and no night, which is exactly the room-switch shape.
+     */
+    @Test
+    public void twoStaysOfOnePersonMayNotShareANight() throws IOException {
+        final Person guest = savedPerson("Ilse");
+        final Trip own = ownTrip("Overlap trip", guest);
+        final Stay stay = stay(true, own);
+        final OfferForm widen = admin.offerFormFor(own.getId(), stay.offer().getId().getValue());
+        widen.setValidFrom(CHECK_IN.minusDays(10));
+        widen.setValidUntil(CHECK_OUT.plusDays(10));
+        widen.setMinNights(1);
+        assertTrue(admin.saveOffer(own.getId(), widen));
+
+        assertEquals(admin.createReservations(own.getId(), form(own, stay, guest, CHECK_IN, CHECK_OUT)), 1);
+        assertEquals(admin.createReservations(own.getId(),
+                form(own, stay, guest, CHECK_IN.plusDays(1), CHECK_OUT.plusDays(1))), 0, "overlapping nights");
+        assertEquals(admin.createReservations(own.getId(),
+                form(own, stay, guest, CHECK_OUT, CHECK_OUT.plusDays(2))), 1,
+                "the changeover day is shared, the night is not");
+        assertEquals(admin.createReservations(own.getId(),
+                form(own, stay, guest, CHECK_IN.minusDays(2), CHECK_IN)), 1, "arriving the night they check in");
+        assertEquals(admin.activeReservationsFor(own.getId(), guest.getId()).size(), 3);
+
+        // An EDIT may keep its own nights; it only collides with somebody ELSE's stay.
+        final Reservation first = admin.activeReservationsFor(own.getId(), guest.getId()).stream()
+                .filter(r -> CHECK_IN.equals(r.getStart())).findFirst().orElseThrow();
+        final ReservationForm edit = admin.reservationFormFor(own.getId(), first.getId().getValue());
+        edit.setNotes("unchanged dates");
+        assertTrue(admin.updateReservation(own.getId(), edit), "a stay does not overlap itself");
+        edit.setStart(CHECK_OUT);
+        edit.setEnd(CHECK_OUT.plusDays(2));
+        assertFalse(admin.updateReservation(own.getId(), edit), "moved onto their own other stay");
+    }
+
+    /** The placement dialog for a second stay: it says what they hold and offers no dates of its own. */
+    @Test
+    public void placingASecondStayStartsWithBlankDatesAndSaysWhy() throws IOException {
+        final Person guest = savedPerson("Jules");
+        final Trip own = ownTrip("Second stay trip", guest);
+        final Stay stay = stay(true, own);
+        final PlacementForm first = admin.placementFormFor(own.getId(), stay.accId(), guest.getId().getValue(),
+                stay.r101());
+        assertFalse(first.isAnotherStay());
+        assertEquals(first.getRange(), List.of(CHECK_IN.toLocalDate(), CHECK_OUT.toLocalDate()));
+        assertTrue(admin.place(own.getId(), first).isAssigned());
+
+        final PlacementForm second = admin.placementFormFor(own.getId(), stay.accId(), guest.getId().getValue(),
+                stay.r102());
+        assertTrue(second.isAnotherStay(), "they already stay here");
+        assertTrue(second.getRange().isEmpty(), "the dates they hold are the ones it cannot have");
+        assertTrue(second.getExistingStays().contains("room 101"), second.getExistingStays());
+        assertEquals(second.getArrivalTime(), CHECK_IN.toLocalTime(), "the option's times still apply");
+    }
+
+    /** The board numbers a person's cards, so two cards for one name never read as a duplicate. */
+    @Test
+    public void theBoardSaysWhichStayEachCardIs() throws IOException {
+        final Person guest = savedPerson("Kirra");
+        final Trip own = ownTrip("Stay count trip", guest);
+        final Stay stay = stay(true, own);
+        final OfferForm widen = admin.offerFormFor(own.getId(), stay.offer().getId().getValue());
+        widen.setValidUntil(CHECK_OUT.plusDays(10));
+        widen.setMinNights(1);
+        assertTrue(admin.saveOffer(own.getId(), widen));
+        assertEquals(admin.createReservations(own.getId(), form(own, stay, guest, CHECK_IN, CHECK_OUT)), 1);
+        assertEquals(admin.createReservations(own.getId(),
+                form(own, stay, guest, CHECK_OUT.plusDays(2), CHECK_OUT.plusDays(4))), 1);
+
+        final RoomBoard board = admin.roomBoard(own.getId(), stay.accId(), null, null);
+        assertEquals(board.getUnassigned().size(), 2);
+        assertEquals(board.getUnassigned().get(0).getStayIndex(), 1);
+        assertEquals(board.getUnassigned().get(0).getStayCount(), 2);
+        assertEquals(board.getUnassigned().get(1).getStayIndex(), 2);
+        assertNotEquals(board.getUnassigned().get(0).getReservationId(),
+                board.getUnassigned().get(1).getReservationId(), "each card is its own stay");
+        assertTrue(board.getNoReservation().isEmpty(), "a second stay is armed from their card, not this column");
+    }
+
+    /** A shared reservation is two people to move, so it is two cards, not one named after whoever sorts first. */
+    @Test
+    public void aSharedReservationPutsBothOccupantsOnTheBoard() throws IOException {
+        final Person one = savedPerson("Lior");
+        final Person two = savedPerson("Maya");
+        final Trip own = ownTrip("Shared trip", one, two);
+        final Stay stay = stay(true, own);
+        final ReservationForm shared = admin.reservationFormFor(own.getId(), null);
+        shared.setOfferId(stay.offer().getId().getValue());
+        shared.setPersonIds(new ArrayList<>(List.of(one.getId().getValue(), two.getId().getValue())));
+        shared.setShareOneRoom(true);
+        assertEquals(admin.createReservations(own.getId(), shared), 1, "one reservation");
+        final RoomBoard board = admin.roomBoard(own.getId(), stay.accId(), null, null);
+        assertEquals(board.getUnassigned().size(), 2, "two people to place");
+        assertEquals(board.getUnassigned().get(0).getReservationId(),
+                board.getUnassigned().get(1).getReservationId(), "on one reservation");
+        assertEquals(board.getUnassigned().get(0).getStayCount(), 1, "one stay each, not two");
+    }
+
+    // ------------------------------------------------------------------ switching rooms part-way
+
+    /** Rooming, not pricing: same option, same people, same nights, two rooms. */
+    @Test
+    public void switchingRoomsMidStayMakesTwoStaysOfOne() throws IOException {
+        final Person guest = savedPerson("Nadia");
+        final Trip own = ownTrip("Split trip", guest);
+        final Stay stay = stay(true, own);
+        assertEquals(admin.createReservations(own.getId(), form(own, stay, guest, CHECK_IN, CHECK_OUT)), 1);
+        final Reservation res = admin.activeReservationsFor(own.getId(), guest.getId()).get(0);
+        assertTrue(admin.assignRoom(own.getId(), res.getId().getValue(), stay.r101(), false, null, null)
+                .isAssigned());
+
+        final SplitForm form = admin.splitFormFor(own.getId(), res.getId().getValue());
+        assertEquals(form.getRoomLabel(), "101");
+        assertEquals(form.getMinDate(), CHECK_IN.toLocalDate().plusDays(1));
+        assertEquals(form.getMaxDate(), CHECK_OUT.toLocalDate().minusDays(1));
+        assertEquals(form.getDate(), form.getMinDate(), "defaults to the first night it could be");
+        form.setDate(CHECK_IN.toLocalDate().plusDays(1));
+        form.setRoomId(stay.r102());
+        assertTrue(admin.splitStay(own.getId(), form).isAssigned());
+
+        final List<Reservation> after = admin.activeReservationsFor(own.getId(), guest.getId());
+        assertEquals(after.size(), 2);
+        after.sort((a, b) -> a.getStart().compareTo(b.getStart()));
+        assertEquals(after.get(0).getRoomId(), stay.r101());
+        assertEquals(after.get(0).nights(), 1);
+        assertEquals(after.get(1).getRoomId(), stay.r102());
+        assertEquals(after.get(1).nights(), 2);
+        assertEquals(after.get(0).nights() + after.get(1).nights(), 3, "no night lost or doubled");
+        assertEquals(after.get(0).getOfferId(), after.get(1).getOfferId(), "the same option still pays");
+        assertEquals(after.get(0).getEnd().toLocalTime(), CHECK_OUT.toLocalTime());
+        final LodgingBiller biller = new LodgingBiller(new TransactionsCommands());
+        assertEquals(biller.billedByPerson(after.get(0)).get(guest.getId())
+                + biller.billedByPerson(after.get(1)).get(guest.getId()), 3 * 12000L,
+                "three nights at the room price, however they are split");
+    }
+
+    @Test
+    public void aSplitRefusesADateOutsideTheStayOrASecondRoomThatIsBlocked() throws IOException {
+        final Person guest = savedPerson("Omar");
+        final Trip own = ownTrip("Split refusal trip", guest);
+        final Stay stay = stay(true, own);
+        assertEquals(admin.createReservations(own.getId(), form(own, stay, guest, CHECK_IN, CHECK_OUT)), 1);
+        final Reservation res = admin.activeReservationsFor(own.getId(), guest.getId()).get(0);
+        assertTrue(admin.assignRoom(own.getId(), res.getId().getValue(), stay.r101(), false, null, null)
+                .isAssigned());
+
+        final SplitForm edge = admin.splitFormFor(own.getId(), res.getId().getValue());
+        edge.setDate(CHECK_IN.toLocalDate());
+        assertFalse(admin.splitStay(own.getId(), edge).isAssigned(), "both halves need a night");
+        edge.setDate(CHECK_OUT.toLocalDate());
+        assertFalse(admin.splitStay(own.getId(), edge).isAssigned());
+        edge.setDate(CHECK_IN.toLocalDate().plusDays(1));
+        edge.setRoomId(stay.r101());
+        assertFalse(admin.splitStay(own.getId(), edge).isAssigned(), "that is the room they are in");
+        edge.setRoomId("not-a-room");
+        assertFalse(admin.splitStay(own.getId(), edge).isAssigned());
+        assertEquals(admin.activeReservationsFor(own.getId(), guest.getId()).size(), 1, "nothing was split");
+
+        blockRoom(stay.accId(), stay.r102(), CHECK_IN.toLocalDate().plusDays(1), CHECK_OUT.toLocalDate());
+        edge.setRoomId(stay.r102());
+        final AssignOutcome blocked = admin.splitStay(own.getId(), edge);
+        assertFalse(blocked.isAssigned());
+        assertTrue(blocked.getMessage().contains("not available"), blocked.getMessage());
+        assertEquals(admin.activeReservationsFor(own.getId(), guest.getId()).size(), 1);
+        assertFalse(admin.splitStay(own.getId(), new SplitForm()).isAssigned());
+        assertTrue(admin.splitFormFor(own.getId(), "nope").getReservationId() == null);
+    }
+
+    /** The hotel's own staff may move somebody between rooms: it changes where they sleep, not what they pay. */
+    @Test
+    public void aLodgingManagerMaySwitchRoomsButNotMintAStay() throws IOException {
+        final Person guest = savedPerson("Pia");
+        final Person keeper = savedPerson("Quinn");
+        final Trip own = ownTrip("Manager split trip", guest);
+        final Stay stay = stay(true, own);
+        assertEquals(admin.createReservations(own.getId(), form(own, stay, guest, CHECK_IN, CHECK_OUT)), 1);
+        final Reservation res = admin.activeReservationsFor(own.getId(), guest.getId()).get(0);
+        assertTrue(admin.assignRoom(own.getId(), res.getId().getValue(), stay.r101(), false, null, null)
+                .isAssigned());
+        final PrivilegeCommands privs = new PrivilegeCommands();
+        assertTrue(privs.savePrivilege(privs.getOrCreate(PrivilegeCommands.LODGING_MANAGER, own.getId(),
+                "hotel staff").withNewPerson(keeper.getId())));
+
+        final LodgingCommands staff = new LodgingCommands(() -> TestCallers.person(keeper.getId()));
+        final SplitForm form = staff.splitFormFor(own.getId(), res.getId().getValue());
+        assertEquals(form.getReservationId(), res.getId().getValue());
+        form.setDate(CHECK_IN.toLocalDate().plusDays(1));
+        form.setRoomId(stay.r102());
+        assertTrue(staff.splitStay(own.getId(), form).isAssigned());
+        assertEquals(staff.activeReservationsFor(own.getId(), guest.getId()).size(), 2);
+
+        final PlacementForm place = new PlacementForm();
+        place.setPersonId(guest.getId().getValue());
+        place.setRoomId(stay.r101());
+        place.setOfferId(stay.offer().getId().getValue());
+        assertFalse(staff.place(own.getId(), place).isAssigned(), "minting a stay is choosing a price");
+        final LodgingCommands stranger = new LodgingCommands(() -> TestCallers.person(Person.Id.newInstance()));
+        assertFalse(stranger.splitStay(own.getId(), form).isAssigned());
+        assertNull(stranger.splitFormFor(own.getId(), res.getId().getValue()).getReservationId());
+    }
+
+    // ------------------------------------------------------------------ the hotel's blocks on the board
+
+    @Test
+    public void aBlockedRoomRefusesEveryWayOfPuttingSomebodyInIt() throws IOException {
+        final Person guest = savedPerson("Rhea");
+        final Trip own = ownTrip("Blocked trip", guest);
+        final Stay stay = stay(true, own);
+        blockRoom(stay.accId(), stay.r101(), CHECK_IN.toLocalDate(), CHECK_OUT.toLocalDate());
+
+        final ReservationForm withRoom = form(own, stay, guest, CHECK_IN, CHECK_OUT);
+        withRoom.setRoomId(stay.r101());
+        assertEquals(admin.createReservations(own.getId(), withRoom), 0, "refused, not warned");
+
+        final PlacementForm place = admin.placementFormFor(own.getId(), stay.accId(), guest.getId().getValue(),
+                stay.r101());
+        place.setOfferId(stay.offer().getId().getValue());
+        place.setForce(true);
+        final AssignOutcome placed = admin.place(own.getId(), place);
+        assertFalse(placed.isAssigned(), "force overrides capacity, never the hotel's own block");
+        assertTrue(place.getProblem().contains("not available"), place.getProblem());
+
+        assertEquals(admin.createReservations(own.getId(), form(own, stay, guest, CHECK_IN, CHECK_OUT)), 1);
+        final Reservation res = admin.activeReservationsFor(own.getId(), guest.getId()).get(0);
+        final AssignOutcome assigned = admin.assignRoom(own.getId(), res.getId().getValue(), stay.r101(), true,
+                null, null);
+        assertFalse(assigned.isAssigned());
+        assertFalse(assigned.isOverCapacity(), "a block is a refusal, so there is nothing to confirm");
+        assertTrue(assigned.getMessage().contains("Room 101"), assigned.getMessage());
+
+        final ReservationForm moveOnto = admin.reservationFormFor(own.getId(), res.getId().getValue());
+        moveOnto.setRoomId(stay.r101());
+        assertFalse(admin.updateReservation(own.getId(), moveOnto));
+        assertTrue(admin.assignRoom(own.getId(), res.getId().getValue(), stay.r102(), false, null, null)
+                .isAssigned(), "the room beside it is free");
+    }
+
+    @Test
+    public void theBoardShowsABlockedRoomAndTheDialogLetsItBeLifted() throws IOException {
+        final Person guest = savedPerson("Silas");
+        final Trip own = ownTrip("Block board trip", guest);
+        final Stay stay = stay(true, own);
+        blockRoom(stay.accId(), stay.r101(), CHECK_IN.toLocalDate(), CHECK_OUT.toLocalDate());
+
+        final RoomBoard board = admin.roomBoard(own.getId(), stay.accId(), null, null);
+        final RoomCell cell = board.getRooms().get(0);
+        assertTrue(cell.isBlocked());
+        assertEquals(cell.getState(), "rs-blocked", "not empty: it is not ours to fill");
+        assertEquals(cell.getBlockedNights(), 3);
+        assertTrue(cell.getBlockLabel().contains("another group"), cell.getBlockLabel());
+        assertEquals(board.getRooms().get(1).getState(), "rs-empty");
+
+        final RoomDetail detail = admin.roomDetail(own.getId(), stay.accId(), stay.r101(), null, null);
+        assertEquals(detail.getBlocks().size(), 1);
+        assertEquals(detail.getBlocks().get(0).getNights(), 3);
+        assertEquals(detail.getState(), "rs-blocked");
+
+        final HotelCommands hotel = new HotelCommands(TestCallers::siteAdmin);
+        assertTrue(hotel.deleteBlock(stay.accId(), detail.getBlocks().get(0).getId()));
+        assertEquals(admin.roomBoard(own.getId(), stay.accId(), null, null).getRooms().get(0).getState(),
+                "rs-empty");
+        assertEquals(admin.createReservations(own.getId(), form(own, stay, guest, CHECK_IN, CHECK_OUT)), 1);
+        final Reservation res = admin.activeReservationsFor(own.getId(), guest.getId()).get(0);
+        assertTrue(admin.assignRoom(own.getId(), res.getId().getValue(), stay.r101(), false, null, null)
+                .isAssigned(), "the room is ours again");
+    }
+
+    /** A room both blocked and slept in reads as over: somebody has to move, which is the same urgency. */
+    @Test
+    public void aRoomBothBlockedAndSleptInReadsAsAClash() throws IOException {
+        final Person guest = savedPerson("Tova");
+        final Trip own = ownTrip("Clash board trip", guest);
+        final Stay stay = stay(true, own);
+        assertEquals(admin.createReservations(own.getId(), form(own, stay, guest, CHECK_IN, CHECK_OUT)), 1);
+        final Reservation res = admin.activeReservationsFor(own.getId(), guest.getId()).get(0);
+        assertTrue(admin.assignRoom(own.getId(), res.getId().getValue(), stay.r101(), false, null, null)
+                .isAssigned());
+        blockRoom(stay.accId(), stay.r101(), CHECK_IN.toLocalDate(), CHECK_OUT.toLocalDate());
+        assertEquals(admin.roomBoard(own.getId(), stay.accId(), null, null).getRooms().get(0).getState(),
+                "rs-over", "the block landed on somebody who is already in it");
+    }
+
+    /**
+     * Two trips share one hotel. The other trip's people fill the room and count against its capacity, but
+     * this board never learns their names -- their guest list belongs to their trip.
+     */
+    @Test
+    public void anotherTripsGuestsFillTheRoomWithoutBeingNamed() throws IOException {
+        final Person mine = savedPerson("Uma");
+        final Person theirs = savedPerson("Viktor");
+        final Trip ours = ownTrip("Ours", mine);
+        final Trip other = ownTrip("Theirs", theirs);
+        final Stay stay = stay(true, ours);
+        final OfferForm otherOffer = new OfferForm();
+        otherOffer.setName("Their room");
+        otherOffer.setAccommodationId(stay.accId());
+        otherOffer.setRoomTypeIds(new ArrayList<>(List.of(stay.typeId())));
+        otherOffer.setTripEventId(OfferForm.NEW_EVENT);
+        otherOffer.setPricingModel("PER_ROOM");
+        otherOffer.setNightlyPrice(90.0);
+        otherOffer.setDefaultStart(CHECK_IN);
+        otherOffer.setDefaultEnd(CHECK_OUT);
+        assertTrue(admin.saveOffer(other.getId(), otherOffer));
+        final ReservationOffer theirOffer = admin.getOffers(other.getId()).stream()
+                .filter(o -> o.getName().equals("Their room")).findFirst().orElseThrow();
+        final ReservationForm theirRes = admin.reservationFormFor(other.getId(), null);
+        theirRes.setOfferId(theirOffer.getId().getValue());
+        theirRes.setPersonIds(List.of(theirs.getId().getValue()));
+        theirRes.setStart(CHECK_IN);
+        theirRes.setEnd(CHECK_OUT);
+        theirRes.setRoomId(stay.r101());
+        assertEquals(admin.createReservations(other.getId(), theirRes), 1);
+
+        final RoomCell cell = admin.roomBoard(ours.getId(), stay.accId(), null, null).getRooms().get(0);
+        assertEquals(cell.getCount(), 1, "their guest occupies the room");
+        assertEquals(cell.getOtherTripPeople(), 1);
+        assertTrue(cell.getOccupants().isEmpty(), "no chip: they are not ours to move");
+        assertEquals(cell.getState(), "rs-partial");
+
+        final RoomDetail detail = admin.roomDetail(ours.getId(), stay.accId(), stay.r101(), null, null);
+        assertEquals(detail.getOtherTrips().size(), 1);
+        assertEquals(detail.getOtherTrips().get(0).getPeople(), 1);
+        assertTrue(detail.getOccupants().isEmpty());
+        assertFalse(detail.toString().contains("Viktor"), "a count and dates, never a name");
+
+        // 101 sleeps 2 and one bed is theirs, so a second of ours is fine and a third is over.
+        assertEquals(admin.createReservations(ours.getId(), form(ours, stay, mine, CHECK_IN, CHECK_OUT)), 1);
+        final Reservation res = admin.activeReservationsFor(ours.getId(), mine.getId()).get(0);
+        assertTrue(admin.assignRoom(ours.getId(), res.getId().getValue(), stay.r101(), false, null, null)
+                .isAssigned());
+        assertEquals(admin.roomBoard(ours.getId(), stay.accId(), null, null).getRooms().get(0).getCount(), 2);
+        final Person third = savedPerson("Wren");
+        final Trip roster = DAO.getInstance().getTrip(ours.getId(), Cached.NO).orElseThrow();
+        roster.getPeople().add(third.getId());
+        assertTrue(DAO.getInstance().saveTrip(roster));
+        assertEquals(admin.createReservations(ours.getId(), form(ours, stay, third, CHECK_IN, CHECK_OUT)), 1);
+        final Reservation thirdRes = admin.activeReservationsFor(ours.getId(), third.getId()).get(0);
+        final AssignOutcome over = admin.assignRoom(ours.getId(), thirdRes.getId().getValue(), stay.r101(),
+                false, null, null);
+        assertFalse(over.isAssigned());
+        assertTrue(over.isOverCapacity(), "the other trip's guest counts toward the room's maximum");
+    }
+
+    // ------------------------------------------------------------------ the itinerary, one row per stay
+
+    /**
+     * Leave and come back: two rows in date order, not one row spanning the gap. What the EVENT says (its
+     * notes, the per-person note the manager edits) belongs to the first row only.
+     */
+    @Test
+    public void aLeaveAndReturnIsTwoItineraryRowsInDateOrder() throws IOException {
+        final Person guest = savedPerson("Xan");
+        final Trip own = ownTrip("Return trip", guest);
+        final Stay stay = stay(true, own);
+        final OfferForm widen = admin.offerFormFor(own.getId(), stay.offer().getId().getValue());
+        widen.setValidUntil(CHECK_OUT.plusDays(10));
+        widen.setMinNights(1);
+        assertTrue(admin.saveOffer(own.getId(), widen));
+        assertEquals(admin.createReservations(own.getId(), form(own, stay, guest, CHECK_IN, CHECK_OUT)), 1);
+        assertEquals(admin.createReservations(own.getId(),
+                form(own, stay, guest, CHECK_OUT.plusDays(2), CHECK_OUT.plusDays(3))), 1);
+        for (final Reservation res : admin.activeReservationsFor(own.getId(), guest.getId())) {
+            final String room = CHECK_IN.equals(res.getStart()) ? stay.r101() : stay.r102();
+            assertTrue(admin.assignRoom(own.getId(), res.getId().getValue(), room, false, null, null)
+                    .isAssigned());
+        }
+        final Trip saved = DAO.getInstance().getTrip(own.getId(), Cached.NO).orElseThrow();
+        final List<ItineraryRow> rows = admin.itineraryRowsFor(saved, guest.getId());
+        final List<ItineraryRow> stays = rows.stream().filter(ItineraryRow::isLodging).toList();
+        assertEquals(stays.size(), 2, "one row per stay");
+        assertEquals(stays.get(0).getEffectiveStart(), CHECK_IN);
+        assertEquals(stays.get(0).getNights(), 3);
+        assertEquals(stays.get(0).getRoomLabel(), "101");
+        assertEquals(stays.get(0).getStayIndex(), 1);
+        assertEquals(stays.get(0).getStayCount(), 2);
+        assertTrue(stays.get(0).isFirstStay());
+        assertEquals(stays.get(1).getEffectiveStart(), CHECK_OUT.plusDays(2));
+        assertEquals(stays.get(1).getNights(), 1, "the nights away are not counted");
+        assertEquals(stays.get(1).getRoomLabel(), "102");
+        assertEquals(stays.get(1).getStayIndex(), 2);
+        assertFalse(stays.get(1).isFirstStay(), "the event's own notes render once");
+        assertNotEquals(stays.get(0).getReservationId(), stays.get(1).getReservationId());
+        assertEquals(stays.get(0).getId(), stays.get(1).getId(), "the same event, so the note editor agrees");
+        assertTrue(rows.stream().allMatch(r -> r.isLodging() || r.isFirstStay()), "plain rows are first rows");
+    }
+
+    private ReservationForm form(final Trip onTrip, final Stay stay, final Person person,
+            final LocalDateTime start, final LocalDateTime end) {
+        final ReservationForm form = admin.reservationFormFor(onTrip.getId(), null);
+        form.setOfferId(stay.offer().getId().getValue());
+        form.setPersonIds(new ArrayList<>(List.of(person.getId().getValue())));
+        form.setStart(start);
+        form.setEnd(end);
+        return form;
+    }
+
+    private void blockRoom(final String accId, final String roomId, final java.time.LocalDate from,
+            final java.time.LocalDate to) {
+        final BlockForm block = new BlockForm();
+        block.setRoomIds(List.of(roomId));
+        block.setRange(List.of(from, to));
+        block.setReason("another group");
+        assertTrue(new HotelCommands(TestCallers::siteAdmin).saveBlock(accId, block));
+    }
+
 }

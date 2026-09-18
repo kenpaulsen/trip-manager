@@ -77,7 +77,10 @@ per-feature gates (e.g. `BackgroundRemover.GATE`).
   Credentials, Todo, PersonDataValue, Privileges, Binding, Config, Media, Template, Content, Audit, Chat.
   Payments add: Organization/OrgMember (org_members is the membership source of truth, Person.orgIds the derived edge), PaymentProcessorConfig (org-partitioned; secrets live in Secrets Manager via `security/ProcessorSecrets`, never in rows), and Payment (UNCACHED state machine CREATED/CAPTURED/RECORDED with conditional-put transitions) — read `docs/payments.md` before touching any of them.
   Lodging adds `LodgingDAO` (`lodging_accommodations` whole-table `PartitionScanCache`; `lodging_offers`
-  and `lodging_reservations` per-trip `PartitionCache`s; versioned conditional puts) — `docs/lodging.md`.
+  and `lodging_reservations` per-trip `PartitionCache`s, the latter with a sparse `by-accommodation` GSI
+  (PK `accommodationId`, SK `stayEnd`) behind the uncached cross-trip read `getReservationsAt`;
+  `lodging_blocks` per-hotel `PartitionCache` for the nights a hotel has taken its own rooms back, kept off
+  the accommodation row so a block never races a room edit; versioned conditional puts) — `docs/lodging.md`.
   The `family` row is the source of truth for household membership (optimistic-version conditional puts);
   managers' `Person.managedUsers` lists are DERIVED from it — see `docs/family-accounts.md` before touching
   anything family-related.
@@ -178,7 +181,10 @@ and `brandingPhotos` (BrandingPhotos — their versioned `org/{orgId}/branding/{
 whose KEPT previous versions are what makes a replaced image recoverable; see `docs/org-admin.md`
 "Uploading the four images"), `lodging` (LodgingCommands — accommodations, room types, rooms, floor maps,
 offers, reservations, the room-assignment board, lodging bills, the itinerary rows; see `docs/lodging.md`
-before touching) and `lodgingUpload` (LodgingUploadCommands — hotel photos, room-type photos and floor plans
+before touching), `hotel` (HotelCommands -- the same hotel seen from its own side: the nights its rooms are
+blocked and how full it is across EVERY trip staying there, counts and dates but never a guest's name, which
+is the one read that crosses the org tenancy boundary; same doc) and `lodgingUpload`
+(LodgingUploadCommands — hotel photos, room-type photos and floor plans
 through the shared crop dialog into slot `lodging-{accId}`), `deploy`, `json`, `tripUtil`.
 
 - A `Person` comes into being through exactly four paths: sign-up, a family manager's add-member flow, the

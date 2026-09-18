@@ -312,8 +312,11 @@ public final class LodgingViews {
 
     /**
      * The "place this person in this room" dialog: which lodging option pays for the stay, and the stay
-     * itself. A person who already holds a reservation never sees it -- their option and dates exist -- so
-     * this is only ever the CREATE path, where leaving the option implicit was the confusing part.
+     * itself. Always the CREATE path (a person who already holds the stay being placed has an option and
+     * dates, so their click assigns straight away), where leaving the option implicit was the confusing part.
+     * It is also how a SECOND stay is booked: {@code anotherStay} leaves the range blank rather than
+     * defaulting it to the option's, because the dates that are already taken are the one thing the new stay
+     * cannot have.
      */
     @Data
     @NoArgsConstructor
@@ -335,6 +338,10 @@ public final class LodgingViews {
         private String problem;
         /** The reservation dialog's concession, offered at placement too (2026-09-11). */
         private boolean waiveSingleSupplement;
+        /** True when this person already stays here: an extra stay, not their first. */
+        private boolean anotherStay;
+        /** "Sep 21 – Oct 1 in room 105", what they already hold, so the new dates are picked knowingly. */
+        private String existingStays;
 
         public void setRange(final List<LocalDate> dates) {
             range = (dates == null) ? new ArrayList<>() : new ArrayList<>(dates);
@@ -359,12 +366,183 @@ public final class LodgingViews {
                     .atTime(departureTime == null ? OfferForm.DEFAULT_DEPARTURE : departureTime) : null;
         }
 
-        /** Fills the stay from an option's default, for the first render and whenever the option changes. */
+        /**
+         * Fills the stay from an option's default, for the first render and whenever the option changes. An
+         * EXTRA stay keeps only the times: the option's default dates are the ones the person is already
+         * here for, so offering them back would only ever be refused as an overlap.
+         */
         public void applyDefaults(final LocalDateTime defaultStart, final LocalDateTime defaultEnd) {
-            range = rangeOf(defaultStart, defaultEnd);
+            range = anotherStay ? new ArrayList<>() : rangeOf(defaultStart, defaultEnd);
             arrivalTime = (defaultStart == null) ? OfferForm.DEFAULT_ARRIVAL : defaultStart.toLocalTime();
             departureTime = (defaultEnd == null) ? OfferForm.DEFAULT_DEPARTURE : defaultEnd.toLocalTime();
         }
+    }
+
+    /**
+     * The "switch room mid-stay" dialog: one stay becomes two, sharing everything but the room and the night
+     * they change over. Rooming, not pricing -- the option, the occupants and the total nights are untouched
+     * -- which is why the hotel's own staff may do it.
+     */
+    @Data
+    @NoArgsConstructor
+    public static final class SplitForm implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String reservationId;
+        private String accommodationId;
+        /** Who is moving, and the stay they are moving within, for the dialog's header line. */
+        private String names;
+        private String roomLabel;
+        private LocalDateTime start;
+        private LocalDateTime end;
+        /** The night they sleep in the NEW room first: strictly inside the stay. */
+        private LocalDate date;
+        /** The room from that night; blank leaves the second half waiting for a room. */
+        private String roomId;
+        /** Set by "Move anyway" after a capacity warning. */
+        private boolean force;
+        /** Shown in the dialog when the second half cannot go where it is asked to. */
+        private String problem;
+
+        /** The earliest changeover the picker offers: one night in, or null when the stay has no dates. */
+        public LocalDate getMinDate() {
+            return (start == null) ? null : start.toLocalDate().plusDays(1);
+        }
+
+        /** The latest changeover: the last night, so both halves keep at least one. */
+        public LocalDate getMaxDate() {
+            return (end == null) ? null : end.toLocalDate().minusDays(1);
+        }
+    }
+
+    /** The block dialog's inputs: which rooms, which nights, and why. */
+    @Data
+    @NoArgsConstructor
+    public static final class BlockForm implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String id;
+        private List<String> roomIds = new ArrayList<>();
+        private List<LocalDate> range = new ArrayList<>();
+        /** Free text: "another group", "boiler", "the owner's family". An enum would only keep growing. */
+        private String reason;
+
+        public void setRoomIds(final List<String> ids) {
+            roomIds = (ids == null) ? new ArrayList<>() : new ArrayList<>(ids);
+        }
+
+        public void setRange(final List<LocalDate> dates) {
+            range = (dates == null) ? new ArrayList<>() : new ArrayList<>(dates);
+        }
+
+        /** The first blocked night; null until a range is picked. */
+        public LocalDate start() {
+            return hasRange(range) ? range.get(0) : null;
+        }
+
+        /** The morning the room is free again; null until a range is picked. */
+        public LocalDate end() {
+            return hasRange(range) ? range.get(range.size() - 1) : null;
+        }
+    }
+
+    /** One block on the Availability tab's table and in the board's room dialog. */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static final class BlockRow implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String id;
+        private String roomsLabel;
+        private int roomCount;
+        private LocalDate start;
+        private LocalDate end;
+        private int nights;
+        private String reason;
+        /** Already over: the table fades it rather than hiding it, so a mistake stays findable. */
+        private boolean past;
+    }
+
+    /** One day of the hotel's availability calendar: how full it is, over every trip staying there. */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static final class DayCell implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private LocalDate date;
+        private int roomsOccupied;
+        private int roomsTotal;
+        private int roomsBlocked;
+        private int people;
+        /** People staying that night whose stay has no room yet -- work still to do, not a shortage. */
+        private int unplaced;
+        /** Rooms both blocked and slept in that night: somebody has to move. */
+        private int conflicts;
+        /** "cal-free", "cal-some", "cal-most" or "cal-full" -- the CSS load band. */
+        private String load;
+
+        /** "23/28 rooms · 33 people", the pill's whole text. Numbers, never a colour alone. */
+        public String getSummary() {
+            return roomsOccupied + "/" + roomsTotal + " rooms · " + people
+                    + (people == 1 ? " person" : " people");
+        }
+    }
+
+    /** A month of {@link DayCell}s, for the page and for the REST answer. */
+    @Data
+    @NoArgsConstructor
+    public static final class HotelCalendar implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String accommodationId;
+        private String accommodationName;
+        /** ISO {@code yyyy-MM}: a scalar, because a view may hold nothing else. */
+        private String month;
+        private int roomsTotal;
+        private List<DayCell> days = new ArrayList<>();
+    }
+
+    /** One stay in a room on a given day, as the HOTEL sees it: whose trip, how many, not who. */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static final class DayStay implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        /** The trip's title, or "another organization's trip" when the caller may not see it. */
+        private String tripLabel;
+        private String orgName;
+        private int people;
+        private LocalDateTime start;
+        private LocalDateTime end;
+    }
+
+    /** One room on a given day: what holds it, and what is booked into it. */
+    @Data
+    @NoArgsConstructor
+    public static final class DayRoom implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String roomId;
+        private String roomNumber;
+        private String floor;
+        private String typeName;
+        private boolean blocked;
+        private String blockReason;
+        private List<DayStay> stays = new ArrayList<>();
+    }
+
+    /** One day of the hotel opened from the calendar: its cell, then a line per room. */
+    @Data
+    @NoArgsConstructor
+    public static final class DayDetail implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private LocalDate date;
+        private DayCell cell = new DayCell();
+        private List<DayRoom> rooms = new ArrayList<>();
     }
 
     /** One line of the accommodations list. */
@@ -501,6 +679,10 @@ public final class LodgingViews {
         private String notes;
         /** The room they are in, on the board's Assigned list; null on the other lists. */
         private String roomLabel;
+        /** Which of this person's stays at this hotel the card is, 1-based; 0 when they have none. */
+        private int stayIndex;
+        /** How many stays they hold here. Above 1 the card says which, so two cards never read alike. */
+        private int stayCount;
     }
 
     @Data
@@ -512,6 +694,8 @@ public final class LodgingViews {
         private String reservationId;
         private String personId;
         private String name;
+        /** "Sep 21 – Oct 1": one chip per STAY, so the same person can appear twice on one room. */
+        private String dates;
     }
 
     /** One room on the assignment workspace, with its occupancy over the chosen window. */
@@ -533,6 +717,13 @@ public final class LodgingViews {
         private List<OccupantChip> occupants = new ArrayList<>();
         private String notes;
         private String adminNotes;
+        /** The hotel holds this room on some night of the window (another group, maintenance). */
+        private boolean blocked;
+        private int blockedNights;
+        /** "Sep 23 – Sep 25: another group", beside the glyph -- a colour never stands alone. */
+        private String blockLabel;
+        /** People here on another trip at this hotel; counted in the occupancy, never named. */
+        private int otherTripPeople;
         private boolean mapped;
         private double x;
         private double y;
@@ -562,6 +753,10 @@ public final class LodgingViews {
         private String notes;
         private String adminNotes;
         private List<PersonCard> occupants = new ArrayList<>();
+        /** What the HOTEL has taken this room out for over the window; editable in place by its managers. */
+        private List<BlockRow> blocks = new ArrayList<>();
+        /** Other trips in this room over the window: counts and dates, never names (a tenancy boundary). */
+        private List<DayStay> otherTrips = new ArrayList<>();
     }
 
     /** The whole assignment workspace for one offer and window: people needing a room, and the rooms. */
@@ -653,6 +848,14 @@ public final class LodgingViews {
         private String roomLabel;
         private String reservationNotes;
         private int nights;
+        /**
+         * Which of the person's stays on this event the row is, 1-based; 0 for a row with no reservation.
+         * A leave-and-return is two rows, so the event's own notes must render on exactly one of them.
+         */
+        private int stayIndex;
+        private int stayCount;
+        /** True on a plain row and on the FIRST stay's row: what the event itself says belongs there once. */
+        private boolean firstStay = true;
 
         /**
          * What follows "Room N" on the itinerary's stay line: {@code " (Double), 3 nights"} after a shown room,
