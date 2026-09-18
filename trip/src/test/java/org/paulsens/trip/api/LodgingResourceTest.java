@@ -24,6 +24,7 @@ import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
@@ -144,6 +145,51 @@ public class LodgingResourceTest extends ResourceTestSupport {
                 ApiErrors.NOT_FOUND);
         assertError(resource.assignRoom(trip.getId(), "nope", CSRF_OK, Map.of("roomId", "x")), 404,
                 ApiErrors.NOT_FOUND);
+    }
+
+    /**
+     * Two hotels on one trip, each with an option of the SAME name, which is entirely legal. Each POST must
+     * answer with the id of the offer IT created: the endpoint used to find that offer by name and take the
+     * last match, so it could hand back the other hotel's, and the caller then reserved at the wrong hotel.
+     */
+    @Test
+    public void eachCreatedOfferAnswersWithItsOwnIdEvenWhenTwoShareAName() {
+        signedInAsSiteAdmin(admin.getId());
+        final String[] first = offerAtNewHotel("Same Name Pansion", "Double room");
+        final String[] second = offerAtNewHotel("Same Name Berulia", "Double room");
+        assertNotEquals(first[1], second[1], "two hotels, two offers, two ids");
+
+        // The proof that each id names the offer its OWN call created: the offer it points at is at the hotel
+        // that call built. Checked by id rather than by name, which is the whole point.
+        assertEquals(accommodationOf(first[1]), first[0], "the first id must name the first hotel's offer");
+        assertEquals(accommodationOf(second[1]), second[0], "and the second id the second hotel's");
+    }
+
+    /** A fresh hotel with one Double room, and an offer on it named as asked: {accommodationId, offerId}. */
+    private String[] offerAtNewHotel(final String hotel, final String offerName) {
+        final Response created = resource.createAccommodation(CSRF_OK, accommodation(hotel,
+                List.of(Map.of("name", "Double", "minPeople", 1, "maxPeople", 2)),
+                List.of(Map.of("number", "101", "floor", "1", "type", "Double"))));
+        assertOk(created);
+        final Map<?, ?> acc = (Map<?, ?>) created.getEntity();
+        final Map<?, ?> typeIds = (Map<?, ?>) acc.get("roomTypeIds");
+        final Map<String, Object> body = new HashMap<>();
+        body.put("name", offerName);
+        body.put("accommodationId", acc.get("id"));
+        body.put("roomTypeIds", List.of(typeIds.get("Double")));
+        body.put("nightlyPrice", 60);
+        body.put("defaultStart", CHECK_IN.toString());
+        body.put("defaultEnd", CHECK_OUT.toString());
+        final Response offer = resource.createOffer(trip.getId(), CSRF_OK, body);
+        assertOk(offer);
+        final String id = (String) ((Map<?, ?>) offer.getEntity()).get("id");
+        assertNotNull(id);
+        return new String[] {(String) acc.get("id"), id};
+    }
+
+    private String accommodationOf(final String offerId) {
+        final LodgingCommands lodging = new LodgingCommands(LodgingResourceTest::siteAdmin);
+        return lodging.findOffer(trip.getId(), offerId).getAccommodationId().getValue();
     }
 
     @Test

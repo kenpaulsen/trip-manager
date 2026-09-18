@@ -14,9 +14,11 @@ import jakarta.ws.rs.core.Response;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.HotelCommands;
 import org.paulsens.trip.action.LodgingCommands;
@@ -234,13 +236,48 @@ public class LodgingResource extends BaseResource {
             form.setCancelFeeKind(str(body, "cancelFeeKind"));
         }
         form.setCancelFeeAmount(dbl(body, "cancelFeeAmount"));
+        // Which ids existed BEFORE the save is how this call knows which offer is its own; see createdOffer.
+        final Set<String> before = offerIds(lodging.getOffers(tripId));
         if (!lodging.saveOffer(tripId, form)) {
             return error(400, ApiErrors.VALIDATION_FAILED, "The offer was not created.");
         }
-        final ReservationOffer offer = lodging.getOffers(tripId).stream()
-                .filter(o -> form.getName().equals(o.getName())).reduce((a, b) -> b).orElse(null);
+        final ReservationOffer offer = createdOffer(lodging.getOffers(tripId), before, form.getName());
         return offer == null ? error(500, ApiErrors.INTERNAL, "Offer saved but not found.")
                 : ok(Map.of("id", offer.getId().getValue(), "tripEventId", offer.getTripEventId()));
+    }
+
+    private static Set<String> offerIds(final List<ReservationOffer> offers) {
+        final Set<String> ids = new HashSet<>();
+        for (final ReservationOffer offer : offers) {
+            ids.add(offer.getId().getValue());
+        }
+        return ids;
+    }
+
+    /**
+     * The offer a create just added: the one whose id was not there before it ran.
+     *
+     * <p>This used to be found by NAME, and two offers on one trip may share one: a trip that uses two hotels
+     * has a "Double room" option at each. The last match in list order won, that order is not guaranteed, and
+     * so the endpoint could hand back the OTHER hotel's offer. A caller that reserved on the id it was given
+     * then booked the wrong hotel, and assigning a room from the one it meant was refused with "That room is
+     * not at the accommodation" -- which is how this was found, as a webtest that failed about half the time.
+     *
+     * <p>The name is kept only to choose between offers created CONCURRENTLY, which is the one case the id
+     * difference cannot settle on its own; the old code was in that case on every single call.
+     */
+    private static ReservationOffer createdOffer(final List<ReservationOffer> after, final Set<String> before,
+            final String name) {
+        ReservationOffer found = null;
+        for (final ReservationOffer offer : after) {
+            if (before.contains(offer.getId().getValue())) {
+                continue;
+            }
+            if (found == null || (name != null && name.equals(offer.getName()))) {
+                found = offer;
+            }
+        }
+        return found;
     }
 
     /**

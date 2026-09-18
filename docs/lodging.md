@@ -124,6 +124,17 @@ which every refusal in `createReservations` and `updateReservation` sets and eve
 is still emitted for callers that have no dialog. `LodgingResource` answers the same text rather than a bare
 "No reservation was created.", so an API caller and a webtest get the reason too.
 
+**A created offer answers with its OWN id.** `POST /api/lodging/trips/{tripId}/offers` used to find the offer
+it had just made by NAME, taking the last match. Two offers on one trip may share a name, which a trip using
+two hotels naturally has ("Double room" at each), so the endpoint could answer with the other hotel's offer;
+a caller that reserved on the id it was given booked the wrong hotel, and assigning a room from the one it
+meant was refused with "That room is not at the accommodation". It now takes the id that was not in the
+trip's offers before the save, and falls back to the name only to separate two creates racing each other.
+Found 2026-09-18 as a webtest whose seed failed about half the time. `LodgingResourceTest`
+(`eachCreatedOfferAnswersWithItsOwnIdEvenWhenTwoShareAName`) and `RoomingReportPwIT`, whose two hotels
+deliberately name their offers alike, guard it. `LodgingCommands.saveOffer` still answers a boolean: the
+file is AT the 3000-line checkstyle cap, so the id difference lives in the resource.
+
 **The availability calendar** is a `p:schedule` month view on the hotel's Availability tab, built from
 `HotelCommands.calendar` / `schedule`. Each day that has anybody or anything on it gets one all-day summary
 pill carrying "23/28 rooms · 33 people" (`DayCell.getSummary`) in a load band (`cal-free` / `cal-some` /
