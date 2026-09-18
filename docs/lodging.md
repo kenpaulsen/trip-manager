@@ -114,6 +114,16 @@ another group is sleeping in is not ours to hand out, so there is no "Block anyw
 gets the CSS state `rs-blocked` rather than `rs-empty` (it is not ours to fill); a room both blocked and
 slept in reads `rs-over`, because somebody has to move and that is the same urgency.
 
+**A refusal that keeps a modal dialog open must be shown INSIDE that dialog.** A growl cannot serve one:
+PrimeFaces gives the growl the modal overlay's own z-index (1007) and the dialog a higher one (1008), so the
+overlay paints over the message. The user sees the screen flash and the dialog sit there, with no idea why,
+and Playwright still reports the growl `isVisible()`, so no test notices either. This cost a real report
+(2026-09-18): an overlapping-stay refusal on the reservation dialog was invisible. `placeDlg` and `splitDlg`
+always showed their own problems for this reason; `resDlg` does now too, through `ReservationForm.problem`,
+which every refusal in `createReservations` and `updateReservation` sets and every success clears. The growl
+is still emitted for callers that have no dialog. `LodgingResource` answers the same text rather than a bare
+"No reservation was created.", so an API caller and a webtest get the reason too.
+
 **The availability calendar** is a `p:schedule` month view on the hotel's Availability tab, built from
 `HotelCommands.calendar` / `schedule`. Each day that has anybody or anything on it gets one all-day summary
 pill carrying "23/28 rooms · 33 people" (`DayCell.getSummary`) in a load band (`cal-free` / `cal-some` /

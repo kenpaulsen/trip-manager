@@ -1557,6 +1557,30 @@ public class LodgingCommands {
     }
 
     /**
+     * A reservation refusal, put where the person who pressed Save will actually see it.
+     *
+     * <p>The growl alone is not enough. A refusal keeps the modal dialog OPEN, and PrimeFaces renders the
+     * growl at the overlay's own z-index (1007) and below the dialog (1008), so the overlay paints over the
+     * message: the screen flashes, the dialog sits there, and nobody learns why (reported 2026-09-18). The
+     * growl stays for the callers with no dialog; the form carries the reason for the one that has it.
+     */
+    private int refuseReservation(final ReservationForm form, final String message) {
+        if (form != null) {
+            form.setProblem(message);
+        }
+        refuse(message);
+        return 0;
+    }
+
+    /** As {@link #refuseReservation}, for the edit path, which answers a boolean. */
+    private boolean refuseEdit(final ReservationForm form, final String message) {
+        if (form != null) {
+            form.setProblem(message);
+        }
+        return refuse(message);
+    }
+
+    /**
      * Creates reservations from the dialog: one per person, or one shared reservation for everyone. Every
      * person must be on the roster; the stay must meet the offer's minimum AND lie inside the offer's own
      * dates; a disabled offer is refused, as is a blocked room and a second stay sharing a night with one
@@ -1569,14 +1593,13 @@ public class LodgingCommands {
      */
     public int createReservations(final String tripId, final ReservationForm form) {
         if (!canManageTripLodging(tripId)) {
-            refuse("Not allowed: only the trip's managers and lodging admins can reserve.");
-            return 0;
+            return refuseReservation(form,
+                    "Not allowed: only the trip's managers and lodging admins can reserve.");
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         final ReservationOffer offer = (form == null) ? null : findOffer(tripId, form.getOfferId());
         if (!tripId.equals(trip.getId()) || offer == null) {
-            refuse("Choose a lodging option.");
-            return 0;
+            return refuseReservation(form, "Choose a lodging option.");
         }
         form.resolveDates();
         final List<Person.Id> people = new ArrayList<>();
@@ -1584,26 +1607,24 @@ public class LodgingCommands {
             people.add(Person.Id.from(id));
         }
         if (people.isEmpty()) {
-            refuse("Choose at least one person.");
-            return 0;
+            return refuseReservation(form, "Choose at least one person.");
         }
         final String problem = stayProblem(trip, offer, people, form.getStart(), form.getEnd(), null);
         if (problem != null) {
-            refuse(problem);
-            return 0;
+            return refuseReservation(form, problem);
         }
         final Accommodation acc = findAccommodation(idValue(offer.getAccommodationId()));
         if (form.getRoomId() != null && !form.getRoomId().isBlank() && (acc == null
                 || acc.room(form.getRoomId()) == null)) {
-            refuse("That room is not at " + (acc == null ? "the accommodation" : acc.getName()) + ".");
-            return 0;
+            return refuseReservation(form,
+                    "That room is not at " + (acc == null ? "the accommodation" : acc.getName()) + ".");
         }
         final String blocked = (acc == null) ? null : RoomAvailability.blockProblem(acc.room(form.getRoomId()),
                 blocksOf(acc), form.getStart(), form.getEnd());
         if (blocked != null) {
-            refuse(blocked);
-            return 0;
+            return refuseReservation(form, blocked);
         }
+        form.setProblem(null);
         final List<List<Person.Id>> groups = new ArrayList<>();
         if (form.isShareOneRoom()) {
             groups.add(people);
@@ -1709,39 +1730,41 @@ public class LodgingCommands {
     /** Edits dates, room, occupants, notes and the supplement waiver; recomputes both rooms. */
     public boolean updateReservation(final String tripId, final ReservationForm form) {
         if (!canManageTripLodging(tripId)) {
-            return refuse("Not allowed: only the trip's managers and lodging admins can edit reservations.");
+            return refuseEdit(form,
+                    "Not allowed: only the trip's managers and lodging admins can edit reservations.");
         }
         final Reservation res = (form == null) ? null : findReservation(tripId, form.getId());
         if (res == null || !res.isActive()) {
-            return refuse("This reservation no longer exists or is cancelled.");
+            return refuseEdit(form, "This reservation no longer exists or is cancelled.");
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         final ReservationOffer offer = findOffer(tripId, idValue(res.getOfferId()));
         if (offer == null) {
-            return refuse("The reservation's offer no longer exists.");
+            return refuseEdit(form, "The reservation's offer no longer exists.");
         }
         final List<Person.Id> people = new ArrayList<>();
         for (final String id : new LinkedHashSet<>(form.getPersonIds())) {
             people.add(Person.Id.from(id));
         }
         if (people.isEmpty()) {
-            return refuse("A reservation needs at least one person.");
+            return refuseEdit(form, "A reservation needs at least one person.");
         }
         form.resolveDates();
         final String problem = stayProblem(trip, offer, people, form.getStart(), form.getEnd(), res.getId());
         if (problem != null) {
-            return refuse(problem);
+            return refuseEdit(form, problem);
         }
         final Accommodation acc = findAccommodation(idValue(offer.getAccommodationId()));
         final String roomId = blankToNull(form.getRoomId());
         if (roomId != null && (acc == null || acc.room(roomId) == null)) {
-            return refuse("That room is not at the accommodation.");
+            return refuseEdit(form, "That room is not at the accommodation.");
         }
         final String blocked = (acc == null || roomId == null) ? null
                 : RoomAvailability.blockProblem(acc.room(roomId), blocksOf(acc), form.getStart(), form.getEnd());
         if (blocked != null) {
-            return refuse(blocked);
+            return refuseEdit(form, blocked);
         }
+        form.setProblem(null);
         final String previousRoom = res.getRoomId();
         final List<Person.Id> leaving = new ArrayList<>(res.getOccupants());
         leaving.removeAll(people);
@@ -1753,6 +1776,7 @@ public class LodgingCommands {
         res.setNotes(form.getNotes());
         res.setWaiveSingleSupplement(form.isWaiveSingleSupplement() ? Boolean.TRUE : null);
         if (!persistReservation(trip, offer, acc, res, previousRoom)) {
+            form.setProblem("The reservation could not be saved.");
             return false;
         }
         leaveEventIfLast(trip, offer, leaving, res.getId());

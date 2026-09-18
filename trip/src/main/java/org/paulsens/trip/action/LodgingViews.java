@@ -231,6 +231,12 @@ public final class LodgingViews {
         private boolean waiveSingleSupplement;
         /** Create only: one reservation per person (false) or everyone in one shared reservation (true). */
         private boolean shareOneRoom;
+        /**
+         * Why the last save was refused, shown IN the dialog. A growl cannot serve a modal dialog: it renders
+         * at the overlay's own z-index and below the dialog, so the overlay paints over it and the refusal is
+         * invisible while the dialog stays open. {@link PlacementForm#problem} exists for the same reason.
+         */
+        private String problem;
 
         public void setRange(final List<LocalDate> dates) {
             range = (dates == null) ? new ArrayList<>() : new ArrayList<>(dates);

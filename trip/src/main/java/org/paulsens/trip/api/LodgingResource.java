@@ -282,7 +282,11 @@ public class LodgingResource extends BaseResource {
         form.setShareOneRoom(Boolean.TRUE.equals(body.get("shareOneRoom")));
         final int created = lodging.createReservations(tripId, form);
         if (created == 0) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "No reservation was created.");
+            // The command puts WHY on the form (a page shows it in the dialog); a bare "no reservation was
+            // created" sent a webtest failure hunting through the server log for the actual refusal.
+            final String why = form.getProblem();
+            return error(400, ApiErrors.VALIDATION_FAILED,
+                    (why == null || why.isBlank()) ? "No reservation was created." : why);
         }
         final List<String> ids = new ArrayList<>();
         for (final String personId : form.getPersonIds()) {
