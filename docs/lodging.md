@@ -122,6 +122,24 @@ carries the numbers, so the color never stands alone. Clicking a day opens `dayD
 down room by room. It reads across EVERY trip at the hotel through the `by-accommodation` index, and nothing
 is stored, so the page may build it per render.
 
+**Both of the schedule's zones are pinned to UTC (`timeZone="UTC" clientTimeZone="UTC"`), and neither may be
+dropped.** A night here is a calendar DATE, not an instant: Oct 2 is Oct 2 in Zagreb and in California.
+PrimeFaces encodes every event as `ISO_OFFSET_DATE_TIME` after `atZone(timeZone)`, and FullCalendar re-zones
+what it receives into `clientTimeZone`. Left unset, `timeZone` follows the CONTAINER (UTC in production)
+while the client follows the VIEWER, so every pill drew a day early for anyone west of UTC: a block stored
+Oct 2 to Oct 11 rendered Oct 1 to Oct 9 (reported 2026-09-18). `timeZone` also decodes the `dateSelect`
+payload, so pinning it keeps a clicked day and a drawn day the same day. No webtest could see this before
+`HotelCalendarPwIT.theDatesHoldForAViewerWestOfUtc`, because CI runs the server and the browser in the same
+zone and the two conversions cancel out; that test moves the browser to `America/Los_Angeles` on purpose.
+
+**A block's dates are nights, exactly like a stay's.** The first date is the first night the rooms are gone;
+the second is the morning they are free again. A block of Oct 2 to Oct 11 holds the nights of the 2nd through
+the 10th: nobody may sleep there on the night of the 2nd, a guest who slept the night of the 1st may still
+check out on the morning of the 2nd, and the rooms take bookings again for the night of the 11th. This is why
+a block needs no start or end TIME -- it is measured in nights, and the hotel's own check-in and check-out
+hours decide the clock. The Availability tab, the block dialog and the board's quick-block all say so on the
+page, because "Oct 2 to Oct 11 (9 nights)" reads like a date range until you know the convention.
+
 **It never shows a guest's name.** This is the one read in the app that crosses the tenancy boundary, and it
 is allowed only because the accommodation itself is global. What crosses is counts and dates. A trip is named
 only when the caller could have opened that trip anyway (`canManageTripLodging`); otherwise it reads "another
@@ -472,6 +490,7 @@ like every other stay in the app) and `InMemoryIndexTest` (the fake's sparse sec
 one index that uses it: a fake answering nothing would make the cross-trip view untestable, and one
 answering the WRONG partition would be worse); browser tests `LodgingAdminPwIT`, `TripLodgingPwIT` (which
 covers "+ Another stay" and "stay 1 of 2"), `HotelCalendarPwIT` (the month's numbers and its block pill, a day opened room by room with no guest named,
+the dates holding for a browser pinned west of UTC,
 and the block table's edit and removal redrawing the calendar), `RoomBlockPwIT` (a blocked room refuses every way in, says who
 has it, and frees at once when a manager lifts the block from the room dialog), `RoomAssignOverCapacityPwIT`,
 `RoomBoardListsPwIT`, `ItineraryLodgingPwIT`, `RoomsPagePwIT`, `OrgScopedPrivsPwIT`.
