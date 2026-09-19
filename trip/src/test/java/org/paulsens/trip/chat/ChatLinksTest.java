@@ -10,7 +10,7 @@ import org.testng.annotations.Test;
  */
 public class ChatLinksTest {
 
-    private static final String ATTRS = "target=\"_blank\" rel=\"noopener noreferrer\"";
+    private static final String ATTRS = "target=\"_blank\" rel=\"noopener noreferrer nofollow\"";
 
     @Test
     public void urlBecomesAnAnchorThatOpensInANewWindow() {

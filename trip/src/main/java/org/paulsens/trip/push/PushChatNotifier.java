@@ -14,6 +14,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatChannel;
+import org.paulsens.trip.model.chat.ChatMarkup;
 import org.paulsens.trip.model.chat.ChatMembership;
 import org.paulsens.trip.model.chat.ChatNotifyPref;
 
@@ -220,10 +221,13 @@ public final class PushChatNotifier implements ChatNotifier {
         };
     }
 
-    /** The snippet; the content-free line for a short-retention channel; a camera for a bare photo. */
+    /**
+     * The snippet, with its formatting markers removed (APNs and Web Push carry plain text); the content-free line
+     * for a short-retention channel; a camera for a bare photo.
+     */
     static String bodyOf(final ChatNotification notification) {
         if (notification.hasSnippet()) {
-            return notification.getSnippet();
+            return ChatMarkup.plain(notification.getSnippet());
         }
         return notification.getImageUrl() != null ? PHOTO_BODY : OPEN_THE_CHAT;
     }

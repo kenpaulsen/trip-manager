@@ -112,6 +112,15 @@ public class ModelValueTypesTest {
         }
     }
 
+    /** A reply preview is a glance; every client shows it as text, so the markers would only be noise. */
+    @Test
+    public void aQuoteSnippetIsThePlainProjectionOfTheBody() {
+        final ChatQuote quote = ChatQuote.from(message("**Bus** at *7*\n- bring @{id}"), "Author");
+
+        Assert.assertEquals(quote.getSnippet(), "Bus at 7\n\u2022 bring @{id}");
+        Assert.assertFalse(quote.isSnippetTruncated());
+    }
+
     @Test
     public void quotingNothingIsRefusedAndAnEmptyBodyIsFine() {
         Assert.assertThrows(IllegalArgumentException.class, () -> ChatQuote.from(null, "Author"));

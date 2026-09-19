@@ -249,7 +249,7 @@ public final class EmailChatNotifier implements ChatNotifier {
             return new MailTemplates.Raw("");
         }
         return new MailTemplates.Raw("<blockquote style=\"border-left:3px solid #6c8;padding-left:0.75rem;"
-                + "color:#444;margin:1rem 0;\">" + ChatLinks.html(notification.getSnippet())
+                + "color:#444;margin:1rem 0;\">" + ChatBodyHtml.html(notification.getSnippet())
                 + "</blockquote>");
     }
 

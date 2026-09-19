@@ -249,6 +249,11 @@ privileges, chat, chat-admin, photo-chat, audit, config, mail, payments, deploy,
   `docs/photo-comments.md` before touching photo threads, the summary fold, or `purgeChannel`.
   Notification recipients are route-neutral candidates (`ChatNotifications.eligible`, membership only);
   each route applies its own preference — email `mentionEmail`, push `ChatNotifyPref.pushMode`.
+  Bodies carry a small formatting markup (`**bold**`, `*italic*`, `__underline__`, `~~strike~~`, `- ` and
+  `1. ` list lines), parsed by `model/chat/ChatMarkup` and rendered per surface (`chat/ChatBodyHtml` for
+  mail, `ChatMarkup.plain` for push and reply snippets, `chatFormat.js` on the site, `ChatMarkup.swift` in
+  the app) -- read `docs/chat-formatting.md` before touching any body renderer; the three parsers share one
+  conformance table.
 - `push/` — push notifications: direct APNs (HTTP/2 + ES256 token auth) and standard Web Push (RFC 8291
   aes128gcm + VAPID), all JDK, behind one `PushGateway` seam; devices in ONE reserved person-data row per
   person (`push-devices`), pruned by every credential revocation; `PushSender` gates + dedupe + quiet hours +

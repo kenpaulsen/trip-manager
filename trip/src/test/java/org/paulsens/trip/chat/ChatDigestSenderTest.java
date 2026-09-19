@@ -174,6 +174,23 @@ public class ChatDigestSenderTest {
                 ArgumentMatchers.any());
     }
 
+    /** A formatted message keeps its formatting in the digest, through the allowlist renderer. */
+    @Test
+    public void aFormattedMessageRendersItsStylesInTheDigest() {
+        personIsReachable();
+        mailAnswers(SendEmailResponse.builder().messageId("ses-3").build());
+        final ChatMessage formatted = new ChatMessage(ChatMessage.Id.from("101"), ChatChannel.Id.forTrip("t1"),
+                Person.Id.from("author"), Instant.now(), null, "**Bus** at 7\n- <water>", null, null, null, null,
+                null, null, null, null, null);
+
+        Assert.assertTrue(sender.send(candidate(pageOf(formatted))));
+
+        final org.mockito.ArgumentCaptor<String> body = org.mockito.ArgumentCaptor.forClass(String.class);
+        Mockito.verify(mail).send(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), body.capture(), ArgumentMatchers.any(AuditActor.class));
+        Assert.assertTrue(body.getValue().contains("<b>Bus</b> at 7<ul><li>&lt;water&gt;</li></ul>"), body.getValue());
+    }
+
     @Test
     public void aConfirmedSendAdvancesTheWatermark() {
         personIsReachable();

@@ -340,6 +340,18 @@ public class ChatNotifierTest {
                 "the mail must deep-link back to the chat");
     }
 
+    /** Formatting reaches the mail through the allowlist renderer: the tags it writes, never the body's own. */
+    @Test
+    public void aFormattedSnippetRendersItsStylesAndNothingElse() {
+        mailIsConfigured();
+        final org.mockito.ArgumentCaptor<String> subject = org.mockito.ArgumentCaptor.forClass(String.class);
+
+        final String body = sendAndCaptureBody(
+                notification(ChatNotification.Reason.MENTION, "**bus** <i>leaves</i>\n- at *7*"), subject).getValue();
+
+        Assert.assertTrue(body.contains("<b>bus</b> &lt;i&gt;leaves&lt;/i&gt;<ul><li>at <i>7</i></li></ul>"), body);
+    }
+
     /** A reply notification says "replied", never "mentioned": the recipient typed no @name and knows it. */
     @Test
     public void aReplyIsRenderedWithReplyWording() {

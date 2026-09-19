@@ -185,6 +185,16 @@ public class PushChatNotifierTest {
         Mockito.verify(sender).sendSilent(quiet);
     }
 
+    /** APNs and Web Push show plain text, so a formatted body arrives without its markers. */
+    @Test
+    public void theAlertBodyIsThePlainProjectionOfTheSnippet() {
+        notifier.notify(notification(ChatNotification.Reason.MENTION, List.of(fan),
+                "**Bus** at *7*\n- bring water", null));
+        final ArgumentCaptor<PushPayload> payload = ArgumentCaptor.forClass(PushPayload.class);
+        Mockito.verify(sender).sendAlert(ArgumentMatchers.eq(fan), payload.capture(), ArgumentMatchers.any());
+        Assert.assertEquals(payload.getValue().getBody(), "Bus at 7\n\u2022 bring water");
+    }
+
     @Test
     public void repliesAnnouncementsAndContentFreeChannelsHaveTheirOwnWording() {
         notifier.notify(notification(ChatNotification.Reason.REPLY, List.of(fan), null, null));

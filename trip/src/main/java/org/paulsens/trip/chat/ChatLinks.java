@@ -22,7 +22,7 @@ public final class ChatLinks {
     /** Characters that end a sentence around a URL rather than belonging to it. */
     private static final String TRAILING = ".,;:!?'\")]}>…";
 
-    private static final String ANCHOR_ATTRS = " target=\"_blank\" rel=\"noopener noreferrer\"";
+    private static final String ANCHOR_ATTRS = " target=\"_blank\" rel=\"noopener noreferrer nofollow\"";
 
     private ChatLinks() {
     }

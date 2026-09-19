@@ -43,12 +43,16 @@ public class ChatQuote implements Serializable {
         this.attachmentKind = attachmentKind;
     }
 
-    /** Builds a snapshot, truncating the body to {@link #MAX_SNIPPET_CODE_POINTS} code points. */
+    /**
+     * Builds a snapshot, truncating the body to {@link #MAX_SNIPPET_CODE_POINTS} code points. The snippet is the
+     * PLAIN projection of the body ({@link ChatMarkup#plain}): a reply preview is a one-line glance, and every
+     * client shows it as text, so the formatting markers would only be noise there.
+     */
     public static ChatQuote from(final ChatMessage original, final String authorDisplayName) {
         if (original == null) {
             throw new IllegalArgumentException("original message is required");
         }
-        final String body = original.getBody() == null ? "" : original.getBody();
+        final String body = ChatMarkup.plain(original.getBody());
         final int cps = body.codePointCount(0, body.length());
         final boolean truncated = cps > MAX_SNIPPET_CODE_POINTS;
         final String snippet = truncated

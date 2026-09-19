@@ -325,7 +325,7 @@ public class ChatDigestSender {
         final String body = message.isDeleted()
                 // Not "by an administrator": authors can remove their own too, so that would often be untrue.
                 ? "<i>Message removed</i>"
-                : ChatLinks.html(ChatNotifications.snippet(message.getBody()));
+                : ChatBodyHtml.html(ChatNotifications.snippet(message.getBody()));
         html.append("<p style=\"margin:0.5rem 0;\"><b>")
                 .append(MailTemplates.escape(author))
                 .append("</b><br />")
