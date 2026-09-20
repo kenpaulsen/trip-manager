@@ -1,5 +1,6 @@
 package org.paulsens.trip.action;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
@@ -91,6 +92,44 @@ public class TripPublicListingTest {
         // Fake2 has the CFPW orgId and NO provider string -- the shape of every legacy production row.
         // Recognition keys on the org, so it lists; only org-less rows fall back to the provider compare.
         Assert.assertTrue(english.contains(FAKE2_TRIP_ID), "org-owned trip lists regardless of provider");
+    }
+
+    @Test
+    public void theCountdownKeepsATripThroughItsStartDayAndOneDayOfClockSlack() {
+        // 2026-09-20: the Holy Angels card vanished at 5 PM Pacific the day BEFORE the trip -- isAfter(now)
+        // on a UTC clock. The rule now: a start-day trip stays (the browser shows "0 days until"), so does
+        // one that started yesterday by the server's calendar (a viewer west of UTC is still on the start
+        // day; the browser hides the card once its local count is negative), and two days ago is gone.
+        final String today = countdownTrip("today", LocalDateTime.now().toLocalDate().atStartOfDay());
+        final String yesterday = countdownTrip("yesterday",
+                LocalDateTime.now().minusDays(1).toLocalDate().atStartOfDay());
+        final String twoDaysAgo = countdownTrip("2d",
+                LocalDateTime.now().minusDays(2).toLocalDate().atStartOfDay());
+        final List<String> countdown = ids(trip.getCountdownTrips(60));
+        Assert.assertTrue(countdown.contains(today), "the day of the trip counts down (0): " + countdown);
+        Assert.assertTrue(countdown.contains(yesterday),
+                "one server day of slack for viewers behind UTC: " + countdown);
+        Assert.assertFalse(countdown.contains(twoDaysAgo), "well underway: " + countdown);
+        // The slack trip is carried by the soon-window, not as its language's "next": the real next English
+        // trip keeps its card.
+        Assert.assertTrue(countdown.contains(PUB_EN_1_TRIP_ID),
+                "the next English trip still counts down: " + countdown);
+    }
+
+    private String countdownTrip(final String tag, final LocalDateTime start) {
+        final Trip made = Trip.builder()
+                .id("countdown-" + tag + "-" + System.nanoTime())
+                .title("Countdown " + tag)
+                .openToPublic(true)
+                .provider("CFPW")
+                .orgId(FakeData.CFPW_ORG_ID)
+                .language(Language.English)
+                .startDate(start)
+                .endDate(start.plusDays(10))
+                .people(new java.util.ArrayList<>())
+                .build();
+        Assert.assertTrue(trip.saveTrip(made));
+        return made.getId();
     }
 
     @Test

@@ -109,11 +109,9 @@ public class ActingForAndFamilyVisibilityTest {
         final Trip found = trips.getTripForUser(null, parent.getId(), false, trip.getId());
         assertNotNull(found, "canSeeTrip honors the family relationship (the old double-FIXME)");
         assertEquals(found.getId(), trip.getId());
-        // The ladder never answers null while ANY joinable trip exists -- it falls back to one of those. The
-        // property that matters: a stranger asking for THIS trip is not given it.
-        final Trip strangerTrip = trips.getTripForUser(null, stranger.getId(), false, trip.getId());
-        assertTrue(strangerTrip == null || !trip.getId().equals(strangerTrip.getId()),
-                "A stranger still cannot see the kid's trip");
+        // An explicit id is that trip or nothing (2026-09-20): the ladder no longer substitutes a joinable trip.
+        assertNull(trips.getTripForUser(null, stranger.getId(), false, trip.getId()),
+                "A stranger asking for the kid's trip is refused, not shown something else");
 
         // Channels are created lazily; My Chats only lists trips whose channel exists.
         assertNotNull(chat.ensureChannel(trip.getId(), org.paulsens.trip.audit.AuditActor.system()));

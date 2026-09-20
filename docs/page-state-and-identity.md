@@ -53,6 +53,14 @@ requestScope.theTrip = trip.getTrip(viewScope.theTripId);
 `initPage` re-runs on **every** postback by design — that is what makes this work. Guard the *decision*
 (which trip? which person?) with a null check; never guard the *resolve*.
 
+Working out WHICH trip is `trip.getTripForUser(currTrip, userId, showAll, param.trip)`. An explicit
+`?trip=` answers **that trip or null** -- unknown, not visible to this person, or served by another host all
+refuse alike (since 2026-09-20; before that a refused id fell through to "any trip you can see", which showed
+people somebody else's page). Only a request with NO id gets the ladder (own trips, then any recent trip for
+an admin, then anything joinable). On null, redirect with `trip.noTripUrl(userId, param.trip)`: the profile
+page, plus a growl saying why when a trip was asked for. Chat adds `chat.tripForChatPage` on top, a *grant*
+for guests and family members who lack page-level visibility.
+
 `getTrip`/`getPerson` **never return null** — they answer a blank object with a fresh id. Where "does not
 exist" is semantic, prove existence with `id.equals(fresh.getId())` rather than a null check.
 

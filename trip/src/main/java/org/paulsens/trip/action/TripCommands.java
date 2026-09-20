@@ -4,7 +4,10 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -42,6 +45,8 @@ public class TripCommands {
     private static final long TIMEOUT = 5_000L;
     /** Cap for the admin/joinable trip-resolution fallbacks (a user's own trips come from the reverse index). */
     private static final int RECENT_TRIP_LIMIT = 100;
+    /** Shown (as a growl) on the profile page when a trip asked for by id could not be opened; see noTripUrl. */
+    public static final String NO_TRIP_ACCESS_MESSAGE = "That trip is not available to you.";
     /** How long a finished pilgrimage stays on the public landing page (user-set product rule). */
     private static final int PUBLIC_PAST_DAYS = 7;
 
@@ -801,17 +806,27 @@ public class TripCommands {
      * countdown cards link to the hosted trip-details page, which external pilgrimages do not have.
      */
     public List<Trip> getCountdownTrips(final int soonDays) {
-        final LocalDateTime now = LocalDateTime.now();
-        final LocalDateTime soon = now.plusDays(soonDays);
+        final LocalDate today = LocalDate.now();
+        final LocalDateTime soon = LocalDateTime.now().plusDays(soonDays);
         // The CFPW-only cut is a shared-site notion; an organization's site counts down to its own trips.
         final boolean orgSite = SiteContext.current().isOrg();
+        // The day OF the trip still counts down ("0 days until" -- the day the card matters most), and the
+        // container's clock is UTC while most viewers are hours behind it: an isAfter(now) cut dropped the
+        // Holy Angels card at 5 PM Pacific the day BEFORE it started (2026-09-19). So a trip stays a
+        // candidate through the server day after its start date, and the browser script (mainTemplate)
+        // hides a card once the VIEWER's local count goes negative.
         final List<Trip> upcoming = getPublicTrips().stream()
                 .filter(trip -> orgSite || trip.isCfpw())
-                .filter(trip -> trip.getStartDate() != null && trip.getStartDate().isAfter(now))
+                .filter(trip -> trip.getStartDate() != null
+                        && !trip.getStartDate().toLocalDate().isBefore(today.minusDays(1)))
                 .toList();
         final Map<Language, Trip> nextPerLanguage = new LinkedHashMap<>();
         for (final Trip trip : upcoming) {
-            nextPerLanguage.putIfAbsent(languageOf(trip), trip);
+            // "Next" of a language is one that has not started by the server's calendar; the start-day
+            // trip is carried by the soon-window below, so it never hides the language's real next card.
+            if (!trip.getStartDate().toLocalDate().isBefore(today)) {
+                nextPerLanguage.putIfAbsent(languageOf(trip), trip);
+            }
         }
         return upcoming.stream()
                 .filter(trip -> nextPerLanguage.containsValue(trip) || !trip.getStartDate().isAfter(soon))
@@ -947,9 +962,16 @@ public class TripCommands {
      * This is used to help determine the correct trip to show for the particular user. The chosen trip depends on the
      * user's permissions, what trips they are part of, and whether they already have the trip they need.
      *
+     * <p>An explicit {@code tripId} names ONE trip: the answer is that trip or {@code null}, never a substitute.
+     * Until 2026-09-20 a refused id fell through to the "anything you can see" ladder below, so a person asking
+     * for a trip they could not open was silently shown a different one -- a moderator testing a member's
+     * access could not tell "refused" from "allowed", a stale bookmark opened a random trip, and a chat URL
+     * could land someone in the wrong conversation. The ladder is for the pages that ask with NO id (a menu
+     * link, the "last trip visited" landing, the profile's current-trip card); see {@link #noTripUrl}.
+     *
      * @param currTrip  The resolved trip, which may already be calculated, if supplied this will be returned.
      * @param userId    The userId.
-     * @param tripId    The desired tripId -- will be returned if it exists and the user is part of the trip or admin.
+     * @param tripId    The desired tripId -- returned if it exists on this site and the user may see it, else null.
      * @param showAll   True if the user is an admin (can see all).
      *
      * @return  The trip to display, or null if the user should not see any trips.
@@ -959,8 +981,11 @@ public class TripCommands {
         Trip result;
         if (canSeeTrip(currTrip, userId, showAll) && !isBlankAnswer(currTrip)) {
             result = currTrip;                          // Use current trip
-        } else if ((tripId != null) && canSeeTrip(findTrip(tripId), userId, showAll)) {
-            result = findTrip(tripId);                  // Use requested trip
+        } else if ((tripId != null) && !tripId.isBlank()) {
+            // Requested trip, or nothing: findTrip is null for an unknown id and for a trip this host does not
+            // reach, and canSeeTrip is false for a stranger -- all three are a refusal, not a reason to guess.
+            final Trip requested = findTrip(tripId);
+            result = canSeeTrip(requested, userId, showAll) ? requested : null;
         } else {
             // Anything the user can see... or null. The user's own trips come from the reverse index (unbounded
             // per user); the admin "see any trip" and joinable fallbacks only need recent trips (joinable trips
@@ -976,6 +1001,24 @@ public class TripCommands {
             }
         }
         return result;
+    }
+
+    /**
+     * Where a page sends someone {@link #getTripForUser} answered {@code null} for: their own profile page, with
+     * the refusal SAID when they had asked for a trip by id. A page that asked with no id (nothing to show yet)
+     * lands there quietly, as before. The message is the same for an unknown id, a stranger's request and a trip
+     * another host serves: the page cannot tell them apart without a second lookup, and a person who cannot
+     * open a trip has no business learning which of the three it was.
+     *
+     * @param personId          The signed-in person (the profile to land on).
+     * @param requestedTripId   The {@code ?trip=} that was refused, or null when none was given.
+     */
+    public String noTripUrl(final Person.Id personId, final String requestedTripId) {
+        final String base = "/account/person.jsf?id=" + (personId == null ? "" : personId.getValue());
+        if (requestedTripId == null || requestedTripId.isBlank()) {
+            return base;
+        }
+        return base + "&error=" + URLEncoder.encode(NO_TRIP_ACCESS_MESSAGE, StandardCharsets.UTF_8);
     }
 
     /**

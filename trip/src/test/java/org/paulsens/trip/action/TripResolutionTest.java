@@ -71,6 +71,35 @@ public class TripResolutionTest {
     }
 
     @Test
+    public void anExplicitTripTheUserCannotSeeIsRefusedNotSubstituted() {
+        // Both a trip of the outsider's own and a joinable one exist, so the old ladder had plenty to offer.
+        savedTrip(LocalDateTime.now().plusDays(30), LocalDateTime.now().plusDays(40), outsider);
+        final Trip joinable = savedTrip(LocalDateTime.now().plusDays(30), LocalDateTime.now().plusDays(40), member);
+        joinable.setOpenToPublic(true);
+        Assert.assertTrue(trips.saveTrip(joinable));
+        final Trip theirs = savedTrip(LocalDateTime.now().plusDays(10), LocalDateTime.now().plusDays(20), member);
+
+        // The answer to "show me THAT trip" is that trip or nothing -- never one of the others.
+        Assert.assertNull(trips.getTripForUser(null, outsider, false, theirs.getId()));
+        Assert.assertNull(trips.getTripForUser(null, outsider, false, "no-such-trip-" + theirs.getId()));
+        Assert.assertNull(trips.getTripForUser(null, member, false, "no-such-trip-" + theirs.getId()),
+                "an unknown id is a refusal even for someone with trips of their own");
+        // A blank id is "no id": the ladder still applies.
+        Assert.assertNotNull(trips.getTripForUser(null, outsider, false, ""));
+    }
+
+    @Test
+    public void theRefusalUrlNamesTheProfileAndSaysWhyOnlyWhenATripWasAsked() {
+        Assert.assertEquals(trips.noTripUrl(member, null), "/account/person.jsf?id=" + member.getValue());
+        Assert.assertEquals(trips.noTripUrl(member, " "), "/account/person.jsf?id=" + member.getValue());
+        Assert.assertEquals(trips.noTripUrl(null, null), "/account/person.jsf?id=");
+        final String refused = trips.noTripUrl(member, "abc");
+        Assert.assertTrue(refused.startsWith("/account/person.jsf?id=" + member.getValue() + "&error="), refused);
+        Assert.assertEquals(java.net.URLDecoder.decode(refused.substring(refused.indexOf("&error=") + 7),
+                java.nio.charset.StandardCharsets.UTF_8), TripCommands.NO_TRIP_ACCESS_MESSAGE);
+    }
+
+    @Test
     public void aUserFallsBackToTheirOwnTrips() {
         final Trip mine = savedTrip(LocalDateTime.now().plusDays(30), LocalDateTime.now().plusDays(40), member);
 

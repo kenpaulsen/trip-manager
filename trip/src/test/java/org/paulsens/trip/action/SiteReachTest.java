@@ -133,14 +133,15 @@ public class SiteReachTest {
         Assert.assertNotNull(picked);
         Assert.assertNotEquals(picked.getId(), blank.getId(), "never the blank trip");
         Assert.assertNotEquals(picked.getOrgId(), FakeData.ACME_ORG_ID, "never a hosted org's trip on vqop");
-        final Trip requested = onSite(SHARED, () -> trips.getTripForUser(null, kevin, false, FakeData.ACME_TRIP_ID));
-        Assert.assertNotNull(requested);
-        Assert.assertNotEquals(requested.getId(), FakeData.ACME_TRIP_ID, "?trip= naming an Acme trip is ignored");
-        // On the org's host, the org's own trip wins.
+        // An explicit ?trip= the host does not reach is REFUSED (null), never swapped for a trip it does list:
+        // the page then says so (TripCommands.noTripUrl) instead of quietly opening another org's trip.
+        Assert.assertNull(onSite(SHARED, () -> trips.getTripForUser(null, kevin, false, FakeData.ACME_TRIP_ID)),
+                "?trip= naming an Acme trip on the shared host is refused");
+        // On the org's host with no id, the org's own trip is the pick.
         Assert.assertEquals(onSite(ACME_SITE, () -> trips.getTripForUser(null, kevin, false, null)).getId(),
                 FakeData.ACME_TRIP_ID);
-        Assert.assertEquals(onSite(ACME_SITE, () -> trips.getTripForUser(null, kevin, false, CFPW_TRIP)).getId(),
-                FakeData.ACME_TRIP_ID, "a CFPW trip asked for on Acme's host falls through to Acme's own");
+        Assert.assertNull(onSite(ACME_SITE, () -> trips.getTripForUser(null, kevin, false, CFPW_TRIP)),
+                "a CFPW trip asked for on Acme's host is refused, not replaced by Acme's own");
     }
 
     @Test

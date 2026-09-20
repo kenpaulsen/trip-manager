@@ -40,8 +40,11 @@ Both on `ChatResource`, the channel path, so they share `tripIdOf`/CSRF/auth wit
   `ChatMembership.with*` all carry `guest`/`invitedVia`, and dropping them in a new copy method would
   silently lock guests out (`ChatMembershipTest` pins every one).
 - `tripForChatPage` overrides `TripCommands.getTripForUser` for chat: that method serves page-level
-  visibility and silently falls back to "any trip you can see", which showed a guest a DIFFERENT trip than
-  the invite URL named. For chat participants the requested trip wins.
+  visibility, so it answers null for a guest or a non-manager family member, and the wrapper fills that
+  gap for anyone `canParticipate` admits. (Until 2026-09-20 the resolver also silently fell back to "any
+  trip you can see" for a REFUSED `?trip=`, which showed a non-member somebody else's chat; an explicit id
+  is now that trip or null everywhere, and `chat.xhtml` redirects to the profile page with
+  `TripCommands.NO_TRIP_ACCESS_MESSAGE` as a growl.)
 - tripTabs: the strip's outer gate is `canParticipate`, but Details/Itinerary/Contacts/To-do's are gated on
   the narrower `isTripMember` — a guest sees exactly the Chat tab.
 

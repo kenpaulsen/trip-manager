@@ -322,7 +322,8 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   and every trip LIST on `TripCommands` (`getTripsForUser`, `getRecentTrips`, `getActiveTrips`,
   `getInactiveTrips`, `recentTripsFor`) and `OrgCommands.mailableTrips` is narrowed, so pickers never offer
   what the page would then answer blank. The "current trip" behind `/account.jsf` → `tripContacts.jsf`
-  (`getTripForUser`) therefore picks among the trips the site lists (on an org host, that org's), and the
+  (`getTripForUser`, asked with no id) therefore picks among the trips the site lists (on an org host, that
+  org's) -- while an explicit `?trip=` the host does not reach is refused outright, never swapped -- and the
   continue-registration banner hides for a trip the host does not serve. **Off a bound request** —
   `RequestContext.system()`: the digest and notification senders, schedulers, unit tests —
   `SiteContext.isBound()` is false and everything is reachable: a tenant boundary is a property of a HOST,
