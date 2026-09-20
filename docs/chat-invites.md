@@ -35,6 +35,16 @@ Both on `ChatResource`, the channel path, so they share `tripIdOf`/CSRF/auth wit
 - `readDenial` reads the membership row FIRST and refuses LEFT/REMOVED **before** any grant: an admin
   REMOVE ousts members and guests alike, and an invite cannot bypass it (`redeemInvite` refuses a REMOVED
   caller). `postDenial` accepts `isTripMember || guestJoined(row)`.
+- **Every redemption and every first post leaves a JOINED row** (`ChatJoin`, 2026-09-20). Before that, a
+  redeem by anyone who could already participate was a silent no-op: no row, no `uses` increment, no
+  audit, so a family member never appeared on the roster, in `@all`, in the digest or in the mention
+  list, and the link's Uses stayed 0. The row is BOOKKEEPING, not a grant — it is guest-marked only for
+  someone with no standing of their own (`!isTripMember`), so the locked rule above is untouched and a
+  link can never outlive the family membership or privilege it was clicked with. A participant's row
+  carries `invitedVia` (shown as a "via invite" tag beside their name) and takes `joinedAt` from the
+  CHANNEL's creation, the same floor `materialize` uses, so materialising it shrinks nobody's history.
+  `ChatJoin.byPosting` does the same on a first post, after the message is durable and never failing the
+  send; roster members are skipped, since the trip itself already lists them everywhere.
 - `rejoin` refuses anyone who is neither a trip member nor an existing guest — before this, any session
   could write itself a JOINED row (harmless then, a hole once rows mean access). A LEFT guest may rejoin;
   `ChatMembership.with*` all carry `guest`/`invitedVia`, and dropping them in a new copy method would
@@ -58,8 +68,10 @@ Both on `ChatResource`, the channel path, so they share `tripIdOf`/CSRF/auth wit
   one partition query feeds `myChats`, keeping the no-GSI/no-scan design. These rows are NOT
   `ChatMembership` JSON; only `ChatDAO.addGuestChannel`/`listGuestChannelIds` touch them. `purgeChannel`
   orphans them harmlessly (`myChats` skips missing channels); re-clicking an invite self-heals a lost one.
-- Redeem writes membership row first, reverse row second, non-transactionally: losing the second write
-  only hides the chat from the guest's own list.
+- Redeem writes membership row first, reverse row second, the `uses` increment third, non-transactionally:
+  losing a later write only hides the chat from that person's own list or under-counts a link, and
+  re-clicking heals both. The idempotent branch is an existing JOINED row that already says they are in
+  (guest-marked, or any row for a participant): reverse row only, no count, no audit.
 
 ## Knobs, audit, free behavior
 
@@ -68,16 +80,22 @@ Both on `ChatResource`, the channel path, so they share `tripIdOf`/CSRF/auth wit
   `chat.invites.maxPerChannel` (expired rows are pruned when counting).
 - Audit: `CHAT_INVITE` (mint/revoke), `CHAT_JOIN` (redeem, incl. FAILURE for bad/expired tokens and
   refused rejoins).
-- Guests ride along free wherever explicit membership rows are read: digests
-  (`ChatDigestSender.collectForTrip`), mention roster (`rosterJsonForTrip`), `@all`
-  (`ChatNotifications.everyoneIn`), moderation (mute/remove), roster listing (badged "guest" on
-  `admin/chatSettings.jsf`, which also lists/revokes outstanding links).
+- These surfaces read the trip roster unioned with explicit JOINED rows, so anyone OFF the roster needs a
+  row to appear in them at all: digests (`ChatDigestSender.collectForTrip`), mention roster
+  (`rosterJsonForTrip`), `@all` (`ChatNotifications.everyoneIn`), moderation (mute/remove), roster listing
+  on `admin/chatSettings.jsf` (badged "guest" or "via invite"; it also lists/revokes outstanding links).
+  Redeeming an invite or posting once is what creates that row for a family member, a `tripView` holder or
+  a site admin — note that means an admin who posts in any trip's chat gains a row and a My Chats entry
+  there, which is the same "privilege holder" rule.
 
 ## Tests
 
-`ChatGuestAccessTest` (behavior), `ChatMembershipTest` (marker survival), `ChatInviteDAOTest` (rows),
-`ChatInvitePwIT` (browser end-to-end on the Summer Demo seed: mint w/ QR, logged-out login round-trip, guest posts,
-guest-only Chat tab, admin badge + revoke).
+`ChatGuestAccessTest` (behavior, incl. the participant/LEFT/removed redeem cases and joining by posting),
+`ChatMembershipTest` (marker survival + `withProvenance`), `ChatCommandsTest` (a `tripView` holder's first
+post), `ChatInviteDAOTest` (rows), `ChatInvitePwIT` (browser end-to-end on the Summer Demo seed: mint w/ QR,
+logged-out login round-trip, guest posts, guest-only Chat tab, admin badge + revoke) and
+`ChatFamilyJoinPwIT` (two owned trips: a family member posting, and one redeeming, each landing on the
+admin roster without a guest tag; the second also asserts Uses = 1).
 
 ## Ops
 

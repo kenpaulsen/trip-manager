@@ -203,6 +203,19 @@ public class ChatMembership implements Serializable {
                 schemaVersion, appearance, guest, invitedVia);
     }
 
+    /**
+     * The same row with its admission provenance rewritten: guest-marked or not, and the invite selector that
+     * admitted it. The ONLY copy method that changes the guest marker on purpose -- every other one preserves
+     * it. Redeeming an invite needs both directions: a person with no other standing must come out guest-marked
+     * (that row IS their access), and a family member, privilege holder or roster member must NOT, because
+     * marking them would turn a link into a grant that outlives the family or the privilege it came with.
+     */
+    public ChatMembership withProvenance(final boolean asGuest, final String inviteSelector) {
+        return new ChatMembership(channelId, personId, state, role, joinedAt, leftAt, leftReason, removedBy,
+                mutedUntil, mutedBy, muteReason, lastReadMessageId, notify, addedBackAt, addedBackBy,
+                schemaVersion, appearance, asGuest, inviteSelector);
+    }
+
     public ChatMembership withRole(final MemberRole newRole) {
         return new ChatMembership(channelId, personId, state, newRole, joinedAt, leftAt, leftReason, removedBy,
                 mutedUntil, mutedBy, muteReason, lastReadMessageId, notify, addedBackAt, addedBackBy,

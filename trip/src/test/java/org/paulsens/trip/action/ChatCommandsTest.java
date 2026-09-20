@@ -419,6 +419,28 @@ public class ChatCommandsTest {
                 privs.createPrivilege("tripView", "Trip viewer", TRIP, people)));
     }
 
+    /**
+     * A tripView holder participates with no row at all (an absent row means JOINED), which used to leave them
+     * invisible to the admin roster, {@code @all}, the digest and the mention list. Posting records them.
+     */
+    @Test
+    public void postingAsAPrivilegeHolderWritesAPlainJoinedRow() {
+        final Person.Id viewer = Person.Id.from("priv-poster-" + System.nanoTime());
+        final PrivilegeCommands privs = new PrivilegeCommands();
+        Assert.assertTrue(privs.savePrivilege(
+                privs.createPrivilege("tripView", "Trip viewer", TRIP, java.util.List.of(viewer))));
+        final ChatChannel channel = chat.ensureChannel(TRIP, actor);
+
+        postAs(viewer, "A privilege holder speaks");
+
+        final ChatMembership row = DAO.getInstance()
+                .getChatMembership(channel.getId(), viewer, Cached.NO).orElse(null);
+        Assert.assertNotNull(row, "posting records them so the rosters can see them");
+        Assert.assertTrue(row.isJoined());
+        Assert.assertFalse(row.isGuest(), "their access is the privilege, not the row");
+        Assert.assertEquals(row.getJoinedAt(), channel.getCreated());
+    }
+
     private ChatMessage.Id postAs(final Person.Id author, final String body) {
         chat.ensureChannel(TRIP, actor);
         final ChatCommands.SendResult sent = chat.send(TRIP, author, body, null, null, actor);

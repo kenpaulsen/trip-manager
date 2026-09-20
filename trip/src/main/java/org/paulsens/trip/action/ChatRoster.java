@@ -91,7 +91,8 @@ public final class ChatRoster {
         // in ChatCommands, which are broadcast into the conversation and so honour email privacy.
         final String email = (person == null || person.getEmail() == null) ? "" : person.getEmail();
         return new RosterRow(row.getPersonId().getValue(), displayName(person, row.getPersonId()), email,
-                row.getState(), row.isGuest(), row.getJoinedAt(), row.getMutedUntil(), row.isMuted(now));
+                row.getState(), row.isGuest(), row.getInvitedVia(), row.getJoinedAt(), row.getMutedUntil(),
+                row.isMuted(now));
     }
 
     /** "Last, First (email)" — the email is what separates two people who share a name. */
@@ -128,7 +129,7 @@ public final class ChatRoster {
      * rewrite, labelled UTC so an unconverted time is never mistaken for a local one.
      */
     public record RosterRow(String personId, String name, String email, ChatMembership.MemberState state,
-            boolean guest, Instant joinedAt, Instant mutedUntil, boolean muted) {
+            boolean guest, String invitedVia, Instant joinedAt, Instant mutedUntil, boolean muted) {
 
         private static final DateTimeFormatter UTC_STAMP =
                 DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneOffset.UTC);

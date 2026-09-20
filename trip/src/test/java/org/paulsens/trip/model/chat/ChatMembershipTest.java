@@ -36,6 +36,32 @@ public class ChatMembershipTest {
         Assert.assertTrue(guest.withRole(ChatMembership.MemberRole.MODERATOR).isGuest());
 
         Assert.assertEquals(guest.withRole(ChatMembership.MemberRole.MODERATOR).getInvitedVia(), "sel-abc");
+        // withProvenance is the one exception, and only when it is ASKED to change the marker.
+        Assert.assertTrue(guest.withProvenance(true, "sel-new").isGuest());
+        Assert.assertEquals(guest.withProvenance(true, "sel-new").getInvitedVia(), "sel-new");
+    }
+
+    /**
+     * The deliberate exception to the rule above: redeeming an invite rewrites provenance both ways. An
+     * outsider must come out guest-marked (that row IS their access), and a family member or privilege
+     * holder must NOT, or the link would outlive the standing it was clicked with.
+     */
+    @Test
+    public void provenanceCopyRewritesOnlyTheTwoProvenanceFields() {
+        final Instant now = Instant.parse("2026-09-20T00:00:00Z");
+        final ChatMembership member = ChatMembership.joining(CHANNEL, ME, now).withProvenance(false, "sel-m");
+        Assert.assertFalse(member.isGuest());
+        Assert.assertEquals(member.getInvitedVia(), "sel-m");
+        Assert.assertEquals(member.getJoinedAt(), now, "the history floor is untouched");
+        Assert.assertEquals(member.getState(), ChatMembership.MemberState.JOINED);
+        Assert.assertEquals(member.getRole(), ChatMembership.MemberRole.MEMBER);
+
+        final ChatMembership back = ChatMembership.guestJoining(CHANNEL, ME, now, "sel-old")
+                .withLeft(now, "self").withRejoined(now, "admin").withProvenance(false, "sel-new");
+        Assert.assertFalse(back.isGuest(), "somebody who gained standing is no longer a guest");
+        Assert.assertEquals(back.getInvitedVia(), "sel-new");
+        Assert.assertEquals(back.getAddedBackAt(), now, "the rejoin stamp survives");
+        Assert.assertEquals(back.getJoinedAt(), now);
     }
 
     @Test

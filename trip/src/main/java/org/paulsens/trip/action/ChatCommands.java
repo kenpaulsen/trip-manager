@@ -927,6 +927,7 @@ public class ChatCommands {
             return SendResult.rateLimited(decision);
         }
 
+        final Trip trip = tripOf(channel);
         ChatQuote quote = null;
         if (replyToId != null) {
             final Optional<ChatMessage> original = dao().getVisibleChatMessage(
@@ -945,7 +946,7 @@ public class ChatCommands {
                 null, null, null, null, clientMessageId, null);
         Optional<ChatMessage> saved;
         try {
-            saved = dao().saveChatMessage(draft, channel, tripOf(channel));
+            saved = dao().saveChatMessage(draft, channel, trip);
         } catch (final RuntimeException ex) {
             saved = logSaveFailure(ex);
         }
@@ -959,12 +960,17 @@ public class ChatCommands {
         // The send IS the draft's completion, whichever client autosaved it — clear it so the tab indicator
         // dies with this render rather than lying for up to 24h.
         dao().deleteChatDraft(channel.getId(), authorId);
+        if (row == null) {
+            // A first post by an implicit member (family, tripView, site admin) writes their JOINED row, so the
+            // roster, @all, the digest and the mention list can see them. A null row past postDenial can only be
+            // an implicit member. After the save, never before, and it can never fail the send.
+            ChatJoin.byPosting(channel, authorId, trip, now, who);
+        }
         if (!stored.getAttachments().isEmpty()) {
             // Consumed and recorded only for a saved message: a failed send leaves the photos staged, so the
             // composer's retry still owns them.
             final ChatPhotos photos = ChatPhotos.getChatPhotos();
             photos.consume(stored.getAttachments());
-            final Trip trip = tripOf(channel);
             photos.recordAlbumRows(tripId,
                     trip == null || trip.getTitle() == null ? "trip" : trip.getTitle(),
                     authorId, authorDisplayName(authorId), stored.getAttachments(), who);
@@ -977,11 +983,11 @@ public class ChatCommands {
             // the sender rather than done quietly, because someone who thinks their @all reached inboxes and finds
             // out later that it did not is worse off than someone who is told now.
             ChatNotifications.mentionsFor(
-                    withoutEveryone(stored), channel, tripOf(channel), authorDisplayName(authorId));
+                    withoutEveryone(stored), channel, trip, authorDisplayName(authorId));
             return SendResult.ok(stored, "Only one @all a day is emailed. This one is posted in the chat, but "
                     + "nobody was emailed about it. Please use @all sparingly.");
         }
-        ChatNotifications.mentionsFor(stored, channel, tripOf(channel), authorDisplayName(authorId));
+        ChatNotifications.mentionsFor(stored, channel, trip, authorDisplayName(authorId));
         return SendResult.ok(stored);
     }
 
@@ -2077,22 +2083,10 @@ public class ChatCommands {
             auditRedeemFailure(actor, channel.getId(), "removed member presented invite " + invite.getSelector());
             return "removed";
         }
-        if (canParticipate(tripId, me)) {
-            // Idempotent success; the reverse-row rewrite is the self-heal for a lost second write below.
-            dao().addGuestChatChannel(me, channel.getId());
-            return "ok";
-        }
-        // Membership row first, reverse row second: losing the second write only hides the chat from the
-        // person's own list, and re-clicking the invite lands in the branch above and heals it.
-        if (!dao().saveChatMembership(ChatMembership.guestJoining(
-                channel.getId(), me, now, invite.getSelector()))) {
-            return "error";
-        }
-        dao().addGuestChatChannel(me, channel.getId());
-        dao().recordChatInviteUse(invite);
-        audit(AuditAction.CHAT_JOIN, actor, AuditEventBuilder.TARGET_CHAT_CHANNEL,
-                channel.getId().getValue(), "joined as guest via invite " + invite.getSelector());
-        return "ok";
+        // isTripMember, not canParticipate: the guest-row half of canParticipate is the `existing` row, which
+        // ChatJoin reads for itself, and what is left is exactly the question "does this person need the guest
+        // marker". Everyone gets a row now, so the roster, @all, the digest and the mention list see them.
+        return ChatJoin.redeem(channel, me, existing, isTripMember(tripId, me), invite, now, actor);
     }
 
     private String auditRedeemFailure(

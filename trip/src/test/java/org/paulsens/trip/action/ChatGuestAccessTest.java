@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.InMemoryCacheClient;
+import org.paulsens.trip.chat.ChatNotifications;
 import org.paulsens.trip.chat.ChatRateLimiter;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
@@ -172,8 +173,11 @@ public class ChatGuestAccessTest {
         Assert.assertTrue(chat.rosterJsonForTrip(tripId).contains(guest.getValue()),
                 "a guest joins the mention roster (the same JOINED-row union @all and the digest read)");
 
+        Assert.assertEquals(inviteUses(selectorOf(token)), 1L, "a real join counts one use");
         Assert.assertEquals(chat.redeemInvite(tripId, token, guest, actor), "ok",
                 "redeeming twice is an idempotent success");
+        Assert.assertEquals(inviteUses(selectorOf(token)), 1L,
+                "a second redeem by the same guest counts nothing: there was no join to count");
         Assert.assertTrue(chat.canInvite(tripId, guest),
                 "a guest is a participant, so they may invite too");
 
@@ -288,7 +292,169 @@ public class ChatGuestAccessTest {
         Assert.assertNull(chat.tripForChatPage(null, tripId, outsider));
     }
 
+    // ------------------------------------------------------------- redeeming with standing of one's own
+
+    /**
+     * The gap this closed (2026-09-20): a family member clicking an invite used to be a silent no-op, so the
+     * link's Uses stayed 0 and they never appeared on the roster, in {@code @all} or in the mention list.
+     */
+    @Test
+    public void aFamilyMemberRedeemingAnInviteJoinsAsAMemberAndCountsAUse() throws IOException {
+        final Person relative = savedRelative("family-redeemer");
+        final ChatChannel channel = chat.ensureChannel(tripId, actor);
+        final String token = tokenOf(chat.createInvite(tripId, rosterMember, actor));
+
+        Assert.assertEquals(chat.redeemInvite(tripId, token, relative.getId(), actor), "ok");
+        final ChatMembership row = rowFor(relative.getId());
+        Assert.assertNotNull(row, "a participant who redeems is recorded like anybody else");
+        Assert.assertTrue(row.isJoined());
+        Assert.assertFalse(row.isGuest(),
+                "their access comes from the family, so the link must not become a grant that outlives it");
+        Assert.assertEquals(row.getInvitedVia(), selectorOf(token), "the link that recorded them is kept");
+        Assert.assertEquals(row.getJoinedAt(), channel.getCreated(),
+                "an implicit member has been here since the channel existed: history must not shrink");
+        Assert.assertEquals(inviteUses(selectorOf(token)), 1L);
+        Assert.assertTrue(chat.roster(tripId).stream()
+                .anyMatch(m -> m.getPersonId().equals(relative.getId())), "the admin roster lists them");
+        Assert.assertTrue(ChatNotifications.everyoneIn(
+                        DAO.getInstance().getTrip(tripId, Cached.NO).orElseThrow(), rosterMember)
+                .contains(relative.getId()), "@all now reaches them");
+        Assert.assertTrue(chat.rosterJsonForTrip(tripId).contains(relative.getId().getValue()),
+                "and they can be mentioned");
+        Assert.assertTrue(DAO.getInstance().getGuestChatChannelIds(relative.getId(), Cached.NO)
+                .contains(channel.getId()), "the reverse row feeds My Chats");
+
+        Assert.assertEquals(chat.redeemInvite(tripId, token, relative.getId(), actor), "ok");
+        Assert.assertEquals(inviteUses(selectorOf(token)), 1L, "re-clicking counts nothing");
+    }
+
+    @Test
+    public void aLeftMemberRedeemingRejoinsWithoutTheGuestMarker() throws IOException {
+        final Person relative = savedRelative("left-member");
+        final ChatChannel channel = chat.ensureChannel(tripId, actor);
+        Assert.assertTrue(chat.leave(tripId, relative.getId(), actor));
+        final Instant firstJoin = rowFor(relative.getId()).getJoinedAt();
+        final String token = tokenOf(chat.createInvite(tripId, rosterMember, actor));
+
+        Assert.assertEquals(chat.redeemInvite(tripId, token, relative.getId(), actor), "ok");
+        final ChatMembership row = rowFor(relative.getId());
+        Assert.assertTrue(row.isJoined());
+        Assert.assertFalse(row.isGuest());
+        Assert.assertNotNull(row.getAddedBackAt(), "coming back is recorded as a rejoin");
+        Assert.assertEquals(row.getJoinedAt(), firstJoin, "joinedAt is the FIRST join, immutable");
+        Assert.assertEquals(inviteUses(selectorOf(token)), 1L, "a rejoin is a join and counts");
+        Assert.assertNotNull(channel);
+    }
+
+    @Test
+    public void aLeftGuestRedeemingAgainRejoinsAsAGuest() {
+        final ChatChannel channel = chat.ensureChannel(tripId, actor);
+        final Person.Id guest = outsider("returning-guest");
+        Assert.assertTrue(DAO.getInstance().saveChatMembership(ChatMembership
+                .guestJoining(channel.getId(), guest, Instant.now(), "sel-old")
+                .withLeft(Instant.now(), "left on their own")));
+        final String token = tokenOf(chat.createInvite(tripId, rosterMember, actor));
+
+        Assert.assertEquals(chat.redeemInvite(tripId, token, guest, actor), "ok");
+        final ChatMembership row = rowFor(guest);
+        Assert.assertTrue(row.isJoined());
+        Assert.assertTrue(row.isGuest(), "an outsider's row IS their access, so it stays guest-marked");
+        Assert.assertEquals(row.getInvitedVia(), selectorOf(token), "the link that let them back in");
+        Assert.assertTrue(chat.canParticipate(tripId, guest));
+        Assert.assertEquals(inviteUses(selectorOf(token)), 1L);
+    }
+
+    @Test
+    public void aPlainJoinedRowHeldByAnOutsiderIsGuestMarkedOnRedeem() {
+        final ChatChannel channel = chat.ensureChannel(tripId, actor);
+        final Person.Id outsider = outsider("plain-row");
+        Assert.assertTrue(DAO.getInstance().saveChatMembership(
+                ChatMembership.joining(channel.getId(), outsider, Instant.now())));
+        Assert.assertFalse(chat.canParticipate(tripId, outsider), "a plain row grants nothing (locked rule)");
+        final String token = tokenOf(chat.createInvite(tripId, rosterMember, actor));
+
+        Assert.assertEquals(chat.redeemInvite(tripId, token, outsider, actor), "ok");
+        Assert.assertTrue(rowFor(outsider).isGuest(), "the invite is what admits them, so it marks them");
+        Assert.assertTrue(chat.canParticipate(tripId, outsider));
+        Assert.assertEquals(inviteUses(selectorOf(token)), 1L);
+    }
+
+    @Test
+    public void aRemovedFamilyMemberIsStillRefusedByAnInvite() throws IOException {
+        final Person relative = savedRelative("removed-relative");
+        final ChatChannel channel = chat.ensureChannel(tripId, actor);
+        Assert.assertTrue(DAO.getInstance().saveChatMembership(
+                ChatMembership.joining(channel.getId(), relative.getId(), Instant.now())
+                        .withRemoved(Instant.now(), "moderation", "admin")));
+        final String token = tokenOf(chat.createInvite(tripId, rosterMember, actor));
+
+        Assert.assertEquals(chat.redeemInvite(tripId, token, relative.getId(), actor), "removed",
+                "an invite must not undo a moderator's removal, family or not");
+        Assert.assertEquals(rowFor(relative.getId()).getState(), ChatMembership.MemberState.REMOVED);
+        Assert.assertEquals(inviteUses(selectorOf(token)), 0L, "a refusal counts no use");
+    }
+
+    // ------------------------------------------------------------------ joining by posting
+
+    @Test
+    public void postingAsAFamilyMemberWritesAPlainJoinedRow() throws IOException {
+        final Person relative = savedRelative("poster");
+        final ChatChannel channel = chat.ensureChannel(tripId, actor);
+        Assert.assertNull(rowFor(relative.getId()), "no row before they say anything");
+
+        Assert.assertTrue(chat.send(tripId, relative.getId(), "Hello everyone", null, null, actor).isOk());
+        final ChatMembership row = rowFor(relative.getId());
+        Assert.assertNotNull(row, "posting is joining: the rosters have to be able to see them");
+        Assert.assertTrue(row.isJoined());
+        Assert.assertFalse(row.isGuest());
+        Assert.assertNull(row.getInvitedVia(), "no invite was involved");
+        Assert.assertEquals(row.getJoinedAt(), channel.getCreated());
+        Assert.assertTrue(DAO.getInstance().getGuestChatChannelIds(relative.getId(), Cached.NO)
+                .contains(channel.getId()));
+        Assert.assertTrue(chat.roster(tripId).stream()
+                .anyMatch(m -> m.getPersonId().equals(relative.getId())));
+
+        final int before = chat.roster(tripId).size();
+        Assert.assertTrue(chat.send(tripId, relative.getId(), "And again", null, null, actor).isOk());
+        Assert.assertEquals(rowFor(relative.getId()), row, "a second post changes nothing");
+        Assert.assertEquals(chat.roster(tripId).size(), before);
+    }
+
+    @Test
+    public void postingAsARosterMemberWritesNoRow() {
+        chat.ensureChannel(tripId, actor);
+        Assert.assertTrue(chat.send(tripId, rosterMember, "From the roster", null, null, actor).isOk());
+        Assert.assertNull(rowFor(rosterMember),
+                "roster members are in every list through the trip itself; a row would be noise");
+    }
+
     // ------------------------------------------------------------------ helpers
+
+    /** A saved person in a family with the roster member, so isTripMember admits them without any row. */
+    private Person savedRelative(final String label) throws IOException {
+        final Person relative = savedPerson(label);
+        final Family family = new Family();
+        family.getMemberIds().addAll(List.of(rosterMember, relative.getId()));
+        family.getManagerIds().add(rosterMember);
+        Assert.assertTrue(DAO.getInstance().saveFamily(family));
+        relative.setFamilyId(family.getId());
+        Assert.assertTrue(DAO.getInstance().savePerson(relative));
+        return relative;
+    }
+
+    private long inviteUses(final String selector) {
+        return DAO.getInstance().getChatInvite(ChatChannel.Id.forTrip(tripId), selector, Cached.NO)
+                .orElseThrow().getUses();
+    }
+
+    private ChatMembership rowFor(final Person.Id personId) {
+        return DAO.getInstance().getChatMembership(ChatChannel.Id.forTrip(tripId), personId, Cached.NO)
+                .orElse(null);
+    }
+
+    private static String selectorOf(final String token) {
+        return token.substring(0, token.indexOf('.'));
+    }
 
     private Person savedPerson(final String label) throws IOException {
         final Person person = Person.builder()

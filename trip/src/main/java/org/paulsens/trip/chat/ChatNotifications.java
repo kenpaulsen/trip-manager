@@ -219,11 +219,11 @@ public final class ChatNotifications {
     /**
      * Everyone on the trip PLUS everyone with an explicit JOINED membership row, minus the author. The union
      * is what gives family managers (full members via {@code isTripMember}, never on the roster) their
-     * {@code @all} mail once they have interacted with the chat -- and it deliberately requires that row: a
-     * parent who never opened the channel is not broadcast to, and no reverse who-manages-whom lookup is
-     * needed at fan-out time. Downstream {@link #eligible} still applies its own row-state filter per
-     * recipient, and each route its own preference. Public because the push route walks the same set for
-     * its silent refresh.
+     * {@code @all} mail once they have posted or redeemed an invite ({@code ChatJoin} writes that row) -- and
+     * it deliberately requires the row: a parent who never opened the channel is not broadcast to, and no
+     * reverse who-manages-whom lookup is needed at fan-out time. Downstream {@link #eligible} still applies
+     * its own row-state filter per recipient, and each route its own preference. Public because the push
+     * route walks the same set for its silent refresh.
      */
     public static List<Person.Id> everyoneIn(final Trip trip, final Person.Id author) {
         if (trip == null) {
