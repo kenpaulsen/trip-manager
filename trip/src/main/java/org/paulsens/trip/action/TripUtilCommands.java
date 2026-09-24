@@ -132,6 +132,39 @@ public class TripUtilCommands {
     }
 
     /**
+     * Where a page gate sends a SIGNED-IN user it refuses: home, with an error naming what the page needs.
+     * The login page is the answer only for a visitor. Sending a signed-in user there looped, because
+     * signing in again grants nothing and {@code ?to=} brings them straight back to the same refusal
+     * (2026-09-24: a trip creator without tripFinAdmin could not reach the trip's money pages and saw only
+     * the login screen, over and over).
+     *
+     * @param privName  The privilege base the page asked for (blank/null when it demands only a role).
+     */
+    public String notAllowedUrl(final String privName) {
+        return "/?error=" + URLEncoder.encode(notAllowedMessage(privName), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * The refusal text for {@link #notAllowedUrl}, all in one summary: the growl never shows a detail. A trip
+     * role is named as the trip editor labels it, so the user can ask for exactly that role.
+     */
+    static String notAllowedMessage(final String privName) {
+        final String base = (privName == null) ? "" : privName.trim();
+        final String roleName = OrgCommands.tripRoleName(base);
+        final String description = PrivilegeCommands.canonicalDescription(base);
+        final String advice;
+        if (roleName != null) {
+            advice = " It needs the " + roleName + " role on this trip; ask the trip's organizer to add it.";
+        } else if (!description.isEmpty()) {
+            advice = " It needs permission to " + Character.toLowerCase(description.charAt(0))
+                    + description.substring(1) + ".";
+        } else {
+            advice = " Ask a site admin if you need access.";
+        }
+        return "You don't have permission to open that page." + advice;
+    }
+
+    /**
      * A value safe to drop into a query string. Free text reaches links unencoded otherwise: an ampersand
      * then ENDS the parameter and a plus arrives as a space, which is how a floor named "0 & Ground" became
      * a floor called "0 " and grew a phantom entry nobody could delete (2026-09-07).

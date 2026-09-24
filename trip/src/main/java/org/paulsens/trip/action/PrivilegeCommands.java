@@ -151,6 +151,11 @@ public class PrivilegeCommands {
 
     /** The canonical description for a base name, or "" for custom names -- see {@link #BASE_DESCRIPTIONS}. */
     public String baseDescription(final String baseName) {
+        return canonicalDescription(baseName);
+    }
+
+    /** {@link #baseDescription} without an instance, for callers that must not resolve a DAO. */
+    static String canonicalDescription(final String baseName) {
         return baseName == null ? "" : BASE_DESCRIPTIONS.getOrDefault(baseName.trim(), "");
     }
 

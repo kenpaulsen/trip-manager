@@ -3,6 +3,8 @@ package org.paulsens.trip.action;
 import jakarta.faces.context.ExternalContext;
 import jakarta.faces.context.FacesContext;
 import jakarta.servlet.http.HttpServletRequest;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -153,5 +155,35 @@ public class TripUtilCommandsTest {
         assertNull(tripUtil.evalEL(null), "a null expression evaluates to nothing");
         assertNull(tripUtil.evalEL("plain text"), "and outside a request so does everything else");
         assertTrue(tripUtil.mapList(java.util.List.of(), "length()").isEmpty(), "nothing to map, nothing evaluated");
+    }
+    /**
+     * A signed-in user refused by a page gate goes home with this message, never to login: signing in again
+     * grants nothing, so the login bounce looped forever. The message must name what to ask for.
+     */
+    @Test
+    public void notAllowedMessageNamesWhatThePageNeeds() {
+        assertEquals(TripUtilCommands.notAllowedMessage("tripFinAdmin"),
+                "You don't have permission to open that page. It needs the Finance Admin role on this trip;"
+                        + " ask the trip's organizer to add it.",
+                "A trip role is named as the trip editor labels it");
+        assertEquals(TripUtilCommands.notAllowedMessage("configAdmin"),
+                "You don't have permission to open that page. It needs permission to see and manage site"
+                        + " settings.",
+                "Any other known privilege is described");
+        assertEquals(TripUtilCommands.notAllowedMessage(null),
+                "You don't have permission to open that page. Ask a site admin if you need access.",
+                "A role-only gate (no privilege) points at a site admin");
+        assertEquals(TripUtilCommands.notAllowedMessage("  "), TripUtilCommands.notAllowedMessage(null),
+                "EL hands a blank for an unset privilege");
+        assertEquals(TripUtilCommands.notAllowedMessage("someCustomPriv"),
+                TripUtilCommands.notAllowedMessage(null), "An unknown privilege name is never shown raw");
+    }
+
+    @Test
+    public void notAllowedUrlGoesHomeWithTheMessageAsAnError() {
+        final String url = tripUtil.notAllowedUrl("tripFinAdmin");
+        assertTrue(url.startsWith("/?error="), url);
+        assertEquals(URLDecoder.decode(url.substring("/?error=".length()), StandardCharsets.UTF_8),
+                TripUtilCommands.notAllowedMessage("tripFinAdmin"));
     }
 }

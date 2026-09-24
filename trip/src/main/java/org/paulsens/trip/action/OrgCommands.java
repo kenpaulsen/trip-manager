@@ -825,6 +825,11 @@ public class OrgCommands {
             PrivilegeCommands.REGISTRATION_ADMIN, "Registration Admin",
             PrivilegeCommands.LODGING_MANAGER, "Lodging Manager");
 
+    /** The trip editor's display name for a trip-scoped role base, or null when the base is not one. */
+    static String tripRoleName(final String base) {
+        return (base == null) ? null : TRIP_ROLE_NAMES.get(base);
+    }
+
     /**
      * The trip editor's manager-role definitions ({@code name} / {@code desc} / {@code base} maps), built
      * from {@link #grantableTripBases} so the rendered role list and the {@link #setTripRole} enforcement
