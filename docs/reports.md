@@ -35,7 +35,8 @@ grants nothing: every card is separately `rendered=` on the gate of the page it 
 | Card | Opens | Gate |
 |------|-------|------|
 | Roster | `admin/reports/tripPilgrims.jsf?print=true&trip=` | `tripViewer` |
-| Room List | `admin/reports/tripRooms.jsf?print=true&trip=` | `tripViewer` |
+| Rooms: Room List | `admin/reports/tripRooms.jsf?print=true&trip=` | `tripViewer` |
+| Rooms: Room Invoice | `admin/reports/roomInvoice.jsf?trip=` | `seeFinances` |
 | Events | `admin/tripEvents.jsf?id=` (that page reads `?id=`, not `?trip=`) | `tripViewer` |
 | Ground Transportation | `admin/reports/groundTransport.jsf?trip=` | `tripViewer` |
 | Export | `admin/reports/exportTrip.jsf?trip=` | `tripViewer` |
@@ -44,7 +45,8 @@ grants nothing: every card is separately `rendered=` on the gate of the page it 
 
 `tripViewer` is `showAll || tripView@trip`; `seeFinances` is `viewFinances || tripFinView@trip`. Both are
 computed into `requestScope` every request, so a grant made while the page is open takes effect on the next
-load. The cards use the shared `.hub-grid` / `.hub-head` / `.hub-num` / `.hub-sub` vocabulary in
+load. The **Rooms** card carries two buttons stacked (`.hub-stack`), each gated like its own page, and renders
+for either holder. The cards use the shared `.hub-grid` / `.hub-head` / `.hub-num` / `.hub-sub` vocabulary in
 `resources/css/trip.css`, which the organization Dashboard (`admin/orgSettings.xhtml`) uses as well; it lives
 there so the two hubs cannot drift apart.
 
@@ -75,6 +77,32 @@ decided in Java and rides the line as `stripe`, because the old page worked it o
 Guarded by `ReportCommandsTest` (grouping, ordering, people-not-stays, the banding, the window) and
 `RoomingReportPwIT`, which seeds a trip with two hotels plus somebody holding two stays and asserts the pages,
 the counts and the print rule.
+
+## The room invoice
+
+`admin/reports/roomInvoice.xhtml` is what the hotels charge: one section per accommodation (earliest arrival
+first), one GROUP per lodging option, a subtotal per hotel and the grand total. Every line reads
+**quantity x nights x rate = amount**, and that arithmetic is the owner's requirement (2026-09-29): the first
+version grouped by ROOM and showed room-nights, which were correct but could not be multiplied back to the
+money once a per-person option and its single supplement shared a line.
+
+- **A per-person option bills GUESTS.** Its lodging lines count guests; the **single supplement is a line of
+  its own** (the guests who were alone, for the nights they were alone, at the supplement's rate). A waived
+  supplement simply drops out of it.
+- **A per-room option bills ROOMS**, with the guests who slept in those rooms as a note. A room shared by a
+  late arriver counts every night anybody is in it; a reservation not yet placed in a room is a room of its
+  own, because that is how it is billed.
+- **A new line whenever the arithmetic would break**: guests or rooms with different nights, and nights the
+  option prices differently (per-night overrides), each get their own line.
+- **Room types never split a line** (price does not depend on them); the option's heading notes the mix,
+  "3 Double rooms, 1 Single room", plus any reservations not yet placed.
+- **The money is the ledger's money.** The rules are `LodgingPricing`'s (occupancy per room per night across
+  every stay on it, the waiver, the overrides), so the total equals the sum of the lodging bills. Cancelled
+  stays and their fees are left out; a stay whose option was deleted is counted as unpriced, and the page says so.
+
+Money, so the page self-gates on `seeFinances` in `initPage` (as the dashboard does). Rows come from
+`ReportCommands.roomInvoice(tripId)`; the package-private overload over reservations and lookups is what
+`RoomInvoiceReportTest` drives, including the owner's own example.
 
 ## The Ground Transportation report
 
@@ -110,7 +138,9 @@ Two behaviors worth knowing:
 
 - `ReportCommandsTest` (unit): ordering, the legacy fallback, the name format and its order, the head count,
   the overnight flag, the derived duration, non-GROUND exclusion, the seeded legs, and the rooming pages.
-- `AdminReportsPwIT`: the dashboard's seven cards and their hrefs, the ground report's rendered rows, and the
+- `RoomInvoiceReportTest` (unit): per-option groups, the separate supplement line, lines split by stay and by
+  nightly price, per-room guest notes, unplaced/cancelled/unpriced stays, and that every total equals the bills.
+- `AdminReportsPwIT`: the dashboard's cards and their hrefs, the room invoice over the fixture ($720.00), the ground report's rendered rows, and the
   one-way-back rule on every report.
 - `ReportsDashboardPwIT`: the per-privilege card sets (admin, finance viewer, trip viewer), the bounce for
   someone holding nothing, the active tab, the back link, and the empty state.
