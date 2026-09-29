@@ -104,6 +104,24 @@ Money, so the page self-gates on `seeFinances` in `initPage` (as the dashboard d
 `ReportCommands.roomInvoice(tripId)`; the package-private overload over reservations and lookups is what
 `RoomInvoiceReportTest` drives, including the owner's own example.
 
+### The PDF download
+
+The report page's **Download PDF** button is a plain GET to `/reports/room-invoice?trip=<id>`
+(`web/RoomInvoicePdfServlet`, mapped in the live `web.xml`), which answers the same `RoomInvoice` drawn by
+`action/RoomInvoicePdf` with **each accommodation starting a page of its own**, so one hotel's part can be sent
+to that hotel alone. A hotel that outruns a sheet continues with "(continued)" and its column headings
+repeated; the trip total closes the last page, and every page carries "Page n of m".
+
+- **The URL must not end in `.pdf`.** `PdfRedirectFilter` (mapped to `/*`) answers every such request in
+  production with a 301 to the media CDN, and stands aside locally, so a `.pdf` URL passes every local test and
+  breaks only once deployed. The file name travels in `Content-Disposition` instead; `AdminReportsPwIT`
+  asserts the page never links a `.pdf`.
+- **Gate:** site admin, the global `viewFinances`, or `tripFinView@trip` (through `Caller.of(session)`); a
+  visitor goes to login and back, a signed-in refusal is a 403. `Cache-Control: private, no-store`.
+- **Font:** Liberation Sans is embedded (subset), from OpenPDF's `openpdf-fonts-extra` jar (SIL OFL; OpenPDF
+  itself is excluded). The PDF standard fonts are WinAnsi-only and cannot draw hotel and guest names such as
+  Dragi&#263;evi&#263;. Drawing is PDFBox 3, pure Java.
+
 ## The Ground Transportation report
 
 `admin/reports/groundTransport.xhtml` lists every `TripEvent.Type.GROUND` leg on the trip in departure order
@@ -138,6 +156,8 @@ Two behaviors worth knowing:
 
 - `ReportCommandsTest` (unit): ordering, the legacy fallback, the name format and its order, the head count,
   the overnight flag, the derived duration, non-GROUND exclusion, the seeded legs, and the rooming pages.
+- `RoomInvoicePdfTest` / `RoomInvoicePdfServletTest` (unit): a page per hotel, continuation sheets, the
+  totals and footers read back out of the PDF; the servlet's gate, login bounce, 404s and headers.
 - `RoomInvoiceReportTest` (unit): per-option groups, the separate supplement line, lines split by stay and by
   nightly price, per-room guest notes, unplaced/cancelled/unpriced stays, and that every total equals the bills.
 - `AdminReportsPwIT`: the dashboard's cards and their hrefs, the room invoice over the fixture ($720.00), the ground report's rendered rows, and the

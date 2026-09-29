@@ -350,6 +350,29 @@
             <version>5.5.1</version>
         </dependency>
         <!--
+            The Room Invoice PDF (RoomInvoicePdf): PDFBox draws it, pure Java with no natives. It embeds
+            Liberation Sans (SIL Open Font License) taken from OpenPDF's font jar, because the PDF standard
+            fonts cannot encode the Croatian and Bosnian letters in hotel and guest names (the c in
+            Dragicevic with an acute accent), and a server font would differ between a Mac and the container.
+            OpenPDF itself is excluded: only the font files are wanted.
+        -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>3.0.8</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.librepdf</groupId>
+            <artifactId>openpdf-fonts-extra</artifactId>
+            <version>3.0.5</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.github.librepdf</groupId>
+                    <artifactId>openpdf</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!--
             jakarta.servlet.jsp.jstl-api was declared here for years but is vestigial: the webapp is
             XHTML/Facelets only, and Facelets' JSTL namespaces (xmlns:c, used by trip/todo.xhtml) are
             implemented inside Mojarra; the JSTL API jar is only consulted by actual JSP pages, of which
