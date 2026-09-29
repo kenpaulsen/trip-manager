@@ -100,6 +100,32 @@ money once a per-person option and its single supplement shared a line.
   every stay on it, the waiver, the overrides), so the total equals the sum of the lodging bills. Cancelled
   stays and their fees are left out; a stay whose option was deleted is counted as unpriced, and the page says so.
 
+### Charges per person
+
+Under each hotel's option table is a second table, **Charges per person** (Person, Dates, Nights, Rate,
+Amount, then a Total), added 2026-09-29 at the owner's request with the option table left unchanged.
+Decisions made building it:
+
+- **A row IS a lodging bill.** Each row is one occupant's `LodgingPricing.price` line for one stay (the call
+  the ledger's bills come from), so a person with two stays at the hotel, a room switch say, has two rows,
+  by name then date. The table's total therefore equals the option table's subtotal; every
+  `RoomInvoiceReportTest` scenario asserts it.
+- **Rate is what one night costs THAT person.** Per person: `$50.00`, plus `+ $10.00 single supplement`
+  when they were alone, with `(3 nights)` when that was not every night. Per room it is their SHARE of the
+  room: `$60.00 room, alone`, `$30.00 (share of a $60.00 room)`, or `Share of a $60.00 room, varies by
+  night` when someone arrived or left part-way (the rate cannot be one number then). Per-night overrides read
+  `Varies by night`.
+- **Names** are "Preferred Last" (`LodgingCommands.displayName`). The lodging option is shown under the
+  name only when the hotel has more than one option, so a single-option hotel's table stays clean.
+- **One known edge:** a room holding stays under two DIFFERENT options on the same night bills each stay
+  its share of its own option's price, while the option table charges each option's full room rate for its
+  nights, so the two totals can differ there. No trip does that today; the per-person table is the one that
+  matches the ledger.
+
+In the PDF the per-person table follows the option table on the same sheet (no page break of its own), each
+accommodation still starting a new page; a table that spills repeats ITS OWN column headings on the
+continuation sheet, and a cell too long for its column is set in smaller type rather than overrunning.
+
 Money, so the page self-gates on `seeFinances` in `initPage` (as the dashboard does). Rows come from
 `ReportCommands.roomInvoice(tripId)`; the package-private overload over reservations and lookups is what
 `RoomInvoiceReportTest` drives, including the owner's own example.

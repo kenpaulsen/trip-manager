@@ -46,11 +46,16 @@ public final class RoomInvoicePdf {
     private static final float ROW = 15f;
     private static final float SUB_ROW = 11f;
 
-    /** Column left edges and widths: Item, Dates, Quantity, Nights, Rate, Amount. */
-    private static final float[] COL_W = {140f, 132f, 80f, 45f, 60f, 75f};
-    private static final String[] HEADS = {"Item", "Dates", "Quantity", "Nights", "Rate", "Amount"};
-    /** Quantity onward are numbers and right-aligned, like the page's riNum cells. */
-    private static final int FIRST_NUMERIC = 2;
+    /** The per-option table: Item, Dates, Quantity, Nights, Rate, Amount; numbers right-aligned. */
+    private static final Table OPTIONS = new Table(new float[] {140f, 132f, 80f, 45f, 60f, 75f},
+            new String[] {"Item", "Dates", "Quantity", "Nights", "Rate", "Amount"},
+            new boolean[] {false, false, true, true, true, true});
+    /** The per-person table: Person, Dates, Nights, Rate, Amount. Rate is prose here, so left-aligned. */
+    private static final Table PEOPLE = new Table(new float[] {135f, 122f, 40f, 160f, 75f},
+            new String[] {"Person", "Dates", "Nights", "Rate", "Amount"},
+            new boolean[] {false, false, true, false, true});
+    /** The per-option Quantity column, under which a per-room line's guest note sits. */
+    private static final int QUANTITY = 2;
 
     private static final Color INK = Color.BLACK;
     private static final Color MUTED = new Color(0x55, 0x55, 0x55);
@@ -131,6 +136,27 @@ public final class RoomInvoicePdf {
         return font.getStringWidth(text) / 1000f * size;
     }
 
+    /** A table's shape: column widths (summing to the printable width), headings, and which are numbers. */
+    private record Table(float[] widths, String[] heads, boolean[] right) {
+
+        /** A cell's width plus any EMPTY cells after it, which a label such as "subtotal" may run into. */
+        private float room(final String[] cells, final int column) {
+            float room = widths[column];
+            for (int i = column + 1; i < cells.length && (cells[i] == null || cells[i].isEmpty()); i++) {
+                room += widths[i];
+            }
+            return room;
+        }
+
+        private float columnRight(final int column) {
+            float right = MARGIN;
+            for (int i = 0; i <= column; i++) {
+                right += widths[i];
+            }
+            return right - 4;
+        }
+    }
+
     /** The drawing cursor: the current page, its content stream, and how far down it we are. */
     private static final class Writer {
         private final PDDocument doc;
@@ -139,6 +165,8 @@ public final class RoomInvoicePdf {
         private final String tripTitle;
         private PDPageContentStream page;
         private float y;
+        /** The table being drawn, whose headings a continuation sheet repeats. */
+        private Table table = OPTIONS;
 
         private Writer(final PDDocument doc, final PDFont regular, final PDFont bold, final String tripTitle) {
             this.doc = doc;
@@ -150,6 +178,7 @@ public final class RoomInvoicePdf {
         /** One accommodation, from a fresh page: every hotel starts its own sheet. */
         private void section(final ReportCommands.InvoiceSection section) throws IOException {
             newPage(section.getAccommodation());
+            table = OPTIONS;
             columnHeads();
             for (final ReportCommands.InvoiceOffer group : section.getOffers()) {
                 group(section, group);
@@ -157,6 +186,35 @@ public final class RoomInvoicePdf {
             ensure(ROW + 4, section.getAccommodation(), true);
             fill(GROUP_FILL, ROW);
             row(bold, new String[] {section.getAccommodation() + " subtotal", "", "", "", "", section.getAmount()});
+            people(section);
+        }
+
+        /**
+         * The same money per person, on the same sheet when it fits (no new page of its own): a heading, one
+         * row per occupant per stay, and a total equal to the subtotal above.
+         */
+        private void people(final ReportCommands.InvoiceSection section) throws IOException {
+            table = PEOPLE;
+            ensure(22 + ROW * 2 + SUB_ROW, section.getAccommodation(), false);
+            y -= 22;
+            text(bold, 11f, INK, "Charges per person", MARGIN);
+            y -= 6;
+            columnHeads();
+            for (final ReportCommands.InvoicePersonLine who : section.getPeople()) {
+                final boolean named = section.isSeveralOptions();
+                ensure(ROW + (named ? SUB_ROW : 0), section.getAccommodation(), true);
+                row(regular, new String[] {who.getName(), who.getDates(), String.valueOf(who.getNights()),
+                    who.getRate(), who.getAmount()});
+                if (named) {
+                    y -= SUB_ROW - 2;
+                    text(regular, SMALL, MUTED, who.getOption(), MARGIN + 4);
+                    y -= 2;
+                }
+                rule();
+            }
+            ensure(ROW + 4, section.getAccommodation(), true);
+            fill(GROUP_FILL, ROW);
+            row(bold, new String[] {"Total", "", "", "", section.getPeopleAmount()});
         }
 
         /** An option's heading (name, pricing, room mix) kept on the same sheet as at least its first line. */
@@ -187,7 +245,7 @@ public final class RoomInvoicePdf {
                     line.getAmount()});
                 if (!line.getNote().isEmpty()) {
                     y -= SUB_ROW - 2;
-                    textRight(regular, SMALL, MUTED, line.getNote(), columnRight(FIRST_NUMERIC));
+                    textRight(regular, SMALL, MUTED, line.getNote(), OPTIONS.columnRight(QUANTITY));
                     y -= 2;
                 }
                 rule();
@@ -246,31 +304,30 @@ public final class RoomInvoicePdf {
 
         private void columnHeads() throws IOException {
             fill(HEAD_FILL, ROW + 2);
-            row(bold, HEADS);
+            row(bold, table.heads());
             y -= 2;
         }
 
-        /** One table row at the cursor, text columns left-aligned and numbers right-aligned. */
+        /** One row of the current table at the cursor, text left-aligned and numbers right-aligned. */
         private void row(final PDFont font, final String[] cells) throws IOException {
             y -= ROW - 4;
             float left = MARGIN + 4;
             for (int i = 0; i < cells.length; i++) {
-                if (i >= FIRST_NUMERIC) {
-                    textRight(font, BODY, INK, cells[i], columnRight(i));
+                final float size = fitted(font, cells[i], table.room(cells, i) - 8);
+                if (table.right()[i]) {
+                    textRight(font, size, INK, cells[i], table.columnRight(i));
                 } else {
-                    text(font, BODY, INK, cells[i], left);
+                    text(font, size, INK, cells[i], left);
                 }
-                left += COL_W[i];
+                left += table.widths()[i];
             }
             y -= 4;
         }
 
-        private static float columnRight(final int column) {
-            float right = MARGIN;
-            for (int i = 0; i <= column; i++) {
-                right += COL_W[i];
-            }
-            return right - 4;
+        /** The body size, or smaller (never under {@link #SMALL}) so a long cell stays inside its column. */
+        private static float fitted(final PDFont font, final String text, final float width) throws IOException {
+            final float natural = widthOf(font, BODY, text == null ? "" : text);
+            return natural <= width ? BODY : Math.max(SMALL, BODY * width / natural);
         }
 
         /** A band behind the next {@code height} points (a heading row, an option, the subtotal). */

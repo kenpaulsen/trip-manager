@@ -43,11 +43,23 @@ public class RoomInvoicePdfTest {
         return group;
     }
 
+    private static ReportCommands.InvoicePersonLine who(final String name, final String rate, final String amount) {
+        final ReportCommands.InvoicePersonLine line = new ReportCommands.InvoicePersonLine();
+        line.setName(name);
+        line.setOption("Single / Double room");
+        line.setDates("Nov 16 - Nov 28, 2026");
+        line.setNights(12);
+        line.setRate(rate);
+        line.setAmount(amount);
+        return line;
+    }
+
     private static ReportCommands.InvoiceSection section(final String hotel, final String amount,
             final ReportCommands.InvoiceOffer... groups) {
         final ReportCommands.InvoiceSection section = new ReportCommands.InvoiceSection();
         section.setAccommodation(hotel);
         section.setAmount(amount);
+        section.setPeopleAmount(amount);
         section.getOffers().addAll(List.of(groups));
         return section;
     }
@@ -58,9 +70,15 @@ public class RoomInvoicePdfTest {
                 group("Single / Double room", "3 Double rooms, 1 Single room",
                         line("Lodging", 5, "guests", 12, "$50.00", "$3,000.00", ""),
                         line("Single supplement", 3, "guests", 12, "$10.00", "$360.00", ""))));
+        invoice.getSections().get(0).getPeople().addAll(List.of(
+                who("Joe Smith", "$50.00 + $10.00 single supplement", "$720.00"),
+                who("Kevin Paulsen", "$50.00", "$600.00")));
+        invoice.getSections().get(0).setSeveralOptions(true);
         invoice.getSections().add(section("Hotel Split", "$720.00",
                 group("Double room, shared", "",
                         line("Lodging", 1, "room", 12, "$60.00", "$720.00", "2 guests"))));
+        invoice.getSections().get(1).getPeople().add(
+                who("Dave Robinson", "Share of a room priced by night, varies by night", "$480.00"));
         invoice.setGuests(7);
         invoice.setRooms(5);
         invoice.setAmount("$4,080.00");
@@ -108,6 +126,38 @@ public class RoomInvoicePdfTest {
         Assert.assertTrue(last.contains("7 guests in 5 rooms"), last);
         Assert.assertTrue(last.contains("printed Sep 29, 2026"), last);
         Assert.assertTrue(last.contains("Page 2 of 2"), last);
+    }
+
+    @Test
+    public void eachHotelCarriesItsPerPersonTableOnItsOwnPages() throws IOException {
+        final List<String> pages = pages(RoomInvoicePdf.render("Spring Demo Trip", twoHotels(), PRINTED));
+        final String first = pages.get(0);
+        Assert.assertTrue(first.contains("Charges per person"), first);
+        Assert.assertTrue(first.contains("Person"), first);
+        Assert.assertTrue(first.contains("Joe Smith"), first);
+        Assert.assertTrue(first.contains("$50.00 + $10.00 single supplement"), first);
+        Assert.assertTrue(first.indexOf("subtotal") < first.indexOf("Charges per person"),
+                "the per-person table follows the per-option table");
+        Assert.assertTrue(first.lastIndexOf("Single / Double room") > first.indexOf("Charges per person"),
+                "with several options, each person row names its own");
+        Assert.assertFalse(first.contains("Dave Robinson"), "a person's row stays with their own hotel");
+        final String last = pages.get(1);
+        Assert.assertTrue(last.contains("Dave Robinson"), last);
+        Assert.assertTrue(last.contains("varies by night"), "a long rate still prints, just smaller: " + last);
+        Assert.assertEquals(pages.size(), 2, "no page of its own for the per-person table");
+    }
+
+    @Test
+    public void aLongPerPersonTableContinuesWithItsOwnHeadings() throws IOException {
+        final ReportCommands.RoomInvoice invoice = twoHotels();
+        for (int i = 0; i < 70; i++) {
+            invoice.getSections().get(0).getPeople().add(who("Guest " + i, "$50.00", "$600.00"));
+        }
+        final List<String> pages = pages(RoomInvoicePdf.render("Big Trip", invoice, PRINTED));
+        Assert.assertTrue(pages.get(1).contains("Pansion Dragićević (continued)"), pages.get(1));
+        Assert.assertTrue(pages.get(1).contains("Person"), "the per-person headings repeat, not the option ones");
+        Assert.assertFalse(pages.get(1).contains("Quantity"), pages.get(1));
+        Assert.assertTrue(pages.get(pages.size() - 1).contains("Hotel Split"), "the next hotel still starts a page");
     }
 
     @Test

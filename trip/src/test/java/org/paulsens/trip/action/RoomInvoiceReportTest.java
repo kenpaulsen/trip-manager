@@ -72,8 +72,21 @@ public class RoomInvoiceReportTest {
                 .occupants(Arrays.stream(people).map(Person.Id::from).toList()).build();
     }
 
+    /** Every invoice built here also proves the owner's rule: per person and per option add up the same. */
     private ReportCommands.RoomInvoice invoice(final List<ReservationOffer> offers, final Reservation... stays) {
-        return reports.roomInvoice(List.of(stays), id -> find(offers, id), this::findHotel);
+        final ReportCommands.RoomInvoice invoice =
+                reports.roomInvoice(List.of(stays), id -> find(offers, id), this::findHotel);
+        for (final ReportCommands.InvoiceSection section : invoice.getSections()) {
+            Assert.assertEquals(section.getPeopleCents(), section.getCents(),
+                    section.getAccommodation() + ": the per-person table must total the per-option table");
+            Assert.assertEquals(section.getPeopleAmount(), section.getAmount());
+        }
+        return invoice;
+    }
+
+    private static ReportCommands.InvoicePersonLine person(final ReportCommands.InvoiceSection section,
+            final String name) {
+        return section.getPeople().stream().filter(line -> line.getName().equals(name)).findFirst().orElseThrow();
     }
 
     private static ReservationOffer find(final List<ReservationOffer> offers, final String id) {
@@ -159,6 +172,106 @@ public class RoomInvoiceReportTest {
         Assert.assertEquals(invoice.getRooms(), 5);
         Assert.assertEquals(invoice.getAmount(), "$4,080.00");
         Assert.assertEquals(invoice.getCents(), billed(offers, stays), "the invoice is the sum of the bills");
+
+        final ReportCommands.InvoiceSection section = invoice.getSections().get(0);
+        Assert.assertEquals(section.getPeople().stream().map(ReportCommands.InvoicePersonLine::getName).toList(),
+                List.of("admin", "dave", "joe", "ken", "kevin", "matt", "trinity"), "by name");
+        final ReportCommands.InvoicePersonLine alone = person(section, "joe");
+        Assert.assertEquals(alone.getRate(), "$50.00 + $10.00 single supplement");
+        Assert.assertEquals(alone.getNights(), 12);
+        Assert.assertEquals(alone.getAmount(), "$720.00");
+        Assert.assertEquals(alone.getDates(), "Sep 21 - Oct 3, 2028");
+        Assert.assertEquals(alone.getOption(), "Any room, per person");
+        Assert.assertEquals(person(section, "kevin").getRate(), "$50.00");
+        Assert.assertEquals(person(section, "kevin").getAmount(), "$600.00");
+        final ReportCommands.InvoicePersonLine early = person(section, "dave");
+        Assert.assertEquals(early.getRate(), "Share of a $60.00 room, varies by night",
+                "alone for four nights, then sharing with the late arriver");
+        Assert.assertEquals(early.getAmount(), "$480.00");
+        final ReportCommands.InvoicePersonLine late = person(section, "matt");
+        Assert.assertEquals(late.getRate(), "$30.00 (share of a $60.00 room)");
+        Assert.assertEquals(late.getNights(), 8);
+        Assert.assertEquals(late.getAmount(), "$240.00");
+        Assert.assertTrue(section.isSeveralOptions(), "two options here, so each row names its own");
+        Assert.assertEquals(section.getPeopleAmount(), "$4,080.00");
+    }
+
+    @Test
+    public void aSupplementForSomeNightsSaysHowMany() {
+        final ReservationOffer person = perPerson(hotel, 5_000L, 1_000L);
+        final ReportCommands.InvoiceSection section = invoice(List.of(person),
+                stay(person, "005", ARRIVE, DEPART, "early"),
+                stay(person, "005", ARRIVE.plusDays(3), DEPART, "late")).getSections().get(0);
+        Assert.assertEquals(person(section, "early").getRate(), "$50.00 + $10.00 single supplement (3 nights)");
+        Assert.assertEquals(person(section, "early").getCents(), 12 * 5_000L + 3 * 1_000L);
+        Assert.assertEquals(person(section, "late").getRate(), "$50.00");
+        Assert.assertFalse(section.isSeveralOptions());
+    }
+
+    @Test
+    public void aOneNightSupplementIsSingular() {
+        final ReservationOffer person = perPerson(hotel, 5_000L, 1_000L);
+        final ReportCommands.InvoiceSection section = invoice(List.of(person),
+                stay(person, "005", ARRIVE, DEPART, "early"),
+                stay(person, "005", ARRIVE.plusDays(1), DEPART, "late")).getSections().get(0);
+        Assert.assertEquals(person(section, "early").getRate(), "$50.00 + $10.00 single supplement (1 night)");
+    }
+
+    @Test
+    public void perRoomRatesNameTheShareEachPersonPays() {
+        final ReservationOffer roomRate = perRoom(hotel, 6_000L);
+        final ReportCommands.InvoiceSection section = invoice(List.of(roomRate),
+                stay(roomRate, "114", ARRIVE, DEPART, "solo"),
+                stay(roomRate, "003", ARRIVE, DEPART, "pair1", "pair2")).getSections().get(0);
+        Assert.assertEquals(person(section, "solo").getRate(), "$60.00 room, alone");
+        Assert.assertEquals(person(section, "pair1").getRate(), "$30.00 (share of a $60.00 room)");
+        Assert.assertEquals(person(section, "pair2").getAmount(), "$360.00");
+    }
+
+    @Test
+    public void nightlyOverridesReadAsVaryingRates() {
+        final ReservationOffer roomRate = perRoom(hotel, 6_000L);
+        roomRate.setNightlyPriceOverrides(Map.of("2028-09-22", 9_000L));
+        final ReservationOffer person = perPerson(second, 5_000L, 0L);
+        person.setNightlyPriceOverrides(Map.of("2028-09-22", 9_000L));
+        final ReportCommands.RoomInvoice invoice = invoice(List.of(roomRate, person),
+                stay(roomRate, "114", ARRIVE, DEPART, "solo"),
+                stay(roomRate, "003", ARRIVE, DEPART, "pair1", "pair2"),
+                stay(person, "s1", ARRIVE, DEPART, "guest"));
+        final ReportCommands.InvoiceSection ana = invoice.getSections().stream()
+                .filter(s -> s.getAccommodation().equals("Pansion Ana")).findFirst().orElseThrow();
+        Assert.assertEquals(person(ana, "solo").getRate(), "Room alone, priced by night");
+        Assert.assertEquals(person(ana, "pair1").getRate(), "Share of a room priced by night, varies by night");
+        final ReportCommands.InvoiceSection split = invoice.getSections().stream()
+                .filter(s -> s.getAccommodation().equals("Hotel Split")).findFirst().orElseThrow();
+        Assert.assertEquals(person(split, "guest").getRate(), "Varies by night");
+    }
+
+    @Test
+    public void aPersonWithTwoStaysHasARowForEach() {
+        final ReservationOffer person = perPerson(hotel, 5_000L, 0L);
+        final ReportCommands.InvoiceSection section = invoice(List.of(person),
+                stay(person, "004", ARRIVE.plusDays(6), DEPART, "mover"),
+                stay(person, "003", ARRIVE, ARRIVE.plusDays(6), "mover")).getSections().get(0);
+        Assert.assertEquals(section.getPeople().stream().map(ReportCommands.InvoicePersonLine::getDates).toList(),
+                List.of("Sep 21 - Sep 27, 2028", "Sep 27 - Oct 3, 2028"), "in date order");
+    }
+
+    @Test
+    public void theRealTripNamesPeopleByTheirPreferredAndLastNames() {
+        final ReportCommands.InvoiceSection section =
+                reports.roomInvoice(FakeData.FAKE_TRIP_ID).getSections().get(0);
+        Assert.assertTrue(section.getPeople().stream().anyMatch(line -> line.getName().equals("Dave Robinson")),
+                section.getPeople().toString());
+        Assert.assertEquals(section.getPeopleCents(), section.getCents());
+    }
+
+    @Test
+    public void aNamelessPersonFallsBackToTheirId() {
+        final ReservationOffer roomRate = perRoom(hotel, 6_000L);
+        final ReportCommands.RoomInvoice invoice = reports.roomInvoice(
+                List.of(stay(roomRate, "114", ARRIVE, DEPART, "who")), id -> roomRate, id -> hotel, id -> " ");
+        Assert.assertEquals(invoice.getSections().get(0).getPeople().get(0).getName(), "who");
     }
 
     @Test
@@ -292,6 +405,17 @@ public class RoomInvoiceReportTest {
         Assert.assertEquals(invoice.getCents(), 116_000L);
         Assert.assertEquals(invoice.getGuests(), 1, "guests are counted once across hotels");
         Assert.assertEquals(invoice.getRooms(), 2);
+    }
+
+    @Test
+    public void hotelsReachedTheSameDayAreOrderedByName() {
+        final ReservationOffer here = perRoom(hotel, 10_000L);
+        final ReservationOffer there = perRoom(second, 8_000L);
+        final ReportCommands.RoomInvoice invoice = invoice(List.of(here, there),
+                stay(here, "114", ARRIVE, DEPART, "a"),
+                stay(there, "s1", ARRIVE, DEPART, "b"));
+        Assert.assertEquals(invoice.getSections().stream().map(ReportCommands.InvoiceSection::getAccommodation)
+                .toList(), List.of("Hotel Split", "Pansion Ana"));
     }
 
     @Test
