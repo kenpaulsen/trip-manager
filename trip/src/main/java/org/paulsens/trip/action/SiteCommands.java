@@ -75,6 +75,15 @@ public class SiteCommands {
     }
 
     /**
+     * The content section key of this site's page called {@code pageName} ({@code board}, ...): what a
+     * secondary content page ({@code WEB-INF/contentPage.xhtml}) passes to the contentSections include.
+     * Same per-request rule as {@link #getPageKey()}.
+     */
+    public String pageKey(final String pageName) {
+        return OrgPageBootstrap.pageKeyOf(getCurrent(), pageName);
+    }
+
+    /**
      * The host prefix a link to something owned by {@code orgId} needs from THIS site: empty when the
      * current site reaches the org (a plain site-relative link works), else the org's own site
      * ({@code https://{slug}.{base}}, no trailing slash) -- for the org-admin pages, which a site admin may

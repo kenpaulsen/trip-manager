@@ -93,7 +93,7 @@ public final class ContentRenderer {
             return "";
         }
         return switch (declared.getType()) {
-            case TEXT, CHOICE, MULTI_CHOICE -> escapeHtml(raw);
+            case TEXT, CHOICE, MULTI_CHOICE, PERSON -> escapeHtml(raw);
             case RICH_TEXT -> raw;
             case IMAGE_URL -> escapeHtml(requireHttpUrl(raw));
             case URL -> escapeHtml(requireLinkUrl(raw));

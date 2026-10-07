@@ -31,14 +31,20 @@ public final class Placeholder implements Serializable {
      * templates and excluded from the template editor's type menu. {@link #MULTI_CHOICE} is its pick-many
      * sibling: the editor shows a checkbox menu over the same provider, and the picks are stored in the
      * one string value comma-separated ({@code ContentInstance.getListValues()} is the list view).
+     * {@link #PERSON} picks one person through an autocomplete and stores that person's ID (never a name or
+     * email, which the person may change); like CHOICE it only means something to a programmatic type,
+     * whose fragment resolves the id at render.
      */
     public enum Type {
-        TEXT, RICH_TEXT, IMAGE_URL, VIDEO_URL, URL, CHOICE, MULTI_CHOICE
+        TEXT, RICH_TEXT, IMAGE_URL, VIDEO_URL, URL, CHOICE, MULTI_CHOICE, PERSON
     }
 
-    /** The prompt kinds only a programmatic type can declare (options come from its provider). */
+    /**
+     * The prompt kinds only a programmatic type can declare: their options (or, for PERSON, the people an
+     * editor may pick) come from code, not from anything a hand-authored template could supply.
+     */
     public static boolean isProviderBacked(final Type type) {
-        return type == Type.CHOICE || type == Type.MULTI_CHOICE;
+        return type == Type.CHOICE || type == Type.MULTI_CHOICE || type == Type.PERSON;
     }
 
     /** Token name matched in the template body: {@code {{name}}}. */

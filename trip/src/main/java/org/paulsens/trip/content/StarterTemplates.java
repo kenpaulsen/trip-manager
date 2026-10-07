@@ -21,6 +21,8 @@ public final class StarterTemplates {
     public static final String PILGRIMAGES_ID = "pilgrimages";
     public static final String PHOTO_ALBUMS_ID = "photo-albums";
     public static final String FILE_ID = "file";
+    public static final String PERSON_ID = "person";
+    public static final String PEOPLE_LIST_ID = "people-list";
 
     public static final String REGISTRATION_RECEIVED_ID = "registration-received";
     public static final String REGISTRATION_APPROVED_ID = "registration-approved";
@@ -52,7 +54,7 @@ public final class StarterTemplates {
 
     /** Ids never deleted by the cleanup script without {@code --include-starters}. */
     public static final List<String> IDS = List.of(YOUTUBE_VIDEO_ID, IMAGE_ID, TEXT_ONLY_ID,
-            CONTAINER_ID, PILGRIMAGES_ID, PHOTO_ALBUMS_ID, FILE_ID,
+            CONTAINER_ID, PILGRIMAGES_ID, PHOTO_ALBUMS_ID, FILE_ID, PERSON_ID, PEOPLE_LIST_ID,
             REGISTRATION_RECEIVED_ID, REGISTRATION_APPROVED_ID, SUPPORT_REQUEST_ID,
             PAYMENT_CONFIRMATION_ID, ORG_INVITE_ID,
             BAND_HERO_ID, BAND_SPLIT_ID, BAND_CTA_ID, BAND_TESTIMONIAL_ID, BAND_TEXT_ID,
@@ -64,7 +66,7 @@ public final class StarterTemplates {
 
     public static List<ContentTemplate> all() {
         return List.of(youtubeVideo(), image(), textOnly(), container(), pilgrimages(), photoAlbums(),
-                file(), registrationReceived(), registrationApproved(), supportRequest(),
+                file(), person(), peopleList(), registrationReceived(), registrationApproved(), supportRequest(),
                 paymentConfirmation(), orgInvite(),
                 bandHero(), bandSplit(), bandCta(), bandTestimonial(), bandText(), featureCard(), statItem(),
                 bandFeatures(), bandStats(), bandFaq(), bandLogos());
@@ -480,6 +482,30 @@ public final class StarterTemplates {
     private static ContentTemplate file() {
         return programmatic(FILE_ID, "File (from media library)",
                 "A link to one media-library document; its name and size stay in sync with the library.");
+    }
+
+    private static ContentTemplate person() {
+        return programmatic(PERSON_ID, "Person (from account)",
+                "One person's card: photo, name, role and contact details, read live from their account.");
+    }
+
+    /**
+     * A list of Person cards, one row each (the board of directors). The row layout lives in site.css
+     * ({@code .peopleList} / {@code .peopleRow}); the body only names the classes, so a template edit cannot
+     * desynchronize the four columns the person fragment emits.
+     */
+    private static ContentTemplate peopleList() {
+        final String body = """
+                <div class="peopleList">
+                {{children:start}}
+                    <div class="peopleRow">{{child}}</div>
+                {{children:end}}
+                </div>
+                """;
+        return new ContentTemplate(PEOPLE_LIST_ID, 0, "People list",
+                "An ordered list of Person cards (photo, name, role, email, phone), one per row. Add only "
+                        + "Person items to it.",
+                body, List.of(), null, null, TemplateKind.CONTAINER, List.of(PERSON_ID), null, null);
     }
 
     /** A programmatic starter is a thin row over its registered type: same id, the type's properties. */

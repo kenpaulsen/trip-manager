@@ -764,6 +764,15 @@ public final class FakeData {
     /** The v2 landing page: every section under {@link #PAGE_KEY}, containers with children, the works. */
     public static final String PAGE_KEY = "page:trip-index";
 
+    /** The shared site's board page, {@code /board/index.jsf}: the first named content page. */
+    public static final String BOARD_PAGE_KEY = "page:shared:board";
+    public static final String BOARD_HEADING_ID = "9e3e19da-d361-4a9c-85ca-00950594f501";
+    /** The People list container; its id is also the page anchor a webtest scopes the Add button by. */
+    public static final String BOARD_LIST_ID = "0a4c05a9-03c0-41f5-8970-f669daa3dfa0";
+    public static final String BOARD_PRESIDENT_ID = "fa350a42-4e4e-4a50-8b80-6a8248a82c6b";
+    public static final String BOARD_KEVIN_ID = "eea89e38-fc98-485e-9523-1ad54300ffaa";
+    public static final String BOARD_NO_ACCOUNT_ID = "64ddd55e-2478-4067-b047-d1075aa2e478";
+
     /**
      * Seeds the starter templates and a complete v2 page: STANDARD sections (title, intro, reflection),
      * two CONTAINER instances with deliberately guessable ids ({@code events}, {@code docs} -- they double
@@ -836,9 +845,44 @@ public final class FakeData {
                 StarterTemplates.FILE_ID, 1,
                 new HashMap<>(Map.of("mediaId", "fake-doc-2")),
                 null, 1, 0, null, "fake-seed"));
+        addFakeBoardPage();
         // The product's own page (www.localhost): the same rows the production bootstrap script installs,
         // pinned to the band templates' current versions, so the full-width layout renders real content.
         MarketingPageBootstrap.rows(FakeData::currentTemplateVersion).forEach(FakeData::saveContent);
+    }
+
+    /**
+     * The shared site's board page ({@code /board/index.jsf}), the first NAMED content page: a heading, then
+     * a People list holding three Person cards -- the admin as President, Kevin (whose account address is
+     * the signed-in-only line), and a name-only row with no account at all (the production page has one of
+     * those too). No persona's own fields are changed for this: other suites edit those profiles, and the
+     * account-cell rule is unit-tested on people the test owns (ContentPersonTest).
+     */
+    private static void addFakeBoardPage() {
+        final Person kevin = DAO.getInstance().getPersonByEmail(localEmail("user3"), Cached.NO);
+        saveContent(new ContentInstance(BOARD_HEADING_ID, BOARD_PAGE_KEY, "Heading",
+                StarterTemplates.TEXT_ONLY_ID, currentTemplateVersion(StarterTemplates.TEXT_ONLY_ID),
+                new HashMap<>(Map.of("body", "<h2>Board of Directors</h2><div style=\"text-align:center\">"
+                        + "To email all Directors: <a href=\"mailto:board@example.com\"><b>board@example.com"
+                        + "</b></a></div>")),
+                null, 0, 0, null, "fake-seed"));
+        saveContent(new ContentInstance(BOARD_LIST_ID, BOARD_PAGE_KEY, "",
+                StarterTemplates.PEOPLE_LIST_ID, currentTemplateVersion(StarterTemplates.PEOPLE_LIST_ID),
+                new HashMap<>(), null, 1, 0, null, "fake-seed", null, List.of(StarterTemplates.PERSON_ID)));
+        saveContent(boardMember(BOARD_PRESIDENT_ID, "admin user", 0, Map.of("personId", ADMIN_PERSON_ID,
+                "role", "President", "publicEmail", "president@example.com")));
+        saveContent(boardMember(BOARD_KEVIN_ID, "Kevin Paulsen", 1, Map.of("personId", kevin.getId().getValue(),
+                "publicEmail", "kevin@example.com")));
+        saveContent(boardMember(BOARD_NO_ACCOUNT_ID, "Pat Example", 2, Map.of("name", "Pat Example",
+                "publicEmail", "pat@example.com", "phone", "(555) 010-0099")));
+    }
+
+    /** A Person card; its title is never shown on the page, only in the editor's dialogs and Arrange list. */
+    private static ContentInstance boardMember(final String id, final String title, final int position,
+            final Map<String, String> values) {
+        return new ContentInstance(id, BOARD_LIST_ID, title, StarterTemplates.PERSON_ID,
+                currentTemplateVersion(StarterTemplates.PERSON_ID), new HashMap<>(values), null, position, 0,
+                null, "fake-seed");
     }
 
     /** The version a seeded content row pins: the template's current one (the starters were just saved). */

@@ -174,12 +174,13 @@ public class TemplateCommandsTest {
 
     @Test
     public void placeholderTypesForTheMenu() {
-        // CHOICE and MULTI_CHOICE are dialog-meaningless without a programmatic options provider, so the
-        // menu excludes both.
+        // CHOICE, MULTI_CHOICE and PERSON are dialog-meaningless without a programmatic type behind them,
+        // so the menu excludes all three.
         final List<Placeholder.Type> types = as(true).getPlaceholderTypes();
         Assert.assertFalse(types.contains(Placeholder.Type.CHOICE));
         Assert.assertFalse(types.contains(Placeholder.Type.MULTI_CHOICE));
-        Assert.assertEquals(types.size(), Placeholder.Type.values().length - 2);
+        Assert.assertFalse(types.contains(Placeholder.Type.PERSON));
+        Assert.assertEquals(types.size(), Placeholder.Type.values().length - 3);
     }
 
     @Test

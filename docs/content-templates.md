@@ -98,6 +98,61 @@ hostname**, resolved once per request into a `SiteContext` (`org.paulsens.trip.s
   `bootstrap-marketing-page.sh` has seeded it (see "Bands and the full-width layout"), or "this site is
   being set up" on an org host whose page is not seeded yet.
 
+## Named pages (2026-10)
+
+A site has more content pages than its home page. A **named page** is a lower-case slug (`board`,
+`our-team`; `OrgPageBootstrap.isPageName`) whose key is scoped to the site the same way home is
+(`OrgPageBootstrap.pageKeyOf(site, name)`, exposed as `#{site.pageKey(name)}`):
+
+| Site | `home` (unchanged keys) | any other name |
+|------|-------------------------|----------------|
+| shared host | `page:trip-index` | `page:shared:{name}` |
+| an organization's site | `page:org:{uuid}:home` | `page:org:{uuid}:{name}` |
+| marketing host | `page:unitetrip-home` | `page:unitetrip:{name}` |
+
+So every site has its OWN copy of a named page: `/board/index.jsf` on an org's subdomain is that org's
+board (empty until its editors write one), never the shared site's. `OrgPageBootstrap.orgOf` recognizes
+every `page:org:{uuid}:{name}` key and `isMarketingPageKey` every marketing one, so an org-scoped
+`contentAdmin` edits all of its org's pages and the platform org's editor all of the marketing host's,
+through the unchanged `canEdit`/`mayEdit` rules.
+
+**Adding a page** is one thin host file composing `WEB-INF/contentPage.xhtml` with three ui:params --
+`pageName`, `pageTitle` (the shared-host title; org sites show the org's name), `selfUrl` -- plus, when the
+page must start with content, a bootstrap script for production and a `FakeData` seed (see
+`medjugorje/scripts/bootstrap-board-page.sh` and `FakeData.addFakeBoardPage`). `contentPage.xhtml` is the
+home host's initPage and edit toggle without its home-only parts (banner, library uploads, photo viewer).
+Its initPage reads the `pageName` ui:param directly: a jsft `initPage` runs during Facelets tag
+application against the FaceletContext, where the composition's params are still visible. Only the LATER
+events (beforeEncode, command, ajax) lose them -- which is why the include's command scripts still read
+`viewScope.pageKey`.
+
+### People: the `person` type and the `people-list` container
+
+`PersonType` (`person`) renders one person's card (`WEB-INF/ptypes/person.xhtml`): picture, name and role,
+email, phone. The instance stores the person's **id** (a `PERSON` placeholder) plus the page's own words --
+`role`, `publicEmail`, and `name` / `phone` overrides for someone with no account. Name, cell, account email
+and photo are read live from the account by `content.personCard` (memoized per request), so a profile edit
+shows everywhere the person is listed.
+
+**Privacy (user decision 2026-10-07):** listing a person is a content editor's deliberate publication, so
+the account fields keep the reach the hand-written board page gave them -- the cell to everyone, the account
+email to signed-in viewers (only when it differs from `publicEmail`) -- EXCEPT that a field the person set
+PRIVATE is withheld here too (and a private email is not hashed into a gravatar either; the card shows
+initials). The row's typed values always show.
+
+`PERSON` is a provider-backed placeholder (like CHOICE: programmatic types only, never in the template
+editor's type menu). The dialog renders it as a `p:autoComplete` bound to the id STRING in
+`editContent.values` -- no converter (a Person would land in the string map), and `itemLabel` goes through
+`people.pickerLabelFor`, which accepts a Person (suggestion rows) or an id (the stored value: PrimeFaces
+evaluates `itemLabel` against the raw current value). **Tenancy:** the suggestions come from
+`content.completeForContent`, authorized against the dialog's `viewScope.editSection` (an organization's
+page offers only that org's members, to anyone; elsewhere only a global contentAdmin/site admin searches
+everyone), and `saveContent` re-checks every PERSON value (it must exist, and on an org page be a member per
+`org_members`), because the posted value is just a string.
+
+`people-list` is a CONTAINER starter admitting only `person` items (its Add skips the type picker); its row
+markup only names classes (`.peopleList` / `.peopleRow` / `.personCard` in `resources/css/site.css`).
+
 ## Per-organization email copy (2026-09-02)
 
 An organization customizes the email sent **on its behalf** the same way it customizes page content: by

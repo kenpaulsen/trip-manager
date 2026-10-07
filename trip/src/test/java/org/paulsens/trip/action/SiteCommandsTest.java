@@ -59,6 +59,8 @@ public class SiteCommandsTest {
     public void thePageKeyAndTitleFollowTheSite() throws Exception {
         DAO.getInstance();      // local mode: FakeData seeds the Acme org this org site names
         Assert.assertEquals(site.getPageKey(), V2PageBootstrap.PAGE_KEY, "unbound = the shared page");
+        Assert.assertEquals(site.pageKey("home"), V2PageBootstrap.PAGE_KEY);
+        Assert.assertEquals(site.pageKey("board"), "page:shared:board");
         Assert.assertEquals(site.pageTitle("Shared title"), "Shared title");
         Assert.assertNull(site.getOrgName());
 
@@ -67,6 +69,7 @@ public class SiteCommandsTest {
                 RequestContext.of(null, null, SiteContext.org(acme, "acme", "acme.unitetrip.com"))).call(() -> {
             Assert.assertEquals(site.getPageKey(), OrgPageBootstrap.pageKey(acme),
                     "an org site renders ITS page, keyed by org id (a slug rename must not lose it)");
+            Assert.assertEquals(site.pageKey("board"), "page:org:" + FakeData.ACME_ORG_ID + ":board");
             Assert.assertEquals(site.getOrgName(), "Acme Inc");
             Assert.assertEquals(site.pageTitle("Shared title"), "Acme Inc", "the org name is the title");
             return null;
@@ -80,6 +83,7 @@ public class SiteCommandsTest {
         ScopedValue.where(RequestContext.SCOPE,
                 RequestContext.of(null, null, SiteContext.marketing("unitetrip.com"))).call(() -> {
             Assert.assertEquals(site.getPageKey(), OrgPageBootstrap.MARKETING_PAGE_KEY);
+            Assert.assertEquals(site.pageKey("board"), "page:unitetrip:board");
             Assert.assertEquals(site.pageTitle("Shared title"), SiteCommands.MARKETING_TITLE);
             Assert.assertNull(site.getOrgName());
             return null;

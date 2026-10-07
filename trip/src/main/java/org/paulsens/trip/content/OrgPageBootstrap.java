@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.ToIntFunction;
+import java.util.regex.Pattern;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.site.SiteContext;
@@ -33,8 +34,17 @@ public final class OrgPageBootstrap {
      */
     public static final String MARKETING_PAGE_KEY = "page:unitetrip-home";
 
+    /** The name of a site's home page; every other named page ({@code board}, ...) is a secondary page. */
+    public static final String HOME_PAGE = "home";
+
     private static final String ORG_PAGE_PREFIX = "page:org:";
-    private static final String ORG_PAGE_SUFFIX = ":home";
+    private static final String SHARED_PAGE_PREFIX = "page:shared:";
+    private static final String MARKETING_PAGE_PREFIX = "page:unitetrip:";
+    /**
+     * A page name is a key segment, never free text: lower-case so two spellings can never name two pages,
+     * and colon-free so {@link #orgOf} can split an org key unambiguously.
+     */
+    private static final Pattern PAGE_NAME = Pattern.compile("[a-z][a-z0-9-]{0,39}");
     static final String SEED_AUTHOR = "org-site-bootstrap";
 
     private OrgPageBootstrap() {
@@ -42,7 +52,24 @@ public final class OrgPageBootstrap {
 
     /** The section key of an organization's home page: {@code page:org:{uuid}:home}. */
     public static String pageKey(final Organization.Id orgId) {
-        return ORG_PAGE_PREFIX + orgId.getValue() + ORG_PAGE_SUFFIX;
+        return pageKey(orgId, HOME_PAGE);
+    }
+
+    /** The section key of an organization's named page: {@code page:org:{uuid}:{pageName}}. */
+    public static String pageKey(final Organization.Id orgId, final String pageName) {
+        return ORG_PAGE_PREFIX + orgId.getValue() + ":" + requirePageName(pageName);
+    }
+
+    /** Whether {@code name} may name a page: a short lower-case slug ({@code board}, {@code our-team}). */
+    public static boolean isPageName(final String name) {
+        return name != null && PAGE_NAME.matcher(name).matches();
+    }
+
+    private static String requirePageName(final String name) {
+        if (!isPageName(name)) {
+            throw new IllegalArgumentException("Not a page name: " + name);
+        }
+        return name;
     }
 
     /**
@@ -51,22 +78,50 @@ public final class OrgPageBootstrap {
      * mapping {@code SiteCommands.getPageKey} and {@code ListingScope}'s curation read both use.
      */
     public static String pageKeyOf(final SiteContext site) {
+        return pageKeyOf(site, HOME_PAGE);
+    }
+
+    /**
+     * The section key of the SITE's page called {@code pageName}. The home page keeps the keys it has always
+     * had (no stored row moves); every other page is namespaced by site the same way, so an organization's
+     * {@code board} page and the shared site's are different pages an editor of one can never reach from
+     * the other: {@code page:shared:board}, {@code page:org:{uuid}:board}, {@code page:unitetrip:board}.
+     */
+    public static String pageKeyOf(final SiteContext site, final String pageName) {
+        final String name = requirePageName(pageName);
         // The marketing key first: the platform organization's site is an org site too, but its page is
         // the script-seeded marketing page, keyed independently of whichever org row holds the slug.
         if (site.isMarketing()) {
-            return MARKETING_PAGE_KEY;
+            return HOME_PAGE.equals(name) ? MARKETING_PAGE_KEY : MARKETING_PAGE_PREFIX + name;
         }
-        return site.isOrg() ? pageKey(site.orgId()) : V2PageBootstrap.PAGE_KEY;
+        if (site.isOrg()) {
+            return pageKey(site.orgId(), name);
+        }
+        return HOME_PAGE.equals(name) ? V2PageBootstrap.PAGE_KEY : SHARED_PAGE_PREFIX + name;
     }
 
-    /** The org an org-page key names, or null for any other key (shared page, marketing page, containers). */
+    /** Whether {@code pageKey} is one of the marketing host's pages: its home page or a named one. */
+    public static boolean isMarketingPageKey(final String pageKey) {
+        return MARKETING_PAGE_KEY.equals(pageKey)
+                || pageKey != null && pageKey.startsWith(MARKETING_PAGE_PREFIX)
+                        && isPageName(pageKey.substring(MARKETING_PAGE_PREFIX.length()));
+    }
+
+    /**
+     * The org an org-page key names ({@code page:org:{uuid}:{pageName}}, any page), or null for any other key
+     * (shared pages, marketing pages, containers).
+     */
     public static Organization.Id orgOf(final String pageKey) {
-        if (pageKey == null || !pageKey.startsWith(ORG_PAGE_PREFIX) || !pageKey.endsWith(ORG_PAGE_SUFFIX)) {
+        if (pageKey == null || !pageKey.startsWith(ORG_PAGE_PREFIX)) {
             return null;
         }
-        final String id = pageKey.substring(ORG_PAGE_PREFIX.length(),
-                pageKey.length() - ORG_PAGE_SUFFIX.length());
-        return id.isBlank() ? null : Organization.Id.from(id);
+        final String rest = pageKey.substring(ORG_PAGE_PREFIX.length());
+        final int colon = rest.lastIndexOf(':');
+        if (colon <= 0 || !isPageName(rest.substring(colon + 1))) {
+            return null;
+        }
+        final String id = rest.substring(0, colon);
+        return id.isBlank() || id.indexOf(':') >= 0 ? null : Organization.Id.from(id);
     }
 
     /**

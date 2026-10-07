@@ -27,8 +27,13 @@ Everything else is fixed policy, no knob:
   columns, but that is a space/clutter choice, not privacy.)
 
 "Visible" always means **any authenticated user** (the user anticipates a future profile page; names are
-discoverable through chat). Nothing here publishes anything to anonymous visitors, and the public board
-page (`board/index.xhtml`) is explicitly out of scope.
+discoverable through chat). Nothing here publishes anything to anonymous visitors.
+
+**The one exception is a content page's Person card** (`person` content type, e.g. the public board page
+`/board/index.jsf`; see `docs/content-templates.md`, "Named pages"). Listing someone there is a content
+editor's deliberate act of publication, so the card shows the account's cell to everyone and the account
+email to signed-in viewers -- unless the person set that field PRIVATE, which withholds it on the card too
+(user decision 2026-10-07; before then the board page ignored privacy settings entirely).
 
 ## Who sees what
 

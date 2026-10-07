@@ -41,6 +41,51 @@ public class OrgPageBootstrapTest {
         Assert.assertNull(OrgPageBootstrap.orgOf("events"), "a container id is not a page key");
         Assert.assertNull(OrgPageBootstrap.orgOf("page:org::home"), "an empty id is not an org");
         Assert.assertNull(OrgPageBootstrap.orgOf("page:org:" + ORG.getValue()), "the suffix is part of the key");
+        Assert.assertNull(OrgPageBootstrap.orgOf("page:org:" + ORG.getValue() + ":"), "a blank page name");
+        Assert.assertNull(OrgPageBootstrap.orgOf("page:org:" + ORG.getValue() + ":Board"), "names are lower-case");
+        Assert.assertNull(OrgPageBootstrap.orgOf("page:org:a:b:board"), "an id never contains a colon");
+        Assert.assertNull(OrgPageBootstrap.orgOf("page:shared:board"), "a shared page has no org");
+    }
+
+    @Test
+    public void namedPagesAreKeyedPerSiteAndTheHomeKeysNeverMove() {
+        final SiteContext shared = SiteContext.shared("visitqueenofpeace.com");
+        final SiteContext org = SiteContext.org(ORG, "acme", "acme.unitetrip.com");
+        final SiteContext marketing = SiteContext.marketing("unitetrip.com");
+
+        Assert.assertEquals(OrgPageBootstrap.pageKeyOf(shared, "home"), V2PageBootstrap.PAGE_KEY);
+        Assert.assertEquals(OrgPageBootstrap.pageKeyOf(org, "home"), OrgPageBootstrap.pageKey(ORG));
+        Assert.assertEquals(OrgPageBootstrap.pageKeyOf(marketing, "home"), OrgPageBootstrap.MARKETING_PAGE_KEY);
+
+        Assert.assertEquals(OrgPageBootstrap.pageKeyOf(shared, "board"), "page:shared:board");
+        Assert.assertEquals(OrgPageBootstrap.pageKeyOf(org, "board"), "page:org:" + ORG.getValue() + ":board");
+        Assert.assertEquals(OrgPageBootstrap.pageKeyOf(marketing, "board"), "page:unitetrip:board");
+        Assert.assertEquals(OrgPageBootstrap.orgOf(OrgPageBootstrap.pageKeyOf(org, "our-team")), ORG,
+                "an org's every page names its org, so its contentAdmin can edit it");
+    }
+
+    @Test
+    public void marketingPageKeysAreTheHomeKeyAndItsNamedPages() {
+        Assert.assertTrue(OrgPageBootstrap.isMarketingPageKey(OrgPageBootstrap.MARKETING_PAGE_KEY));
+        Assert.assertTrue(OrgPageBootstrap.isMarketingPageKey("page:unitetrip:board"));
+        Assert.assertFalse(OrgPageBootstrap.isMarketingPageKey("page:unitetrip:"));
+        Assert.assertFalse(OrgPageBootstrap.isMarketingPageKey("page:shared:board"));
+        Assert.assertFalse(OrgPageBootstrap.isMarketingPageKey(null));
+    }
+
+    @Test
+    public void pageNamesAreShortLowerCaseSlugs() {
+        Assert.assertTrue(OrgPageBootstrap.isPageName("board"));
+        Assert.assertTrue(OrgPageBootstrap.isPageName("our-team2"));
+        Assert.assertFalse(OrgPageBootstrap.isPageName(null));
+        Assert.assertFalse(OrgPageBootstrap.isPageName(""));
+        Assert.assertFalse(OrgPageBootstrap.isPageName("Board"));
+        Assert.assertFalse(OrgPageBootstrap.isPageName("a:b"));
+        Assert.assertFalse(OrgPageBootstrap.isPageName("2board"));
+        Assert.assertFalse(OrgPageBootstrap.isPageName("x".repeat(41)));
+        Assert.expectThrows(IllegalArgumentException.class,
+                () -> OrgPageBootstrap.pageKeyOf(SiteContext.shared("h"), "../x"));
+        Assert.expectThrows(IllegalArgumentException.class, () -> OrgPageBootstrap.pageKey(ORG, null));
     }
 
     @Test

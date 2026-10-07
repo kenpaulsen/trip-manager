@@ -61,6 +61,7 @@ public class OrgSiteEditorAuthzTest {
         final ContentCommands editor = contentAs(PLATFORM_EDITOR);
         Assert.assertTrue(editor.canEdit(OrgPageBootstrap.MARKETING_PAGE_KEY, PLATFORM_EDITOR));
         Assert.assertTrue(editor.canEditPage(OrgPageBootstrap.MARKETING_PAGE_KEY, PLATFORM_EDITOR));
+        Assert.assertTrue(editor.canEdit("page:unitetrip:board", PLATFORM_EDITOR), "and its named pages");
         Assert.assertFalse(editor.canEdit(FakeData.PAGE_KEY, PLATFORM_EDITOR), "never the shared page");
         Assert.assertFalse(editor.canEdit(OrgPageBootstrap.pageKey(ACME), PLATFORM_EDITOR), "never a tenant's");
         Assert.assertFalse(contentAs(EDITOR).canEdit(OrgPageBootstrap.MARKETING_PAGE_KEY, EDITOR));
@@ -104,6 +105,11 @@ public class OrgSiteEditorAuthzTest {
         Assert.assertFalse(editor.canEdit(OrgPageBootstrap.MARKETING_PAGE_KEY, EDITOR), "never the marketing page");
         Assert.assertFalse(editor.canEdit(OrgPageBootstrap.pageKey(BETA), EDITOR), "never another tenant's page");
         Assert.assertFalse(editor.canEdit("events", EDITOR), "a shared-page container is the shared page's");
+        Assert.assertTrue(editor.canEdit(OrgPageBootstrap.pageKey(ACME, "board"), EDITOR),
+                "every named page of the org, not only its home page");
+        Assert.assertFalse(editor.canEdit("page:shared:board", EDITOR), "never a shared named page");
+        Assert.assertFalse(editor.canEdit(OrgPageBootstrap.pageKey(BETA, "board"), EDITOR),
+                "never another tenant's named page");
 
         Assert.assertTrue(editor.saveContent(section(acmePage)), "saves into the org's own page");
         Assert.assertFalse(editor.saveContent(section(FakeData.PAGE_KEY)), "refused on the shared page");

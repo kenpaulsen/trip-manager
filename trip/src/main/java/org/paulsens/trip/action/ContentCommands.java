@@ -1,14 +1,17 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -20,6 +23,7 @@ import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.content.HtmlFragmentValidator;
 import org.paulsens.trip.content.OrgPageBootstrap;
+import org.paulsens.trip.content.PersonType;
 import org.paulsens.trip.content.ProgrammaticContentTemplate;
 import org.paulsens.trip.content.ProgrammaticTypes;
 import org.paulsens.trip.content.RichTextRules;
@@ -38,6 +42,7 @@ import org.paulsens.trip.model.TemplateKind;
 import org.paulsens.trip.model.TemplateRecord;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.site.SiteContext;
+import org.paulsens.trip.util.ScopeUtil;
 
 /**
  * Template-driven page content, exposed to pages as {@code #{content}}.
@@ -60,6 +65,8 @@ public class ContentCommands {
 
     private final PrivilegeCommands priv = new PrivilegeCommands();
     private final ConfigCommands config = new ConfigCommands();
+    /** The most people one keystroke of the content dialog's person picker offers. */
+    static final int PERSON_PICKER_LIMIT = 25;
     /** Test seam (like {@code ChatCommands}' limiter): the caller behind the current request. */
     @Setter
     private Supplier<Caller> callerSource = Caller::current;
@@ -235,6 +242,10 @@ public class ContentCommands {
         if (htmlProblem != null) {
             return htmlProblem;
         }
+        final String personProblem = validatePersonValues(instance);
+        if (personProblem != null) {
+            return personProblem;
+        }
         final ContentInstance parent;
         try {
             parent = DAO.getInstance().getContent(instance.getSection(), Cached.NO).orElse(null);
@@ -267,6 +278,144 @@ public class ContentCommands {
             }
         }
         return null;
+    }
+
+    /**
+     * Every PERSON value must name a real person, and on an organization's page a MEMBER of that
+     * organization: the picker only offers members (see {@code PersonCommands.completeForContent}), but the
+     * value arrives as a plain posted string, so the tenancy boundary is enforced here where nothing can
+     * forge around it. Blank is allowed; a required PERSON prompt is the type's concern, not this check's.
+     */
+    private String validatePersonValues(final ContentInstance instance) {
+        final ContentTemplate template = resolveTemplate(instance);
+        if (template == null) {
+            return null;
+        }
+        for (final Placeholder ph : ProgrammaticTypes.placeholdersOf(template)) {
+            final String value = ph.getType() == Placeholder.Type.PERSON
+                    ? instance.getValues().get(ph.getName()) : null;
+            if (value != null && !value.isBlank()) {
+                final String problem = validatePerson(instance.getSection(), value.trim());
+                if (problem != null) {
+                    return ph.getLabel() + ": " + problem;
+                }
+            }
+        }
+        return null;
+    }
+
+    private String validatePerson(final String section, final String personId) {
+        final Person person;
+        try {
+            person = DAO.getInstance().getPerson(Person.Id.from(personId), Cached.NO).orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to resolve the person picked for content: " + personId, ex);
+            return "the person could not be checked; try again.";
+        }
+        if (person == null) {
+            return "no such person; pick one from the list.";
+        }
+        final Organization.Id org = orgOf(section, containerOf(section));
+        if (org != null && !isMember(org, person.getId())) {
+            return "pick a member of this organization.";
+        }
+        return null;
+    }
+
+    /** Membership from org_members, the source of truth (Person.orgIds is only its derived edge). */
+    private static boolean isMember(final Organization.Id org, final Person.Id personId) {
+        return DAO.getInstance().getOrgMembers(org, Cached.NO).stream()
+                .anyMatch(member -> personId.equals(member.getPersonId()));
+    }
+
+    /**
+     * The people a PERSON prompt may offer, for the content dialog's autocomplete. Authorization lives HERE,
+     * on the data source, because the completion endpoint is POSTable without ever opening the dialog: the
+     * section being edited (the dialog's {@code viewScope.editSection}) must be one the caller may edit, and
+     * an organization's page offers only that organization's members, whoever is asking -- the tenancy
+     * boundary {@link #validatePersonValues} enforces again on save. Anywhere else (the shared and marketing
+     * pages) only a site admin or global contentAdmin may search everyone.
+     */
+    public List<Person> completeForContent(final String query) {
+        final Object section = ScopeUtil.getInstance().getViewMap("editSection");
+        return completeForContent(section == null ? null : section.toString(), query);
+    }
+
+    /** {@link #completeForContent(String)} for an explicit section (the testable half). */
+    List<Person> completeForContent(final String section, final String query) {
+        final Caller caller = callerSource.get();
+        if (section == null || section.isBlank() || !mayEdit(caller, section)) {
+            return List.of();
+        }
+        final Organization.Id org = orgOf(section, containerOf(section));
+        if (org != null) {
+            final String needle = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+            return DAO.getInstance().getOrgMembers(org, Cached.YES).stream()
+                    .map(member -> DAO.getInstance().getPerson(member.getPersonId(), Cached.YES))
+                    .flatMap(Optional::stream)
+                    .filter(person -> matchesPicker(person, needle))
+                    .sorted(Comparator.comparing(ContentCommands::pickerSortKey))
+                    .limit(PERSON_PICKER_LIMIT)
+                    .toList();
+        }
+        if (!caller.has(PrivilegeCommands.CONTENT_ADMIN)) {
+            return List.of();
+        }
+        try {
+            return DAO.getInstance().searchPeople(query, PERSON_PICKER_LIMIT, Cached.NO);
+        } catch (final RuntimeException ex) {
+            log.error("Failed to search people for '{}'", query, ex);
+            return List.of();
+        }
+    }
+
+    private static boolean matchesPicker(final Person person, final String lowerNeedle) {
+        if (lowerNeedle.isEmpty()) {
+            return true;
+        }
+        final String haystack = (person.getPreferredName() + " " + person.getFirst() + " "
+                + person.getLast() + " " + person.getEmail()).toLowerCase(Locale.ROOT);
+        return haystack.contains(lowerNeedle);
+    }
+
+    private static String pickerSortKey(final Person person) {
+        return (person.getLast() + " " + person.getPreferredName()).toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * What a {@code person} section shows ({@code ptypes/person.xhtml}): the instance's own words plus the
+     * named account's live, privacy-filtered fields (see {@link PersonType}). Memoized per request, because
+     * the fragment reads a dozen properties of one card through a lazily-evaluated ui:param.
+     */
+    public PersonType.Card personCard(final ContentInstance instance, final boolean signedIn) {
+        if (instance == null) {
+            return PersonType.card(Map.of(), null, signedIn);
+        }
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        final Map<String, Object> requestMap = ctx == null ? null : ctx.getExternalContext().getRequestMap();
+        final String key = "personCard:" + instance.getId() + ":" + instance.getVersion() + ":" + signedIn;
+        if (requestMap != null && requestMap.get(key) instanceof PersonType.Card memo) {
+            return memo;
+        }
+        final PersonType.Card card = PersonType.card(instance.getValues(), cardPerson(instance), signedIn);
+        if (requestMap != null) {
+            requestMap.put(key, card);
+        }
+        return card;
+    }
+
+    /** The account a card names, or null for none (blank id, or one that no longer exists). */
+    private static Person cardPerson(final ContentInstance instance) {
+        final String id = instance.getValues().get(PersonType.PROP_PERSON_ID);
+        if (id == null || id.isBlank()) {
+            return null;
+        }
+        try {
+            return DAO.getInstance().getPerson(Person.Id.from(id.trim()), Cached.YES).orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to read the person a content card names: " + id, ex);
+            return null;
+        }
     }
 
     /** The container rules: kind, allow-list, and head count, read from the container's CURRENT template. */
@@ -557,9 +706,9 @@ public class ContentCommands {
         return container == null ? null : orgOfKey(container.getSection());
     }
 
-    /** An org page key's org; the marketing page's is the platform organization (when one exists). */
+    /** An org page key's org; the marketing pages' is the platform organization (when one exists). */
     private static Organization.Id orgOfKey(final String pageKey) {
-        if (OrgPageBootstrap.MARKETING_PAGE_KEY.equals(pageKey)) {
+        if (OrgPageBootstrap.isMarketingPageKey(pageKey)) {
             return OrgCommands.platformOrgId();
         }
         return OrgPageBootstrap.orgOf(pageKey);

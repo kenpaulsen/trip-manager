@@ -288,6 +288,29 @@ public class PersonCommands {
         return EmailAddresses.isValid(person.getEmail()) ? name + " (" + person.getEmail() + ")" : name;
     }
 
+    /**
+     * {@link #pickerLabel} for an autocomplete whose VALUE is a person's id string rather than a Person (the
+     * content dialog's PERSON prompt stores ids in a string map): PrimeFaces evaluates {@code itemLabel} with
+     * {@code var} bound to the raw current value, so the label must accept either shape -- a Person for the
+     * suggestion rows, the stored id for the box. An id that names nobody shows as itself, so a dangling
+     * reference stays visible to the editor instead of reading as "nothing picked".
+     */
+    public String pickerLabelFor(final Object personOrId) {
+        if (personOrId instanceof Person person) {
+            return pickerLabel(person);
+        }
+        if (!(personOrId instanceof String id) || id.isBlank()) {
+            return "";
+        }
+        try {
+            return DAO.getInstance().getPerson(Person.Id.from(id.trim()), Cached.YES)
+                    .map(this::pickerLabel).orElse(id);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to label person '{}'", id, ex);
+            return id;
+        }
+    }
+
     /** Prefix search over name/nickname/email/cell; default result cap. */
     public List<Person> searchPeople(final String query) {
         return searchPeople(query, 25);
