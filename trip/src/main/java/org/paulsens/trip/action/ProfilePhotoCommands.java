@@ -176,20 +176,44 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
         return PhotoResult.ok(slot);
     }
 
+    /** The word the delete dialog asks for; see {@link #isDeleteConfirmed}. */
+    static final String DELETE_CHALLENGE = "delete";
+
     /**
-     * Deletes one slot's picture (the typed-"delete" dialog's action; the typed challenge is the PAGE's
-     * server-side check -- by the time this runs the challenge already passed).
+     * The typed-"delete" dialog's action. The challenge is checked HERE, server-side, so a re-enabled button
+     * cannot bypass it. The outcome goes to the dialog as the {@code photoDeleted} callback param: only a
+     * delete closes it, and a refusal stays open with its reason showing IN the dialog (a growl renders
+     * under a modal dialog's overlay, where nobody can see it).
+     *
+     * @return true when the picture was deleted.
      */
-    public boolean deleteSlot(final Person subject, final int slot) {
-        final PhotoResult result = deleteSlotFor(caller(), subject, slot);
-        if (!result.isOk()) {
-            if (result.message() != null) {
-                error(result.message());
-            }
+    public boolean deleteSlot(final Person subject, final int slot, final String challenge) {
+        final boolean deleted = deleteConfirmed(subject, slot, challenge);
+        publishParam("photoDeleted", deleted);
+        return deleted;
+    }
+
+    private boolean deleteConfirmed(final Person subject, final int slot, final String challenge) {
+        if (!isDeleteConfirmed(challenge)) {
+            error("Not deleted: type 'delete' in the box to confirm.");
             return false;
         }
-        info("Profile picture deleted: slot " + slot + " removed.");
+        final PhotoResult result = deleteSlotFor(caller(), subject, slot);
+        if (!result.isOk()) {
+            error(result.message());
+            return false;
+        }
+        info("Profile picture deleted: picture " + slot + " removed.");
         return true;
+    }
+
+    /**
+     * Case and surrounding space do not matter, as on the trip-delete dialog: a phone's keyboard capitalizes
+     * the first letter of a text box, so an exact match refused "Delete" (and the refusal was never shown,
+     * so the dialog just closed and nothing happened -- reported from production 2026-09-26).
+     */
+    static boolean isDeleteConfirmed(final String challenge) {
+        return challenge != null && DELETE_CHALLENGE.equalsIgnoreCase(challenge.trim());
     }
 
     /** {@link #deleteSlot} with the caller explicit and the outcome returned rather than growled. */
@@ -199,8 +223,9 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
                     "Not allowed: you may not change this profile picture.");
         }
         if (!profilePhotos.deleteSlot(subject.getId().getValue(), slot)) {
-            // The page's delete dialog only offers occupied slots, so it has never needed a message here.
-            return PhotoResult.refused(PhotoResult.EMPTY_SLOT, null);
+            // The dialog offers only occupied slots, but a page can be stale (another tab, a family manager).
+            return PhotoResult.refused(PhotoResult.EMPTY_SLOT,
+                    "Not deleted: that picture was already removed. Reload the page to see your pictures.");
         }
         audit(who, "Profile picture deleted", subject, slot);
         return PhotoResult.ok(slot);

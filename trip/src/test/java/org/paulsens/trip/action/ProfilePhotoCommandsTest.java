@@ -286,12 +286,38 @@ public class ProfilePhotoCommandsTest {
     @Test
     public void deleteSlotDelegatesAndReportsHonestly() {
         Mockito.when(profilePhotos.deleteSlot(subject.getId().getValue(), 2)).thenReturn(true);
-        Assert.assertTrue(bean.deleteSlot(subject, 2));
-        Assert.assertFalse(bean.deleteSlot(subject, 3), "An empty slot deletes nothing");
+        Assert.assertTrue(bean.deleteSlot(subject, 2, "delete"));
+        Assert.assertFalse(bean.deleteSlot(subject, 3, "delete"), "An empty slot deletes nothing");
 
         caller = callerFor(Person.Id.newInstance(), false);
-        Assert.assertFalse(bean.deleteSlot(subject, 2), "A stranger may not delete");
+        Assert.assertFalse(bean.deleteSlot(subject, 2, "delete"), "A stranger may not delete");
         Mockito.verify(profilePhotos, Mockito.times(1)).deleteSlot(subject.getId().getValue(), 2);
+    }
+
+    /** A phone capitalizes the first letter it types: "Delete" is a confirmation, not a refusal. */
+    @Test
+    public void deleteSlotAcceptsTheChallengeInAnyCaseAndSpacing() {
+        Mockito.when(profilePhotos.deleteSlot(subject.getId().getValue(), 1)).thenReturn(true);
+        for (final String typed : new String[] {"delete", "Delete", "DELETE", " delete ", "Delete\n"}) {
+            Assert.assertTrue(bean.deleteSlot(subject, 1, typed), "'" + typed + "' should confirm");
+        }
+        Mockito.verify(profilePhotos, Mockito.times(5)).deleteSlot(subject.getId().getValue(), 1);
+    }
+
+    @Test
+    public void deleteSlotRefusesAnythingButTheWordWithoutTouchingTheStore() {
+        for (final String typed : new String[] {null, "", "  ", "nope", "deleted", "del ete"}) {
+            Assert.assertFalse(bean.deleteSlot(subject, 1, typed), "'" + typed + "' must not confirm");
+        }
+        Mockito.verify(profilePhotos, Mockito.never()).deleteSlot(ArgumentMatchers.anyString(),
+                ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    public void anEmptySlotExplainsItselfNow() {
+        final ProfilePhotoCommands.PhotoResult result = bean.deleteSlotFor(caller, subject, 3);
+        Assert.assertEquals(result.code(), ProfilePhotoCommands.PhotoResult.EMPTY_SLOT);
+        Assert.assertNotNull(result.message(), "The dialog shows this message; null would be a silent no-op");
     }
 
     @Test
