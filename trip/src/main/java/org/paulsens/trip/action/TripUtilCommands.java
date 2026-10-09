@@ -204,11 +204,9 @@ public class TripUtilCommands {
         if (ctx == null || !(ctx.getExternalContext().getRequest() instanceof HttpServletRequest req)) {
             return null;
         }
+        // The sign-in pages are already dropped by the normalizer; only "this very page" is left to refuse.
         final String referer = normalizeReturnPath(req.getHeader("Referer"));
-        if (referer == null
-                || referer.startsWith("/account/login")
-                || referer.startsWith("/account/createAccount")
-                || referer.startsWith(req.getRequestURI())) {
+        if (referer == null || referer.startsWith(req.getRequestURI())) {
             return null;
         }
         return referer;
@@ -221,9 +219,18 @@ public class TripUtilCommands {
     }
 
     /**
-     * Same-site path+query from a stash or form value, or null when it cannot be trusted. Absolute URLs (the
-     * legacy stash format every gated page writes) are reduced to their path; everything else must already be
-     * an absolute path.
+     * The sign-in pages themselves, which can never be a sensible place to land AFTER signing in. The topbar's
+     * Login link names whatever page it is on as the return target, and on Create Account that sent a visitor
+     * who had typed the wrong address first, then signed in correctly, straight back to a "not yet registered"
+     * form for the account they had just signed in to (2026-10-09).
+     */
+    private static final List<String> SIGN_IN_PAGES = List.of(
+            "/account/login", "/account/createAccount", "/account/resetPass");
+
+    /**
+     * Same-site path+query from a stash or form value, or null when it cannot be trusted or would land on a
+     * sign-in page. Absolute URLs (the legacy stash format every gated page writes) are reduced to their path;
+     * everything else must already be an absolute path.
      */
     static String normalizeReturnPath(final String raw) {
         if (raw == null || raw.isBlank()) {
@@ -238,7 +245,11 @@ public class TripUtilCommands {
         if (!path.startsWith("/") || path.startsWith("//") || path.contains("\\")) {
             return null;
         }
-        return path;
+        return isSignInPage(path) ? null : path;
+    }
+
+    private static boolean isSignInPage(final String path) {
+        return SIGN_IN_PAGES.stream().anyMatch(path::startsWith);
     }
 
     public SortMeta sortBy(final String sortBy) {

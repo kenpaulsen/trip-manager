@@ -49,6 +49,16 @@ public class TripUtilCommandsTest {
         assertNull(TripUtilCommands.normalizeReturnPath("ftp://x/y"), "Foreign schemes are refused");
         assertNull(TripUtilCommands.normalizeReturnPath("relative/path"),
                 "Only absolute paths can be trusted to stay on this site");
+        // 2026-10-09: the topbar Login link on Create Account named that page as the return target, so a
+        // successful login landed a registered user on a "not yet registered" form for their own account.
+        for (final String signIn : new String[] {"/account/createAccount.jsf", "/account/login.jsf?email=x",
+                "/account/login-pass.jsf", "/account/login-code.jsf", "/account/loginHelp.jsf",
+                "/account/resetPass.jsf?email=x", "https://visitqueenofpeace.com/account/createAccount.jsf"}) {
+            assertNull(TripUtilCommands.normalizeReturnPath(signIn),
+                    "A sign-in page is never a post-login landing: " + signIn);
+        }
+        assertEquals(TripUtilCommands.normalizeReturnPath("/account/person.jsf"), "/account/person.jsf",
+                "The other account pages (profile, family) remain valid deep links");
         // No FacesContext in unit tests: the accessors must no-op rather than crash.
         assertNull(tripUtil.getReturnPath());
         tripUtil.setReturnPath("/somewhere");
