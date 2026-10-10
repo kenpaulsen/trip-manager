@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Family;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.EmailAddresses;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
@@ -361,9 +362,26 @@ public class FamilyCommands {
             return notSaved;
         }
         syncMemberAdded(family, member, manager);
+        tenantIntoAnchorsOrgs(anchor, member);
         audit.family(member, AuditCommands.describe(me) + " added " + AuditCommands.describe(member)
                 + " to their family" + (manager ? " as a family manager." : "."));
         return FamilyResult.ok(member, family);
+    }
+
+    /**
+     * A brand-new member joins every organization the anchor belongs to. A person in no org is invisible to
+     * org-scoped reads and {@code TripsResource.applyPeople} silently drops them from a roster, which is how a
+     * family-created child could never be seated on a trip (found 2026-10-10). The anchor is re-read: the
+     * object in hand may predate an org join made earlier in this request. A refused or failed write is
+     * logged, not fatal: the member exists and is linked, and the org-people page can still add them.
+     */
+    private void tenantIntoAnchorsOrgs(final Person anchor, final Person member) {
+        final Person fresh = DAO.getInstance().getPerson(anchor.getId(), Cached.NO).orElse(anchor);
+        for (final Organization.Id orgId : fresh.getOrgIds()) {
+            if (!orgSource.get().addCreatedFamilyMember(orgId.getValue(), member.getId(), fresh)) {
+                log.warn("Family member {} was not added to organization {}", member.getId(), orgId.getValue());
+            }
+        }
     }
 
     /**

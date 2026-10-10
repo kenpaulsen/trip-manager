@@ -1412,6 +1412,25 @@ public class OrgCommandsTest {
         return dao.getOrganization(org.getId(), Cached.NO).orElseThrow();
     }
 
+    /** The family path's membership write: only into orgs the anchor is in, idempotent, nothing for junk. */
+    @org.testng.annotations.Test
+    public void aCreatedFamilyMemberJoinsOnlyWhereTheAnchorBelongs() throws IOException {
+        final org.paulsens.trip.model.Organization org = admin().createOrganization("Fam " + unique(), null, null);
+        final String orgId = org.getId().getValue();
+        final Person anchor = savedPerson();
+        final Person child = savedPerson();
+        final OrgCommands asAnchor = commandsFor(anchor);
+        assertFalse(asAnchor.addCreatedFamilyMember(orgId, child.getId(), anchor), "the anchor is not in the org");
+        assertTrue(admin().addMember(orgId, anchor.getId()));
+        assertTrue(asAnchor.addCreatedFamilyMember(orgId, child.getId(), anchor),
+                "a plain member tenants their new child");
+        assertTrue(asAnchor.isMember(orgId, child.getId()));
+        assertTrue(asAnchor.addCreatedFamilyMember(orgId, child.getId(), anchor), "idempotent");
+        assertFalse(asAnchor.addCreatedFamilyMember("no-such-org", child.getId(), anchor));
+        assertFalse(asAnchor.addCreatedFamilyMember(orgId, null, anchor));
+        assertFalse(asAnchor.addCreatedFamilyMember(orgId, child.getId(), null));
+    }
+
     private Person savedPerson() throws IOException {
         final Person person = Person.builder()
                 .first(RandomData.genAlpha(6)).last(RandomData.genAlpha(8))

@@ -41,6 +41,11 @@ sync computed from the IN-MEMORY objects just saved (a re-read can be stale in p
 Guard rails:
 - `family.maxMembers` (KnownSettings, default 10) caps size; at the limit the family page offers a
   support request instead.
+- **A created member joins every organization the anchor belongs to** (`OrgCommands.addCreatedFamilyMember`,
+  2026-10-10): a person in no org is invisible to org-scoped reads and `TripsResource.applyPeople`
+  silently drops them from a roster, which is how a family-created child could never be seated on a trip.
+  The gate is "the anchor is a member of that org"; nobody's existing access moves. Linking an EXISTING
+  person (`adminLink`) never changes their orgs.
 - **A manager must have their own VALID email** (`EmailAddresses.isValid`, not merely non-blank) —
   managers sign in themselves, and `foo` in an email field is a filled-in field with no mailbox behind
   it. Enforced at all three grant sites (`createFamilyMember`, `setManager`, `adminLink`) with a faces

@@ -322,6 +322,24 @@ public class OrgCommands {
     }
 
     /**
+     * Membership write for a person a family manager just CREATED ({@code FamilyCommands.createFamilyMember}):
+     * the new member joins every organization the family's anchor already belongs to. No admin role is
+     * involved and nobody's existing access moves -- a brand-new person is tenanted where their family lives,
+     * which is what rosters, pickers and the family switcher need: a person in NO org is invisible to every
+     * org-scoped read, and {@code TripsResource.applyPeople} silently drops them from a roster (found
+     * 2026-10-10). Gate: the anchor is a member of the org; the family-level check already happened upstream.
+     */
+    public boolean addCreatedFamilyMember(final String orgId, final Person.Id memberId, final Person anchor) {
+        if (findOrganization(orgId) == null || memberId == null || anchor == null) {
+            return fail("Unable to add", "Unknown organization or person.");
+        }
+        if (!isMember(orgId, anchor.getId())) {
+            return fail("Not allowed", "A family member joins only the organizations their family belongs to.");
+        }
+        return writeMembership(orgId, memberId, "family member of " + describe(anchor));
+    }
+
+    /**
      * The org-people page's add-by-email path: an exact-address lookup, so an org admin can add a person
      * they already know without a directory typeahead (the name autocomplete is site-admin-only -- search
      * across every account leaked other tenants' people to org admins). Returns {@code null} when the

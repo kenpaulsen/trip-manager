@@ -651,6 +651,41 @@ public class FamilyCommandsTest {
                 "and unlinks within the org too");
     }
 
+    /** A created member joins the anchor's organizations, so org-scoped reads and rosters can see them. */
+    @org.testng.annotations.Test
+    public void aCreatedMemberJoinsTheAnchorsOrganizations() throws IOException {
+        final Person owner = savedOwner();
+        final OrgCommands siteAdmin = new OrgCommands(() -> new Caller(Person.Id.from("admin"), true,
+                new AuditActor("admin@test", "admin"), new PrivilegeCommands()));
+        final org.paulsens.trip.model.Organization first =
+                siteAdmin.createOrganization("FamTenant " + unique(), null, null);
+        final org.paulsens.trip.model.Organization second =
+                siteAdmin.createOrganization("FamTenant2 " + unique(), null, null);
+        org.testng.Assert.assertTrue(siteAdmin.addMember(first.getId().getValue(), owner.getId()));
+        org.testng.Assert.assertTrue(siteAdmin.addMember(second.getId().getValue(), owner.getId()));
+
+        final Person member = commandsFor(owner).createFamilyMember(
+                "Tenanted", "Child", LocalDate.of(2016, 1, 1), Person.Sex.Male, null, false);
+        assertNotNull(member, "Create should succeed");
+        org.testng.Assert.assertTrue(siteAdmin.isMember(first.getId().getValue(), member.getId()),
+                "membership row in the anchor's first org");
+        org.testng.Assert.assertTrue(siteAdmin.isMember(second.getId().getValue(), member.getId()),
+                "...and in every other org the anchor belongs to");
+        final java.util.List<org.paulsens.trip.model.Organization.Id> orgIds = reload(member).getOrgIds();
+        org.testng.Assert.assertTrue(orgIds.contains(first.getId()) && orgIds.contains(second.getId()),
+                "the derived Person.orgIds carries both, so authorization needs no table query");
+    }
+
+    /** No org on the anchor means nothing to join: creation still succeeds, the member simply has no org yet. */
+    @org.testng.annotations.Test
+    public void aMemberCreatedForAnOrglessAnchorJoinsNoOrganization() throws IOException {
+        final Person owner = savedOwner();
+        final Person member = commandsFor(owner).createFamilyMember(
+                "Orgless", "Child", LocalDate.of(2016, 1, 1), Person.Sex.Female, null, false);
+        assertNotNull(member);
+        org.testng.Assert.assertTrue(reload(member).getOrgIds().isEmpty());
+    }
+
     private FamilyCommands commandsFor(final Person person) {
         return new FamilyCommands(new ConfigCommands(), new AuditCommands(), callerOf(person, false));
     }
