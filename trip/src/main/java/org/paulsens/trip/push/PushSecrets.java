@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.interfaces.ECPrivateKey;
+import java.security.interfaces.RSAPrivateKey;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -20,9 +21,11 @@ import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
 import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest;
 
 /**
- * The push credentials: ONE Secrets Manager secret ({@code trip/push}) holding the APNs signing key and the
- * VAPID key pair, shaped
- * {@code {"apns":{"keyId","teamId","key":"<PEM>"},"vapid":{"publicKey","privateKey","subject"}}}.
+ * The push credentials: ONE Secrets Manager secret ({@code trip/push}) holding the APNs signing key, the
+ * VAPID key pair and the Firebase service account, shaped
+ * {@code {"apns":{"keyId","teamId","key":"<PEM>"},"vapid":{"publicKey","privateKey","subject"},
+ * "fcm":{"project_id","client_email","private_key":"<PEM>","token_uri"}}} (the {@code fcm} half is the
+ * service-account JSON Firebase issues, stored verbatim).
  *
  * <p>Resolution follows {@code ProcessorSecrets}: sysprop {@value #SECRET_PROP} / env {@value #SECRET_ENV}
  * names the secret; local mode uses none (no AWS from tests or laptops, ever) unless the sysprop-only dev
@@ -48,9 +51,13 @@ public final class PushSecrets {
     public record VapidKey(String publicKey, String privateKey, String subject, ECPrivateKey key) {
     }
 
-    /** What the secret held; either half may be absent (an APNs-only or a web-only deployment). */
-    record Loaded(ApnsKey apns, VapidKey vapid) {
-        static final Loaded NONE = new Loaded(null, null);
+    /** The Firebase service account: the project FCM sends for, the signing account, and the token endpoint. */
+    public record FcmKey(String projectId, String clientEmail, String tokenUri, RSAPrivateKey key) {
+    }
+
+    /** What the secret held; any part may be absent (an APNs-only, web-only or Android-only deployment). */
+    record Loaded(ApnsKey apns, VapidKey vapid, FcmKey fcm) {
+        static final Loaded NONE = new Loaded(null, null, null);
     }
 
     private final Store store;
@@ -93,7 +100,7 @@ public final class PushSecrets {
         this.store = store;
         this.ephemeral = ephemeral;
         if (ephemeral != null) {
-            loaded = new Loaded(null, ephemeral);
+            loaded = new Loaded(null, ephemeral, null);
         }
     }
 
@@ -124,9 +131,14 @@ public final class PushSecrets {
         return Optional.ofNullable(loaded.vapid());
     }
 
-    /** Whether either transport has a key. */
+    public Optional<FcmKey> fcm() {
+        refreshIfStale();
+        return Optional.ofNullable(loaded.fcm());
+    }
+
+    /** Whether any transport has a key. */
     public boolean isConfigured() {
-        return apns().isPresent() || vapid().isPresent();
+        return apns().isPresent() || vapid().isPresent() || fcm().isPresent();
     }
 
     private void refreshIfStale() {
@@ -161,7 +173,26 @@ public final class PushSecrets {
         } catch (final IOException ex) {
             throw new IllegalStateException("Push secret is not JSON", ex);
         }
-        return new Loaded(apnsOf(root.path("apns")), vapidOf(root.path("vapid")));
+        return new Loaded(apnsOf(root.path("apns")), vapidOf(root.path("vapid")), fcmOf(root.path("fcm")));
+    }
+
+    static final String DEFAULT_TOKEN_URI = "https://oauth2.googleapis.com/token";
+
+    private static FcmKey fcmOf(final JsonNode node) {
+        final String projectId = text(node, "project_id");
+        final String clientEmail = text(node, "client_email");
+        final String pem = text(node, "private_key");
+        if (projectId == null || clientEmail == null || pem == null) {
+            return null;
+        }
+        final String tokenUri = text(node, "token_uri");
+        try {
+            return new FcmKey(projectId, clientEmail, tokenUri == null ? DEFAULT_TOKEN_URI : tokenUri,
+                    EcKeys.rsaPrivateKeyFromPem(pem));
+        } catch (final GeneralSecurityException | IllegalArgumentException ex) {
+            log.error("The FCM service account in the push secret has no readable RSA private key", ex);
+            return null;
+        }
     }
 
     private static ApnsKey apnsOf(final JsonNode node) {

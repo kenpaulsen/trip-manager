@@ -109,6 +109,12 @@ public class PushPrefs implements Serializable {
         return devices.stream().filter(device -> device.getKind() == kind).toList();
     }
 
+    /** The iOS and Android devices: the ones the app registers, that carry a badge and take a silent refresh. */
+    @JsonIgnore
+    public List<PushDevice> phones() {
+        return devices.stream().filter(PushDevice::isPhone).toList();
+    }
+
     /** {@code HH:mm} → time, or null. Public so the write paths validate with the same parser the reader uses. */
     public static LocalTime parseTime(final String hhmm) {
         if (hhmm == null || hhmm.isBlank()) {

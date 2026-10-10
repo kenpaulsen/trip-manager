@@ -107,11 +107,10 @@ public class PushSender {
         int sent = 0;
         Integer badge = null;
         for (final PushDevice device : targets) {
-            if (device.getKind() == PushDevice.Kind.IOS && badge == null) {
+            if (device.isPhone() && badge == null) {
                 badge = badgeFor(person);
             }
-            final PushOutcome outcome = deliver(person, device,
-                    device.getKind() == PushDevice.Kind.IOS ? shaped.withBadge(badge) : shaped);
+            final PushOutcome outcome = deliver(person, device, device.isPhone() ? shaped.withBadge(badge) : shaped);
             outcomes.add(new DeviceOutcome(device.getKind().wire(), device.getLabel(), outcome));
             sent += outcome == PushOutcome.DELIVERED ? 1 : 0;
         }
@@ -124,9 +123,9 @@ public class PushSender {
     }
 
     /**
-     * One background ({@code content-available}) push per iOS device, at most once per
-     * {@code push.silent.intervalMinutes} per person across every task -- the Valkey marker's TTL is the
-     * schedule. Web devices never get one: a service worker that shows nothing loses its permission.
+     * One background push ({@code content-available} on iOS, a data-only message on Android) per phone, at most
+     * once per {@code push.silent.intervalMinutes} per person across every task -- the Valkey marker's TTL is
+     * the schedule. Web devices never get one: a service worker that shows nothing loses its permission.
      */
     public boolean sendSilent(final Person.Id person) {
         if (person == null || !isEnabled()) {
@@ -137,7 +136,7 @@ public class PushSender {
             return false;
         }
         final PushPrefs prefs = devices.prefsOf(person);
-        final List<PushDevice> phones = prefs.devicesOf(PushDevice.Kind.IOS);
+        final List<PushDevice> phones = prefs.phones();
         if (!prefs.isEnabled() || phones.isEmpty()) {
             return false;
         }
@@ -173,7 +172,7 @@ public class PushSender {
         if (config.getBoolean(KnownSettings.PUSH_WEB_ENABLED)) {
             return prefs.getDevices();
         }
-        return prefs.devicesOf(PushDevice.Kind.IOS);
+        return prefs.phones();
     }
 
     private Duration silentInterval() {

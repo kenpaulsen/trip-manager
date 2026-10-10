@@ -99,6 +99,35 @@ public class PushResourceTest extends ResourceTestSupport {
     }
 
     @Test
+    public void anAndroidKindRegistersAnFcmToken() {
+        final PushPrefs withPhone = new PushPrefs(true, null, null, null, List.of(
+                PushDevice.android("c".repeat(64) + ":x", "sel", "Pixel 9", "1.0", 7L)));
+        Mockito.when(push.registerAndroid(ArgumentMatchers.eq(ME), ArgumentMatchers.eq("c".repeat(64) + ":x"),
+                ArgumentMatchers.eq("sel"), ArgumentMatchers.eq("Pixel 9"), ArgumentMatchers.eq("1.0"),
+                ArgumentMatchers.any())).thenReturn(new PushDevices.Outcome(true, null, null, withPhone));
+        final Response ok = resource.registerDevice(CSRF_OK, Map.of("kind", "android", "token", "c".repeat(64) + ":x",
+                "selector", "sel", "label", "Pixel 9", "appVersion", "1.0"));
+        assertOk(ok);
+        @SuppressWarnings("unchecked")
+        final List<Map<String, Object>> devices = (List<Map<String, Object>>) body(ok).get("devices");
+        Assert.assertEquals(devices.size(), 1);
+        Assert.assertEquals(devices.get(0).get("kind"), "android");
+        Assert.assertEquals(devices.get(0).get("id"), PushDevice.androidTokenId("c".repeat(64) + ":x"));
+        Assert.assertFalse(devices.get(0).containsKey("environment"), "no APNs environment on Android");
+        Assert.assertFalse(devices.get(0).containsKey("origin"));
+        Assert.assertFalse(devices.get(0).containsKey("token"));
+        Mockito.verify(push, Mockito.never()).registerIos(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any());
+
+        Mockito.when(push.registerAndroid(ArgumentMatchers.eq(ME), ArgumentMatchers.eq("bad"), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(new PushDevices.Outcome(false, PushDevices.REFUSED_BAD_TOKEN, "shape", PREFS));
+        assertError(resource.registerDevice(CSRF_OK, Map.of("kind", "ANDROID", "token", "bad")), 400,
+                ApiErrors.BAD_REQUEST);
+    }
+
+    @Test
     public void removingADeviceIsIdempotent() {
         Mockito.when(push.removeDevice(ArgumentMatchers.eq(ME), ArgumentMatchers.eq("abababab"),
                 ArgumentMatchers.any())).thenReturn(true);

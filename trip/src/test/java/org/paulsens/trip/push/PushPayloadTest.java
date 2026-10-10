@@ -48,6 +48,22 @@ public class PushPayloadTest {
     }
 
     @Test
+    public void theFcmDataMapCarriesEveryKeyAsAStringAndTheSilentOneOnlyItsKind() {
+        final java.util.Map<String, String> data = mention().withBadge(2).withImage("https://f/x-small.jpg")
+                .withPassive(true).toFcmData();
+        Assert.assertEquals(data.get("kind"), PushPayload.KIND_CHAT_MENTION);
+        Assert.assertEquals(data.get("badge"), "2");
+        Assert.assertEquals(data.get("image"), "https://f/x-small.jpg");
+        Assert.assertEquals(data.get("passive"), "true");
+        Assert.assertEquals(data.get("threadId"), mention().getThreadId());
+        Assert.assertEquals(data.get("link"), mention().getLink());
+        Assert.assertFalse(data.containsKey("iconUrl"), "the icon is the web's; the app has its own");
+        Assert.assertEquals(mention().toFcmData().get("badge"), null);
+        Assert.assertFalse(mention().toFcmData().containsKey("passive"));
+        Assert.assertEquals(PushPayload.silent().toFcmData(), java.util.Map.of("kind", PushPayload.KIND_SILENT));
+    }
+
+    @Test
     public void theSilentPushIsContentAvailableAndNothingElse() throws Exception {
         final PushPayload silent = PushPayload.silent();
         Assert.assertTrue(silent.isSilent());

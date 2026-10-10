@@ -9,10 +9,11 @@ of each surface, the way the URL rule already is:
 | Server (mails, push preview, reply snippet) | `model/chat/ChatMarkup.java` | `chat/ChatBodyHtml.java` (mail HTML through an allowlist), `ChatMarkup.plain` (push alert body, `ChatQuote.from`) |
 | Website | `medjugorje/webapp/resources/trip-js/chatFormat.js` (`TripChatFormat`) | `render()` used by `trip/chat.xhtml` (the pane) and `photoViewer.js` (photo comments); the composer strip, shortcuts and Enter continuation on `chat.xhtml` |
 | UniteTrip iOS | `Features/Chat/Models/ChatMarkup.swift` | `ChatRowsBuilder.blocks` -> `ChatBodyView`/`MentionText`; `ChatMarkupEditing` behind the keyboard toolbar |
+| UniteTrip Android | `features/chat/model/ChatMarkup.kt` (`UniteTripAndroid`) | `ChatRowsBuilder` -> `ChatBody`/`MentionText` (Compose); `ChatMarkupEditing` behind the composer's formatting row |
 
 Each implementation carries the SAME conformance table (`ChatMarkupTest.cases`, `ChatFormattingPwIT.CASES`,
-`ChatMarkupTests.cases`) in a shared debug notation. Change a case in one and change all three, or one
-surface reads a body differently from the rest.
+`ChatMarkupTests.cases`, the Android `ChatMarkupTest`) in a shared debug notation. Change a case in one and
+change all four, or one surface reads a body differently from the rest.
 
 ## Why markers, not HTML
 

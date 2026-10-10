@@ -7,12 +7,12 @@ import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.dynamo.LocalMode;
 
 /**
- * Which {@link PushGateway} serves each device kind: the real client when the secret holds that half,
+ * Which {@link PushGateway} serves each device kind: the real client when the secret holds that part,
  * the recording {@link LoggingPushGateway} in local mode (the container's end-to-end recipe reads it), and a
  * FAILED-answering recorder in production with no secret (one WARN, then quiet).
  *
- * <p>Real clients are cached per key identity (APNs key id / VAPID public key), so a rotated secret picks up
- * a fresh signer within {@code PushSecrets}' 60 s without a restart.
+ * <p>Real clients are cached per key identity (APNs key id / VAPID public key / Firebase client email), so a
+ * rotated secret picks up a fresh signer within {@code PushSecrets}' 60 s without a restart.
  */
 public final class PushRuntime {
 
@@ -39,6 +39,10 @@ public final class PushRuntime {
         if (kind == PushDevice.Kind.IOS) {
             return loaded.apns().map(key -> REAL.computeIfAbsent("apns:" + key.keyId(),
                     ignored -> ApnsClient.create(key, new ConfigCommands()))).orElseGet(PushRuntime::fallback);
+        }
+        if (kind == PushDevice.Kind.ANDROID) {
+            return loaded.fcm().map(key -> REAL.computeIfAbsent("fcm:" + key.clientEmail(),
+                    ignored -> FcmClient.create(key))).orElseGet(PushRuntime::fallback);
         }
         return loaded.vapid().map(key -> REAL.computeIfAbsent("vapid:" + key.publicKey(),
                 ignored -> WebPushClient.create(key))).orElseGet(PushRuntime::fallback);

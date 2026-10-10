@@ -152,6 +152,35 @@ public class PushPayload {
     }
 
     /**
+     * The FCM {@code data} map: every app-level field as a string (FCM data values must be strings), so the
+     * Android app renders the notification itself and routes a tap through the same {@code link}. The silent
+     * refresh is {@code {kind: silent}} alone; a passive (quiet-hours) alert says so and the app drops the sound.
+     */
+    public Map<String, String> toFcmData() {
+        final Map<String, String> data = new LinkedHashMap<>();
+        data.put("kind", kind);
+        if (isSilent()) {
+            return data;
+        }
+        putIfSet(data, "title", title);
+        putIfSet(data, "subtitle", subtitle);
+        putIfSet(data, "body", body);
+        putIfSet(data, "threadId", threadId);
+        putIfSet(data, "link", link);
+        putIfSet(data, "url", url);
+        putIfSet(data, "channelId", channelId);
+        putIfSet(data, "messageId", messageId);
+        putIfSet(data, "image", imageUrl);
+        if (badge != null) {
+            data.put("badge", Integer.toString(badge));
+        }
+        if (passive) {
+            data.put("passive", "true");
+        }
+        return data;
+    }
+
+    /**
      * The Web Push JSON the service worker shows: {@code {title, body, icon, image?, url, tag, kind}}. A web
      * notification has no subtitle line, so the subtitle leads the body.
      */
@@ -174,7 +203,7 @@ public class PushPayload {
         return body == null || body.isBlank() ? subtitle : subtitle + ": " + body;
     }
 
-    private static void putIfSet(final Map<String, Object> target, final String key, final String value) {
+    private static void putIfSet(final Map<String, ? super String> target, final String key, final String value) {
         if (value != null && !value.isBlank()) {
             target.put(key, value);
         }

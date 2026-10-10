@@ -22,6 +22,10 @@ public class PushSecretsTest {
     private static final KeyPair VAPID = EcKeys.generate();
 
     static String json(final boolean apns, final boolean vapid) {
+        return json(apns, vapid, false);
+    }
+
+    static String json(final boolean apns, final boolean vapid, final boolean fcm) {
         final StringBuilder out = new StringBuilder("{");
         if (apns) {
             out.append("\"apns\":{\"keyId\":\"ABC123\",\"teamId\":\"TEAM1\",\"key\":")
@@ -41,7 +45,37 @@ public class PushSecretsTest {
                     .append("\",\"privateKey\":\"").append(EcKeys.encodeUrl(scalar))
                     .append("\",\"subject\":\"mailto:ken@example.org\"}");
         }
+        if (fcm) {
+            if (apns || vapid) {
+                out.append(',');
+            }
+            out.append("\"fcm\":{\"type\":\"service_account\",\"project_id\":\"unitetrip\",\"client_email\":"
+                    + "\"fcm@unitetrip.iam.gserviceaccount.com\",\"token_uri\":\"https://oauth2.googleapis.com/token\","
+                    + "\"private_key\":\"").append(FcmClientTest.pemOf(FcmClientTest.testKey()).replace("\n", "\\n"))
+                    .append("\"}");
+        }
         return out.append('}').toString();
+    }
+
+    @Test
+    public void theFcmHalfIsTheServiceAccountVerbatim() {
+        final PushSecrets.Loaded loaded = PushSecrets.parse(json(true, true, true));
+        Assert.assertEquals(loaded.fcm().projectId(), "unitetrip");
+        Assert.assertEquals(loaded.fcm().clientEmail(), "fcm@unitetrip.iam.gserviceaccount.com");
+        Assert.assertEquals(loaded.fcm().tokenUri(), "https://oauth2.googleapis.com/token");
+        Assert.assertEquals(loaded.fcm().key().getModulus(), FcmClientTest.testKey().getModulus());
+        Assert.assertNotNull(loaded.apns(), "the other halves still parse beside it");
+        Assert.assertNull(PushSecrets.parse(json(true, true, false)).fcm());
+        final PushSecrets.Loaded noUri = PushSecrets.parse("{\"fcm\":{\"project_id\":\"p\",\"client_email\":\"e\","
+                + "\"private_key\":\"" + FcmClientTest.pemOf(FcmClientTest.testKey()).replace("\n", "\\n") + "\"}}");
+        Assert.assertEquals(noUri.fcm().tokenUri(), PushSecrets.DEFAULT_TOKEN_URI);
+        Assert.assertNull(PushSecrets.parse("{\"fcm\":{\"project_id\":\"p\",\"client_email\":\"e\","
+                + "\"private_key\":\"junk\"}}").fcm(), "a bad key is logged and absent, never fatal");
+        Assert.assertNull(PushSecrets.parse("{\"fcm\":{\"project_id\":\"p\"}}").fcm());
+        final PushSecrets configured = new PushSecrets(() -> json(false, false, true));
+        Assert.assertTrue(configured.fcm().isPresent());
+        Assert.assertTrue(configured.isConfigured(), "FCM alone configures push");
+        Assert.assertTrue(configured.apns().isEmpty());
     }
 
     @Test

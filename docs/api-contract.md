@@ -169,9 +169,9 @@ app never unregisters explicitly.
 
 | Route | Body → Response |
 |---|---|
-| `PUT devices` | `{token: hex, environment: sandbox\|production, selector, label, appVersion: "1.0.0 (19)"}` → `{devices:[…]}`; 400 bad token/environment; 403 selector not the caller's (the app forgets its record and re-registers on the next foreground) |
+| `PUT devices` | iOS: `{token: hex, environment: sandbox\|production, selector, label, appVersion: "1.0.0 (19)"}`; Android (2026-10-10): `{kind: "android", token: <FCM registration token>, selector, label, appVersion}` → `{devices:[…]}`; 400 bad token/environment; 403 selector not the caller's (the app forgets its record and re-registers on the next foreground) |
 | `DELETE devices/{id}` | `id` = listing id or full token → `{removed:true}` |
-| `GET prefs` | `{enabled, quietHoursStart: "HH:mm"\|null, quietHoursEnd, timeZone, devices:[{kind: ios\|web, id, label, environment?, origin?, registeredAt: epochSeconds, lastSeenAt: epochSeconds}]}` |
+| `GET prefs` | `{enabled, quietHoursStart: "HH:mm"\|null, quietHoursEnd, timeZone, devices:[{kind: ios\|android\|web, id, label, environment? (ios), origin? (web), registeredAt: epochSeconds, lastSeenAt: epochSeconds}]}` |
 | `PUT prefs` | `{enabled?, quietHoursStart?, quietHoursEnd?, timeZone?}` absent = unchanged, `""` clears → same as GET |
 | `POST test` | → `{sent, outcomes:[{kind, label, outcome}]}` to the caller's own devices (Debug row in Settings) |
 | `GET/PUT /api/chat/channels/{id}/prefs` | `{mentionEmail, dailyDigest, pushMode: OFF\|MENTIONS\|ALL}`; PUT sends only the changed fields; absent `pushMode` reads as `MENTIONS` |
@@ -190,6 +190,11 @@ browser), `channelId`, `messageId`, and `image` (https JPEG on `files.visitqueen
 `*.unitetrip.com`, only with `mutable-content: 1`; the notification service extension attaches it). A
 background push is `{"aps":{"content-available":1}}` alone: the app refreshes channels and trips and sets
 the icon badge to the number of chats with unread messages.
+
+FCM (Android) is data-only: the same keys as strings (`kind`, `title`, `subtitle`, `body`, `threadId`, `link`,
+`url`, `channelId`, `messageId`, `image`, `badge`, `passive`), the silent refresh being `{kind: "silent"}` alone;
+the app builds the notification (a channel per kind, big picture from `image`, `setNumber(badge)`) and routes a
+tap through `link`. Full shape: `docs/push-notifications.md`, "Wire contract".
 
 Simulator recipe (no server needed): save a payload as `push.apns` with a top-level
 `"Simulator Target Bundle": "org.paulsens.unitetrip"` and run `xcrun simctl push booted push.apns`.

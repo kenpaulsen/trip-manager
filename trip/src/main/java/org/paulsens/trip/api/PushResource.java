@@ -14,6 +14,7 @@ import jakarta.ws.rs.core.Response;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.paulsens.trip.action.PushCommands;
+import org.paulsens.trip.push.PushDevice;
 import org.paulsens.trip.push.PushDevices;
 import org.paulsens.trip.push.PushSender;
 
@@ -36,7 +37,11 @@ public class PushResource extends BaseResource {
         return V1;
     }
 
-    /** The app registers (or re-registers) its APNs token. 400 bad hex/environment, 403 selector not the caller's. */
+    /**
+     * The app registers (or re-registers) its token: an APNs token when {@code kind} is absent or {@code ios}
+     * (400 bad hex/environment), an FCM registration token when {@code kind} is {@code android} (400 bad shape);
+     * 403 when the selector is not the caller's.
+     */
     @PUT
     @Path("devices")
     @Consumes({V1, MediaType.APPLICATION_JSON})
@@ -45,9 +50,11 @@ public class PushResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
-        final PushDevices.Outcome outcome = push().registerIos(personId(), string(body, "token"),
-                string(body, "environment"), string(body, "selector"), string(body, "label"),
-                string(body, "appVersion"), actor());
+        final PushDevices.Outcome outcome = PushDevice.Kind.ANDROID.wire().equalsIgnoreCase(string(body, "kind"))
+                ? push().registerAndroid(personId(), string(body, "token"), string(body, "selector"),
+                        string(body, "label"), string(body, "appVersion"), actor())
+                : push().registerIos(personId(), string(body, "token"), string(body, "environment"),
+                        string(body, "selector"), string(body, "label"), string(body, "appVersion"), actor());
         return outcome.ok() ? ok(devicesBody(outcome)) : refusal(outcome);
     }
 

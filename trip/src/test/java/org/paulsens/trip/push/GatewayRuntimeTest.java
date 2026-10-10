@@ -14,6 +14,7 @@ public class GatewayRuntimeTest {
     @AfterMethod(alwaysRun = true)
     public void restore() {
         PushRuntime.setGateway(PushDevice.Kind.IOS, null);
+        PushRuntime.setGateway(PushDevice.Kind.ANDROID, null);
         PushRuntime.setGateway(PushDevice.Kind.WEB, null);
         PushRuntime.setSecrets(null);
     }
@@ -44,6 +45,7 @@ public class GatewayRuntimeTest {
         Assert.assertSame(PushRuntime.gatewayFor(PushDevice.Kind.IOS), PushRuntime.recorder(),
                 "the suite runs local with the ephemeral VAPID pair: no real client, ever");
         Assert.assertSame(PushRuntime.gatewayFor(PushDevice.Kind.WEB), PushRuntime.recorder());
+        Assert.assertSame(PushRuntime.gatewayFor(PushDevice.Kind.ANDROID), PushRuntime.recorder());
     }
 
     @Test
@@ -64,6 +66,14 @@ public class GatewayRuntimeTest {
         Assert.assertTrue(apns instanceof ApnsClient);
         Assert.assertSame(PushRuntime.gatewayFor(PushDevice.Kind.IOS), apns, "one client per key id");
         Assert.assertTrue(PushRuntime.gatewayFor(PushDevice.Kind.WEB) instanceof WebPushClient);
+        Assert.assertSame(PushRuntime.gatewayFor(PushDevice.Kind.ANDROID), PushRuntime.recorder(),
+                "no service account: local mode falls back to the recorder");
+
+        final PushSecrets withFcm = new PushSecrets(() -> PushSecretsTest.json(false, false, true));
+        PushRuntime.setSecrets(() -> withFcm);
+        final PushGateway fcm = PushRuntime.gatewayFor(PushDevice.Kind.ANDROID);
+        Assert.assertTrue(fcm instanceof FcmClient);
+        Assert.assertSame(PushRuntime.gatewayFor(PushDevice.Kind.ANDROID), fcm, "one client per service account");
 
         final PushSecrets apnsOnly = new PushSecrets(() -> PushSecretsTest.json(true, false));
         PushRuntime.setSecrets(() -> apnsOnly);

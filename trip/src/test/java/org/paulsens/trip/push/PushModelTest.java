@@ -29,6 +29,32 @@ public class PushModelTest {
     }
 
     @Test
+    public void androidDevicesKeepTheirCaseAndAreNamedByATokenHash() {
+        final String token = FcmClientTest.TOKEN;
+        final PushDevice phone = PushDevice.android(" " + token + " ", "sel", "Pixel 9", "1.0 (19)", 100L);
+        Assert.assertEquals(phone.getToken(), token, "an FCM token is case-sensitive and only trimmed");
+        Assert.assertNull(phone.getEnvironment());
+        Assert.assertEquals(phone.id().length(), 8);
+        Assert.assertEquals(phone.id(), PushDevice.androidTokenId(token));
+        Assert.assertNotEquals(phone.id(), PushDevice.androidTokenId(token.toLowerCase(java.util.Locale.ROOT)));
+        Assert.assertTrue(phone.matches(phone.id().toUpperCase(java.util.Locale.ROOT)), "ids compare case-blind");
+        Assert.assertTrue(phone.matches(token));
+        Assert.assertFalse(phone.matches(token.toLowerCase(java.util.Locale.ROOT)), "a token compares exactly");
+        Assert.assertTrue(phone.isPhone());
+        Assert.assertFalse(phone.isSandbox());
+        Assert.assertTrue(phone.sameTargetAs(PushDevice.android(token, "other", "x", "y", 9L)));
+        Assert.assertFalse(phone.sameTargetAs(PushDevice.ios("ab".repeat(16), "production", "s", "l", "v", 1L)));
+        Assert.assertEquals(new PushDevice(PushDevice.Kind.ANDROID, null, null, null, null, null, null, null, null,
+                null, null, null).id(), "");
+        Assert.assertEquals(PushDevice.Kind.fromWire("Android"), PushDevice.Kind.ANDROID);
+        final PushPrefs prefs = new PushPrefs(true, null, null, null, java.util.List.of(phone,
+                PushDevice.web("https://e/1", "p", "a", "l", "o", 1L),
+                PushDevice.ios("ab".repeat(16), "production", "s", "l", "v", 1L)));
+        Assert.assertEquals(prefs.phones().size(), 2);
+        Assert.assertFalse(PushDevice.web("https://e/1", "p", "a", "l", "o", 1L).isPhone());
+    }
+
+    @Test
     public void webDevicesAreNamedByAnEndpointHashNeverTheEndpoint() {
         final PushDevice browser = PushDevice.web("https://push.example/sub/abc", "p", "a", "Safari", "https://x",
                 100L);
@@ -70,7 +96,7 @@ public class PushModelTest {
     public void kindsTravelLowerCaseOnTheWireAndUnknownOnesReadAsNull() throws Exception {
         Assert.assertEquals(PushDevice.Kind.IOS.wire(), "ios");
         Assert.assertEquals(PushDevice.Kind.fromWire("WEB"), PushDevice.Kind.WEB);
-        Assert.assertNull(PushDevice.Kind.fromWire("android"));
+        Assert.assertNull(PushDevice.Kind.fromWire("pager"));
         Assert.assertNull(PushDevice.Kind.fromWire(null));
         final PushDevice phone = PushDevice.ios(TOKEN, "production", "s", "Phone", "1", 7L);
         final String json = MAPPER.writeValueAsString(phone);
@@ -91,7 +117,7 @@ public class PushModelTest {
 
         final PushPrefs stored = MAPPER.convertValue(Map.of("enabled", false, "quietHoursStart", "22:00",
                 "quietHoursEnd", "07:00", "timeZone", "America/Los_Angeles",
-                "devices", List.of(Map.of("kind", "android", "token", "x"), Map.of("kind", "ios", "token", TOKEN))),
+                "devices", List.of(Map.of("kind", "pager", "token", "x"), Map.of("kind", "ios", "token", TOKEN))),
                 PushPrefs.class);
         Assert.assertFalse(stored.isEnabled());
         Assert.assertEquals(stored.getDevices().size(), 1, "an unknown kind is skipped, not fatal");

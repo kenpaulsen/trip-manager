@@ -24,6 +24,7 @@ public class PushSenderTest {
     private static final PushDevice PHONE = PushDevice.ios("ab".repeat(16), "production", "s", "Phone", "1", 1L);
     private static final PushDevice PHONE2 = PushDevice.ios("cd".repeat(16), "sandbox", "s", "Phone 2", "1", 1L);
     private static final PushDevice BROWSER = PushDevice.web("https://e/1", "p", "a", "Safari", "o", 1L);
+    private static final PushDevice ANDROID = PushDevice.android(FcmClientTest.TOKEN, "s", "Pixel", "1", 1L);
 
     private PushDevices devices;
     private ConfigCommands config;
@@ -40,6 +41,7 @@ public class PushSenderTest {
         cache = Mockito.mock(CacheClient.class);
         gateways.clear();
         gateways.put(PushDevice.Kind.IOS, new LoggingPushGateway());
+        gateways.put(PushDevice.Kind.ANDROID, new LoggingPushGateway());
         gateways.put(PushDevice.Kind.WEB, new LoggingPushGateway());
         badgeAsked.clear();
         now = Instant.parse("2026-09-13T12:00:00Z");
@@ -80,6 +82,25 @@ public class PushSenderTest {
         Mockito.verify(cache).tryAcquireLock(CacheKeys.chatNotifySentKey("m1|me|PUSH"),
                 CacheKeys.CHAT_NOTIFY_SENT_TTL);
         Mockito.verify(cache).tryAcquireLock(CacheKeys.pushSilentKey(ME.getValue()), Duration.ofMinutes(15));
+    }
+
+    @Test
+    public void anAndroidPhoneIsABadgedAlertTargetAndTakesTheSilentRefreshWhenWebIsOff() {
+        Mockito.when(devices.prefsOf(ME)).thenReturn(new PushPrefs(true, null, null, null,
+                List.of(PHONE, ANDROID, BROWSER)));
+        Mockito.when(config.getBoolean(KnownSettings.PUSH_WEB_ENABLED)).thenReturn(false);
+        final PushSender.Report report = sender.sendAlert(ME, alert(), null);
+        Assert.assertEquals(report.sent(), 2, "both phones, no browser");
+        Assert.assertEquals(report.outcomes().get(1).kind(), "android");
+        Assert.assertEquals(gateways.get(PushDevice.Kind.ANDROID).sent().get(0).payload().getBadge(),
+                Integer.valueOf(4));
+        Assert.assertEquals(badgeAsked, List.of(ME), "one count serves every phone");
+        Assert.assertTrue(gateways.get(PushDevice.Kind.WEB).sent().isEmpty());
+
+        Assert.assertTrue(sender.sendSilent(ME));
+        Assert.assertEquals(gateways.get(PushDevice.Kind.ANDROID).sent().get(1).payload().getKind(),
+                PushPayload.KIND_SILENT);
+        Assert.assertEquals(gateways.get(PushDevice.Kind.IOS).sent().size(), 2);
     }
 
     @Test

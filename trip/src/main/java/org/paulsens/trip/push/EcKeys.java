@@ -7,6 +7,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.interfaces.ECPrivateKey;
 import java.security.interfaces.ECPublicKey;
+import java.security.interfaces.RSAPrivateKey;
 import java.security.spec.ECGenParameterSpec;
 import java.security.spec.ECParameterSpec;
 import java.security.spec.ECPoint;
@@ -47,9 +48,21 @@ final class EcKeys {
 
     /** A {@code -----BEGIN PRIVATE KEY-----} PKCS#8 PEM (Apple's {@code .p8}) to a key. */
     static ECPrivateKey privateKeyFromPem(final String pem) throws GeneralSecurityException {
+        return (ECPrivateKey) KeyFactory.getInstance("EC").generatePrivate(pkcs8(pem));
+    }
+
+    /** The one RSA need: a Google service account's {@code private_key} (PKCS#8 PEM) for the FCM RS256 assertion. */
+    static RSAPrivateKey rsaPrivateKeyFromPem(final String pem) throws GeneralSecurityException {
+        return (RSAPrivateKey) KeyFactory.getInstance("RSA").generatePrivate(pkcs8(pem));
+    }
+
+    private static PKCS8EncodedKeySpec pkcs8(final String pem) throws GeneralSecurityException {
         final String base64 = pem.replaceAll("-----[A-Z ]+-----", "").replaceAll("\\s", "");
-        final byte[] der = Base64.getDecoder().decode(base64);
-        return (ECPrivateKey) KeyFactory.getInstance("EC").generatePrivate(new PKCS8EncodedKeySpec(der));
+        try {
+            return new PKCS8EncodedKeySpec(Base64.getDecoder().decode(base64));
+        } catch (final IllegalArgumentException ex) {
+            throw new GeneralSecurityException("The private key is not base64 PEM", ex);
+        }
     }
 
     /** A raw 32-byte scalar {@code d} (VAPID's private key) to a key. */

@@ -15,9 +15,9 @@ import java.util.Locale;
 import lombok.Value;
 
 /**
- * One registered push target inside a person's {@link PushPrefs} row: an APNs device token or a Web Push
- * subscription. One class rather than two because the row stores a list of them and the sender iterates it;
- * {@link #getKind()} says which fields are meaningful.
+ * One registered push target inside a person's {@link PushPrefs} row: an APNs device token, an FCM
+ * registration token, or a Web Push subscription. One class rather than three because the row stores a list
+ * of them and the sender iterates it; {@link #getKind()} says which fields are meaningful.
  *
  * <p>Immutable and Jackson-shaped, like every stored model. The listing {@link #id()} is what leaves the
  * server -- a token or an endpoint is a credential to push to that device and is never echoed back.
@@ -28,9 +28,10 @@ public class PushDevice implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
-    /** Which transport this device is reached through. Wire spelling is lower case ({@code ios} / {@code web}). */
+    /** Which transport this device is reached through. Wire spelling is lower case: ios, android, web. */
     public enum Kind {
         IOS("ios"),
+        ANDROID("android"),
         WEB("web");
 
         private final String wire;
@@ -63,14 +64,14 @@ public class PushDevice implements Serializable {
     public static final String ENV_SANDBOX = "sandbox";
 
     Kind kind;
-    /** iOS: the APNs device token, lower-case hex. */
+    /** iOS: the APNs device token, lower-case hex. Android: the FCM registration token, case-sensitive. */
     String token;
     /** iOS: {@code production} or {@code sandbox} -- picks the APNs host. */
     String environment;
-    /** iOS: the refresh-token selector of the sign-in that registered it, so revoking that sign-in prunes it. */
+    /** Phones: the refresh-token selector of the sign-in that registered it, so revoking that sign-in prunes it. */
     String selector;
     String label;
-    /** iOS: the app build that registered, for support questions. */
+    /** Phones: the app build that registered, for support questions. */
     String appVersion;
     /** Web: the push service endpoint URL. */
     String endpoint;
@@ -100,7 +101,8 @@ public class PushDevice implements Serializable {
             @JsonProperty("registeredAt") final Long registeredAt,
             @JsonProperty("lastSeenAt") final Long lastSeenAt) {
         this.kind = kind;
-        this.token = token == null ? null : token.toLowerCase(Locale.ROOT);
+        // APNs tokens are hex and compared case-blind; an FCM token is an opaque case-sensitive string.
+        this.token = token == null ? null : (kind == Kind.IOS ? token.toLowerCase(Locale.ROOT) : token.trim());
         this.environment = environment;
         this.selector = selector;
         this.label = label;
@@ -119,33 +121,58 @@ public class PushDevice implements Serializable {
                 now, now);
     }
 
+    /** An Android phone: an FCM registration token; no environment (one Firebase project serves every build). */
+    public static PushDevice android(final String token, final String selector, final String label,
+            final String appVersion, final long now) {
+        return new PushDevice(Kind.ANDROID, token, null, selector, label, appVersion, null, null, null, null,
+                now, now);
+    }
+
     public static PushDevice web(final String endpoint, final String p256dh, final String auth, final String label,
             final String origin, final long now) {
         return new PushDevice(Kind.WEB, null, null, null, label, null, endpoint, p256dh, auth, origin, now, now);
     }
 
     /**
-     * The listing id: the last 8 hex characters of an iOS token, the first 16 hex characters of the SHA-256
-     * of a web endpoint. Enough to tell devices apart in a list and to name one for removal; not enough to
-     * push to it.
+     * The listing id: the last 8 hex characters of an iOS token, the last 8 hex characters of the SHA-256 of
+     * an Android token, the first 16 hex characters of the SHA-256 of a web endpoint. Enough to tell devices
+     * apart in a list and to name one for removal; not enough to push to it.
      */
     @JsonIgnore
     public String id() {
         if (kind == Kind.IOS) {
             return token == null ? "" : token.substring(Math.max(0, token.length() - 8));
         }
+        if (kind == Kind.ANDROID) {
+            return token == null ? "" : androidTokenId(token);
+        }
         return endpoint == null ? "" : endpointId(endpoint);
+    }
+
+    /** The listing id of an FCM token: the last 8 hex characters of its SHA-256 (the token itself is a credential). */
+    public static String androidTokenId(final String token) {
+        final String digest = sha256Hex(token);
+        return digest.substring(digest.length() - 8);
     }
 
     /** The listing id a web endpoint maps to, so an unsubscribe by endpoint and a remove by id agree. */
     public static String endpointId(final String endpoint) {
+        return sha256Hex(endpoint).substring(0, 16);
+    }
+
+    private static String sha256Hex(final String value) {
         try {
-            final byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(endpoint.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest).substring(0, 16);
+            final byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
         } catch (final NoSuchAlgorithmException ex) {
             throw new IllegalStateException("SHA-256 is mandatory in every JRE", ex);
         }
+    }
+
+    /** iOS and Android: a device the app registers and the badge rides to. */
+    @JsonIgnore
+    public boolean isPhone() {
+        return kind == Kind.IOS || kind == Kind.ANDROID;
     }
 
     /** True when this entry is a re-registration of the same physical target as {@code other}. */
@@ -154,18 +181,19 @@ public class PushDevice implements Serializable {
         if (other == null || other.kind != kind) {
             return false;
         }
-        return kind == Kind.IOS ? token != null && token.equals(other.token)
+        return isPhone() ? token != null && token.equals(other.token)
                 : endpoint != null && endpoint.equals(other.endpoint);
     }
 
-    /** Whether {@code idOrToken} names this device: its listing id, or (iOS) its full token. */
+    /** Whether {@code idOrToken} names this device: its listing id, or (a phone) its full token. */
     @JsonIgnore
     public boolean matches(final String idOrToken) {
         if (idOrToken == null || idOrToken.isBlank()) {
             return false;
         }
         final String wanted = idOrToken.trim().toLowerCase(Locale.ROOT);
-        return wanted.equals(id()) || (kind == Kind.IOS && wanted.equals(token));
+        return wanted.equals(id()) || (kind == Kind.IOS && wanted.equals(token))
+                || (kind == Kind.ANDROID && idOrToken.trim().equals(token));
     }
 
     @JsonIgnore

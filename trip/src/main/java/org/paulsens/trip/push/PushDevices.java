@@ -57,6 +57,9 @@ public class PushDevices {
 
     /** Hex, lower-cased by {@link PushDevice}; 32 bytes today, but Apple says the length may change. */
     private static final Pattern TOKEN = Pattern.compile("[0-9a-f]{32,512}");
+    /** An FCM registration token: long, URL-safe characters plus the colon after the instance id, never hex. */
+    private static final Pattern FCM_TOKEN = Pattern.compile("[A-Za-z0-9_:-]{64,4096}");
+    private static final Pattern HEX = Pattern.compile("[0-9a-fA-F]+");
     private static final int LOCK_ATTEMPTS = 5;
     private static final long LOCK_WAIT_MILLIS = 50L;
 
@@ -120,6 +123,24 @@ public class PushDevices {
         }
         final PushDevice fresh = PushDevice.ios(normalised, environment, selector.trim(), clean(label),
                 clean(appVersion), clock.getAsLong());
+        return underLock(me, () -> upsert(me, fresh, actor));
+    }
+
+    /**
+     * Registers (or re-registers) an FCM registration token. Upsert by token, the same selector rule as iOS; the
+     * token is validated by shape only (long, URL-safe, not hex), never by reachability.
+     */
+    public Outcome registerAndroid(final Person.Id me, final String token, final String selector, final String label,
+            final String appVersion, final AuditActor actor) {
+        final String trimmed = token == null ? "" : token.trim();
+        if (me == null || !FCM_TOKEN.matcher(trimmed).matches() || HEX.matcher(trimmed).matches()) {
+            return Outcome.refused(REFUSED_BAD_TOKEN, "The FCM registration token is not valid.", prefsOf(me));
+        }
+        if (!ownsSelector(me, selector)) {
+            return Outcome.refused(REFUSED_SELECTOR, "That sign-in is not yours.", prefsOf(me));
+        }
+        final PushDevice fresh = PushDevice.android(trimmed, selector.trim(), clean(label), clean(appVersion),
+                clock.getAsLong());
         return underLock(me, () -> upsert(me, fresh, actor));
     }
 
@@ -190,7 +211,7 @@ public class PushDevices {
                 "browser unsubscribed", actor)) > 0;
     }
 
-    /** Prunes every iOS device registered by this sign-in (the revocation hook). Count removed. */
+    /** Prunes every phone registered by this sign-in (the revocation hook). Count removed. */
     public int removeBySelector(final Person.Id me, final String selector, final AuditActor actor) {
         if (me == null || selector == null || selector.isBlank()) {
             return 0;

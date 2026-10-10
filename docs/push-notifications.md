@@ -1,4 +1,4 @@
-# Push notifications — direct APNs + Web Push
+# Push notifications — direct APNs + FCM + Web Push
 
 Read this before touching anything under `push/`, `action/PushCommands`, `api/PushResource`, the
 `pushMode` field of `ChatNotifyPref`, the recipient policy in `chat/ChatNotifications`, or the three
@@ -20,10 +20,10 @@ PaymentCommands.recordNow (RECORDED, !sandbox) ─► PushNotifications.paymentR
 SupportChatCommands.notifyAdmins ─► PushNotifications.supportRequest ─────────────────┤
                                                                                        ▼
                      PushSender (push.enabled → person switch → devices → dedupe claim → quiet hours → badge)
-                              │                                     │                        │
-              PushDevices (person_data "push-devices")      ApnsClient (kind ios)     WebPushClient (kind web)
-                                                                    │                        │
-                                              api[.sandbox].push.apple.com     each browser's push service
+                              │                              │                   │                      │
+              PushDevices (person_data "push-devices")  ApnsClient (ios)   FcmClient (android)   WebPushClient (web)
+                                                             │                   │                      │
+                                        api[.sandbox].push.apple.com   fcm.googleapis.com v1   each browser's push service
 ```
 
 Everything downstream of a request runs on a fresh virtual thread (`TripThreads.startAs(AuditActor.system(),
@@ -41,6 +41,8 @@ person-data row). Content is a `PushPrefs`:
  "devices": [
    {"kind": "ios", "token": "<hex>", "environment": "production|sandbox", "selector": "<refresh selector>",
     "label": "Ken's iPhone (iPhone17,1)", "appVersion": "1.0.0 (19)", "registeredAt": 1757800000, "lastSeenAt": 1757800000},
+   {"kind": "android", "token": "<FCM registration token>", "selector": "<refresh selector>",
+    "label": "Google Pixel 9", "appVersion": "1.0.0 (19)", "registeredAt": 1757800000, "lastSeenAt": 1757800000},
    {"kind": "web", "endpoint": "https://web.push.apple.com/…", "p256dh": "<b64url>", "auth": "<b64url>",
     "label": "Safari on Mac", "origin": "https://acme.unitetrip.com", "registeredAt": 1757800000, "lastSeenAt": 1757800000}
  ]}
@@ -48,15 +50,19 @@ person-data row). Content is a `PushPrefs`:
 
 - `enabled` defaults to **true**: registering a device is the opt-in. Quiet hours need both ends
   (`HH:mm`, in `timeZone`, UTC when unset; may cross midnight; start inclusive, end exclusive).
-- **Cap 20 devices**, oldest `lastSeenAt` evicted. iOS upsert by token (re-registration keeps
-  `registeredAt`), web upsert by endpoint.
-- **Validation at the door:** iOS token = 32–512 lower-case hex, environment `production|sandbox`,
+- **Cap 20 devices**, oldest `lastSeenAt` evicted. Phones (iOS and Android) upsert by token (re-registration
+  keeps `registeredAt`), web upsert by endpoint.
+- **Validation at the door:** iOS token = 32–512 lower-case hex, environment `production|sandbox`;
+  Android token = 64–4096 characters of `[A-Za-z0-9_:-]` that are not all hex (an FCM registration token is
+  case-sensitive and stored as given, no environment: one Firebase project serves every build). For both,
   `selector` must be a REFRESH/REMEMBER row of the caller's (`getAuthToken(selector, Cached.NO)`, never
   ACCESS) — 403 otherwise. Web endpoint = absolute `https://` URL with a host (or `http://localhost` for
   the local recipe), `p256dh` = 65-byte uncompressed P-256 point, `auth` ≥ 16 bytes, both base64url. Shape
   only, never reachability.
-- **Listing id** (`PushDevice.id()`): iOS = last 8 hex of the token; web = first 16 hex of SHA-256(endpoint).
-  A token or endpoint never leaves the server; removal accepts the id or (iOS) the full token.
+- **Listing id** (`PushDevice.id()`): iOS = last 8 hex of the token; Android = last 8 hex of SHA-256(token);
+  web = first 16 hex of SHA-256(endpoint). A token or endpoint never leaves the server; removal accepts the
+  id or (a phone) the full token. `PushDevice.isPhone()` / `PushPrefs.phones()` name the two app kinds
+  together: they get the badge and the silent refresh.
 - **Per-channel choice** lives on the chat membership row: `ChatNotifyPref.pushMode` = `OFF | MENTIONS |
   ALL`, absent → `MENTIONS` (the getter normalises too, for Java-serialized sessions written before the
   field). The OLD `push` field (`DeliveryMode`) is read-only-legacy: `defaults()`/`withEmail` wrote
@@ -66,7 +72,7 @@ person-data row). Content is a `PushPrefs`:
 
 | Trigger | Path |
 |---|---|
-| Sign-out / devices UI revoke | `TokenService.revokeFamily` → `PushDevices.removeBySelector` (the phone's refresh selector) |
+| Sign-out / devices UI revoke | `TokenService.revokeFamily` → `PushDevices.removeBySelector` (the phone's refresh selector, iOS and Android alike) |
 | Password change, credential deletion, account deletion | `TokenService.revokeAllFor` → `removeAll` (every kind) |
 | Site logout hook / Disable button | `POST /api/push/webpush/unsubscribe` → `removeWebByEndpoint` |
 | Remove button (site or app) | `DELETE /api/push/devices/{id}` → `remove` |
@@ -142,12 +148,12 @@ REST (`api/PushResource`, `@Path("push")`, `@TripApi`, media type `application/v
 
 | Route | Body → Response |
 |---|---|
-| `PUT /api/push/devices` | `{token, environment, selector, label, appVersion}` → `{devices:[…]}`; 400 bad hex/env; 403 selector not the caller's |
-| `DELETE /api/push/devices/{id}` | id = listing id or full iOS token → `{removed:true}` (idempotent) |
+| `PUT /api/push/devices` | `{kind?: ios\|android, token, environment (ios), selector, label, appVersion}` → `{devices:[…]}`; `kind` absent = `ios`; 400 bad token/env; 403 selector not the caller's |
+| `DELETE /api/push/devices/{id}` | id = listing id or a phone's full token → `{removed:true}` (idempotent) |
 | `PUT /api/push/webpush` | `{endpoint, keys:{p256dh, auth}, label}` → `{devices:[…]}` (origin = request host) |
 | `POST /api/push/webpush/unsubscribe` | `{endpoint}` → `{removed:true}` (idempotent) |
 | `GET /api/push/webpush/key` | → `{publicKey}` (VAPID, base64url); 404 until configured (local mode: a per-JVM throwaway pair) |
-| `GET /api/push/prefs` | → `{enabled, quietHoursStart, quietHoursEnd, timeZone, devices:[{kind, id, label, environment (ios) \| origin (web), registeredAt, lastSeenAt}]}` — unset strings are `""` |
+| `GET /api/push/prefs` | → `{enabled, quietHoursStart, quietHoursEnd, timeZone, devices:[{kind, id, label, environment (ios) \| origin (web) \| neither (android), registeredAt, lastSeenAt}]}` — unset strings are `""` |
 | `PUT /api/push/prefs` | `{enabled, quietHoursStart, quietHoursEnd, timeZone}` absent = unchanged, `""` clears; 400 `VALIDATION_FAILED` for a bad time/zone; answers the GET shape |
 | `POST /api/push/test` | → `{sent, outcomes:[{kind,label,outcome}], skipped?}` |
 | `GET/PUT /api/chat/channels/{id}/prefs` | gains `pushMode`: `OFF \| MENTIONS \| ALL` (PUT absent = unchanged; 400 for anything else) |
@@ -177,6 +183,22 @@ APNs alert:
 `unitetrip://trip/<id>/photos`, `unitetrip://trip/<id>/payments` (approval and payment both);
 `support.request` has no `link`.
 
+FCM (HTTP v1, `FcmClient.message`): a **data-only** message, so the Android app renders the notification
+itself (a channel per kind, big picture from `image`, `setNumber(badge)`) and routes a tap through the same
+`link`:
+
+```json
+{"message": {"token": "<FCM token>",
+  "data": {"kind": "chat.mention", "title": "Autumn Pilgrimage", "subtitle": "Maria mentioned you", "body": "…",
+           "threadId": "trip:<id>", "link": "unitetrip://chat/<tripId>", "url": "https://…", "channelId": "trip:<id>",
+           "messageId": "…", "image": "https://files…/…-small.jpg", "badge": "2", "passive": "true"},
+  "android": {"priority": "HIGH", "ttl": "86400s"}}}
+```
+
+Every data value is a string (FCM's rule). `badge` rides only on phones, `passive` only in quiet hours (the app
+drops the sound). The silent refresh is `{"data": {"kind": "silent"}, "android": {"priority": "NORMAL", "ttl": "0s",
+"collapse_key": "refresh"}}`; a passive alert also goes `NORMAL`, so doze may hold it, which is the point.
+
 Web push (JSON inside aes128gcm): `{title, body, icon, image?, url, tag, kind}` — `body` = `subtitle: body`
 (a web notification has no subtitle line), `icon` = the org's logo (`BrandCommands.lookOf`) else
 `/resources/images/UniteTripLogo.png` on the trip's site, `url` absolute via `SiteUrls.baseUrlForTrip`,
@@ -187,22 +209,23 @@ and a channel id is neither.
 ## Gateways and outcomes
 
 `PushGateway.send(device, payload)` → `PushOutcome`: `DELIVERED`, `DROP_DEVICE` (prune), `RETRY`
-(transient), `AUTH` (our credentials), `FAILED`. Both clients sit on `PushTransport` (one synchronous
+(transient), `AUTH` (our credentials), `FAILED`. All three clients sit on `PushTransport` (one synchronous
 `HttpRequest → HttpResponse<String>`; the JDK HTTP/2 client in production, scripted in tests).
 
-| | APNs (`ApnsClient`) | Web Push (`WebPushClient`) |
-|---|---|---|
-| Auth | `authorization: bearer <ES256 JWT {iss: team, iat}>`, `kid` header; reused 50 min | `Authorization: vapid t=<JWT {aud: origin, exp: +12h, sub}>,k=<public point>`; reused 11 h |
-| Host | `api.push.apple.com` / `api.sandbox.push.apple.com` by device `environment` | the subscription's endpoint |
-| DELIVERED | 200 | 200 / 201 / 202 |
-| DROP_DEVICE | 410; 400 `BadDeviceToken` / `DeviceTokenNotForTopic` | 404 / 410 |
-| AUTH | 403 → re-mint + one retry, then AUTH | 401 / 403 → re-mint + one retry, then AUTH |
-| RETRY | 429 / 5xx / IOException → one retry after 1 s, then RETRY | 429 / 5xx / IOException |
-| FAILED | any other 4xx | 400 / 413 / any other 4xx; unencryptable subscription |
+| | APNs (`ApnsClient`) | FCM (`FcmClient`) | Web Push (`WebPushClient`) |
+|---|---|---|---|
+| Auth | `authorization: bearer <ES256 JWT {iss: team, iat}>`, `kid` header; reused 50 min | `authorization: Bearer <OAuth2 access token>` from `GoogleAccessToken`: an RS256 assertion `{iss: client_email, scope: firebase.messaging, aud: token_uri, iat, exp: +1h}` traded at the token URI; reused until 5 min before expiry | `Authorization: vapid t=<JWT {aud: origin, exp: +12h, sub}>,k=<public point>`; reused 11 h |
+| Host | `api.push.apple.com` / `api.sandbox.push.apple.com` by device `environment` | `fcm.googleapis.com/v1/projects/{project_id}/messages:send` | the subscription's endpoint |
+| DELIVERED | 200 | 200 | 200 / 201 / 202 |
+| DROP_DEVICE | 410; 400 `BadDeviceToken` / `DeviceTokenNotForTopic` | 404 / `UNREGISTERED`; 400 `INVALID_ARGUMENT` naming the token | 404 / 410 |
+| AUTH | 403 → re-mint + one retry, then AUTH | 401 / 403 → re-mint + one retry, then AUTH; no access token at all | 401 / 403 → re-mint + one retry, then AUTH |
+| RETRY | 429 / 5xx / IOException → one retry after 1 s, then RETRY | 429 / 5xx / IOException → one retry after 1 s, then RETRY | 429 / 5xx / IOException |
+| FAILED | any other 4xx | any other 4xx (payload too large, other `INVALID_ARGUMENT`) | 400 / 413 / any other 4xx; unencryptable subscription |
 
 `Es256Jwt` needs no library: `Signature.getInstance("SHA256withECDSAinP1363Format")` yields the JOSE
 `r‖s` directly. `EcKeys` handles PEM (PKCS#8), raw scalar and uncompressed point (SunEC is in `java.base`
-since JDK 22 — no jlink module).
+since JDK 22 — no jlink module). `RsaKeys` reads the service account's PKCS#8 `private_key` and
+`GoogleAccessToken` signs with `SHA256withRSA`; no Firebase Admin SDK, for the same reason there is no APNs SDK.
 
 ### Web push crypto notes (RFC 8291 / 8188, `WebPushCrypto`)
 
@@ -218,9 +241,11 @@ message with an independent receiver written from the RFCs.
 
 `PushSecrets` (the `ProcessorSecrets` shape): sysprop `trip.push.secret` / env `TRIP_PUSH_SECRET` names the
 Secrets Manager secret `trip/push` = `{"apns":{"keyId","teamId","key":"<PEM>"},"vapid":{"publicKey",
-"privateKey","subject"}}` (VAPID `publicKey` = base64url of the 65-byte point, `privateKey` = base64url of
-the 32-byte scalar). Read-only from the app, cached 60 s (a rotation needs no restart), a broken half is
-logged and absent without taking the other down. Written by `medjugorje/scripts/push-secret.sh`.
+"privateKey","subject"},"fcm":{<the Firebase service-account JSON, verbatim>}}` (VAPID `publicKey` =
+base64url of the 65-byte point, `privateKey` = base64url of the 32-byte scalar; `fcm` needs `project_id`,
+`client_email`, `private_key` and, optionally, `token_uri`). Read-only from the app, cached 60 s (a rotation
+needs no restart), a broken part is logged and absent without taking the others down. Written by
+`medjugorje/scripts/push-secret.sh` (`--fcm-service-account-file` for the Android half).
 
 - **Local mode** mints a throwaway VAPID pair once per JVM (`isEphemeral()`), so `GET /api/push/webpush/key`
   answers and a browser can `subscribe()` locally; `PushRuntime` then hands out the recording

@@ -106,6 +106,11 @@ public class PushCommands {
         return devices().registerIos(me, token, environment, selector, label, appVersion, actor);
     }
 
+    public PushDevices.Outcome registerAndroid(final Person.Id me, final String token, final String selector,
+            final String label, final String appVersion, final AuditActor actor) {
+        return devices().registerAndroid(me, token, selector, label, appVersion, actor);
+    }
+
     public PushDevices.Outcome registerWeb(final Person.Id me, final String endpoint, final String p256dh,
             final String auth, final String label, final String origin, final AuditActor actor) {
         return devices().registerWeb(me, endpoint, p256dh, auth, label, origin, actor);
@@ -154,7 +159,7 @@ public class PushCommands {
         result.put("label", device.getLabel() == null ? "" : device.getLabel());
         if (device.getKind() == PushDevice.Kind.IOS) {
             result.put("environment", device.getEnvironment());
-        } else {
+        } else if (device.getKind() == PushDevice.Kind.WEB) {
             result.put("origin", device.getOrigin() == null ? "" : device.getOrigin());
         }
         result.put("registeredAt", device.getRegisteredAt());

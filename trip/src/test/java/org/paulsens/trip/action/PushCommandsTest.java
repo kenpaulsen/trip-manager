@@ -100,6 +100,13 @@ public class PushCommandsTest {
         Assert.assertTrue(push.setPrefs(me, false, null, null, null).ok());
         Assert.assertEquals(PushCommands.describeDevice(PushDevice.ios("ab".repeat(16), "production", "s", null,
                 "1", 3L)).get("label"), "");
+        final Map<String, Object> android = PushCommands.describeDevice(PushDevice.android("c".repeat(64) + ":x", "s",
+                "Pixel", "1", 3L));
+        Assert.assertEquals(android.get("kind"), "android");
+        Assert.assertFalse(android.containsKey("environment"), "neither an APNs environment nor a web origin");
+        Assert.assertFalse(android.containsKey("origin"));
+        Assert.assertEquals(push.registerAndroid(me, "nope", "s", "l", "v", AuditActor.system()).code(),
+                PushDevices.REFUSED_BAD_TOKEN, "the bean delegates the Android registration too");
     }
 
     @Test

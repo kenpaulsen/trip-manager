@@ -71,6 +71,45 @@ public class PushDevicesTest {
     }
 
     @Test
+    public void androidRegistrationValidatesTheFcmTokenShapeAndUpsertsByToken() {
+        final String selector = refreshSelectorFor("user9");
+        final Person.Id me = ownerOf(selector);
+        final String token = FcmClientTest.TOKEN;
+        final PushDevices.Outcome first = devices.registerAndroid(me, token, selector, "Pixel 9", "1.0 (19)", ACTOR);
+        Assert.assertTrue(first.ok(), first.message());
+        final PushDevice stored = first.prefs().devicesOf(PushDevice.Kind.ANDROID).get(0);
+        Assert.assertEquals(stored.getToken(), token);
+        Assert.assertEquals(stored.getSelector(), selector);
+        Assert.assertNull(stored.getEnvironment());
+        Assert.assertEquals(stored.getRegisteredAt(), 1_000L);
+        clock.set(2_000L);
+        final PushDevices.Outcome again = devices.registerAndroid(me, token, selector, "Ken's Pixel", "1.0 (20)",
+                ACTOR);
+        Assert.assertEquals(again.prefs().getDevices().size(), 1, "an upsert, not a second device");
+        Assert.assertEquals(again.prefs().getDevices().get(0).getLabel(), "Ken's Pixel");
+        Assert.assertEquals(again.prefs().getDevices().get(0).getRegisteredAt(), 1_000L);
+        Assert.assertEquals(again.prefs().getDevices().get(0).getLastSeenAt(), 2_000L);
+        Assert.assertTrue(devices.remove(me, token, ACTOR), "removal accepts the full token");
+        Assert.assertTrue(devices.prefsOf(me).getDevices().isEmpty());
+        clock.set(1_000L);
+
+        Assert.assertEquals(devices.registerAndroid(me, "short", selector, "l", "v", ACTOR).code(),
+                PushDevices.REFUSED_BAD_TOKEN);
+        Assert.assertEquals(devices.registerAndroid(me, "0123456789abcdef".repeat(4), selector, "l", "v", ACTOR).code(),
+                PushDevices.REFUSED_BAD_TOKEN, "hex is an APNs token in the wrong field");
+        Assert.assertEquals(devices.registerAndroid(me, token + " space", selector, "l", "v", ACTOR).code(),
+                PushDevices.REFUSED_BAD_TOKEN);
+        Assert.assertEquals(devices.registerAndroid(me, null, selector, "l", "v", ACTOR).code(),
+                PushDevices.REFUSED_BAD_TOKEN);
+        Assert.assertEquals(devices.registerAndroid(null, token, selector, "l", "v", ACTOR).code(),
+                PushDevices.REFUSED_BAD_TOKEN);
+        Assert.assertEquals(devices.registerAndroid(me, token, refreshSelectorFor("user8"), "l", "v", ACTOR).code(),
+                PushDevices.REFUSED_SELECTOR, "another person's sign-in");
+        Assert.assertEquals(devices.registerAndroid(me, token, " ", "l", "v", ACTOR).code(),
+                PushDevices.REFUSED_SELECTOR);
+    }
+
+    @Test
     public void iosRegistrationIsAnUpsertByTokenThatKeepsTheFirstSighting() {
         final String selector = refreshSelectorFor("user8");
         final Person.Id me = ownerOf(selector);
