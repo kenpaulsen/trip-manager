@@ -38,6 +38,7 @@ import org.paulsens.trip.security.ProcessorSecrets;
 import org.paulsens.trip.model.Person.Sex;
 import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.RegistrationOption;
+import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -121,8 +122,11 @@ public final class FakeData {
             addFakeMedia();
             addFakePrivileges();
             addFakeContent();
-            addFakeFamily();
+            // Orgs BEFORE the family: Lucy is created here, after the org seed has tenanted the fake people, so
+            // she joins CFPW herself (a roster write over the API silently drops anyone outside the trip's org).
             addFakeOrgs();
+            addFakeFamily();
+            seatLucyOnSpringDemo();
             addFakeLodging();
             relaxChatLimitsForFakeTrips();
         }
@@ -348,6 +352,64 @@ public final class FakeData {
                 Sex.Female, null, false) == null) {
             throw new IllegalStateException("Fake family seed: could not create Lucy");
         }
+    }
+
+    /**
+     * Lucy travels on the Spring Demo trip (roster seat plus the Hotel stay), so the family switcher has
+     * something to show: a manager acting as her sees a trip, an itinerary and a chat she can be spoken for in.
+     * Ken (user2) is on that roster too, Trinity (user4) is not -- both manager shapes stay demoable. She is
+     * also tenanted into CFPW like every other fake person, so a webtest fixture trip can seat her.
+     *
+     * <p>NOT inside the family seed's guard: the suite re-runs {@code addFakeData} against a shared store, which
+     * re-saves every fake trip from scratch while the (guarded) family seed skips -- so her seat has to be
+     * re-taken every run, idempotently, from the family that already exists.
+     */
+    private static void seatLucyOnSpringDemo() {
+        final Person ken = DAO.getInstance().getPersonByEmail(localEmail("user2"), Cached.NO);
+        final Person admin = DAO.getInstance().getPersonByEmail(localEmail("admin"), Cached.NO);
+        final Person lucy = ken == null || ken.getFamilyId() == null ? null : familyMemberNamed(ken, "Lucy");
+        if (lucy == null || admin == null) {
+            throw new IllegalStateException("Fake family seed: Lucy or the admin persona is missing");
+        }
+        final org.paulsens.trip.action.OrgCommands orgs = new org.paulsens.trip.action.OrgCommands(
+                () -> new org.paulsens.trip.action.Caller(admin.getId(), true,
+                        org.paulsens.trip.audit.AuditActor.system(),
+                        new org.paulsens.trip.action.PrivilegeCommands()));
+        if (!orgs.isMember(CFPW_ORG_ID, lucy.getId()) && !orgs.addMember(CFPW_ORG_ID, lucy.getId())) {
+            throw new IllegalStateException("Fake family seed: could not add Lucy to CFPW");
+        }
+        final Trip trip = DAO.getInstance().getTrip(FAKE_TRIP_ID, Cached.NO).orElse(null);
+        if (trip == null) {
+            throw new IllegalStateException("Fake family seed: the Spring Demo trip is missing");
+        }
+        if (!trip.getPeople().contains(lucy.getId())) {
+            trip.getPeople().add(lucy.getId());
+        }
+        // Through the trip's own memoized event list: that is the list saveTrip writes.
+        final TripEvent hotel = trip.getTripEvent(FAKE_TRIP_LODGING_EVENT_ID);
+        if (hotel != null && !hotel.getParticipants().contains(lucy.getId())) {
+            hotel.getParticipants().add(lucy.getId());
+        }
+        try {
+            DAO.getInstance().saveTrip(trip);
+        } catch (final IOException ex) {
+            throw new IllegalStateException("Fake family seed: could not put Lucy on the Spring Demo trip", ex);
+        }
+    }
+
+    /** The member of {@code manager}'s family with this first name, or null. */
+    private static Person familyMemberNamed(final Person manager, final String first) {
+        final Family family = DAO.getInstance().getFamily(manager.getFamilyId(), Cached.NO).orElse(null);
+        if (family == null) {
+            return null;
+        }
+        for (final Person.Id memberId : family.getMemberIds()) {
+            final Person member = DAO.getInstance().getPerson(memberId, Cached.NO).orElse(null);
+            if (member != null && first.equals(member.getFirst())) {
+                return member;
+            }
+        }
+        return null;
     }
 
     /**

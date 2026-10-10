@@ -33,6 +33,12 @@ public final class ChatErrors {
     public static final String RATE_LIMITED = "RATE_LIMITED";
     public static final String SLOW_MODE = "SLOW_MODE";
     public static final String FORBIDDEN = "FORBIDDEN";
+    /**
+     * An {@code onBehalfOf} the sender may not stamp: themselves, someone they do not manage, or a family member
+     * who is not on the trip. Its own code, not {@link #FORBIDDEN}: the client drops the stamp and tells the
+     * sender why, rather than treating the whole send as refused.
+     */
+    public static final String ON_BEHALF_NOT_ALLOWED = "ON_BEHALF_NOT_ALLOWED";
     public static final String BAD_CHANNEL = "BAD_CHANNEL";
     public static final String MESSAGE_EMPTY = "MESSAGE_EMPTY";
     public static final String MESSAGE_TOO_LONG = "MESSAGE_TOO_LONG";
@@ -80,6 +86,7 @@ public final class ChatErrors {
             case "blocked_content" -> BLOCKED_CONTENT;
             case "attachment", "too_many_photos" -> BAD_ATTACHMENT;
             case "forbidden" -> FORBIDDEN;
+            case "on_behalf" -> ON_BEHALF_NOT_ALLOWED;
             case "store" -> STORE_FAILED;
             default -> INTERNAL;
         };

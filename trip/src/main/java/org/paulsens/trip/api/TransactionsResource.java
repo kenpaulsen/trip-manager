@@ -370,8 +370,6 @@ public class TransactionsResource extends BaseResource {
 
     /** Your own ledger, one you manage, or trip finance staff. */
     private boolean canReadFinances(final Person.Id subject, final String tripId) {
-        return subject.equals(personId())
-                || isFinanceStaff(tripId)
-                || privileges().canActFor(findPerson(personId()), subject);
+        return actsFor(subject) || isFinanceStaff(tripId);
     }
 }

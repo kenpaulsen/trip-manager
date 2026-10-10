@@ -148,13 +148,7 @@ public class FamilyResource extends BaseResource {
 
     /** Yourself, someone whose profile you manage, or a site admin -- the family page's own reach rule. */
     private boolean canActFor(final Person.Id subject) {
-        if (subject == null) {
-            return false;
-        }
-        if (subject.equals(personId()) || isSiteAdmin()) {
-            return true;
-        }
-        return privileges().canActFor(findPerson(personId()), subject);
+        return subject != null && (isSiteAdmin() || actsFor(subject));
     }
 
     private FamilyDto familyDto(final FamilyCommands family, final Person subject, final Family row) {

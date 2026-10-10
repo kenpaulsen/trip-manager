@@ -25,6 +25,13 @@ public class ChatErrorsTest {
         Assert.assertEquals(ChatErrors.forSendResult("store"), ChatErrors.STORE_FAILED);
     }
 
+    /** A refused on-behalf stamp is not a refused send: the client keeps the text and drops the stamp. */
+    @Test
+    public void aRefusedOnBehalfStampHasItsOwnCode() {
+        Assert.assertEquals(ChatErrors.forSendResult("on_behalf"), ChatErrors.ON_BEHALF_NOT_ALLOWED);
+        Assert.assertNotEquals(ChatErrors.ON_BEHALF_NOT_ALLOWED, ChatErrors.FORBIDDEN);
+    }
+
     @Test
     public void everyRateLimitTierReportsAsRateLimited() {
         // The limiter names the tier that tripped (burst/sustained/global); the client only needs "429, keep text".

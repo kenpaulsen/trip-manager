@@ -98,7 +98,7 @@ public class ApiCoverageTailTest extends ResourceTestSupport {
     public void aSendWithNoBodyAtAllReachesTheBeanAsNulls() {
         Mockito.when(chat.send(ArgumentMatchers.eq("t1"), ArgumentMatchers.eq(ME), ArgumentMatchers.isNull(),
                 ArgumentMatchers.isNull(), ArgumentMatchers.isNull(), ArgumentMatchers.any(),
-                ArgumentMatchers.anyList()))
+                ArgumentMatchers.anyList(), ArgumentMatchers.isNull()))
                 .thenReturn(ChatCommands.SendResult.fail("empty", "Message is empty"));
 
         assertError(chatResource.send("trip:t1", CSRF_OK, ApiMediaTypes.CHAT_V1, null),
@@ -282,7 +282,7 @@ public class ApiCoverageTailTest extends ResourceTestSupport {
         Mockito.when(trips.getInactiveTrips(ArgumentMatchers.eq(ME), ArgumentMatchers.eq(true),
                 ArgumentMatchers.anyInt(), ArgumentMatchers.eq(30))).thenReturn(List.of());
 
-        assertOk(resource.list("inactive", 30));
+        assertOk(resource.list("inactive", 30, null));
 
         Mockito.verify(trips).getInactiveTrips(ArgumentMatchers.eq(ME), ArgumentMatchers.eq(true),
                 ArgumentMatchers.anyInt(), ArgumentMatchers.eq(30));

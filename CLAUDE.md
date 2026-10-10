@@ -212,9 +212,12 @@ privileges, chat, chat-admin, photo-chat, audit, config, mail, payments, deploy,
 `api/mapper`. Versioning is via the `Accept` media type, not a URL segment.
 
 - The API is the native client's (UniteTrip iOS, `../UniteTrip`) only door, so a page feature the app needs
-  gets a resource that WRAPS the page's bean — never a second implementation. Where a bean only growled,
-  it gained an `*Outcome` sibling that returns a coded result and the page method delegates to it
-  (`FamilyCommands.FamilyResult`, `RegistrationCommands.PartyOutcome`, `ProfilePhotoCommands.PhotoResult`).
+  gets a resource that WRAPS the page's bean — never a second implementation. Person-scoped reads take the
+  SUBJECT explicitly (`?personId=` or the path id) and authorize it with `BaseResource.subjectOf`/`actsFor`
+  (self or `canAccessUserId`; site admin never implied) -- the website's acting-for without a session, and
+  the one spelling of the rule. There is deliberately no act-as header: identity never changes. Where a bean
+  only growled, it gained an `*Outcome` sibling that returns a coded result and the page method delegates to
+  it (`FamilyCommands.FamilyResult`, `RegistrationCommands.PartyOutcome`, `ProfilePhotoCommands.PhotoResult`).
 - Photo uploads on the API are RAW bodies (`image/*` or `application/octet-stream`, crop in query params),
   read through `BaseResource.readUpload`, which refuses over-cap bodies before buffering. The API servlet
   has no `multipart-config` and must not get one (Tomcat's `maxPartCount` counts ordinary fields).

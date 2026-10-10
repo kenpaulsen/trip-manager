@@ -226,7 +226,7 @@ public class ChatResourceTest extends ResourceTestSupport {
         final ChatMessage stored = message("m9");
         Mockito.when(chat.send(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME), ArgumentMatchers.eq("hi"),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(AuditActor.class),
-                ArgumentMatchers.anyList()))
+                ArgumentMatchers.anyList(), ArgumentMatchers.any()))
                 .thenReturn(ChatCommands.SendResult.ok(stored));
 
         final Response response = send("hi");
@@ -240,7 +240,7 @@ public class ChatResourceTest extends ResourceTestSupport {
     public void aRateLimitedSendIs429WithRetryAfterNotATerminalError() {
         Mockito.when(chat.send(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(AuditActor.class),
-                ArgumentMatchers.anyList()))
+                ArgumentMatchers.anyList(), ArgumentMatchers.any()))
                 .thenReturn(ChatCommands.SendResult.fail("rate_limit", "Slow down"));
 
         final Response response = send("spam");
@@ -253,7 +253,7 @@ public class ChatResourceTest extends ResourceTestSupport {
     public void sendFailuresMapToTheStatusTheClientActsOn() {
         Mockito.when(chat.send(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(AuditActor.class),
-                ArgumentMatchers.anyList()))
+                ArgumentMatchers.anyList(), ArgumentMatchers.any()))
                 .thenReturn(ChatCommands.SendResult.fail("muted", "You are muted"))
                 .thenReturn(ChatCommands.SendResult.fail("too_long", "Too long"))
                 .thenReturn(ChatCommands.SendResult.fail("store", "Store failed"));
@@ -261,6 +261,35 @@ public class ChatResourceTest extends ResourceTestSupport {
         assertError(send("a"), 403, ChatErrors.MUTED);
         assertError(send("b"), 400, ChatErrors.MESSAGE_TOO_LONG);
         assertError(send("c"), 500, ChatErrors.STORE_FAILED);
+    }
+
+    /** The on-behalf stamp rides the body as {@code onBehalfOf}; the author stays the bearer principal. */
+    @Test
+    public void sendForwardsOnBehalfOfToTheBean() {
+        final Person.Id lucy = Person.Id.from("chat-lucy");
+        final ChatMessage stored = message("m10");
+        Mockito.when(chat.send(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME), ArgumentMatchers.eq("hi"),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(AuditActor.class),
+                ArgumentMatchers.anyList(), ArgumentMatchers.eq(lucy)))
+                .thenReturn(ChatCommands.SendResult.ok(stored));
+
+        final Response response = resource.send(CHANNEL, CSRF_OK, ApiMediaTypes.CHAT_V1,
+                Map.of("body", "hi", "onBehalfOf", lucy.getValue()));
+
+        assertOk(response);
+        Assert.assertSame(response.getEntity(), stored);
+    }
+
+    /** Its own 403 code: the client drops the stamp and explains, rather than treating the send as refused. */
+    @Test
+    public void anOnBehalfRefusalIs403WithItsOwnCode() {
+        Mockito.when(chat.send(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(AuditActor.class),
+                ArgumentMatchers.anyList(), ArgumentMatchers.any()))
+                .thenReturn(ChatCommands.SendResult.fail("on_behalf", "That person is not on this trip."));
+
+        assertError(resource.send(CHANNEL, CSRF_OK, ApiMediaTypes.CHAT_V1,
+                Map.of("body", "hi", "onBehalfOf", "someone")), 403, ChatErrors.ON_BEHALF_NOT_ALLOWED);
     }
 
     // --- delete and edit ---
@@ -885,7 +914,8 @@ public class ChatResourceTest extends ResourceTestSupport {
     @Test
     public void aBlockedWordIsA400OnSendAndEdit() {
         Mockito.when(chat.send(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME), ArgumentMatchers.any(),
-                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any()))
                 .thenReturn(ChatCommands.SendResult.fail("blocked_content", ChatCommands.BLOCKED_CONTENT_MESSAGE));
         assertError(send("darn"), 400, ChatErrors.BLOCKED_CONTENT);
         Mockito.when(chat.editMessage(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME), ArgumentMatchers.any(),

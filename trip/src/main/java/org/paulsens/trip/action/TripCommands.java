@@ -1223,10 +1223,14 @@ public class TripCommands {
     /**
      * The family case the old FIXME declined: a parent whose kid is on the trip -- but not themselves -- may
      * see the trip. Resolved through {@code managedUsers} (kept in sync from the family row), so admin-granted
-     * visibility rides along identically.
+     * visibility rides along identically. Public because the REST trip reads apply the same rule
+     * ({@code TripsResource.canRead}); the app's "acting as" would otherwise 403 a manager without a seat.
      */
-    private boolean managesSomeoneOn(final Trip trip, final Person.Id userId) {
+    public boolean managesSomeoneOn(final Trip trip, final Person.Id userId) {
         final Person person = PersonCommands.getPersonCommands().getPerson(userId);
+        if (trip == null || person == null) {
+            return false;
+        }
         for (final Person.Id managedId : person.getManagedUsers()) {
             if (trip.getPeople().contains(managedId)) {
                 return true;

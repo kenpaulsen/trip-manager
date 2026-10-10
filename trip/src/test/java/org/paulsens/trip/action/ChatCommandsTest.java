@@ -528,6 +528,136 @@ public class ChatCommandsTest {
                 "/trip/tripContacts.jsf");
     }
 
+    // --- posting on behalf of a family member ---
+
+    /** The stamp names the member; the author, and everything keyed on the author, stays the manager. */
+    @Test
+    public void anOnBehalfPostIsStampedAndAuthoredByTheSender() throws IOException {
+        final Person ken = savedPerson("Ken");
+        final Person lucy = savedPerson("Lucy");
+        manages(ken, lucy);
+        final String tripId = seedRosterTrip(ken.getId(), lucy.getId());
+        chat.ensureChannel(tripId, actor);
+
+        final ChatCommands.SendResult sent = chat.send(tripId, ken.getId(), "Lucy will be late", null, null,
+                actor, List.of(), lucy.getId());
+
+        Assert.assertTrue(sent.isOk(), "send failed with " + sent.getCode() + ": " + sent.getMessage());
+        Assert.assertEquals(sent.getMessageObj().getAuthorId(), ken.getId(), "the author is the signed-in sender");
+        Assert.assertEquals(sent.getMessageObj().getOnBehalfOfId(), lucy.getId());
+        Assert.assertTrue(DAO.getInstance()
+                .getChatMembership(ChatChannel.Id.forTrip(tripId), lucy.getId(), Cached.NO).isEmpty(),
+                "the stamp writes no membership row for the member");
+    }
+
+    @Test
+    public void onBehalfOfYourselfIsRefused() throws IOException {
+        final Person ken = savedPerson("Ken");
+        final String tripId = seedRosterTrip(ken.getId());
+        chat.ensureChannel(tripId, actor);
+
+        final ChatCommands.SendResult sent = chat.send(tripId, ken.getId(), "hi", null, null, actor, List.of(),
+                ken.getId());
+
+        Assert.assertFalse(sent.isOk());
+        Assert.assertEquals(sent.getCode(), "on_behalf");
+    }
+
+    @Test
+    public void onBehalfOfSomeoneYouDoNotManageIsRefused() throws IOException {
+        final Person ken = savedPerson("Ken");
+        final Person stranger = savedPerson("Stranger");
+        final String tripId = seedRosterTrip(ken.getId(), stranger.getId());
+        chat.ensureChannel(tripId, actor);
+
+        final ChatCommands.SendResult sent = chat.send(tripId, ken.getId(), "hi", null, null, actor, List.of(),
+                stranger.getId());
+
+        Assert.assertFalse(sent.isOk(), "being on the same trip is not managing someone");
+        Assert.assertEquals(sent.getCode(), "on_behalf");
+    }
+
+    /** A managed member who is not (yet) a traveler on this trip cannot be spoken for in its chat. */
+    @Test
+    public void onBehalfOfAMemberNotOnTheRosterIsRefused() throws IOException {
+        final Person ken = savedPerson("Ken");
+        final Person lucy = savedPerson("Lucy");
+        manages(ken, lucy);
+        final String tripId = seedRosterTrip(ken.getId());
+        chat.ensureChannel(tripId, actor);
+
+        final ChatCommands.SendResult sent = chat.send(tripId, ken.getId(), "hi", null, null, actor, List.of(),
+                lucy.getId());
+
+        Assert.assertFalse(sent.isOk());
+        Assert.assertEquals(sent.getCode(), "on_behalf");
+        Assert.assertEquals(sent.getMessage(), "That person is not on this trip.");
+    }
+
+    /** The stamped member rarely posts, so the page's names map must carry them or the byline shows an id. */
+    @Test
+    public void theNamesMapCoversTheOnBehalfPerson() throws IOException {
+        final Person ken = savedPerson("Ken");
+        final Person lucy = savedPerson("Lucy");
+        manages(ken, lucy);
+        final String tripId = seedRosterTrip(ken.getId(), lucy.getId());
+        chat.ensureChannel(tripId, actor);
+        final ChatCommands.SendResult sent = chat.send(tripId, ken.getId(), "hi", null, null, actor, List.of(),
+                lucy.getId());
+        Assert.assertTrue(sent.isOk(), sent.getCode());
+
+        final ChatPage page = chat.feed(tripId, ken.getId(), null, 50);
+
+        Assert.assertEquals(page.getDisplayNames().get(lucy.getId().getValue()), "Lucy");
+        Assert.assertEquals(page.getDisplayNames().get(ken.getId().getValue()), "Ken");
+    }
+
+    /** A quote says whose words these are; the stamp stays visible on the original, not in the quote. */
+    @Test
+    public void replyQuotesNameTheAuthorOnly() throws IOException {
+        final Person ken = savedPerson("Ken");
+        final Person lucy = savedPerson("Lucy");
+        manages(ken, lucy);
+        final String tripId = seedRosterTrip(ken.getId(), lucy.getId());
+        chat.ensureChannel(tripId, actor);
+        final ChatCommands.SendResult original = chat.send(tripId, ken.getId(), "Lucy will be late", null, null,
+                actor, List.of(), lucy.getId());
+        Assert.assertTrue(original.isOk(), original.getCode());
+
+        final ChatCommands.SendResult reply = chat.send(tripId, ken.getId(), "noted",
+                null, original.getMessageObj().getId(), actor);
+
+        Assert.assertTrue(reply.isOk(), reply.getCode());
+        Assert.assertEquals(reply.getMessageObj().getQuote().getAuthorName(), "Ken");
+        Assert.assertNull(reply.getMessageObj().getOnBehalfOfId(), "an unstamped reply carries no stamp");
+    }
+
+    private Person savedPerson(final String first) throws IOException {
+        final Person person = Person.builder().first(first).last("Chat")
+                .email(first.toLowerCase() + "-" + System.nanoTime() + "@example.com").build();
+        Assert.assertTrue(DAO.getInstance().savePerson(person), "test setup: save person");
+        return person;
+    }
+
+    private void manages(final Person manager, final Person member) throws IOException {
+        manager.getManagedUsers().add(member.getId());
+        Assert.assertTrue(DAO.getInstance().savePerson(manager), "test setup: grant managedUsers");
+    }
+
+    /** A trip of its own with exactly these people on the roster. */
+    private String seedRosterTrip(final Person.Id... people) throws IOException {
+        final String id = java.util.UUID.randomUUID().toString();
+        Assert.assertTrue(DAO.getInstance().saveTrip(Trip.builder()
+                .id(id)
+                .title("On-behalf trip")
+                .openToPublic(false)
+                .startDate(LocalDateTime.now())
+                .endDate(LocalDateTime.now().plusDays(14))
+                .people(new ArrayList<>(List.of(people)))
+                .build()), "test setup: save roster trip");
+        return id;
+    }
+
     /** A trip of its own with {@code member} on the roster, so the date window can be varied per test. */
     private String seedDatedTrip(final Person.Id member, final LocalDateTime start, final LocalDateTime end)
             throws IOException {

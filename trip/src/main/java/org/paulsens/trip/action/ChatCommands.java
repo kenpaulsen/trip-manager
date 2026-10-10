@@ -838,8 +838,8 @@ public class ChatCommands {
      * {@code authorId} MUST be the signed-in user. Every current caller passes exactly that, and two checks in
      * this path (the ADMINS_ONLY post policy and the @all allowance exemption) resolve adminship through
      * {@code Caller.current()} -- so an authorId that is not the caller would have its membership and mute
-     * checked as one person and its adminship as another. If sending on someone's behalf is ever needed, that
-     * caller must bring its own authorization design, not this method.
+     * checked as one person and its adminship as another. Posting FOR someone else is the on-behalf stamp
+     * (the eight-argument overload), never a substituted authorId.
      */
     public SendResult send(
             final String tripId,
@@ -848,7 +848,7 @@ public class ChatCommands {
             final String clientMessageId,
             final ChatMessage.Id replyToId,
             final AuditActor actor) {
-        return send(tripId, authorId, body, clientMessageId, replyToId, actor, List.of());
+        return send(tripId, authorId, body, clientMessageId, replyToId, actor, List.of(), null);
     }
 
     /**
@@ -864,6 +864,23 @@ public class ChatCommands {
             final ChatMessage.Id replyToId,
             final AuditActor actor,
             final List<ChatPhotos.AttachmentRef> attachmentRefs) {
+        return send(tripId, authorId, body, clientMessageId, replyToId, actor, attachmentRefs, null);
+    }
+
+    /**
+     * As above, optionally posted ON BEHALF OF a family member -- the ONE sanctioned way to post for someone
+     * else. The message stays authored by the signed-in user (membership, mute, rate limit, staged photos and
+     * adminship are all theirs) and carries a stamp naming the member; see {@link ChatOnBehalf}.
+     */
+    public SendResult send(
+            final String tripId,
+            final Person.Id authorId,
+            final String body,
+            final String clientMessageId,
+            final ChatMessage.Id replyToId,
+            final AuditActor actor,
+            final List<ChatPhotos.AttachmentRef> attachmentRefs,
+            final Person.Id onBehalfOfId) {
         final AuditActor who = actor != null ? actor : AuditActor.current();
         final Instant now = Instant.now();
         final ChatChannel channel = ensureChannel(tripId, who);
@@ -873,6 +890,11 @@ public class ChatCommands {
         final SendResult denial = postDenial(channel, authorId, row, now);
         if (denial != null) {
             return denial;
+        }
+        final Trip trip = tripOf(channel);
+        final SendResult onBehalfDenial = ChatOnBehalf.denial(trip, authorId, onBehalfOfId);
+        if (onBehalfDenial != null) {
+            return onBehalfDenial;
         }
         final List<ChatAttachment> attachments;
         if (attachmentRefs == null || attachmentRefs.isEmpty()) {
@@ -927,11 +949,10 @@ public class ChatCommands {
             return SendResult.rateLimited(decision);
         }
 
-        final Trip trip = tripOf(channel);
         ChatQuote quote = null;
         if (replyToId != null) {
             final Optional<ChatMessage> original = dao().getVisibleChatMessage(
-                    channel.getId(), replyToId, row, channel, tripOf(channel), now, Cached.NO);
+                    channel.getId(), replyToId, row, channel, trip, now, Cached.NO);
             if (original.isPresent()) {
                 final Person author = PersonCommands.getPersonCommands().getPerson(original.get().getAuthorId());
                 final String name = author == null ? "Someone" : author.getPreferredName();
@@ -940,7 +961,7 @@ public class ChatCommands {
         }
 
         final ChatMessage draft = new ChatMessage(
-                null, channel.getId(), authorId, null,
+                null, channel.getId(), authorId, onBehalfOfId, null,
                 attachments.isEmpty() ? ChatMessage.MessageKind.TEXT : ChatMessage.MessageKind.MEDIA,
                 text, quote, attachments, null,
                 null, null, null, null, clientMessageId, null);
@@ -973,7 +994,7 @@ public class ChatCommands {
             photos.consume(stored.getAttachments());
             photos.recordAlbumRows(tripId,
                     trip == null || trip.getTitle() == null ? "trip" : trip.getTitle(),
-                    authorId, authorDisplayName(authorId), stored.getAttachments(), who);
+                    authorId, ChatOnBehalf.authorName(authorId), stored.getAttachments(), who);
             // Eager per-photo comment channels, while the parent (this message) is simply known — a channel
             // created later, from the album, would have to scan the trip's history to find it.
             PhotoChatCommands.getPhotoChatCommands().ensureChannelsForMessage(stored, who);
@@ -983,11 +1004,11 @@ public class ChatCommands {
             // the sender rather than done quietly, because someone who thinks their @all reached inboxes and finds
             // out later that it did not is worse off than someone who is told now.
             ChatNotifications.mentionsFor(
-                    withoutEveryone(stored), channel, trip, authorDisplayName(authorId));
+                    withoutEveryone(stored), channel, trip, ChatOnBehalf.byline(stored));
             return SendResult.ok(stored, "Only one @all a day is emailed. This one is posted in the chat, but "
                     + "nobody was emailed about it. Please use @all sparingly.");
         }
-        ChatNotifications.mentionsFor(stored, channel, trip, authorDisplayName(authorId));
+        ChatNotifications.mentionsFor(stored, channel, trip, ChatOnBehalf.byline(stored));
         return SendResult.ok(stored);
     }
 
@@ -1133,6 +1154,10 @@ public class ChatCommands {
             if (m.getAuthorId() != null) {
                 ids.add(m.getAuthorId().getValue());
             }
+            if (m.getOnBehalfOfId() != null) {
+                // The stamped member is frequently NOT an author on the page (a child with no login never posts).
+                ids.add(m.getOnBehalfOfId().getValue());
+            }
             if (m.getQuote() != null && m.getQuote().getAuthorId() != null) {
                 ids.add(m.getQuote().getAuthorId().getValue());
             }
@@ -1151,29 +1176,9 @@ public class ChatCommands {
         final PersonCommands people = PersonCommands.getPersonCommands();
         final Map<String, String> names = new LinkedHashMap<>();
         for (final String id : ids) {
-            names.put(id, displayNameOrId(people, id));
+            names.put(id, ChatOnBehalf.displayNameOrId(people, id));
         }
         return page.withDisplayNames(names);
-    }
-
-    /**
-     * A person's display name, falling back to their id.
-     *
-     * <p>The fallback covers a null name, not just a missing person. {@code Person.getPreferredName()} returns
-     * {@code first} when there is no nickname, and {@code first} is nullable — so a person with neither would put a
-     * null into the display-name map, and {@code Map.copyOf} in the {@code ChatPage} constructor rejects null
-     * values. That threw inside the feed, which means <b>one such person on a trip 500s the chat for everyone on
-     * it</b>, not just for themselves.
-     */
-    private static String displayNameOrId(final PersonCommands people, final String id) {
-        final Person person = people.getPerson(Person.Id.from(id));
-        final String name = person == null ? null : person.getPreferredName();
-        return name == null || name.isBlank() ? id : name;
-    }
-
-    /** The author's name for a notification subject line, resolved on the request thread while people are cheap. */
-    private String authorDisplayName(final Person.Id authorId) {
-        return authorId == null ? "Someone" : displayNameOrId(PersonCommands.getPersonCommands(), authorId.getValue());
     }
 
     private static void addReactorIds(final Set<String> ids, final ChatReactionSummary summary) {
@@ -1193,7 +1198,7 @@ public class ChatCommands {
         final PersonCommands people = PersonCommands.getPersonCommands();
         final Map<String, String> names = new LinkedHashMap<>();
         for (final String id : ids) {
-            names.put(id, displayNameOrId(people, id));
+            names.put(id, ChatOnBehalf.displayNameOrId(people, id));
         }
         return names;
     }
@@ -2234,7 +2239,7 @@ public class ChatCommands {
         if (who == null || who.id() == null) {
             return who == null || who.email() == null ? "an administrator" : who.email();
         }
-        return displayNameOrId(PersonCommands.getPersonCommands(), who.id());
+        return ChatOnBehalf.displayNameOrId(PersonCommands.getPersonCommands(), who.id());
     }
 
     /**
@@ -2782,7 +2787,10 @@ public class ChatCommands {
         final Object attachRaw = ScopeUtil.getInstance().getViewMap("chatAttachments");
         final List<ChatPhotos.AttachmentRef> refs =
                 ChatPhotos.parseRefs(attachRaw instanceof String json ? json : null);
-        final SendResult result = send(tripId, me, body, clientId, replyId, AuditActor.current(), refs);
+        // The topbar switcher's selection stamps the post; getActingFor validates reach and self-clears a stale
+        // pick, so a selection the manager can no longer act for yields null, never a refusal.
+        final Person.Id onBehalfOf = PersonCommands.getPersonCommands().getActingFor();
+        final SendResult result = send(tripId, me, body, clientId, replyId, AuditActor.current(), refs, onBehalfOf);
         if (result.isOk()) {
             final FacesContext ctx = FacesContext.getCurrentInstance();
             if (ctx != null && ctx.getViewRoot() != null) {

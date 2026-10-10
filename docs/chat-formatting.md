@@ -87,6 +87,10 @@ parse-tree dump, not HTML.
 
 - Existing messages that happen to contain a valid marker pair (`*please* read`) now render formatted. That
   is the intended reading of such text.
+- The "Ken on behalf of Lucy" byline on a family manager's post is NOT body markup: `ChatMessage.onBehalfOfId`
+  travels beside `authorId`, and each surface composes the byline from the two ids and the page's
+  `displayNames` (`ChatOnBehalf.byline` for mail/push, `ChatDigestSender.authorName`, the site's
+  `renderMessage`, the apps' row builders). Reply quotes name the author only.
 - The 200-code-point notification snippet (`ChatNotifications.snippet`) is cut before rendering, so a pair
   cut in half renders as its literal marker; harmless and rare.
 - The website's "Edit message" dialog shows the stored body (tokens and markers) and gets the shortcuts,

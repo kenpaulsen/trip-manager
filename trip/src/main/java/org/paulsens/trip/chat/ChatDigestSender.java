@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.action.ChatOnBehalf;
 import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.action.MailCommands;
@@ -337,9 +338,12 @@ public class ChatDigestSender {
         if (message.getAuthorId() == null) {
             return "System";
         }
-        final Person person = people.getPerson(message.getAuthorId());
-        final String name = person == null ? null : person.getPreferredName();
-        return name == null || name.isBlank() ? message.getAuthorId().getValue() : name;
+        final String author = ChatOnBehalf.displayNameOrId(people, message.getAuthorId().getValue());
+        if (message.getOnBehalfOfId() == null) {
+            return author;
+        }
+        return author + ChatOnBehalf.JOINER
+                + ChatOnBehalf.displayNameOrId(people, message.getOnBehalfOfId().getValue());
     }
 
     /**

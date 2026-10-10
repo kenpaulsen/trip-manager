@@ -191,6 +191,27 @@ public class ChatDigestSenderTest {
         Assert.assertTrue(body.getValue().contains("<b>Bus</b> at 7<ul><li>&lt;water&gt;</li></ul>"), body.getValue());
     }
 
+    /** A manager's post for a member names both, composed from the ids -- the same words mail and push use. */
+    @Test
+    public void aPostOnBehalfOfAMemberNamesBothInTheDigest() throws Exception {
+        final Person ken = Person.builder().first("Ken").last("Digest").build();
+        final Person lucy = Person.builder().first("Lucy").last("Digest").build();
+        Assert.assertTrue(DAO.getInstance().savePerson(ken));
+        Assert.assertTrue(DAO.getInstance().savePerson(lucy));
+        personIsReachable();
+        mailAnswers(SendEmailResponse.builder().messageId("ses-4").build());
+        final ChatMessage stamped = new ChatMessage(ChatMessage.Id.from("102"), ChatChannel.Id.forTrip("t1"),
+                ken.getId(), lucy.getId(), Instant.now(), null, "Lucy will be late", null, null, null, null,
+                null, null, null, null, null);
+
+        Assert.assertTrue(sender.send(candidate(pageOf(stamped))));
+
+        final org.mockito.ArgumentCaptor<String> body = org.mockito.ArgumentCaptor.forClass(String.class);
+        Mockito.verify(mail).send(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), body.capture(), ArgumentMatchers.any(AuditActor.class));
+        Assert.assertTrue(body.getValue().contains("<b>Ken on behalf of Lucy</b>"), body.getValue());
+    }
+
     @Test
     public void aConfirmedSendAdvancesTheWatermark() {
         personIsReachable();

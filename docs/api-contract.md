@@ -37,11 +37,20 @@ LocalDateTime `2026-09-12T17:31:30.025` (no zone), LocalDate `2026-09-12`.
 
 ## Trips
 
-- `GET /api/trips?filter=mine&limit=` → `[TripDto]` (no events), filtered by request host.
-- `GET /api/trips/{id}` → `TripDto` with `tripEvents` (viewer-relative `participating`, `privNote`).
-- `GET /api/trips/{id}/events`, `GET .../events/{eid}`, `GET .../events/{eid}/lodging` → `{arrival, departure, nights}`.
+- `GET /api/trips?filter=mine&limit=[&personId=]` → `[TripDto]` (no events), filtered by request host.
+- `GET /api/trips/{id}[?personId=]` → `TripDto` with `tripEvents` (subject-relative `participating`, `privNote`).
+- `GET /api/trips/{id}/events[?personId=]`, `GET .../events/{eid}[?personId=]`,
+  `GET .../events/{eid}/lodging[?personId=]` → `{arrival, departure, nights}`.
 - `PUT /api/trips/{id}/events/participation?personId=` `{eventIds:[...]}` → `[TripEventDto]` — **replaces** the set.
 - `PUT /api/trips/{id}/events/{eid}/note?personId=` `{note}` → `TripEventDto`.
+
+**Acting as a family member (2026-10-10).** `personId` on the reads above names the SUBJECT: yourself (omit it),
+or someone you manage (`Person.managedUsers`, the family switcher's reach; trip staff on the per-trip reads; a
+site admin on the list), else 403 `FORBIDDEN`. `participating`, `privNote` and the lodging row are then the
+subject's own, as the website shows them under "Viewing: X". Identity never changes: there is no act-as header
+and no token change, the bearer stays the manager. A manager of someone on the roster may read the trip (and its
+roster, events, lodging) without a seat of their own -- the website's `canSeeTrip` rule, on the API since this
+date. Chat posts while acting carry `onBehalfOf` (Chat section).
 
 `TripDto`: id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit, provider,
 orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl, nonHostedTripUrl,
@@ -129,8 +138,14 @@ is null when the org has no slug; `branding.palette` is null when the org never 
 See the plan and the backend docs; wired in the next phases. Chat: `GET /api/chat/my-channels` (`unread` is a boolean);
 `/api/chat/channels/trip:{tripId}/messages?since&before&order=newest&wait≤25&limit&rver&mver`;
 `POST messages` with `Content-Type: application/vnd.trip.chat.v1+json` `{body, clientMessageId, replyTo,
-attachments[{key,title,hidden}]}`. A page carries `displayNames` AND `avatars`, both keyed by personId and
-covering the same people (authors, quote authors, mentions, reactors): `avatars` holds an absolute profile
+attachments[{key,title,hidden}], onBehalfOf?}`. `onBehalfOf` (2026-10-10) is a family manager acting as a
+member: the message is still authored by the caller (membership, mute, rate limit, photos, adminship are all
+theirs) and comes back with `onBehalfOfId` set; every client renders the byline "Author on behalf of Member"
+from the two ids and the page's `displayNames`. Allowed only for someone the caller manages who is on the
+trip's roster; else 403 `ON_BEHALF_NOT_ALLOWED` (drop the stamp and tell the sender, the text is not refused).
+Edits and deletes keep the stamp; reply quotes name the author only. A page carries `displayNames` AND
+`avatars`, both keyed by personId and covering the same people (authors, on-behalf members, quote authors,
+mentions, reactors): `avatars` holds an absolute profile
 picture URL, and someone with no picture is ABSENT rather than mapped to null or "" — a named person with no
 entry is the signal to draw their initials (and to forget a picture that person has since deleted). The photo
 thread (`GET /api/photo-chat/thread`) carries the same two maps. Chat photos: `POST /api/chat/channels/trip:{tripId}/photos` with a raw
@@ -184,7 +199,8 @@ Simulator recipe (no server needed): save a payload as `push.apns` with a top-le
 `NOT_AUTHENTICATED`(401) `FORBIDDEN`(403) `NOT_FOUND`(404) `BAD_REQUEST`/`VALIDATION_FAILED`(400/422)
 `CONFLICT`(409) `RATE_LIMITED`(429 + Retry-After) `STORE_FAILED`/`INTERNAL`(500). Chat adds
 `NOT_A_TRIP_MEMBER, LEFT_CHANNEL, REMOVED_FROM_CHANNEL, CHANNEL_ARCHIVED, CHAT_DISABLED, MUTED, SLOW_MODE,
-BAD_CHANNEL, MESSAGE_EMPTY, MESSAGE_TOO_LONG, BAD_ATTACHMENT, EDIT_WINDOW_CLOSED, EDIT_DISABLED`.
+BAD_CHANNEL, MESSAGE_EMPTY, MESSAGE_TOO_LONG, BAD_ATTACHMENT, EDIT_WINDOW_CLOSED, EDIT_DISABLED,
+ON_BEHALF_NOT_ALLOWED`.
 
 ## Curl recipes (local container)
 
@@ -211,6 +227,11 @@ curl -s -H "$H" -X POST -H 'Content-Type: image/jpeg' --data-binary @pic.jpg \
 curl -s -H "$H" -X POST -H 'Content-Type: application/json' \
   -d "{\"travelers\":[{\"personId\":\"$ME\",\"options\":{}}]}" \
   http://localhost:8080/api/trips/$T/registrations/party
+# acting as a family member (user2 = Ken manages Lucy, who is on the Spring Demo roster)
+LUCY=$(curl -s -H "$H" http://localhost:8080/api/family | jq -r '.members[]|select(.first=="Lucy").id')
+curl -s -H "$H" -X POST -H 'Content-Type: application/vnd.trip.chat.v1+json' \
+  -d "{\"body\":\"Lucy will be late\",\"onBehalfOf\":\"$LUCY\"}" \
+  http://localhost:8080/api/chat/channels/trip:$T/messages | jq '{authorId, onBehalfOfId}'
 ```
 
 ## Moderation, blocking, account deletion (2026-09-13; backend `docs/moderation.md`)

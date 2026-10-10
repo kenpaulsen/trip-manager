@@ -292,10 +292,14 @@ public class ChatResource extends BaseResource {
                 ? null : ChatMessage.Id.from(replyTo);
         final List<ChatPhotos.AttachmentRef> attachments =
                 parseAttachments(body == null ? null : body.get("attachments"));
+        // A family manager acting as a member stamps the post; the author is still the bearer principal.
+        final String onBehalfOf = body == null ? null : string(body.get("onBehalfOf"));
+        final Person.Id onBehalfOfId = onBehalfOf == null || onBehalfOf.isBlank()
+                ? null : Person.Id.from(onBehalfOf);
 
         final ChatCommands chat = ChatCommands.getChatCommands();
         final ChatCommands.SendResult result = chat.send(
-                tripId, me, text, clientMessageId, replyId, actor(), attachments);
+                tripId, me, text, clientMessageId, replyId, actor(), attachments, onBehalfOfId);
         if (result.isOk()) {
             return ok(result.getMessageObj());
         }
@@ -312,7 +316,7 @@ public class ChatResource extends BaseResource {
                     .build();
         }
         if (ChatErrors.MUTED.equals(code) || ChatErrors.FORBIDDEN.equals(code)
-                || ChatErrors.CHANNEL_ARCHIVED.equals(code)) {
+                || ChatErrors.CHANNEL_ARCHIVED.equals(code) || ChatErrors.ON_BEHALF_NOT_ALLOWED.equals(code)) {
             return error(403, code, message);
         }
         if (ChatErrors.MESSAGE_EMPTY.equals(code) || ChatErrors.MESSAGE_TOO_LONG.equals(code)

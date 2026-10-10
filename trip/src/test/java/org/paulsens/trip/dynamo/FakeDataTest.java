@@ -2,6 +2,8 @@ package org.paulsens.trip.dynamo;
 
 import java.util.List;
 import java.util.Map;
+import org.paulsens.trip.model.Family;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Trip;
@@ -38,6 +40,27 @@ public class FakeDataTest {
         final List<Person> people = FakeData.getFakePeople();
         assertNotNull(people);
         assertFalse(people.isEmpty());
+    }
+
+    /** The family switcher needs a member with something to show: Lucy travels on the Spring Demo trip. */
+    @Test
+    public void lucyTravelsOnTheSpringDemoTrip() {
+        // Seed first: initFakeData only builds the lists, and another suite may have cleared the store.
+        FakeData.addFakeData();
+        final Person ken = DAO.getInstance().getPersonByEmail("user2@example.com", Cached.NO);
+        assertNotNull(ken, "the seed's family manager");
+        final Family family = DAO.getInstance().getFamily(ken.getFamilyId(), Cached.NO).orElseThrow();
+        final Person lucy = family.getMemberIds().stream()
+                .map(id -> DAO.getInstance().getPerson(id, Cached.NO).orElse(null))
+                .filter(p -> p != null && "Lucy".equals(p.getFirst()))
+                .findFirst().orElseThrow();
+        final Trip trip = DAO.getInstance().getTrip(FakeData.FAKE_TRIP_ID, Cached.NO).orElseThrow();
+
+        assertTrue(trip.getPeople().contains(lucy.getId()), "Lucy holds a roster seat");
+        assertTrue(trip.getTripEvent(FakeData.FAKE_TRIP_LODGING_EVENT_ID).getParticipants().contains(lucy.getId()),
+                "...and stays at the hotel");
+        assertTrue(lucy.getOrgIds().contains(Organization.Id.from(FakeData.CFPW_ORG_ID)),
+                "...and is tenanted like every other fake person, so API roster writes keep her");
     }
 
     @Test

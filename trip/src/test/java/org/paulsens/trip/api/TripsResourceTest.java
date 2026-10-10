@@ -33,13 +33,31 @@ public class TripsResourceTest extends ResourceTestSupport {
     private static final String TRIP_ID = "trip-1";
 
     private TripCommands trips;
+    private PersonCommands people;
     private TripsResource resource;
 
     @BeforeMethod
     public void bindBeans() {
         trips = bindMock(TripCommands.class);
-        bindMock(PersonCommands.class);
+        people = bindMock(PersonCommands.class);
         resource = resource(new TripsResource());
+    }
+
+    /** ME manages OTHER: the family switcher's reach, as {@code ApiPrivileges.canActFor} resolves it. */
+    private void meManages(final Person.Id managed) {
+        final Person me = new Person();
+        me.setId(ME);
+        Mockito.when(people.getPerson(ME)).thenReturn(me);
+        Mockito.when(people.canAccessUserId(me, managed)).thenReturn(true);
+    }
+
+    /** An event OTHER participates in, carrying OTHER's private note (and none of ME's). */
+    private static TripEvent othersEvent(final String id) {
+        final TripEvent event = new TripEvent(id, TripEvent.Type.FLIGHT, "Return", "notes",
+                LocalDateTime.now().plusDays(40), null, null, null);
+        event.getParticipants().add(OTHER);
+        event.getPrivNotes().put(OTHER, "window seat for the kid");
+        return event;
     }
 
     private static Trip trip(final String id, final Person.Id... members) {
@@ -70,7 +88,7 @@ public class TripsResourceTest extends ResourceTestSupport {
     public void anUnknownFilterIs400() {
         signedInAs(ME);
 
-        assertError(resource.list("everything", 50), 400, ApiErrors.BAD_REQUEST);
+        assertError(resource.list("everything", 50, null), 400, ApiErrors.BAD_REQUEST);
     }
 
     @Test
@@ -78,7 +96,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         Mockito.when(trips.getTripsForUser(ME)).thenReturn(List.of(trip(TRIP_ID, ME)));
 
-        final Response response = resource.list("mine", 50);
+        final Response response = resource.list("mine", 50, null);
 
         assertOk(response);
         Assert.assertEquals(((List<?>) response.getEntity()).size(), 1);
@@ -91,7 +109,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         Mockito.when(trips.getActiveTrips(ArgumentMatchers.anyInt()))
                 .thenReturn(List.of(trip("mine-1", ME), trip("not-mine", OTHER)));
 
-        final Response response = resource.list("active", 50);
+        final Response response = resource.list("active", 50, null);
 
         assertOk(response);
         final List<?> visible = (List<?>) response.getEntity();
@@ -105,7 +123,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         Mockito.when(trips.getPublicTrips()).thenReturn(List.of(trip("open-1", OTHER)));
 
-        final Response response = resource.list("open", 50);
+        final Response response = resource.list("open", 50, null);
 
         assertOk(response);
         final List<?> visible = (List<?>) response.getEntity();
@@ -119,7 +137,120 @@ public class TripsResourceTest extends ResourceTestSupport {
         Mockito.when(trips.getActiveTrips(ArgumentMatchers.anyInt()))
                 .thenReturn(List.of(trip("mine-1", ME), trip("not-mine", OTHER)));
 
-        Assert.assertEquals(((List<?>) resource.list("active", 50).getEntity()).size(), 2);
+        Assert.assertEquals(((List<?>) resource.list("active", 50, null).getEntity()).size(), 2);
+    }
+
+    // --- acting as a family member: the subject travels as ?personId= ---
+
+    @Test
+    public void mineListsTheManagedMembersTripsWhenAskedFor() {
+        signedInAs(ME);
+        meManages(OTHER);
+        final Trip kidsTrip = trip("kid-trip", OTHER);
+        Mockito.when(trips.getTripsForUser(OTHER)).thenReturn(List.of(kidsTrip));
+        Mockito.when(trips.managesSomeoneOn(kidsTrip, ME)).thenReturn(true);
+
+        final Response response = resource.list("mine", 50, OTHER.getValue());
+
+        assertOk(response);
+        final List<?> visible = (List<?>) response.getEntity();
+        Assert.assertEquals(visible.size(), 1);
+        Assert.assertEquals(((TripDto) visible.get(0)).id(), "kid-trip");
+        Mockito.verify(trips, Mockito.never()).getTripsForUser(ME);
+    }
+
+    @Test
+    public void mineRefusesAStrangerAsSubject() {
+        signedInAs(ME);
+
+        assertError(resource.list("mine", 50, OTHER.getValue()), 403, ApiErrors.FORBIDDEN);
+        Mockito.verify(trips, Mockito.never()).getTripsForUser(ArgumentMatchers.any());
+    }
+
+    /** The website's canSeeTrip rule, now on the API: a parent reads the kid's trip without a seat of their own. */
+    @Test
+    public void aManagerReadsAMembersTripWithoutARosterSeat() {
+        signedInAs(ME);
+        meManages(OTHER);
+        final Trip trip = trip(TRIP_ID, OTHER);
+        trip.getTripEvents().clear();
+        trip.getTripEvents().add(othersEvent("evt-2"));
+        tripExists(trip);
+        Mockito.when(trips.managesSomeoneOn(trip, ME)).thenReturn(true);
+
+        assertOk(resource.get(TRIP_ID, null));
+        final Response events = resource.events(TRIP_ID, OTHER.getValue());
+
+        assertOk(events);
+        @SuppressWarnings("unchecked")
+        final TripEventDto event = ((List<TripEventDto>) events.getEntity()).get(0);
+        Assert.assertEquals(event.participating(), Boolean.TRUE, "the subject's participation, not the caller's");
+        Assert.assertEquals(event.privNote(), "window seat for the kid", "the subject's own note, as on the website");
+    }
+
+    @Test
+    public void eventsCarryTheSubjectsParticipationAndNote() {
+        signedInAs(ME);
+        meManages(OTHER);
+        final Trip trip = trip(TRIP_ID, ME, OTHER);
+        trip.getTripEvents().add(othersEvent("evt-2"));
+        tripExists(trip);
+
+        @SuppressWarnings("unchecked")
+        final List<TripEventDto> mine = (List<TripEventDto>) resource.events(TRIP_ID, null).getEntity();
+        @SuppressWarnings("unchecked")
+        final List<TripEventDto> kids = (List<TripEventDto>) resource.events(TRIP_ID, OTHER.getValue()).getEntity();
+
+        Assert.assertEquals(mine.get(0).participating(), Boolean.TRUE);
+        Assert.assertEquals(mine.get(1).participating(), Boolean.FALSE);
+        Assert.assertEquals(mine.get(0).privNote(), "my seat is 12A");
+        Assert.assertEquals(kids.get(0).participating(), Boolean.FALSE);
+        Assert.assertEquals(kids.get(1).participating(), Boolean.TRUE);
+        Assert.assertNull(kids.get(0).privNote(), "ME's note never rides a read for OTHER");
+        Assert.assertEquals(kids.get(1).privNote(), "window seat for the kid");
+        final TripEventDto single = (TripEventDto) resource.event(TRIP_ID, "evt-2", OTHER.getValue()).getEntity();
+        Assert.assertEquals(single.privNote(), "window seat for the kid");
+        final TripDto whole = (TripDto) resource.get(TRIP_ID, OTHER.getValue()).getEntity();
+        Assert.assertEquals(whole.tripEvents().get(1).privNote(), "window seat for the kid");
+    }
+
+    /** Being on the same trip is not managing someone: a peer naming a fellow member is refused every read. */
+    @Test
+    public void aPeerCannotReadAnotherMembersNoteViaPersonId() {
+        signedInAs(ME);
+        tripExists(trip(TRIP_ID, ME, OTHER));
+
+        assertError(resource.get(TRIP_ID, OTHER.getValue()), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.events(TRIP_ID, OTHER.getValue()), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.event(TRIP_ID, "evt-1", OTHER.getValue()), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.lodging(TRIP_ID, "evt-1", OTHER.getValue()), 403, ApiErrors.FORBIDDEN);
+    }
+
+    @Test
+    public void lodgingUsesTheSubjectsReservation() {
+        signedInAs(ME);
+        meManages(OTHER);
+        final Trip trip = trip(TRIP_ID, ME, OTHER);
+        tripExists(trip);
+        final org.paulsens.trip.action.LodgingCommands lodging =
+                bindMock(org.paulsens.trip.action.LodgingCommands.class);
+        final org.paulsens.trip.action.LodgingViews.ItineraryRow row =
+                new org.paulsens.trip.action.LodgingViews.ItineraryRow();
+        row.setId("evt-1");
+        row.setReservationId("res-kid");
+        row.setEffectiveStart(LocalDate.of(2026, 9, 21).atTime(23, 0));
+        row.setEffectiveEnd(LocalDate.of(2026, 9, 28).atTime(10, 0));
+        row.setNights(7);
+        Mockito.when(lodging.itineraryRowsFor(trip, OTHER)).thenReturn(List.of(row));
+
+        final Response response = resource.lodging(TRIP_ID, "evt-1", OTHER.getValue());
+
+        assertOk(response);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> body = (Map<String, Object>) response.getEntity();
+        Assert.assertEquals(body.get("fromReservation"), true, "the SUBJECT's reservation, not the caller's");
+        Assert.assertEquals(body.get("nights"), 7L);
+        Mockito.verify(lodging, Mockito.never()).itineraryRowsFor(trip, ME);
     }
 
     /** Eight trips' worth of flights and hotels has no place in a list of titles. */
@@ -128,7 +259,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         Mockito.when(trips.getTripsForUser(ME)).thenReturn(List.of(trip(TRIP_ID, ME)));
 
-        final TripDto dto = (TripDto) ((List<?>) resource.list("mine", 50).getEntity()).get(0);
+        final TripDto dto = (TripDto) ((List<?>) resource.list("mine", 50, null).getEntity()).get(0);
 
         Assert.assertNull(dto.tripEvents(), "List entries must omit the itinerary");
     }
@@ -138,7 +269,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         Mockito.when(trips.getRecentTrips(ArgumentMatchers.anyInt())).thenReturn(List.of());
 
-        resource.list("recent", 100_000);
+        resource.list("recent", 100_000, null);
 
         Mockito.verify(trips).getRecentTrips(200);
     }
@@ -154,8 +285,8 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         Mockito.when(trips.getTrip("gone")).thenReturn(Trip.builder().build());
 
-        assertError(resource.get("gone"), 404, ApiErrors.NOT_FOUND);
-        assertError(resource.events("gone"), 404, ApiErrors.NOT_FOUND);
+        assertError(resource.get("gone", null), 404, ApiErrors.NOT_FOUND);
+        assertError(resource.events("gone", null), 404, ApiErrors.NOT_FOUND);
     }
 
     @Test
@@ -172,10 +303,10 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         tripExists(trip(TRIP_ID, OTHER));
 
-        assertError(resource.get(TRIP_ID), 403, ApiErrors.FORBIDDEN);
-        assertError(resource.events(TRIP_ID), 403, ApiErrors.FORBIDDEN);
-        assertError(resource.event(TRIP_ID, "evt-1"), 403, ApiErrors.FORBIDDEN);
-        assertError(resource.lodging(TRIP_ID, "evt-1"), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.get(TRIP_ID, null), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.events(TRIP_ID, null), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.event(TRIP_ID, "evt-1", null), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.lodging(TRIP_ID, "evt-1", null), 403, ApiErrors.FORBIDDEN);
     }
 
     @Test
@@ -183,7 +314,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         tripExists(trip(TRIP_ID, ME, OTHER));
 
-        final Response response = resource.get(TRIP_ID);
+        final Response response = resource.get(TRIP_ID, null);
 
         assertOk(response);
         final TripDto dto = (TripDto) response.getEntity();
@@ -199,7 +330,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAs(OTHER);
         tripExists(trip(TRIP_ID, ME, OTHER));
 
-        final TripDto dto = (TripDto) resource.get(TRIP_ID).getEntity();
+        final TripDto dto = (TripDto) resource.get(TRIP_ID, null).getEntity();
 
         final TripEventDto event = dto.tripEvents().get(0);
         Assert.assertEquals(event.participating(), Boolean.FALSE);
@@ -211,8 +342,8 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAs(ME);
         tripExists(trip(TRIP_ID, ME));
 
-        assertError(resource.event(TRIP_ID, "no-such-event"), 404, ApiErrors.NOT_FOUND);
-        assertError(resource.lodging(TRIP_ID, "no-such-event"), 404, ApiErrors.NOT_FOUND);
+        assertError(resource.event(TRIP_ID, "no-such-event", null), 404, ApiErrors.NOT_FOUND);
+        assertError(resource.lodging(TRIP_ID, "no-such-event", null), 404, ApiErrors.NOT_FOUND);
     }
 
     @Test
@@ -229,7 +360,7 @@ public class TripsResourceTest extends ResourceTestSupport {
                 .thenReturn(departure);
         Mockito.when(trips.getLodgingDays(arrival, departure)).thenReturn(7L);
 
-        final Response response = resource.lodging(TRIP_ID, "evt-1");
+        final Response response = resource.lodging(TRIP_ID, "evt-1", null);
 
         assertOk(response);
         @SuppressWarnings("unchecked")
@@ -261,7 +392,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         row.setRoomLabel("106");
         Mockito.when(lodging.itineraryRowsFor(trip, ME)).thenReturn(List.of(row));
 
-        final Response response = resource.lodging(TRIP_ID, "evt-1");
+        final Response response = resource.lodging(TRIP_ID, "evt-1", null);
 
         assertOk(response);
         @SuppressWarnings("unchecked")
@@ -551,7 +682,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         existing.getTripEvents().add(plain);
         tripExists(existing);
 
-        final Response response = resource.events(TRIP_ID);
+        final Response response = resource.events(TRIP_ID, null);
         assertOk(response);
         @SuppressWarnings("unchecked")
         final List<TripEventDto> events = (List<TripEventDto>) response.getEntity();

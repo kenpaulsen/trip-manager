@@ -350,12 +350,6 @@ public class RegistrationsResource extends BaseResource {
 
     /** The traveller themselves, whoever manages their booking, or trip staff. */
     private boolean canSeeAnswers(final String tripId, final Person.Id subject) {
-        if (subject.equals(personId())) {
-            return true;
-        }
-        if (isTripStaff(tripId)) {
-            return true;
-        }
-        return privileges().canActFor(findPerson(personId()), subject);
+        return actsFor(subject) || isTripStaff(tripId);
     }
 }

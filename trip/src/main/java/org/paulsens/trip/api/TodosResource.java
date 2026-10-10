@@ -261,8 +261,6 @@ public class TodosResource extends BaseResource {
     }
 
     private boolean canSee(final String tripId, final Person.Id subject) {
-        return subject.equals(personId())
-                || isTripStaff(tripId)
-                || privileges().canActFor(findPerson(personId()), subject);
+        return actsFor(subject) || isTripStaff(tripId);
     }
 }

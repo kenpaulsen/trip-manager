@@ -204,6 +204,22 @@ public abstract class BaseResource {
         return (person == null || !id.equals(person.getId())) ? null : person;
     }
 
+    /** The subject of a person-scoped read or write: {@code ?personId=} when given, else the caller. */
+    protected Person.Id subjectOf(final String personIdParam) {
+        return (personIdParam == null || personIdParam.isBlank()) ? personId() : Person.Id.from(personIdParam);
+    }
+
+    /**
+     * Whether the caller may act for {@code subject}: themselves, or someone whose booking they manage -- the
+     * family switcher's reach ({@code PersonCommands.canAccessUserId}). Site admin is deliberately NOT implied;
+     * a resource that admits admins says so itself. The one place the five person-scoped resources spell the
+     * rule, so the app's "acting as" and the website's "Viewing:" chip can never disagree about who is reachable.
+     */
+    protected boolean actsFor(final Person.Id subject) {
+        return subject != null
+                && (subject.equals(personId()) || privileges().canActFor(findPerson(personId()), subject));
+    }
+
     /**
      * The trip with this id, or {@code null} if there is no such trip.
      *

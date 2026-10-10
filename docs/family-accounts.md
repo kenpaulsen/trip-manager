@@ -119,6 +119,13 @@ PayPal return URL carries no query string. Switching the acting-for subject clea
 keys (`payFor`, the pending-upload and bg-cutout tokens) so an abandoned payment target or staged
 upload can never attach to the next member.
 
+**Chat while switched (2026-10-10).** A post made while "Viewing: Lucy" is still authored by Ken -- the
+membership row, mute, rate limit, staged photos and adminship are all Ken's -- but carries
+`ChatMessage.onBehalfOfId = Lucy`, and every surface (site, mail, push, digest, the apps) renders the byline
+"Ken on behalf of Lucy". `ChatCommands.sendFromUi` stamps `getActingFor()`; the REST send takes `onBehalfOf` in
+the body. `ChatOnBehalf.denial` is the rule: never yourself, only a member you manage, only a traveler on that
+trip's roster (refused as `on_behalf` / wire `ON_BEHALF_NOT_ALLOWED`). Reply quotes name the author only.
+
 ## Admin View As (2026-08-11: snapshot push/pop)
 
 View As no longer mutates `userId`/`userRole` in place (which leaked every session key — resume
@@ -266,6 +273,16 @@ Refusal codes travel as the wire `error` when a client's remedy depends on them 
 `CANNOT_DELETE_SELF`, `HAS_HISTORY`. The generic ones map onto the API's generic codes (`NOT_AUTHENTICATED`,
 `FORBIDDEN`, `NOT_FOUND`, `STORE_FAILED`). Admin linking of EXISTING people (`adminLink`) is deliberately not
 exposed — it is the one write that accepts an arbitrary person id.
+
+**Acting-for over REST (2026-10-10).** The app's "acting as" is the switcher without a session: there is no
+act-as header and no token change, because identity never changes. The client names the SUBJECT on each
+request -- `?personId=` on `GET /api/trips?filter=mine`, `GET /api/trips/{id}`, `.../events`,
+`.../events/{eid}`, `.../events/{eid}/lodging` and the two itinerary PUTs; the path id on registrations,
+transactions, people and `GET /api/family` -- and the resources authorize it with the one shared rule,
+`BaseResource.actsFor(subject)` (self, or `canAccessUserId`; site admin is never implied, a resource that admits
+admins says so). `TripsResource.canRead` admits a manager of a roster member (the website's `canSeeTrip`), so a
+parent reads the child's trip without a seat of their own. Chat posts made while acting carry `onBehalfOf`
+(see "Chat while switched" above).
 
 Party registration has the same shape: `RegistrationCommands.registerPartyOutcome` returns a `PartyOutcome`
 (registered, updated, refused-with-code per traveler), `registerParty` delegates and growls, and

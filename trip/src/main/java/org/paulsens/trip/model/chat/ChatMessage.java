@@ -76,6 +76,12 @@ public class ChatMessage implements Serializable {
     ChatChannel.Id channelId;
     /** Null only for {@link MessageKind#SYSTEM}. */
     Person.Id authorId;
+    /**
+     * The family member this was posted FOR, or null for an ordinary post. The author stays the signed-in sender
+     * (membership, mute, rate limit, photos and adminship are all theirs); this is a stamp the renderers show as
+     * "Author on behalf of Member". Immutable: edits, deletes and attachment changes carry it unchanged.
+     */
+    Person.Id onBehalfOfId;
     Instant sentAt;
     MessageKind kind;
     String body;
@@ -93,11 +99,33 @@ public class ChatMessage implements Serializable {
     String clientMessageId;
     int schemaVersion;
 
+    /** The pre-stamp shape; delegates with no on-behalf stamp so existing callers and tests stay unchanged. */
+    public ChatMessage(
+            final Id id,
+            final ChatChannel.Id channelId,
+            final Person.Id authorId,
+            final Instant sentAt,
+            final MessageKind kind,
+            final String body,
+            final ChatQuote quote,
+            final List<ChatAttachment> attachments,
+            final ChatForwardRef forwardedFrom,
+            final Instant editedAt,
+            final Instant deletedAt,
+            final String deletedBy,
+            final Long expiresAt,
+            final String clientMessageId,
+            final Integer schemaVersion) {
+        this(id, channelId, authorId, null, sentAt, kind, body, quote, attachments, forwardedFrom, editedAt,
+                deletedAt, deletedBy, expiresAt, clientMessageId, schemaVersion);
+    }
+
     @JsonCreator
     public ChatMessage(
             @JsonProperty("id") final Id id,
             @JsonProperty("channelId") final ChatChannel.Id channelId,
             @JsonProperty("authorId") final Person.Id authorId,
+            @JsonProperty("onBehalfOfId") final Person.Id onBehalfOfId,
             @JsonProperty("sentAt") final Instant sentAt,
             @JsonProperty("kind") final MessageKind kind,
             @JsonProperty("body") final String body,
@@ -113,6 +141,7 @@ public class ChatMessage implements Serializable {
         this.id = id;
         this.channelId = channelId;
         this.authorId = authorId;
+        this.onBehalfOfId = onBehalfOfId;
         this.sentAt = sentAt == null
                 ? (id == null ? Instant.now().truncatedTo(ChronoUnit.MILLIS) : Instant.ofEpochMilli(id.getEpochMilli()))
                 : sentAt.truncatedTo(ChronoUnit.MILLIS);
@@ -130,7 +159,7 @@ public class ChatMessage implements Serializable {
     }
 
     public ChatMessage withBody(final String newBody) {
-        return new ChatMessage(id, channelId, authorId, sentAt, kind, newBody, quote, attachments,
+        return new ChatMessage(id, channelId, authorId, onBehalfOfId, sentAt, kind, newBody, quote, attachments,
                 forwardedFrom, Instant.now().truncatedTo(ChronoUnit.MILLIS), deletedAt, deletedBy,
                 expiresAt, clientMessageId, schemaVersion);
     }
@@ -138,7 +167,7 @@ public class ChatMessage implements Serializable {
     public ChatMessage withDeleted(final String by) {
         // Attachments are cleared like the body: a delete is moderation, and the stored renditions are
         // removed by the same cascade, so keys pointing at deleted objects must not linger on the wire.
-        return new ChatMessage(id, channelId, authorId, sentAt, kind, "", quote, List.of(),
+        return new ChatMessage(id, channelId, authorId, onBehalfOfId, sentAt, kind, "", quote, List.of(),
                 forwardedFrom, editedAt, Instant.now().truncatedTo(ChronoUnit.MILLIS), by,
                 expiresAt, clientMessageId, schemaVersion);
     }
@@ -149,18 +178,18 @@ public class ChatMessage implements Serializable {
      * removed photo already announces itself via its own tombstone note.
      */
     public ChatMessage withAttachments(final List<ChatAttachment> newAttachments) {
-        return new ChatMessage(id, channelId, authorId, sentAt, kind, body, quote, newAttachments,
+        return new ChatMessage(id, channelId, authorId, onBehalfOfId, sentAt, kind, body, quote, newAttachments,
                 forwardedFrom, editedAt, deletedAt, deletedBy, expiresAt, clientMessageId, schemaVersion);
     }
 
     public ChatMessage withId(final Id newId) {
-        return new ChatMessage(newId, channelId, authorId,
+        return new ChatMessage(newId, channelId, authorId, onBehalfOfId,
                 Instant.ofEpochMilli(newId.getEpochMilli()), kind, body, quote, attachments,
                 forwardedFrom, editedAt, deletedAt, deletedBy, expiresAt, clientMessageId, schemaVersion);
     }
 
     public ChatMessage withExpiresAt(final Long newExpiresAt) {
-        return new ChatMessage(id, channelId, authorId, sentAt, kind, body, quote, attachments,
+        return new ChatMessage(id, channelId, authorId, onBehalfOfId, sentAt, kind, body, quote, attachments,
                 forwardedFrom, editedAt, deletedAt, deletedBy, newExpiresAt, clientMessageId, schemaVersion);
     }
 

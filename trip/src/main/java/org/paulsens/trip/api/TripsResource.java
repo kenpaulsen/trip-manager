@@ -51,6 +51,7 @@ public class TripsResource extends BaseResource {
     private static final String V1 = ApiMediaTypes.TRIPS_V1;
     /** Matches the window the itinerary pages use, so "active" means the same thing in both places. */
     private static final int PAST_DAYS_STILL_ACTIVE = 3;
+    private static final String NOT_THEIR_ITINERARY = "Not permitted to view this person's itinerary.";
     private static final int MAX_LIST_LIMIT = 200;
 
     @Override
@@ -65,21 +66,30 @@ public class TripsResource extends BaseResource {
      *
      * <p>Itineraries are omitted from every entry here. A traveller on eight trips would otherwise pull every
      * flight, hotel and bus of all eight to render a list of titles.
+     *
+     * <p>{@code mine} takes an optional {@code personId}: a family manager acting as a member lists THAT
+     * member's trips (yourself, someone you manage, or a site admin; 403 otherwise). The other filters are not
+     * per-user and ignore it. Every entry still passes {@link #canRead} for the CALLER.
      */
     @GET
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response list(
             @QueryParam("filter") @DefaultValue("mine") final String filter,
-            @QueryParam("limit") @DefaultValue("50") final int limit) {
+            @QueryParam("limit") @DefaultValue("50") final int limit,
+            @QueryParam("personId") final String personIdParam) {
         final TripCommands trips = Beans.get(TripCommands.class);
         final Person.Id me = personId();
+        final Person.Id subject = subjectOf(personIdParam);
         final boolean admin = privileges().isSiteAdmin();
+        if (!subject.equals(me) && !admin && !actsFor(subject)) {
+            return error(403, ApiErrors.FORBIDDEN, "Not permitted to list this person's trips.");
+        }
         final int capped = Math.min(Math.max(limit, 1), MAX_LIST_LIMIT);
         final List<Trip> found = switch (filter == null ? "mine" : filter.toLowerCase()) {
             case "active" -> trips.getActiveTrips(PAST_DAYS_STILL_ACTIVE);
             case "inactive" -> trips.getInactiveTrips(me, admin, PAST_DAYS_STILL_ACTIVE, capped);
             case "recent" -> trips.getRecentTrips(capped);
-            case "mine" -> trips.getTripsForUser(me);
+            case "mine" -> trips.getTripsForUser(subject);
             case "open" -> trips.getPublicTrips();
             default -> null;
         };
@@ -99,10 +109,16 @@ public class TripsResource extends BaseResource {
                 .toList());
     }
 
+    /**
+     * The trip with its itinerary, viewer-relative fields filled in for the SUBJECT: the caller, or the family
+     * member named by {@code personId} (the app's "acting as"; the website shows the same under its "Viewing:"
+     * chip). The trip gate is the caller's ({@link #canRead}); the subject gate is {@link #canActFor}.
+     */
     @GET
     @Path("{tripId}")
     @Produces({V1, MediaType.APPLICATION_JSON})
-    public Response get(@PathParam("tripId") final String tripId) {
+    public Response get(@PathParam("tripId") final String tripId,
+            @QueryParam("personId") final String personIdParam) {
         final Trip trip = findTrip(tripId);
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
@@ -111,14 +127,23 @@ public class TripsResource extends BaseResource {
         if (!canRead(trip, me)) {
             return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
         }
-        return ok(withViewerEvents(trip, me));
+        final Person.Id subject = subjectOf(personIdParam);
+        if (!canActFor(subject, tripId)) {
+            return error(403, ApiErrors.FORBIDDEN, NOT_THEIR_ITINERARY);
+        }
+        return ok(withViewerEvents(trip, subject));
     }
 
-    /** The itinerary, with this caller's participation and private note filled in on each event. */
+    /**
+     * The itinerary, with the subject's participation and private note filled in on each event. The private
+     * note is the SUBJECT's own: a manager reading a member's itinerary sees the member's note, as on the
+     * website, and a MANAGER already reads that member's travel documents ({@code AccessLevel}).
+     */
     @GET
     @Path("{tripId}/events")
     @Produces({V1, MediaType.APPLICATION_JSON})
-    public Response events(@PathParam("tripId") final String tripId) {
+    public Response events(@PathParam("tripId") final String tripId,
+            @QueryParam("personId") final String personIdParam) {
         final Trip trip = findTrip(tripId);
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
@@ -127,14 +152,19 @@ public class TripsResource extends BaseResource {
         if (!canRead(trip, me)) {
             return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
         }
-        return ok(eventDtos(trip, me));
+        final Person.Id subject = subjectOf(personIdParam);
+        if (!canActFor(subject, tripId)) {
+            return error(403, ApiErrors.FORBIDDEN, NOT_THEIR_ITINERARY);
+        }
+        return ok(eventDtos(trip, subject));
     }
 
     @GET
     @Path("{tripId}/events/{eventId}")
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response event(
-            @PathParam("tripId") final String tripId, @PathParam("eventId") final String eventId) {
+            @PathParam("tripId") final String tripId, @PathParam("eventId") final String eventId,
+            @QueryParam("personId") final String personIdParam) {
         final Trip trip = findTrip(tripId);
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
@@ -143,17 +173,21 @@ public class TripsResource extends BaseResource {
         if (!canRead(trip, me)) {
             return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
         }
+        final Person.Id subject = subjectOf(personIdParam);
+        if (!canActFor(subject, tripId)) {
+            return error(403, ApiErrors.FORBIDDEN, NOT_THEIR_ITINERARY);
+        }
         final TripEvent event = trip.getTripEvent(eventId);
         if (event == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such event on this trip.");
         }
-        return ok(eventDto(event, me));
+        return ok(eventDto(event, subject));
     }
 
     /**
-     * Lodging arrival/departure for the caller: the dates of their own reservation on the event when they
-     * hold one (what the itinerary page shows, with the room when the trip reveals numbers), else the
-     * flight-inferred dates.
+     * Lodging arrival/departure for the subject (the caller, or the family member named by {@code personId}):
+     * the dates of their own reservation on the event when they hold one (what the itinerary page shows, with
+     * the room when the trip reveals numbers), else the flight-inferred dates.
      *
      * <p>The inference is exposed because a client should not reimplement it: it treats a layover under 36
      * hours as part of the same journey. But it looks at EVERY flight on the trip, so an early arriver's
@@ -164,7 +198,8 @@ public class TripsResource extends BaseResource {
     @Path("{tripId}/events/{eventId}/lodging")
     @Produces({V1, MediaType.APPLICATION_JSON})
     public Response lodging(
-            @PathParam("tripId") final String tripId, @PathParam("eventId") final String eventId) {
+            @PathParam("tripId") final String tripId, @PathParam("eventId") final String eventId,
+            @QueryParam("personId") final String personIdParam) {
         final Trip trip = findTrip(tripId);
         if (trip == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such trip.");
@@ -172,12 +207,16 @@ public class TripsResource extends BaseResource {
         if (!canRead(trip, personId())) {
             return error(403, ApiErrors.FORBIDDEN, "Not a member of this trip.");
         }
+        final Person.Id subject = subjectOf(personIdParam);
+        if (!canActFor(subject, tripId)) {
+            return error(403, ApiErrors.FORBIDDEN, NOT_THEIR_ITINERARY);
+        }
         final TripEvent event = trip.getTripEvent(eventId);
         if (event == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such event on this trip.");
         }
         final Map<String, Object> result = new LinkedHashMap<>();
-        final LodgingViews.ItineraryRow reserved = reservationRow(trip, event, personId());
+        final LodgingViews.ItineraryRow reserved = reservationRow(trip, event, subject);
         if (reserved != null) {
             result.put("arrival", reserved.getEffectiveStart());
             result.put("departure", reserved.getEffectiveEnd());
@@ -419,26 +458,25 @@ public class TripsResource extends BaseResource {
         return ok(eventDto(trip.getTripEvent(eventId), subject));
     }
 
-    /** Membership is enough to read; a trip role or site admin also is. */
+    /**
+     * Membership is enough to read; a trip role or site admin also is; so is managing someone on the roster --
+     * the website's {@code canSeeTrip} rule, which the API lacked until the app's "acting as" needed a manager
+     * to read a member's trip without a seat of their own.
+     */
     private boolean canRead(final Trip trip, final Person.Id me) {
         return trip.getPeople().contains(me)
                 || privileges().has(ApiPrivileges.TRIP_VIEW, trip.getId())
-                || privileges().has(ApiPrivileges.TRIP_MGR, trip.getId());
+                || privileges().has(ApiPrivileges.TRIP_MGR, trip.getId())
+                || Beans.get(TripCommands.class).managesSomeoneOn(trip, me);
     }
 
     /**
      * Acting for yourself is always allowed; acting for somebody else needs tripMgr on that trip, or the
-     * managed-users relationship -- the same {@code canActFor} the other person-scoped resources honor (this
+     * managed-users relationship -- the same {@code actsFor} the other person-scoped resources honor (this
      * one predated family accounts and was the odd one out).
      */
     private boolean canActFor(final Person.Id subject, final String tripId) {
-        return subject.equals(personId()) || privileges().has(ApiPrivileges.TRIP_MGR, tripId)
-                || privileges().canActFor(findPerson(personId()), subject);
-    }
-
-    private Person.Id subjectOf(final String personIdParam) {
-        return (personIdParam == null || personIdParam.isBlank())
-                ? personId() : Person.Id.from(personIdParam);
+        return actsFor(subject) || privileges().has(ApiPrivileges.TRIP_MGR, tripId);
     }
 
     @SuppressWarnings("unchecked")
