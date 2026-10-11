@@ -683,6 +683,19 @@ public final class KnownSettings {
      * local-part/domain composer for From addresses) instead of the generic text boxes -- it skips the
      * section in its generic loop BY THIS TITLE, so rename both together.
      */
+    // --- mobile apps ---
+
+    public static final SettingDef APPS_APP_STORE_URL = new SettingDef(
+            "apps.appStore.url", Config.Type.STRING, "", "App Store listing URL",
+            "The UniteTrip iOS app's page on the App Store (https://apps.apple.com/...). The support page shows "
+                    + "a \"Download on the App Store\" badge linking here; blank leaves the badge off.").withHttpUrl();
+
+    public static final SettingDef APPS_PLAY_STORE_URL = new SettingDef(
+            "apps.playStore.url", Config.Type.STRING, "", "Google Play listing URL",
+            "The UniteTrip Android app's page on Google Play (https://play.google.com/store/apps/details?id=...). "
+                    + "The support page shows a \"Get it on Google Play\" badge linking here; blank leaves the badge "
+                    + "off, which is how it stays until the Play listing is live.").withHttpUrl();
+
     public static final String EMAIL_ADDRESSES_SECTION = "Email addresses";
 
     /** The org-site branding section: every def in it is org-only and read by {@code BrandCommands}. */
@@ -777,6 +790,10 @@ public final class KnownSettings {
             new SettingSection("Support requests",
                     "Who receives them is managed in the \"Support channel admins\" panel below the settings.",
                     List.of(SUPPORT_MAIL_ENABLED)),
+            new SettingSection("Mobile apps",
+                    "Store links for the \"Get the app\" badges on the support page. Set each one when that "
+                            + "listing goes live; nothing else reads them.",
+                    List.of(APPS_APP_STORE_URL, APPS_PLAY_STORE_URL)),
             new SettingSection("Payments",
                     "The mail/fee settings are the SITE rung of the trip → organization → site "
                             + "defaults ladder. The return-address allowlist only applies to payments "
