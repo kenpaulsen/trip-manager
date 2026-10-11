@@ -316,9 +316,9 @@ public final class KnownSettings {
     public static final SettingDef CHAT_BACKGROUND_COLORS = new SettingDef(
             "chat.background.colors", Config.Type.STRING,
             "#eef2f7,#f5efe6,#eaf3ec,#f3eaf3,#fdf4e3,#e8eef5,#ffffff",
-            "Background colours offered",
+            "Background colors offered",
             "Comma-separated, in the order they are offered. People pick from this list rather than typing a "
-                    + "colour, so an entry that is not a plain #rrggbb or a CSS colour keyword is dropped -- the "
+                    + "color, so an entry that is not a plain #rrggbb or a CSS color keyword is dropped -- the "
                     + "value ends up inside a style attribute, where anything else is CSS injection.")
             .withOrgOverride();
 
@@ -346,14 +346,14 @@ public final class KnownSettings {
 
     public static final SettingDef CHAT_PHOTO_COMMENT_MAX_CHARS = new SettingDef(
             "chat.photoComments.maxChars", Config.Type.INT, "1000", "Photo comment length",
-            "Longest allowed photo comment, in characters. Shorter than a chat message on purpose — the "
+            "Longest allowed photo comment, in characters. Shorter than a chat message on purpose -- the "
                     + "panel beside a photo is a caption-sized space, not a second chat.");
 
     // --- chat invites ---
 
     public static final SettingDef CHAT_INVITES_ENABLED = new SettingDef(
             "chat.invites.enabled", Config.Type.BOOLEAN, "true", "Allow invite links",
-            "Lets chat participants invite people who are not on the trip — family and friends — by link or "
+            "Lets chat participants invite people who are not on the trip -- family and friends -- by link or "
                     + "QR code. Turning this off refuses new links AND stops existing ones from being redeemed; "
                     + "guests already in a chat stay.");
 
@@ -527,7 +527,7 @@ public final class KnownSettings {
     public static final SettingDef REG_NOTIFY_EMAIL = new SettingDef(
             "reg.notify.email", Config.Type.STRING, "facilitators",
             "Registration notice recipient",
-            "Who receives the internal registration notices (new/moved/cancelled). Defaults to the trip's "
+            "Who receives the internal registration notices (new/moved/canceled). Defaults to the trip's "
                     + "facilitators -- the same contacts the registrant is shown." + MODE_NOTE);
 
     public static final SettingDef REG_NOTIFY_FROM = new SettingDef(
