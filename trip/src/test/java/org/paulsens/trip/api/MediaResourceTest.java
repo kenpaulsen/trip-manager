@@ -180,7 +180,17 @@ public class MediaResourceTest extends ResourceTestSupport {
                 dao.getTrip(mine.getId(), org.paulsens.trip.cache.Cached.YES).orElseThrow();
         Assert.assertTrue(mineReread.getPeople().contains(USER), "membership survives: " + mineReread.getPeople());
         Assert.assertTrue(resource.mayBrowseSlot("tripChat-" + mine.getId()), "member gate");
-        assertOk(resource.inSlot("tripChat-" + mine.getId()));
+        // A member gets the WHOLE album, hidden rows included (the website's trip media page shows them
+        // too): the uploader must be able to find a photo they kept off the public site to change their mind.
+        Mockito.when(media.getInSlot("tripChat-" + mine.getId()))
+                .thenReturn(List.of(item("m-mine", "chat/" + mine.getId() + "/a.jpg", true)));
+        final Response mineResponse = resource.inSlot("tripChat-" + mine.getId());
+        assertOk(mineResponse);
+        Assert.assertEquals(((List<?>) mineResponse.getEntity()).size(), 1, "the hidden row is served to a member");
+        Mockito.verify(media, Mockito.never()).getVisibleInSlot(ArgumentMatchers.eq("tripChat-" + mine.getId()),
+                ArgumentMatchers.anyInt());
+        Assert.assertFalse(resource.isMemberOfSlotTrip("tripChat-" + open.getId()), "a public viewer is not a member");
+        Assert.assertFalse(resource.isMemberOfSlotTrip("home-docs"), "only chat slots have a roster");
 
         // Admins browse everything (the admin branch never consults the gate). A resource memoizes its
         // caller, so the second identity needs its own resource.

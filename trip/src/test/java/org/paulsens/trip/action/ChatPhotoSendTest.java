@@ -286,6 +286,105 @@ public class ChatPhotoSendTest {
         Assert.assertTrue(photos.localGet(staged.key()).isEmpty());
     }
 
+    // --- the public-site flag, revisited after posting ---
+
+    private ChatMessage reread(final ChatMessage.Id msgId) {
+        return DAO.getInstance().getChatMessage(ChatChannel.Id.forTrip(tripId), msgId, Cached.NO).orElseThrow();
+    }
+
+    private MediaItem albumRow(final String key) {
+        return DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor(tripId), Cached.NO).stream()
+                .filter(row -> key.equals(row.getS3Key())).findFirst().orElseThrow();
+    }
+
+    @Test
+    public void theUploaderChangesTheirMindAboutThePublicSiteAndBothCopiesMove() {
+        final ChatPhotos.StagedPhoto staged = stageOne();
+        final ChatCommands.SendResult sent = chat.send(tripId, member, "", null, null, actor,
+                List.of(new ChatPhotos.AttachmentRef(staged.key(), "shy", Boolean.TRUE)));
+        Assert.assertTrue(sent.isOk());
+        final ChatMessage.Id msgId = sent.getMessageObj().getId();
+        Assert.assertTrue(reread(msgId).getAttachments().get(0).isHidden(), "posted off the public site");
+        Assert.assertTrue(albumRow(staged.key()).getHidden());
+
+        final Caller author = Caller.forActor(new AuditActor("shutter@test", member.getValue()));
+        // Keyed by the photo alone, no message hint: the Photos page knows only the key.
+        Assert.assertTrue(chat.setPhotoVisibility(tripId, staged.key(), false, null, author));
+        final ChatMessage after = reread(msgId);
+        Assert.assertFalse(after.getAttachments().get(0).isHidden(), "the message copy moved");
+        Assert.assertFalse(albumRow(staged.key()).getHidden(), "the album copy moved");
+        Assert.assertNull(after.getEditedAt(), "a visibility change is not an edit");
+        Assert.assertEquals(after.getAttachments().get(0).getCaption(), "shy", "nothing else changed");
+
+        // And back again, this time with the hint a chat screen would send.
+        Assert.assertTrue(chat.setPhotoVisibility(tripId, staged.key(), true, msgId, author));
+        Assert.assertTrue(reread(msgId).getAttachments().get(0).isHidden());
+        Assert.assertTrue(albumRow(staged.key()).getHidden());
+        // Setting what is already set succeeds without a write.
+        Assert.assertTrue(chat.setPhotoVisibility(tripId, staged.key(), true, null, author));
+    }
+
+    @Test
+    public void aNonAuthorNonAdminMayNotChangeAPhotosVisibility() {
+        final ChatPhotos.StagedPhoto staged = stageOne();
+        final ChatCommands.SendResult sent = chat.send(tripId, member, "", null, null, actor,
+                List.of(new ChatPhotos.AttachmentRef(staged.key(), null)));
+        Assert.assertTrue(sent.isOk());
+        final Person.Id nosy = person("Nosy");
+        final Caller stranger = Caller.forActor(new AuditActor("nosy@test", nosy.getValue()));
+        Assert.assertFalse(chat.canChangePhotoVisibility(tripId, staged.key(), null, nosy));
+        Assert.assertFalse(chat.setPhotoVisibility(tripId, staged.key(), true, null, stranger));
+        Assert.assertFalse(reread(sent.getMessageObj().getId()).getAttachments().get(0).isHidden());
+        Assert.assertFalse(albumRow(staged.key()).getHidden());
+    }
+
+    @Test
+    public void aChatAdminChangesAnyonesPhotoVisibility() {
+        final ChatPhotos.StagedPhoto staged = stageOne();
+        final ChatCommands.SendResult sent = chat.send(tripId, member, "", null, null, actor,
+                List.of(new ChatPhotos.AttachmentRef(staged.key(), null)));
+        Assert.assertTrue(sent.isOk());
+        Assert.assertTrue(chat.canChangePhotoVisibility(tripId, staged.key(), null, member), "the author may");
+        Assert.assertTrue(chat.setPhotoVisibility(tripId, staged.key(), true, null, Caller.forActor(actor)));
+        Assert.assertTrue(reread(sent.getMessageObj().getId()).getAttachments().get(0).isHidden());
+        Assert.assertTrue(albumRow(staged.key()).getHidden());
+    }
+
+    @Test
+    public void anUnknownOrDeletedPhotoCannotHaveItsVisibilityChanged() {
+        final ChatPhotos.StagedPhoto staged = stageOne();
+        final ChatCommands.SendResult sent = chat.send(tripId, member, "", null, null, actor,
+                List.of(new ChatPhotos.AttachmentRef(staged.key(), null)));
+        Assert.assertTrue(sent.isOk());
+        final Caller admin = Caller.forActor(actor);
+        Assert.assertFalse(chat.setPhotoVisibility(tripId, "chat/" + tripId + "/no-such.jpg", true, null, admin));
+        // A wrong hint is not trusted: the key is still found in its real message.
+        Assert.assertTrue(chat.setPhotoVisibility(tripId, staged.key(), true, ChatMessage.Id.of(1L), admin));
+        Assert.assertTrue(chat.deleteAttachment(tripId, sent.getMessageObj().getId(), staged.key(), admin));
+        Assert.assertFalse(chat.setPhotoVisibility(tripId, staged.key(), false, null, admin),
+                "a deleted photo has no flag to change");
+    }
+
+    /** The trip's media page flips the album row; the message copy must follow (the phones badge from it). */
+    @Test
+    public void theMediaPageToggleKeepsTheMessageCopyInStep() {
+        final ChatPhotos.StagedPhoto staged = stageOne();
+        final ChatCommands.SendResult sent = chat.send(tripId, member, "", null, null, actor,
+                List.of(new ChatPhotos.AttachmentRef(staged.key(), null)));
+        Assert.assertTrue(sent.isOk());
+        ChatPhotoEdits.sync(DAO.getInstance(), chat.getChannel(tripId), staged.key(), true);
+        Assert.assertTrue(reread(sent.getMessageObj().getId()).getAttachments().get(0).isHidden());
+    }
+
+    @Test
+    public void theStagingTimeIsReadFromTheKey() {
+        final ChatPhotos.StagedPhoto staged = stageOne();
+        final long at = ChatPhotos.stagedAtMillis(staged.key());
+        Assert.assertTrue(at > 0 && at <= System.currentTimeMillis(), "stamped now: " + staged.key());
+        Assert.assertEquals(ChatPhotos.stagedAtMillis("chat/t/fake-1.jpg"), 0L);
+        Assert.assertEquals(ChatPhotos.stagedAtMillis(null), 0L);
+    }
+
     @Test
     public void deletingTheSamePhotoTwiceFailsTheSecondTime() {
         final ChatPhotos.StagedPhoto staged = stageOne();

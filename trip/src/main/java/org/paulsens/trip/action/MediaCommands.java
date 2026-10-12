@@ -466,6 +466,13 @@ public class MediaCommands {
                 .target(AuditEventBuilder.TARGET_MEDIA, updated.getS3Key())
                 .message((hidden ? "Hid " : "Unhid ") + updated.getS3Key() + " on public pages")
                 .log();
+        // A chat photo's flag also lives in the message that sent it; the phones draw their badge from
+        // that copy, so the trip's media page must move both.
+        final String tripId = ChatPhotos.tripOfSlot(updated.getSlot());
+        if (tripId != null) {
+            ChatPhotoEdits.sync(DAO.getInstance(), ChatCommands.getChatCommands().getChannel(tripId),
+                    updated.getS3Key(), hidden);
+        }
         return true;
     }
 

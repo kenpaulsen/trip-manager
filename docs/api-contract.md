@@ -153,7 +153,14 @@ thread (`GET /api/photo-chat/thread`) carries the same two maps. Chat photos: `P
 none) → `{key, smallKey, contentType, size, width, height, url, smallUrl}`; the keys go into a send's
 `attachments`. The apps' trip Photos page adds photos the same way (2026-10-12): stage each, then ONE send
 carrying every key (the channel's per-message cap, default 10), since the album (`/api/media/slots/tripChat-{tripId}`)
-is filled only from chat; there is no separate album upload. Refusals: 429 `RATE_LIMITED` + `Retry-After` (40 uploads / 10 min per person, shared with
+is filled only from chat; there is no separate album upload. A posted photo's public-site flag may be revisited
+at any time by the uploader or a chat admin (2026-10-12): `PATCH /api/chat/channels/trip:{tripId}/photos?key=`
+`{hidden, messageId?}` (`messageId` is only a hint; the server finds the message by key) moves BOTH copies, the
+attachment in the message (the `mutationsVersion` bump makes polling clients refetch it) and the album row; 403
+`FORBIDDEN` for anyone else, 404 `NOT_FOUND` for an unknown or deleted photo. For that, a trip's own members get
+the whole `tripChat-` album from `GET /api/media/slots/{slot}`, hidden rows included (the website's trip media
+page shows them too); other viewers still get the public filter. `GET .../invite` also answers `canAdminister`,
+the chat-admin signal the apps use for moderator-only items. Refusals: 429 `RATE_LIMITED` + `Retry-After` (40 uploads / 10 min per person, shared with
 the website), 403 with the send codes (`MUTED`, `FORBIDDEN`, `CHANNEL_ARCHIVED`), 400 `BAD_ATTACHMENT`
 (photos off, bad crop, empty body), 413 `ATTACHMENT_TOO_LARGE` (the channel's `maxAttachmentBytes`), 422
 `BAD_ATTACHMENT` (not an image). URL bases: `GET /api/media/bases` → `{chatPhotos, profilePhotos, remote}`

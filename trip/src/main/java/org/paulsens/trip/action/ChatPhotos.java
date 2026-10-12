@@ -339,6 +339,56 @@ public class ChatPhotos {
     }
 
     /**
+     * Flips the album row(s) of one chat photo, matched by key the way {@link #deleteEverywhere} matches.
+     * A write-through save under the same row id keeps the media cache coherent. True when every matching
+     * row saved (none matching is also true: an album row that was never recorded has nothing to flip, and
+     * the message copy is what the chat renders).
+     */
+    public boolean setAlbumHidden(final String tripId, final String s3Key, final boolean hidden) {
+        final List<MediaItem> rows;
+        try {
+            rows = DAO.getInstance().getMediaInSlot(slotFor(tripId), Cached.NO);
+        } catch (final RuntimeException ex) {
+            log.error("The album rows could not be listed to change a photo's visibility: " + s3Key, ex);
+            return false;
+        }
+        boolean ok = true;
+        for (final MediaItem row : rows) {
+            if (!s3Key.equals(row.getS3Key()) || row.getHidden() == hidden) {
+                continue;
+            }
+            try {
+                ok &= DAO.getInstance().saveMedia(row.withHidden(hidden));
+            } catch (final RuntimeException ex) {
+                log.error("Unable to save a visibility change for chat photo " + s3Key, ex);
+                ok = false;
+            }
+        }
+        return ok;
+    }
+
+    /**
+     * When a photo was staged, read from its key ({@code chat/{trip}/{yyyyMMdd-HHmmssSSS}-{rand}.ext}); 0 for
+     * a key not in that shape. A message is sent after its photos were staged, so this bounds the search for
+     * the message that carries one.
+     */
+    public static long stagedAtMillis(final String s3Key) {
+        if (s3Key == null) {
+            return 0L;
+        }
+        final int slash = s3Key.lastIndexOf('/');
+        final String name = s3Key.substring(slash + 1);
+        if (name.length() < 18) {
+            return 0L;
+        }
+        try {
+            return Instant.from(STAMP.parse(name.substring(0, 18))).toEpochMilli();
+        } catch (final RuntimeException ex) {
+            return 0L;
+        }
+    }
+
+    /**
      * The full moderation cascade for a removed message's photos: stored renditions, CDN cache, media rows.
      * Row deletion works off the cached media inventory by key — chat rows are always written with the full
      * rendition as {@code s3Key}, so that is the join.

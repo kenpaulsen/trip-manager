@@ -98,7 +98,10 @@ public class MediaResource extends BaseResource {
 
     /**
      * One slot's items, ordered for display. A non-admin gets what a public page would render -- visible
-     * items only -- so a mobile client can build the same home sections the site shows.
+     * items only -- so a mobile client can build the same home sections the site shows. A trip's own
+     * members get its whole chat album, hidden rows included, as the website's trip media page shows them:
+     * "hidden" means kept off the PUBLIC site, and the uploader must be able to find the photo to change
+     * their mind.
      */
     @GET
     @Path("slots/{slot}")
@@ -114,7 +117,8 @@ public class MediaResource extends BaseResource {
             // not yours" would confirm another tenant's trip.
             return error(404, ApiErrors.NOT_FOUND, "No such slot.");
         }
-        return ok((admin ? media.getInSlot(slot) : media.getVisibleInSlot(slot, 0)).stream()
+        final boolean everything = admin || isMemberOfSlotTrip(slot);
+        return ok((everything ? media.getInSlot(slot) : media.getVisibleInSlot(slot, 0)).stream()
                 .map(item -> toDto(media, item))
                 .toList());
     }
@@ -130,6 +134,17 @@ public class MediaResource extends BaseResource {
         }
         final SiteContext site = SiteContext.current();
         return site.isOrg() && privileges().has(ApiPrivileges.MEDIA_ADMIN, site.orgId().getValue());
+    }
+
+    /** Whether the caller is on the roster of the trip a chat slot names; false for any other slot. */
+    boolean isMemberOfSlotTrip(final String slot) {
+        final String tripId = ChatPhotos.tripOfSlot(slot);
+        if (tripId == null) {
+            return false;
+        }
+        final Person.Id me = personId();
+        return me != null && DAO.getInstance().getTrip(tripId, Cached.YES)
+                .map(trip -> trip.getPeople() != null && trip.getPeople().contains(me)).orElse(false);
     }
 
     /**

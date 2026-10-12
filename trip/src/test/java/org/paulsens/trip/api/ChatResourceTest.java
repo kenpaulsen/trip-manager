@@ -368,6 +368,94 @@ public class ChatResourceTest extends ResourceTestSupport {
         assertError(resource.deletePhoto(CHANNEL, "m1", "chat/t/p.jpg", CSRF_OK), 404, ChatErrors.NOT_FOUND);
     }
 
+    // --- a posted photo's public-site flag ---
+
+    private static final String KEY = "chat/t/p.jpg";
+
+    private static ChatResource.PhotoVisibilityRequest hide(final Boolean hidden, final String hint) {
+        return new ChatResource.PhotoVisibilityRequest(hidden, hint);
+    }
+
+    private void allowVisibilityChange(final boolean allowed) {
+        Mockito.when(chat.canChangePhotoVisibility(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(allowed);
+    }
+
+    private void visibilityChangeAnswers(final boolean answer) {
+        Mockito.when(chat.setPhotoVisibility(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyBoolean(), ArgumentMatchers.any(), ArgumentMatchers.any(Caller.class)))
+                .thenReturn(answer);
+    }
+
+    private void verifyNoVisibilityChange() {
+        Mockito.verify(chat, Mockito.never()).setPhotoVisibility(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyBoolean(), ArgumentMatchers.any(), ArgumentMatchers.any(Caller.class));
+    }
+
+    @Test
+    public void anAuthorChangesTheirPhotosVisibility() {
+        Mockito.when(chat.canChangePhotoVisibility(TRIP_ID, KEY, ChatMessage.Id.from("m1"), ME)).thenReturn(true);
+        Mockito.when(chat.setPhotoVisibility(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(KEY),
+                ArgumentMatchers.eq(true), ArgumentMatchers.eq(ChatMessage.Id.from("m1")),
+                ArgumentMatchers.any(Caller.class))).thenReturn(true);
+
+        assertOk(resource.setPhotoVisibility(CHANNEL, KEY, CSRF_OK, hide(true, "m1")));
+    }
+
+    /** The Photos page knows only the key: no hint is fine, and a blank one reads as none. */
+    @Test
+    public void thePhotoKeyAloneIsEnough() {
+        Mockito.when(chat.canChangePhotoVisibility(TRIP_ID, KEY, null, ME)).thenReturn(true);
+        Mockito.when(chat.setPhotoVisibility(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(KEY),
+                ArgumentMatchers.eq(false), ArgumentMatchers.isNull(), ArgumentMatchers.any(Caller.class)))
+                .thenReturn(true);
+
+        assertOk(resource.setPhotoVisibility(CHANNEL, KEY, CSRF_OK, hide(false, "")));
+    }
+
+    @Test
+    public void aVisibilityChangeNeedsAKeyAndAFlag() {
+        assertError(resource.setPhotoVisibility(CHANNEL, "", CSRF_OK, hide(true, null)), 400,
+                ChatErrors.BAD_ATTACHMENT);
+        assertError(resource.setPhotoVisibility(CHANNEL, KEY, CSRF_OK, hide(null, null)), 400,
+                ChatErrors.BAD_ATTACHMENT);
+        assertError(resource.setPhotoVisibility(CHANNEL, KEY, CSRF_OK, null), 400, ChatErrors.BAD_ATTACHMENT);
+        verifyNoVisibilityChange();
+    }
+
+    @Test
+    public void aStrangerCannotChangeSomebodyElsesPhotoVisibility() {
+        allowVisibilityChange(false);
+        Mockito.when(chat.canAdminister(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.any(Caller.class)))
+                .thenReturn(false);
+
+        assertError(resource.setPhotoVisibility(CHANNEL, KEY, CSRF_OK, hide(true, null)), 403, ChatErrors.FORBIDDEN);
+        verifyNoVisibilityChange();
+    }
+
+    @Test
+    public void changingAPhotoThatIsGoneIs404AndTheCsrfHeaderIsRequired() {
+        allowVisibilityChange(true);
+        visibilityChangeAnswers(false);
+
+        assertError(resource.setPhotoVisibility(CHANNEL, KEY, CSRF_OK, hide(true, null)), 404, ChatErrors.NOT_FOUND);
+        assertError(resource.setPhotoVisibility(CHANNEL, KEY, null, hide(true, null)), 403, ChatErrors.CSRF);
+    }
+
+    @Test
+    public void inviteAvailabilitySaysWhetherTheCallerAdministersTheChat() {
+        Mockito.when(chat.invitesEnabled()).thenReturn(true);
+        Mockito.when(chat.canInvite(TRIP_ID, ME)).thenReturn(false);
+        Mockito.when(chat.canAdminister(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.any(Caller.class)))
+                .thenReturn(true);
+        final Response response = resource.inviteAvailability(CHANNEL);
+        assertOk(response);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> body = (Map<String, Object>) response.getEntity();
+        Assert.assertEquals(body.get("canAdminister"), Boolean.TRUE);
+        Assert.assertEquals(body.get("canInvite"), Boolean.FALSE);
+    }
+
     @Test
     public void deletePhotoRequiresTheCsrfHeader() {
         assertError(resource.deletePhoto(CHANNEL, "m1", "chat/t/p.jpg", null), 403, ChatErrors.CSRF);

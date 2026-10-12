@@ -583,6 +583,51 @@ public class ChatResource extends BaseResource {
         return ok(Map.of("deleted", true, "msgId", msgId));
     }
 
+    /** {@code PATCH .../photos?key=}: the new public-site choice, and (a hint) the message carrying the photo. */
+    public record PhotoVisibilityRequest(Boolean hidden, String messageId) {
+    }
+
+    /**
+     * Changes whether a posted photo may appear on the public site: the uploader's attach-time choice,
+     * revisited. Keyed by the photo ({@code ?key=}, a query parameter for the same reason as the delete),
+     * not the message: the Photos page knows a photo by its key alone. {@code messageId} is only a hint.
+     * The author of the message that sent the photo may change it, as may a chat admin; nobody else.
+     */
+    @PATCH
+    @Path("photos")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response setPhotoVisibility(
+            @PathParam("channelId") final String channelId,
+            @QueryParam("key") final String key,
+            @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf,
+            final PhotoVisibilityRequest body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
+        }
+        final Person.Id me = personId();
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        if (key == null || key.isBlank()) {
+            return error(400, ChatErrors.BAD_ATTACHMENT, "Missing photo key.");
+        }
+        if (body == null || body.hidden() == null) {
+            return error(400, ChatErrors.BAD_ATTACHMENT, "Say whether the photo is hidden.");
+        }
+        final ChatMessage.Id hint = body.messageId() == null || body.messageId().isBlank()
+                ? null : ChatMessage.Id.from(body.messageId());
+        final ChatCommands chat = ChatCommands.getChatCommands();
+        if (!chat.canChangePhotoVisibility(tripId, key, hint, me) && !chat.canAdminister(tripId, caller())) {
+            return error(403, ChatErrors.FORBIDDEN, "You can only change photos you posted.");
+        }
+        if (!chat.setPhotoVisibility(tripId, key, body.hidden(), hint, caller())) {
+            return error(404, ChatErrors.NOT_FOUND, "Photo not found.");
+        }
+        return ok(Map.of("key", key, "hidden", body.hidden()));
+    }
+
     /**
      * Author self-edit. {@code PATCH} because it replaces one field of an existing message rather than creating
      * anything — a {@code PUT} would imply the client is supplying the whole resource, including fields
@@ -838,6 +883,9 @@ public class ChatResource extends BaseResource {
         final Map<String, Object> result = new LinkedHashMap<>();
         result.put("enabled", chat.invitesEnabled());
         result.put("canInvite", chat.canInvite(tripId, personId()));
+        // What else the caller may do in this chat, answered here because the phone already asks this at
+        // thread start: a chat admin may change any photo's public-site flag, not only their own.
+        result.put("canAdminister", chat.canAdminister(tripId, caller()));
         return ok(result);
     }
 

@@ -90,6 +90,15 @@ public class ChatAttachment implements Serializable {
                 Instant.now().truncatedTo(ChronoUnit.MILLIS), by);
     }
 
+    /**
+     * This attachment with its public-site flag changed and everything else kept: the uploader (or a chat
+     * admin) may change their mind about the public site at any time after posting.
+     */
+    public ChatAttachment withHidden(final boolean newHidden) {
+        return new ChatAttachment(kind, s3Key, contentType, size, width, height, thumbKey, caption,
+                newHidden, deletedAt, deletedBy);
+    }
+
     /** Whether this attachment was individually removed; null-safe (old messages read as live). */
     @JsonIgnore
     public boolean isDeleted() {

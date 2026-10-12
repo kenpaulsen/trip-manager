@@ -221,7 +221,7 @@ public class ChatCommands {
      * one a subtype of the other would remove the type system's only objection to carrying a Caller somewhere
      * its cached answers are already stale.
      */
-    private static AuditActor actorOf(final Caller caller) {
+    static AuditActor actorOf(final Caller caller) {
         return caller == null ? AuditActor.current() : caller.auditActor();
     }
 
@@ -231,7 +231,7 @@ public class ChatCommands {
      * postback. Every mutating admin method below calls this before touching anything, so a caller that forgets
      * cannot escalate. Denials are audited as failures, because an attempted moderation is worth seeing.
      */
-    private boolean denyUnlessAdmin(
+    boolean denyUnlessAdmin(
             final String tripId, final String what, final Caller caller) {
         final AuditActor who = actorOf(caller);
         // Identity may come from the ACTOR rather than the caller. These methods are reachable with only an
@@ -2199,47 +2199,19 @@ public class ChatCommands {
      */
     public boolean deleteAttachment(
             final String tripId, final ChatMessage.Id msgId, final String s3Key, final Caller caller) {
-        final AuditActor who = actorOf(caller);
-        final ChatChannel channel = getChannel(tripId);
-        if (channel == null || msgId == null || s3Key == null || s3Key.isBlank()) {
-            return false;
-        }
-        final Optional<ChatMessage> before = dao().getChatMessage(channel.getId(), msgId, Cached.NO);
-        if (!isOwnMessage(before, who)) {
-            if (denyUnlessAdmin(tripId, "delete photo from message " + msgId.getValue(), caller)) {
-                return false;
-            }
-        }
-        // Captured BEFORE the tombstone write clears its keys: the cascade below needs the real s3/thumb keys.
-        final ChatAttachment target = before.map(ChatMessage::getAttachments).orElse(List.of()).stream()
-                .filter(a -> !a.isDeleted() && s3Key.equals(a.getS3Key()))
-                .findFirst().orElse(null);
-        if (target == null) {
-            return false;
-        }
-        final Optional<ChatMessage> updated = dao().removeChatAttachment(
-                channel.getId(), msgId, s3Key, deleterName(who));
-        if (updated.isEmpty()) {
-            return false;
-        }
-        final String author = before.map(m -> m.getAuthorId() == null ? "?" : m.getAuthorId().getValue())
-                .orElse("?");
-        audit(AuditAction.CHAT_ADMIN, who, AuditEventBuilder.TARGET_CHAT_MESSAGE, msgId.getValue(),
-                "photo deleted; author=" + author + "; key=" + s3Key);
-        // Album semantics (user decision 2026-08-07): photos SURVIVE retention expiry but NOT removal.
-        ChatPhotos.getChatPhotos().deleteEverywhere(List.of(target));
-        return true;
+        return ChatPhotoEdits.delete(this, tripId, msgId, s3Key, caller);
     }
 
-    /**
-     * The remover's display name for the tombstone note, captured at delete time. Falls back to the actor's
-     * email, then a role word, rather than ever rendering a raw person id in the chat.
-     */
-    private static String deleterName(final AuditActor who) {
-        if (who == null || who.id() == null) {
-            return who == null || who.email() == null ? "an administrator" : who.email();
-        }
-        return ChatOnBehalf.displayNameOrId(PersonCommands.getPersonCommands(), who.id());
+    /** A posted photo's public-site flag, revisited by its uploader or a chat admin ({@link ChatPhotoEdits}). */
+    public boolean setPhotoVisibility(final String tripId, final String s3Key, final boolean hidden,
+            final ChatMessage.Id hint, final Caller caller) {
+        return ChatPhotoEdits.setVisibility(this, tripId, s3Key, hidden, hint, caller);
+    }
+
+    /** Whether this person may change this photo's public-site flag: their own message, or any as a chat admin. */
+    public boolean canChangePhotoVisibility(final String tripId, final String s3Key, final ChatMessage.Id hint,
+            final Person.Id me) {
+        return me != null && (canAdminister(tripId) || ChatPhotoEdits.isAuthorOfPhoto(this, tripId, s3Key, hint, me));
     }
 
     /**
@@ -2248,7 +2220,7 @@ public class ChatCommands {
      * <p>Compared on the id the message carries, so an author deleting their own never depends on the caller
      * naming themselves. Empty when the message is gone or has no author (a SYSTEM message is nobody's).
      */
-    private boolean isOwnMessage(final Optional<ChatMessage> message, final AuditActor who) {
+    boolean isOwnMessage(final Optional<ChatMessage> message, final AuditActor who) {
         if (who == null || who.id() == null) {
             return false;
         }
@@ -2840,7 +2812,7 @@ public class ChatCommands {
         return dao().getTrip(channel.getTripId(), Cached.NO).orElse(null);
     }
 
-    private DAO dao() {
+    DAO dao() {
         return DAO.getInstance();
     }
 
@@ -2877,7 +2849,7 @@ public class ChatCommands {
         return param == null ? null : param.toString();
     }
 
-    private void audit(
+    void audit(
             final AuditAction action, final AuditActor actor,
             final String targetType, final String targetId, final String message) {
         Audit.log(Audit.builder(action, AuditOutcome.SUCCESS)

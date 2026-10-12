@@ -737,6 +737,14 @@ public final class DAO {
             final String s3Key, final String deletedBy) {
         return chatDao.removeAttachment(channelId, msgId, s3Key, deletedBy);
     }
+    public Optional<ChatMessage> setChatAttachmentHidden(
+            final ChatChannel.Id channelId, final ChatMessage.Id msgId, final String s3Key, final boolean hidden) {
+        return chatDao.setAttachmentHidden(channelId, msgId, s3Key, hidden);
+    }
+    public Optional<ChatMessage> findChatMessageWithAttachment(
+            final ChatChannel.Id channelId, final String s3Key, final long fromMillis, final int maxPages) {
+        return chatDao.findMessageWithAttachment(channelId, s3Key, fromMillis, maxPages);
+    }
     public ChatPage getChatMessagesSince(
             final ChatChannel.Id channelId, final ChatMessage.Id since, final int limit,
             final ChatMembership member, final ChatChannel channel, final Trip trip,

@@ -596,6 +596,64 @@ public class ChatDAO {
         return replaced == null ? Optional.empty() : writeAttachments(existing.get(), replaced);
     }
 
+    /**
+     * Changes ONE live attachment's public-site flag, leaving the rest (and the body) untouched. The same
+     * write as {@link #removeAttachment}, so the body hash and {@code mutationsVersion} move and a polling
+     * client refetches the message. Empty when the message is gone, tombstoned, or has no live attachment
+     * under that key.
+     */
+    protected Optional<ChatMessage> setAttachmentHidden(
+            final ChatChannel.Id channelId, final ChatMessage.Id msgId, final String s3Key, final boolean hidden) {
+        final Optional<ChatMessage> existing = getMessage(channelId, msgId);
+        if (existing.isEmpty() || existing.get().isDeleted()) {
+            return Optional.empty();
+        }
+        boolean matched = false;
+        final List<ChatAttachment> out = new ArrayList<>();
+        for (final ChatAttachment attachment : existing.get().getAttachments()) {
+            if (!matched && !attachment.isDeleted() && s3Key.equals(attachment.getS3Key())) {
+                matched = true;
+                out.add(attachment.withHidden(hidden));
+            } else {
+                out.add(attachment);
+            }
+        }
+        if (!matched) {
+            return Optional.empty();
+        }
+        if (existing.get().getAttachments().stream()
+                .anyMatch(a -> !a.isDeleted() && s3Key.equals(a.getS3Key()) && a.isHidden() == hidden)) {
+            // Already so: nothing to write, and no mutation to announce.
+            return existing;
+        }
+        return writeAttachments(existing.get(), out);
+    }
+
+    /**
+     * The live message that carries a photo, searched forward from {@code fromMillis} -- a photo is staged
+     * shortly before the message that sends it, and the key names the staging time, so the walk is short.
+     * Raw rows, no visibility filter: this serves a mutation whose own authorization follows. Empty when
+     * no message within {@code maxPages} pages carries the key.
+     */
+    protected Optional<ChatMessage> findMessageWithAttachment(
+            final ChatChannel.Id channelId, final String s3Key, final long fromMillis, final int maxPages) {
+        String after = fromMillis <= 0 ? null : ChatMessage.Id.of(fromMillis).getValue();
+        for (int page = 0; page < maxPages; page++) {
+            final List<ChatMessage> msgs = queryMessages(channelId.getValue(), after, null, true, 200);
+            for (final ChatMessage msg : msgs) {
+                if (!msg.isDeleted() && msg.getAttachments().stream()
+                        .anyMatch(a -> !a.isDeleted() && s3Key.equals(a.getS3Key()))) {
+                    return Optional.of(msg);
+                }
+            }
+            if (msgs.size() < 200) {
+                break;
+            }
+            after = msgs.get(msgs.size() - 1).getId().getValue();
+        }
+        return Optional.empty();
+    }
+
     /** The list with the matching live attachment tombstoned, or null when nothing matched. */
     private static List<ChatAttachment> tombstoneOne(
             final List<ChatAttachment> attachments, final String s3Key, final String deletedBy) {
