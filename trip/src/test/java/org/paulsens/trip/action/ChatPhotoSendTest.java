@@ -383,6 +383,34 @@ public class ChatPhotoSendTest {
         Assert.assertTrue(at > 0 && at <= System.currentTimeMillis(), "stamped now: " + staged.key());
         Assert.assertEquals(ChatPhotos.stagedAtMillis("chat/t/fake-1.jpg"), 0L);
         Assert.assertEquals(ChatPhotos.stagedAtMillis(null), 0L);
+        Assert.assertEquals(ChatPhotos.stagedAtMillis("chat/t/not-a-timestamp-at-all.jpg"), 0L,
+                "long enough to parse, but not a stamp");
+    }
+
+    @Test
+    public void aMissingChannelOrKeyFindsNoPhotoAndChangesNothing() {
+        final ChatPhotos.StagedPhoto staged = stageOne();
+        final ChatCommands.SendResult sent = chat.send(tripId, member, "", null, null, actor,
+                List.of(new ChatPhotos.AttachmentRef(staged.key(), null)));
+        Assert.assertTrue(sent.isOk());
+        final ChatChannel channel = chat.getChannel(tripId);
+        Assert.assertTrue(ChatPhotoEdits.findMessageWithPhoto(DAO.getInstance(), channel, " ", null).isEmpty());
+        Assert.assertTrue(ChatPhotoEdits.findMessageWithPhoto(DAO.getInstance(), null, staged.key(), null).isEmpty());
+        // No channel: the media page's flip has no message copy to follow, and must not throw.
+        ChatPhotoEdits.sync(DAO.getInstance(), null, staged.key(), true);
+        Assert.assertFalse(reread(sent.getMessageObj().getId()).getAttachments().get(0).isHidden());
+        Assert.assertFalse(chat.deleteAttachment(tripId, null, staged.key(), Caller.forActor(actor)));
+        Assert.assertFalse(chat.deleteAttachment(tripId, sent.getMessageObj().getId(), " ", Caller.forActor(actor)));
+    }
+
+    @Test
+    public void deletingTheTripRemovesItsAlbumRows() {
+        final ChatPhotos.StagedPhoto staged = stageOne();
+        Assert.assertTrue(chat.send(tripId, member, "", null, null, actor,
+                List.of(new ChatPhotos.AttachmentRef(staged.key(), null))).isOk());
+        Assert.assertEquals(photos.slotForTrip(tripId), ChatPhotos.slotFor(tripId));
+        Assert.assertEquals(photos.deleteAllForTrip(tripId), 1);
+        Assert.assertTrue(DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor(tripId), Cached.NO).isEmpty());
     }
 
     @Test
