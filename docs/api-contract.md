@@ -151,7 +151,9 @@ entry is the signal to draw their initials (and to forget a picture that person 
 thread (`GET /api/photo-chat/thread`) carries the same two maps. Chat photos: `POST /api/chat/channels/trip:{tripId}/photos` with a raw
 `image/*` (or `application/octet-stream`) body, optional `cropX,cropY,cropW,cropH` (source pixels, all or
 none) → `{key, smallKey, contentType, size, width, height, url, smallUrl}`; the keys go into a send's
-`attachments`. Refusals: 429 `RATE_LIMITED` + `Retry-After` (40 uploads / 10 min per person, shared with
+`attachments`. The apps' trip Photos page adds photos the same way (2026-10-12): stage each, then ONE send
+carrying every key (the channel's per-message cap, default 10), since the album (`/api/media/slots/tripChat-{tripId}`)
+is filled only from chat; there is no separate album upload. Refusals: 429 `RATE_LIMITED` + `Retry-After` (40 uploads / 10 min per person, shared with
 the website), 403 with the send codes (`MUTED`, `FORBIDDEN`, `CHANNEL_ARCHIVED`), 400 `BAD_ATTACHMENT`
 (photos off, bad crop, empty body), 413 `ATTACHMENT_TOO_LARGE` (the channel's `maxAttachmentBytes`), 422
 `BAD_ATTACHMENT` (not an image). URL bases: `GET /api/media/bases` → `{chatPhotos, profilePhotos, remote}`
