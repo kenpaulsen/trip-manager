@@ -10,6 +10,13 @@ Non-trip-members can participate in a trip's chat two ways (2026-08-12):
    dependency) and a copyable URL. Redeeming requires an account; the landing page
    (`/trip/chatInvite.jsf?trip={id}&token={selector}.{validator}`) rides the normal `afterLoginURL` /
    `?to=` login round-trip, then writes a guest membership row and forwards into the chat.
+   **The minted link is the short form `/i/{trip}/{selector}.{validator}`** (2026-10-13, `InviteLinks`):
+   the UUID packed to 22 base64url characters, a 6-byte selector and a 16-byte validator, about 85
+   characters on an org site against 155 before, because the link is scanned as a QR code and every
+   character is a denser, less forgiving code. `InviteLinkServlet` (`/i/*` in the live web.xml) expands it
+   and redirects to the landing page, so old long links and new short ones redeem through one page. 128
+   bits of validator entropy is the size every other secret here uses; the stored hash verifies either
+   length, so links minted before the change keep working until they expire.
 
 ## REST (2026-09-14, for the UniteTrip app)
 
@@ -25,6 +32,16 @@ Both on `ChatResource`, the channel path, so they share `tripIdOf`/CSRF/auth wit
   `CONFLICT` when the person may invite but the chat refuses right now (archived, or
   `chat.invites.maxPerChannel` reached). Cookie sessions send `X-Trip-Api: 1`; bearer tokens are exempt.
   Audited as `CHAT_INVITE` like the website's mint.
+- `POST /api/chat/invites/redeem` `{"trip": "<as in the link>", "token": "<selector>.<validator>"}` →
+  `{"result": "ok"|"invalid"|"disabled"|"archived"|"removed", "tripId": "<full id>"}` (2026-10-13,
+  `ChatInviteResource`): the phones' half of universal / app links. A phone that opens an invite link
+  sends the link's two pieces here instead of landing on the website, then opens that trip's chat.
+  `trip` may be the packed 22-character form or the UUID; the answer always carries the full id. The
+  outcome is the same token `redeemInvite` gives the landing page, always as a 200: a refused link is an
+  answer the phone words, not a failure of the call. The association files the operating systems fetch
+  (`/.well-known/apple-app-site-association`, `/.well-known/assetlinks.json`) are served by
+  `WellKnownServlet` from the private overlay's `WEB-INF/well-known/`; they claim `/i/*` and
+  `/trip/chatInvite.jsf` on every host the app answers on.
 
 ## Authorization model — read before touching
 

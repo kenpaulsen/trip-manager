@@ -1978,8 +1978,10 @@ public class ChatCommands {
         if (countOutstanding(channel.getId(), now) >= config.getInt(KnownSettings.CHAT_INVITE_MAX_OUTSTANDING)) {
             return null;
         }
-        final String selector = RandomData.genSecureToken(9);
-        final String validator = RandomData.genSecureToken(32);
+        // 6 + 16 bytes (8 + 22 characters): the link is scanned as a QR code, and the sizes are argued in
+        // InviteLinks. Old rows with the longer halves verify as before -- the hash is of whatever was minted.
+        final String selector = RandomData.genSecureToken(6);
+        final String validator = RandomData.genSecureToken(16);
         final ChatInvite invite = new ChatInvite(channel.getId(), selector,
                 Digests.sha256Base64(validator), me, now, inviteExpiry(channel, now), 0L);
         if (!dao().saveChatInvite(invite)) {
@@ -2036,9 +2038,7 @@ public class ChatCommands {
         final Trip trip = dao().getTrip(tripId, Cached.YES).orElse(null);
         final String prefix = org.paulsens.trip.site.SiteUrls.baseUrlForTrip(trip,
                 KnownSettings.CHAT_MAIL_BASE_URL, config);
-        return prefix + "/trip/chatInvite.jsf?trip="
-                + java.net.URLEncoder.encode(tripId, java.nio.charset.StandardCharsets.UTF_8)
-                + "&token=" + selector + "." + validator;
+        return prefix + org.paulsens.trip.chat.InviteLinks.shortPath(tripId, selector, validator);
     }
 
     /**
@@ -2050,7 +2050,11 @@ public class ChatCommands {
         return redeemInvite(tripId, token, currentUserId(), AuditActor.current());
     }
 
-    String redeemInvite(final String tripId, final String token, final Person.Id me, final AuditActor actor) {
+    /**
+     * The same redemption for a caller the REST layer has already identified (the app's {@code POST
+     * invite/redeem}): public since 2026-10-13 so the resource can call it, as {@code createInvite} is.
+     */
+    public String redeemInvite(final String tripId, final String token, final Person.Id me, final AuditActor actor) {
         if (me == null) {
             return "not-signed-in";
         }

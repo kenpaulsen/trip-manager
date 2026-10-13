@@ -158,7 +158,8 @@ public class ChatGuestAccessTest {
         final String url = chat.createInvite(tripId, rosterMember, actor);
         Assert.assertNotNull(url, "a member who can post may mint an invite");
         final String token = tokenOf(url);
-        Assert.assertTrue(url.contains("/trip/chatInvite.jsf?trip=" + tripId));
+        Assert.assertTrue(url.contains("/i/" + org.paulsens.trip.chat.InviteLinks.compactTripId(tripId) + "/"), url);
+        Assert.assertTrue(url.length() < 100, "a QR-friendly link: " + url.length() + " chars, " + url);
 
         // A real Person row: guests must have an account, and the mention-roster pin below resolves them.
         final Person.Id guest = savedPerson("redeemer").getId();
@@ -476,8 +477,8 @@ public class ChatGuestAccessTest {
     }
 
     private static String tokenOf(final String url) {
-        final int at = url.indexOf("token=");
-        Assert.assertTrue(at > 0, "invite URL must carry a token: " + url);
-        return url.substring(at + "token=".length());
+        final int at = url.lastIndexOf('/');
+        Assert.assertTrue(at > 0 && url.indexOf('.', at) > at, "invite URL must end in selector.validator: " + url);
+        return url.substring(at + 1);
     }
 }

@@ -54,7 +54,8 @@ public class TripChatPurgeTest {
         Assert.assertTrue(chat.send(tripId, rosterMember, "second message", null, null, actor).isOk());
 
         final String url = chat.createInvite(tripId, rosterMember, actor);
-        final String token = url.substring(url.indexOf("token=") + "token=".length());
+        // The short link ends in selector.validator (InviteLinks).
+        final String token = url.substring(url.lastIndexOf('/') + 1);
         final Person person = Person.builder()
                 .first("Guest").last(RandomData.genAlpha(8))
                 .email("purge." + RandomData.genAlpha(8) + "@example.com")
