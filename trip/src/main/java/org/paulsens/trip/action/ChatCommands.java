@@ -2774,6 +2774,10 @@ public class ChatCommands {
                 ctx.getViewRoot().getViewMap().put("chatReplyTo", null);
                 ctx.getViewRoot().getViewMap().put("chatAttachments", "");
             }
+            // The page clears the composer itself on this signal rather than re-rendering it: a textarea
+            // replaced by the ajax response ate whatever the person had started typing in the meantime, and
+            // took the mention menu with it (CI caught it as a race on 2026-10-13).
+            PageFeedback.callbackParam("chatSent", true);
         } else if (result.getMessage() != null) {
             growlWarn(result.getMessage());
         }
