@@ -266,6 +266,7 @@ public class InMemoryPersistence implements Persistence {
         }
 
         rejectUnaliasedReservedWords(query.keyConditionExpression());
+        rejectTwoConditionsOnTheSortKey(query.keyConditionExpression(), query.expressionAttributeNames(), keys);
 
         for (final String alias : aliasesIn(query.keyConditionExpression())) {
             if (query.expressionAttributeNames() == null
@@ -455,6 +456,34 @@ public class InMemoryPersistence implements Persistence {
                         + "Attribute name is a reserved keyword; reserved keyword: " + word
                         + " -- use ExpressionAttributeNames (#" + word + ")");
             }
+        }
+    }
+
+    /**
+     * DynamoDB allows the sort key ONE condition ({@code =}, a comparison, {@code BETWEEN} or
+     * {@code begins_with}); "{@code #sk > :a AND #sk < :b}" is a 400. This fake used to evaluate that shape
+     * happily, which is how the chat reaction window shipped broken: its unit tests passed and every
+     * production read failed.
+     */
+    private static void rejectTwoConditionsOnTheSortKey(
+            final String expression, final Map<String, String> names, final TableKeys keys) {
+        if (expression == null || keys.sk == null) {
+            return;
+        }
+        int mentions = 0;
+        final java.util.regex.Matcher matcher =
+                java.util.regex.Pattern.compile("(?<![:#\\w])(#?\\w+)").matcher(expression);
+        while (matcher.find()) {
+            final String token = matcher.group(1);
+            final String resolved = token.startsWith("#") && names != null ? names.get(token) : token;
+            if (keys.sk.equals(resolved)) {
+                mentions++;
+            }
+        }
+        if (mentions > 1) {
+            throw new IllegalArgumentException("ValidationException: Invalid KeyConditionExpression: "
+                    + "KeyConditionExpressions must only contain one condition per key (expression: "
+                    + expression + ")");
         }
     }
 

@@ -128,6 +128,29 @@ public class ChatDAOPhotoTest {
     }
 
     @Test
+    public void theWindowReadWalksPastOnePageWithoutRepeatingOrSkippingARow() throws IOException {
+        final String tripId = seedTrip("pages");
+        final String key = key("pages");
+        final ChatChannel tripChannel = tripChannel(tripId);
+        final ChatMessage first = dao.saveChatMessage(
+                comment(tripChannel, ANN, "0"), tripChannel, null).orElseThrow();
+        for (int i = 1; i < 205; i++) {
+            dao.saveChatMessage(comment(tripChannel, BOB, String.valueOf(i)), tripChannel, null).orElseThrow();
+        }
+        final ChatMessage carrier = dao.saveChatMessage(
+                mediaMessage(tripChannel, ANN, key), tripChannel, null).orElseThrow();
+        Assert.assertTrue(dao.putChatReaction(rootReaction(key, BOB, "👍")));
+        dao.invalidatePhotoChatMeta(key);
+
+        // The carrier sits on the SECOND page of the window read (200 rows a page): the fold only sees it
+        // when the walk continues past the last row of page one, exclusive of that row and of nothing else.
+        final Map<ChatMessage.Id, ChatReactionSummary> window =
+                dao.getChatReactionWindow(tripChannel.getId(), first.getId(), carrier.getId(), Cached.NO);
+        Assert.assertEquals(window.size(), 1, "only the carrier has reactions");
+        Assert.assertEquals(window.get(carrier.getId()).count("👍"), 1);
+    }
+
+    @Test
     public void photoChannelsThemselvesNeverFoldOrTouchLastActivity() {
         final String key = key("no-recurse");
         final ChatChannel photo = photoChannel(key);

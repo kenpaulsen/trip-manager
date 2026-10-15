@@ -3,16 +3,19 @@ package org.paulsens.trip.dynamo;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Reservation;
 import org.paulsens.trip.util.RandomData;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertThrows;
 import static org.testng.Assert.assertTrue;
+import static org.testng.Assert.expectThrows;
 
 /**
  * The in-memory fake's secondary-index support, through the one index that uses it. A fake that answered
@@ -63,6 +66,32 @@ public class InMemoryIndexTest {
 
 
     /** A query naming an index the table does not have is a mistake, not an empty answer. */
+    @Test
+    public void twoConditionsOnOneSortKeyAreRefusedLikeDynamoDB() {
+        // "> :after AND < :before" is what the chat reaction window shipped with: the fake evaluated it and
+        // production answered 400 on every read. BETWEEN is the one legal spelling of a two-sided range.
+        final InMemoryPersistence fake = new InMemoryPersistence();
+        final Map<String, String> names = Map.of("#channelId", ChatDAO.ATTR_CHANNEL_ID, "#msgId", ChatDAO.ATTR_MSG_ID);
+        final Map<String, AttributeValue> values = Map.of(
+                ":c", AttributeValue.builder().s("trip:x").build(),
+                ":after", AttributeValue.builder().s("1").build(),
+                ":before", AttributeValue.builder().s("9").build());
+        final IllegalArgumentException refused = expectThrows(IllegalArgumentException.class,
+                () -> fake.query(b -> b.tableName(ChatDAO.MESSAGES_TABLE)
+                        .keyConditionExpression("#channelId = :c AND #msgId > :after AND #msgId < :before")
+                        .expressionAttributeNames(names).expressionAttributeValues(values)));
+        assertTrue(refused.getMessage().contains("one condition per key"), refused.getMessage());
+        // The same window as ONE condition, unaliased on the sort key, is accepted.
+        final Map<String, AttributeValue> between = Map.of(
+                ":c", AttributeValue.builder().s("trip:x").build(),
+                ":lo", AttributeValue.builder().s("1").build(),
+                ":hi", AttributeValue.builder().s("9").build());
+        assertTrue(fake.query(b -> b.tableName(ChatDAO.MESSAGES_TABLE)
+                .keyConditionExpression("#channelId = :c AND " + ChatDAO.ATTR_MSG_ID + " BETWEEN :lo AND :hi")
+                .expressionAttributeNames(Map.of("#channelId", ChatDAO.ATTR_CHANNEL_ID))
+                .expressionAttributeValues(between)).items().isEmpty());
+    }
+
     @Test
     public void anUnknownIndexFailsLoudly() {
         assertThrows(IllegalArgumentException.class, () -> new InMemoryPersistence()

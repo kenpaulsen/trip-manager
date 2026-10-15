@@ -111,6 +111,9 @@ Persistence gotchas (each has caused a real bug):
 - A read immediately after a write can be stale in production (async invalidation) — pass along the object
   you just saved instead of re-reading.
 - `queryAll` ignores `limit` (it paginates the whole partition); use `query()` for unbounded partitions.
+- A key condition may name the sort key ONCE: a two-sided range is `BETWEEN :lo AND :hi`, never
+  `> :after AND < :before` (DynamoDB answers 400; the in-memory fake rejects it too since 2026-10-16,
+  after the chat reaction window shipped that shape with green tests and failed on every production read).
 - Lombok `@Builder` zeroes primitive defaults — hand-write builders (see `TripBuilder`) and assert
   `builder().build().equals(new Whatever())` in the model test.
 - A DAO on `PartitionScanCache` must delete rows via `removeOne`, never `invalidate()`: in local mode the

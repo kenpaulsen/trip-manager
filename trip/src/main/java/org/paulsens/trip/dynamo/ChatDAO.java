@@ -992,6 +992,29 @@ public class ChatDAO {
         }
     }
 
+    /**
+     * One bounded, oldest-first page of rows with ids in {@code [fromInclusive, toInclusive]}. A two-sided
+     * window is ONE {@code BETWEEN} condition: DynamoDB refuses a key condition that names the sort key
+     * twice ("{@code > :after AND < :before}" -- the shape the fake accepted and production rejected with a
+     * 400 on every reaction-window read until 2026-10-16).
+     */
+    private List<ChatMessage> queryMessagesBetween(
+            final String channelId, final String fromInclusive, final String toInclusive, final int limit) {
+        final Map<String, String> names = Map.of("#channelId", ATTR_CHANNEL_ID, "#msgId", ATTR_MSG_ID);
+        final Map<String, AttributeValue> values = Map.of(
+                ":c", AttributeValue.builder().s(channelId).build(),
+                ":lo", AttributeValue.builder().s(fromInclusive).build(),
+                ":hi", AttributeValue.builder().s(toInclusive).build());
+        return toMessages(
+                persistence.query(b -> b.tableName(MESSAGES_TABLE)
+                        .keyConditionExpression("#channelId = :c AND #msgId BETWEEN :lo AND :hi")
+                        .expressionAttributeNames(names)
+                        .expressionAttributeValues(values)
+                        .scanIndexForward(true)
+                        .limit(limit)).items(),
+                limit);
+    }
+
     private List<ChatMessage> toMessages(final List<Map<String, AttributeValue>> items, final int limit) {
         final List<ChatMessage> out = new ArrayList<>();
         for (final Map<String, AttributeValue> item : items) {
@@ -1359,15 +1382,15 @@ public class ChatDAO {
     private List<ChatMessage> windowMessages(
             final ChatChannel.Id channelId, final ChatMessage.Id oldest, final ChatMessage.Id newest) {
         final List<ChatMessage> out = new ArrayList<>();
-        String after = ChatMessage.Id.of(Math.max(0L, oldest.getEpochMilli() - 1)).getValue();
-        final String before = newest.next().getValue();
+        String from = oldest.getValue();
+        final String to = newest.getValue();
         for (int page = 0; page < 5; page++) {
-            final List<ChatMessage> batch = queryMessages(channelId.getValue(), after, before, true, 200);
+            final List<ChatMessage> batch = queryMessagesBetween(channelId.getValue(), from, to, 200);
             out.addAll(batch);
             if (batch.size() < 200) {
                 return out;
             }
-            after = batch.get(batch.size() - 1).getId().getValue();
+            from = batch.get(batch.size() - 1).getId().next().getValue();
         }
         // A five-page window means the client asked about ~1000 on-screen messages; fold what was read
         // rather than walking an arbitrarily wide range.
