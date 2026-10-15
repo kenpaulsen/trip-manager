@@ -74,6 +74,8 @@ public class ChatInviteResourceTest extends ResourceTestSupport {
 
     @Test
     public void bothPiecesAreRequiredAndTheCsrfRuleHolds() {
+        assertError(resource.redeem(null, Map.of("trip", TRIP_ID, "token", "sel.val")), 403, ChatErrors.CSRF);
+        assertError(resource.redeem(" ", Map.of("trip", TRIP_ID, "token", "sel.val")), 403, ChatErrors.CSRF);
         assertError(resource.redeem(CSRF_OK, Map.of("token", "sel.val")), 400, ApiErrors.BAD_REQUEST);
         assertError(resource.redeem(CSRF_OK, Map.of("trip", TRIP_ID)), 400, ApiErrors.BAD_REQUEST);
         assertError(resource.redeem(CSRF_OK, Map.of("trip", " ", "token", "sel.val")), 400, ApiErrors.BAD_REQUEST);
@@ -84,5 +86,11 @@ public class ChatInviteResourceTest extends ResourceTestSupport {
         assertError(resource.redeem(CSRF_OK, notStrings), 400, ApiErrors.BAD_REQUEST);
         Mockito.verify(chat, Mockito.never()).redeemInvite(ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any());
+    }
+
+    /** The resource speaks the chat media type, like the channel resources the phone already talks to. */
+    @Test
+    public void answersInTheChatMediaType() {
+        Assert.assertEquals(resource.versionedType(), ApiMediaTypes.CHAT_V1);
     }
 }
