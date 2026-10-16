@@ -575,21 +575,23 @@ public class ChatResourceTest extends ResourceTestSupport {
         Assert.assertEquals(off.get("canInvite"), Boolean.FALSE);
 
         assertError(resource.inviteAvailability("dm:a:b"), 400, ChatErrors.BAD_CHANNEL);
-        Mockito.verify(chat, Mockito.never()).createInvite(ArgumentMatchers.any(), ArgumentMatchers.any(),
+        Mockito.verify(chat, Mockito.never()).mintInvite(ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any());
     }
 
     @Test
     public void createInviteAnswersTheMintedUrl() {
         Mockito.when(chat.canInvite(TRIP_ID, ME)).thenReturn(true);
-        Mockito.when(chat.createInvite(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME),
-                ArgumentMatchers.any(AuditActor.class))).thenReturn("https://example.test/trip/chatInvite.jsf?t=1");
+        Mockito.when(chat.mintInvite(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME),
+                ArgumentMatchers.any(AuditActor.class))).thenReturn(
+                        new ChatCommands.MintedInvite("https://example.test/trip/chatInvite.jsf?t=1", 1_800_000_000L));
 
         final Response got = resource.createInvite(CHANNEL, CSRF_OK);
         assertOk(got);
         @SuppressWarnings("unchecked")
         final Map<String, Object> body = (Map<String, Object>) got.getEntity();
         Assert.assertEquals(body.get("url"), "https://example.test/trip/chatInvite.jsf?t=1");
+        Assert.assertEquals(body.get("expires"), 1_800_000_000L, "the phone keeps the link until then");
     }
 
     /** A non-inviter is refused BEFORE the bean is asked to mint, so the refusal costs no row. */
@@ -598,7 +600,7 @@ public class ChatResourceTest extends ResourceTestSupport {
         Mockito.when(chat.canInvite(TRIP_ID, ME)).thenReturn(false);
 
         assertError(resource.createInvite(CHANNEL, CSRF_OK), 403, ChatErrors.FORBIDDEN);
-        Mockito.verify(chat, Mockito.never()).createInvite(ArgumentMatchers.any(), ArgumentMatchers.any(),
+        Mockito.verify(chat, Mockito.never()).mintInvite(ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any());
     }
 
@@ -606,7 +608,7 @@ public class ChatResourceTest extends ResourceTestSupport {
     @Test
     public void createInviteIs409WhenTheChatRefusesRightNow() {
         Mockito.when(chat.canInvite(TRIP_ID, ME)).thenReturn(true);
-        Mockito.when(chat.createInvite(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME),
+        Mockito.when(chat.mintInvite(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME),
                 ArgumentMatchers.any(AuditActor.class))).thenReturn(null);
 
         assertError(resource.createInvite(CHANNEL, CSRF_OK), 409, ApiErrors.CONFLICT);
@@ -616,7 +618,7 @@ public class ChatResourceTest extends ResourceTestSupport {
     public void createInviteRequiresTheCsrfHeaderAndATripChannel() {
         assertError(resource.createInvite(CHANNEL, null), 403, ChatErrors.CSRF);
         assertError(resource.createInvite("dm:a:b", CSRF_OK), 400, ChatErrors.BAD_CHANNEL);
-        Mockito.verify(chat, Mockito.never()).createInvite(ArgumentMatchers.any(), ArgumentMatchers.any(),
+        Mockito.verify(chat, Mockito.never()).mintInvite(ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any());
     }
 

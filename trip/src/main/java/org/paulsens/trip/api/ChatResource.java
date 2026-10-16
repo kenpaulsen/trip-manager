@@ -890,10 +890,11 @@ public class ChatResource extends BaseResource {
     }
 
     /**
-     * Mints a multi-use invite link: {@code {"url": ...}}. Every call is a fresh row against the channel's
-     * outstanding-links cap, so a client keeps the answer for as long as it shows it rather than asking
-     * again on every open. 403 when the caller may not invite; 409 when they may but the chat refuses right
-     * now (archived, or the cap is reached) -- the caller can do nothing about either except wait.
+     * Mints a multi-use invite link: {@code {"url": ..., "expires": <epoch seconds>}}. Every call is a fresh
+     * row against the channel's outstanding-links cap, so a client keeps the answer for this chat until
+     * {@code expires} rather than asking again on every open. 403 when the caller may not invite; 409 when
+     * they may but the chat refuses right now (archived, or the cap is reached) -- the caller can do nothing
+     * about either except wait.
      */
     @POST
     @Path("invite")
@@ -913,13 +914,13 @@ public class ChatResource extends BaseResource {
         if (!chat.canInvite(tripId, me)) {
             return error(403, ChatErrors.FORBIDDEN, "You can't invite people to this chat.");
         }
-        final String url = chat.createInvite(tripId, me, actor());
-        if (url == null) {
+        final ChatCommands.MintedInvite minted = chat.mintInvite(tripId, me, actor());
+        if (minted == null) {
             return error(409, ApiErrors.CONFLICT,
                     "No invite link is available for this chat right now: it may be archived, or it already "
                             + "has as many open invite links as it is allowed.");
         }
-        return ok(Map.of("url", url));
+        return ok(Map.of("url", minted.url(), "expires", minted.expires()));
     }
 
     @GET

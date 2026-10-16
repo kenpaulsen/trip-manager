@@ -25,9 +25,11 @@ Both on `ChatResource`, the channel path, so they share `tripIdOf`/CSRF/auth wit
 - `GET /api/chat/channels/trip:{tripId}/invite` → `{"canInvite": bool, "enabled": bool}`. Read-only by
   design: a phone asks this when a thread opens, and opening a chat must never write an invite row (the
   website mints on the Invite button, never at render, for the same reason).
-- `POST /api/chat/channels/trip:{tripId}/invite` → `{"url": "..."}` from `ChatCommands.createInvite`
-  (made public for this; the JSF path's `createInviteFromUi` keeps its per-session reuse, which a
-  sessionless REST caller cannot share — the app caches the URL for the life of its thread screen instead).
+- `POST /api/chat/channels/trip:{tripId}/invite` → `{"url": "...", "expires": <epoch seconds>}` from
+  `ChatCommands.mintInvite` (the JSF path's `createInviteFromUi` keeps its per-session reuse, which a
+  sessionless REST caller cannot share — the app keeps the link per chat on the device until `expires`
+  instead; until 2026-10-16 it minted on every thread screen, and one person opening the sheet ten times
+  filled a chat's cap for a month).
   403 `FORBIDDEN` when `canInvite` is false, refused BEFORE the bean is asked so it costs no row; 409
   `CONFLICT` when the person may invite but the chat refuses right now (archived, or
   `chat.invites.maxPerChannel` reached). Cookie sessions send `X-Trip-Api: 1`; bearer tokens are exempt.

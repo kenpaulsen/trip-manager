@@ -1959,14 +1959,26 @@ public class ChatCommands {
         return url;
     }
 
+    /** A freshly minted invite: the full URL (the only copy there is) and when the server stops honoring it. */
+    public record MintedInvite(String url, long expires) {
+    }
+
     /**
      * Mints a multi-use invite link and returns the full URL, or {@code null} when refused. The stored row
      * keeps only the validator's hash, so this return value is the only copy of the working link.
-     *
-     * <p>Public for the REST edge ({@code POST .../invite}), which is sessionless and so cannot share the
-     * JSF path's per-session reuse: a phone caches the URL for the life of the screen instead.
      */
     public String createInvite(final String tripId, final Person.Id me, final AuditActor actor) {
+        final MintedInvite minted = mintInvite(tripId, me, actor);
+        return minted == null ? null : minted.url();
+    }
+
+    /**
+     * {@link #createInvite} with the row's expiry beside the URL, for the REST edge ({@code POST .../invite}):
+     * sessionless, so it cannot share the JSF path's per-session reuse. A phone keeps the link per chat until
+     * {@code expires} instead -- before 2026-10-16 it minted on every screen, and ten opens of the sheet
+     * filled a chat's outstanding-links cap for a month.
+     */
+    public MintedInvite mintInvite(final String tripId, final Person.Id me, final AuditActor actor) {
         if (tripId == null || me == null || !canInvite(tripId, me)) {
             return null;
         }
@@ -1989,7 +2001,7 @@ public class ChatCommands {
         }
         audit(AuditAction.CHAT_INVITE, actor, AuditEventBuilder.TARGET_CHAT_CHANNEL,
                 channel.getId().getValue(), "minted invite " + selector);
-        return inviteUrl(tripId, selector, validator);
+        return new MintedInvite(inviteUrl(tripId, selector, validator), invite.getExpires());
     }
 
     /**
