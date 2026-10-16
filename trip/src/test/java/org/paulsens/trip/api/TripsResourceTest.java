@@ -621,6 +621,48 @@ public class TripsResourceTest extends ResourceTestSupport {
         assertOk(resource.setParticipation(TRIP_ID, CSRF_OK, null, Map.of("eventIds", List.of("evt-1"))));
     }
 
+    @Test
+    public void updateEventMovesTheTripsOwnInstance() {
+        signedInAsSiteAdmin(ME);
+        final Trip existing = trip(TRIP_ID, ME);
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(existing)).thenReturn(true);
+        final LocalDateTime start = LocalDateTime.of(2026, 11, 6, 9, 30);
+        final TripEventDto body = new TripEventDto(null, "ground", null, "Coach from the airport", start,
+                start.plusHours(2), null, null, null, null);
+
+        final Response response = resource.updateEvent(TRIP_ID, "evt-1", CSRF_OK, body);
+
+        assertOk(response);
+        final TripEvent event = existing.getTripEvent("evt-1");
+        Assert.assertEquals(event.getStart(), start);
+        Assert.assertEquals(event.getEnd(), start.plusHours(2));
+        Assert.assertEquals(event.getType(), TripEvent.Type.GROUND);
+        Assert.assertEquals(event.getNotes(), "Coach from the airport");
+        Assert.assertEquals(event.getTitle(), "Outbound", "an absent field is left alone");
+        Assert.assertTrue(event.getParticipants().contains(ME), "participants are never touched here");
+        Mockito.verify(trips).saveTrip(existing);
+    }
+
+    @Test
+    public void updateEventRefusesTheWrongCallerEventAndType() {
+        signedInAs(ME);
+        tripExists(trip(TRIP_ID, ME));
+        final TripEventDto body = new TripEventDto(null, null, "Renamed", null, null, null, null, null, null, null);
+        assertError(resource.updateEvent(TRIP_ID, "evt-1", CSRF_OK, body), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.updateEvent(TRIP_ID, "evt-1", null, body), 403, ApiErrors.CSRF);
+
+        signedInAsSiteAdmin(ME);
+        resource = resource(new TripsResource());
+        assertError(resource.updateEvent("gone", "evt-1", CSRF_OK, body), 404, ApiErrors.NOT_FOUND);
+        assertError(resource.updateEvent(TRIP_ID, "evt-9", CSRF_OK, body), 404, ApiErrors.NOT_FOUND);
+        assertError(resource.updateEvent(TRIP_ID, "evt-1", CSRF_OK, null), 400, ApiErrors.BAD_REQUEST);
+        final TripEventDto badType = new TripEventDto(null, "teleport", null, null, null, null, null, null, null, null);
+        assertError(resource.updateEvent(TRIP_ID, "evt-1", CSRF_OK, badType), 400, ApiErrors.VALIDATION_FAILED);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.any())).thenReturn(false);
+        assertError(resource.updateEvent(TRIP_ID, "evt-1", CSRF_OK, body), 500, ApiErrors.STORE_FAILED);
+    }
+
     /** Changing somebody ELSE's itinerary needs tripMgr; being a fellow member is not enough. */
     @Test
     public void aMemberCannotChangeAnotherMembersItinerary() {

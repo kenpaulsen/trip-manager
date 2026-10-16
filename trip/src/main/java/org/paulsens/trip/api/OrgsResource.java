@@ -2,6 +2,7 @@ package org.paulsens.trip.api;
 
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DefaultValue;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.POST;
@@ -173,6 +174,33 @@ public class OrgsResource extends BaseResource {
             return error(400, ApiErrors.VALIDATION_FAILED, "Unknown organization or person.");
         }
         return ok(Map.of("added", true));
+    }
+
+    /**
+     * Removes a member. The bean refuses an org admin (revoke first), a person on one of the org's trips, a
+     * person's last organization, and a non-member; every refusal maps to 400 here. Added 2026-10-16 for the
+     * App Store review seed: a reviewer who answered the app's first-run organization chooser joined a client
+     * organization, and nothing but the admin page could undo it.
+     */
+    @DELETE
+    @Path("{orgId}/members/{personId}")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response removeMember(
+            @PathParam("orgId") final String orgId,
+            @PathParam("personId") final String personId,
+            @HeaderParam(CSRF_HEADER) final String csrf) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final OrgCommands orgs = new OrgCommands(this::caller);
+        if (!orgs.canManageOrg(orgId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Only this organization's admins can remove members.");
+        }
+        if (!orgs.removeMember(orgId, Person.Id.from(personId))) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "Not removed: unknown organization or person, an "
+                    + "organization admin, someone on one of its trips, or the person's last organization.");
+        }
+        return ok(Map.of("removed", true));
     }
 
     /**

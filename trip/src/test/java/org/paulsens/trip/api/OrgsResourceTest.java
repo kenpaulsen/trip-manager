@@ -108,10 +108,24 @@ public class OrgsResourceTest extends ResourceTestSupport {
         assertError(resource.setAdmin(orgId, admin.getValue(), CSRF_OK, Map.of("admin", false)), 400,
                 ApiErrors.VALIDATION_FAILED);
 
+        // Removal follows the same rule and the same bean refusals: an admin cannot be removed before the role
+        // is revoked, and a stranger was never a member.
+        assertError(resource.removeMember(orgId, admin.getValue(), CSRF_OK), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.removeMember(orgId, member.getValue(), null), 403, ApiErrors.CSRF);
+        assertError(resource.removeMember(orgId, somebody("Stranger").getValue(), CSRF_OK), 400,
+                ApiErrors.VALIDATION_FAILED);
+        // The happy path: a plain member with another organization to fall back on leaves cleanly (every person
+        // must keep at least one, so a member of this org alone is refused above as "last organization").
+        final String otherOrg = createOrg("Org " + System.nanoTime());
+        assertOk(resource.addMember(otherOrg, member.getValue(), CSRF_OK));
+        assertOk(resource.removeMember(orgId, member.getValue(), CSRF_OK));
+        assertOk(resource.addMember(orgId, member.getValue(), CSRF_OK));
+
         // A plain signed-in user manages nothing.
         signedInAs(member);
         resource = resource(new OrgsResource());
         assertError(resource.addMember(orgId, member.getValue(), CSRF_OK), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.removeMember(orgId, member.getValue(), CSRF_OK), 403, ApiErrors.FORBIDDEN);
         assertError(resource.setAdmin(orgId, member.getValue(), CSRF_OK, Map.of("admin", true)), 403,
                 ApiErrors.FORBIDDEN);
     }

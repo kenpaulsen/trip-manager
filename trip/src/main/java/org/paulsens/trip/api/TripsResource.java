@@ -384,6 +384,73 @@ public class TripsResource extends BaseResource {
     }
 
     /**
+     * Edits one itinerary event: type, title, notes, start and end, each left alone when absent. Participants
+     * and private notes have their own endpoints and are never touched here. Trip managers only. Added
+     * 2026-10-16 for the App Store review seed, which moves the demo trip's dates on every run and had no way
+     * to move the itinerary with them (a trip write is append-only for events).
+     */
+    @PUT
+    @Path("{tripId}/events/{eventId}")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response updateEvent(
+            @PathParam("tripId") final String tripId,
+            @PathParam("eventId") final String eventId,
+            @HeaderParam(CSRF_HEADER) final String csrf,
+            final TripEventDto body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        if (!privileges().has(ApiPrivileges.TRIP_MGR, tripId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Trip manager required.");
+        }
+        final Trip trip = findTrip(tripId);
+        if (trip == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such trip.");
+        }
+        // The trip's OWN instance, for the same reason setParticipation resolves ids: a copy saves nothing.
+        final TripEvent event = trip.getTripEvent(eventId);
+        if (event == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such event on this trip.");
+        }
+        if (body == null) {
+            return error(400, ApiErrors.BAD_REQUEST, "A body is required.");
+        }
+        if (body.type() != null) {
+            final TripEvent.Type type = eventType(body.type());
+            if (type == null) {
+                return error(400, ApiErrors.VALIDATION_FAILED, "Unknown event type: " + body.type());
+            }
+            event.setType(type);
+        }
+        if (body.title() != null) {
+            event.setTitle(body.title());
+        }
+        if (body.notes() != null) {
+            event.setNotes(body.notes());
+        }
+        if (body.start() != null) {
+            event.setStart(body.start());
+        }
+        if (body.end() != null) {
+            event.setEnd(body.end());
+        }
+        if (!Beans.get(TripCommands.class).saveTrip(trip)) {
+            return error(500, ApiErrors.STORE_FAILED, "Could not save the trip.");
+        }
+        return ok(eventDto(event, personId()));
+    }
+
+    private static TripEvent.Type eventType(final String name) {
+        for (final TripEvent.Type type : TripEvent.Type.values()) {
+            if (type.name().equalsIgnoreCase(name)) {
+                return type;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Joins or leaves itinerary events, for the caller or -- with {@code tripMgr} -- for somebody else.
      *
      * <p>Delegates to {@code TripCommands.setEventParticipation}, which resolves each submitted event back to the

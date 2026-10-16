@@ -42,6 +42,9 @@ LocalDateTime `2026-09-12T17:31:30.025` (no zone), LocalDate `2026-09-12`.
 - `GET /api/trips/{id}/events[?personId=]`, `GET .../events/{eid}[?personId=]`,
   `GET .../events/{eid}/lodging[?personId=]` → `{arrival, departure, nights}`.
 - `PUT /api/trips/{id}/events/participation?personId=` `{eventIds:[...]}` → `[TripEventDto]` — **replaces** the set.
+- `PUT /api/trips/{id}/events/{eid}` (trip manager) `{type?, title?, notes?, start?, end?}` → `TripEventDto`; absent
+  fields are left alone, participants and private notes are never touched (2026-10-16; the review seed re-dates the
+  demo itinerary with it).
 - `PUT /api/trips/{id}/events/{eid}/note?personId=` `{note}` → `TripEventDto`.
 
 **Acting as a family member (2026-10-10).** `personId` on the reads above names the SUBJECT: yourself (omit it),
@@ -125,6 +128,9 @@ ogImageUrl, backgroundUrl, backgroundColor, footerTitle, footerText, contactName
 — the caller's memberships (`all=true` is site-admin only, 403 else). `siteUrl` is built from the host the
 request came in on (`http://acme.localhost:8080` locally, `https://acme.unitetrip.com` in production) and
 is null when the org has no slug; `branding.palette` is null when the org never chose a look.
+`POST /api/orgs/{orgId}/members/{personId}` adds an existing person (org admins); `DELETE` the same path removes
+one (2026-10-16), refused with 400 for an org admin, a person on one of the org's trips, their last organization,
+or a non-member -- the review seed uses it to take the reviewer accounts back out of any organization but acme.
 `GET /api/orgs/{orgId}/site` → the same summary for one org (404 unknown). An older server answers 404 on
 `mine`; the app then uses the home site only.
 
