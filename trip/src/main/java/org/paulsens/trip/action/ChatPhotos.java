@@ -463,12 +463,17 @@ public class ChatPhotos {
         }
     }
 
+    /**
+     * The album row's title is the caption the sender wrote, or nothing. It used to fall back to the file
+     * name, which both apps then showed under the picture as if someone had written it (2026-10-16). The
+     * media page and the apps already treat a null title as "no caption"; rows written with a file name
+     * before this change are hidden client-side (the apps drop a title equal to the key's last segment).
+     */
     private static String titleFor(final ChatAttachment attachment) {
         if (attachment.getCaption() != null && !attachment.getCaption().isBlank()) {
             return attachment.getCaption().trim();
         }
-        final String key = attachment.getS3Key();
-        return key.substring(key.lastIndexOf('/') + 1);
+        return null;
     }
 
     /**

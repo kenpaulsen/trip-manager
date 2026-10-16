@@ -117,7 +117,7 @@ public class ChatPhotosTest {
     }
 
     @Test
-    public void anUntitledPhotoFallsBackToItsFileName() {
+    public void anUntitledPhotoHasNoTitle() {
         final ChatPhotos photos = freshLocal();
         final ChatPhotos.StagedPhoto staged = photos.stage("trip-e", UPLOADER, PhotoFixtures.jpeg(900, 600));
         final List<ChatAttachment> resolved = photos.resolveStaged("trip-e", UPLOADER,
@@ -127,7 +127,7 @@ public class ChatPhotosTest {
                 new AuditActor("s@test", UPLOADER.getValue()));
 
         final MediaItem row = DAO.getInstance().getMediaInSlot(ChatPhotos.slotFor("trip-e"), Cached.NO).get(0);
-        Assert.assertEquals(row.getTitle(), staged.key().substring(staged.key().lastIndexOf('/') + 1));
+        Assert.assertNull(row.getTitle(), "a file name is not a caption; the apps would show it under the picture");
     }
 
     @Test
