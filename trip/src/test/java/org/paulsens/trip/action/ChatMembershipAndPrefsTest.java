@@ -104,6 +104,49 @@ public class ChatMembershipAndPrefsTest {
         Assert.assertTrue(chat.canRead(chat.getChannel(tripId), member));
     }
 
+    /**
+     * The 2026-10-21 production case: taken off a trip (row LEFT, "removed from the trip"), added back weeks later,
+     * opened the chat on the phone to a blank thread and "You left this chat". Opening the chat is the remedy now.
+     */
+    @Test
+    public void openingTheChatPutsBackATripMemberWhoLeft() {
+        chat.ensureChannel(tripId, actor);
+        chat.leaveOnTripRemoval(tripId, List.of(member));
+        final ChatChannel channel = chat.getChannel(tripId);
+        Assert.assertEquals(chat.readDenial(channel, member), "LEFT_CHANNEL",
+                "the digest, export and roster still read the row as it is");
+
+        Assert.assertNull(chat.viewDenial(channel, member), "opening the chat puts a trip member back");
+        Assert.assertEquals(chat.membershipStateForTrip(tripId, member), "JOINED");
+        Assert.assertTrue(chat.canRead(channel, member));
+        Assert.assertNull(chat.viewDenial(channel, member), "and is a plain read once they are in");
+    }
+
+    /** The website's open does the same through the page's state accessor; a unit test has no FacesContext, so
+     *  the call reads as the opening GET rather than a postback. */
+    @Test
+    public void thePageOpenPutsBackSomeoneWhoLeftOnTheirOwnToo() {
+        chat.ensureChannel(tripId, actor);
+        Assert.assertTrue(chat.leave(tripId, member, actor));
+        Assert.assertEquals(chat.membershipStateForTrip(tripId, member), "LEFT");
+
+        Assert.assertEquals(chat.membershipStateForPage(tripId, member), "JOINED");
+        Assert.assertEquals(chat.membershipStateForTrip(tripId, member), "JOINED");
+        Assert.assertEquals(chat.membershipStateForPage(tripId, member), "JOINED");
+    }
+
+    /** Removal is an administrator's decision, and opening the chat is not a way around it. */
+    @Test
+    public void openingTheChatNeverReversesARemoval() {
+        chat.ensureChannel(tripId, actor);
+        Assert.assertTrue(chat.removeMember(tripId, member, "spam", Caller.forActor(actor)));
+        final ChatChannel channel = chat.getChannel(tripId);
+
+        Assert.assertEquals(chat.viewDenial(channel, member), "REMOVED_FROM_CHANNEL");
+        Assert.assertEquals(chat.membershipStateForPage(tripId, member), "REMOVED");
+        Assert.assertEquals(chat.viewDenial(channel, person("Stranger")), "NOT_A_TRIP_MEMBER");
+    }
+
     /** Removal is not self-reversible: only an administrator can undo it. */
     @Test
     public void someoneRemovedCannotRejoinThemselves() {

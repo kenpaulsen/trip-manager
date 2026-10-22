@@ -72,6 +72,15 @@ Both on `ChatResource`, the channel path, so they share `tripIdOf`/CSRF/auth wit
   could write itself a JOINED row (harmless then, a hole once rows mean access). A LEFT guest may rejoin;
   `ChatMembership.with*` all carry `guest`/`invitedVia`, and dropping them in a new copy method would
   silently lock guests out (`ChatMembershipTest` pins every one).
+- `viewDenial` (`ChatJoin.viewDenial`, wrapped by `ChatCommands.viewDenial`) is the read gate for an actual
+  OPEN (the REST feed, the chat page's opening GET) and the one place a LEFT row is reversed without a
+  click: a trip member whose row says LEFT is put back and let in, audited as `CHAT_JOIN` "put back by
+  opening the chat after leaving on ... (removed from the trip)". Coming off a trip marks the row LEFT and
+  being added back never un-marked it, so a re-added traveler opened the chat to a blank thread
+  (2026-10-21). The digest, export, roster and notification fan-out keep asking `readDenial` and change
+  nobody's standing; a LEFT GUEST still gets `LEFT_CHANNEL` and the Rejoin button; REMOVED is never
+  reversed. The page runs it only on the opening GET (`membershipStateForPage`), because initPage re-runs
+  on the Leave button's postback and would undo the leave in the same request.
 - `tripForChatPage` overrides `TripCommands.getTripForUser` for chat: that method serves page-level
   visibility, so it answers null for a guest or a non-manager family member, and the wrapper fills that
   gap for anyone `canParticipate` admits. (Until 2026-09-20 the resolver also silently fell back to "any

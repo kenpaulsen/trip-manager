@@ -1,10 +1,12 @@
 package org.paulsens.trip.action;
 
+import jakarta.faces.context.FacesContext;
 import java.time.Instant;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.audit.AuditEventBuilder;
+import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
@@ -26,6 +28,9 @@ import org.paulsens.trip.model.chat.ChatMembership;
  * those people were invisible in every one of them, and redeeming an invite was a silent no-op that counted no
  * use. The row this class writes for them is bookkeeping, NOT a grant: their access still comes from
  * {@code isTripMember}, and the locked rule that only a GUEST-marked row admits anybody is untouched.
+ *
+ * <p>Since 2026-10-21 it also owns the one way a LEFT row comes back without a click: a trip member OPENING the
+ * chat ({@link #viewDenial}).
  *
  * <p>Its own class rather than more of {@link ChatCommands}, which is at its checkstyle length limit.
  */
@@ -98,6 +103,58 @@ final class ChatJoin {
         } catch (final RuntimeException ex) {
             log.warn("Could not record {} joining a chat by posting", author, ex);
         }
+    }
+
+    /**
+     * The read gate for an actual OPEN -- the phone's feed, the chat page's GET -- as opposed to the digest, the
+     * export, the roster and the notification fan-out, which ask {@code ChatCommands.readDenial} and must never
+     * change anyone's standing. The one difference: a trip member whose row says LEFT is put back and let in.
+     *
+     * <p>Coming off a trip marks the row LEFT ({@code ChatCommands.leaveOnTripRemoval}), and being added back to
+     * the trip never un-marked it, so a re-added traveler opened the chat to a blank thread and "You left this
+     * chat" (2026-10-21: removed in August, re-approved in September, nothing loaded on the phone in October).
+     * Someone who left on purpose is treated the same, because opening the chat again IS asking to be back in;
+     * Leave still works, since every client stops polling once it has left. A LEFT guest keeps the Rejoin button
+     * (no roster standing, the refusal {@code rejoin} gives too), and REMOVED is never reversed here.
+     *
+     * @return the wire denial code, or {@code null} when they may read, including right after being put back.
+     */
+    static String viewDenial(final ChatCommands chat, final ChatChannel channel, final Person.Id me) {
+        final String denial = chat.readDenial(channel, me);
+        if (!"LEFT_CHANNEL".equals(denial) || !chat.isTripMember(channel.getTripId(), me)) {
+            return denial;
+        }
+        final ChatMembership left = DAO.getInstance().getChatMembership(channel.getId(), me, Cached.NO).orElse(null);
+        return left != null && byOpening(channel, left, Instant.now(), AuditActor.current()) ? null : denial;
+    }
+
+    /**
+     * {@code ChatCommands.membershipStateForTrip} for the chat page's open, after the open has had its effect
+     * ({@link #viewDenial}), so the page draws the conversation instead of a "You are not in this chat" notice.
+     * Only on the GET that opens the page: initPage re-runs on every postback and the Leave button is one, so
+     * running this on a postback would undo the leave in the same request.
+     */
+    static String pageState(final ChatCommands chat, final String tripId, final Person.Id personId) {
+        final String state = chat.membershipStateForTrip(tripId, personId);
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        if (!"LEFT".equals(state) || (ctx != null && ctx.isPostback())) {
+            return state;
+        }
+        final ChatChannel channel = chat.getChannel(tripId);
+        return channel != null && viewDenial(chat, channel, personId) == null ? "JOINED" : state;
+    }
+
+    /** The write behind {@link #viewDenial}: the LEFT row back to JOINED with its first joinedAt kept, audited. */
+    private static boolean byOpening(final ChatChannel channel, final ChatMembership left, final Instant now,
+            final AuditActor actor) {
+        final AuditActor who = actor == null ? AuditActor.current() : actor;
+        if (!DAO.getInstance().saveChatMembership(left.withRejoined(now, who.id()))) {
+            return false;
+        }
+        // The reason is the audit line's point: "removed from the trip" reads apart from "self".
+        audit(who, channel, "put back by opening the chat after leaving on " + left.getLeftAt()
+                + (left.getLeftReason() == null ? "" : " (" + left.getLeftReason() + ")"));
+        return true;
     }
 
     /** The row a redemption writes: guest-marked only for someone with no standing of their own. */

@@ -164,7 +164,7 @@ public class ApiCoverageTailTest extends ResourceTestSupport {
     public void eachDenialCodeCarriesItsOwnMessage() {
         Mockito.when(chat.chatEnabledForTrip("t1")).thenReturn(true);
         Mockito.when(chat.getChannel("t1")).thenReturn(Mockito.mock(ChatChannel.class));
-        Mockito.when(chat.readDenial(ArgumentMatchers.any(), ArgumentMatchers.eq(ME)))
+        Mockito.when(chat.viewDenial(ArgumentMatchers.any(), ArgumentMatchers.eq(ME)))
                 .thenReturn(ChatErrors.LEFT_CHANNEL)
                 .thenReturn(ChatErrors.NOT_A_TRIP_MEMBER)
                 .thenReturn(ChatErrors.CHAT_DISABLED)

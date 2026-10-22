@@ -120,6 +120,8 @@ public class ChatGuestAccessTest {
 
         Assert.assertTrue(DAO.getInstance().saveChatMembership(row.withLeft(Instant.now(), "self")));
         Assert.assertEquals(chat.readDenial(channel, guest), "LEFT_CHANNEL");
+        Assert.assertEquals(chat.viewDenial(channel, guest), "LEFT_CHANNEL",
+                "opening the chat puts back trip members only: a LEFT guest has no roster standing");
         Assert.assertFalse(chat.send(tripId, guest, "still here?", null, null, actor).isOk());
 
         Assert.assertTrue(DAO.getInstance().saveChatMembership(

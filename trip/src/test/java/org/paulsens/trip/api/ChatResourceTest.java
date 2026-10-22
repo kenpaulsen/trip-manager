@@ -120,7 +120,7 @@ public class ChatResourceTest extends ResourceTestSupport {
     public void aReadDenialIsForwardedWithItsOwnCode() {
         Mockito.when(chat.chatEnabledForTrip(TRIP_ID)).thenReturn(true);
         channel();
-        Mockito.when(chat.readDenial(ArgumentMatchers.any(), ArgumentMatchers.eq(ME)))
+        Mockito.when(chat.viewDenial(ArgumentMatchers.any(), ArgumentMatchers.eq(ME)))
                 .thenReturn(ChatErrors.REMOVED_FROM_CHANNEL);
 
         assertError(feed(CHANNEL, null, null, null), 403, ChatErrors.REMOVED_FROM_CHANNEL);
@@ -134,7 +134,7 @@ public class ChatResourceTest extends ResourceTestSupport {
     public void orderNewestTakesTheHistoryPathAndAPlainPollTakesTheFeedPath() {
         Mockito.when(chat.chatEnabledForTrip(TRIP_ID)).thenReturn(true);
         channel();
-        Mockito.when(chat.readDenial(ArgumentMatchers.any(), ArgumentMatchers.eq(ME))).thenReturn(null);
+        Mockito.when(chat.viewDenial(ArgumentMatchers.any(), ArgumentMatchers.eq(ME))).thenReturn(null);
         Mockito.when(chat.history(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME), ArgumentMatchers.any(),
                 ArgumentMatchers.anyInt())).thenReturn(pageOf(message("m1")));
         Mockito.when(chat.feed(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME), ArgumentMatchers.any(),
@@ -156,7 +156,7 @@ public class ChatResourceTest extends ResourceTestSupport {
     public void aPageCarriesAnAbsoluteProfilePictureForEveryoneItNamesAndOmitsThoseWithout() {
         Mockito.when(chat.chatEnabledForTrip(TRIP_ID)).thenReturn(true);
         channel();
-        Mockito.when(chat.readDenial(ArgumentMatchers.any(), ArgumentMatchers.eq(ME))).thenReturn(null);
+        Mockito.when(chat.viewDenial(ArgumentMatchers.any(), ArgumentMatchers.eq(ME))).thenReturn(null);
         final ChatPage named = pageOf(message("m1"))
                 .withDisplayNames(Map.of("p1", "Ann", "p2", "Bob"));
         Mockito.when(chat.history(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME), ArgumentMatchers.any(),
@@ -181,7 +181,7 @@ public class ChatResourceTest extends ResourceTestSupport {
     public void anEmptyPageAsksForNoPictures() {
         Mockito.when(chat.chatEnabledForTrip(TRIP_ID)).thenReturn(true);
         channel();
-        Mockito.when(chat.readDenial(ArgumentMatchers.any(), ArgumentMatchers.eq(ME))).thenReturn(null);
+        Mockito.when(chat.viewDenial(ArgumentMatchers.any(), ArgumentMatchers.eq(ME))).thenReturn(null);
         Mockito.when(chat.feed(ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(ME), ArgumentMatchers.any(),
                 ArgumentMatchers.anyInt())).thenReturn(ChatPage.empty());
 

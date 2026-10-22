@@ -122,7 +122,9 @@ public class ChatResource extends BaseResource {
                     ? ok(ChatPage.empty())
                     : error(403, ChatErrors.NOT_A_TRIP_MEMBER, "Not a member of this trip.");
         }
-        final String denial = chat.readDenial(channel, me);
+        // The feed is the phone OPENING the chat, so it takes the view gate: a trip member whose row says LEFT is
+        // put back here rather than shown a blank thread (see ChatCommands.viewDenial).
+        final String denial = chat.viewDenial(channel, me);
         if (denial != null) {
             return error(403, denial, denialMessage(denial));
         }

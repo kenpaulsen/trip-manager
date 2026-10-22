@@ -430,6 +430,11 @@ public class ChatCommands {
         return row == null ? "" : row.getState().name();
     }
 
+    /** {@link ChatJoin#pageState}: the chat page's open-time membership state, after the open has had its effect. */
+    public String membershipStateForPage(final String tripId, final Person.Id personId) {
+        return ChatJoin.pageState(this, tripId, personId);
+    }
+
     /**
      * Why this person cannot post right now, as a sentence, or {@code ""} when they can.
      *
@@ -764,6 +769,11 @@ public class ChatCommands {
 
     public boolean canRead(final ChatChannel channel, final Person.Id me) {
         return readDenial(channel, me) == null;
+    }
+
+    /** {@link ChatJoin#viewDenial}: the read gate for an actual OPEN, which puts a LEFT trip member back. */
+    public String viewDenial(final ChatChannel channel, final Person.Id me) {
+        return ChatJoin.viewDenial(this, channel, me);
     }
 
     /**
