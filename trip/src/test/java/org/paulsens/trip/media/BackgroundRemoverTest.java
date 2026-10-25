@@ -150,6 +150,57 @@ public class BackgroundRemoverTest {
                 "The mask changes alpha only, never the color");
     }
 
+    /**
+     * The headroom guard: a tight container declines instead of loading the arena, declining is not remembered
+     * (memory is transient, a broken model is not), and a reading that recovers after the explicit collection
+     * proceeds. The seam dictates what the guard sees, so none of this depends on the machine running the test.
+     */
+    @Test
+    public void aTightContainerDeclinesWithoutRememberingAndRecoversAfterGc() {
+        BackgroundRemover.resetForTest();
+        if (!BackgroundRemover.isAvailable()) {
+            throw new SkipException("u2netp.onnx not on the classpath");
+        }
+        try {
+            BackgroundRemover.freeMemoryForTest(() -> BackgroundRemover.SESSION_HEADROOM_BYTES - 1);
+            Assert.assertTrue(BackgroundRemover.cutout(PhotoFixtures.jpeg(64, 64)).isEmpty(),
+                    "Short on memory before and after a collection: decline, never load");
+            Assert.assertFalse(BackgroundRemover.isSessionLoaded(), "Declining must not have created a session");
+            Assert.assertTrue(BackgroundRemover.isAvailable(),
+                    "Tight memory is transient; the feature must not report itself broken");
+
+            final long[] readings = {BackgroundRemover.SESSION_HEADROOM_BYTES - 1, Long.MAX_VALUE};
+            final int[] call = {0};
+            BackgroundRemover.freeMemoryForTest(() -> readings[Math.min(call[0]++, readings.length - 1)]);
+            Assert.assertTrue(BackgroundRemover.cutout(PhotoFixtures.jpeg(64, 64)).isPresent(),
+                    "A reading that recovers after the collection proceeds to load");
+            Assert.assertEquals(call[0], 2, "Exactly one re-measure after the collection");
+            Assert.assertTrue(BackgroundRemover.isSessionLoaded());
+
+            call[0] = 0;
+            Assert.assertTrue(BackgroundRemover.cutout(PhotoFixtures.jpeg(64, 64)).isPresent());
+            Assert.assertEquals(call[0], 0, "A resident session is never re-checked; its memory is already paid");
+        } finally {
+            BackgroundRemover.resetForTest();
+        }
+    }
+
+    /** Without the seam the guard reads the real OS bean, which must answer a sane positive number anywhere. */
+    @Test
+    public void theRealHeadroomReadingIsPositive() {
+        BackgroundRemover.resetForTest();
+        if (!BackgroundRemover.isAvailable()) {
+            throw new SkipException("u2netp.onnx not on the classpath");
+        }
+        try {
+            // No seam installed: a dev box or CI runner has far more than 450 MiB free, so this loads.
+            Assert.assertTrue(BackgroundRemover.cutout(PhotoFixtures.jpeg(64, 64)).isPresent(),
+                    "The real reading on a build machine must clear the threshold");
+        } finally {
+            BackgroundRemover.resetForTest();
+        }
+    }
+
     @Test
     public void garbageInputIsRejectedNotMasked() {
         BackgroundRemover.resetForTest();

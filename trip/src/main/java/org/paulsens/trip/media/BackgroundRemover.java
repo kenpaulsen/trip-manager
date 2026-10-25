@@ -4,9 +4,11 @@ import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtException;
 import ai.onnxruntime.OrtSession;
+import com.sun.management.OperatingSystemMXBean;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.management.ManagementFactory;
 import java.nio.FloatBuffer;
 import java.util.Map;
 import java.util.Optional;
@@ -14,6 +16,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -28,6 +31,14 @@ import lombok.extern.slf4j.Slf4j;
  * created lazily on FIRST use, never at boot (the feature ships flag-off, and a disabled feature must cost
  * zero), and is CLOSED again after {@link #IDLE_CLOSE_MILLIS} without use, giving most of that arena back.
  * Occasional use pays a ~1s reload instead.
+ *
+ * <p><b>The session is only ever created into measured headroom.</b> On 2026-08-13 the (then 2 GB) task was
+ * OOM-killed seconds after a background replace: a scanner burst had grown the heap by ~520 MB two hours
+ * earlier, G1 had not uncommitted it, and the ONNX arena landed in the ~16% that was left. Before loading,
+ * {@link #orCreateSession()} now reads the container's free memory; if it is short it asks for one full GC
+ * (which DOES uncommit dead heap, the usual culprit) and measures again, and if it is still short it declines
+ * -- the caller shows its ordinary "busy or unavailable" message and the next click tries afresh. A session
+ * already resident is never re-checked: its memory is already paid for.
  *
  * <p>The model file lives on the classpath ({@value #MODEL_RESOURCE}). Absent — a build that chose not to
  * carry it — the feature reports {@link #isAvailable()} false and callers degrade to a friendly message.
@@ -62,6 +73,13 @@ public final class BackgroundRemover {
     static final long IDLE_CLOSE_MILLIS = TimeUnit.MINUTES.toMillis(10);
     private static final long REAPER_PERIOD_SECONDS = 60;
 
+    /**
+     * Free container memory required before the session is created: the ~283 MiB arena, the ~90 MiB of heap
+     * one inference allocates, and margin for whatever else the request path is doing at the same moment.
+     * Deliberately pessimistic -- the alternative to a refusal here is the kernel killing the only task.
+     */
+    static final long SESSION_HEADROOM_BYTES = 450L << 20;
+
     private static volatile OrtSession session;
     private static volatile boolean sessionFailed;
     private static volatile long lastUsedAt;
@@ -70,6 +88,8 @@ public final class BackgroundRemover {
     private static volatile ScheduledExecutorService reaper;
     /** The classpath location actually consulted; a test points it at garbage to exercise failure paths. */
     private static volatile String modelResource = MODEL_RESOURCE;
+    /** Free container bytes, as the JVM's container-aware OS bean reports them; a test substitutes a number. */
+    private static volatile LongSupplier freeMemoryBytes = BackgroundRemover::containerFreeBytes;
 
     private BackgroundRemover() {
     }
@@ -142,6 +162,9 @@ public final class BackgroundRemover {
             if (session != null || sessionFailed) {
                 return session;
             }
+            if (!enoughHeadroomForSession()) {
+                return null;
+            }
             try (InputStream in = BackgroundRemover.class.getResourceAsStream(modelResource)) {
                 if (in == null) {
                     sessionFailed = true;
@@ -180,6 +203,40 @@ public final class BackgroundRemover {
             final float[][][][] out = (float[][][][]) result.get(0).getValue();
             return normalized(out[0][0]);
         }
+    }
+
+    /**
+     * Whether the container can absorb the session right now. A short first reading is usually heap that G1
+     * grew under an earlier burst and has had no reason to give back, so one explicit full collection (which
+     * G1 follows with an uncommit) is tried before giving up; the pause is a few hundred milliseconds, paid
+     * only on this rare path and only when memory is actually tight. Declining is NOT remembered: unlike a
+     * broken model, tight memory is transient, and the next click must get a fresh answer.
+     */
+    private static boolean enoughHeadroomForSession() {
+        final long first = freeMemoryBytes.getAsLong();
+        if (first >= SESSION_HEADROOM_BYTES) {
+            return true;
+        }
+        System.gc();
+        final long afterGc = freeMemoryBytes.getAsLong();
+        if (afterGc >= SESSION_HEADROOM_BYTES) {
+            log.info("Background removal: {} MiB free rose to {} MiB after a collection; loading the model",
+                    first >> 20, afterGc >> 20);
+            return true;
+        }
+        log.warn("Background removal declined: {} MiB free in the container ({} MiB after a collection), "
+                + "{} MiB needed to load the model safely", first >> 20, afterGc >> 20,
+                SESSION_HEADROOM_BYTES >> 20);
+        return false;
+    }
+
+    /**
+     * Free memory as the JVM sees it: inside a cgroup this is the container limit minus current usage (the
+     * number the OOM killer compares against), on a bare host the machine's free RAM. Usage counts page cache,
+     * so the figure errs low -- the safe direction for a guard.
+     */
+    private static long containerFreeBytes() {
+        return ManagementFactory.getPlatformMXBean(OperatingSystemMXBean.class).getFreeMemorySize();
     }
 
     /** Min-max normalization of the raw saliency map — the model's outputs are not guaranteed 0..1. */
@@ -288,7 +345,13 @@ public final class BackgroundRemover {
             sessionFailed = false;
             modelResource = MODEL_RESOURCE;
             idleCloseMillis = IDLE_CLOSE_MILLIS;
+            freeMemoryBytes = BackgroundRemover::containerFreeBytes;
         }
+    }
+
+    /** Test seam: dictates what the headroom check sees, so a tight container is testable on any machine. */
+    static void freeMemoryForTest(final LongSupplier supplier) {
+        freeMemoryBytes = supplier;
     }
 
     /** Test seam: points the loader at a different classpath location (garbage, absent, ...). */
