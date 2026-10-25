@@ -13,6 +13,8 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import org.paulsens.trip.model.AuditEvent;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
+import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cloudwatchlogs.CloudWatchLogsClient;
 import software.amazon.awssdk.services.cloudwatchlogs.model.CreateLogStreamRequest;
@@ -52,12 +54,22 @@ public final class CloudWatchAuditSink implements AuditSink {
     private final ConsoleAuditSink fallback = new ConsoleAuditSink();
     private final Thread flusher;
     private volatile boolean running = true;
+    /**
+     * Whether {@code createLogStream} has succeeded. False after a TRANSIENT failure at construction, in which
+     * case every delivery first retries the create; see {@link #ensureStream()}. Only the flusher (and
+     * {@code close()}, after the flusher has stopped) reads or writes it, so volatile is enough.
+     */
+    private volatile boolean streamReady;
 
     /**
      * @param logGroup the target log group; it must already exist (the CDK creates it with its retention).
-     * @throws RuntimeException if the stream cannot be created -- {@link Audit} catches this and falls back to
+     * @throws RuntimeException if the stream cannot be created for a reason a retry will not cure (the group
+     *         does not exist, the role may not write to it) -- {@link Audit} catches this and falls back to
      *         stdout. Failing here is deliberate: a misconfigured audit trail must surface at startup, not on
-     *         the day someone asks what happened.
+     *         the day someone asks what happened. A TRANSIENT failure (a timeout, a connection reset, a 5xx)
+     *         does NOT throw: the sink comes up with the stream pending and creates it ahead of the first
+     *         delivery that succeeds. One slow cold call on 2026-09-01 used to downgrade the whole task to
+     *         stdout for its lifetime (trip-manager#39).
      */
     public CloudWatchAuditSink(final String logGroup) {
         this(logGroup, CloudWatchLogsClient.builder()
@@ -84,7 +96,7 @@ public final class CloudWatchAuditSink implements AuditSink {
                 + UUID.randomUUID().toString().substring(0, 8);
         this.client = client;
 
-        createStream();
+        streamReady = createStream(true);
 
         this.flusher = new Thread(this::flushLoop, "trip-audit-flusher");
         this.flusher.setDaemon(true);
@@ -149,6 +161,11 @@ public final class CloudWatchAuditSink implements AuditSink {
         // CloudWatch rejects a batch whose events are not in chronological order; concurrent writers can queue
         // slightly out of order, so sort rather than assume.
         batch.sort(Comparator.comparingLong(InputLogEvent::timestamp));
+        if (!ensureStream()) {
+            System.out.println("AUDIT-DELIVERY-FAILED (stream still pending) -- records follow:");
+            batch.forEach(e -> fallback.writeLine(e.message()));
+            return;
+        }
         try {
             // Blocking, and bounded by the client's apiCallTimeout (see the constructor): a delivery that
             // cannot finish inside the bound takes the same fallback as any other failure.
@@ -164,19 +181,68 @@ public final class CloudWatchAuditSink implements AuditSink {
         }
     }
 
-    private void createStream() {
+    /**
+     * Retries a deferred stream creation ahead of a delivery. Cheap once it has succeeded (one volatile read);
+     * until then each batch costs one more create attempt, bounded by the client's apiCallTimeout like the
+     * delivery itself, and a batch that still has no stream takes the stdout fallback rather than waiting.
+     *
+     * @return whether the stream exists, so the caller may deliver into it.
+     */
+    private boolean ensureStream() {
+        if (!streamReady) {
+            streamReady = createStream(false);
+            if (streamReady) {
+                System.out.println("AUDIT-STREAM-READY: audit log stream '" + logStream + "' created on retry");
+            }
+        }
+        return streamReady;
+    }
+
+    /**
+     * @param failFast whether a non-transient failure should close the client and throw (construction) or
+     *                 merely report false (a retry from the flusher, where there is nobody to throw to).
+     * @return whether the stream now exists.
+     */
+    private boolean createStream(final boolean failFast) {
         try {
             client.createLogStream(CreateLogStreamRequest.builder()
                     .logGroupName(logGroup)
                     .logStreamName(logStream)
                     .build());
+            return true;
+        } catch (ResourceAlreadyExistsException ex) {
+            return true;
         } catch (RuntimeException ex) {
-            if (!(ex instanceof ResourceAlreadyExistsException)) {
-                client.close();
-                throw new IllegalStateException(
-                        "Unable to create audit log stream '" + logStream + "' in group '" + logGroup + "'", ex);
+            if (isTransient(ex)) {
+                // Greppable: a post-deploy check looks for this line and for AUDIT-STREAM-READY after it.
+                System.out.println("AUDIT-STREAM-PENDING: could not create audit log stream '" + logStream
+                        + "' in group '" + logGroup + "', will retry before each delivery. Cause: " + ex);
+                return false;
             }
+            if (!failFast) {
+                System.out.println("AUDIT-STREAM-PENDING: create of '" + logStream + "' refused: " + ex);
+                return false;
+            }
+            client.close();
+            throw new IllegalStateException(
+                    "Unable to create audit log stream '" + logStream + "' in group '" + logGroup + "'", ex);
         }
+    }
+
+    /**
+     * Whether a failed AWS call is the kind another attempt may get past. Client-side failures (timeouts,
+     * connection resets, the SDK never reaching the service) and throttled or 5xx service answers are;
+     * everything else -- a missing group, a denied role, an unexpected exception type -- is a misconfiguration
+     * that retrying would only hide.
+     */
+    static boolean isTransient(final RuntimeException ex) {
+        if (ex instanceof SdkClientException) {
+            return true;
+        }
+        if (ex instanceof AwsServiceException service) {
+            return service.isThrottlingException() || service.statusCode() == 429 || service.statusCode() >= 500;
+        }
+        return false;
     }
 
     private static String hostName() {

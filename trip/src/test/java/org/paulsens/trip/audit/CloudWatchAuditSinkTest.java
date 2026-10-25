@@ -15,7 +15,11 @@ import org.paulsens.trip.model.AuditEvent;
 import org.paulsens.trip.model.AuditOutcome;
 import org.testng.Assert;
 import org.testng.annotations.Test;
+import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
+import software.amazon.awssdk.core.exception.ApiCallTimeoutException;
+import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.services.cloudwatchlogs.CloudWatchLogsClient;
+import software.amazon.awssdk.services.cloudwatchlogs.model.CloudWatchLogsException;
 import software.amazon.awssdk.services.cloudwatchlogs.model.CreateLogStreamRequest;
 import software.amazon.awssdk.services.cloudwatchlogs.model.CreateLogStreamResponse;
 import software.amazon.awssdk.services.cloudwatchlogs.model.InputLogEvent;
@@ -187,5 +191,110 @@ public class CloudWatchAuditSinkTest {
 
         Assert.assertNotNull(sent.get(), "close() must flush what the flusher had not sent yet");
         Mockito.verify(client).close();
+    }
+
+    private static ApiCallTimeoutException timeout() {
+        return ApiCallTimeoutException.builder().message("Client execution did not complete before 30000 millis")
+                .build();
+    }
+
+    private static CloudWatchLogsException serviceError(final int status, final String code) {
+        return (CloudWatchLogsException) CloudWatchLogsException.builder().statusCode(status).message(code)
+                .awsErrorDetails(AwsErrorDetails.builder().errorCode(code).build()).build();
+    }
+
+    /**
+     * A transient failure to create the stream must not downgrade the task for its lifetime.
+     *
+     * <p>trip-manager#39: one 30 s cold-call timeout at first login used to throw from the constructor, and
+     * because {@code Audit} picks its sinks once, the CloudWatch trail then had a gap for as long as that task
+     * ran. The stream is now created on retry ahead of the first delivery that can succeed.
+     */
+    @Test
+    public void aTransientCreateFailureDefersTheStreamAndRetriesBeforeDelivery() throws Exception {
+        final CloudWatchLogsClient client = clientThatWorks();
+        Mockito.when(client.createLogStream(ArgumentMatchers.any(CreateLogStreamRequest.class)))
+                .thenThrow(timeout())
+                .thenReturn(CreateLogStreamResponse.builder().build());
+        final CountDownLatch delivered = new CountDownLatch(1);
+        Mockito.when(client.putLogEvents(ArgumentMatchers.any(PutLogEventsRequest.class)))
+                .thenAnswer(call -> countDown(delivered));
+
+        final String out = captureStdout(() -> {
+            final CloudWatchAuditSink sink = new CloudWatchAuditSink("/trip/audit", client);
+            sink.write(event("after-the-timeout"));
+            awaitDelivery(delivered);
+            sink.close();
+        });
+
+        Assert.assertTrue(out.contains("AUDIT-STREAM-PENDING"), out);
+        Assert.assertTrue(out.contains("AUDIT-STREAM-READY"), out);
+        Assert.assertFalse(out.contains("AUDIT-DELIVERY-FAILED"),
+                "The retry succeeded, so the record must reach CloudWatch, not the fallback: " + out);
+        Mockito.verify(client, Mockito.times(2)).createLogStream(ArgumentMatchers.any(CreateLogStreamRequest.class));
+        Mockito.verify(client).putLogEvents(ArgumentMatchers.any(PutLogEventsRequest.class));
+    }
+
+    /** Until the stream exists, every batch takes the stdout fallback; nothing is attempted into a missing stream. */
+    @Test
+    public void whileTheStreamStaysPendingRecordsGoToStdout() throws Exception {
+        final CloudWatchLogsClient client = clientThatWorks();
+        Mockito.when(client.createLogStream(ArgumentMatchers.any(CreateLogStreamRequest.class)))
+                .thenThrow(SdkClientException.builder().message("connection reset").build());
+
+        final String out = captureStdout(() -> {
+            final CloudWatchAuditSink sink = new CloudWatchAuditSink("/trip/audit", client);
+            sink.write(event("must-not-be-lost-either"));
+            sink.close();
+        });
+
+        Assert.assertTrue(out.contains("AUDIT-DELIVERY-FAILED (stream still pending)"), out);
+        Assert.assertTrue(out.contains("must-not-be-lost-either"), out);
+        Mockito.verify(client, Mockito.never()).putLogEvents(ArgumentMatchers.any(PutLogEventsRequest.class));
+    }
+
+    /** A non-transient refusal on a RETRY has nobody to throw to: it falls back like any other failure. */
+    @Test
+    public void aRefusalOnRetryFallsBackInsteadOfThrowing() throws Exception {
+        final CloudWatchLogsClient client = clientThatWorks();
+        Mockito.when(client.createLogStream(ArgumentMatchers.any(CreateLogStreamRequest.class)))
+                .thenThrow(timeout())
+                .thenThrow(new IllegalStateException("group deleted meanwhile"));
+
+        final String out = captureStdout(() -> {
+            final CloudWatchAuditSink sink = new CloudWatchAuditSink("/trip/audit", client);
+            sink.write(event("still-printed"));
+            sink.close();
+        });
+
+        Assert.assertTrue(out.contains("refused"), out);
+        Assert.assertTrue(out.contains("still-printed"), out);
+    }
+
+    /** What counts as transient: the SDK not getting an answer, or the service saying "not right now". */
+    @Test
+    public void onlyClientSideAndThrottledOrServerErrorsAreTransient() {
+        Assert.assertTrue(CloudWatchAuditSink.isTransient(timeout()));
+        Assert.assertTrue(CloudWatchAuditSink.isTransient(SdkClientException.builder().message("reset").build()));
+        Assert.assertTrue(CloudWatchAuditSink.isTransient(serviceError(503, "ServiceUnavailableException")));
+        Assert.assertTrue(CloudWatchAuditSink.isTransient(serviceError(429, "TooManyRequests")));
+        Assert.assertTrue(CloudWatchAuditSink.isTransient(serviceError(400, "ThrottlingException")));
+        Assert.assertFalse(CloudWatchAuditSink.isTransient(serviceError(400, "ResourceNotFoundException")));
+        Assert.assertFalse(CloudWatchAuditSink.isTransient(serviceError(403, "AccessDeniedException")));
+        Assert.assertFalse(CloudWatchAuditSink.isTransient(new IllegalStateException("not aws at all")));
+    }
+
+    private static PutLogEventsResponse countDown(final CountDownLatch latch) {
+        latch.countDown();
+        return PutLogEventsResponse.builder().build();
+    }
+
+    private static void awaitDelivery(final CountDownLatch delivered) {
+        try {
+            Assert.assertTrue(delivered.await(10, TimeUnit.SECONDS), "the flusher must deliver");
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(ex);
+        }
     }
 }
