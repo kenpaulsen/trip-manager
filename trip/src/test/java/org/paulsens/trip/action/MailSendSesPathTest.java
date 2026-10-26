@@ -20,6 +20,8 @@ import org.testng.annotations.Test;
 import software.amazon.awssdk.services.ses.SesClient;
 import software.amazon.awssdk.services.ses.model.SendEmailRequest;
 import software.amazon.awssdk.services.ses.model.SendEmailResponse;
+import software.amazon.awssdk.services.ses.model.SendRawEmailRequest;
+import software.amazon.awssdk.services.ses.model.SendRawEmailResponse;
 
 /**
  * The SES half of {@link MailCommands#send} -- everything past the local-mode guard.
@@ -122,6 +124,44 @@ public class MailSendSesPathTest {
         Assert.assertEquals(req.getValue().destination().bccAddresses(), List.of("bcc@example.org"));
         Assert.assertEquals(req.getValue().source(), "Trips <no-reply@example.org>", "the source is trimmed");
         Assert.assertEquals(req.getValue().replyToAddresses(), List.of("reply@example.org"));
+    }
+
+    @Test
+    public void anAttachmentGoesOutAsOneRawMessage() {
+        Mockito.clearInvocations(ses);
+        Mockito.when(ses.sendRawEmail(ArgumentMatchers.any(SendRawEmailRequest.class))).thenReturn(
+                (SendRawEmailResponse) SendRawEmailResponse.builder().messageId("raw-1").sdkHttpResponse(
+                        software.amazon.awssdk.http.SdkHttpResponse.builder().statusCode(200).build()).build());
+
+        Assert.assertTrue(mail.sendWithAttachment(" Trips <no-reply@example.org> ", "t@example.org, bad address",
+                "ken@example.org", "Expense report: Rome", "<p>Hi</p>", "Rome - Expense Report.pdf",
+                "%PDF-1.4".getBytes(StandardCharsets.US_ASCII), "application/pdf", AuditActor.system()));
+
+        final ArgumentCaptor<SendRawEmailRequest> req = ArgumentCaptor.forClass(SendRawEmailRequest.class);
+        Mockito.verify(ses).sendRawEmail(req.capture());
+        final String mime = req.getValue().rawMessage().data().asUtf8String();
+        Assert.assertTrue(mime.startsWith("From: Trips <no-reply@example.org>\r\nTo: t@example.org\r\n"),
+                "the From is trimmed and the unusable recipient dropped: " + mime);
+        Assert.assertTrue(mime.contains("Reply-To: ken@example.org"));
+        Assert.assertTrue(mime.contains("filename=\"Rome - Expense Report.pdf\""));
+    }
+
+    @Test
+    public void anAttachmentSendWithNoRecipientOrFromNeverCallsSes() {
+        Mockito.clearInvocations(ses);
+        Assert.assertFalse(mail.sendWithAttachment("f@example.org", " ", null, "S", "B", "r.pdf", new byte[0],
+                "application/pdf", AuditActor.system()));
+        Assert.assertFalse(mail.sendWithAttachment(" ", "t@example.org", null, "S", "B", "r.pdf", new byte[0],
+                "application/pdf", AuditActor.system()));
+        Mockito.verify(ses, Mockito.never()).sendRawEmail(ArgumentMatchers.any(SendRawEmailRequest.class));
+    }
+
+    @Test
+    public void aFailedAttachmentSendAnswersFalse() {
+        Mockito.when(ses.sendRawEmail(ArgumentMatchers.any(SendRawEmailRequest.class)))
+                .thenThrow(new IllegalStateException("SES rejected it"));
+        Assert.assertFalse(mail.sendWithAttachment("f@example.org", "t@example.org", null, "S", "B", "r.pdf",
+                new byte[0], "application/pdf", AuditActor.system()));
     }
 
     /** No usable recipient is a data problem, not a retryable failure: SES must not even be called. */

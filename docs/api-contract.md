@@ -215,6 +215,85 @@ tap through `link`. Full shape: `docs/push-notifications.md`, "Wire contract".
 Simulator recipe (no server needed): save a payload as `push.apns` with a top-level
 `"Simulator Target Bundle": "org.paulsens.unitetrip"` and run `xcrun simctl push booted push.apns`.
 
+## Trip money: budget and expense report (web-first; not yet used by the apps)
+
+Both wrap the web pages' beans (`docs/budget.md`, `docs/expense-report.md`) and share ONE gate: **read** = site
+admin, `tripMgr`/`tripFinAdmin`/`tripFinView` on the trip, or the global `viewFinances`; **write** = site admin,
+`tripMgr` or `tripFinAdmin` on the trip. Writes need the CSRF header (`X-Trip-Api`) and answer 403 without it or
+without the write gate; a refusal is 400 `VALIDATION_FAILED` whose `message` is the page's own sentence; an unknown
+trip is 404. Money goes IN as plain numbers (`1440`, `255.83`) and comes OUT in `summary` as display strings
+(`"$1,440.00"`, `"-$60.00"`); the `*Form` objects echo numbers back. Each report is ONE row per trip saved by a
+versioned put, so two simultaneous writes can refuse one as "Saved by someone else: reload the page and try again."
+
+### Budget (`/api/budget`, Accept `application/vnd.trip.budget.v1+json`)
+
+- `GET /api/budget/trips/{tripId}` → `{inputs:{people, tripNights, perPersonBudget, toBill}, lines:[LineForm],
+  lodging:[LodgingLineForm], summary:BudgetPage}`. `LineForm` = `{id, kind: SHARED|INDIVIDUAL, category:
+  TRANSPORTATION|GUIDE|SUPPLIES|TIPS|SCHOLARSHIP|LEADER|GENERAL, name, amount, perNight, note, payee, percentMode,
+  percent, percentOf, onSite}`; `LodgingLineForm` = `{id, offerId, nights, people, rooms, singles, payee, note,
+  onSite, needsRooms, needsSingles, defaultPayee}`. `BudgetPage` carries the page's rows and figures:
+  `sharedRows`/`individualRows` `[{id, name, category, note, payee, amount, percentLabel, onSite, perNight, total}]`,
+  `lodgingRows` `[{id, label, ratePlanName, quantities, priceLabel, costLabel, revenue, hotelCost, margin,
+  perPersonPrice, perPersonCost, singleAddOn, totalPerPersonGround, toBillReference, priceMissing, costMissing,
+  deletedOption}]`, `payees` `[{name, category, items, amount}]`, `otherRows` `[{name, category, payee, amount}]`,
+  and `sharedTotal, individualExtras, estimatedPerPerson, lodgingRevenue, lodgingCost, lodgingMargin,
+  perPersonBudget, toBill, toBillRange, estimatedGroundPerPerson, overallLabel, overallAmount, onSiteTotal,
+  otherTotal, tripTotal, moneyToCollect, warnings[]`. A trip with no budget answers `exists:false` with the
+  roster's head count and the trip's nights pre-filled.
+- `PUT /api/budget/trips/{tripId}/inputs` `{people, tripNights, perPersonBudget, toBill}` → `{ok:true}`.
+- `POST /api/budget/trips/{tripId}/lines` / `PUT .../lines/{lineId}` `{kind, category, name, amount, perNight,
+  note, payee, onSite, percent, percentOf}` → `{id}`. `percentOf` (a line id of the same kind) makes it a percent
+  line taking `percent` (12.5 = 12.5%) of that line, and `amount` is ignored; `onSite` (paid during the trip)
+  defaults to true. `DELETE .../lines/{lineId}` → `{ok:true}` (already gone also succeeds; refused while a percent
+  line follows it).
+- `POST /api/budget/trips/{tripId}/lodging` / `PUT .../lodging/{lineId}` `{offerId, nights, people, rooms, singles,
+  payee, note, onSite}` → `{id}`; `DELETE .../lodging/{lineId}` → `{ok:true}`.
+- `POST /api/budget/trips/{tripId}/clone` `{fromTripId}` → `{ok:true}`; 400 unless this budget has no lines and the
+  source is another of the SAME organization's budgets the caller may read.
+- `GET /api/budget/trips/{tripId}/pdf` (Accept `application/pdf`) → the budget as a PDF (`Content-Disposition:
+  attachment`); 403 for a caller who may not read it.
+
+### Expense report (`/api/expenses`, Accept `application/vnd.trip.expense-report.v1+json`)
+
+- `GET /api/expenses/trips/{tripId}` → `{header, currencies:[CurrencyForm], lines:[ExpenseForm], receipts:[...],
+  summary:ExpensePage}`. `header` = `{submittedBy, cashAdvance, cashAdvanceDetails, paymentInstructions, paidOn,
+  paidHow}`; `CurrencyForm` = `{code, rate, note, existing}` where `rate` is foreign units per ONE US dollar
+  (`0.83` = "1 USD = 0.83 EUR"); `ExpenseForm` = `{id, date, category, description, currency, amount, budgetLineId,
+  note}` with `date` a LocalDate or null ("Various"), `amount` in the line's OWN currency, `category` one of
+  `TRANSPORTATION|GUIDE|SUPPLIES|TIPS|SCHOLARSHIP|LEADER|LODGING|POSTAGE|MEALS|GENERAL`, and `budgetLineId` a
+  budget line or lodging line id (null = not in budget). `receipts` = `[{id, lineId, title, pdf, url, thumbUrl}]`,
+  `lineId` null for a report-level receipt. `ExpensePage` = `{exists, status (Draft|Submitted|Paid), statusKey,
+  tripTitle, tripDates, orgName, submittedBy, submittedLine, submitted, cashAdvance, total, dueLabel, due,
+  dueToSubmitter, linesWithoutReceipt, currencyRows:[{code, rateText, inverseText, note, lines, foreignTotal,
+  usdTotal, rateMissing}], budgetRows:[{id, section, label, category, budget, spent, remaining, remainingNegative,
+  notInBudget}], budgetTotal, spentTotal, remainingTotal, lineRows:[{id, dateText, category, description,
+  amountText, usd, foreign, rateMissing, budgetLabel, receiptCount, note}], reportReceipts, warnings[]}`. Dollar
+  figures are computed on every read at the CURRENT rate; `due` is unsigned and `dueLabel` says who is owed.
+- `PUT /api/expenses/trips/{tripId}/header` `{submittedBy, cashAdvance, cashAdvanceDetails, paymentInstructions,
+  paidOn, paidHow}` → `{ok:true}`; `paidOn` an ISO date or null (setting it makes the status Paid).
+- `POST /api/expenses/trips/{tripId}/submit` → `{ok:true}` (stamps the caller and now; 400 while there are no
+  expenses); `POST .../unsubmit` → `{ok:true}`.
+- `POST /api/expenses/trips/{tripId}/email` → `{ok:true}`: emails the report to the organization's treasurer (the
+  `finance.treasurer.email` setting) as one PDF with its receipts appended; 400 when no treasurer is set or the
+  send fails. `summary.treasurerEmail` (null when none) and `summary.emailedLine` say whether and when.
+- `GET /api/expenses/trips/{tripId}/pdf[?receipts=true]` (Accept `application/pdf`) → the report as a PDF, its
+  receipts appended when asked; 403 for a caller who may not read it. This is how an app gets the receipts with a
+  bearer token today.
+- `POST /api/expenses/trips/{tripId}/currencies` `{code, rate, note}` → `{code}`; `PUT .../currencies/{code}`
+  `{rate, note}`; `DELETE .../currencies/{code}` (400 while an expense uses it). USD never has a row.
+- `POST /api/expenses/trips/{tripId}/lines` / `PUT .../lines/{lineId}` `{date, category, description, currency,
+  amount, budgetLineId, note}` → `{id}`. A blank `category` takes the matched budget line's. `currency` must be
+  `USD` or one the report has, unless `rate` is sent too, which adds that currency in the same save. An edit keeps
+  the line's receipts. `DELETE .../lines/{lineId}` → `{ok:true}` and deletes its receipts.
+- `POST /api/expenses/trips/{tripId}/receipts[?lineId=&name=]` with a RAW body (`image/*`, `application/pdf` or
+  `application/octet-stream`; the bytes decide, not the header) → `{id, url, thumbUrl}`. No `lineId` = a
+  report-level receipt; `name` is the file name shown. 413 `PAYLOAD_TOO_LARGE` over 16 MB; images are stored at
+  most 1280 px on the longest side. `DELETE .../receipts/{receiptId}` → `{ok:true}`.
+- Receipt `url`/`thumbUrl` are absolute app URLs (`/expense-receipts/{id}[/thumb]`), served only to a signed-in
+  SESSION that may read the report (a signed-out GET redirects to login; 403 otherwise). That servlet does not
+  read a bearer token today, so an app would need a session cookie or a future API download route. They are never
+  media CDN URLs, and `/api/media` never lists a receipt.
+
 ## Errors
 
 `NOT_AUTHENTICATED`(401) `FORBIDDEN`(403) `NOT_FOUND`(404) `BAD_REQUEST`/`VALIDATION_FAILED`(400/422)

@@ -72,6 +72,7 @@ public class BudgetResourceTest extends ResourceTestSupport {
         assertError(stranger.updateLodging(id, "l", CSRF_OK, Map.of()), 403, ApiErrors.FORBIDDEN);
         assertError(stranger.deleteLodging(id, "l", CSRF_OK), 403, ApiErrors.FORBIDDEN);
         assertError(stranger.get(id), 403, ApiErrors.FORBIDDEN);
+        assertError(stranger.pdf(id), 403, ApiErrors.FORBIDDEN);
         assertThrown(() -> stranger.get(UUID.randomUUID().toString()), 404, ApiErrors.NOT_FOUND);
         assertThrown(() -> stranger.deleteLine(UUID.randomUUID().toString(), "l", CSRF_OK), 404,
                 ApiErrors.NOT_FOUND);
@@ -86,6 +87,9 @@ public class BudgetResourceTest extends ResourceTestSupport {
         signedInAs(viewer);
         final BudgetResource resource = resource(new BudgetResource());
         assertOk(resource.get(trip.getId()));
+        final Response pdf = resource.pdf(trip.getId());
+        assertEquals(pdf.getStatus(), 200);
+        assertTrue(pdf.getHeaderString("Content-Disposition").endsWith("Api budget trip - Budget.pdf\""));
         assertError(resource.saveInputs(trip.getId(), CSRF_OK, Map.of("people", 3)), 403, ApiErrors.FORBIDDEN);
     }
 

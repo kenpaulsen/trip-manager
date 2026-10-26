@@ -70,15 +70,20 @@ public class SettingDef implements Serializable {
      * values are interpolated into a {@code style} attribute where anything else is CSS injection.
      */
     boolean hexColor;
+    /**
+     * Whether a non-blank value must be one email address. Same contract as {@link #httpUrl}: both save paths
+     * refuse anything else, and the reading code re-checks before sending to it.
+     */
+    boolean email;
 
     public SettingDef(final String name, final Config.Type type, final String defaultValue, final String label,
             final String description) {
-        this(name, type, defaultValue, label, description, false, false, List.of(), false, false);
+        this(name, type, defaultValue, label, description, false, false, List.of(), false, false, false);
     }
 
     private SettingDef(final String name, final Config.Type type, final String defaultValue, final String label,
             final String description, final boolean orgOverridable, final boolean orgOnly,
-            final List<String> choices, final boolean httpUrl, final boolean hexColor) {
+            final List<String> choices, final boolean httpUrl, final boolean hexColor, final boolean email) {
         this.name = name;
         this.type = type;
         this.defaultValue = defaultValue;
@@ -89,36 +94,43 @@ public class SettingDef implements Serializable {
         this.choices = List.copyOf(choices);
         this.httpUrl = httpUrl;
         this.hexColor = hexColor;
+        this.email = email;
     }
 
     /** This declaration, marked as one an organization may override on its own site. */
     public SettingDef withOrgOverride() {
         return new SettingDef(name, type, defaultValue, label, description, true, false, choices, httpUrl,
-                hexColor);
+                hexColor, email);
     }
 
     /** This declaration, marked org-explicit: an org host never inherits the site's value (see {@link #orgOnly}). */
     public SettingDef withOrgOnly() {
         return new SettingDef(name, type, defaultValue, label, description, true, true, choices, httpUrl,
-                hexColor);
+                hexColor, email);
     }
 
     /** This declaration, restricted to exactly these values (see {@link #choices}); blank stays "unset". */
     public SettingDef withChoices(final String... allowed) {
         return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly,
-                List.of(allowed), httpUrl, hexColor);
+                List.of(allowed), httpUrl, hexColor, email);
     }
 
     /** This declaration, requiring a non-blank value to be an {@code http(s)} URL (see {@link #httpUrl}). */
     public SettingDef withHttpUrl() {
         return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
-                true, hexColor);
+                true, hexColor, email);
     }
 
     /** This declaration, requiring a non-blank value to be a CSS hex color (see {@link #hexColor}). */
     public SettingDef withHexColor() {
         return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
-                httpUrl, true);
+                httpUrl, true, email);
+    }
+
+    /** This declaration, requiring a non-blank value to be one email address (see {@link #email}). */
+    public SettingDef withEmail() {
+        return new SettingDef(name, type, defaultValue, label, description, orgOverridable, orgOnly, choices,
+                httpUrl, hexColor, true);
     }
 
     /**

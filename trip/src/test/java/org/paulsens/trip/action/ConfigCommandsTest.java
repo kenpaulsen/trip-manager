@@ -91,6 +91,20 @@ public class ConfigCommandsTest {
     }
 
     @Test
+    public void anEmailSettingMustHoldOneAddress() {
+        final String treasurer = KnownSettings.FINANCE_TREASURER_EMAIL.getName();
+        Assert.assertNull(config.rejection(of(treasurer, "", Config.Type.STRING)), "blank is unset");
+        Assert.assertNull(config.rejection(of(treasurer, " treasurer@example.org ", Config.Type.STRING)));
+        final String bad = config.rejection(of(treasurer, "treasurer at example", Config.Type.STRING));
+        Assert.assertNotNull(bad);
+        Assert.assertTrue(bad.contains("is not an email address, which Treasurer email requires"), bad);
+        Assert.assertTrue(KnownSettings.FINANCE_TREASURER_EMAIL.isOrgOverridable(), "each org names its own");
+        Assert.assertTrue(KnownSettings.FINANCE_TREASURER_EMAIL.withOrgOnly().isEmail(), "the flag survives");
+        Assert.assertTrue(KnownSettings.FINANCE_TREASURER_EMAIL.withChoices("a@b.c").withHttpUrl().withHexColor()
+                .isEmail());
+    }
+
+    @Test
     public void aDeclaredSettingsOwnRulesApplyOnTheSitePageToo() {
         final String palette = KnownSettings.SITE_THEME_PALETTE.getName();
         final String logo = KnownSettings.SITE_LOGO_URL.getName();

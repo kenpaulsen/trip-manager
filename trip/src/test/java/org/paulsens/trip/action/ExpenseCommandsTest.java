@@ -18,6 +18,10 @@ import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
+import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.BudgetCategory;
 import org.paulsens.trip.model.BudgetLine;
@@ -608,6 +612,78 @@ public class ExpenseCommandsTest {
         }
         assertFalse(admin.attachReceipt(id, "", "one-more", problems::add));
         assertEquals(problems.get(problems.size() - 1), "A report holds at most 60 report-level receipts.");
+    }
+
+    // ------------------------------------------------------------------ the treasurer
+
+    private void treasurer(final String email) throws IOException {
+        final Organization org = DAO.getInstance().getOrganization(Organization.Id.from(orgId), Cached.NO)
+                .orElseThrow();
+        if (email == null) {
+            org.getSettingsOverrides().remove(KnownSettings.FINANCE_TREASURER_EMAIL.getName());
+        } else {
+            org.getSettingsOverrides().put(KnownSettings.FINANCE_TREASURER_EMAIL.getName(), email);
+        }
+        assertTrue(DAO.getInstance().saveOrganization(org));
+    }
+
+    @Test
+    public void submittingCanEmailTheTreasurerThePdf() throws IOException {
+        final String id = newTrip().getId();
+        assertTrue(admin.saveLine(id, line(null, "GUIDE", "Guide", "USD", 1_440.0)));
+        final MailCommands mail = Mockito.mock(MailCommands.class);
+        final ExpenseCommands bean = new ExpenseCommands(TestCallers::siteAdmin);
+        bean.mailForTest(mail);
+        try {
+            treasurer(null);
+            assertNull(bean.reportPage(id).getTreasurerEmail(), "no treasurer set anywhere");
+            assertFalse(bean.hasTreasurer(id));
+            assertFalse(bean.emailTreasurer(id), "nothing to send to");
+            assertTrue(bean.submit(id, false), "submitting alone never mails");
+            Mockito.verifyNoInteractions(mail);
+
+            treasurer("treasurer@example.org");
+            assertEquals(bean.reportPage(id).getTreasurerEmail(), "treasurer@example.org");
+            assertTrue(bean.hasTreasurer(id));
+            assertFalse(as(Person.Id.newInstance()).hasTreasurer(id), "only for the report's readers");
+            Mockito.when(mail.sendWithAttachment(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                    ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                    ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+            assertTrue(bean.submit(id, true));
+            final ArgumentCaptor<byte[]> pdf = ArgumentCaptor.forClass(byte[].class);
+            final ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+            Mockito.verify(mail).sendWithAttachment(ArgumentMatchers.any(),
+                    ArgumentMatchers.eq("treasurer@example.org"),
+                    ArgumentMatchers.any(), ArgumentMatchers.eq("Expense report: Holy Angels"), body.capture(),
+                    ArgumentMatchers.eq("Holy Angels - Expense Report.pdf"), pdf.capture(),
+                    ArgumentMatchers.eq("application/pdf"), ArgumentMatchers.any());
+            assertTrue(new String(pdf.getValue(), 0, 5, java.nio.charset.StandardCharsets.US_ASCII)
+                    .equals("%PDF-"), "the attachment is a PDF");
+            assertTrue(body.getValue().contains("<b>Holy Angels</b>") && body.getValue().contains("$1,440.00"),
+                    body.getValue());
+            assertTrue(body.getValue().contains("with its receipts after it"), body.getValue());
+            assertEquals(stored(id).getEmailedTo(), "treasurer@example.org");
+            assertTrue(bean.reportPage(id).getEmailedLine().startsWith("Emailed to treasurer@example.org on "));
+
+            Mockito.when(mail.sendWithAttachment(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                    ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                    ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(false);
+            assertFalse(bean.emailTreasurer(id), "a failed send says so");
+            assertFalse(as(Person.Id.newInstance()).emailTreasurer(id), "a stranger emails nothing");
+        } finally {
+            treasurer(null);
+        }
+    }
+
+    @Test
+    public void theTreasurerSettingMustBeAnAddress() throws IOException {
+        final String id = newTrip().getId();
+        try {
+            treasurer("not an address");
+            assertNull(admin.reportPage(id).getTreasurerEmail(), "an unusable stored value counts as none");
+        } finally {
+            treasurer(null);
+        }
     }
 
     // ------------------------------------------------------------------ helpers

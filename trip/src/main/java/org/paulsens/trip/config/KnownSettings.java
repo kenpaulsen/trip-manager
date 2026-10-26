@@ -606,6 +606,18 @@ public final class KnownSettings {
             "Site-wide fallback address that receives an internal note for each completed payment. An "
                     + "organization's contact email wins when set; blank here means no internal note.");
 
+    /**
+     * Where a trip's submitted expense report is emailed, with its receipts, when the submitter chooses to
+     * ({@code docs/expense-report.md}). Org-overridable: each organization names its own treasurer, and the
+     * site value is the fallback for organizations that have not.
+     */
+    public static final SettingDef FINANCE_TREASURER_EMAIL = new SettingDef(
+            "finance.treasurer.email", Config.Type.STRING, "",
+            "Treasurer email",
+            "Where a submitted trip expense report is emailed, as a PDF with its receipts, when the person "
+                    + "submitting it chooses to. Blank: no treasurer is known, and the Submit dialog says so.")
+            .withOrgOverride().withEmail();
+
     public static final SettingDef PAYMENT_MAIL_FROM = new SettingDef(
             "payment.mail.from", Config.Type.STRING, "",
             "Payment confirmation From address",
@@ -794,6 +806,10 @@ public final class KnownSettings {
                     "Store links for the \"Get the app\" badges on the support page. Set each one when that "
                             + "listing goes live; nothing else reads them.",
                     List.of(APPS_APP_STORE_URL, APPS_PLAY_STORE_URL)),
+            new SettingSection("Finance",
+                    "The trip budget and expense report. An organization sets its own treasurer on its "
+                            + "Configuration page; the value here applies to organizations that have not.",
+                    List.of(FINANCE_TREASURER_EMAIL)),
             new SettingSection("Lodging",
                     "Hotels, lodging options and room assignments. An organization that reconciles lodging "
                             + "bills by hand can turn the automatic recompute off for its own trips.",

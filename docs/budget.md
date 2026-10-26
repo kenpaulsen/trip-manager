@@ -171,6 +171,12 @@ shared and individual tables), `editLodging` / `deleteLodging`, plus `addLine` (
 INSIDE the dialog (`lineProblem`, `lodgingProblem`, the 2026-10-26 rule) and stay open through the lodging
 pages' `keepOpen` idiom; Cancel clears the form.
 
+## PDF
+
+"Download PDF" on the page (`GET /reports/budget?trip=`, `web/TripMoneyPdfServlet`, the budget's view gate) and
+`GET /api/budget/trips/{id}/pdf`: `action/BudgetPdf` draws the page's own `BudgetPage` in the page's order, with
+long cells wrapped and table headings repeated on a new page (`action/PdfSheet`, shared with the expense report).
+
 ## REST (`api/BudgetResource`, `application/vnd.trip.budget.v1+json`)
 
 | Method | Path | Body / answer |

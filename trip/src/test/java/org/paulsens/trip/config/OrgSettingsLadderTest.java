@@ -53,7 +53,7 @@ public class OrgSettingsLadderTest {
                 "site.contact.name", "site.contact.phone", "site.donate.url",
                 "home.photos.windowDays", "home.photos.minCount", "home.countdown.soonDays",
                 "chat.reactions.palette", "chat.background.colors", "chat.background.image", "reg.allowEdits",
-                "lodging.bills.autoRecompute"),
+                "finance.treasurer.email", "lodging.bills.autoRecompute"),
                 "in page order; a new org-overridable setting is a product decision, so update this list");
         Assert.assertTrue(KnownSettings.SITE_ANALYTICS_ID.isOrgOnly(), "the analytics id is org-explicit");
         for (final SettingDef def : KnownSettings.branding()) {

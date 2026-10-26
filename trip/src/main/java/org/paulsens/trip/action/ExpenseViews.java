@@ -206,6 +206,10 @@ public final class ExpenseViews {
         private String due;
         private boolean dueToSubmitter;
         private int linesWithoutReceipt;
+        /** The organization's treasurer address the report can be emailed to; null when none is set. */
+        private String treasurerEmail;
+        /** "Emailed to treasurer@example.com on Oct 7, 2026"; null until it has been. */
+        private String emailedLine;
         private List<String> warnings = new ArrayList<>();
     }
 }

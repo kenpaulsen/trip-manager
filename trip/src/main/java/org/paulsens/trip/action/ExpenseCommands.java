@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -27,6 +28,7 @@ import org.paulsens.trip.action.ExpenseViews.ExpenseForm;
 import org.paulsens.trip.action.ExpenseViews.ExpenseRow;
 import org.paulsens.trip.action.ExpenseViews.ReceiptRow;
 import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.BudgetLine;
 import org.paulsens.trip.model.BudgetLodgingLine;
@@ -42,6 +44,7 @@ import org.paulsens.trip.model.TripBudget;
 import org.paulsens.trip.model.TripExpenseReport;
 import org.paulsens.trip.pay.BudgetMath;
 import org.paulsens.trip.pay.ExpenseMath;
+import org.paulsens.trip.util.EmailAddresses;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
 import static org.paulsens.trip.action.MoneyForms.cents;
@@ -94,6 +97,9 @@ public class ExpenseCommands {
     private final Supplier<AuditCommands> auditSource;
     private final Supplier<ExpenseReceipts> receiptSource;
     private final TripFinanceGate gate;
+    private final Supplier<ConfigCommands> configSource = ConfigCommands::new;
+    /** The CDI mail bean (its SES client is built once); a test swaps it for a spy. */
+    private Supplier<MailCommands> mailSource = () -> org.paulsens.trip.api.Beans.get(MailCommands.class);
 
     public ExpenseCommands() {
         this(Caller::current);
@@ -183,6 +189,10 @@ public class ExpenseCommands {
                 : nameOr(page.getOrgName(), "the organization")));
         page.setDue(money(Math.abs(due)));
         page.setLinesWithoutReceipt(ExpenseMath.linesWithoutReceipt(report));
+        page.setTreasurerEmail(treasurerEmail(trip));
+        if (report.getEmailedOn() != null) {
+            page.setEmailedLine("Emailed to " + report.getEmailedTo() + " on " + DAY.format(report.getEmailedOn()));
+        }
         warnMissingRates(page, report);
         return page;
     }
@@ -847,6 +857,158 @@ public class ExpenseCommands {
         }
         Collections.swap(lines, from, to);
         return persist(trip, report, PageFeedback::refuse, "moved expense '" + line.getDescription() + "'", null);
+    }
+
+    /**
+     * Submits, then (when {@code emailTreasurer}) emails the report to the organization's treasurer: the Submit
+     * dialog's one call. A refused email does not undo the submit; both outcomes growl.
+     */
+    public boolean submit(final String tripId, final Boolean emailTreasurer) {
+        if (!submit(tripId)) {
+            return false;
+        }
+        return !Boolean.TRUE.equals(emailTreasurer) || emailTreasurer(tripId);
+    }
+
+    // ================================================================== PDF and the treasurer
+
+    /** Whether the report can be emailed: a reader of it, on a trip whose organization has a treasurer. */
+    public boolean hasTreasurer(final String tripId) {
+        final Trip trip = canViewExpenses(tripId) ? gate.knownTrip(tripId) : null;
+        return trip != null && treasurerEmail(trip) != null;
+    }
+
+    /** The treasurer address for a trip's organization (its own setting, else the site's), or null. */
+    String treasurerEmail(final Trip trip) {
+        final String value = configSource.get().getString(KnownSettings.FINANCE_TREASURER_EMAIL,
+                trip.getOrganization());
+        return EmailAddresses.isValid(value) ? value.trim() : null;
+    }
+
+    /**
+     * The report as a PDF (with its receipts appended when {@code withReceipts}), or null for a caller who may
+     * not read it.
+     */
+    public byte[] reportPdf(final String tripId, final boolean withReceipts) {
+        if (!canViewExpenses(tripId)) {
+            return null;
+        }
+        final Trip trip = gate.knownTrip(tripId);
+        final TripExpenseReport report = reportOrDefault(trip, Cached.YES);
+        final Map<String, String> labels = new HashMap<>();
+        final List<ExpenseReportPdf.ReceiptDoc> receipts = receiptDocs(report, labels);
+        return ExpenseReportPdf.render(reportPage(tripId), labels, withReceipts ? receipts : List.of());
+    }
+
+    /**
+     * Every receipt in report order (report level first, then line by line), numbered R1, R2...; fills
+     * {@code labels} with each expense's numbers ("R2, R3") for the PDF's Receipts column.
+     */
+    private List<ExpenseReportPdf.ReceiptDoc> receiptDocs(final TripExpenseReport report,
+            final Map<String, String> labels) {
+        final List<ExpenseReportPdf.ReceiptDoc> docs = new ArrayList<>();
+        final ExpenseReceipts store = receiptSource.get();
+        for (final String id : report.getReceiptIds()) {
+            docs.add(receiptDoc(store, id, "R" + (docs.size() + 1), "The report"));
+        }
+        for (final ExpenseLine line : report.getLines()) {
+            final List<String> mine = new ArrayList<>();
+            for (final String id : line.getReceiptIds()) {
+                final String label = "R" + (docs.size() + 1);
+                mine.add(label);
+                docs.add(receiptDoc(store, id, label, line.getDescription()));
+            }
+            if (!mine.isEmpty()) {
+                labels.put(line.getId(), String.join(", ", mine));
+            }
+        }
+        return docs;
+    }
+
+    private static ExpenseReportPdf.ReceiptDoc receiptDoc(final ExpenseReceipts store, final String mediaId,
+            final String label, final String forWhat) {
+        final MediaItem item = DAO.getInstance().getMedia(mediaId, Cached.YES).orElse(null);
+        if (item == null) {
+            return new ExpenseReportPdf.ReceiptDoc(label, forWhat, "(deleted)", null, null);
+        }
+        final ExpenseReceipts.Served served = store.served(item, false).orElse(null);
+        return new ExpenseReportPdf.ReceiptDoc(label, forWhat, item.getTitle(),
+                (served == null) ? item.getContentType() : served.contentType(),
+                (served == null) ? null : served.bytes());
+    }
+
+    /**
+     * Emails the report to the organization's treasurer as ONE PDF with the receipts appended (owner decision
+     * 2026-10-26); when that would be too large for an email, the report alone, saying so in the message. The
+     * submitter is the Reply-To. Records who it went to and when; refusals growl.
+     */
+    public boolean emailTreasurer(final String tripId) {
+        final Trip trip = gate.editableTrip(tripId, tripId, PageFeedback::refuse, NOT_ALLOWED);
+        if (trip == null) {
+            return false;
+        }
+        final String treasurer = treasurerEmail(trip);
+        if (treasurer == null) {
+            return refuse("No treasurer email is set for " + nameOr(orgName(trip), "this organization")
+                    + ": an organization admin sets it under Organization settings, Configuration.");
+        }
+        byte[] pdf = reportPdf(tripId, true);
+        final boolean receiptsLeftOut = pdf.length > MailCommands.MAX_ATTACHMENT_BYTES;
+        if (receiptsLeftOut) {
+            pdf = reportPdf(tripId, false);
+        }
+        final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
+        final String subject = "Expense report: " + trip.getTitle()
+                + ((report.getSubmittedBy() == null) ? "" : " (" + report.getSubmittedBy() + ")");
+        final boolean sent = mailSource.get().sendWithAttachment(
+                new MailAddressCommands(configSource.get()).siteFrom(), treasurer, callerEmail(), subject,
+                treasurerBody(trip, report, receiptsLeftOut), ExpenseReportPdf.fileName(trip.getTitle()), pdf,
+                ExpenseReceipts.PDF, caller().auditActor());
+        if (!sent) {
+            return refuse("The report could not be emailed to " + treasurer + ". Try again.");
+        }
+        report.setEmailedTo(treasurer);
+        report.setEmailedOn(LocalDateTime.now());
+        persist(trip, report, PageFeedback::refuse, "emailed the report to " + treasurer, null);
+        info("Expense report emailed to " + treasurer + (receiptsLeftOut ? " (without the receipts, which made it "
+                + "too large to email)." : "."));
+        return true;
+    }
+
+    /** The message to the treasurer: who, what trip, the bottom line, and what is attached. */
+    private String treasurerBody(final Trip trip, final TripExpenseReport report, final boolean receiptsLeftOut) {
+        final ExpensePage page = reportPage(trip.getId());
+        final StringBuilder html = new StringBuilder();
+        html.append("<p>").append(esc(nameOr(report.getSubmittedBy(), "Someone"))).append(" submitted the expense ")
+                .append("report for <b>").append(esc(trip.getTitle())).append("</b>")
+                .append((page.getTripDates() == null) ? "" : " (" + esc(page.getTripDates()) + ")").append(".</p>");
+        html.append("<p>Total spent: ").append(esc(page.getTotal())).append("<br/>Cash advance: ")
+                .append(esc(page.getCashAdvance())).append("<br/><b>").append(esc(page.getDueLabel())).append(": ")
+                .append(esc(page.getDue())).append("</b></p>");
+        if (report.getPaymentInstructions() != null) {
+            html.append("<p>Payment instructions: ").append(esc(report.getPaymentInstructions())).append("</p>");
+        }
+        html.append("<p>").append(receiptsLeftOut
+                ? "The report is attached. Its receipts made the file too large to email; they are on the report "
+                        + "online."
+                : "The report is attached as a PDF, with its receipts after it.").append("</p>");
+        return html.toString();
+    }
+
+    private static String esc(final String text) {
+        return (text == null) ? "" : text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                .replace("\n", "<br/>");
+    }
+
+    /** The caller's own email, the treasurer's Reply-To; null when they have none. */
+    private String callerEmail() {
+        final Person.Id id = caller().personId();
+        final Person person = (id == null) ? null : DAO.getInstance().getPerson(id, Cached.YES).orElse(null);
+        return (person == null || !EmailAddresses.isValid(person.getEmail())) ? null : person.getEmail();
+    }
+
+    void mailForTest(final MailCommands mail) {
+        this.mailSource = () -> mail;
     }
 
     /**

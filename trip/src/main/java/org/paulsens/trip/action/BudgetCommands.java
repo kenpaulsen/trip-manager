@@ -36,6 +36,7 @@ import org.paulsens.trip.model.BudgetCategory;
 import org.paulsens.trip.model.BudgetLine;
 import org.paulsens.trip.model.BudgetLineKind;
 import org.paulsens.trip.model.BudgetLodgingLine;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.RatePlan;
 import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.Trip;
@@ -695,6 +696,16 @@ public class BudgetCommands {
             margin += BudgetMath.lodging(line, offers.get(line.getOfferId())).margin();
         }
         return money(BudgetMath.overall(budget, margin));
+    }
+
+    /** The budget as a PDF ({@link BudgetPdf}), or null for a caller who may not read it. */
+    public byte[] budgetPdf(final String tripId) {
+        if (!canViewBudget(tripId)) {
+            return null;
+        }
+        final Trip trip = knownTrip(tripId);
+        final Organization org = trip.getOrganization();
+        return BudgetPdf.render(budgetPage(tripId), trip.getTitle(), (org == null) ? null : org.getName());
     }
 
     // ================================================================== writes

@@ -24,6 +24,7 @@ import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.util.EmailAddresses;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ses.SesClient;
 import software.amazon.awssdk.services.ses.model.Body;
@@ -32,6 +33,9 @@ import software.amazon.awssdk.services.ses.model.Destination;
 import software.amazon.awssdk.services.ses.model.Message;
 import software.amazon.awssdk.services.ses.model.SendEmailRequest;
 import software.amazon.awssdk.services.ses.model.SendEmailResponse;
+import software.amazon.awssdk.services.ses.model.RawMessage;
+import software.amazon.awssdk.services.ses.model.SendRawEmailRequest;
+import software.amazon.awssdk.services.ses.model.SendRawEmailResponse;
 import org.paulsens.trip.cache.Cached;
 
 /**
@@ -618,6 +622,49 @@ public class MailCommands {
         log.warn("Dropping unusable email recipient: '{}'", recipient);
         return false;
     }
+
+    /**
+     * Sends one HTML message with ONE file attached (an expense report PDF), as raw MIME through SES
+     * {@code SendRawEmail}: the plain {@link #send} path has no way to carry a file. The same guards as
+     * {@link #send}: LOCAL MODE SENDS NOTHING (logged, and answered true so a local run behaves like a delivered
+     * one), an unusable recipient or a blank From sends nothing, Reply-To is filtered, the result is audited as
+     * {@code EMAIL}, and a failure is logged and answered false rather than thrown.
+     *
+     * <p>SES caps a raw message at 10 MB after encoding, and base64 grows a file by a third: a caller keeps
+     * {@code attachment} under {@link #MAX_ATTACHMENT_BYTES}.
+     *
+     * @return whether the message was handed to SES (or, locally, would have been).
+     */
+    public boolean sendWithAttachment(final String from, final String to, final String replyTo,
+            final String subject, final String htmlBody, final String fileName, final byte[] attachment,
+            final String contentType, final AuditActor who) {
+        if (FakeData.isLocal()) {
+            log.info("LOCAL MODE: not sending '{}' with '{}' ({} bytes) to '{}'", subject, fileName,
+                    (attachment == null) ? 0 : attachment.length, to);
+            return true;
+        }
+        final Collection<String> toAddresses = splitEmail(to);
+        if (toAddresses.isEmpty() || from == null || from.isBlank()) {
+            log.warn("Not sending '{}': no usable recipient in '{}' or no From address", subject, to);
+            return false;
+        }
+        final AuditActor actor = (who == null) ? AuditActor.current() : who;
+        try {
+            final byte[] mime = RawMime.multipart(from.trim(), toAddresses, splitEmail(replyTo), subject, htmlBody,
+                    fileName, attachment, contentType);
+            final SendRawEmailResponse response = client.sendRawEmail(SendRawEmailRequest.builder()
+                    .rawMessage(RawMessage.builder().data(SdkBytes.fromByteArray(mime)).build()).build());
+            logAndReturn(actor, response, to, "Email '" + subject + "' sent with '" + fileName + "'. Response: "
+                    + response.sdkHttpResponse().statusCode());
+            return true;
+        } catch (final RuntimeException ex) {
+            logException(actor, to, ex);
+            return false;
+        }
+    }
+
+    /** The largest file {@link #sendWithAttachment} should carry: 7 MB, which base64 makes about 9.5 MB. */
+    public static final int MAX_ATTACHMENT_BYTES = 7_000_000;
 
     /**
      * @param actor who asked for the mail to be sent -- always passed explicitly, never re-resolved here, so

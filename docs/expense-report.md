@@ -92,6 +92,30 @@ expenses, 20 currencies, 40 receipts per expense, 60 at report level.
 - **Kept** by a trip delete, with the report: they are the record of money that was spent
   ([trip-delete.md](trip-delete.md), "Financial history is never destroyed").
 
+## PDF and email
+
+- **PDF** (`action/ExpenseReportPdf`, drawn with the shared `action/PdfSheet`): the page's own `ExpensePage`,
+  section for section (details, currencies, budget, expenses with a Receipts column naming R1, R2..., totals, a
+  signature line). "Download PDF" is the report alone; "PDF with receipts" appends them: an index (number, what
+  it is for, file, "image" / "PDF, n pages" / "missing"), then each image on a page of its own under its number
+  and each receipt PDF's own pages with its number stamped across the top of the first. An unreadable or
+  missing receipt is listed, never fatal; a character the font lacks prints as "?".
+- **Download:** `web/TripMoneyPdfServlet`, `GET /reports/expense-report?trip=[&receipts=true]` (and
+  `/reports/budget?trip=` for the budget), the report's view gate; not signed in goes to login, anyone else is
+  404. Never a `.pdf` URL (`PdfRedirectFilter`). REST: `GET /api/expenses/trips/{id}/pdf[?receipts=true]`.
+- **The treasurer** is the org-overridable setting `finance.treasurer.email` ("Treasurer email", section
+  Finance; validated as one address by the new `SettingDef.withEmail()`): an organization sets its own on its
+  Configuration page, and the site's value is the fallback. Unset, the page says so and the Submit dialog
+  explains where to set it.
+- **Emailing** (owner decisions 2026-10-26): the Submit dialog has a box, checked when a treasurer is set,
+  "Email the report and its receipts to the treasurer"; an "Email to treasurer" button resends later. The mail
+  (`ExpenseCommands.emailTreasurer`) carries ONE PDF, the report with its receipts; when that is over
+  `MailCommands.MAX_ATTACHMENT_BYTES` (7 MB, under SES's 10 MB raw limit after base64) it carries the report
+  alone and says the receipts are online. From is the site address, Reply-To the submitter, and the report
+  records who it went to and when ("Emailed to ... on ..."). A refused email never undoes the submit.
+  `MailCommands.sendWithAttachment` is the first attachment-capable send: raw MIME (`action/RawMime`) over SES
+  `SendRawEmail`, with `send`'s local-mode guard, recipient filtering and `EMAIL` audit.
+
 ## Privileges
 
 No new privilege, and no second spelling of one: `action/TripFinanceGate` is THE rule for the trip's money
@@ -125,6 +149,8 @@ and after every write (`SessionScopePolicyIT` lists it as domain-valued); only t
 | GET | `expenses/trips/{tripId}` | `{header, currencies, lines, receipts, summary}`; `receipts` carry their `lineId` (null = the report) and absolute app URLs |
 | PUT | `expenses/trips/{tripId}/header` | `{submittedBy, cashAdvance, cashAdvanceDetails, paymentInstructions, paidOn, paidHow}` (`paidOn` an ISO date) |
 | POST | `expenses/trips/{tripId}/submit` · `.../unsubmit` | stamps / withdraws; submit is 400 while there are no expenses |
+| POST | `expenses/trips/{tripId}/email` | emails the treasurer the PDF with receipts; 400 when none is set or the send fails |
+| GET | `expenses/trips/{tripId}/pdf[?receipts=true]` | `application/pdf` |
 | POST / PUT / DELETE | `expenses/trips/{tripId}/currencies[/{code}]` | `{code, rate, note}`; a currency in use cannot be deleted |
 | POST / PUT / DELETE | `expenses/trips/{tripId}/lines[/{lineId}]` | `{date, category, description, currency, amount, budgetLineId, note}`; a new code with `rate` adds the currency in the same save |
 | POST | `expenses/trips/{tripId}/receipts?lineId=&name=` | a RAW body (image or PDF), 413 over 16 MB → `{id, url, thumbUrl}` |
@@ -150,5 +176,4 @@ and page added to `ReportsDashboardPwIT`, `AdminReportsPwIT` and `AuthGatePwIT`.
 
 ## Out of scope (for now)
 
-A PDF download (the Room Invoice pattern), emailing the report, several reports per trip, a reimbursement split
-across people beyond the payment instructions text.
+Several reports per trip, a reimbursement split across people beyond the payment instructions text.

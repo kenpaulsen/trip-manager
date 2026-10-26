@@ -16,6 +16,7 @@ import org.paulsens.trip.cache.NearCacheClient;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.util.EmailAddresses;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Config;
@@ -505,6 +506,9 @@ public class ConfigCommands {
         }
         if (def.isHttpUrl() && ContentRenderer.requireHttpUrl(raw).isEmpty()) {
             return "'" + raw + "' is not an http(s) URL, which " + def.getLabel() + " requires.";
+        }
+        if (def.isEmail() && !EmailAddresses.isValid(raw.trim())) {
+            return "'" + raw + "' is not an email address, which " + def.getLabel() + " requires.";
         }
         if (def.isHexColor() && SettingDef.hexColor(raw) == null) {
             return "'" + raw + "' is not a hex color like #333333 or #fc0, which " + def.getLabel()

@@ -76,6 +76,9 @@ public class ExpenseReportResourceTest extends ResourceTestSupport {
         assertError(stranger.uploadReceipt(id, CSRF_OK, 3L, null, "x.pdf", body(PDF)), 403, ApiErrors.FORBIDDEN);
         assertError(stranger.deleteReceipt(id, "r", CSRF_OK), 403, ApiErrors.FORBIDDEN);
         assertError(stranger.get(id), 403, ApiErrors.FORBIDDEN);
+        assertError(stranger.pdf(id, false), 403, ApiErrors.FORBIDDEN);
+        assertError(stranger.emailTreasurer(id, CSRF_OK), 403, ApiErrors.FORBIDDEN);
+        assertError(stranger.emailTreasurer(id, null), 403, ApiErrors.CSRF);
         assertThrown(() -> stranger.get(UUID.randomUUID().toString()), 404, ApiErrors.NOT_FOUND);
     }
 
@@ -155,6 +158,11 @@ public class ExpenseReportResourceTest extends ResourceTestSupport {
         assertEquals(summary.getStatus(), "Paid", "paidOn was set");
         assertEquals(summary.getTotal(), "$1,951.34", "25 / 0.85 + 800 / 1.66 + 1,440");
 
+        final Response pdf = api.pdf(id, true);
+        assertEquals(pdf.getStatus(), 200);
+        assertEquals(new String((byte[]) pdf.getEntity(), 0, 5, StandardCharsets.US_ASCII), "%PDF-");
+        assertTrue(pdf.getHeaderString("Content-Disposition").contains("Wire report - Expense Report.pdf"));
+        assertError(api.emailTreasurer(id, CSRF_OK), 400, ApiErrors.VALIDATION_FAILED);
         assertOk(api.deleteReceipt(id, receiptId, CSRF_OK));
         assertError(api.deleteReceipt(id, receiptId, CSRF_OK), 400, ApiErrors.VALIDATION_FAILED);
         assertOk(api.unsubmit(id, CSRF_OK));

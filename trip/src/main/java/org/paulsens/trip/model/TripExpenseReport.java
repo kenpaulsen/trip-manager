@@ -39,6 +39,9 @@ public final class TripExpenseReport implements Serializable {
     private String paymentInstructions;
     private LocalDate paidOn;
     private String paidHow;
+    /** Who the report was last emailed to (the treasurer), and when; null until it is. */
+    private String emailedTo;
+    private LocalDateTime emailedOn;
     private List<CurrencyRate> currencies;
     private List<ExpenseLine> lines;
     /** Receipts that belong to no single line (a cash-advance slip, a statement). */
@@ -60,6 +63,8 @@ public final class TripExpenseReport implements Serializable {
             @JsonProperty("paymentInstructions") final String paymentInstructions,
             @JsonProperty("paidOn") final LocalDate paidOn,
             @JsonProperty("paidHow") final String paidHow,
+            @JsonProperty("emailedTo") final String emailedTo,
+            @JsonProperty("emailedOn") final LocalDateTime emailedOn,
             @JsonProperty("currencies") final List<CurrencyRate> currencies,
             @JsonProperty("lines") final List<ExpenseLine> lines,
             @JsonProperty("receiptIds") final List<String> receiptIds,
@@ -76,6 +81,8 @@ public final class TripExpenseReport implements Serializable {
         this.paymentInstructions = BudgetLine.trimToNull(paymentInstructions);
         this.paidOn = paidOn;
         this.paidHow = BudgetLine.trimToNull(paidHow);
+        this.emailedTo = BudgetLine.trimToNull(emailedTo);
+        this.emailedOn = emailedOn;
         this.currencies = (currencies == null) ? new ArrayList<>() : new ArrayList<>(currencies);
         this.lines = (lines == null) ? new ArrayList<>() : new ArrayList<>(lines);
         this.receiptIds = (receiptIds == null) ? new ArrayList<>() : new ArrayList<>(receiptIds);
@@ -85,7 +92,8 @@ public final class TripExpenseReport implements Serializable {
     }
 
     public TripExpenseReport() {
-        this(null, null, null, null, null, 0L, null, null, null, null, null, null, null, null, null, 0L);
+        this(null, null, null, null, null, 0L, null, null, null, null, null, null, null, null, null, null, null,
+                0L);
     }
 
     /** The line with this id; null when there is none. */

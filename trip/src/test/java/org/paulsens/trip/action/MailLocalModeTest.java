@@ -34,4 +34,11 @@ public class MailLocalModeTest {
         Assert.assertNull(response.messageId(),
                 "local mode must return the stand-in response, not the result of a real SES call");
     }
+
+    @Test
+    public void anAttachmentSendInLocalModeReachesNobodyAndReadsAsSent() {
+        Assert.assertTrue(mail.sendWithAttachment("Test <no-reply@visitqueenofpeace.com>", "someone@example.com",
+                null, "Local mode must not send this", "<p>body</p>", "r.pdf", new byte[] {1}, "application/pdf",
+                AuditActor.system()), "locally the report reads as emailed, so the page behaves as in production");
+    }
 }

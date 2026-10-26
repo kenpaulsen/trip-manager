@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Optional;
 import org.paulsens.trip.action.ExpenseCommands;
 import org.paulsens.trip.action.ExpenseReceipts;
+import org.paulsens.trip.action.ExpenseReportPdf;
 import org.paulsens.trip.action.ExpenseViews;
 import org.paulsens.trip.action.ExpenseViews.ReceiptRow;
 import org.paulsens.trip.action.PhotoUploadBean;
@@ -136,6 +137,39 @@ public class ExpenseReportResource extends BaseResource {
         }
         return expenses().submit(tripId) ? ok(Map.of("ok", true))
                 : error(400, ApiErrors.VALIDATION_FAILED, "The report was not submitted: add an expense first.");
+    }
+
+    /**
+     * Emails the report to the trip organization's treasurer (the {@code finance.treasurer.email} setting) as
+     * one PDF with its receipts. 400 when no treasurer is set or the send fails.
+     */
+    @POST
+    @Path("trips/{tripId}/email")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response emailTreasurer(@PathParam("tripId") final String tripId,
+            @HeaderParam(CSRF_HEADER) final String csrf) {
+        final Response refused = refuseWrite(tripId, csrf);
+        if (refused != null) {
+            return refused;
+        }
+        return expenses().emailTreasurer(tripId) ? ok(Map.of("ok", true))
+                : error(400, ApiErrors.VALIDATION_FAILED, "The report was not emailed: no treasurer email is set "
+                        + "for the trip's organization, or the send failed.");
+    }
+
+    /** The report as a PDF; {@code receipts=true} appends the receipts. */
+    @GET
+    @Path("trips/{tripId}/pdf")
+    @Produces("application/pdf")
+    public Response pdf(@PathParam("tripId") final String tripId, @QueryParam("receipts") final boolean receipts) {
+        final org.paulsens.trip.model.Trip trip = requireTrip(tripId);
+        final byte[] pdf = expenses().reportPdf(tripId, receipts);
+        if (pdf == null) {
+            return error(403, ApiErrors.FORBIDDEN, "Finance viewer required.");
+        }
+        return Response.ok(pdf, "application/pdf").header("Content-Disposition",
+                attachmentDisposition(ExpenseReportPdf.fileName(trip.getTitle())))
+                .header("Cache-Control", "private, no-store").build();
     }
 
     /** Takes the submit stamp back off. */

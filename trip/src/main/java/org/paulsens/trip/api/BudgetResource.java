@@ -14,6 +14,7 @@ import jakarta.ws.rs.core.Response;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.paulsens.trip.action.BudgetCommands;
+import org.paulsens.trip.action.BudgetPdf;
 import org.paulsens.trip.action.BudgetViews;
 
 /**
@@ -58,6 +59,21 @@ public class BudgetResource extends BaseResource {
         out.put("lodging", budget.lodgingFormsFor(tripId));
         out.put("summary", budget.budgetPage(tripId));
         return ok(out);
+    }
+
+    /** The budget as a PDF. */
+    @GET
+    @Path("trips/{tripId}/pdf")
+    @Produces("application/pdf")
+    public Response pdf(@PathParam("tripId") final String tripId) {
+        final org.paulsens.trip.model.Trip trip = requireTrip(tripId);
+        final byte[] pdf = budget().budgetPdf(tripId);
+        if (pdf == null) {
+            return error(403, ApiErrors.FORBIDDEN, "Finance viewer required.");
+        }
+        return Response.ok(pdf, "application/pdf").header("Content-Disposition",
+                attachmentDisposition(BudgetPdf.fileName(trip.getTitle())))
+                .header("Cache-Control", "private, no-store").build();
     }
 
     /** Body: {@code {people, tripNights, perPersonBudget, toBill}}. Answers {@code {ok:true}}. */

@@ -290,6 +290,11 @@ public abstract class BaseResource {
         return urls;
     }
 
+    /** {@code attachment; filename="..."} for a download, the name reduced to quote-free ASCII for the header. */
+    protected static String attachmentDisposition(final String fileName) {
+        return "attachment; filename=\"" + fileName.replaceAll("[^\\x20-\\x7E]", "_").replace("\"", "'") + "\"";
+    }
+
     /**
      * An absolute URL for a context-relative path, built from THIS request's scheme, host and port. Only
      * local mode needs it -- production media is served from the CDN and arrives absolute already -- but a

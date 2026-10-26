@@ -209,7 +209,10 @@ lines, lodging lines reading the trip's options live, the page's rows and the da
 tripMgr/tripFinAdmin, view adds tripFinView and the global viewFinances; arithmetic in `pay/BudgetMath`; see
 `docs/budget.md`; both gates live in `TripFinanceGate`, shared with the expense report), `expenses`
 (ExpenseCommands -- the trip's shared expense report: details, currencies, expenses matched to budget lines,
-the submit stamp, budget vs actual; arithmetic in `pay/ExpenseMath`; see `docs/expense-report.md`),
+the submit stamp, budget vs actual; arithmetic in `pay/ExpenseMath`; the PDF (`ExpenseReportPdf`, receipts
+appended) and the email to the org's treasurer (`finance.treasurer.email`) through
+`MailCommands.sendWithAttachment`, the ONE send that carries a file (raw MIME over SES `SendRawEmail`); both money
+PDFs draw with `action/PdfSheet` and download from `web/TripMoneyPdfServlet`; see `docs/expense-report.md`),
 `expenseReceipts` (ExpenseReceipts -- the report's receipts, images or PDFs, in the media bucket under
 `receipts/{tripId}/` and slot `receipts-{tripId}`, served ONLY by `web/ExpenseReceiptServlet` at
 `/expense-receipts/{id}` behind the report's view gate: never a CDN URL, fenced out of every media listing, and
