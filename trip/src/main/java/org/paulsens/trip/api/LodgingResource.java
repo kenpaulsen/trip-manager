@@ -1,6 +1,7 @@
 package org.paulsens.trip.api;
 
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.POST;
@@ -23,6 +24,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.HotelCommands;
 import org.paulsens.trip.action.LodgingCommands;
 import org.paulsens.trip.action.LodgingViews;
+import org.paulsens.trip.action.RatePlanCommands;
+import org.paulsens.trip.action.RatePlanViews;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Reservation;
 import org.paulsens.trip.model.ReservationOffer;
@@ -53,6 +56,10 @@ public class LodgingResource extends BaseResource {
 
     private HotelCommands hotel() {
         return new HotelCommands(this::caller);
+    }
+
+    private RatePlanCommands ratePlans() {
+        return new RatePlanCommands(this::caller);
     }
 
     /**
@@ -173,6 +180,121 @@ public class LodgingResource extends BaseResource {
         return ok(Map.of("id", created == null ? "" : created));
     }
 
+    /**
+     * Makes a person a Hotel Operator of the accommodation ({@code accommodationAdmin@acc}, the hotel page's
+     * operators roster). Body: {@code {personId}}. Gate: an operator or global lodging admin of that hotel.
+     * Answers {@code {ok:true}}; 404 for an unknown hotel or person.
+     */
+    @POST
+    @Path("accommodations/{accId}/operators")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response addOperator(@PathParam("accId") final String accId,
+            @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final LodgingCommands lodging = lodging();
+        if (!lodging.canEditAccommodation(accId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Accommodation admin required.");
+        }
+        if (lodging.findAccommodation(accId) == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such accommodation.");
+        }
+        final String personId = str(body, "personId");
+        if (personId == null || personId.isBlank() || findPerson(Person.Id.from(personId)) == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such person.");
+        }
+        return lodging.addManagerById(accId, personId) ? ok(Map.of("ok", true))
+                : error(400, ApiErrors.VALIDATION_FAILED, "The operator was not added.");
+    }
+
+    /**
+     * Takes the Hotel Operator role off a person for the accommodation: the roster's Remove, for the fixtures
+     * that granted it over the API and must hand the state back (a webtest's grant on a seeded persona would
+     * otherwise outlive the test and open doors for a later class). Gate as {@link #addOperator}. Answers
+     * {@code {ok:true}} whether or not the person held the role; 404 for an unknown hotel.
+     */
+    @DELETE
+    @Path("accommodations/{accId}/operators/{personId}")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response removeOperator(@PathParam("accId") final String accId,
+            @PathParam("personId") final String personId, @HeaderParam(CSRF_HEADER) final String csrf) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final LodgingCommands lodging = lodging();
+        if (!lodging.canEditAccommodation(accId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Accommodation admin required.");
+        }
+        if (lodging.findAccommodation(accId) == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such accommodation.");
+        }
+        lodging.removeManagerById(accId, personId);
+        return ok(Map.of("ok", true));
+    }
+
+    /**
+     * Creates a rate plan on a hotel. Body (dollars, ISO dates): {@code {name, roomTypeIds:[...], validFrom,
+     * validUntil, costKnown, costPricingModel, costNightlyPrice, costSupplement, costExtras:[{label, basis,
+     * amount}], priceKnown, pricingModel, nightlyPrice, singleSupplement, notes}}. {@code costKnown} defaults
+     * to true; the price fields are silently IGNORED unless the caller may set participant prices (an
+     * internal lodging admin) -- a Hotel Operator's plan is saved as "needs participant pricing". Gate: an
+     * operator or global lodging admin of the hotel. Answers {@code {id}}.
+     */
+    @POST
+    @Path("accommodations/{accId}/rate-plans")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response createRatePlan(@PathParam("accId") final String accId,
+            @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final RatePlanCommands ratePlans = ratePlans();
+        if (!ratePlans.canEditCost(accId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Accommodation admin required.");
+        }
+        final RatePlanViews.RatePlanForm form = ratePlans.planFormFor(accId, null);
+        form.setName(str(body, "name"));
+        for (final Object typeId : listOf(body, "roomTypeIds")) {
+            form.getRoomTypeIds().add(typeId.toString());
+        }
+        if (body.containsKey("validFrom")) {
+            form.setValidFrom(LocalDate.parse(str(body, "validFrom")));
+        }
+        if (body.containsKey("validUntil")) {
+            form.setValidUntil(LocalDate.parse(str(body, "validUntil")));
+        }
+        form.setCostKnown(!body.containsKey("costKnown") || Boolean.TRUE.equals(body.get("costKnown")));
+        form.setCostPricingModel(body.containsKey("costPricingModel") ? str(body, "costPricingModel") : "PER_ROOM");
+        form.setCostNightlyPrice(dbl(body, "costNightlyPrice"));
+        form.setCostSupplement(dbl(body, "costSupplement"));
+        form.setCostExtras(extraForms(list(body, "costExtras")));
+        form.setPriceKnown(Boolean.TRUE.equals(body.get("priceKnown")));
+        form.setPricingModel(body.containsKey("pricingModel") ? str(body, "pricingModel") : "PER_ROOM");
+        form.setNightlyPrice(dbl(body, "nightlyPrice"));
+        form.setSingleSupplement(dbl(body, "singleSupplement"));
+        form.setNotes(str(body, "notes"));
+        if (!ratePlans.savePlan(form)) {
+            return error(400, ApiErrors.VALIDATION_FAILED,
+                    problemOr(form.getProblem(), "The rate plan was not saved."));
+        }
+        // The command writes the minted id back onto the form.
+        return ok(Map.of("id", form.getPlanId() == null ? "" : form.getPlanId()));
+    }
+
+    /** The hotel's rate plans as rows; the price column is null for a caller who may not see prices. */
+    @GET
+    @Path("accommodations/{accId}/rate-plans")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response ratePlans(@PathParam("accId") final String accId) {
+        if (!hotel().canRead(accId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Lodging admin required.");
+        }
+        return ok(ratePlans().rows(accId));
+    }
+
     /** How full a hotel is, day by day, over every trip staying there. Query: {@code ?month=yyyy-MM}. */
     @GET
     @Path("accommodations/{accId}/calendar")
@@ -189,8 +311,11 @@ public class LodgingResource extends BaseResource {
     /**
      * Creates an offer on a trip. Body: {@code {name, accommodationId, roomTypeIds:[...] (or roomTypeId),
      * pricingModel, nightlyPrice, singleSupplement, minNights, validFrom, validUntil, defaultStart, defaultEnd,
-     * tripEventId ("NEW" default), cancelFeeKind, cancelFeeAmount}}; dates default to the trip's. Answers
-     * {@code {id, tripEventId}}.
+     * tripEventId ("NEW" default), cancelFeeKind, cancelFeeAmount}}; dates default to the trip's. The price
+     * side keeps its legacy meaning (a missing {@code nightlyPrice} is $0, still PRICED); {@code priceKnown:false}
+     * saves the option as "needs participant pricing". The cost side is optional: {@code costPricingModel,
+     * costNightlyPrice, costSupplement, costExtras:[{label, basis, amount}]} (dollars), stated when any is given.
+     * Answers {@code {id, tripEventId}}.
      */
     @POST
     @Path("trips/{tripId}/offers")
@@ -219,6 +344,8 @@ public class LodgingResource extends BaseResource {
         form.setPricingModel(body.containsKey("pricingModel") ? str(body, "pricingModel") : "PER_ROOM");
         form.setNightlyPrice(dbl(body, "nightlyPrice"));
         form.setSingleSupplement(dbl(body, "singleSupplement"));
+        form.setPriceKnown(!body.containsKey("priceKnown") || Boolean.TRUE.equals(body.get("priceKnown")));
+        applyCostSide(form, body);
         form.setMinNights(intOf(body, "minNights", 1));
         if (body.containsKey("validFrom")) {
             form.setValidFrom(LocalDateTime.parse(str(body, "validFrom")));
@@ -244,6 +371,78 @@ public class LodgingResource extends BaseResource {
         final ReservationOffer offer = createdOffer(lodging.getOffers(tripId), before, form.getName());
         return offer == null ? error(500, ApiErrors.INTERNAL, "Offer saved but not found.")
                 : ok(Map.of("id", offer.getId().getValue(), "tripEventId", offer.getTripEventId()));
+    }
+
+    /**
+     * Puts a hotel's rate plan on the trip as a new lodging option that FOLLOWS the plan (its schedules are
+     * copied from the plan now and on every plan save). Body: {@code {accId, planId}}. Gate: trip lodging
+     * manager. Answers {@code {id, tripEventId}} like a plain offer create.
+     */
+    @POST
+    @Path("trips/{tripId}/offers/from-plan")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response createOfferFromPlan(@PathParam("tripId") final String tripId,
+            @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final LodgingCommands lodging = lodging();
+        if (!lodging.canManageTripLodging(tripId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Trip lodging manager required.");
+        }
+        final String accId = str(body, "accId");
+        final String planId = str(body, "planId");
+        final Set<String> before = offerIds(lodging.getOffers(tripId));
+        if (!ratePlans().attach(tripId, accId, planId)) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "The rate plan was not attached.");
+        }
+        ReservationOffer created = null;
+        for (final ReservationOffer offer : lodging.getOffers(tripId)) {
+            if (!before.contains(offer.getId().getValue()) && planId != null
+                    && planId.equals(offer.getRatePlanId())) {
+                created = offer;
+            }
+        }
+        return created == null ? error(500, ApiErrors.INTERNAL, "Offer saved but not found.")
+                : ok(Map.of("id", created.getId().getValue(), "tripEventId", created.getTripEventId()));
+    }
+
+    /**
+     * Cuts a lodging option loose from the rate plan it follows: its schedules stay as they are, the link
+     * clears, no bill moves. Gate: trip lodging manager. Answers {@code {ok:true}}.
+     */
+    @POST
+    @Path("trips/{tripId}/offers/{offerId}/detach")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response detachOffer(@PathParam("tripId") final String tripId,
+            @PathParam("offerId") final String offerId, @HeaderParam(CSRF_HEADER) final String csrf) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final LodgingCommands lodging = lodging();
+        if (!lodging.canManageTripLodging(tripId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Trip lodging manager required.");
+        }
+        if (lodging.findOffer(tripId, offerId) == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such offer on this trip.");
+        }
+        return ratePlans().detach(tripId, offerId) ? ok(Map.of("ok", true))
+                : error(400, ApiErrors.VALIDATION_FAILED, "The option was not detached.");
+    }
+
+    /** The optional cost side of a create body: stated as soon as any cost key is present. */
+    private static void applyCostSide(final LodgingViews.OfferForm form, final Map<String, Object> body) {
+        final boolean stated = body.containsKey("costNightlyPrice") || body.containsKey("costPricingModel")
+                || body.containsKey("costSupplement") || body.containsKey("costExtras");
+        form.setCostKnown(stated);
+        if (!stated) {
+            return;
+        }
+        form.setCostPricingModel(body.containsKey("costPricingModel") ? str(body, "costPricingModel") : "PER_ROOM");
+        form.setCostNightlyPrice(dbl(body, "costNightlyPrice"));
+        form.setCostSupplement(dbl(body, "costSupplement"));
+        form.setCostExtras(extraForms(list(body, "costExtras")));
     }
 
     private static Set<String> offerIds(final List<ReservationOffer> offers) {
@@ -360,12 +559,17 @@ public class LodgingResource extends BaseResource {
             return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
         }
         final LodgingCommands lodging = lodging();
-        if (!lodging.canManageTripLodging(tripId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Trip lodging manager required.");
+        if (!lodging.canAssignRooms(tripId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Trip lodging manager or hotel operator required.");
         }
         final Reservation res = lodging.findReservation(tripId, reservationId);
         if (res == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such reservation.");
+        }
+        // The bean refuses too, but as a growl-shaped outcome; the API owes the caller a 403, not a 409.
+        final String accId = (res.getAccommodationId() == null) ? null : res.getAccommodationId().getValue();
+        if (!lodging.canAssignAt(tripId, accId)) {
+            return error(403, ApiErrors.FORBIDDEN, "You do not operate the hotel this stay is at.");
         }
         final String roomId = str(body, "roomId");
         if (roomId == null || roomId.isBlank()) {
@@ -375,6 +579,109 @@ public class LodgingResource extends BaseResource {
         final LodgingViews.AssignOutcome outcome = lodging.assignRoom(tripId, reservationId, roomId,
                 Boolean.TRUE.equals(body.get("force")), null, null);
         return outcome.isAssigned() ? ok(outcome) : error(409, ApiErrors.CONFLICT, outcome.getMessage());
+    }
+
+    /**
+     * Sets the HOTEL COST side of one lodging option -- the operator's path, which can never touch the price.
+     * Body (dollars): {@code {costKnown, costPricingModel, costNightlyPrice, costSupplement,
+     * costExtras:[{label, basis, amount}]}}; {@code costKnown} defaults to true, false clears the stated cost
+     * (back to "assumed from the price"). Gate: trip lodging manager or an operator of the option's hotel.
+     * Answers {@code {ok:true, cost}} with the cost label.
+     */
+    @PUT
+    @Path("trips/{tripId}/offers/{offerId}/cost")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response setOfferCost(@PathParam("tripId") final String tripId,
+            @PathParam("offerId") final String offerId, @HeaderParam(CSRF_HEADER) final String csrf,
+            final Map<String, Object> body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final LodgingCommands lodging = lodging();
+        final ReservationOffer offer = lodging.findOffer(tripId, offerId);
+        if (offer == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such offer on this trip.");
+        }
+        if (!lodging.canSetCost(tripId, offer.getAccommodationId().getValue())) {
+            return error(403, ApiErrors.FORBIDDEN, "Trip lodging manager or hotel operator required.");
+        }
+        final LodgingViews.OfferCostForm form = lodging.offerCostFormFor(tripId, offerId);
+        form.setCostKnown(!body.containsKey("costKnown") || Boolean.TRUE.equals(body.get("costKnown")));
+        if (body.containsKey("costPricingModel")) {
+            form.setCostPricingModel(str(body, "costPricingModel"));
+        }
+        if (body.containsKey("costNightlyPrice")) {
+            form.setCostNightlyPrice(dbl(body, "costNightlyPrice"));
+        }
+        if (body.containsKey("costSupplement")) {
+            form.setCostSupplement(dbl(body, "costSupplement"));
+        }
+        if (body.containsKey("costExtras")) {
+            form.setCostExtras(extraForms(list(body, "costExtras")));
+        }
+        if (!lodging.setOfferCost(form)) {
+            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(), "The cost was not saved."));
+        }
+        final LodgingViews.OfferCostForm saved = lodging.offerCostFormFor(tripId, offerId);
+        return ok(Map.of("ok", true, "costKnown", saved.isCostKnown(), "costExtras", saved.getCostExtras().size()));
+    }
+
+    private static List<LodgingViews.CostExtraForm> extraForms(final List<Map<String, Object>> rows) {
+        final List<LodgingViews.CostExtraForm> forms = new ArrayList<>();
+        for (final Map<String, Object> row : rows) {
+            forms.add(new LodgingViews.CostExtraForm(str(row, "label"), str(row, "basis"), dbl(row, "amount")));
+        }
+        return forms;
+    }
+
+    /**
+     * Sets or clears a stay's concession on ONE side. Path {@code side} is {@code price} (the participants'
+     * bills shrink in place; trip lodging manager) or {@code cost} (what the hotel forgave us; that or the
+     * hotel's operator). Body: {@code {kind, amount, reason}} -- {@code kind} a {@code Concession.Kind} name,
+     * missing or "" clears; {@code amount} in dollars, or the percent for PERCENT. Answers
+     * {@code {ok:true, label}} ("" when cleared).
+     */
+    @PUT
+    @Path("trips/{tripId}/reservations/{reservationId}/concessions/{side}")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response setConcession(@PathParam("tripId") final String tripId,
+            @PathParam("reservationId") final String reservationId, @PathParam("side") final String side,
+            @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final boolean price = "price".equalsIgnoreCase(side);
+        if (!price && !"cost".equalsIgnoreCase(side)) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "The side must be 'price' or 'cost'.");
+        }
+        final LodgingCommands lodging = lodging();
+        final Reservation res = lodging.findReservation(tripId, reservationId);
+        if (res == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such reservation.");
+        }
+        final String accId = (res.getAccommodationId() == null) ? null : res.getAccommodationId().getValue();
+        if (price ? !lodging.canManageTripLodging(tripId) : !lodging.canSetCost(tripId, accId)) {
+            return error(403, ApiErrors.FORBIDDEN, price ? "Trip lodging manager required."
+                    : "Trip lodging manager or hotel operator required.");
+        }
+        final LodgingViews.ConcessionForm form = new LodgingViews.ConcessionForm();
+        form.setTripId(tripId);
+        form.setReservationId(reservationId);
+        form.setSide(price ? "PRICE" : "COST");
+        form.setKind(body.containsKey("kind") ? str(body, "kind") : "");
+        form.setAmount(dbl(body, "amount"));
+        form.setReason(str(body, "reason"));
+        if (!lodging.setConcession(form)) {
+            return error(400, ApiErrors.VALIDATION_FAILED,
+                    problemOr(form.getProblem(), "The concession was not saved."));
+        }
+        return ok(Map.of("ok", true, "label", form.getCurrent() == null ? "" : form.getCurrent()));
+    }
+
+    private static String problemOr(final String problem, final String fallback) {
+        return (problem == null || problem.isBlank()) ? fallback : problem;
     }
 
     private static String str(final Map<String, Object> body, final String key) {

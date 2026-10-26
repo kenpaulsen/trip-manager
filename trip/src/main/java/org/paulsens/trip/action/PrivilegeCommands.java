@@ -61,10 +61,13 @@ public class PrivilegeCommands {
     /** Works the trip's registrations page (approve, move, rooms, approval mail). Trip-scoped. */
     public static final String REGISTRATION_ADMIN = "registrationAdmin";
     /**
-     * Rooms a trip's people: the Lodging tab's Assignments board and nothing else. Trip-scoped, and
-     * deliberately weaker than {@link #LODGING_ADMIN} -- it is what a HOTEL's own staff get, so it shows no
-     * prices, no bills, and no other trip. Reversing the "lodging is admin-only" decision of 2026-09-06.
+     * Retired 2026-10-25: folded into the Hotel Operator ({@link #ACCOMMODATION_ADMIN}), who rooms every trip
+     * staying at their hotel instead of being granted trip by trip. In no base list, so no page offers or
+     * renders it; one inert production row exists, nothing reads it.
+     *
+     * @deprecated grant {@link #ACCOMMODATION_ADMIN} on the hotel instead.
      */
+    @Deprecated
     public static final String LODGING_MANAGER = "lodgingManager";
     public static final String ADD_TRIP = "addTrip";
     /** May flip the payment page into SANDBOX mode (sandbox APIs, no real ledger writes). Org-scoped:
@@ -76,11 +79,15 @@ public class PrivilegeCommands {
      */
     public static final String LODGING_ADMIN = "lodgingAdmin";
     /**
-     * Edits ONE accommodation's data (details, room types, rooms, floor plans, photos) -- scoped to the
-     * accommodation's UUID. Granted to whoever created it and to its contact, the future hotel-owner login.
-     * Grants nothing on offers or reservations: those belong to the trips.
+     * The Hotel Operator ({@link #ACCOMMODATION_ROLE_NAME}): operates ONE accommodation -- its details, room
+     * types, rooms, floor plans, photos and blocks, and the Assignments board of every trip with a lodging
+     * option or an active stay there -- scoped to the accommodation's UUID. Granted to whoever created the
+     * hotel and to its contact, and on the hotel page's operators roster. Sees trip titles, dates and guest
+     * names at their hotel; never a price or a bill. Grants nothing on offers or reservations as such.
      */
     public static final String ACCOMMODATION_ADMIN = "accommodationAdmin";
+    /** The display name of {@link #ACCOMMODATION_ADMIN}; the stored base name is unchanged. */
+    public static final String ACCOMMODATION_ROLE_NAME = "Hotel Operator";
 
     /**
      * The scope each base name is used with. A privilege row does not record what kind of thing its scope UUID
@@ -90,7 +97,7 @@ public class PrivilegeCommands {
      * name dropdown -- content containers may still reference arbitrary names beyond it.
      */
     public static final List<String> TRIP_SCOPED_BASES = List.of(TRIP_MGR, TRIP_FIN_ADMIN, TRIP_FIN_VIEW,
-            TRIP_VIEW, CHAT_MGR, REGISTRATION_ADMIN, LODGING_MANAGER);
+            TRIP_VIEW, CHAT_MGR, REGISTRATION_ADMIN);
     /**
      * The org-scoped grants. {@link #CONTENT_ADMIN}, {@link #MEDIA_ADMIN} and {@link #AUDIT_ADMIN} are BOTH
      * here and global: the global row edits every site (reads every trail), the org-scoped row ({@code
@@ -131,7 +138,6 @@ public class PrivilegeCommands {
             java.util.Map.entry(TRIP_VIEW, "View the trip's admin pages (read-only)"),
             java.util.Map.entry(CHAT_MGR, "Moderate the trip's chat"),
             java.util.Map.entry(REGISTRATION_ADMIN, "Work the trip's registrations page"),
-            java.util.Map.entry(LODGING_MANAGER, "Assign the trip's rooms (no prices, bills or other trips)"),
             java.util.Map.entry(PEOPLE_ADMIN, "Manage the organization's people"),
             java.util.Map.entry(ADD_TRIP, "Create new trips for the organization"),
             java.util.Map.entry(EMAIL_ADMIN, "Send email to the organization's members"),
@@ -147,7 +153,8 @@ public class PrivilegeCommands {
                     "Manage lodging: offers and reservations on the organization's trips (every accommodation "
                             + "too, when global)"),
             java.util.Map.entry(ACCOMMODATION_ADMIN,
-                    "Edit this accommodation: details, room types, rooms, floor plans and photos"));
+                    "Operate this hotel: rooms, blocks, hotel costs, and room assignments for every trip staying "
+                            + "here"));
 
     /** The canonical description for a base name, or "" for custom names -- see {@link #BASE_DESCRIPTIONS}. */
     public String baseDescription(final String baseName) {

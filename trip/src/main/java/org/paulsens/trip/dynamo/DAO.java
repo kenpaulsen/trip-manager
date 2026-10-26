@@ -41,6 +41,7 @@ import org.paulsens.trip.model.OrgMember;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Payment;
+import org.paulsens.trip.model.RatePlan;
 import org.paulsens.trip.model.Reservation;
 import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.RoomBlock;
@@ -321,8 +322,9 @@ public final class DAO {
         return paymentProcessorDao.deleteConfig(orgId, configId);
     }
 
-    // Lodging (see LodgingDAO): global accommodations in one hash, trip-partitioned offers and reservations.
-    // Money-adjacent: a reader about to write bills or assign a room passes Cached.NO.
+    // Lodging (see LodgingDAO): global accommodations in one hash, trip-partitioned offers and reservations,
+    // hotel-partitioned blocks and rate plans. Money-adjacent: a reader about to write bills or assign a room
+    // passes Cached.NO.
     public Boolean saveAccommodation(final Accommodation acc) throws IOException {
         return lodgingDao.saveAccommodation(acc);
     }
@@ -373,6 +375,18 @@ public final class DAO {
     }
     public Boolean deleteRoomBlock(final Accommodation.Id accId, final RoomBlock.Id id) {
         return lodgingDao.deleteBlock(accId, id);
+    }
+    public Boolean saveRatePlan(final RatePlan plan) throws IOException {
+        return lodgingDao.savePlan(plan);
+    }
+    public List<RatePlan> getRatePlans(final String accId, final Cached cached) {
+        return NearCacheContext.call(cached, () -> lodgingDao.getPlans(accId));
+    }
+    public Optional<RatePlan> getRatePlan(final String accId, final RatePlan.Id id, final Cached cached) {
+        return NearCacheContext.call(cached, () -> lodgingDao.getPlan(accId, id));
+    }
+    public Boolean deleteRatePlan(final String accId, final RatePlan.Id id) {
+        return lodgingDao.deletePlan(accId, id);
     }
     /** The trip-delete cascade: every offer and reservation of the trip; returns the rows deleted. */
     public int deleteLodgingForTrip(final String tripId) {
@@ -986,14 +1000,18 @@ public final class DAO {
                 CacheKeys.PROCESSOR_PREFIX);
     }
 
-    /** Accommodations (whole-table hash), every trip's offers and reservations, every hotel's blocks. */
+    /**
+     * Accommodations (whole-table hash), every trip's offers and reservations, every hotel's blocks and rate
+     * plans.
+     */
     private List<String> clearLodgingScope() {
         lodgingDao.clearCache();
         cacheClient.clearNamespace(CacheKeys.LODGING_OFFER_PREFIX);
         cacheClient.clearNamespace(CacheKeys.LODGING_RES_PREFIX);
         cacheClient.clearNamespace(CacheKeys.LODGING_BLOCK_PREFIX);
+        cacheClient.clearNamespace(CacheKeys.LODGING_PLAN_PREFIX);
         return List.of(CacheKeys.LODGING_ACC_PREFIX, CacheKeys.LODGING_ACC_LOADED, CacheKeys.LODGING_OFFER_PREFIX,
-                CacheKeys.LODGING_RES_PREFIX, CacheKeys.LODGING_BLOCK_PREFIX);
+                CacheKeys.LODGING_RES_PREFIX, CacheKeys.LODGING_BLOCK_PREFIX, CacheKeys.LODGING_PLAN_PREFIX);
     }
 
     private List<String> clearBindingScope() {

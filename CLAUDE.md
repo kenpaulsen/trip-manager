@@ -80,7 +80,9 @@ per-feature gates (e.g. `BackgroundRemover.GATE`).
   and `lodging_reservations` per-trip `PartitionCache`s, the latter with a sparse `by-accommodation` GSI
   (PK `accommodationId`, SK `stayEnd`) behind the uncached cross-trip read `getReservationsAt`;
   `lodging_blocks` per-hotel `PartitionCache` for the nights a hotel has taken its own rooms back, kept off
-  the accommodation row so a block never races a room edit; versioned conditional puts) — `docs/lodging.md`.
+  the accommodation row so a block never races a room edit; `lodging_rate_plans` a second per-hotel
+  `PartitionCache` in the same shape for the hotel's reusable `RatePlan`s, which linked offers COPY from
+  (write-through, never a read-time join); versioned conditional puts) — `docs/lodging.md`.
   The `family` row is the source of truth for household membership (optimistic-version conditional puts);
   managers' `Person.managedUsers` lists are DERIVED from it — see `docs/family-accounts.md` before touching
   anything family-related.
@@ -146,10 +148,19 @@ Lombok-annotated, Jackson-serialized to/from DynamoDB. Core types: `Person` (nes
 `TripEvent`, `Registration`, `RegistrationOption`, `Transaction`, `Creds`, `TodoItem`/`TodoStatus`,
 `PersonDataValue`, `Privilege`, `BindingType`, `Config`/`SettingDef`/`SettingSection`, `MediaItem`,
 `AuditEvent`/`AuditQuery`/`AuditPage`, lodging (`Accommodation` with inline `RoomType`/`Room`/`FloorMap`,
-`ReservationOffer`, `Reservation`, `PricingModel`, `OfferType` — `docs/lodging.md`), plus `model/chat/*`
-(15 chat types) and `model/deploy/*`. **Accommodations are GLOBAL, not org-owned** — the one deliberate
-exception to the organization tenancy rule, like `Person`; `Accommodation.orgIds` records the orgs USING a
-hotel, and editing is gated by the per-hotel `accommodationAdmin` privilege, never a field on the row.
+`RoomBlock`, `ReservationOffer` carrying TWO `RateSchedule`s -- `price` = what a participant pays, the bills;
+`cost` = what the hotel charges, the Room Invoice, null = assumed from the price -- plus `CostExtra`s and an
+optional `RatePlan` link; `Reservation` with a `priceConcession` and a `costConcession` (`Concession`, no
+side field: the field IS the side); the hotel-owned `RatePlan`; `PricingModel`, `OfferType` —
+`docs/lodging.md` "Price vs cost" before touching any money field; the four legacy flat price keys still
+fold on read and mirror on write for one release, `docs/migrations/lodging-price-cost.md`), plus
+`model/chat/*` (15 chat types) and `model/deploy/*`. **Accommodations are GLOBAL, not org-owned** — the one
+deliberate exception to the organization tenancy rule, like `Person`; `Accommodation.orgIds` records the
+orgs USING a hotel and `tripIds` the trips holding an option there (both written by `HotelUsage` on every
+offer save), and editing is gated by the per-hotel `accommodationAdmin` privilege (display "Hotel
+Operator"), never a field on the row. That exception has exactly two documented extensions -- the hotel's
+Availability calendar (counts, dates) and the operator's Trips tab (trip titles, dates, guest names at THEIR
+hotel; never a price or a bill) -- `docs/lodging.md` "Roles".
 **Every type that can land in viewScope must be `Serializable`** — a non-serializable one breaks the session
 save and 500s every later request (looks like a site-wide outage). `ModelSerializationTest` is the guard.
 
@@ -184,11 +195,19 @@ and `brandingPhotos` (BrandingPhotos — their versioned `org/{orgId}/branding/{
 whose KEPT previous versions are what makes a replaced image recoverable; see `docs/org-admin.md`
 "Uploading the four images"), `lodging` (LodgingCommands — accommodations, room types, rooms, floor maps,
 offers, reservations, the room-assignment board, lodging bills, the itinerary rows; see `docs/lodging.md`
-before touching), `hotel` (HotelCommands -- the same hotel seen from its own side: the nights its rooms are
-blocked and how full it is across EVERY trip staying there, counts and dates but never a guest's name, which
-is the one read that crosses the org tenancy boundary; same doc) and `lodgingUpload`
+before touching), `lodgingAccess` (LodgingAccessCommands -- the lodging gates' bodies, re-exposed by
+`#{lodging.can*}`, and `forTrip(tripId)`: ONE per-request `LodgingAccess` -- `internal`, `operatorAccIds`,
+`allowedAccIds`, `canAssign`, `operatorHere` -- that `trip/lodging.xhtml` and `roomInvoice.xhtml` keep as
+`requestScope.access`; also `mayNameTrip`, the one naming rule for cross-trip reads), `hotel` (HotelCommands
+-- the same hotel seen from its own side: the nights its rooms are blocked and how full it is across EVERY
+trip staying there, counts and dates but never a guest's name in the calendar; plus `tripRows`, the Trips
+tab's rows for the hotel's OPERATORS alone, which DO name the guests at their hotel across orgs -- the
+documented tenancy extension; same doc) and `lodgingUpload`
 (LodgingUploadCommands — hotel photos, room-type photos and floor plans
-through the shared crop dialog into slot `lodging-{accId}`), `deploy`, `json`, `tripUtil`.
+through the shared crop dialog into slot `lodging-{accId}`), `ratePlans` (RatePlanCommands -- hotel rate
+plans and their write-through link to offers: `savePlan` fans out to every linked option, `attach` /
+`detach` on the trip side, cost side for operators and price side internal-only; see `docs/lodging.md`
+"Rate plans"), `deploy`, `json`, `tripUtil`.
 
 - A `Person` comes into being through exactly four paths: sign-up, a family manager's add-member flow, the
   REST people API, and a lodging contact auto-created by `LodgingCommands.findOrCreateContact` (no

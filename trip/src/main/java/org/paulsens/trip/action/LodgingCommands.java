@@ -28,10 +28,12 @@ import org.paulsens.trip.action.LodgingViews.AccommodationRow;
 import org.paulsens.trip.action.LodgingViews.AssignOutcome;
 import org.paulsens.trip.action.LodgingViews.BlockRow;
 import org.paulsens.trip.action.LodgingViews.CancelPreview;
+import org.paulsens.trip.action.LodgingViews.ConcessionForm;
 import org.paulsens.trip.action.LodgingViews.ContactHit;
 import org.paulsens.trip.action.LodgingViews.DayStay;
 import org.paulsens.trip.action.LodgingViews.ItineraryRow;
 import org.paulsens.trip.action.LodgingViews.OccupantChip;
+import org.paulsens.trip.action.LodgingViews.OfferCostForm;
 import org.paulsens.trip.action.LodgingViews.OfferForm;
 import org.paulsens.trip.action.LodgingViews.OfferRow;
 import org.paulsens.trip.action.LodgingViews.PersonCard;
@@ -59,8 +61,9 @@ import org.paulsens.trip.model.Address;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
-import org.paulsens.trip.model.PricingModel;
 import org.paulsens.trip.model.Privilege;
+import org.paulsens.trip.model.RatePlan;
+import org.paulsens.trip.model.RateSchedule;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Reservation;
@@ -84,21 +87,14 @@ import static org.paulsens.trip.action.PageFeedback.refuseAction;
 import static org.paulsens.trip.action.PageFeedback.warn;
 
 /**
- * Lodging, exposed to pages as {@code #{lodging}}: accommodations (global hotels: inventory, floor plans,
- * photos, the contact person), per-trip offers, reservations with their ledger bills, the room-assignment
- * workspace, the rooming list, and the itinerary rows whose dates a reservation overrides. Feature doc:
- * {@code docs/lodging.md}.
- *
- * <p><b>Who may do what.</b> Site admins and GLOBAL {@code lodgingAdmin}s: everything. An org-scoped
- * {@code lodgingAdmin}: offers and reservations on that org's trips, and creating accommodations. A trip's
- * {@code tripMgr}: offers and reservations on that trip. {@code accommodationAdmin@{accId}} (the creator and
- * the hotel's contact): that one hotel's data. Every gate re-asks per call; nothing is inherited from a
- * dialog being open. Pages bind to the scalar forms and rows in {@link LodgingViews}; every save re-reads the
- * real row with {@code Cached.NO} and applies the form.
- *
- * <p><b>Money.</b> Bills follow every reservation write automatically (the {@code lodging.bills.autoRecompute}
- * setting, default on) through {@link LodgingBiller}; the explicit {@link #recomputeBills} stays for the
- * admin button and for the setting being off.
+ * Lodging, exposed to pages as {@code #{lodging}}: accommodations, per-trip options, reservations with their
+ * ledger bills, the room-assignment workspace, the rooming list and the itinerary rows ({@code docs/lodging.md}).
+ * Gates come from {@link LodgingAccessCommands} (internal callers get the whole tab, a Hotel Operator their
+ * hotel's board and cost side) and re-ask per call. Pages bind to the scalar forms and rows in
+ * {@link LodgingViews}; every save re-reads the real row with {@code Cached.NO}. Money: an option's PRICE and
+ * COST schedules are {@link OfferSchedules}' business, per-stay concessions {@link LodgingConcessions}', and
+ * bills follow every reservation write through {@link LodgingBiller} while {@code lodging.bills.autoRecompute}
+ * is on ({@link #recomputeBills} stays for the admin button).
  */
 @Slf4j
 @Named("lodging")
@@ -115,6 +111,7 @@ public class LodgingCommands {
     private final Supplier<PrivilegeCommands> privSource;
     private final Supplier<AuditCommands> auditSource;
     private final Supplier<MediaCommands> mediaSource;
+    private final LodgingAccessCommands access;
 
     public LodgingCommands() {
         this(Caller::current);
@@ -139,70 +136,50 @@ public class LodgingCommands {
         this.privSource = privSource;
         this.auditSource = auditSource;
         this.mediaSource = mediaSource;
+        this.access = new LodgingAccessCommands(callerSource);
     }
 
-    // ================================================================== gates
+    // ================================================================== gates (bodies in LodgingAccessCommands)
 
     /** Site admin or GLOBAL lodging admin: every hotel, every trip. */
     public boolean isGlobalLodgingAdmin() {
-        final Caller current = caller();
-        return current.isAuthenticated() && (current.isSiteAdmin() || current.has(PrivilegeCommands.LODGING_ADMIN));
+        return access.isGlobalLodgingAdmin();
     }
 
     /**
-     * May work the Assignments board: everyone who manages the trip's lodging, plus a trip-scoped
-     * {@code lodgingManager}. That is the hotel's own staff: they room people and nothing else -- no lodging
-     * options, no reservations, no prices, no bills, and no other trip. Creating a reservation stays with
-     * the managers, because choosing the option that pays for a stay is choosing what the traveller is
-     * charged.
+     * May work the Assignments board: everyone who manages the trip's lodging, plus a Hotel Operator
+     * ({@code accommodationAdmin}) of a hotel in play on the trip, who rooms people at THEIR hotel and nothing
+     * else: no options, no prices, no bills, no other hotel ({@link #canAssignAt}).
      */
     public boolean canAssignRooms(final String tripId) {
-        if (tripId == null || tripId.isBlank()) {
-            return false;
-        }
-        return canManageTripLodging(tripId) || caller().has(PrivilegeCommands.LODGING_MANAGER, tripId);
+        return access.forTrip(tripId).isCanAssign();
+    }
+
+    /** {@link #canAssignRooms} narrowed to one hotel: internal callers anywhere, an operator at their own. */
+    public boolean canAssignAt(final String tripId, final String accId) {
+        // Internal, not mayOpenBoard: the per-request memo cannot see a hotel this same request put in play.
+        final LodgingAccess reach = access.forTrip(tripId);
+        return reach.isInternal() || reach.operatorOf(accId);
     }
 
     /** May edit THIS accommodation's data: global admins, or a holder of {@code accommodationAdmin@acc}. */
     public boolean canEditAccommodation(final String accId) {
-        if (accId == null || accId.isBlank()) {
-            return false;
-        }
-        return isGlobalLodgingAdmin() || caller().has(PrivilegeCommands.ACCOMMODATION_ADMIN, accId);
+        return access.canEditAccommodation(accId);
     }
 
     /** May create an accommodation: global admins, or a lodging admin of ANY organization. */
     public boolean canCreateAccommodation() {
-        if (isGlobalLodgingAdmin()) {
-            return true;
-        }
-        final Caller current = caller();
-        if (!current.isAuthenticated()) {
-            return false;
-        }
-        for (final Organization org : DAO.getInstance().getOrganizations(Cached.YES)) {
-            if (current.has(PrivilegeCommands.LODGING_ADMIN, org.getId().getValue())) {
-                return true;
-            }
-        }
-        return false;
+        return access.canCreateAccommodation();
     }
 
     /** May manage offers and reservations on this trip: global, the trip's org's lodging admin, or its tripMgr. */
     public boolean canManageTripLodging(final String tripId) {
-        if (tripId == null || tripId.isBlank()) {
-            return false;
-        }
-        final Caller current = caller();
-        if (!current.isAuthenticated()) {
-            return false;
-        }
-        if (isGlobalLodgingAdmin() || current.has(PrivilegeCommands.TRIP_MGR, tripId)) {
-            return true;
-        }
-        final Trip trip = DAO.getInstance().getTrip(tripId, Cached.YES).orElse(null);
-        return trip != null && trip.getOrgId() != null
-                && current.has(PrivilegeCommands.LODGING_ADMIN, trip.getOrgId());
+        return access.canManageTripLodging(tripId);
+    }
+
+    /** May state the hotel's COST on this trip's options and stays at {@code accId}: internal, or its operator. */
+    public boolean canSetCost(final String tripId, final String accId) {
+        return canManageTripLodging(tripId) || canEditAccommodation(accId);
     }
 
     /** Whether the Lodging admin page (and its menu entry) opens for this caller at all. */
@@ -355,7 +332,7 @@ public class LodgingCommands {
             return refuseAction("This accommodation no longer exists.");
         }
         applyForm(acc, form);
-        if (form.getContactEmail() != null && !form.getContactEmail().isBlank()) {
+        if (contactChanged(acc, form)) {
             final Person.Id contact = findOrCreateContact(form.getContactEmail(), contactName(form), orgIdContext);
             if (contact == null) {
                 return "";
@@ -379,6 +356,17 @@ public class LodgingCommands {
         auditSource.get().lodging(AuditEventBuilder.TARGET_ACCOMMODATION, acc.getId().getValue(), null,
                 (creating ? "Created" : "Edited") + " accommodation '" + acc.getName() + "'", caller().auditActor());
         return acc.getId().getValue();
+    }
+
+    /** Whether the form names a contact other than the row's: the pre-filled email must not re-run the org write. */
+    private static boolean contactChanged(final Accommodation acc, final AccommodationForm form) {
+        final String submitted = blankToNull(form.getContactEmail());
+        if (submitted == null) {
+            return false;
+        }
+        final Person current = (acc.getContactId() == null) ? null
+                : DAO.getInstance().getPerson(acc.getContactId(), Cached.NO).orElse(null);
+        return current == null || !submitted.equalsIgnoreCase(nullSafe(current.getEmail()).trim());
     }
 
     /** The email / phone / website shape checks the dialog cannot trust the browser for. */
@@ -448,16 +436,14 @@ public class LodgingCommands {
     }
 
     /**
-     * The accommodation's contact as a Person: found by email, else CREATED -- the fourth sanctioned
-     * creation path (sign-up, family add-member, REST, and this). The person joins {@code orgId} (the org of
-     * whoever is creating the hotel, and later each org whose trip uses it). It creates NO credentials and
-     * sends NO mail: the existing email-code activation signs them in the first time they try. Refused
-     * without a lodging privilege, so a future self-service reservation path can never reach it.
+     * The accommodation's contact as a Person: found by email, else CREATED (the fourth sanctioned creation
+     * path: no credentials, no mail; email-code activation signs them in). The person joins {@code orgId}. A
+     * Hotel Operator may name an EXISTING person without the membership write they could not make anyway.
      *
      * @return the person id, or null when refused (a growl says why).
      */
     public Person.Id findOrCreateContact(final String email, final String name, final String orgId) {
-        if (!canCreateAccommodation() && !isGlobalLodgingAdmin() && !hasAnyAccommodationAdmin()) {
+        if (!canCreateAccommodation() && !isGlobalLodgingAdmin() && managedAccommodations().isEmpty()) {
             error("Not allowed: only lodging admins can set an accommodation's contact.");
             return null;
         }
@@ -466,7 +452,19 @@ public class LodgingCommands {
             return null;
         }
         final String addr = email.trim().toLowerCase(Locale.ROOT);
-        Person person = DAO.getInstance().getPersonByEmail(addr, Cached.NO);
+        final Person existing = DAO.getInstance().getPersonByEmail(addr, Cached.NO);
+        final String home = contactOrg(orgId);
+        final boolean mayJoin = home != null && orgSource.get().canAddLodgingContact(home);
+        if (existing != null && !mayJoin) {
+            return existing.getId();
+        }
+        if (!mayJoin) {
+            error(home == null ? "Choose which organization the contact joins (open this page from an "
+                    + "organization's dashboard)." : "Not allowed: only the organization's admins or lodging admins "
+                    + "can add a new contact.");
+            return null;
+        }
+        Person person = existing;
         if (person == null) {
             if (name == null || name.isBlank()) {
                 error("The contact's name is required to create them.");
@@ -478,21 +476,12 @@ public class LodgingCommands {
             }
             auditSource.get().person(person, "CREATED as lodging contact", caller().auditActor());
         }
-        final String home = contactOrg(orgId);
-        if (home == null) {
-            error("Choose which organization the contact joins (open this page from an organization's dashboard).");
-            return null;
-        }
-        if (!orgSource.get().addLodgingContact(home, person.getId())) {
-            return null;
-        }
-        return person.getId();
+        return orgSource.get().addLodgingContact(home, person.getId()) ? person.getId() : null;
     }
 
     /**
-     * The organization a new contact joins: the page's org context when it has one, else the creating
-     * admin's OWN first organization (every person belongs to at least one, so a contact minted from the
-     * site-level page still lands somewhere). Null only for a caller with no organization at all.
+     * The organization a new contact joins: the page's org context when it has one, else the caller's OWN
+     * first organization (a contact minted from the site-level page still lands somewhere); null for none.
      */
     private String contactOrg(final String orgIdContext) {
         if (orgIdContext != null && !orgIdContext.isBlank()) {
@@ -504,10 +493,6 @@ public class LodgingCommands {
             return null;
         }
         return person.getOrgIds().get(0).getValue();
-    }
-
-    private boolean hasAnyAccommodationAdmin() {
-        return !managedAccommodations().isEmpty();
     }
 
     static String firstOf(final String name) {
@@ -787,10 +772,7 @@ public class LodgingCommands {
         return store(acc) && audited(acc, "Deleted room " + room.getRoomNumber());
     }
 
-    /**
-     * Whether any ACTIVE reservation, on any trip at all, sits in the room. One query on the hotel's own
-     * index; this used to walk every org that uses the hotel and read each of its last 200 trips' offers.
-     */
+    /** Whether any ACTIVE reservation, on any trip at all, sits in the room (one query on the hotel's index). */
     private boolean roomInUse(final Accommodation acc, final String roomId) {
         for (final Reservation res : atHotel(acc.getId(), null)) {
             if (res.isActive() && roomId.equals(res.getRoomId())) {
@@ -998,6 +980,13 @@ public class LodgingCommands {
         return offers;
     }
 
+    /** {@link #getOffers} minus the options that still need participant pricing: what the stay menus offer. */
+    public List<ReservationOffer> pricedOffers(final String tripId) {
+        final List<ReservationOffer> priced = new ArrayList<>(getOffers(tripId));
+        priced.removeIf(offer -> !offer.isPriced());
+        return priced;
+    }
+
     public ReservationOffer findOffer(final String tripId, final String offerId) {
         if (tripId == null || offerId == null || offerId.isBlank()) {
             return null;
@@ -1015,10 +1004,13 @@ public class LodgingCommands {
             final TripEvent event = trip.getTripEvent(offer.getTripEventId());
             final int count = (int) reservations.stream()
                     .filter(res -> res.isActive() && offer.getId().equals(res.getOfferId())).count();
+            final OfferSchedules.PlanLink link = OfferSchedules.linkOf(offer, RatePlanCommands.planOf(offer));
             rows.add(new OfferRow(offer.getId().getValue(), offer.getName(), acc == null ? "?" : acc.getName(),
-                    roomTypeNames(acc, offer), event == null ? "" : event.getTitle(), pricingLabel(offer),
-                    range(offer.getValidFrom(), offer.getValidUntil()),
-                    range(offer.getDefaultStart(), offer.getDefaultEnd()), count, offer.isEnabled()));
+                    roomTypeNames(acc, offer), event == null ? "" : event.getTitle(),
+                    OfferSchedules.pricingLabel(offer), range(offer.getValidFrom(), offer.getValidUntil()),
+                    range(offer.getDefaultStart(), offer.getDefaultEnd()), count, offer.isEnabled(),
+                    OfferSchedules.costLabel(offer), !offer.isPriced(), link.planName(), link.drift(),
+                    offer.isLinked()));
         }
         return rows;
     }
@@ -1031,15 +1023,6 @@ public class LodgingCommands {
             names.add(type == null ? "?" : type.getName());
         }
         return names.isEmpty() ? "?" : String.join(" / ", names);
-    }
-
-    static String pricingLabel(final ReservationOffer offer) {
-        final String rate = offer.getNightlyPriceOverrides().isEmpty()
-                ? MoneyMath.formatCents(offer.getNightlyPriceCents()) + "/night" : "varies by night";
-        final String model = offer.isPerPerson() ? " per person" : " per room";
-        final String supplement = (offer.isPerPerson() && offer.getSingleSupplementCents() > 0)
-                ? ", +" + MoneyMath.formatCents(offer.getSingleSupplementCents()) + " single" : "";
-        return rate + model + supplement;
     }
 
     private static String range(final LocalDateTime from, final LocalDateTime to) {
@@ -1069,13 +1052,8 @@ public class LodgingCommands {
         form.setAccommodationId(idValue(offer.getAccommodationId()));
         form.setRoomTypeIds(new ArrayList<>(offer.getRoomTypeIds()));
         form.setTripEventId(offer.getTripEventId());
-        form.setPricingModel(offer.getPricingModel().name());
-        form.setNightlyPrice(dollars(offer.getNightlyPriceCents()));
-        form.setPerNightPricing(!offer.getNightlyPriceOverrides().isEmpty());
-        for (final Map.Entry<String, Long> entry : offer.getNightlyPriceOverrides().entrySet()) {
-            form.getPerNight().put(entry.getKey(), MoneyMath.formatCents(entry.getValue()).replace("$", ""));
-        }
-        form.setSingleSupplement(dollars(offer.getSingleSupplementCents()));
+        form.setRatePlanId(offer.getRatePlanId());
+        OfferSchedules.fill(form, offer);
         form.setMinNights(offer.getMinNights());
         form.setValidFrom(offer.getValidFrom());
         form.setValidUntil(offer.getValidUntil());
@@ -1140,7 +1118,10 @@ public class LodgingCommands {
     /**
      * Creates or edits an offer. The accommodation must exist; the first time THIS trip's org uses the hotel
      * the org is recorded on it and the hotel's contact joins the org. {@code tripEventId == "NEW"} creates a
-     * LODGING event on the trip from the default stay; an existing id must be one of the trip's events.
+     * LODGING event on the trip from the default stay; an existing id must be one of the trip's events. Bills
+     * recompute only when the PRICE side changed: a cost edit never touches a participant's ledger. An option
+     * that follows a hotel rate plan ({@code form.ratePlanId}) COPIES its schedules from the plan and ignores
+     * the form's money fields, on create and on every later edit alike ({@code RatePlanCommands}).
      */
     public boolean saveOffer(final String tripId, final OfferForm form) {
         if (!canManageTripLodging(tripId)) {
@@ -1151,75 +1132,89 @@ public class LodgingCommands {
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         if (!tripId.equals(trip.getId())) {
-            return refuse("Unknown trip.");
+            return refuseInto(form::setProblem, "Unknown trip.");
         }
         final Accommodation acc = findAccommodation(form.getAccommodationId());
         if (acc == null || acc.isRetired()) {
-            return refuse("Choose an accommodation.");
+            return refuseInto(form::setProblem, "Choose an accommodation.");
         }
         final List<String> typeIds = new ArrayList<>(new LinkedHashSet<>(form.getRoomTypeIds()));
         typeIds.removeIf(id -> id == null || id.isBlank());
         if (typeIds.isEmpty()) {
-            return refuse("Choose at least one room type.");
+            return refuseInto(form::setProblem, "Choose at least one room type.");
         }
         for (final String typeId : typeIds) {
             if (acc.roomType(typeId) == null) {
-                return refuse("That room type is not at " + acc.getName() + ".");
+                return refuseInto(form::setProblem, "That room type is not at " + acc.getName() + ".");
             }
         }
         form.setRoomTypeIds(typeIds);
         suggestOfferName(form);
         if (form.getName() == null || form.getName().isBlank()) {
-            return refuse("A lodging option needs a name.");
+            return refuseInto(form::setProblem, "A lodging option needs a name.");
         }
         form.resolveDates();
-        final String problem = offerProblem(form);
-        if (problem != null) {
-            return refuse(problem);
-        }
         final ReservationOffer offer = (form.getId() == null || form.getId().isBlank())
                 ? ReservationOffer.builder().tripId(tripId).build()
                 : DAO.getInstance().getReservationOffer(tripId, ReservationOffer.Id.from(form.getId()), Cached.NO)
                         .orElse(null);
         if (offer == null) {
-            return refuse("This lodging option no longer exists.");
+            return refuseInto(form::setProblem, "This lodging option no longer exists.");
+        }
+        final String problem = offerProblem(tripId, offer, form);
+        if (problem != null) {
+            return refuseInto(form::setProblem, problem);
+        }
+        final RatePlan plan = RatePlanCommands.planBehind(form);
+        if (plan == null && form.getRatePlanId() != null && !form.getRatePlanId().isBlank()) {
+            return refuseInto(form::setProblem, "The rate plan this option follows is not at that hotel; detach it.");
         }
         final String eventId = resolveEvent(trip, form, acc);
         if (eventId == null) {
             return false;
         }
         final boolean editing = offer.getVersion() > 0L;
-        applyOfferForm(offer, form, acc, eventId);
+        final RateSchedule priceBefore = offer.getPrice();
+        applyOfferForm(offer, form, acc, eventId, plan);
         if (offer.getVersion() == 0L) {
             offer.setOrgId(trip.getOrgId());
             offer.setCreatedBy(caller().personId());
             offer.setCreated(LocalDateTime.now());
         }
+        if (!saveOfferRow(offer)) {
+            return false;
+        }
+        form.setProblem(null);
+        HotelUsage.record(acc, trip, orgSource.get());
+        auditSource.get().lodging(AuditEventBuilder.TARGET_OFFER, offer.getId().getValue(), trip.getOrgId(),
+                "Saved lodging option '" + offer.getName() + "' (" + acc.getName() + ") on '" + trip.getTitle() + "'",
+                caller().auditActor());
+        if (editing && !Objects.equals(priceBefore, offer.getPrice())) {
+            recomputeAfterOfferEdit(trip, offer);
+        }
+        return true;
+    }
+
+    /** The conditional put of an offer row; a growl says why it did not happen. */
+    private boolean saveOfferRow(final ReservationOffer offer) {
         try {
-            if (!DAO.getInstance().saveReservationOffer(offer)) {
-                return refuse("The lodging option could not be saved.");
-            }
+            return DAO.getInstance().saveReservationOffer(offer) || refuse("The lodging option could not be saved.");
         } catch (final ConditionalCheckFailedException ex) {
             return refuse("Saved by someone else: reload the page and try again.");
         } catch (final IOException ex) {
             log.error("Unable to save offer {}", offer.getId(), ex);
             return refuse("The lodging option could not be saved: " + ex.getMessage());
         }
-        recordOrgUse(acc, trip);
-        auditSource.get().lodging(AuditEventBuilder.TARGET_OFFER, offer.getId().getValue(), trip.getOrgId(),
-                "Saved lodging option '" + offer.getName() + "' (" + acc.getName() + ") on '" + trip.getTitle() + "'",
-                caller().auditActor());
-        if (editing) {
-            recomputeAfterOfferEdit(trip, offer);
-        }
-        return true;
     }
 
-    /**
-     * An edited option (price, supplement, per-night overrides) changes what its reservations cost: recompute
-     * every ACTIVE reservation on it, by room where placed, when automatic recompute is on.
-     */
-    private void recomputeAfterOfferEdit(final Trip trip, final ReservationOffer offer) {
+    /** A refusal the dialog shows in place AND growls (the growl alone hides under a modal; see ReservationForm). */
+    private static boolean refuseInto(final java.util.function.Consumer<String> problem, final String message) {
+        problem.accept(message);
+        return refuse(message);
+    }
+
+    /** An edited PRICE changes what the option's ACTIVE reservations cost: recompute them, by room where placed. */
+    void recomputeAfterOfferEdit(final Trip trip, final ReservationOffer offer) {
         if (!autoRecompute(trip.getOrgId())) {
             warn("Lodging bills were not recomputed (automatic recompute is off): press Recompute.");
             return;
@@ -1242,12 +1237,15 @@ public class LodgingCommands {
         }
     }
 
-    private static String offerProblem(final OfferForm form) {
-        if (form.getNightlyPrice() != null && form.getNightlyPrice() < 0) {
-            return "The nightly price cannot be negative.";
-        }
-        if (form.getSingleSupplement() != null && form.getSingleSupplement() < 0) {
-            return "The single supplement cannot be negative.";
+    /** Why the option cannot be saved as the form says; null when it can. */
+    private String offerProblem(final String tripId, final ReservationOffer offer, final OfferForm form) {
+        if (offer.isPriced() && !form.isPriceKnown()) {
+            final long stays = DAO.getInstance().getReservations(tripId, Cached.NO).stream()
+                    .filter(res -> res.isActive() && offer.getId().equals(res.getOfferId())).count();
+            if (stays > 0) {
+                return "'" + offer.getName() + "' has " + stays + (stays == 1 ? " active stay" : " active stays")
+                        + "; it cannot lose its participant price.";
+            }
         }
         if (form.getValidFrom() != null && form.getValidUntil() != null
                 && !form.getValidUntil().isAfter(form.getValidFrom())) {
@@ -1268,26 +1266,17 @@ public class LodgingCommands {
                 && form.getCancelFeeAmount() > 100) {
             return "A percentage fee cannot exceed 100%.";
         }
-        if (form.isPerNightPricing()) {
-            for (final Map.Entry<String, String> entry : form.getPerNight().entrySet()) {
-                final Double price = parseDollars(entry.getValue());
-                if (entry.getValue() != null && !entry.getValue().isBlank() && price == null) {
-                    return "'" + entry.getValue() + "' is not a price (for " + entry.getKey() + ").";
-                }
-                if (price != null && price < 0) {
-                    return "The price for " + entry.getKey() + " cannot be negative.";
-                }
-            }
+        final String money = OfferSchedules.problem(form);
+        if (money != null) {
+            return money;
         }
         final String policy = HtmlFragmentValidator.validate(nullSafe(form.getPolicyHtml()));
         return (policy == null) ? null : "Policy: " + policy;
     }
 
     /**
-     * The LODGING event the offer tracks people on: one of the trip's own, or a new one from the form. A
-     * lodging event with the same title and start already on the trip is REUSED rather than duplicated --
-     * that is the normal case for a hotel's second offer (single and double rooms share one event), and
-     * {@code Trip.addTripEvent} refuses a duplicate anyway.
+     * The LODGING event the offer tracks people on: one of the trip's own, or a new one from the form; a lodging
+     * event with the same title and start is REUSED (a hotel's single and double rooms share one event).
      */
     private String resolveEvent(final Trip trip, final OfferForm form, final Accommodation acc) {
         if (OfferForm.NEW_EVENT.equals(form.getTripEventId()) || form.getTripEventId() == null
@@ -1320,25 +1309,16 @@ public class LodgingCommands {
     }
 
     private static void applyOfferForm(final ReservationOffer offer, final OfferForm form, final Accommodation acc,
-            final String eventId) {
+            final String eventId, final RatePlan plan) {
         offer.setName(form.getName().trim());
         offer.setAccommodationId(acc.getId());
         offer.setRoomTypeIds(new ArrayList<>(form.getRoomTypeIds()));
         offer.setTripEventId(eventId);
-        offer.setPricingModel("PER_PERSON".equals(form.getPricingModel()) ? PricingModel.PER_PERSON
-                : PricingModel.PER_ROOM);
-        offer.setNightlyPriceCents(cents(form.getNightlyPrice()));
-        final Map<String, Long> overrides = new HashMap<>();
-        if (form.isPerNightPricing()) {
-            for (final Map.Entry<String, String> entry : form.getPerNight().entrySet()) {
-                final Double price = parseDollars(entry.getValue());
-                if (price != null) {
-                    overrides.put(entry.getKey(), cents(price));
-                }
-            }
+        if (plan == null) {
+            OfferSchedules.apply(offer, form);
+        } else {
+            OfferSchedules.copyFromPlan(offer, plan);
         }
-        offer.setNightlyPriceOverrides(overrides);
-        offer.setSingleSupplementCents(cents(form.getSingleSupplement()));
         offer.setMinNights(Math.max(1, form.getMinNights()));
         offer.setValidFrom(form.getValidFrom());
         offer.setValidUntil(form.getValidUntil());
@@ -1354,26 +1334,6 @@ public class LodgingCommands {
             offer.setCancelFeeFixedCents(form.getCancelFeeAmount() == null ? null : cents(form.getCancelFeeAmount()));
         }
         offer.setDisabled(form.isDisabled() ? Boolean.TRUE : null);
-    }
-
-    /** First use of a hotel by an org: the org goes on the hotel and the contact joins the org (best effort). */
-    private void recordOrgUse(final Accommodation acc, final Trip trip) {
-        if (trip.getOrgId() == null || trip.getOrgId().isBlank()) {
-            return;
-        }
-        final Organization.Id orgId = Organization.Id.from(trip.getOrgId());
-        if (acc.usedBy(orgId)) {
-            return;
-        }
-        final Accommodation fresh = freshAccommodation(acc.getId().getValue());
-        if (fresh == null || fresh.usedBy(orgId)) {
-            return;
-        }
-        fresh.getOrgIds().add(orgId);
-        store(fresh);
-        if (fresh.getContactId() != null) {
-            orgSource.get().addLodgingContact(orgId.getValue(), fresh.getContactId());
-        }
     }
 
     public boolean deleteOffer(final String tripId, final String offerId) {
@@ -1393,14 +1353,100 @@ public class LodgingCommands {
         if (deleted) {
             auditSource.get().lodging(AuditEventBuilder.TARGET_OFFER, offerId, offer.getOrgId(),
                     "Deleted offer '" + offer.getName() + "'", caller().auditActor());
+            // The hotel forgets the trip once none of the trip's options names it (the operator's Trips tab).
+            HotelUsage.forgetTrip(offer.getAccommodationId(), tripId,
+                    DAO.getInstance().getReservationOffers(tripId, Cached.NO));
         }
         return deleted;
     }
 
-    /** The default offer for the workspace: the first by name, or "" when the trip has none. */
+    /** The default offer for the stay dialog: the first PRICED one by name, or "" when the trip has none. */
     public String defaultOfferId(final String tripId) {
-        final List<ReservationOffer> offers = getOffers(tripId);
+        final List<ReservationOffer> offers = pricedOffers(tripId);
         return offers.isEmpty() ? "" : offers.get(0).getId().getValue();
+    }
+
+    // ------------------------------------------------------------------ the cost side (operators too)
+
+    /** The "Set cost" dialog for one option; blank when the caller may not state its cost or it is gone. */
+    public OfferCostForm offerCostFormFor(final String tripId, final String offerId) {
+        final ReservationOffer offer = findOffer(tripId, offerId);
+        if (offer == null || !canSetCost(tripId, idValue(offer.getAccommodationId()))) {
+            return new OfferCostForm();
+        }
+        return OfferSchedules.costFormFor(tripId, offer);
+    }
+
+    /**
+     * Writes the COST side of one option -- the operator's path: {@link #canSetCost}, the form carries no price
+     * field, and no bill is recomputed (a hotel's cost is not a participant's price).
+     */
+    public boolean setOfferCost(final OfferCostForm form) {
+        if (form == null) {
+            return refuse("Nothing to save.");
+        }
+        final ReservationOffer offer = (form.getTripId() == null || form.getOfferId() == null) ? null
+                : DAO.getInstance().getReservationOffer(form.getTripId(), ReservationOffer.Id.from(form.getOfferId()),
+                        Cached.NO).orElse(null);
+        if (offer == null) {
+            return refuseInto(form::setProblem, "This lodging option no longer exists.");
+        }
+        if (!canSetCost(form.getTripId(), idValue(offer.getAccommodationId()))) {
+            return refuseInto(form::setProblem,
+                    "Not allowed: only the trip's lodging admins and the hotel's operators set a cost.");
+        }
+        final String problem = OfferSchedules.costProblem(form);
+        if (problem != null) {
+            return refuseInto(form::setProblem, problem);
+        }
+        OfferSchedules.applyCost(offer, form);
+        if (!saveOfferRow(offer)) {
+            return false;
+        }
+        form.setProblem(null);
+        auditSource.get().lodging(AuditEventBuilder.TARGET_OFFER, offer.getId().getValue(), offer.getOrgId(),
+                "Set hotel cost on lodging option '" + offer.getName() + "': " + OfferSchedules.costLabel(offer),
+                caller().auditActor());
+        return true;
+    }
+
+    /** The dialogs' "+ Extra" button: a blank row to fill in. */
+    public void addCostExtra(final LodgingViews.HasCostExtras form) {
+        if (form != null) {
+            form.getCostExtras().add(new LodgingViews.CostExtraForm());
+        }
+    }
+
+    /** The dialogs' per-row remove, by the index baked into the row at render. */
+    public void removeCostExtra(final LodgingViews.HasCostExtras form, final int index) {
+        if (form != null && index >= 0 && index < form.getCostExtras().size()) {
+            form.getCostExtras().remove(index);
+        }
+    }
+
+    // ------------------------------------------------------------------ concessions (LodgingConcessions)
+
+    /** The concession dialog for one stay's side ("PRICE" or "COST"); its {@code problem} says when refused. */
+    public ConcessionForm concessionFormFor(final String tripId, final String reservationId, final String side) {
+        return concessions().formFor(tripId, reservationId, side);
+    }
+
+    /** Sets or clears a stay's concession on the form's side; PRICE recomputes the bills, COST never does. */
+    public boolean setConcession(final ConcessionForm form) {
+        return concessions().set(form);
+    }
+
+    /** Writes the stay's new PRICE total onto {@code form.preview} (the dialog's ajax command) and answers it. */
+    public String concessionPreview(final ConcessionForm form) {
+        final String preview = concessions().preview(form);
+        if (form != null) {
+            form.setPreview(preview);
+        }
+        return preview;
+    }
+
+    private LodgingConcessions concessions() {
+        return new LodgingConcessions(this, tripSource.get(), auditSource.get());
     }
 
     /** The trip's LODGING events as id -> title, for the offer dialog's event menu. */
@@ -1484,11 +1530,7 @@ public class LodgingCommands {
         return active;
     }
 
-    /**
-     * Every stay at this hotel across ALL trips whose window could still matter (the by-accommodation index).
-     * The hotel is a GLOBAL row, so two organizations' trips share its rooms; nothing else in the app reads
-     * across the tenancy boundary, and what this feeds is counts and dates, never names.
-     */
+    /** Every stay at this hotel across ALL trips (the by-accommodation index): the cross-tenancy read. */
     List<Reservation> atHotel(final Accommodation.Id accId, final LocalDateTime from) {
         if (accId == null) {
             return List.of();
@@ -1517,7 +1559,8 @@ public class LodgingCommands {
                     offer == null ? "?" : offer.getName(),
                     acc == null ? "" : nullSafe(acc.roomLabel(res.getRoomId())), res.getStart(), res.getEnd(),
                     res.nights(), res.getStatus().name(), MoneyMath.formatCents(billed), res.isActive(),
-                    res.isSupplementWaived(), res.getNotes()));
+                    res.isSupplementWaived(), res.getNotes(), LodgingConcessions.label(res.getPriceConcession()),
+                    LodgingConcessions.label(res.getCostConcession())));
         }
         rows.sort((a, b) -> nullSafe(a.getOccupants()).compareToIgnoreCase(nullSafe(b.getOccupants())));
         return rows;
@@ -1556,14 +1599,7 @@ public class LodgingCommands {
         form.fillRanges();
     }
 
-    /**
-     * A reservation refusal, put where the person who pressed Save will actually see it.
-     *
-     * <p>The growl alone is not enough. A refusal keeps the modal dialog OPEN, and PrimeFaces renders the
-     * growl at the overlay's own z-index (1007) and below the dialog (1008), so the overlay paints over the
-     * message: the screen flashes, the dialog sits there, and nobody learns why (reported 2026-09-18). The
-     * growl stays for the callers with no dialog; the form carries the reason for the one that has it.
-     */
+    /** A refusal put on the form, where the open modal dialog can show it (a growl hides under the overlay). */
     private int refuseReservation(final ReservationForm form, final String message) {
         if (form != null) {
             form.setProblem(message);
@@ -1581,13 +1617,9 @@ public class LodgingCommands {
     }
 
     /**
-     * Creates reservations from the dialog: one per person, or one shared reservation for everyone. Every
-     * person must be on the roster; the stay must meet the offer's minimum AND lie inside the offer's own
-     * dates; a disabled offer is refused, as is a blocked room and a second stay sharing a night with one
-     * the person already holds. Occupants join the offer's event; bills follow.
-     *
-     * <p>Every one of those is a refusal, not a warning: the only warning an admin can override here is
-     * over-capacity, and that lives in {@link #place} behind its {@code force} flag.
+     * Creates reservations from the dialog: one per person, or one shared reservation for everyone. The
+     * refusals are {@link #stayProblem}'s plus an unknown or blocked room; over-capacity is {@link #place}'s
+     * overridable warning, not this path's. Occupants join the offer's event; bills follow.
      *
      * @return how many reservations were created.
      */
@@ -1657,6 +1689,9 @@ public class LodgingCommands {
      */
     private String stayProblem(final Trip trip, final ReservationOffer offer, final List<Person.Id> people,
             final LocalDateTime start, final LocalDateTime end, final Reservation.Id except) {
+        if (!offer.isPriced()) {
+            return "'" + offer.getName() + "' has no participant price yet; set it before reserving.";
+        }
         if (!offer.isEnabled()) {
             return "'" + offer.getName() + "' is not being offered.";
         }
@@ -1680,13 +1715,9 @@ public class LodgingCommands {
     }
 
     /**
-     * Whether one of these people already sleeps somewhere on this trip on a night of the new stay. Several
-     * stays per person are the point (leave and come back, or change rooms mid-stay), but two at ONCE would
-     * bill the same night twice: pricing counts a person once per night in a room and once per reservation
-     * in the ledger.
-     *
-     * <p>Nights, not instants: a stay ending on the 26th and another starting on the 26th share a DATE but
-     * no night, which is exactly the room-switch shape.
+     * Whether one of these people already sleeps somewhere on this trip on a NIGHT of the new stay (two stays
+     * at once would bill a night twice). Nights, not instants: a stay ending on the 26th and one starting on
+     * the 26th share a date but no night, which is exactly the room-switch shape.
      */
     private String overlappingStay(final String tripId, final List<Person.Id> people, final LocalDateTime start,
             final LocalDateTime end, final Reservation.Id except) {
@@ -1789,10 +1820,9 @@ public class LodgingCommands {
     }
 
     /**
-     * The workspace's click: puts {@code personId} into {@code roomId}. With no reservation yet, one is
-     * created from the offer's defaults. Over the room type's maximum (for the window) it refuses unless
-     * {@code force}, answering an {@link AssignOutcome} the page pins for its confirmation dialog and the
-     * {@code overCapacity} / {@code overCapacityMsg} callback params for the JS.
+     * The workspace's click: puts the reservation into {@code roomId}. Over the room type's maximum (for the
+     * window) it refuses unless {@code force}, answering an {@link AssignOutcome} plus the {@code overCapacity}
+     * / {@code overCapacityMsg} callback params the JS reads.
      */
     public AssignOutcome assignRoom(final String tripId, final String reservationId, final String roomId,
             final boolean force, final LocalDateTime winStart, final LocalDateTime winEnd) {
@@ -1805,6 +1835,10 @@ public class LodgingCommands {
         if (res == null || !tripId.equals(trip.getId())) {
             // Creating one is the placement dialog's job: it asks which lodging option pays for the stay.
             return outcome(false, false, "That reservation no longer exists.", null, reservationId, roomId);
+        }
+        if (!canAssignAt(tripId, idValue(res.getAccommodationId()))) {
+            return outcome(false, false, "Not allowed: that stay is at a hotel you do not operate.", null,
+                    reservationId, roomId);
         }
         if (!res.isActive()) {
             return outcome(false, false, "That reservation is cancelled.", null, reservationId, roomId);
@@ -1850,11 +1884,7 @@ public class LodgingCommands {
         return outcome(true, tooFull != null, msg, personId, res.getId().getValue(), roomId);
     }
 
-    /**
-     * Whether the room would hold more people than its type sleeps over the window, as a sentence; null when
-     * it fits. The stay's own dates when no window is pinned, so a placement is judged on the nights it
-     * actually occupies.
-     */
+    /** Whether the room would hold more people than its type sleeps over the window, as a sentence; null fits. */
     private String capacityProblem(final String tripId, final Accommodation acc, final Room room,
             final Reservation res, final LocalDateTime from, final LocalDateTime to) {
         final RoomType type = acc.roomType(room.getRoomTypeId());
@@ -1867,14 +1897,13 @@ public class LodgingCommands {
 
     // ---------------------------------------------------------------- placing someone who has no reservation
 
-    /**
-     * The dialog behind "click a person, click a room" for somebody with no reservation yet: which lodging
-     * option pays for the stay, and the stay itself. The option was implicit in a toolbar menu before, which
-     * made it easy to bill the wrong price to the wrong person.
-     */
+    /** The "place this person in this room" dialog for somebody with no reservation yet: option and stay. */
     public PlacementForm placementFormFor(final String tripId, final String accId, final String personId,
             final String roomId) {
         final PlacementForm form = new PlacementForm();
+        if (!canManageTripLodging(tripId)) {
+            return form; // the option labels carry prices, which an operator never sees
+        }
         form.setPersonId(personId);
         form.setAccommodationId(accId);
         form.setRoomId(roomId);
@@ -1892,9 +1921,8 @@ public class LodgingCommands {
     }
 
     /**
-     * Tells the placement dialog what this person already holds on the trip. An EXTRA stay (they leave and
-     * come back, or they move rooms) starts with a BLANK range: the option's default dates are the ones they
-     * are already here for, so offering them back would only ever come straight back as an overlap.
+     * Tells the placement dialog what this person already holds; an EXTRA stay starts with a BLANK range, since
+     * the option's default dates are the ones they are already here for.
      */
     private void describeExistingStays(final String tripId, final String personId, final PlacementForm form) {
         if (personId == null || personId.isBlank()) {
@@ -1924,21 +1952,24 @@ public class LodgingCommands {
         }
     }
 
-    /** The lodging options at one accommodation on this trip, as id -> "name (pricing)". */
+    /** The lodging options at one accommodation on this trip, as id -> "name (pricing)"; internal callers only. */
     public Map<String, String> optionChoices(final String tripId, final String accId) {
         final Map<String, String> choices = new LinkedHashMap<>();
-        for (final ReservationOffer offer : getOffers(tripId)) {
+        if (!canManageTripLodging(tripId)) {
+            return choices;
+        }
+        for (final ReservationOffer offer : pricedOffers(tripId)) {
             if (accId != null && accId.equals(idValue(offer.getAccommodationId())) && offer.isEnabled()) {
-                choices.put(offer.getId().getValue(), offer.getName() + " (" + pricingLabel(offer) + ")");
+                choices.put(offer.getId().getValue(), offer.getName() + " (" + OfferSchedules.pricingLabel(offer)
+                        + ")");
             }
         }
         return choices;
     }
 
     /**
-     * Creates the reservation the placement dialog describes and puts it in the room. Refusals (no option, a
-     * stay outside the option's dates, under the minimum, not on the roster) come back on the form so the
-     * dialog can show them; a room that cannot hold them is the warning that {@code force} overrides.
+     * Creates the reservation the placement dialog describes and puts it in the room. Refusals come back on
+     * the form so the dialog can show them; a room that cannot hold them is the warning {@code force} overrides.
      */
     public AssignOutcome place(final String tripId, final PlacementForm form) {
         if (!canManageTripLodging(tripId)) {
@@ -2010,17 +2041,11 @@ public class LodgingCommands {
 
     // ---------------------------------------------------------------- changing rooms part-way through a stay
 
-    /**
-     * The "switch room mid-stay" dialog for one reservation. Never null; a blank form when the caller may not
-     * room this trip's people or the stay is gone, which the page renders as nothing to do.
-     */
+    /** The "switch room mid-stay" dialog; a blank form when the caller may not or the stay is gone. */
     public SplitForm splitFormFor(final String tripId, final String reservationId) {
         final SplitForm form = new SplitForm();
-        if (!canAssignRooms(tripId)) {
-            return form;
-        }
-        final Reservation res = findReservation(tripId, reservationId);
-        if (res == null || !res.isActive()) {
+        final Reservation res = canAssignRooms(tripId) ? findReservation(tripId, reservationId) : null;
+        if (res == null || !res.isActive() || !canAssignAt(tripId, idValue(res.getAccommodationId()))) {
             return form;
         }
         final Accommodation acc = findAccommodation(idValue(res.getAccommodationId()));
@@ -2035,13 +2060,9 @@ public class LodgingCommands {
     }
 
     /**
-     * Splits one stay in two at {@code date}: the same people, option, notes and waiver, in one room until
-     * that morning and another from it. This is ROOMING, not pricing -- the nights, the occupants and the
-     * option are untouched, and the bills recompute to the same total -- which is why the hotel's own staff
-     * may do it, unlike minting a reservation.
-     *
-     * <p>A night belongs to the date it starts on, so the halves are {@code [start, date)} and
-     * {@code [date, end)}: nothing is lost or counted twice, and the two stays never overlap.
+     * Splits one stay in two at {@code date} ({@code [start, date)} and {@code [date, end)}): same people,
+     * option, notes and waiver, one room until that morning and another from it. ROOMING, not pricing -- the
+     * bills recompute to the same total -- which is why the hotel's own staff may do it.
      */
     public AssignOutcome splitStay(final String tripId, final SplitForm form) {
         if (!canAssignRooms(tripId)) {
@@ -2050,6 +2071,9 @@ public class LodgingCommands {
         final Reservation res = (form == null) ? null : findReservation(tripId, form.getReservationId());
         if (res == null || !res.isActive()) {
             return outcome(false, false, "This reservation no longer exists or is cancelled.", null, null, null);
+        }
+        if (!canAssignAt(tripId, idValue(res.getAccommodationId()))) {
+            return outcome(false, false, "Not allowed: that stay is at a hotel you do not operate.", null, null, null);
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         final ReservationOffer offer = findOffer(tripId, idValue(res.getOfferId()));
@@ -2125,11 +2149,7 @@ public class LodgingCommands {
         return (winEnd == null) ? res.getEnd() : winEnd;
     }
 
-    /**
-     * The most people in the room on any night of the window, counting {@code candidate} as in it. Other
-     * TRIPS at the same hotel count too: a bed another group's guest is in is not free because their
-     * reservation lives in a different partition.
-     */
+    /** The most people in the room on any night of the window, {@code candidate} and other TRIPS' stays included. */
     private int occupancyOver(final String tripId, final String roomId, final Reservation candidate,
             final LocalDateTime from, final LocalDateTime to) {
         final List<Reservation> onRoom = new ArrayList<>();
@@ -2165,6 +2185,9 @@ public class LodgingCommands {
         if (res == null || !res.isActive()) {
             return refuse("This reservation no longer exists or is cancelled.");
         }
+        if (!canAssignAt(tripId, idValue(res.getAccommodationId()))) {
+            return refuse("Not allowed: that stay is at a hotel you do not operate.");
+        }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         final ReservationOffer offer = findOffer(tripId, idValue(res.getOfferId()));
         final Accommodation acc = (offer == null) ? null : findAccommodation(idValue(offer.getAccommodationId()));
@@ -2174,7 +2197,7 @@ public class LodgingCommands {
     }
 
     /** Save + event participation + bills, the write every reservation change funnels through. */
-    private boolean persistReservation(final Trip trip, final ReservationOffer offer, final Accommodation acc,
+    boolean persistReservation(final Trip trip, final ReservationOffer offer, final Accommodation acc,
             final Reservation res, final String previousRoom) {
         final boolean creating = res.getVersion() == 0L;
         try {
@@ -2270,9 +2293,8 @@ public class LodgingCommands {
     }
 
     /**
-     * Cancels: the row flips to CANCELLED (never deleted), occupants leave the event unless another active
-     * reservation keeps them on it, an optional credit (billed minus the fee, admin-overridable) is written,
-     * and the room's remaining occupants are re-billed (their shares and supplements changed).
+     * Cancels: the row flips to CANCELLED (never deleted), occupants leave the event unless another active stay
+     * keeps them on it, an optional credit (billed minus the fee) is written, and the room's rest is re-billed.
      */
     public boolean cancelReservation(final String tripId, final String reservationId, final boolean credit,
             final Long feeOverrideCents, final String reason) {
@@ -2418,14 +2440,13 @@ public class LodgingCommands {
     // ================================================================== the assignment workspace
 
     /**
-     * The workspace for one offer: rooms with their occupancy over the window (any ACTIVE reservation on the
-     * offer's accommodation whose stay overlaps it), people with a reservation on this offer but no room, and
-     * roster members with no active reservation at this accommodation yet.
+     * The workspace for one hotel on the trip: rooms with their occupancy over the window, people with a
+     * reservation here but no room, and (internal callers only) roster members with no reservation here yet.
      */
     public RoomBoard roomBoard(final String tripId, final String accId, final LocalDateTime winStart,
             final LocalDateTime winEnd) {
         final RoomBoard board = new RoomBoard();
-        if (!canAssignRooms(tripId)) {
+        if (!canAssignAt(tripId, accId)) {
             return board;
         }
         final Trip trip = tripSource.get().getTrip(tripId);
@@ -2475,9 +2496,8 @@ public class LodgingCommands {
             board.getRooms().add(cellFor(acc, room, byRoom.getOrDefault(room.getId(), List.of()), blocks,
                     RoomAvailability.otherTrips(room.getId(), elsewhere, tripId, from, to), from, to));
         }
-        // Placing one of these mints a reservation on a lodging OPTION, which is a price: that is the
-        // trip's call, so a lodging manager is not shown a column whose clicks would all be refused. A
-        // SECOND stay is armed from the person's own card instead, since it starts from a stay they hold.
+        // Placing one of these mints a reservation on a lodging OPTION, which is a price: that is the trip's
+        // call, so an operator is not shown a column whose clicks would all be refused (nor its names).
         if (canManageTripLodging(tripId)) {
             for (final Person.Id person : trip.getPeople()) {
                 if (!housed.contains(person)) {
@@ -2489,11 +2509,7 @@ public class LodgingCommands {
         return board;
     }
 
-    /**
-     * Numbers each person's cards "stay 1 of 2", "stay 2 of 2", in date order across the whole board. Two
-     * cards for one person are the normal shape now (leave and come back, or a room change mid-stay), and
-     * without this they read as a duplicate rather than as two different weeks.
-     */
+    /** Numbers each person's cards "stay 1 of 2", "stay 2 of 2" in date order, so two cards never read alike. */
     @SafeVarargs
     private static void stampStays(final List<PersonCard>... lists) {
         final Map<String, List<PersonCard>> byPerson = new LinkedHashMap<>();
@@ -2514,16 +2530,14 @@ public class LodgingCommands {
     }
 
     /**
-     * One room's occupancy over the board's window: the room's own details plus a full person card per
-     * occupant. The board carries only names in its chips, so "who is in 104, and what did they ask for?"
-     * had no answer without leaving the workspace.
+     * One room over the board's window: its details plus a full person card per occupant.
      *
      * @return a detail whose roomId is blank when the caller may not see it, or the room is gone.
      */
     public RoomDetail roomDetail(final String tripId, final String accId, final String roomId,
             final LocalDateTime winStart, final LocalDateTime winEnd) {
         final RoomDetail detail = new RoomDetail();
-        if (!canAssignRooms(tripId) || roomId == null || roomId.isBlank()) {
+        if (!canAssignAt(tripId, accId) || roomId == null || roomId.isBlank()) {
             return detail;
         }
         final Accommodation acc = findAccommodation(accId);
@@ -2578,13 +2592,14 @@ public class LodgingCommands {
         return detail;
     }
 
-    /** What the board may call another trip in this room: its title only to someone who may see that trip. */
+    /** What the board may call another trip in this room ({@link LodgingAccessCommands#mayNameTrip}). */
     private String otherTripLabel(final Reservation res) {
         final Trip other = DAO.getInstance().getTrip(res.getTripId(), Cached.YES).orElse(null);
         if (other == null) {
             return "another trip";
         }
-        return canManageTripLodging(other.getId()) ? other.getTitle() : "another organization's trip";
+        return access.mayNameTrip(other.getId(), idValue(res.getAccommodationId())) ? other.getTitle()
+                : "another organization's trip";
     }
 
     /** One block as the tables and dialogs render it. */
@@ -2640,12 +2655,12 @@ public class LodgingCommands {
         return new StayWindowForm();
     }
 
-    /** The accommodations this trip has lodging options at, as id -> name; the board picks among these. */
+    /** The hotels this trip has options at that the caller may room, as id -> name; the board picks among these. */
     public Map<String, String> accommodationChoices(final String tripId) {
         final Map<String, String> choices = new LinkedHashMap<>();
         for (final ReservationOffer offer : getOffers(tripId)) {
             final String accId = idValue(offer.getAccommodationId());
-            if (accId != null && !choices.containsKey(accId)) {
+            if (accId != null && !choices.containsKey(accId) && canAssignAt(tripId, accId)) {
                 final Accommodation acc = findAccommodation(accId);
                 choices.put(accId, acc == null ? accId : acc.getName());
             }
@@ -2653,7 +2668,7 @@ public class LodgingCommands {
         return choices;
     }
 
-    /** The accommodation the board opens on: the first one this trip has an option at. */
+    /** The accommodation the board opens on: the first one this trip has an option at that the caller may room. */
     public String defaultAccommodationId(final String tripId) {
         final Map<String, String> choices = accommodationChoices(tripId);
         return choices.isEmpty() ? "" : choices.keySet().iterator().next();
@@ -2804,11 +2819,7 @@ public class LodgingCommands {
         return itinerary().roomingList(tripId);
     }
 
-    /**
-     * The person's room label on this trip from their ACTIVE reservations ("114", or "114 / 201" across two
-     * stays), or null when no reservation names a room -- what {@code RegistrationCommands.getRoomPDV} asks
-     * before falling back to the legacy free-text room.
-     */
+    /** "114", or "114 / 201" across two stays, from the person's ACTIVE reservations; null when none has a room. */
     public String roomLabelFor(final String tripId, final Person.Id personId) {
         return itinerary().roomLabelFor(tripId, personId);
     }
@@ -2825,14 +2836,10 @@ public class LodgingCommands {
         return trip == null || trip.getRoomNumbersShown();
     }
 
-    /**
-     * The Assignments tab's "Show room numbers on itineraries" switch. Off while assignments are still being
-     * worked out, so a temporary placement never reads as a decision; on when the plan is done. Read-modify-write
-     * on a FRESH trip, never a cached one, and saved at once -- this is a setting, not part of any edit draft.
-     */
+    /** The "Show room numbers on itineraries" switch: a trip presentation setting, so internal callers only. */
     public boolean setRoomNumbersShown(final String tripId, final boolean shown) {
-        if (!canAssignRooms(tripId)) {
-            return refuse("Not allowed: you do not assign rooms on this trip.");
+        if (!canManageTripLodging(tripId)) {
+            return refuse("Not allowed: you do not manage this trip's lodging.");
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         // getTripForEdit answers a blank trip with a fresh id for an unknown one; the same-id probe is the test.
@@ -2851,10 +2858,7 @@ public class LodgingCommands {
         return true;
     }
 
-    /**
-     * The itinerary's rows in the page's FROZEN event order: every event as it is, except a LODGING event for
-     * which the person holds ACTIVE reservations on offers that track it -- those become ONE ROW PER STAY.
-     */
+    /** The itinerary's rows in the page's FROZEN event order; a LODGING event becomes ONE ROW PER STAY. */
     public List<ItineraryRow> itineraryRows(final Trip trip, final List<String> frozenEventIds,
             final Person.Id personId) {
         return itinerary().itineraryRows(trip, frozenEventIds, personId);
@@ -2871,7 +2875,7 @@ public class LodgingCommands {
 
     // ================================================================== plumbing
 
-    private Caller caller() {
+    Caller caller() {
         return callerSource.get();
     }
 
@@ -2903,7 +2907,7 @@ public class LodgingCommands {
         return true;
     }
 
-    private String names(final Collection<Person.Id> ids) {
+    String names(final Collection<Person.Id> ids) {
         final List<String> names = new ArrayList<>();
         for (final Person.Id id : ids) {
             names.add(displayName(id));
@@ -2926,10 +2930,7 @@ public class LodgingCommands {
         return DAO.getInstance().getPerson(id, Cached.YES).map(Person::getPreferredName).orElse(id.getValue());
     }
 
-    /**
-     * The notes a NEW lodging event starts with: the hotel's address, so the itinerary shows where the stay is
-     * under its name. Escaped here because event notes render as HTML everywhere.
-     */
+    /** A NEW lodging event's notes: the hotel's address, escaped because event notes render as HTML. */
     static String lodgingEventNotes(final Accommodation acc) {
         return acc == null || acc.getAddress() == null ? "" : escape(acc.getAddress().oneLine());
     }
@@ -2959,18 +2960,6 @@ public class LodgingCommands {
             return acc.getValue();
         }
         return (id == null) ? null : id.toString();
-    }
-
-    /** "1,234.50" or "$55" to a Double; null for blank or unparseable text. */
-    static Double parseDollars(final String text) {
-        if (text == null || text.isBlank()) {
-            return null;
-        }
-        try {
-            return Double.parseDouble(text.replace("$", "").replace(",", "").trim());
-        } catch (final NumberFormatException ex) {
-            return null;
-        }
     }
 
     static long cents(final Double dollars) {

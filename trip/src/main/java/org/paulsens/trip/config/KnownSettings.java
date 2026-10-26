@@ -794,6 +794,10 @@ public final class KnownSettings {
                     "Store links for the \"Get the app\" badges on the support page. Set each one when that "
                             + "listing goes live; nothing else reads them.",
                     List.of(APPS_APP_STORE_URL, APPS_PLAY_STORE_URL)),
+            new SettingSection("Lodging",
+                    "Hotels, lodging options and room assignments. An organization that reconciles lodging "
+                            + "bills by hand can turn the automatic recompute off for its own trips.",
+                    List.of(LODGING_AUTO_RECOMPUTE)),
             new SettingSection("Payments",
                     "The mail/fee settings are the SITE rung of the trip → organization → site "
                             + "defaults ladder. The return-address allowlist only applies to payments "

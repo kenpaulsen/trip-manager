@@ -8,6 +8,8 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.function.Function;
 import org.paulsens.trip.action.Caller;
+import org.paulsens.trip.action.LodgingAccess;
+import org.paulsens.trip.action.LodgingAccessCommands;
 import org.paulsens.trip.action.PrivilegeCommands;
 import org.paulsens.trip.action.ReportCommands;
 import org.paulsens.trip.action.RoomInvoicePdf;
@@ -23,9 +25,17 @@ import org.paulsens.trip.model.Trip;
  * production with a 301 to the media CDN (and stands aside locally, so a {@code .pdf} URL would pass every
  * local test and break only once deployed). The file name travels in {@code Content-Disposition} instead.
  *
- * <p>Gated like the page: money, so a site administrator, the global {@code viewFinances}, or
- * {@code tripFinView} on this trip. A visitor who is not signed in goes to login and comes back here; a
- * signed-in refusal is a plain 403, since there is no page to put a growl on.
+ * <p>Gated like the page: a FINANCE viewer (site administrator, the global {@code viewFinances}, or
+ * {@code tripFinView} on this trip) gets the whole invoice, and a Hotel Operator of a hotel in play on the trip
+ * ({@link LodgingAccess#isOperatorHere()}) gets their hotel's part, built by
+ * {@link ReportCommands#roomInvoiceFor} and drawn without the internal cost-assumed note. A visitor who is not
+ * signed in goes to login and comes back here; a signed-in refusal is a plain 403, since there is no page to
+ * put a growl on.
+ *
+ * <p>The access object is computed by a {@link LodgingAccessCommands} built on THIS request's
+ * {@link Caller}: the CDI bean's default caller source is {@code Caller.current()}, which reads the
+ * FacesContext, and a plain servlet has none (the memo it keeps in the Faces request map is irrelevant here
+ * for the same reason). The bean has no injected collaborators, so constructing one is what the pages get.
  */
 public class RoomInvoicePdfServlet extends HttpServlet {
 
@@ -33,11 +43,17 @@ public class RoomInvoicePdfServlet extends HttpServlet {
     /** The GLOBAL finance-view privilege; the pages name it as a literal too (there is no constant for it). */
     static final String VIEW_FINANCES = "viewFinances";
 
+    /** The invoice as one caller may see it: {@link ReportCommands#roomInvoiceFor}'s shape. */
+    @FunctionalInterface
+    interface InvoiceSource {
+        ReportCommands.RoomInvoice invoice(String tripId, LodgingAccess access, boolean finance);
+    }
+
     private transient Function<String, Trip> trips;
-    private transient Function<String, ReportCommands.RoomInvoice> invoices;
+    private transient InvoiceSource invoices;
 
     /** The test seam: a servlet container builds this with the no-arg constructor, and Beans.get needs one. */
-    void setSources(final Function<String, Trip> trips, final Function<String, ReportCommands.RoomInvoice> invoices) {
+    void setSources(final Function<String, Trip> trips, final InvoiceSource invoices) {
         this.trips = trips;
         this.invoices = invoices;
     }
@@ -61,11 +77,17 @@ public class RoomInvoicePdfServlet extends HttpServlet {
             resp.sendError(HttpServletResponse.SC_NOT_FOUND);
             return;
         }
-        if (!caller.has(VIEW_FINANCES) && !caller.has(PrivilegeCommands.TRIP_FIN_VIEW, tripId)) {
+        final LodgingAccess access = new LodgingAccessCommands(() -> caller).forTrip(tripId);
+        // Internal = a finance viewer or the trip's own lodging admin (the bill is the hotel's cost side, which
+        // is exactly what they reconcile), as on the page: an operator never sees whether a cost was assumed.
+        final boolean internal = caller.has(VIEW_FINANCES) || caller.has(PrivilegeCommands.TRIP_FIN_VIEW, tripId)
+                || access.isInternal();
+        if (!internal && !access.isOperatorHere()) {
             resp.sendError(HttpServletResponse.SC_FORBIDDEN);
             return;
         }
-        final byte[] pdf = RoomInvoicePdf.render(trip.getTitle(), invoices().apply(tripId));
+        final byte[] pdf = RoomInvoicePdf.render(trip.getTitle(), invoices().invoice(tripId, access, internal),
+                internal);
         resp.setContentType("application/pdf");
         resp.setContentLength(pdf.length);
         resp.setHeader("Content-Disposition", disposition(RoomInvoicePdf.fileName(trip.getTitle())));
@@ -88,9 +110,9 @@ public class RoomInvoicePdfServlet extends HttpServlet {
         return trips;
     }
 
-    private Function<String, ReportCommands.RoomInvoice> invoices() {
+    private InvoiceSource invoices() {
         if (invoices == null) {
-            invoices = Beans.get(ReportCommands.class)::roomInvoice;
+            invoices = Beans.get(ReportCommands.class)::roomInvoiceFor;
         }
         return invoices;
     }

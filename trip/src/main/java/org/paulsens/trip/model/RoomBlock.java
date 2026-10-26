@@ -21,10 +21,10 @@ import lombok.Value;
  * do with our reservations: another group holds them, or they are under maintenance. A row in
  * {@code lodging_blocks} (PK accommodationId, SK id).
  *
- * <p>This is the HOTEL's inventory, not a trip's: it is kept by whoever may edit the accommodation and it is
- * honored by every trip staying there. Its own table rather than a list on the accommodation row, because an
- * accommodation's row carries the room inventory under one optimistic version: a hotel manager blocking a
- * room must not lose a race with an admin renaming one.
+ * <p>This is the HOTEL's inventory, not a trip's: it is kept by the hotel's operators ({@code accommodationAdmin},
+ * display "Hotel Operator") and global lodging admins, and it is honored by every trip staying there. Its own
+ * table rather than a list on the accommodation row, because an accommodation's row carries the room inventory
+ * under one optimistic version: a Hotel Operator blocking a room must not lose a race with an admin renaming one.
  *
  * <p>Dates follow the stay convention: nights are {@code [start, end)}, so a block from Sep 21 to Sep 26 holds
  * five nights and the room is free again on the morning of the 26th. The reason is free text on purpose --

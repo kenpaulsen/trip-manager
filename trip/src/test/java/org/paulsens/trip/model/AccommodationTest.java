@@ -72,6 +72,33 @@ public class AccommodationTest {
         assertTrue(acc.isRetired());
     }
 
+    /** The trips with an option here: deduped, blank-proof, and a JSON key an older row simply lacks. */
+    @Test
+    public void tripIdsDedupeAndSurviveJsonAndAnOlderRowWithoutThem() throws Exception {
+        final Accommodation acc = Accommodation.builder().tripIds(List.of("trip-a", "trip-a", "trip-b")).build();
+        assertEquals(acc.getTripIds(), List.of("trip-a", "trip-b"), "the constructor dedupes");
+        assertFalse(acc.recordTripUse("trip-a"), "already there");
+        assertFalse(acc.recordTripUse(" "));
+        assertFalse(acc.recordTripUse(null));
+        assertTrue(acc.recordTripUse("trip-c"));
+        assertTrue(acc.usedByTrip("trip-c"));
+        assertFalse(acc.usedByTrip("trip-z"));
+        assertFalse(acc.usedByTrip(null));
+        assertTrue(acc.forgetTrip("trip-b"));
+        assertFalse(acc.forgetTrip("trip-b"), "gone already");
+        assertFalse(acc.forgetTrip(null));
+        assertEquals(acc.getTripIds(), List.of("trip-a", "trip-c"));
+
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
+        final Accommodation restored = mapper.readValue(mapper.writeValueAsString(acc), Accommodation.class);
+        assertEquals(restored.getTripIds(), List.of("trip-a", "trip-c"));
+        // A row written before the field existed: the list is empty, never null.
+        final Accommodation older = mapper.readValue("{\"id\":\"acc-old\",\"name\":\"Old\"}", Accommodation.class);
+        assertNotNull(older.getTripIds());
+        assertTrue(older.getTripIds().isEmpty());
+        assertTrue(Accommodation.builder().build().getTripIds().isEmpty(), "a fresh builder too");
+    }
+
     @Test
     public void discoveryMatchesOnAnyNormalizedField() {
         final Accommodation acc = Accommodation.builder().name("Pansion Dragićević").email("info@pansion.ba")

@@ -492,12 +492,20 @@ public class OrgCommands {
         if (findOrganization(orgId) == null || personId == null) {
             return fail("Unable to add", "Unknown organization or person.");
         }
-        final Caller current = caller();
-        if (!canManageOrg(orgId) && !current.has(PrivilegeCommands.LODGING_ADMIN, orgId)
-                && !current.has(PrivilegeCommands.LODGING_ADMIN)) {
+        if (!canAddLodgingContact(orgId)) {
             return fail("Not allowed", "Only this organization's admins or lodging admins can add a lodging contact.");
         }
         return writeMembership(orgId, personId, "lodging contact");
+    }
+
+    /**
+     * {@link #addLodgingContact}'s gate on its own, so a caller can tell a refusal apart from a failure before
+     * writing anything: a hotel operator naming an EXISTING person as the hotel's contact skips the write.
+     */
+    public boolean canAddLodgingContact(final String orgId) {
+        final Caller current = caller();
+        return canManageOrg(orgId) || current.has(PrivilegeCommands.LODGING_ADMIN, orgId)
+                || current.has(PrivilegeCommands.LODGING_ADMIN);
     }
 
     /**
@@ -840,8 +848,7 @@ public class OrgCommands {
             PrivilegeCommands.TRIP_FIN_VIEW, "Finance Viewer",
             PrivilegeCommands.TRIP_VIEW, "Viewer",
             PrivilegeCommands.CHAT_MGR, "Chat Admin",
-            PrivilegeCommands.REGISTRATION_ADMIN, "Registration Admin",
-            PrivilegeCommands.LODGING_MANAGER, "Lodging Manager");
+            PrivilegeCommands.REGISTRATION_ADMIN, "Registration Admin");
 
     /** The trip editor's display name for a trip-scoped role base, or null when the base is not one. */
     static String tripRoleName(final String base) {

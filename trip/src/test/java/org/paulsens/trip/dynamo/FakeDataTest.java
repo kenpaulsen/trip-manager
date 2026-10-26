@@ -271,6 +271,36 @@ public class FakeDataTest {
         assertTrue(late > 0, "and somebody arrives late: the case the whole feature exists for");
     }
 
+    /**
+     * The Pansion carries one rate plan under a fixed id (the webtests' {@code SeededIds} mirrors it): cost
+     * stated, participant price NOT, and deliberately not linked to the seeded offer, whose own $60 x 12
+     * nights the browser tests assert. The Pansion also records the demo trip as a user of the hotel, which is
+     * what puts a trip on the operator's Trips tab before anyone is booked.
+     */
+    @Test
+    public void theSeededPansionHasAnUnpricedRatePlanAndKnowsTheDemoTrip() {
+        FakeData.addFakeData();
+        final org.paulsens.trip.model.RatePlan plan = DAO.getInstance().getRatePlan(FakeData.CFPW_ACCOMMODATION_ID,
+                org.paulsens.trip.model.RatePlan.Id.from(FakeData.CFPW_RATE_PLAN_ID), Cached.NO).orElseThrow();
+        assertEquals(plan.getName(), "Hotel rate 2027");
+        assertFalse(plan.isPriced(), "the price is for an internal admin to set");
+        assertEquals(plan.getCost().getNightlyCents(), 5000L);
+        assertEquals(plan.getCostExtras().size(), 1);
+        assertEquals(plan.getCostExtras().get(0).getLabel(), "City tax");
+        assertEquals(plan.getCostExtras().get(0).getAmountCents(), 1200L);
+        assertNull(plan.getValidFrom(), "open dates");
+        assertNull(plan.getValidUntil());
+        assertTrue(plan.getLinkedTripIds().isEmpty(), "NOT linked: the seeded offer keeps its own $60");
+        final org.paulsens.trip.model.Accommodation pansion = DAO.getInstance().getAccommodation(
+                org.paulsens.trip.model.Accommodation.Id.from(FakeData.CFPW_ACCOMMODATION_ID), Cached.NO).orElseThrow();
+        assertEquals(plan.getRoomTypeIds().size(), pansion.getRoomTypes().size(), "every room type");
+        assertTrue(pansion.usedByTrip(FakeData.FAKE_TRIP_ID), "the offer save recorded the demo trip on the hotel");
+        final LodgingCommands lodging = new LodgingCommands(FakeDataTest::siteAdmin);
+        for (final ReservationOffer offer : lodging.getOffers(FakeData.FAKE_TRIP_ID)) {
+            assertFalse(offer.isLinked(), "no seeded offer follows the plan");
+        }
+    }
+
     private static org.paulsens.trip.action.Caller siteAdmin() {
         return new org.paulsens.trip.action.Caller(Person.Id.from(FakeData.ADMIN_PERSON_ID), true,
                 new AuditActor("admin@example.com", FakeData.ADMIN_PERSON_ID),

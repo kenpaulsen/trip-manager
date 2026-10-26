@@ -7,6 +7,7 @@ import java.util.List;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.RatePlan;
 import org.paulsens.trip.model.Reservation;
 import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.Room;
@@ -21,7 +22,7 @@ import static org.testng.Assert.assertThrows;
 import static org.testng.Assert.assertTrue;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
-/** The three lodging tables through the DAO facade against the in-memory fake. */
+/** The lodging tables through the DAO facade against the in-memory fake. */
 public class LodgingDAOTest {
     private static final LocalDateTime AT = LocalDateTime.of(2026, 9, 20, 15, 0);
 
@@ -139,6 +140,7 @@ public class LodgingDAOTest {
         assertTrue(cleared.stream().anyMatch(p -> p.contains("lodging_offer")));
         assertTrue(cleared.stream().anyMatch(p -> p.contains("lodging_res")));
         assertTrue(cleared.stream().anyMatch(p -> p.contains("lodging_block")));
+        assertTrue(cleared.stream().anyMatch(p -> p.contains("lodging_plan")));
     }
 
     /** Blocks are the hotel's own rows, partitioned by hotel and versioned like everything else here. */
@@ -169,6 +171,47 @@ public class LodgingDAOTest {
         assertEquals(DAO.getInstance().getRoomBlocks(acc, Cached.NO).size(), 1);
         assertFalse(DAO.getInstance().deleteRoomBlock(null, block.getId()));
         assertFalse(DAO.getInstance().deleteRoomBlock(acc, null));
+    }
+
+    /** Rate plans are the hotel's rows too: partitioned by hotel, versioned, deleted one row at a time. */
+    @Test
+    public void ratePlansArePartitionedByAccommodationAndVersioned() throws IOException {
+        final Accommodation.Id acc = Accommodation.Id.newInstance();
+        final Accommodation.Id other = Accommodation.Id.newInstance();
+        final RatePlan plan = plan(acc, "Pilgrim rate");
+        assertTrue(DAO.getInstance().saveRatePlan(plan));
+        assertEquals(plan.getVersion(), 1L);
+        assertTrue(DAO.getInstance().saveRatePlan(plan(acc, "Group rate")));
+        assertTrue(DAO.getInstance().saveRatePlan(plan(other, "Pilgrim rate")));
+        assertEquals(DAO.getInstance().getRatePlans(acc.getValue(), Cached.NO).size(), 2);
+        assertEquals(DAO.getInstance().getRatePlan(acc.getValue(), plan.getId(), Cached.NO).orElseThrow(), plan);
+        assertTrue(DAO.getInstance().getRatePlan(other.getValue(), plan.getId(), Cached.NO).isEmpty(),
+                "the composite get IS the partition check");
+        assertTrue(DAO.getInstance().getRatePlans(null, Cached.NO).isEmpty());
+        assertTrue(DAO.getInstance().getRatePlan(null, plan.getId(), Cached.NO).isEmpty());
+        assertTrue(DAO.getInstance().getRatePlan(acc.getValue(), null, Cached.NO).isEmpty());
+
+        final RatePlan stale = DAO.getInstance().getRatePlan(acc.getValue(), plan.getId(), Cached.NO).orElseThrow();
+        plan.setName("Winner");
+        assertTrue(DAO.getInstance().saveRatePlan(plan));
+        assertEquals(plan.getVersion(), 2L);
+        stale.setName("Loser");
+        assertThrows(ConditionalCheckFailedException.class, () -> DAO.getInstance().saveRatePlan(stale));
+        assertEquals(stale.getVersion(), 1L, "a rejected save restores the caller's version");
+        assertEquals(DAO.getInstance().getRatePlan(acc.getValue(), plan.getId(), Cached.NO).orElseThrow().getName(),
+                "Winner");
+
+        final RatePlan imposter = RatePlan.builder().id(plan.getId()).accommodationId(acc).name("Imposter").build();
+        assertThrows(ConditionalCheckFailedException.class, () -> DAO.getInstance().saveRatePlan(imposter));
+        assertEquals(imposter.getVersion(), 0L, "a second create of the same id is refused, version untouched");
+
+        assertTrue(DAO.getInstance().deleteRatePlan(acc.getValue(), plan.getId()));
+        assertTrue(DAO.getInstance().getRatePlan(acc.getValue(), plan.getId(), Cached.NO).isEmpty());
+        assertEquals(DAO.getInstance().getRatePlans(acc.getValue(), Cached.NO).size(), 1, "exactly one row went");
+        assertEquals(DAO.getInstance().getRatePlans(other.getValue(), Cached.NO).size(), 1,
+                "the other hotel's partition is untouched");
+        assertFalse(DAO.getInstance().deleteRatePlan(null, plan.getId()));
+        assertFalse(DAO.getInstance().deleteRatePlan(acc.getValue(), null));
     }
 
     /**
@@ -229,6 +272,8 @@ public class LodgingDAOTest {
         assertTrue(dao.getAccommodations().isEmpty(), "Corrupt and content-less rows are skipped");
         assertTrue(dao.getOffers("trip").isEmpty());
         assertTrue(dao.getReservations("trip").isEmpty());
+        assertTrue(dao.getBlocks(Accommodation.Id.from("x")).isEmpty());
+        assertTrue(dao.getPlans("x").isEmpty());
         assertEquals(dao.deleteAllForTrip("trip"), 4, "The raw sweep deletes by id whatever the content is");
         dao.clearCache();
     }
@@ -248,6 +293,12 @@ public class LodgingDAOTest {
     private static RoomBlock block(final Accommodation.Id accId, final String roomId) {
         return RoomBlock.builder().accommodationId(accId).roomIds(List.of(roomId))
                 .start(AT.toLocalDate()).end(AT.toLocalDate().plusDays(2)).reason("another group").build();
+    }
+
+    private static RatePlan plan(final Accommodation.Id accId, final String name) {
+        return RatePlan.builder().accommodationId(accId).name(name).roomTypeIds(List.of("double"))
+                .validFrom(AT.toLocalDate()).validUntil(AT.toLocalDate().plusDays(30)).notes("breakfast included")
+                .build();
     }
 
     private static Reservation atHotel(final String tripId, final Accommodation.Id accId,

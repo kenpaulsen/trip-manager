@@ -27,6 +27,9 @@ import lombok.Value;
  * maintain the inventory once rather than once per org. {@code orgIds} records which organizations USE it
  * (appended the first time one of their trips creates an offer on it); it grants nothing. Who may EDIT an
  * accommodation is a privilege question ({@code accommodationAdmin} scoped to this id), never a field here.
+ * {@code tripIds} is the same kind of record one level down: the trips holding a lodging OPTION here, so the
+ * hotel's operator can find a trip (and state its cost) before anyone is booked -- the reservations index
+ * only knows a trip once it has a stay. Written by the offer save, pruned by the offer and trip deletes.
  *
  * <p>Because it is global, a hotel must be findable before it is duplicated: {@code name}, {@code email},
  * {@code phone}, {@code website} and the postal address are all collected, and
@@ -54,6 +57,8 @@ public final class Accommodation implements Serializable {
     private List<Room> rooms;
     private List<FloorMap> floorMaps;
     private List<Organization.Id> orgIds;
+    /** Trips with a lodging option at this hotel; never null, never a duplicate. JSON-additive (2026-10). */
+    private List<String> tripIds;
     private Person.Id createdBy;
     private LocalDateTime created;
     private long version;
@@ -81,6 +86,7 @@ public final class Accommodation implements Serializable {
             @JsonProperty("rooms") final List<Room> rooms,
             @JsonProperty("floorMaps") final List<FloorMap> floorMaps,
             @JsonProperty("orgIds") final List<Organization.Id> orgIds,
+            @JsonProperty("tripIds") final List<String> tripIds,
             @JsonProperty("createdBy") final Person.Id createdBy,
             @JsonProperty("created") final LocalDateTime created,
             @JsonProperty("version") final long version) {
@@ -97,13 +103,28 @@ public final class Accommodation implements Serializable {
         this.rooms = (rooms == null) ? new ArrayList<>() : new ArrayList<>(rooms);
         this.floorMaps = (floorMaps == null) ? new ArrayList<>() : new ArrayList<>(floorMaps);
         this.orgIds = (orgIds == null) ? new ArrayList<>() : new ArrayList<>(orgIds);
+        this.tripIds = new ArrayList<>();
+        if (tripIds != null) {
+            for (final String tripId : tripIds) {
+                recordTripUse(tripId);
+            }
+        }
         this.createdBy = createdBy;
         this.created = created;
         this.version = version;
     }
 
     public Accommodation() {
-        this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0L);
+        this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0L);
+    }
+
+    /** A stream written before {@code tripIds} existed reads it back null; the live object never holds null. */
+    @Serial
+    private Object readResolve() {
+        if (tripIds == null) {
+            tripIds = new ArrayList<>();
+        }
+        return this;
     }
 
     @JsonIgnore
@@ -185,6 +206,25 @@ public final class Accommodation implements Serializable {
     @JsonIgnore
     public boolean usedBy(final Organization.Id orgId) {
         return orgId != null && orgIds.contains(orgId);
+    }
+
+    /** Whether a trip holds (or held) a lodging option here. */
+    @JsonIgnore
+    public boolean usedByTrip(final String tripId) {
+        return tripId != null && tripIds.contains(tripId);
+    }
+
+    /** Records a trip with an option here; false when it was already recorded (or the id is blank). */
+    public boolean recordTripUse(final String tripId) {
+        if (tripId == null || tripId.isBlank() || tripIds.contains(tripId)) {
+            return false;
+        }
+        return tripIds.add(tripId);
+    }
+
+    /** Forgets a trip (its last option here is gone, or the trip is); false when it was not recorded. */
+    public boolean forgetTrip(final String tripId) {
+        return tripId != null && tripIds.remove(tripId);
     }
 
     /**

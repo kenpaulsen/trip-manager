@@ -8,9 +8,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Comparator;
-import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -18,7 +16,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -31,8 +28,6 @@ import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Reservation;
 import org.paulsens.trip.model.ReservationOffer;
-import org.paulsens.trip.model.Room;
-import org.paulsens.trip.model.RoomType;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.pay.LodgingPricing;
@@ -67,11 +62,6 @@ public class ReportCommands {
             .comparing(Person::getLast, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER))
             .thenComparing(Person::getPreferredName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
 
-    /** The per-person table: by name, then a person's stays in date order. */
-    private static final Comparator<ReportCommands.InvoicePersonLine> PERSON_ORDER = Comparator
-            .comparing(ReportCommands.InvoicePersonLine::getName, String.CASE_INSENSITIVE_ORDER)
-            .thenComparing(ReportCommands.InvoicePersonLine::getFirstNight);
-
     private final Supplier<TripCommands> tripSource;
     private final Supplier<LodgingCommands> lodgingSource;
 
@@ -81,7 +71,7 @@ public class ReportCommands {
     }
 
     /** Explicit-collaborator constructor: the test seam (Beans.get needs a container). */
-    ReportCommands(final Supplier<TripCommands> tripSource, final Supplier<LodgingCommands> lodgingSource) {
+    public ReportCommands(final Supplier<TripCommands> tripSource, final Supplier<LodgingCommands> lodgingSource) {
         this.tripSource = tripSource;
         this.lodgingSource = lodgingSource;
     }
@@ -336,229 +326,127 @@ public class ReportCommands {
     }
 
     /**
-     * The trip's ROOM INVOICE: what the hotels charge, one section per accommodation, one group per lodging
-     * option, and lines whose arithmetic a reader can check: {@code quantity x nights x rate == amount}.
-     *
-     * <p>A per-person option bills GUESTS, and the single supplement is a line of its own (the guests who were
-     * alone, for the nights they were alone), so the two rates are never folded into one figure. A per-room
-     * option bills ROOMS: a room shared by a late arriver counts every night anybody sleeps in it. Guests or
-     * rooms whose nights differ, or nights the option prices differently, go on separate lines, because that
-     * is what keeps every line multiplying out.
-     *
-     * <p>The rules are {@link LodgingPricing}'s (occupancy per room per night, the waiver, the per-night
-     * override), so the invoice total is the sum of the ledger's lodging bills. Cancelled stays and their fees
-     * are left out.
+     * The trip's ROOM INVOICE: what the hotels CHARGE, one section per accommodation, one group per lodging
+     * option, and lines whose arithmetic a reader can check: {@code quantity x nights x rate == amount}
+     * ({@link RoomInvoiceBuilder}, on the COST side). Since the 2026-10-25 price/cost split this is the
+     * hotel's bill, not the participants': an option with no stated cost is priced at the participant price
+     * and flagged ({@code costAssumed}, {@code anyCostAssumed}), its cost extras (taxes, fees, coupons) are
+     * lines of their own, and a cost concession on a stay is a negative line. The participants' side is the
+     * {@link #billedVsCost Billed vs Cost} report.
      */
     public ReportCommands.RoomInvoice roomInvoice(final String tripId) {
-        if (tripId == null || !tripId.equals(tripSource.get().getTrip(tripId).getId())) {
+        if (!knownTrip(tripId)) {
             return new ReportCommands.RoomInvoice(); // Unknown here, or a trip this site does not serve
         }
         final LodgingCommands lodging = lodgingSource.get();
-        return roomInvoice(DAO.getInstance().getReservations(tripId, Cached.NO),
+        return roomInvoice(LodgingPricing.Side.COST, DAO.getInstance().getReservations(tripId, Cached.NO),
                 offerId -> lodging.findOffer(tripId, offerId), lodging::findAccommodation, lodging::displayName);
     }
 
-    /** The same invoice from reservations already in hand, naming each person by their id. */
-    ReportCommands.RoomInvoice roomInvoice(final List<Reservation> reservations,
-            final Function<String, ReservationOffer> offers, final Function<String, Accommodation> accommodations) {
-        return roomInvoice(reservations, offers, accommodations, Person.Id::getValue);
+    /**
+     * The invoice as ONE caller may see it. Finance viewers ({@code finance}: site admin, the global
+     * {@code viewFinances}, {@code tripFinView@trip}) and anyone internal on the trip's lodging get every
+     * section. A Hotel Operator gets the invoice REBUILT over the stays at the hotels they operate on this
+     * trip, so its counts and totals are theirs alone, with the "cost assumed" flag stripped: whether we have
+     * a hotel's cost on file is a fact about our books, never shown outside the organization. Anyone else gets
+     * an empty invoice.
+     *
+     * <p>The caller passes {@code finance} rather than this method deciding it: the finance privileges are
+     * not lodging privileges, and {@link LodgingAccess} deliberately knows nothing about them. The page
+     * passes its {@code requestScope.invoiceInternal}; the PDF servlet passes the same check it admits on.
+     */
+    public ReportCommands.RoomInvoice roomInvoiceFor(final String tripId, final LodgingAccess access,
+            final boolean finance) {
+        if (!knownTrip(tripId)) {
+            return new ReportCommands.RoomInvoice();
+        }
+        if (finance || (access != null && access.isInternal())) {
+            return roomInvoice(tripId);
+        }
+        if (access == null || !access.isOperatorHere()) {
+            return new ReportCommands.RoomInvoice();
+        }
+        final LodgingCommands lodging = lodgingSource.get();
+        final Function<String, ReservationOffer> offers = offerId -> lodging.findOffer(tripId, offerId);
+        final List<Reservation> theirs = staysAt(DAO.getInstance().getReservations(tripId, Cached.NO),
+                access.getOperatorAccIds(), offers);
+        return RoomInvoiceBuilder.withoutAssumedFlags(roomInvoice(LodgingPricing.Side.COST, theirs, offers,
+                lodging::findAccommodation, lodging::displayName));
     }
 
-    /** The same invoice from reservations already in hand; the lookups take an id's string value. */
+    /** The stays at the given hotels: the stay's own hotel, else its option's; a stay with neither is nobody's. */
+    static List<Reservation> staysAt(final List<Reservation> reservations, final Set<String> accIds,
+            final Function<String, ReservationOffer> offers) {
+        final List<Reservation> theirs = new ArrayList<>();
+        for (final Reservation res : reservations) {
+            final ReservationOffer offer = offers.apply(LodgingCommands.idValue(res.getOfferId()));
+            final String accId = (res.getAccommodationId() != null) ? res.getAccommodationId().getValue()
+                    : (offer == null ? null : LodgingCommands.idValue(offer.getAccommodationId()));
+            if (accId != null && accIds.contains(accId)) {
+                theirs.add(res);
+            }
+        }
+        return theirs;
+    }
+
+    /** The same invoice from reservations already in hand, at COST, naming each person by their id. */
+    ReportCommands.RoomInvoice roomInvoice(final List<Reservation> reservations,
+            final Function<String, ReservationOffer> offers, final Function<String, Accommodation> accommodations) {
+        return roomInvoice(LodgingPricing.Side.COST, reservations, offers, accommodations, Person.Id::getValue);
+    }
+
+    /** The same invoice from reservations already in hand, at COST; the lookups take an id's string value. */
     ReportCommands.RoomInvoice roomInvoice(final List<Reservation> reservations,
             final Function<String, ReservationOffer> offers, final Function<String, Accommodation> accommodations,
             final Function<Person.Id, String> names) {
-        final List<Reservation> active = reservations.stream().filter(Reservation::isActive).toList();
-        final Map<String, List<Reservation>> byRoom = active.stream().filter(Reservation::isAssigned)
-                .collect(Collectors.groupingBy(Reservation::getRoomId, LinkedHashMap::new, Collectors.toList()));
-        final Map<String, ReportCommands.OfferTally> tallies = new LinkedHashMap<>();
-        final ReportCommands.RoomInvoice invoice = new ReportCommands.RoomInvoice();
-        for (final Reservation res : active) {
-            final ReservationOffer offer = offers.apply(LodgingCommands.idValue(res.getOfferId()));
-            if (offer == null) {
-                invoice.setUnpriced(invoice.getUnpriced() + 1);
-                continue;
-            }
-            final Accommodation acc = accommodations.apply(LodgingCommands.idValue(
-                    res.getAccommodationId() != null ? res.getAccommodationId() : offer.getAccommodationId()));
-            tallies.computeIfAbsent(offer.getId().getValue(), k -> new ReportCommands.OfferTally(offer, acc, names))
-                    .add(res, byRoom.getOrDefault(res.getRoomId(), List.of(res)));
-        }
-        return invoiceOf(invoice, tallies.values());
+        return roomInvoice(LodgingPricing.Side.COST, reservations, offers, accommodations, names);
     }
 
-    /** Offers gather under their hotel; each hotel and the whole invoice total their lines. */
-    private static ReportCommands.RoomInvoice invoiceOf(final ReportCommands.RoomInvoice invoice,
-            final Collection<ReportCommands.OfferTally> tallies) {
-        final Map<String, ReportCommands.InvoiceSection> sections = new LinkedHashMap<>();
-        final Set<Person.Id> guests = new LinkedHashSet<>();
-        final Set<String> rooms = new LinkedHashSet<>();
-        for (final ReportCommands.OfferTally tally : tallies) {
-            final ReportCommands.InvoiceOffer group = tally.toGroup();
-            if (group.getLines().isEmpty()) {
-                continue; // Zero-night stays only: nobody is charged for a night nobody slept.
-            }
-            final ReportCommands.InvoiceSection section = sections.computeIfAbsent(tally.accKey(),
-                    k -> sectionFor(tally.acc));
-            section.getOffers().add(group);
-            section.getPeople().addAll(tally.people);
-            guests.addAll(tally.guests);
-            rooms.addAll(tally.rooms.keySet());
-        }
-        for (final ReportCommands.InvoiceSection section : sections.values()) {
-            section.getOffers().sort(Comparator.comparing(ReportCommands.InvoiceOffer::getFirstNight)
-                    .thenComparing(ReportCommands.InvoiceOffer::getName, String.CASE_INSENSITIVE_ORDER));
-            section.setCents(section.getOffers().stream().mapToLong(ReportCommands.InvoiceOffer::getCents).sum());
-            section.setAmount(MoneyMath.formatCents(section.getCents()));
-            section.setSeveralOptions(section.getOffers().size() > 1);
-            section.getPeople().sort(PERSON_ORDER);
-            section.setPeopleCents(section.getPeople().stream()
-                    .mapToLong(ReportCommands.InvoicePersonLine::getCents).sum());
-            section.setPeopleAmount(MoneyMath.formatCents(section.getPeopleCents()));
-            invoice.getSections().add(section);
-        }
-        // Same arrival: by name, so the order does not depend on which reservation happened to be read first.
-        invoice.getSections().sort(Comparator.comparing(ReportCommands::firstNightOf)
-                .thenComparing(ReportCommands.InvoiceSection::getAccommodation, String.CASE_INSENSITIVE_ORDER));
-        invoice.setGuests(guests.size());
-        invoice.setRooms(rooms.size());
-        invoice.setCents(invoice.getSections().stream().mapToLong(ReportCommands.InvoiceSection::getCents).sum());
-        invoice.setAmount(MoneyMath.formatCents(invoice.getCents()));
-        return invoice;
-    }
-
-    private static LocalDate firstNightOf(final ReportCommands.InvoiceSection section) {
-        return section.getOffers().get(0).getFirstNight();
-    }
-
-    private static ReportCommands.InvoiceSection sectionFor(final Accommodation acc) {
-        final ReportCommands.InvoiceSection section = new ReportCommands.InvoiceSection();
-        section.setAccommodation(acc == null ? "Unknown accommodation" : trimmed(acc.getName()));
-        return section;
+    /** The invoice on either side from reservations already in hand: what {@code RoomInvoiceReportTest} drives. */
+    ReportCommands.RoomInvoice roomInvoice(final LodgingPricing.Side side, final List<Reservation> reservations,
+            final Function<String, ReservationOffer> offers, final Function<String, Accommodation> accommodations,
+            final Function<Person.Id, String> names) {
+        return RoomInvoiceBuilder.build(side, reservations, offers, accommodations, names);
     }
 
     /**
-     * Splits one guest's (or room's) nights by what the option charges for each, adding one to the quantity of
-     * the line for that price and exactly those nights. Two guests share a line only when they were billed for
-     * the same nights at the same price, which is what makes {@code quantity x nights x rate} the amount.
+     * BILLED VS COST: the participants' lodging bills (the PRICE build) beside what the hotels charge (the
+     * COST build) for the same stays, per hotel, per lodging option and per person, with the difference. The
+     * option rows carry the cost extras and cost concessions in their cost column and price concessions in
+     * their billed column; the person rows are net on both sides. Internal only (money on both sides).
      */
-    private static List<ReportCommands.InvoiceLine> countInto(final Map<String, ReportCommands.InvoiceLine> lines,
-            final ReportCommands.LineKind kind, final Set<LocalDate> nights, final Function<LocalDate, Long> price) {
-        final List<ReportCommands.InvoiceLine> touched = new ArrayList<>();
-        final Map<Long, TreeSet<LocalDate>> byPrice = new LinkedHashMap<>();
-        for (final LocalDate night : nights) {
-            byPrice.computeIfAbsent(price.apply(night), p -> new TreeSet<>()).add(night);
+    public ReportCommands.BilledVsCost billedVsCost(final String tripId) {
+        if (!knownTrip(tripId)) {
+            return new ReportCommands.BilledVsCost();
         }
-        for (final Map.Entry<Long, TreeSet<LocalDate>> entry : byPrice.entrySet()) {
-            final TreeSet<LocalDate> run = entry.getValue();
-            final String key = String.join("|", kind.name(), entry.getKey().toString(), run.first().toString(),
-                    run.last().toString(), String.valueOf(run.size()));
-            final ReportCommands.InvoiceLine line =
-                    lines.computeIfAbsent(key, k -> newLine(kind, entry.getKey(), run));
-            line.setQuantity(line.getQuantity() + 1);
-            touched.add(line);
-        }
-        return touched;
+        final LodgingCommands lodging = lodgingSource.get();
+        return billedVsCost(DAO.getInstance().getReservations(tripId, Cached.NO),
+                offerId -> lodging.findOffer(tripId, offerId), lodging::findAccommodation, lodging::displayName);
     }
 
-    private static ReportCommands.InvoiceLine newLine(final ReportCommands.LineKind kind, final long rateCents,
-            final TreeSet<LocalDate> nights) {
-        final ReportCommands.InvoiceLine line = new ReportCommands.InvoiceLine();
-        line.setKind(kind);
-        line.setItem(kind.item);
-        line.setRateCents(rateCents);
-        line.setRate(MoneyMath.formatCents(rateCents));
-        line.setFirstNight(nights.first());
-        line.setNights(nights.size());
-        line.setDates(stayWindowOf(nights.first(), nights.last().plusDays(1)));
-        return line;
+    /** The same comparison from reservations already in hand. */
+    ReportCommands.BilledVsCost billedVsCost(final List<Reservation> reservations,
+            final Function<String, ReservationOffer> offers, final Function<String, Accommodation> accommodations,
+            final Function<Person.Id, String> names) {
+        return RoomInvoiceBuilder.compare(
+                RoomInvoiceBuilder.build(LodgingPricing.Side.PRICE, reservations, offers, accommodations, names),
+                RoomInvoiceBuilder.build(LodgingPricing.Side.COST, reservations, offers, accommodations, names));
     }
 
-    /** {@code "Sep 21 - Sep 26, 2026"}: arrival to departure, the year once unless the stay crosses one. */
-    static String stayWindowOf(final LocalDate arrive, final LocalDate depart) {
-        return (arrive.getYear() == depart.getYear() ? SHORT_DAY.format(arrive) : DAY.format(arrive))
-                + " - " + DAY.format(depart);
+    /** getTrip answers a blank trip for an unknown id or one this site does not serve. */
+    private boolean knownTrip(final String tripId) {
+        return tripId != null && tripId.equals(tripSource.get().getTrip(tripId).getId());
     }
 
-    /** What one night costs under the option, in the words the option editor uses. */
-    static String rateOf(final ReservationOffer offer) {
-        final String nightly = offer.getNightlyPriceOverrides().isEmpty()
-                ? MoneyMath.formatCents(offer.getNightlyPriceCents()) : "Varies by night";
-        if (!offer.isPerPerson()) {
-            return nightly + " per room per night";
-        }
-        return nightly + " per person per night" + (offer.getSingleSupplementCents() > 0
-                ? ", single supplement " + MoneyMath.formatCents(offer.getSingleSupplementCents()) + " per night"
-                : "");
-    }
-
-    /**
-     * A per-person rate as one guest pays it: {@code "$50.00"}, plus {@code " + $10.00 single supplement"} when
-     * they were alone, and how many nights that was when it was not all of them.
-     */
-    static String personRateOf(final ReservationOffer offer, final List<LocalDate> nights,
-            final int supplementNights) {
-        final Set<Long> prices = nights.stream().map(offer::nightlyPriceCents).collect(Collectors.toSet());
-        final String base = prices.size() == 1 ? MoneyMath.formatCents(prices.iterator().next()) : "Varies by night";
-        if (supplementNights <= 0) {
-            return base;
-        }
-        return base + " + " + MoneyMath.formatCents(offer.getSingleSupplementCents()) + " single supplement"
-                + (supplementNights < nights.size() ? " (" + supplementNights
-                        + (supplementNights == 1 ? " night)" : " nights)") : "");
-    }
-
-    /**
-     * A per-room rate as one occupant pays it, which is their SHARE of the room each night (LodgingPricing's
-     * even split, remainder cents to the lowest ids): {@code "$60.00 room, alone"}, {@code "$30.00 (share of a
-     * $60.00 room)"}, or, when the share changed because someone arrived or left, {@code "Share of a $60.00
-     * room, varies by night"}.
-     */
-    static String roomShareOf(final ReservationOffer offer, final List<LocalDate> nights, final Person.Id person,
-            final Map<LocalDate, List<Person.Id>> occupancy) {
-        final Set<Long> prices = new LinkedHashSet<>();
-        final Set<Long> shares = new LinkedHashSet<>();
-        boolean alone = true;
-        for (final LocalDate night : nights) {
-            final List<Person.Id> present = occupancy.getOrDefault(night, List.of(person));
-            final long price = offer.nightlyPriceCents(night);
-            prices.add(price);
-            shares.add(MoneyMath.splitEvenly(price, present.size())[Math.max(0, present.indexOf(person))]);
-            alone = alone && present.size() == 1;
-        }
-        final String room = prices.size() == 1 ? "a " + MoneyMath.formatCents(prices.iterator().next()) + " room"
-                : "a room priced by night";
-        if (alone) {
-            return prices.size() == 1 ? MoneyMath.formatCents(prices.iterator().next()) + " room, alone"
-                    : "Room alone, priced by night";
-        }
-        return shares.size() == 1 ? MoneyMath.formatCents(shares.iterator().next()) + " (share of " + room + ")"
-                : "Share of " + room + ", varies by night";
-    }
-
-    /**
-     * {@code "3 Double rooms, 1 Single room"}: the rooms an option's guests sleep in, most-used type first,
-     * plus how many reservations still wait for a room. Price never depends on the type, so this is a note
-     * under the option rather than a split of its lines.
-     */
-    static String roomMixOf(final Map<String, Integer> byType, final int unplaced) {
-        final List<String> parts = byType.entrySet().stream()
-                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed()
-                        .thenComparing(Map.Entry.comparingByKey(String.CASE_INSENSITIVE_ORDER)))
-                .map(entry -> entry.getValue() + (entry.getKey().isEmpty() ? "" : " " + entry.getKey())
-                        + (entry.getValue() == 1 ? " room" : " rooms"))
-                .collect(Collectors.toCollection(ArrayList::new));
-        if (unplaced > 0) {
-            parts.add(unplaced + (unplaced == 1 ? " reservation" : " reservations") + " not yet placed in a room");
-        }
-        return String.join(", ", parts);
-    }
-
-    /** What a line counts and bills. */
+    /** What a line counts and bills; the order is the order lines take within an option. */
     public enum LineKind {
         GUESTS("Lodging", "guest", "guests"),
         SUPPLEMENT("Single supplement", "guest", "guests"),
-        ROOMS("Lodging", "room", "rooms");
+        ROOMS("Lodging", "room", "rooms"),
+        /** A cost extra (tax, fee, coupon): the item is its label; COST side only. */
+        EXTRA("Extra", "", ""),
+        /** One stay's discount on this side: a negative amount outside the arithmetic. */
+        CONCESSION("Concession", "", "");
 
         private final String item;
         private final String one;
@@ -570,144 +458,12 @@ public class ReportCommands {
             this.many = many;
         }
 
+        String item() {
+            return item;
+        }
+
         String unit(final int quantity) {
             return quantity == 1 ? one : many;
-        }
-    }
-
-    /**
-     * One lodging option while the invoice is gathered: every guest's nights, every alone night that carries
-     * the supplement, every room's nights, and the room-type mix. Never leaves this class.
-     */
-    private static final class OfferTally {
-        private final ReservationOffer offer;
-        private final Accommodation acc;
-        private final Map<Person.Id, TreeSet<LocalDate>> guestNights = new LinkedHashMap<>();
-        private final Map<Person.Id, TreeSet<LocalDate>> aloneNights = new LinkedHashMap<>();
-        /** Room id, or {@code res:<id>} for a reservation not placed in a room, which is billed as its own. */
-        private final Map<String, TreeSet<LocalDate>> rooms = new LinkedHashMap<>();
-        private final Map<String, Set<String>> roomsByType = new LinkedHashMap<>();
-        private final Set<Person.Id> guests = new LinkedHashSet<>();
-        private final Map<String, Set<Person.Id>> guestsByRoom = new LinkedHashMap<>();
-        /** One row per occupant per stay, for the hotel's per-person table. */
-        private final List<ReportCommands.InvoicePersonLine> people = new ArrayList<>();
-        private final Function<Person.Id, String> names;
-
-        private OfferTally(final ReservationOffer offer, final Accommodation acc,
-                final Function<Person.Id, String> names) {
-            this.offer = offer;
-            this.acc = acc;
-            this.names = names;
-        }
-
-        private void add(final Reservation res, final List<Reservation> onRoom) {
-            final Room room = (acc == null) ? null : acc.room(res.getRoomId());
-            final String roomKey = (room == null) ? "res:" + res.getId().getValue() : room.getId();
-            final List<LocalDate> nights = LodgingPricing.nightsOf(res.getStart(), res.getEnd());
-            if (nights.isEmpty()) {
-                return; // A zero-night stay sleeps nobody anywhere, so it is neither a guest nor a room.
-            }
-            rooms.computeIfAbsent(roomKey, k -> new TreeSet<>()).addAll(nights);
-            guestsByRoom.computeIfAbsent(roomKey, k -> new LinkedHashSet<>()).addAll(res.getOccupants());
-            if (room != null) {
-                roomsByType.computeIfAbsent(typeName(room.getRoomTypeId()), k -> new LinkedHashSet<>()).add(roomKey);
-            }
-            guests.addAll(res.getOccupants());
-            // Each occupant's charge IS their lodging bill: the same call, against the same room.
-            final List<Reservation> context = res.isAssigned() ? onRoom : List.of(res);
-            for (final LodgingPricing.Line line : LodgingPricing.price(res, offer, acc, context, null)) {
-                people.add(personLine(line, nights, context));
-            }
-            if (!offer.isPerPerson()) {
-                return;
-            }
-            // Alone is LodgingPricing's test: the only occupant of the room that night, across every stay on it.
-            final Map<LocalDate, List<Person.Id>> occupancy =
-                    LodgingPricing.occupancyByNight(res.isAssigned() ? onRoom : List.of(res));
-            final boolean supplemented = offer.getSingleSupplementCents() > 0 && !res.isSupplementWaived();
-            for (final Person.Id person : res.getOccupants()) {
-                guestNights.computeIfAbsent(person, k -> new TreeSet<>()).addAll(nights);
-                for (final LocalDate night : nights) {
-                    if (supplemented && occupancy.getOrDefault(night, List.of(person)).size() == 1) {
-                        aloneNights.computeIfAbsent(person, k -> new TreeSet<>()).add(night);
-                    }
-                }
-            }
-        }
-
-        private ReportCommands.InvoicePersonLine personLine(final LodgingPricing.Line bill,
-                final List<LocalDate> nights, final List<Reservation> context) {
-            final ReportCommands.InvoicePersonLine line = new ReportCommands.InvoicePersonLine();
-            final String name = names.apply(bill.personId());
-            line.setName(name == null || name.isBlank() ? bill.personId().getValue() : name);
-            line.setOption(trimmed(offer.getName()));
-            line.setFirstNight(nights.get(0));
-            line.setDates(stayWindowOf(nights.get(0), nights.get(nights.size() - 1).plusDays(1)));
-            line.setNights(bill.nights());
-            line.setRate(offer.isPerPerson() ? personRateOf(offer, nights, bill.supplementNights())
-                    : roomShareOf(offer, nights, bill.personId(), LodgingPricing.occupancyByNight(context)));
-            line.setCents(bill.amountCents());
-            line.setAmount(MoneyMath.formatCents(bill.amountCents()));
-            return line;
-        }
-
-        private String typeName(final String typeId) {
-            final RoomType type = acc.roomType(typeId);
-            return type == null ? "" : trimmed(type.getName());
-        }
-
-        private String accKey() {
-            return acc == null ? "" : acc.getId().getValue();
-        }
-
-        private ReportCommands.InvoiceOffer toGroup() {
-            final Map<String, ReportCommands.InvoiceLine> lines = new LinkedHashMap<>();
-            // Per-room lines name how many guests slept in THEIR rooms, so remember which rooms landed where.
-            final Map<ReportCommands.InvoiceLine, Set<Person.Id>> sleptOn = new IdentityHashMap<>();
-            if (offer.isPerPerson()) {
-                guestNights.values().forEach(n -> countInto(lines, LineKind.GUESTS, n, offer::nightlyPriceCents));
-                aloneNights.values().forEach(n -> countInto(lines, LineKind.SUPPLEMENT, n,
-                        night -> offer.getSingleSupplementCents()));
-            } else {
-                for (final Map.Entry<String, TreeSet<LocalDate>> room : rooms.entrySet()) {
-                    for (final ReportCommands.InvoiceLine line
-                            : countInto(lines, LineKind.ROOMS, room.getValue(), offer::nightlyPriceCents)) {
-                        sleptOn.computeIfAbsent(line, k -> new LinkedHashSet<>())
-                                .addAll(guestsByRoom.get(room.getKey()));
-                    }
-                }
-            }
-            final ReportCommands.InvoiceOffer group = new ReportCommands.InvoiceOffer();
-            group.setName(trimmed(offer.getName()));
-            group.setPricing(rateOf(offer));
-            group.setRoomMix(roomMixOf(roomsByType.entrySet().stream().collect(Collectors.toMap(
-                    Map.Entry::getKey, e -> e.getValue().size())), unplaced()));
-            for (final ReportCommands.InvoiceLine line : lines.values()) {
-                finish(line, sleptOn.getOrDefault(line, Set.of()).size());
-                group.getLines().add(line);
-            }
-            group.getLines().sort(Comparator.comparing(ReportCommands.InvoiceLine::getKind)
-                    .thenComparing(ReportCommands.InvoiceLine::getFirstNight)
-                    .thenComparing(ReportCommands.InvoiceLine::getRateCents));
-            group.setFirstNight(group.getLines().isEmpty() ? null : group.getLines().stream()
-                    .map(ReportCommands.InvoiceLine::getFirstNight).min(Comparator.naturalOrder()).orElseThrow());
-            group.setCents(group.getLines().stream().mapToLong(ReportCommands.InvoiceLine::getCents).sum());
-            group.setAmount(MoneyMath.formatCents(group.getCents()));
-            return group;
-        }
-
-        private int unplaced() {
-            return (int) rooms.keySet().stream().filter(key -> key.startsWith("res:")).count();
-        }
-
-        /** The amount IS the arithmetic; a per-room line also says how many guests slept in those rooms. */
-        private static void finish(final ReportCommands.InvoiceLine line, final int slept) {
-            line.setUnit(line.getKind().unit(line.getQuantity()));
-            line.setCents(line.getQuantity() * line.getNights() * line.getRateCents());
-            line.setAmount(MoneyMath.formatCents(line.getCents()));
-            if (line.getKind() == LineKind.ROOMS) {
-                line.setNote(slept + (slept == 1 ? " guest" : " guests"));
-            }
         }
     }
 
@@ -723,8 +479,12 @@ public class ReportCommands {
         private int rooms;
         private long cents;
         private String amount = MoneyMath.formatCents(0L);
-        /** Active reservations whose lodging option no longer exists, so nothing can price them. */
+        /** Active reservations whose lodging option no longer exists (or has no schedule on this side). */
         private int unpriced;
+        /** COST build: at least one option is priced at the participant price for want of a stated cost. */
+        private boolean anyCostAssumed;
+        /** How many options that is; what the page's warning counts. */
+        private int assumedOptions;
     }
 
     /** One hotel's part of the invoice, with its own subtotal. */
@@ -734,16 +494,21 @@ public class ReportCommands {
         @Serial
         private static final long serialVersionUID = 1L;
         private String accommodation;
+        /** The hotel's id, or "" for a hotel that no longer exists; what an operator's filter matches on. */
+        private String accommodationId = "";
         private List<ReportCommands.InvoiceOffer> offers = new ArrayList<>();
         private long cents;
         private String amount;
-        /** The same money charged per person: each row is that person's lodging bill for one stay. */
+        /** The same money charged per person: each row is that person's line for one stay, net of concessions. */
         private List<ReportCommands.InvoicePersonLine> people = new ArrayList<>();
         /** More than one lodging option here, so each person row names the one its stay is under. */
         private boolean severalOptions;
-        /** Equal to {@link #cents}: both tables add up the same bills, by option and by person. */
+        /** {@link #cents} less {@link #extrasCents}: the extras are the one thing not attributed to a person. */
         private long peopleCents;
         private String peopleAmount;
+        /** The cost extras (taxes, fees, coupons) in this hotel's groups; signed, 0 on the PRICE side. */
+        private long extrasCents;
+        private String extrasAmount = MoneyMath.formatCents(0L);
     }
 
     /** One lodging option's lines, under a heading that says how it prices and which rooms it fills. */
@@ -752,7 +517,10 @@ public class ReportCommands {
     public static final class InvoiceOffer implements Serializable {
         @Serial
         private static final long serialVersionUID = 1L;
+        private String offerId;
         private String name;
+        /** COST build: no hotel cost is on file, so the group is priced at the participant price. */
+        private boolean costAssumed;
         /** {@code "$50.00 per person per night, single supplement $10.00 per night"}. */
         private String pricing;
         /** {@code "3 Double rooms, 1 Single room"}. */
@@ -769,6 +537,8 @@ public class ReportCommands {
     public static final class InvoicePersonLine implements Serializable {
         @Serial
         private static final long serialVersionUID = 1L;
+        private String reservationId;
+        private String personId;
         /** "Preferred Last". */
         private String name;
         /** The lodging option the stay is under. */
@@ -776,8 +546,9 @@ public class ReportCommands {
         private LocalDate firstNight;
         private String dates;
         private int nights;
-        /** What one night costs THIS person, supplement or room share included. */
+        /** What one night costs THIS person, supplement or room share included, "(10% discount)" when one applies. */
         private String rate;
+        /** NET of any concession on this side. */
         private long cents;
         private String amount;
     }
@@ -789,21 +560,104 @@ public class ReportCommands {
         @Serial
         private static final long serialVersionUID = 1L;
         private ReportCommands.LineKind kind;
-        /** "Lodging" or "Single supplement". */
+        /** "Lodging", "Single supplement", an extra's label, or "Concession". */
         private String item;
         private LocalDate firstNight;
         /** Arrival to departure, {@code "Sep 21 - Sep 26, 2026"}. */
         private String dates;
         private int quantity;
-        /** "guest", "guests", "room" or "rooms", to read after the quantity. */
+        /** "guest", "guests", "room", "rooms", an extra's "guest-nights"; empty for a concession. */
         private String unit;
+        /** 1 for an extra, 0 for a concession (which has no rate either). */
         private int nights;
         private long rateCents;
         private String rate;
+        /** Signed: a coupon or a concession is negative. */
         private long cents;
         private String amount;
-        /** A per-room line's guest count; empty otherwise. */
+        /** A per-room line's guest count, or a concession's "Ada, Bob: 10% discount -- reason"; empty otherwise. */
         private String note = "";
+
+        public boolean isExtra() {
+            return kind == ReportCommands.LineKind.EXTRA;
+        }
+
+        public boolean isConcession() {
+            return kind == ReportCommands.LineKind.CONCESSION;
+        }
+    }
+
+    /** Billed vs Cost: the whole report, a section per hotel, then the trip's totals and the difference. */
+    @Data
+    @NoArgsConstructor
+    public static final class BilledVsCost implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private List<ReportCommands.BilledVsCostSection> sections = new ArrayList<>();
+        private long billedCents;
+        private long costCents;
+        /** Billed less cost: positive when the participants cover the hotel. */
+        private long differenceCents;
+        private String billed = MoneyMath.formatCents(0L);
+        private String cost = MoneyMath.formatCents(0L);
+        private String difference = MoneyMath.formatCents(0L);
+        private boolean anyCostAssumed;
+    }
+
+    /** One hotel's part of Billed vs Cost: its options, its people, and its own three totals. */
+    @Data
+    @NoArgsConstructor
+    public static final class BilledVsCostSection implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String accommodation;
+        private String accommodationId = "";
+        private List<ReportCommands.BilledVsCostOption> options = new ArrayList<>();
+        private List<ReportCommands.BilledVsCostPerson> people = new ArrayList<>();
+        private long billedCents;
+        private long costCents;
+        private long differenceCents;
+        private String billed;
+        private String cost;
+        private String difference;
+    }
+
+    /** One lodging option: its group total on each side (extras and concessions included) and the difference. */
+    @Data
+    @NoArgsConstructor
+    public static final class BilledVsCostOption implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String offerId;
+        private String name;
+        private long billedCents;
+        private long costCents;
+        private long differenceCents;
+        private String billed;
+        private String cost;
+        private String difference;
+        private boolean costAssumed;
+    }
+
+    /** One person's stay: their net line on each side and the difference. */
+    @Data
+    @NoArgsConstructor
+    public static final class BilledVsCostPerson implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String reservationId;
+        private String personId;
+        private String name;
+        private String option;
+        private LocalDate firstNight;
+        private String dates;
+        private int nights;
+        private long billedCents;
+        private long costCents;
+        private long differenceCents;
+        private String billed;
+        private String cost;
+        private String difference;
     }
 
     /** One accommodation's page of the rooming report: its own heading, its own table, its own sheet of paper. */

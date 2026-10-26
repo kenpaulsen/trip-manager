@@ -9,7 +9,6 @@ import java.io.Serializable;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -18,18 +17,35 @@ import lombok.Data;
 import lombok.Value;
 
 /**
- * What a trip offers its members at one {@link Accommodation} for one {@link RoomType}: the nightly price and
- * how it is charged ({@link PricingModel}), the single-room supplement, the stay the offer defaults to, the
- * window in which it may be taken, the minimum stay, the policy text and the cancellation fee. A row in
- * {@code lodging_offers} (PK tripId, SK id), so it is org-owned through its trip.
+ * What a trip offers its members at one {@link Accommodation} for one or more {@link RoomType}s: the stay the
+ * offer defaults to, the window in which it may be taken, the minimum stay, the policy text, the cancellation
+ * fee, and TWO money schedules. A row in {@code lodging_offers} (PK tripId, SK id), so it is org-owned through
+ * its trip.
+ *
+ * <p><b>Price vs cost.</b> {@code price} is what a participant PAYS (the bills); {@code cost} is what the hotel
+ * CHARGES us (the Room Invoice), plus {@code costExtras} (taxes, fees, coupons). Either may be null: a null
+ * {@code price} means "needs participant pricing" (no reservation may be taken on it); a null {@code cost}
+ * means the cost is ASSUMED to equal the price ({@link #effectiveCost()}, {@link #isCostAssumed()}). When the
+ * offer was copied from a hotel {@link RatePlan}, {@code ratePlanId}/{@code ratePlanVersion} say which and
+ * at what version; the schedules are still the offer's own copy.
+ *
+ * <p><b>The fold (reading JSON).</b> Rows written before the split carried the price as four flat keys
+ * ({@code pricingModel}, {@code nightlyPriceCents}, {@code nightlyPriceOverrides}, {@code singleSupplementCents}).
+ * The constructor reads, in order: a {@code price} object wins; else {@code "priced": false} means unpriced;
+ * else any of the four legacy keys present (every old row wrote {@code nightlyPriceCents}, so a legacy row
+ * always qualifies) builds {@code price} from them -- so every existing row, a $0 one included, reads as
+ * PRICED at its old numbers; else (nothing at all: a fresh builder, {@code new ReservationOffer()}) the offer
+ * is UNPRICED. A builder that sets {@code nightlyPriceCents(60_00L)} therefore gets a priced offer, which is
+ * what the tests and the pre-split callers rely on.
+ *
+ * <p><b>The mirror (writing JSON).</b> Besides {@code price}/{@code priced}, every row still writes the four
+ * legacy keys as mirrors of the price side, so an OLD instance in a rolling deploy prices it correctly
+ * ({@code DAO.createObjectMapper} ignores unknown properties, so without the mirror it would read $0 and
+ * soft-delete every bill). The mirror comes off one release later ({@code docs/migrations/lodging-price-cost.md}).
  *
  * <p>{@code tripEventId} names the trip's LODGING {@link TripEvent} that tracks everyone staying at this
  * property; several offers (single, double, ...) usually share one event. Every {@link Reservation} of this
  * offer adds its occupants to that event.
- *
- * <p>Money is long cents ({@code pay/MoneyMath}); {@code nightlyPriceOverrides} is keyed by ISO date
- * ({@code "2026-09-14"}) so the JSON stays greppable and needs no jsr310 map-key serializer. Empty means
- * every night costs {@code nightlyPriceCents}.
  */
 @Data
 public final class ReservationOffer implements Serializable {
@@ -45,10 +61,15 @@ public final class ReservationOffer implements Serializable {
     /** The room types this option sells (several often share one price); never empty once saved. */
     private List<String> roomTypeIds;
     private String tripEventId;
-    private PricingModel pricingModel;
-    private long nightlyPriceCents;
-    private Map<String, Long> nightlyPriceOverrides;
-    private long singleSupplementCents;
+    /** What a participant pays; null = needs participant pricing. */
+    private RateSchedule price;
+    /** What the hotel charges; null = assumed equal to the price. */
+    private RateSchedule cost;
+    /** Hotel-side extras (taxes, fees, coupons); never null, never on a bill. */
+    private List<CostExtra> costExtras;
+    /** The {@link RatePlan} this offer was copied from, when any; blank = standalone. */
+    private String ratePlanId;
+    private long ratePlanVersion;
     private int minNights;
     private LocalDateTime validFrom;
     private LocalDateTime validUntil;
@@ -76,9 +97,15 @@ public final class ReservationOffer implements Serializable {
             @JsonProperty("roomTypeIds") final List<String> roomTypeIds,
             @JsonProperty("tripEventId") final String tripEventId,
             @JsonProperty("pricingModel") final PricingModel pricingModel,
-            @JsonProperty("nightlyPriceCents") final long nightlyPriceCents,
+            @JsonProperty("nightlyPriceCents") final Long nightlyPriceCents,
             @JsonProperty("nightlyPriceOverrides") final Map<String, Long> nightlyPriceOverrides,
-            @JsonProperty("singleSupplementCents") final long singleSupplementCents,
+            @JsonProperty("singleSupplementCents") final Long singleSupplementCents,
+            @JsonProperty("price") final RateSchedule price,
+            @JsonProperty("priced") final Boolean priced,
+            @JsonProperty("cost") final RateSchedule cost,
+            @JsonProperty("costExtras") final List<CostExtra> costExtras,
+            @JsonProperty("ratePlanId") final String ratePlanId,
+            @JsonProperty("ratePlanVersion") final Long ratePlanVersion,
             @JsonProperty("minNights") final int minNights,
             @JsonProperty("validFrom") final LocalDateTime validFrom,
             @JsonProperty("validUntil") final LocalDateTime validUntil,
@@ -106,11 +133,12 @@ public final class ReservationOffer implements Serializable {
             this.roomTypeIds.add(0, roomTypeId);
         }
         this.tripEventId = tripEventId;
-        this.pricingModel = (pricingModel == null) ? PricingModel.PER_ROOM : pricingModel;
-        this.nightlyPriceCents = Math.max(0L, nightlyPriceCents);
-        this.nightlyPriceOverrides =
-                (nightlyPriceOverrides == null) ? new HashMap<>() : new HashMap<>(nightlyPriceOverrides);
-        this.singleSupplementCents = Math.max(0L, singleSupplementCents);
+        this.price = foldPrice(price, priced, pricingModel, nightlyPriceCents, nightlyPriceOverrides,
+                singleSupplementCents);
+        this.cost = cost;
+        this.costExtras = (costExtras == null) ? new ArrayList<>() : new ArrayList<>(costExtras);
+        this.ratePlanId = (ratePlanId == null || ratePlanId.isBlank()) ? null : ratePlanId;
+        this.ratePlanVersion = (ratePlanVersion == null) ? 0L : ratePlanVersion;
         this.minNights = Math.max(1, minNights);
         this.validFrom = validFrom;
         this.validUntil = validUntil;
@@ -126,21 +154,138 @@ public final class ReservationOffer implements Serializable {
     }
 
     public ReservationOffer() {
-        this(null, null, null, null, null, null, null, null, null, null, 0L, null, 0L, 0, null, null, null, null,
-                null, null, null, null, null, null, 0L);
+        this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, 0, null, null, null, null, null, null, null, null, null, null, 0L);
     }
 
-    /** The price of one night: the per-date override when one exists, else the flat rate. */
+    /** The fold the class javadoc describes: price object, then the explicit flag, then the legacy keys. */
+    private static RateSchedule foldPrice(final RateSchedule price, final Boolean priced,
+            final PricingModel pricingModel, final Long nightlyPriceCents, final Map<String, Long> overrides,
+            final Long singleSupplementCents) {
+        if (price != null) {
+            return price;
+        }
+        if (Boolean.FALSE.equals(priced)) {
+            return null;
+        }
+        final boolean legacy = pricingModel != null || nightlyPriceCents != null || overrides != null
+                || singleSupplementCents != null;
+        if (!legacy) {
+            return null;
+        }
+        return new RateSchedule(pricingModel, (nightlyPriceCents == null) ? 0L : nightlyPriceCents, overrides,
+                (singleSupplementCents == null) ? 0L : singleSupplementCents);
+    }
+
+    /** A stream written before the split has no {@code costExtras}; the list is never null in the live object. */
+    @Serial
+    private Object readResolve() {
+        if (costExtras == null) {
+            costExtras = new ArrayList<>();
+        }
+        if (roomTypeIds == null) {
+            roomTypeIds = new ArrayList<>();
+        }
+        return this;
+    }
+
+    // ------------------------------------------------------------------ price side: derived + mirror
+
+    /** Whether a participant price is set. Persisted so an unpriced row is distinguishable from a legacy one. */
+    @JsonProperty("priced")
+    public boolean isPriced() {
+        return price != null;
+    }
+
+    /** Legacy mirror of the price side (PER_ROOM when unpriced). Removed one release after the split. */
+    @JsonProperty("pricingModel")
+    public PricingModel getPricingModel() {
+        return (price == null) ? PricingModel.PER_ROOM : price.getPricingModel();
+    }
+
+    /** Legacy mirror of the price side (0 when unpriced). Removed one release after the split. */
+    @JsonProperty("nightlyPriceCents")
+    public long getNightlyPriceCents() {
+        return (price == null) ? 0L : price.getNightlyCents();
+    }
+
+    /** Legacy mirror of the price side (empty when unpriced; the live map otherwise, so mutations stick). */
+    @JsonProperty("nightlyPriceOverrides")
+    public Map<String, Long> getNightlyPriceOverrides() {
+        return (price == null) ? Map.of() : price.getOverrides();
+    }
+
+    /** Legacy mirror of the price side (0 when unpriced). Removed one release after the split. */
+    @JsonProperty("singleSupplementCents")
+    public long getSingleSupplementCents() {
+        return (price == null) ? 0L : price.getSingleSupplementCents();
+    }
+
+    /** The participant's price of one night: the per-date override when one exists, else the flat rate; 0 unpriced. */
     @JsonIgnore
     public long nightlyPriceCents(final LocalDate night) {
-        final Long override = (night == null) ? null : nightlyPriceOverrides.get(night.toString());
-        return (override == null) ? nightlyPriceCents : Math.max(0L, override);
+        return (price == null) ? 0L : price.nightlyCents(night);
     }
 
+    /** Whether the PRICE side charges per person; false when unpriced. */
     @JsonIgnore
     public boolean isPerPerson() {
-        return pricingModel == PricingModel.PER_PERSON;
+        return price != null && price.isPerPerson();
     }
+
+    /** What the hotel charges: the cost schedule, or the price when none is set; null when neither is. */
+    @JsonIgnore
+    public RateSchedule effectiveCost() {
+        return (cost != null) ? cost : price;
+    }
+
+    /** Whether the Room Invoice is pricing this option at the participant price for want of a stated cost. */
+    @JsonIgnore
+    public boolean isCostAssumed() {
+        return cost == null && price != null;
+    }
+
+    /** Whether the offer was copied from a hotel rate plan (and follows its edits). */
+    @JsonIgnore
+    public boolean isLinked() {
+        return ratePlanId != null && !ratePlanId.isBlank();
+    }
+
+    // ------------------------------------------------------------------ legacy setters (price side)
+
+    /** @deprecated writes the PRICE side; Phase 2 UI replaces this. */
+    @Deprecated
+    public void setPricingModel(final PricingModel pricingModel) {
+        priceForWrite().setPricingModel(pricingModel);
+    }
+
+    /** @deprecated writes the PRICE side; Phase 2 UI replaces this. */
+    @Deprecated
+    public void setNightlyPriceCents(final long nightlyPriceCents) {
+        priceForWrite().setNightlyCents(nightlyPriceCents);
+    }
+
+    /** @deprecated writes the PRICE side; Phase 2 UI replaces this. */
+    @Deprecated
+    public void setNightlyPriceOverrides(final Map<String, Long> nightlyPriceOverrides) {
+        priceForWrite().setOverrides(nightlyPriceOverrides);
+    }
+
+    /** @deprecated writes the PRICE side; Phase 2 UI replaces this. */
+    @Deprecated
+    public void setSingleSupplementCents(final long singleSupplementCents) {
+        priceForWrite().setSingleSupplementCents(singleSupplementCents);
+    }
+
+    /** The price schedule a legacy setter writes into, created on first write (a legacy write means "priced"). */
+    private RateSchedule priceForWrite() {
+        if (price == null) {
+            price = new RateSchedule();
+        }
+        return price;
+    }
+
+    // ------------------------------------------------------------------ the rest
 
     @JsonIgnore
     public boolean isEnabled() {
@@ -176,6 +321,24 @@ public final class ReservationOffer implements Serializable {
     @JsonIgnore
     public String firstRoomTypeId() {
         return roomTypeIds.isEmpty() ? null : roomTypeIds.get(0);
+    }
+
+    /**
+     * The hand-written half of the Lombok builder: the legacy money params are boxed {@code Long}s in the
+     * constructor (so Jackson can tell "absent" from 0), but every caller writes {@code nightlyPriceCents(5500)}
+     * with a plain literal, which does not box to {@code Long}. Lombok skips a builder method that already
+     * exists by name, so these two keep the call sites compiling.
+     */
+    public static class ReservationOfferBuilder {
+        public ReservationOfferBuilder nightlyPriceCents(final long cents) {
+            this.nightlyPriceCents = cents;
+            return this;
+        }
+
+        public ReservationOfferBuilder singleSupplementCents(final long cents) {
+            this.singleSupplementCents = cents;
+            return this;
+        }
     }
 
     @Value

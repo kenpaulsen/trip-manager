@@ -39,6 +39,7 @@ public final class AuditEventBuilder {
     public static final String TARGET_ACCOMMODATION = "accommodation";
     public static final String TARGET_OFFER = "offer";
     public static final String TARGET_RESERVATION = "reservation";
+    public static final String TARGET_RATE_PLAN = "ratePlan";
 
     private final AuditAction action;
     private final AuditOutcome outcome;

@@ -77,10 +77,17 @@ public final class LodgingViews {
         private String adminNotes;
     }
 
-    /** The offer dialog's inputs. Dollars in the UI ({@code p:inputNumber}), converted once on save. */
+    /**
+     * The offer dialog's inputs. Dollars in the UI ({@code p:inputNumber}), converted once on save. Two money
+     * fieldsets: the PARTICIPANT PRICE ({@code priceKnown}, {@code pricingModel}, {@code nightlyPrice},
+     * {@code perNightPricing}/{@code perNight}, {@code singleSupplement}) and the HOTEL COST ({@code costKnown},
+     * {@code costPricingModel}, {@code costNightlyPrice}, {@code costPerNight}/{@code costPerNightRates},
+     * {@code costSupplement}, {@code costExtras}). {@code priceKnown} off saves the option as "needs participant
+     * pricing" (no stay may be reserved on it); {@code costKnown} off leaves the cost assumed equal to the price.
+     */
     @Data
     @NoArgsConstructor
-    public static final class OfferForm implements Serializable {
+    public static final class OfferForm implements Serializable, HasCostExtras {
         @Serial
         private static final long serialVersionUID = 1L;
         public static final String NEW_EVENT = "NEW";
@@ -94,6 +101,14 @@ public final class LodgingViews {
         /** An existing LODGING event id, or {@link #NEW_EVENT} to create one from the default stay. */
         private String tripEventId;
         private String newEventTitle;
+        /**
+         * The hotel {@code RatePlan} this option follows, or null for a standalone option. When set, the save
+         * COPIES both schedules and the extras from the plan and ignores the money fields below: the trip's
+         * terms (name, event, minimum nights, policy, fee, defaults) stay editable, the pricing is the plan's.
+         */
+        private String ratePlanId;
+        /** Off = "needs participant pricing": the price fieldset is ignored and the option takes no stays. */
+        private boolean priceKnown = true;
         private String pricingModel = "PER_ROOM";
         private Double nightlyPrice;
         private boolean perNightPricing;
@@ -104,6 +119,16 @@ public final class LodgingViews {
          */
         private Map<String, String> perNight = new LinkedHashMap<>();
         private Double singleSupplement;
+        /** Off = the hotel's cost is not stated and is ASSUMED equal to the price (the Room Invoice says so). */
+        private boolean costKnown;
+        private String costPricingModel = "PER_ROOM";
+        private Double costNightlyPrice;
+        /** The cost side's per-night toggle; {@link #costPerNightRates} is its table (same shape as the price's). */
+        private boolean costPerNight;
+        private Map<String, String> costPerNightRates = new LinkedHashMap<>();
+        private Double costSupplement;
+        /** Taxes, fees and coupons the hotel adds to its invoice; never on a bill. */
+        private List<CostExtraForm> costExtras = new ArrayList<>();
         private int minNights = 1;
         private LocalDateTime validFrom;
         private LocalDateTime validUntil;
@@ -123,6 +148,12 @@ public final class LodgingViews {
         private String cancelFeeKind = "FLAT";
         private Double cancelFeeAmount;
         private boolean disabled;
+        /** Why the last save was refused, shown IN the dialog (see {@link ReservationForm#problem}). */
+        private String problem;
+
+        public void setCostExtras(final List<CostExtraForm> extras) {
+            costExtras = (extras == null) ? new ArrayList<>() : new ArrayList<>(extras);
+        }
 
         /*
          * The two shapes stay in sync through their setters: the dialog writes the ranges and times (in
@@ -195,6 +226,81 @@ public final class LodgingViews {
             if (departureTime == null) {
                 departureTime = (defaultEnd == null) ? DEFAULT_DEPARTURE : defaultEnd.toLocalTime();
             }
+        }
+    }
+
+    /** A form with an editable list of cost extras: the offer dialog and the operator's cost dialog. */
+    public interface HasCostExtras extends Serializable {
+        List<CostExtraForm> getCostExtras();
+    }
+
+    /**
+     * One hotel-side extra on the offer dialog and the operator's cost dialog: a label ("City tax"), a
+     * {@code CostExtra.Basis} name, and a SIGNED dollar amount (a coupon is negative).
+     */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static final class CostExtraForm implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String label;
+        private String basis = "FIXED";
+        private Double amount;
+    }
+
+    /**
+     * The operator's "Set cost" dialog on the hotel page's Trips tab: the COST side of one trip option and
+     * nothing else -- no price field exists here, so a Hotel Operator can never reach the participant's price.
+     * {@code costKnown} off clears the stated cost (back to "assumed = price").
+     */
+    @Data
+    @NoArgsConstructor
+    public static final class OfferCostForm implements Serializable, HasCostExtras {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String tripId;
+        private String offerId;
+        private String offerName;
+        private boolean costKnown;
+        private String costPricingModel = "PER_ROOM";
+        private Double costNightlyPrice;
+        private Double costSupplement;
+        private List<CostExtraForm> costExtras = new ArrayList<>();
+        /** Shown IN the dialog when the save is refused. */
+        private String problem;
+
+        public void setCostExtras(final List<CostExtraForm> extras) {
+            costExtras = (extras == null) ? new ArrayList<>() : new ArrayList<>(extras);
+        }
+    }
+
+    /**
+     * The concession dialogs' inputs: ONE side of one stay. {@code side} is "PRICE" (the participants' bills
+     * shrink in place; internal callers) or "COST" (the hotel forgave us; the hotel's operator too). {@code kind}
+     * is a {@code Concession.Kind} name or "" for none (clears); {@code amount} is dollars, or the percent for
+     * PERCENT (10 or 12.5). {@code preview} is the stay's new total on the PRICE side, read-only.
+     */
+    @Data
+    @NoArgsConstructor
+    public static final class ConcessionForm implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String tripId;
+        private String reservationId;
+        private String side = "PRICE";
+        private String kind = "";
+        private Double amount;
+        private String reason;
+        /** Who the stay is for, for the dialog's header line. */
+        private String occupants;
+        /** What the side says now ("10% discount"), or "" when nothing is granted. */
+        private String current;
+        private String preview;
+        private String problem;
+
+        public boolean isPriceSide() {
+            return !"COST".equalsIgnoreCase(side);
         }
     }
 
@@ -617,11 +723,22 @@ public final class LodgingViews {
         private String accommodationName;
         private String roomTypeName;
         private String eventTitle;
+        /** The participant price ("$120.00/night per room"), or "needs participant pricing". */
         private String pricing;
         private String validity;
         private String defaultStay;
         private int reservationCount;
         private boolean enabled;
+        /** The hotel's cost, or "not set (assumed = price)". */
+        private String cost;
+        /** True while the option has no participant price: no stay may be reserved on it. */
+        private boolean needsPricing;
+        /** The hotel rate plan this option follows, by name; null for a standalone option. */
+        private String ratePlanName;
+        /** True when the plan has been saved since this option last copied it (a fan-out write was lost). */
+        private boolean planDrift;
+        /** True when the option follows a rate plan (the "from plan X" chip, the Detach button). */
+        private boolean linked;
     }
 
     @Data
@@ -642,6 +759,10 @@ public final class LodgingViews {
         private boolean active;
         private boolean supplementWaived;
         private String notes;
+        /** The price-side concession's label ("10% discount"), null when none. */
+        private String priceConcession;
+        /** The cost-side concession's label, null when none. */
+        private String costConcession;
     }
 
     /** One occupant on the rooming list and the reports; people with no reservation come last. */

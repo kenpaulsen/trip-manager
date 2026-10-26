@@ -5,17 +5,23 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.paulsens.trip.action.LodgingCommands;
 import org.paulsens.trip.action.LodgingViews;
 import org.paulsens.trip.action.OrgCommands;
+import org.paulsens.trip.action.PersonCommands;
+import org.paulsens.trip.action.RatePlanCommands;
+import org.paulsens.trip.action.RatePlanViews;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Reservation;
+import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
@@ -68,6 +74,9 @@ public class LodgingResourceTest extends ResourceTestSupport {
 
     @BeforeMethod
     public void bindBeans() {
+        // The operators endpoint resolves its person through BaseResource.findPerson: the real bean, so a real
+        // id is found and a made-up one is a 404 (a mock would answer null for both).
+        bind(PersonCommands.class, new PersonCommands());
         resource = resource(new LodgingResource());
     }
 
@@ -79,6 +88,13 @@ public class LodgingResourceTest extends ResourceTestSupport {
         assertError(resource.createReservations(trip.getId(), null, Map.of()), 403, ApiErrors.CSRF);
         assertError(resource.assignRoom(trip.getId(), "r", null, Map.of()), 403, ApiErrors.CSRF);
         assertError(resource.createBlock("acc", null, Map.of()), 403, ApiErrors.CSRF);
+        assertError(resource.addOperator("acc", null, Map.of()), 403, ApiErrors.CSRF);
+        assertError(resource.removeOperator("acc", "p", null), 403, ApiErrors.CSRF);
+        assertError(resource.setOfferCost(trip.getId(), "o", null, Map.of()), 403, ApiErrors.CSRF);
+        assertError(resource.setConcession(trip.getId(), "r", "price", null, Map.of()), 403, ApiErrors.CSRF);
+        assertError(resource.createRatePlan("acc", null, Map.of()), 403, ApiErrors.CSRF);
+        assertError(resource.createOfferFromPlan(trip.getId(), null, Map.of()), 403, ApiErrors.CSRF);
+        assertError(resource.detachOffer(trip.getId(), "o", null), 403, ApiErrors.CSRF);
         // Ada is on the roster but manages nothing: refused everywhere.
         assertError(resource.createAccommodation(CSRF_OK, Map.of("name", "X")), 403, ApiErrors.FORBIDDEN);
         assertError(resource.accommodations(), 403, ApiErrors.FORBIDDEN);
@@ -88,6 +104,264 @@ public class LodgingResourceTest extends ResourceTestSupport {
         assertError(resource.assignRoom(trip.getId(), "r", CSRF_OK, Map.of()), 403, ApiErrors.FORBIDDEN);
         assertError(resource.createBlock("acc", CSRF_OK, Map.of()), 403, ApiErrors.FORBIDDEN);
         assertError(resource.calendar("acc", "2026-09"), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.addOperator("acc", CSRF_OK, Map.of("personId", bob.getId().getValue())), 403,
+                ApiErrors.FORBIDDEN);
+        assertError(resource.removeOperator("acc", bob.getId().getValue(), CSRF_OK), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.createRatePlan("acc", CSRF_OK, Map.of("name", "X")), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.ratePlans("acc"), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.createOfferFromPlan(trip.getId(), CSRF_OK, Map.of()), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.detachOffer(trip.getId(), "o", CSRF_OK), 403, ApiErrors.FORBIDDEN);
+        // The two money endpoints answer 404 before 403 (the gate needs the row's hotel), so a stranger probing
+        // a real row is what proves the gate: see theCostAndConcessionEndpointsFollowTheirGates.
+        assertError(resource.setOfferCost(trip.getId(), "nope", CSRF_OK, Map.of()), 404, ApiErrors.NOT_FOUND);
+        assertError(resource.setConcession(trip.getId(), "nope", "cost", CSRF_OK, Map.of()), 404,
+                ApiErrors.NOT_FOUND);
+        assertError(resource.setConcession(trip.getId(), "nope", "sideways", CSRF_OK, Map.of()), 400,
+                ApiErrors.VALIDATION_FAILED);
+    }
+
+    /**
+     * The cost endpoint is the operator's: allowed at their own hotel, refused at another, and it has no price
+     * field to reach. The concessions endpoint follows its side: PRICE is the trip's alone, COST is also the
+     * operator's; a bad kind is a 400 with the bean's own reason.
+     */
+    @Test
+    public void theCostAndConcessionEndpointsFollowTheirGates() throws IOException {
+        signedInAsSiteAdmin(admin.getId());
+        final Person guest = savedPerson("Cga");
+        final Person keeper = savedPerson("Cgk");
+        final Trip own = Trip.builder().id(UUID.randomUUID().toString()).title("Cost gates trip")
+                .startDate(CHECK_IN).endDate(CHECK_OUT).people(new ArrayList<>(List.of(guest.getId()))).build();
+        own.setOrgId(orgId);
+        assertTrue(DAO.getInstance().saveTrip(own));
+        final String[] a = offerAtNewHotel(own.getId(), "Cost Pansion", "Double room");
+        final String[] b = offerAtNewHotel(own.getId(), "Cost Berulia", "Double room");
+        assertOk(resource.addOperator(a[0], CSRF_OK, Map.of("personId", keeper.getId().getValue())));
+        final String resId = reservationId(resource.createReservations(own.getId(), CSRF_OK,
+                Map.of("offerId", a[1], "personIds", List.of(guest.getId().getValue()))));
+        final LodgingCommands lodging = new LodgingCommands(LodgingResourceTest::siteAdmin);
+
+        signedInAs(keeper.getId());
+        final LodgingResource asKeeper = resource(new LodgingResource());
+        final Map<String, Object> cost = new HashMap<>();
+        cost.put("costPricingModel", "PER_PERSON");
+        cost.put("costNightlyPrice", 45);
+        cost.put("costSupplement", 5);
+        cost.put("costExtras", List.of(Map.of("label", "City tax", "basis", "PER_PERSON_NIGHT", "amount", 1.5)));
+        final Response set = asKeeper.setOfferCost(own.getId(), a[1], CSRF_OK, cost);
+        assertOk(set);
+        assertEquals(((Map<?, ?>) set.getEntity()).get("costKnown"), true);
+        final ReservationOffer offer = lodging.findOffer(own.getId(), a[1]);
+        assertEquals(offer.getCost().getNightlyCents(), 4500L);
+        assertEquals(offer.getCost().getSingleSupplementCents(), 500L);
+        assertEquals(offer.getCostExtras().get(0).getAmountCents(), 150L);
+        assertEquals(offer.getNightlyPriceCents(), 6000L, "the price is not this endpoint's to touch");
+        assertError(asKeeper.setOfferCost(own.getId(), b[1], CSRF_OK, cost), 403, ApiErrors.FORBIDDEN,
+                "not their hotel");
+        assertError(asKeeper.setOfferCost(own.getId(), a[1], CSRF_OK, Map.of("costNightlyPrice", -1)), 400,
+                ApiErrors.VALIDATION_FAILED);
+        assertOk(asKeeper.setOfferCost(own.getId(), a[1], CSRF_OK, Map.of("costKnown", false)));
+        assertNull(lodging.findOffer(own.getId(), a[1]).getCost(), "costKnown=false clears the stated cost");
+
+        // Concessions: the operator records the hotel's, never the participant's.
+        final Response conceded = asKeeper.setConcession(own.getId(), resId, "cost", CSRF_OK,
+                Map.of("kind", "PERCENT", "amount", 10, "reason", "comped"));
+        assertOk(conceded);
+        assertEquals(((Map<?, ?>) conceded.getEntity()).get("label"), "10% discount");
+        assertEquals(lodging.findReservation(own.getId(), resId).getCostConcession().getPercentBps(), 1000);
+        assertError(asKeeper.setConcession(own.getId(), resId, "price", CSRF_OK, Map.of("kind", "COMPLIMENTARY")),
+                403, ApiErrors.FORBIDDEN, "the price side is the trip's");
+        assertNull(lodging.findReservation(own.getId(), resId).getPriceConcession());
+        assertError(asKeeper.setConcession(own.getId(), resId, "cost", CSRF_OK, Map.of("kind", "PERCENT",
+                "amount", 150)), 400, ApiErrors.VALIDATION_FAILED);
+        final Response cleared = asKeeper.setConcession(own.getId(), resId, "cost", CSRF_OK, Map.of());
+        assertOk(cleared);
+        assertEquals(((Map<?, ?>) cleared.getEntity()).get("label"), "");
+        assertNull(lodging.findReservation(own.getId(), resId).getCostConcession());
+
+        // The trip's admin may grant the price side, and the bill follows.
+        assertOk(resource.setConcession(own.getId(), resId, "PRICE", CSRF_OK, Map.of("kind", "TOTAL", "amount", 30)));
+        assertEquals(lodging.findReservation(own.getId(), resId).getPriceConcession().getAmountCents(), 3000L);
+
+        // A create may state the cost side up front, and may leave the price for later.
+        final Map<String, Object> unpriced = new HashMap<>();
+        unpriced.put("name", "Hotel first");
+        unpriced.put("accommodationId", a[0]);
+        unpriced.put("roomTypeIds", List.of(lodging.roomTypeRows(a[0]).get(0).getId()));
+        unpriced.put("priceKnown", false);
+        unpriced.put("costNightlyPrice", 40);
+        unpriced.put("costExtras", List.of(Map.of("label", "Coupon", "basis", "FIXED", "amount", -5)));
+        final Response created = resource.createOffer(own.getId(), CSRF_OK, unpriced);
+        assertOk(created);
+        final ReservationOffer later = lodging.findOffer(own.getId(),
+                (String) ((Map<?, ?>) created.getEntity()).get("id"));
+        assertFalse(later.isPriced(), "priceKnown=false is 'needs participant pricing'");
+        assertEquals(later.getCost().getNightlyCents(), 4000L);
+        assertEquals(later.getCostExtras().get(0).getAmountCents(), -500L);
+        assertError(resource.createReservations(own.getId(), CSRF_OK, Map.of("offerId", later.getId().getValue(),
+                "personIds", List.of(guest.getId().getValue()))), 400, ApiErrors.VALIDATION_FAILED);
+    }
+
+    /**
+     * Rate plans over the API: an operator creates one at THEIR hotel (its price fields ignored, so the plan
+     * needs participant pricing and the operator's rows carry no price column), the admin prices it, the trip
+     * takes it as a linked option through the {@code createdOffer} diff, and detaches it again.
+     */
+    @Test
+    public void ratePlansAreCreatedListedAttachedAndDetachedOverTheApi() throws IOException {
+        signedInAsSiteAdmin(admin.getId());
+        final Person keeper = savedPerson("Rpk");
+        final Trip own = Trip.builder().id(UUID.randomUUID().toString()).title("Rate plan api trip")
+                .startDate(CHECK_IN).endDate(CHECK_OUT).people(new ArrayList<>(List.of(ada.getId()))).build();
+        own.setOrgId(orgId);
+        assertTrue(DAO.getInstance().saveTrip(own));
+        final String[] a = offerAtNewHotel(own.getId(), "Plan Pansion", "Standalone");
+        final String[] b = offerAtNewHotel(own.getId(), "Plan Berulia", "Elsewhere");
+        assertOk(resource.addOperator(a[0], CSRF_OK, Map.of("personId", keeper.getId().getValue())));
+        final LodgingCommands lodging = new LodgingCommands(LodgingResourceTest::siteAdmin);
+        final String typeId = lodging.roomTypeRows(a[0]).get(0).getId();
+
+        signedInAs(keeper.getId());
+        final LodgingResource asKeeper = resource(new LodgingResource());
+        final Map<String, Object> body = new HashMap<>();
+        body.put("name", "Hotel rate");
+        body.put("roomTypeIds", List.of(typeId));
+        body.put("validFrom", "2027-09-01");
+        body.put("validUntil", "2027-10-31");
+        body.put("costNightlyPrice", 50);
+        body.put("costExtras", List.of(Map.of("label", "City tax", "basis", "FIXED", "amount", 12)));
+        body.put("priceKnown", true);
+        body.put("nightlyPrice", 999);
+        final Response created = asKeeper.createRatePlan(a[0], CSRF_OK, body);
+        assertOk(created);
+        final String planId = (String) ((Map<?, ?>) created.getEntity()).get("id");
+        assertFalse(planId.isEmpty(), "the minted id comes back");
+        assertError(asKeeper.createRatePlan(b[0], CSRF_OK, body), 403, ApiErrors.FORBIDDEN, "not their hotel");
+        assertError(asKeeper.createRatePlan(a[0], CSRF_OK, Map.of("name", "No rooms")), 400,
+                ApiErrors.VALIDATION_FAILED);
+        final Response keeperRows = asKeeper.ratePlans(a[0]);
+        assertOk(keeperRows);
+        final List<?> rows = (List<?>) keeperRows.getEntity();
+        assertEquals(rows.size(), 1);
+        final RatePlanViews.RatePlanRow row = (RatePlanViews.RatePlanRow) rows.get(0);
+        assertEquals(row.getCostSummary(), "$50.00/night per room, +1 extra");
+        assertNull(row.getPriceSummary(), "an operator is shown no price column");
+        assertTrue(row.isNeedsPricing(), "the operator's $999 was ignored");
+        assertError(asKeeper.createOfferFromPlan(own.getId(), CSRF_OK, Map.of("accId", a[0], "planId", planId)),
+                403, ApiErrors.FORBIDDEN, "attaching is the trip's business");
+
+        signedInAsSiteAdmin(admin.getId());
+        final Response adminRows = resource.ratePlans(a[0]);
+        assertOk(adminRows);
+        assertEquals(((RatePlanViews.RatePlanRow) ((List<?>) adminRows.getEntity()).get(0)).getPriceSummary(),
+                "needs participant pricing");
+        final RatePlanCommands ratePlans = new RatePlanCommands(LodgingResourceTest::siteAdmin);
+        final RatePlanViews.RatePlanForm price = ratePlans.planFormFor(a[0], planId);
+        price.setPriceKnown(true);
+        price.setNightlyPrice(70.0);
+        assertTrue(ratePlans.savePlan(price));
+
+        final Set<String> before = new HashSet<>();
+        for (final ReservationOffer offer : lodging.getOffers(own.getId())) {
+            before.add(offer.getId().getValue());
+        }
+        final Response attached = resource.createOfferFromPlan(own.getId(), CSRF_OK,
+                Map.of("accId", a[0], "planId", planId));
+        assertOk(attached);
+        final Map<?, ?> attachedEntity = (Map<?, ?>) attached.getEntity();
+        final String offerId = (String) attachedEntity.get("id");
+        assertFalse(before.contains(offerId), "a NEW offer");
+        assertNotNull(attachedEntity.get("tripEventId"), "with its LODGING event");
+        final ReservationOffer linked = lodging.findOffer(own.getId(), offerId);
+        assertEquals(linked.getRatePlanId(), planId);
+        assertEquals(linked.getNightlyPriceCents(), 7000L, "the plan's price, copied");
+        assertEquals(linked.getCost().getNightlyCents(), 5000L);
+        assertError(resource.createOfferFromPlan(own.getId(), CSRF_OK, Map.of("accId", a[0], "planId", planId)),
+                400, ApiErrors.VALIDATION_FAILED, "already on the trip");
+        assertError(resource.createOfferFromPlan(own.getId(), CSRF_OK, Map.of("accId", a[0], "planId", "nope")),
+                400, ApiErrors.VALIDATION_FAILED);
+
+        assertError(resource.detachOffer(own.getId(), "nope", CSRF_OK), 404, ApiErrors.NOT_FOUND);
+        assertError(resource.detachOffer(own.getId(), a[1], CSRF_OK), 400, ApiErrors.VALIDATION_FAILED,
+                "a standalone option has nothing to detach from");
+        assertOk(resource.detachOffer(own.getId(), offerId, CSRF_OK));
+        final ReservationOffer loose = lodging.findOffer(own.getId(), offerId);
+        assertFalse(loose.isLinked());
+        assertEquals(loose.getNightlyPriceCents(), 7000L, "the numbers stay");
+    }
+
+    /**
+     * The operators endpoint is the fixture door onto the Hotel Operator role, and the room endpoint answers
+     * to that role: an operator rooms stays at THEIR hotel and is refused, with a 403 rather than a 409, at
+     * any other hotel of the same trip.
+     */
+    @Test
+    public void anOperatorAddedOverTheApiAssignsRoomsAtTheirHotelOnly() throws IOException {
+        signedInAsSiteAdmin(admin.getId());
+        final Person guestA = savedPerson("Opa");
+        final Person guestB = savedPerson("Opb");
+        final Person keeper = savedPerson("Opk");
+        final Trip own = Trip.builder().id(UUID.randomUUID().toString()).title("Operator trip")
+                .startDate(CHECK_IN).endDate(CHECK_OUT)
+                .people(new ArrayList<>(List.of(guestA.getId(), guestB.getId()))).build();
+        own.setOrgId(orgId);
+        assertTrue(DAO.getInstance().saveTrip(own));
+        final String[] a = offerAtNewHotel(own.getId(), "Operator Pansion", "Double room");
+        final String[] b = offerAtNewHotel(own.getId(), "Operator Berulia", "Double room");
+        assertError(resource.addOperator(a[0], CSRF_OK, Map.of("personId", "nobody")), 404, ApiErrors.NOT_FOUND);
+        assertError(resource.addOperator(a[0], CSRF_OK, Map.of()), 404, ApiErrors.NOT_FOUND);
+        assertError(resource.addOperator("no-such-hotel", CSRF_OK, Map.of("personId", keeper.getId().getValue())),
+                404, ApiErrors.NOT_FOUND);
+        final Response added = resource.addOperator(a[0], CSRF_OK, Map.of("personId", keeper.getId().getValue()));
+        assertOk(added);
+        assertEquals(((Map<?, ?>) added.getEntity()).get("ok"), true);
+        final String atA = reservationId(resource.createReservations(own.getId(), CSRF_OK,
+                Map.of("offerId", a[1], "personIds", List.of(guestA.getId().getValue()))));
+        final String atB = reservationId(resource.createReservations(own.getId(), CSRF_OK,
+                Map.of("offerId", b[1], "personIds", List.of(guestB.getId().getValue()))));
+        final LodgingCommands lodging = new LodgingCommands(LodgingResourceTest::siteAdmin);
+        final String roomA = lodging.roomRows(a[0]).get(0).getId();
+        final String roomB = lodging.roomRows(b[0]).get(0).getId();
+
+        // One resource serves one caller: a fresh one for the operator.
+        signedInAs(keeper.getId());
+        final LodgingResource asKeeper = resource(new LodgingResource());
+        assertOk(asKeeper.assignRoom(own.getId(), atA, CSRF_OK, Map.of("roomId", roomA)));
+        assertEquals(lodging.findReservation(own.getId(), atA).getRoomId(), roomA);
+        assertError(asKeeper.assignRoom(own.getId(), atB, CSRF_OK, Map.of("roomId", roomB)), 403,
+                ApiErrors.FORBIDDEN);
+        assertNull(lodging.findReservation(own.getId(), atB).getRoomId(), "nothing moved at the other hotel");
+        assertOk(asKeeper.assignRoom(own.getId(), atA, CSRF_OK, Map.of("roomId", "")));
+        // Handing the role back over the API closes the door again at once (no per-request memo in a bare test).
+        signedInAsSiteAdmin(admin.getId());
+        assertError(resource.removeOperator("no-such-hotel", keeper.getId().getValue(), CSRF_OK), 404,
+                ApiErrors.NOT_FOUND);
+        assertOk(resource.removeOperator(a[0], keeper.getId().getValue(), CSRF_OK));
+        signedInAs(keeper.getId());
+        assertError(resource(new LodgingResource()).assignRoom(own.getId(), atA, CSRF_OK, Map.of("roomId", roomA)),
+                403, ApiErrors.FORBIDDEN);
+        assertError(asKeeper.reservations(own.getId()), 403, ApiErrors.FORBIDDEN, "still no reservation list");
+        assertError(asKeeper.addOperator(b[0], CSRF_OK, Map.of("personId", bob.getId().getValue())), 403,
+                ApiErrors.FORBIDDEN);
+        assertOk(asKeeper.addOperator(a[0], CSRF_OK, Map.of("personId", bob.getId().getValue())));
+        assertTrue(new LodgingCommands(() -> caller(bob.getId())).canEditAccommodation(a[0]),
+                "an operator may appoint a colleague at their own hotel");
+    }
+
+    private String reservationId(final Response reserved) {
+        assertOk(reserved);
+        return (String) ((List<?>) ((Map<?, ?>) reserved.getEntity()).get("ids")).get(0);
+    }
+
+    private void assertError(final Response response, final int status, final String code, final String why) {
+        assertEquals(response.getStatus(), status, why);
+        assertError(response, status, code);
+    }
+
+    private static org.paulsens.trip.action.Caller caller(final Person.Id id) {
+        return new org.paulsens.trip.action.Caller(id, false,
+                new org.paulsens.trip.audit.AuditActor(id.getValue() + "@example.com", id.getValue()),
+                new org.paulsens.trip.action.PrivilegeCommands());
     }
 
     /** Blocks and the hotel's calendar: the browser tests' door onto the availability feature. */
@@ -167,6 +441,10 @@ public class LodgingResourceTest extends ResourceTestSupport {
 
     /** A fresh hotel with one Double room, and an offer on it named as asked: {accommodationId, offerId}. */
     private String[] offerAtNewHotel(final String hotel, final String offerName) {
+        return offerAtNewHotel(trip.getId(), hotel, offerName);
+    }
+
+    private String[] offerAtNewHotel(final String tripId, final String hotel, final String offerName) {
         final Response created = resource.createAccommodation(CSRF_OK, accommodation(hotel,
                 List.of(Map.of("name", "Double", "minPeople", 1, "maxPeople", 2)),
                 List.of(Map.of("number", "101", "floor", "1", "type", "Double"))));
@@ -180,7 +458,7 @@ public class LodgingResourceTest extends ResourceTestSupport {
         body.put("nightlyPrice", 60);
         body.put("defaultStart", CHECK_IN.toString());
         body.put("defaultEnd", CHECK_OUT.toString());
-        final Response offer = resource.createOffer(trip.getId(), CSRF_OK, body);
+        final Response offer = resource.createOffer(tripId, CSRF_OK, body);
         assertOk(offer);
         final String id = (String) ((Map<?, ?>) offer.getEntity()).get("id");
         assertNotNull(id);

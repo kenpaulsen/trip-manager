@@ -26,6 +26,10 @@ import lombok.Value;
  * Room assignment lives HERE ({@code roomId}), which is what the rooming list, the itinerary and the legacy
  * {@code getRoomPDV} compatibility read derive from.
  *
+ * <p>Money concessions on a stay live here too: {@code priceConcession} reduces what the occupants are billed,
+ * {@code costConcession} what the hotel charges us ({@code pay/LodgingPricing} applies each on its own side);
+ * {@code waiveSingleSupplement} is the older, narrower price-side concession and stays as it is.
+ *
  * <p>Cancelling never deletes: the row flips to {@link Status#CANCELLED} and records the fee and whether a
  * credit was written, because its Bill rows stay in the ledger and the audit trail points at it.
  */
@@ -45,8 +49,12 @@ public final class Reservation implements Serializable {
     private String roomId;
     private Status status;
     private String notes;
-    /** Admin concession: no single supplement even on nights this reservation's person is alone. */
+    /** Admin concession: no single supplement even on nights this reservation's person is alone (PRICE side). */
     private Boolean waiveSingleSupplement;
+    /** What the hotel forgave us on this stay; shrinks the Room Invoice, never a bill. */
+    private Concession costConcession;
+    /** What the participants are forgiven on this stay; shrinks their bills in place (complimentary = no row). */
+    private Concession priceConcession;
     private Person.Id createdBy;
     private LocalDateTime created;
     private LocalDateTime cancelledAt;
@@ -71,6 +79,8 @@ public final class Reservation implements Serializable {
             @JsonProperty("status") final Status status,
             @JsonProperty("notes") final String notes,
             @JsonProperty("waiveSingleSupplement") final Boolean waiveSingleSupplement,
+            @JsonProperty("costConcession") final Concession costConcession,
+            @JsonProperty("priceConcession") final Concession priceConcession,
             @JsonProperty("createdBy") final Person.Id createdBy,
             @JsonProperty("created") final LocalDateTime created,
             @JsonProperty("cancelledAt") final LocalDateTime cancelledAt,
@@ -91,6 +101,8 @@ public final class Reservation implements Serializable {
         this.status = (status == null) ? Status.ACTIVE : status;
         this.notes = notes;
         this.waiveSingleSupplement = waiveSingleSupplement;
+        this.costConcession = costConcession;
+        this.priceConcession = priceConcession;
         this.createdBy = createdBy;
         this.created = created;
         this.cancelledAt = cancelledAt;
@@ -103,7 +115,7 @@ public final class Reservation implements Serializable {
 
     public Reservation() {
         this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-                null, null, 0L);
+                null, null, null, null, 0L);
     }
 
     @JsonIgnore

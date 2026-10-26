@@ -61,8 +61,12 @@ card. The separate "Email Templates" entry is gone — it was the same page with
 
 ## Org-scoped privileges
 
-Lodging (2026-09) adds `lodgingAdmin` (org-scoped AND global) and the per-hotel `accommodationAdmin`;
-accommodations themselves are GLOBAL, the one exception to the tenancy rule above — `docs/lodging.md`.
+Lodging (2026-09) adds `lodgingAdmin` (org-scoped AND global; display "Lodging Admin") and the per-hotel
+`accommodationAdmin` (display "Hotel Operator" since 2026-10-25; the stored base name is unchanged).
+Accommodations themselves are GLOBAL, the one exception to the tenancy rule above, and that exception has
+exactly two documented extensions: the hotel's Availability calendar (counts and dates) and the Hotel
+Operator's Trips tab (trip titles, dates and guest names at THEIR hotel across orgs; never a price or a bill)
+-- `docs/lodging.md` "Roles".
 
 `Privilege` scope suffixes are opaque UUIDs; the base name decides whether a row scopes to a trip or an
 org (`PrivilegeCommands.TRIP_SCOPED_BASES` / `ORG_SCOPED_BASES` are the authority). Migrated from global
@@ -114,11 +118,18 @@ whole `admin/tripRegistrations.jsf` page — approve, move, rooms, approval mail
 `reqPriv` door, and the REST roster (`RegistrationsResource.isTripStaff`) all honor it; it deliberately
 does NOT light up the other trip tabs, the way an invited chat guest gets exactly the Chat tab.
 
-`lodgingManager@trip` (display name "Lodging Manager") is the narrowest trip role: the Lodging tab's Assignments
-board and nothing else, for the hotel's OWN staff. They room people the trip has already reserved for; the
-Offers and Reservations tabs, every price and bill, and every other trip stay closed to them. Added
-2026-09-07, reversing the "lodging is admin-only" decision, because the alternative on offer was
-`lodgingAdmin@org` -- every trip the org will ever run, plus the money. Details in `lodging.md`.
+A hotel's OWN staff are not a trip role at all since 2026-10-25: they are **Hotel Operators**
+(`accommodationAdmin` scoped to the hotel's UUID), granted on the hotel page's "Hotel operators" roster and
+never through the Trip Managers roster or any privilege editor. An operator gets the Assignments board of
+EVERY trip with a lodging option or an active stay at their hotel (`LodgingAccess.canAssign`, scoped per
+hotel by `canAssignAt`), the hotel's inventory and blocks, and the hotel page's Trips tab with the guests
+named; the Offers and Reservations tabs, every price and bill, and every other hotel stay closed to them.
+The trip-scoped `lodgingManager@trip` ("Lodging Manager", 2026-09-07) that used to grant one trip's board
+is RETIRED: it is in no base list, `OrgCommands.tripRoleName` answers null for it, the one inert production
+row no longer renders, and an org's `grantablePrivileges` allow-list no longer needs it. Why: the hotel is
+the constant and the trips come and go, so a per-trip grant was one more step somebody forgot for every new
+trip at the same hotel. Details and the tenancy extension that comes with naming guests: `lodging.md`
+"Roles".
 
 **Creating a trip** stamps `openToPublic=false` (never public until chosen) and auto-grants the creator
 their standard roles on the new trip -- `tripMgr` (Editor Admin), `tripView` (Viewer), and

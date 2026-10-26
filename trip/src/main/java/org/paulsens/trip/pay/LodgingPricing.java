@@ -14,7 +14,9 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.paulsens.trip.model.Accommodation;
+import org.paulsens.trip.model.Concession;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.RateSchedule;
 import org.paulsens.trip.model.Reservation;
 import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.Room;
@@ -24,6 +26,13 @@ import org.paulsens.trip.model.RoomType;
  * The lodging money rules, pure and deterministic ({@code MoneyMath} style) -- {@code LodgingPricingTest}
  * is the worked-example table. Everything is long cents.
  *
+ * <p><b>Two sides.</b> The same rules run on either {@link Side}: {@link #price} reads the offer's
+ * participant schedule ({@code offer.getPrice()}) and the reservation's {@code priceConcession}, and feeds the
+ * bills; {@link #cost} reads {@code offer.effectiveCost()} (the hotel's schedule, or the price when none is
+ * stated) and {@code costConcession}, and feeds the Room Invoice. A side with no schedule prices to nothing
+ * (an empty list, the same contract as a null offer). The single-supplement WAIVER is a price-side concession:
+ * the hotel still charges it.
+ *
  * <p><b>Night.</b> A calendar date {@code d} with {@code start.date <= d < end.date}
  * ({@link Reservation#nightsBetween}); times are informational.
  *
@@ -31,13 +40,19 @@ import org.paulsens.trip.model.RoomType;
  * room (an unassigned reservation counts only its own people). A late arriver on a shared room is her own
  * reservation, so the group's nights before she lands price as if she were absent -- because she was.
  *
- * <p><b>PER_PERSON.</b> The nightly price per occupant; plus the offer's single supplement on a night the
+ * <p><b>PER_PERSON.</b> The nightly rate per occupant; plus the schedule's single supplement on a night the
  * person is the ONLY occupant of an ASSIGNED room and the reservation has not waived it. Room type never
  * matters, only the occupancy count.
  *
- * <p><b>PER_ROOM.</b> The nightly price split equally among that night's occupants, remainder cents to the
+ * <p><b>PER_ROOM.</b> The nightly rate split equally among that night's occupants, remainder cents to the
  * lowest person ids ({@link MoneyMath#splitEvenly} on the id-sorted list) so a recompute is idempotent. The
  * sole occupant already pays the whole room, so the supplement is ignored.
+ *
+ * <p><b>Concession.</b> Applied after the per-night sum, to the side it sits on. PERCENT and COMPLIMENTARY
+ * apply to each person's line ({@link Concession#netCents}); PER_NIGHT and TOTAL are amounts off the
+ * RESERVATION, split evenly over its id-sorted occupants and taken off each line, floor zero. The line keeps
+ * its gross and the amount forgiven. A zero net on the price side writes no bill row (the biller's rule), which
+ * is how "complimentary" means "no row".
  *
  * <p>Only the reservation being priced gets lines; its co-occupants are re-priced by their own recompute.
  */
@@ -48,9 +63,27 @@ public final class LodgingPricing {
     private LodgingPricing() {
     }
 
-    /** One occupant's bill for one reservation: what the ledger row says and how it was arrived at. */
+    /** Which of an offer's two schedules (and a reservation's two concessions) a computation reads. */
+    public enum Side {
+        /** What the participant pays: {@code offer.price}, {@code reservation.priceConcession}, the bills. */
+        PRICE,
+        /** What the hotel charges: {@code offer.effectiveCost()}, {@code reservation.costConcession}, the invoice. */
+        COST
+    }
+
+    /**
+     * One occupant's share of one reservation on one side: what the ledger row (or invoice line) says and how
+     * it was arrived at. {@code amountCents} is the NET; {@code grossCents} is before the concession and
+     * {@code concessionCents} the difference (0 when there is none).
+     */
     public record Line(Reservation.Id reservationId, Person.Id personId, long amountCents, int nights,
-            int supplementNights, String description) {
+            int supplementNights, String description, long grossCents, long concessionCents) {
+
+        /** A line with no concession: gross = amount. */
+        public Line(final Reservation.Id reservationId, final Person.Id personId, final long amountCents,
+                final int nights, final int supplementNights, final String description) {
+            this(reservationId, personId, amountCents, nights, supplementNights, description, amountCents, 0L);
+        }
     }
 
     /** @see Reservation#nightsBetween(LocalDateTime, LocalDateTime) */
@@ -87,7 +120,7 @@ public final class LodgingPricing {
     }
 
     /**
-     * The lines for one reservation.
+     * The PRICE lines for one reservation: what its occupants are billed.
      *
      * @param activeOnSameRoom every ACTIVE reservation on the reservation's room (including this one when it
      *                         is assigned); ignored when the reservation has no room.
@@ -96,56 +129,121 @@ public final class LodgingPricing {
     public static List<Line> price(final Reservation reservation, final ReservationOffer offer,
             final Accommodation accommodation, final List<Reservation> activeOnSameRoom,
             final Function<Person.Id, String> names) {
+        return lines(Side.PRICE, reservation, offer, accommodation, activeOnSameRoom, names);
+    }
+
+    /** The COST lines for one reservation: what the hotel charges us for its occupants. Same parameters. */
+    public static List<Line> cost(final Reservation reservation, final ReservationOffer offer,
+            final Accommodation accommodation, final List<Reservation> activeOnSameRoom,
+            final Function<Person.Id, String> names) {
+        return lines(Side.COST, reservation, offer, accommodation, activeOnSameRoom, names);
+    }
+
+    /** The lines on one side; empty for a null or inactive reservation, a null offer, or a side with no schedule. */
+    public static List<Line> lines(final Side side, final Reservation reservation, final ReservationOffer offer,
+            final Accommodation accommodation, final List<Reservation> activeOnSameRoom,
+            final Function<Person.Id, String> names) {
         final List<Line> lines = new ArrayList<>();
         if (reservation == null || offer == null || !reservation.isActive()) {
             return lines;
         }
+        final RateSchedule schedule = (side == Side.PRICE) ? offer.getPrice() : offer.effectiveCost();
+        if (schedule == null) {
+            return lines;
+        }
+        final Concession concession = (side == Side.PRICE) ? reservation.getPriceConcession()
+                : reservation.getCostConcession();
         final List<Reservation> relevant = reservation.isAssigned()
                 ? withSelf(activeOnSameRoom, reservation) : List.of(reservation);
         final Map<LocalDate, List<Person.Id>> occupancy = occupancyByNight(relevant);
         final List<LocalDate> nights = nightsOf(reservation.getStart(), reservation.getEnd());
-        for (final Person.Id person : reservation.sortedOccupants()) {
-            lines.add(lineFor(person, reservation, offer, accommodation, nights, occupancy, names));
+        final List<Person.Id> occupants = reservation.sortedOccupants();
+        final long[] shares = reservationShares(concession, nights.size(), occupants.size());
+        for (int i = 0; i < occupants.size(); i++) {
+            final Line gross = lineFor(side, occupants.get(i), reservation, offer, schedule, accommodation, nights,
+                    occupancy, concession, names);
+            lines.add(discounted(gross, concession, (shares == null) ? 0L : shares[i]));
         }
         return lines;
     }
 
-    private static Line lineFor(final Person.Id person, final Reservation reservation,
-            final ReservationOffer offer, final Accommodation accommodation, final List<LocalDate> nights,
-            final Map<LocalDate, List<Person.Id>> occupancy, final Function<Person.Id, String> names) {
+    /**
+     * The per-person shares of a RESERVATION-level concession (PER_NIGHT, TOTAL), id-sorted like the lines;
+     * null for the per-line kinds and for no concession at all.
+     */
+    private static long[] reservationShares(final Concession concession, final int nights, final int ways) {
+        if (concession == null || ways <= 0) {
+            return null;
+        }
+        switch (concession.getKind()) {
+            case PER_NIGHT:
+                return MoneyMath.splitEvenly(concession.getAmountCents() * nights, ways);
+            case TOTAL:
+                return MoneyMath.splitEvenly(concession.getAmountCents(), ways);
+            default:
+                return null;
+        }
+    }
+
+    /** The gross line with the concession taken off: per line for PERCENT/COMPLIMENTARY, {@code share} otherwise. */
+    private static Line discounted(final Line gross, final Concession concession, final long share) {
+        if (concession == null) {
+            return gross;
+        }
+        final long net;
+        switch (concession.getKind()) {
+            case PERCENT:
+            case COMPLIMENTARY:
+                net = concession.netCents(gross.amountCents(), gross.nights());
+                break;
+            default:
+                net = Math.max(0L, gross.amountCents() - share);
+                break;
+        }
+        return new Line(gross.reservationId(), gross.personId(), net, gross.nights(), gross.supplementNights(),
+                gross.description(), gross.amountCents(), gross.amountCents() - net);
+    }
+
+    private static Line lineFor(final Side side, final Person.Id person, final Reservation reservation,
+            final ReservationOffer offer, final RateSchedule schedule, final Accommodation accommodation,
+            final List<LocalDate> nights, final Map<LocalDate, List<Person.Id>> occupancy,
+            final Concession concession, final Function<Person.Id, String> names) {
         long amount = 0L;
         int supplementNights = 0;
+        // The waiver is a PRICE-side concession: the hotel still charges the supplement.
+        final boolean waived = (side == Side.PRICE) && reservation.isSupplementWaived();
         final Set<Person.Id> sharers = new LinkedHashSet<>();
         for (final LocalDate night : nights) {
             final List<Person.Id> present = occupancy.getOrDefault(night, List.of(person));
-            final long price = offer.nightlyPriceCents(night);
-            if (offer.isPerPerson()) {
-                amount += price;
+            final long rate = schedule.nightlyCents(night);
+            if (schedule.isPerPerson()) {
+                amount += rate;
                 // Alone that night: the sole occupant of their room, or a one-person reservation not yet
                 // placed (its own occupants are all that is known; placing them with someone recomputes).
-                if (present.size() == 1 && !reservation.isSupplementWaived()
-                        && offer.getSingleSupplementCents() > 0) {
-                    amount += offer.getSingleSupplementCents();
+                if (present.size() == 1 && !waived && schedule.getSingleSupplementCents() > 0) {
+                    amount += schedule.getSingleSupplementCents();
                     supplementNights++;
                 }
             } else {
-                final long[] shares = MoneyMath.splitEvenly(price, present.size());
+                final long[] shares = MoneyMath.splitEvenly(rate, present.size());
                 amount += shares[Math.max(0, present.indexOf(person))];
                 sharers.addAll(present);
             }
         }
         sharers.remove(person);
         return new Line(reservation.getId(), person, amount, nights.size(), supplementNights,
-                describe(reservation, offer, accommodation, nights, supplementNights, sharers, names));
+                describe(reservation, offer, schedule, accommodation, nights, supplementNights, sharers, concession,
+                        names));
     }
 
     /**
      * The ledger row's description. Deterministic on purpose: equality with the stored note is what lets a
-     * recompute leave an unchanged row alone.
+     * recompute leave an unchanged row alone -- so the text is byte-identical to the pre-split wording unless a
+     * concession is present, in which case its {@link Concession#label() label} (never its reason) is appended.
      */
-    static String describe(final Reservation reservation, final ReservationOffer offer,
+    static String describe(final Reservation reservation, final ReservationOffer offer, final RateSchedule schedule,
             final Accommodation accommodation, final List<LocalDate> nights, final int supplementNights,
-            final Set<Person.Id> sharers, final Function<Person.Id, String> names) {
+            final Set<Person.Id> sharers, final Concession concession, final Function<Person.Id, String> names) {
         final StringBuilder sb = new StringBuilder("Lodging: ").append(offer.getName());
         if (accommodation != null) {
             sb.append(" — ").append(accommodation.getName());
@@ -162,12 +260,12 @@ public final class LodgingPricing {
         }
         sb.append(": ").append(nights.size()).append(nights.size() == 1 ? " night " : " nights ")
                 .append(dateRange(nights, reservation)).append(", ");
-        final String rate = offer.getNightlyPriceOverrides().isEmpty()
-                ? MoneyMath.formatCents(offer.getNightlyPriceCents()) + "/night" : "nightly rates";
-        if (offer.isPerPerson()) {
+        final String rate = schedule.hasOverrides()
+                ? "nightly rates" : MoneyMath.formatCents(schedule.getNightlyCents()) + "/night";
+        if (schedule.isPerPerson()) {
             sb.append(rate).append(" per person");
             if (supplementNights > 0) {
-                sb.append(", + single supplement ").append(MoneyMath.formatCents(offer.getSingleSupplementCents()))
+                sb.append(", + single supplement ").append(MoneyMath.formatCents(schedule.getSingleSupplementCents()))
                         .append(" × ").append(supplementNights)
                         .append(supplementNights == 1 ? " night" : " nights");
             }
@@ -176,6 +274,9 @@ public final class LodgingPricing {
             if (!sharers.isEmpty()) {
                 sb.append(" split with ").append(joinNames(sortedIds(sharers), names));
             }
+        }
+        if (concession != null) {
+            sb.append(", ").append(concession.label());
         }
         return sb.toString();
     }

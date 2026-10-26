@@ -13,7 +13,8 @@ import org.testng.annotations.Test;
 
 /**
  * The Room Invoice PDF, read back as text: each accommodation on a page of its own, the lines and totals the
- * page shows, the letters the standard PDF fonts cannot draw, and a long invoice continuing onto another sheet.
+ * page shows, the letters the standard PDF fonts cannot draw, a long invoice continuing onto another sheet,
+ * the extra and concession rows, and the cost-assumed note that only an internal reader gets.
  */
 public class RoomInvoicePdfTest {
 
@@ -30,6 +31,20 @@ public class RoomInvoicePdfTest {
         line.setRate(rate);
         line.setAmount(amount);
         line.setNote(note);
+        return line;
+    }
+
+    private static ReportCommands.InvoiceLine extra(final String label, final int quantity, final String unit,
+            final String rate, final String amount) {
+        final ReportCommands.InvoiceLine line = line(label, quantity, unit, 1, rate, amount, "");
+        line.setKind(ReportCommands.LineKind.EXTRA);
+        return line;
+    }
+
+    private static ReportCommands.InvoiceLine concession(final String amount, final String note) {
+        final ReportCommands.InvoiceLine line = line("Concession", 1, "", 0, "", amount, note);
+        line.setKind(ReportCommands.LineKind.CONCESSION);
+        line.setCents(-1L);
         return line;
     }
 
@@ -100,7 +115,7 @@ public class RoomInvoicePdfTest {
 
     @Test
     public void eachAccommodationIsAPageOfItsOwn() throws IOException {
-        final List<String> pages = pages(RoomInvoicePdf.render("Spring Demo Trip", twoHotels(), PRINTED));
+        final List<String> pages = pages(RoomInvoicePdf.render("Spring Demo Trip", twoHotels(), false, PRINTED));
         Assert.assertEquals(pages.size(), 2);
         Assert.assertTrue(pages.get(0).contains("Pansion Dragićević"), pages.get(0));
         Assert.assertFalse(pages.get(0).contains("Hotel Split"), "the second hotel starts its own page");
@@ -110,7 +125,7 @@ public class RoomInvoicePdfTest {
 
     @Test
     public void thePagesCarryTheLinesSubtotalsAndTheTripTotal() throws IOException {
-        final List<String> pages = pages(RoomInvoicePdf.render("Spring Demo Trip", twoHotels(), PRINTED));
+        final List<String> pages = pages(RoomInvoicePdf.render("Spring Demo Trip", twoHotels(), false, PRINTED));
         final String first = pages.get(0);
         Assert.assertTrue(first.contains("Spring Demo Trip: Room Invoice"), first);
         Assert.assertTrue(first.contains("5 guests"), first);
@@ -130,7 +145,7 @@ public class RoomInvoicePdfTest {
 
     @Test
     public void eachHotelCarriesItsPerPersonTableOnItsOwnPages() throws IOException {
-        final List<String> pages = pages(RoomInvoicePdf.render("Spring Demo Trip", twoHotels(), PRINTED));
+        final List<String> pages = pages(RoomInvoicePdf.render("Spring Demo Trip", twoHotels(), false, PRINTED));
         final String first = pages.get(0);
         Assert.assertTrue(first.contains("Charges per person"), first);
         Assert.assertTrue(first.contains("Person"), first);
@@ -153,7 +168,7 @@ public class RoomInvoicePdfTest {
         for (int i = 0; i < 70; i++) {
             invoice.getSections().get(0).getPeople().add(who("Guest " + i, "$50.00", "$600.00"));
         }
-        final List<String> pages = pages(RoomInvoicePdf.render("Big Trip", invoice, PRINTED));
+        final List<String> pages = pages(RoomInvoicePdf.render("Big Trip", invoice, false, PRINTED));
         Assert.assertTrue(pages.get(1).contains("Pansion Dragićević (continued)"), pages.get(1));
         Assert.assertTrue(pages.get(1).contains("Person"), "the per-person headings repeat, not the option ones");
         Assert.assertFalse(pages.get(1).contains("Quantity"), pages.get(1));
@@ -169,7 +184,7 @@ public class RoomInvoicePdfTest {
         final ReportCommands.RoomInvoice invoice = new ReportCommands.RoomInvoice();
         invoice.getSections().add(section("Big Hotel", "$9,000.00", big));
         invoice.setUnpriced(2);
-        final List<String> pages = pages(RoomInvoicePdf.render("Long Trip", invoice, PRINTED));
+        final List<String> pages = pages(RoomInvoicePdf.render("Long Trip", invoice, false, PRINTED));
         Assert.assertTrue(pages.size() >= 2, "sixty lines cannot fit one sheet");
         Assert.assertTrue(pages.get(1).contains("Big Hotel (continued)"), pages.get(1));
         Assert.assertTrue(pages.get(1).contains("Quantity"), "the column headings repeat");
@@ -178,7 +193,7 @@ public class RoomInvoicePdfTest {
 
     @Test
     public void anEmptyInvoiceIsOnePageThatSaysSo() throws IOException {
-        final List<String> pages = pages(RoomInvoicePdf.render(null, new ReportCommands.RoomInvoice(), PRINTED));
+        final List<String> pages = pages(RoomInvoicePdf.render(null, new ReportCommands.RoomInvoice(), false, PRINTED));
         Assert.assertEquals(pages.size(), 1);
         Assert.assertTrue(pages.get(0).contains("nothing to invoice"), pages.get(0));
     }
@@ -187,6 +202,55 @@ public class RoomInvoicePdfTest {
     public void todayIsThePrintDateByDefault() throws IOException {
         final String text = pages(RoomInvoicePdf.render("T", twoHotels())).get(0);
         Assert.assertTrue(text.contains("printed "), text);
+        Assert.assertTrue(pages(RoomInvoicePdf.render("T", twoHotels(), true)).get(0).contains("printed "));
+    }
+
+    @Test
+    public void everyPageSaysItIsTheHotelsCost() throws IOException {
+        final String external = pages(RoomInvoicePdf.render("T", twoHotels(), false, PRINTED)).get(1);
+        Assert.assertTrue(external.contains("Hotel cost: what the hotels charge for the trip's rooms."), external);
+        Assert.assertFalse(external.contains("Finances pages"), "an operator is not told where our books are");
+        final String internal = pages(RoomInvoicePdf.render("T", twoHotels(), true, PRINTED)).get(0);
+        Assert.assertTrue(internal.contains("Participant billing is on the Finances pages."), internal);
+    }
+
+    @Test
+    public void extraAndConcessionRowsAreDrawn() throws IOException {
+        final ReportCommands.RoomInvoice invoice = twoHotels();
+        final ReportCommands.InvoiceOffer group = invoice.getSections().get(1).getOffers().get(0);
+        group.getLines().add(extra("City tax", 12, "guest-nights", "$2.50", "$30.00"));
+        group.getLines().add(extra("Coupon", 1, "", "-$20.00", "-$20.00"));
+        group.getLines().add(concession("-$72.00", "Ada Lovelace, Bob Byrne: 10% discount -- comped the guide"));
+        invoice.getSections().get(1).setExtrasCents(1_000L);
+        invoice.getSections().get(1).setExtrasAmount("$10.00");
+        final String page = pages(RoomInvoicePdf.render("Spring Demo Trip", invoice, false, PRINTED)).get(1);
+        Assert.assertTrue(page.contains("City tax"), page);
+        Assert.assertTrue(page.contains("12 guest-nights"), page);
+        Assert.assertTrue(page.contains("$30.00"), page);
+        Assert.assertTrue(page.contains("Coupon") && page.contains("-$20.00"), page);
+        Assert.assertTrue(page.contains("Concession") && page.contains("-$72.00"), page);
+        Assert.assertTrue(page.contains("Ada Lovelace, Bob Byrne: 10% discount -- comped the guide"), page);
+        Assert.assertTrue(page.contains("Plus $10.00 in hotel extras"), "the people table says what it leaves out");
+    }
+
+    @Test
+    public void theCostAssumedNoteIsDrawnOnlyForAnInternalReader() throws IOException {
+        final ReportCommands.RoomInvoice invoice = twoHotels();
+        invoice.setAnyCostAssumed(true);
+        invoice.getSections().get(0).getOffers().get(0).setCostAssumed(true);
+        final List<String> internal = pages(RoomInvoicePdf.render("Spring Demo Trip", invoice, true, PRINTED));
+        Assert.assertTrue(internal.get(0).contains("Single / Double room *"), "the flagged option: " + internal.get(0));
+        Assert.assertTrue(internal.get(1).contains("* Cost assumed from the participant price: no hotel cost has "
+                + "been entered for this lodging option."), internal.get(1));
+        Assert.assertFalse(internal.get(1).contains("Double room, shared *"), "the other option is not flagged");
+        final List<String> external = pages(RoomInvoicePdf.render("Spring Demo Trip", invoice, false, PRINTED));
+        Assert.assertFalse(external.get(0).contains("Single / Double room *"), external.get(0));
+        Assert.assertFalse(external.get(1).contains("Cost assumed"), "an operator never sees the flag");
+        final List<String> unsaid = pages(RoomInvoicePdf.render("Spring Demo Trip", invoice));
+        Assert.assertFalse(unsaid.get(1).contains("Cost assumed"), "a caller that does not say is external");
+        final ReportCommands.RoomInvoice plain = twoHotels();
+        Assert.assertFalse(pages(RoomInvoicePdf.render("T", plain, true, PRINTED)).get(1).contains("Cost assumed"),
+                "no note when nothing is assumed");
     }
 
     @Test

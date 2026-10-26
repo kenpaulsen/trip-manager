@@ -23,6 +23,7 @@ import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.Registration;
+import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.chat.ChatChannel;
@@ -45,8 +46,9 @@ import org.paulsens.trip.model.chat.ChatChannel;
  *
  * <p><b>What the cascade removes:</b> chat (channel, messages, reactions, members incl. guests' reverse-index
  * rows, invites, photo channels, album rows, stored photos, CDN copies), registrations, todo items plus every
- * per-person todo-status and room row in {@code person_data}, trip-scoped privilege rows, trip events (before
- * the trip row -- they carry no tripId), badge images, and finally the trip row and its cache/index entries.
+ * per-person todo-status and room row in {@code person_data}, trip-scoped privilege rows, lodging offers and
+ * reservations (then the hotels forget the trip and its rate plans unlink it), trip events (before the trip
+ * row -- they carry no tripId), badge images, and finally the trip row and its cache/index entries.
  */
 @Slf4j
 @Named("tripDelete")
@@ -262,8 +264,13 @@ public class TripDeleteCommands {
             }
         }
         // Lodging offers and reservations: both trip partitions. Their Bill rows stay (soft-deleted by the
-        // "live transactions" blocker before this ran), like every other transaction.
+        // "live transactions" blocker before this ran), like every other transaction. The offers are read
+        // FIRST: once the rows are gone, the hotels they named forget the trip and the rate plans they
+        // followed unlink it (both tolerate a hotel or plan that has meanwhile vanished).
+        final List<ReservationOffer> offers = DAO.getInstance().getReservationOffers(tripId, Cached.NO);
         final int lodging = DAO.getInstance().deleteLodgingForTrip(tripId);
+        HotelUsage.forgetTripEverywhere(tripId, offers);
+        final int plans = new RatePlanCommands(callerSource).unlinkAll(tripId, offers);
         final List<String> eventIds = trip.getTripEventIds();
         for (final String eventId : eventIds) {
             DAO.getInstance().deleteTripEvent(eventId);
@@ -272,7 +279,8 @@ public class TripDeleteCommands {
         DAO.getInstance().deleteTrip(trip);
         return "deleted trip '" + trip.getTitle() + "' with " + regs + " registrations, " + todoIds.size()
                 + " todos (" + pdvRows + " person-data rows), " + privs + " privilege rows, "
-                + eventIds.size() + " events, " + lodging + " lodging rows, " + badges + " badge objects; chat purged";
+                + eventIds.size() + " events, " + lodging + " lodging rows (" + plans + " rate plans unlinked), "
+                + badges + " badge objects; chat purged";
     }
 
     private List<String> computeBlockers(final Trip trip) {

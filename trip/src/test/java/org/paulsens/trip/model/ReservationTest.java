@@ -27,6 +27,8 @@ public class ReservationTest {
         assertTrue(fresh.isActive());
         assertFalse(fresh.isAssigned());
         assertFalse(fresh.isSupplementWaived());
+        assertNull(fresh.getPriceConcession(), "No concession until an admin grants one");
+        assertNull(fresh.getCostConcession());
         assertFalse(fresh.occupies(ADA));
         assertFalse(fresh.occupies(null));
         assertEquals(fresh.nights(), 0);
@@ -60,17 +62,43 @@ public class ReservationTest {
     }
 
     @Test
+    public void concessionsSitOnTheirOwnSidesAndAnOldRowHasNone() throws Exception {
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
+        final Reservation old = mapper.readValue("{\"id\":\"res-1\",\"tripId\":\"trip-1\","
+                + "\"occupants\":[\"person-ada\"],\"waiveSingleSupplement\":true,\"version\":2}", Reservation.class);
+        assertNull(old.getPriceConcession(), "A pre-concession row reads as having none");
+        assertNull(old.getCostConcession());
+        assertTrue(old.isSupplementWaived());
+        final Concession comp = Concession.builder().kind(Concession.Kind.COMPLIMENTARY).build();
+        final Reservation costOnly = Reservation.builder().costConcession(comp).build();
+        assertEquals(costOnly.getCostConcession(), comp);
+        assertNull(costOnly.getPriceConcession(), "The field it sits in IS the side");
+        assertFalse(mapper.writeValueAsString(costOnly).contains("priceConcession"),
+                "A null concession is not written");
+    }
+
+    @Test
     public void jacksonRoundTripPreservesEverything() throws Exception {
         final ObjectMapper mapper = DAO.getInstance().getMapper();
         final Reservation res = Reservation.builder().id(Reservation.Id.from("res-1")).tripId("trip-1").orgId("org-1")
                 .offerId(ReservationOffer.Id.from("offer-1")).accommodationId(Accommodation.Id.from("acc-1"))
                 .occupants(List.of(ADA, BOB)).start(AT).end(AT.plusDays(3)).roomId("r-114")
                 .status(Reservation.Status.CANCELLED).notes("Late flight").waiveSingleSupplement(true)
+                .priceConcession(Concession.builder().kind(Concession.Kind.PERCENT).percentBps(1000)
+                        .reason("Loyal pilgrim").by(ADA).at(AT).build())
+                .costConcession(Concession.builder().kind(Concession.Kind.COMPLIMENTARY).reason("Hotel comped")
+                        .by(BOB).at(AT.plusHours(1)).build())
                 .createdBy(ADA).created(AT).cancelledAt(AT.plusDays(1)).cancelledBy(BOB).cancelFeeCents(1500L)
                 .credited(true).cancelReason("Changed plans").version(4L).build();
         final String json = mapper.writeValueAsString(res);
         assertFalse(json.contains("\"active\""), "Derived properties are not persisted");
+        assertTrue(json.contains("\"priceConcession\":{"), json);
+        assertTrue(json.contains("\"costConcession\":{"), json);
         assertEquals(mapper.readValue(json, Reservation.class), res);
+        final Reservation revived = mapper.readValue(json, Reservation.class);
+        assertEquals(revived.getPriceConcession().label(), "10% discount");
+        assertTrue(revived.getCostConcession().isComplimentary());
+        assertTrue(revived.isSupplementWaived(), "The older price-side concession rides along unchanged");
         assertTrue(Reservation.Id.from("a").compareTo(Reservation.Id.from("b")) < 0);
         assertNotNull(Reservation.Id.newInstance().getValue());
     }

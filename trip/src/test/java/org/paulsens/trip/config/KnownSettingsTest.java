@@ -1,5 +1,7 @@
 package org.paulsens.trip.config;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -37,6 +39,32 @@ public class KnownSettingsTest {
                 default -> Assert.fail(def.getName() + " has a type this test does not cover: " + def.getType());
             }
         }
+    }
+
+    /**
+     * A {@code SettingDef} declared but placed in no {@code SettingSection} is invisible on the Settings page
+     * and, when org-overridable, cannot be overridden either -- which is how {@code lodging.bills.autoRecompute}
+     * shipped unreachable (fixed 2026-10-25). Reflection over the public constants is the only list that cannot
+     * forget one.
+     */
+    @Test
+    public void everyDeclaredSettingIsInASection() throws IllegalAccessException {
+        final Set<String> sectioned = new HashSet<>();
+        for (final SettingDef def : KnownSettings.all()) {
+            sectioned.add(def.getName());
+        }
+        final List<String> orphans = new ArrayList<>();
+        for (final Field field : KnownSettings.class.getFields()) {
+            if (field.getType() == SettingDef.class && Modifier.isStatic(field.getModifiers())) {
+                final SettingDef def = (SettingDef) field.get(null);
+                if (!sectioned.contains(def.getName())) {
+                    orphans.add(field.getName() + " (" + def.getName() + ")");
+                }
+            }
+        }
+        Assert.assertTrue(orphans.isEmpty(), "Declared but in no SettingSection, so nobody can see or set them: "
+                + orphans);
+        Assert.assertTrue(sectioned.contains(KnownSettings.LODGING_AUTO_RECOMPUTE.getName()));
     }
 
     @Test

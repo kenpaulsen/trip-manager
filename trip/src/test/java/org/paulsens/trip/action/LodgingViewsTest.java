@@ -1,14 +1,24 @@
 package org.paulsens.trip.action;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 import org.paulsens.trip.action.LodgingViews.BlockForm;
+import org.paulsens.trip.action.LodgingViews.ConcessionForm;
+import org.paulsens.trip.action.LodgingViews.CostExtraForm;
 import org.paulsens.trip.action.LodgingViews.DayCell;
+import org.paulsens.trip.action.LodgingViews.OfferCostForm;
 import org.paulsens.trip.action.LodgingViews.OfferForm;
+import org.paulsens.trip.action.LodgingViews.OfferRow;
 import org.paulsens.trip.action.LodgingViews.ItineraryRow;
 import org.paulsens.trip.action.LodgingViews.PlacementForm;
 import org.paulsens.trip.action.LodgingViews.ReservationForm;
+import org.paulsens.trip.action.LodgingViews.ReservationRow;
 import org.paulsens.trip.action.LodgingViews.SplitForm;
 import org.paulsens.trip.action.LodgingViews.StayWindowForm;
 import org.testng.annotations.Test;
@@ -241,6 +251,87 @@ public class LodgingViewsTest {
         second.setStayCount(2);
         assertFalse(second.isFirstStay());
         assertEquals(second.getStayIndex(), 2);
+    }
+
+    /**
+     * The money forms of the price-vs-cost round: their defaults are what a fresh dialog shows (a new option is
+     * PRICED and its cost unstated; a concession dialog opens on "none"), and every one survives the session
+     * codec's round trip, because a dialog's form lives in the view.
+     */
+    @Test
+    public void theMoneyFormsDefaultSensiblyAndSerialize() throws Exception {
+        final OfferForm offer = new OfferForm();
+        assertTrue(offer.isPriceKnown(), "a new option is priced unless the dialog says otherwise");
+        assertFalse(offer.isCostKnown(), "...and its hotel cost is assumed until stated");
+        assertEquals(offer.getCostPricingModel(), "PER_ROOM");
+        assertFalse(offer.isCostPerNight());
+        assertTrue(offer.getCostPerNightRates().isEmpty());
+        assertTrue(offer.getCostExtras().isEmpty());
+        assertNull(offer.getProblem());
+        offer.setCostExtras(null);
+        assertTrue(offer.getCostExtras().isEmpty(), "a null list is never stored");
+        offer.getCostExtras().add(new CostExtraForm("City tax", "PER_PERSON_NIGHT", 1.5));
+        offer.setCostKnown(true);
+        offer.setCostNightlyPrice(50.0);
+        final OfferForm offerBack = roundTrip(offer);
+        assertEquals(offerBack.getCostExtras().get(0).getLabel(), "City tax");
+        assertEquals(offerBack.getCostNightlyPrice(), 50.0);
+        assertTrue(offerBack.isCostKnown());
+
+        final CostExtraForm extra = new CostExtraForm();
+        assertEquals(extra.getBasis(), "FIXED", "an extra is a flat amount until told otherwise");
+        assertNull(extra.getAmount());
+        assertEquals(roundTrip(new CostExtraForm("Coupon", "FIXED", -20.0)).getAmount(), -20.0);
+
+        final OfferCostForm cost = new OfferCostForm();
+        assertFalse(cost.isCostKnown());
+        assertEquals(cost.getCostPricingModel(), "PER_ROOM");
+        assertTrue(cost.getCostExtras().isEmpty());
+        cost.setCostExtras(null);
+        assertTrue(cost.getCostExtras().isEmpty());
+        cost.setTripId("t");
+        cost.setOfferId("o");
+        cost.setProblem("why");
+        final OfferCostForm costBack = roundTrip(cost);
+        assertEquals(costBack.getOfferId(), "o");
+        assertEquals(costBack.getProblem(), "why");
+
+        final ConcessionForm concession = new ConcessionForm();
+        assertEquals(concession.getSide(), "PRICE");
+        assertTrue(concession.isPriceSide());
+        assertEquals(concession.getKind(), "", "\"\" is \"none\", which clears");
+        assertNull(concession.getAmount());
+        concession.setSide("cost");
+        assertFalse(concession.isPriceSide(), "the side is read case-insensitively");
+        concession.setSide(null);
+        assertTrue(concession.isPriceSide(), "...and anything but COST is the price side");
+        concession.setKind("PERCENT");
+        concession.setAmount(12.5);
+        concession.setPreview("$315.00");
+        final ConcessionForm concessionBack = roundTrip(concession);
+        assertEquals(concessionBack.getKind(), "PERCENT");
+        assertEquals(concessionBack.getAmount(), 12.5);
+        assertEquals(concessionBack.getPreview(), "$315.00");
+
+        final OfferRow row = new OfferRow();
+        row.setNeedsPricing(true);
+        row.setCost("not set (assumed = price)");
+        assertTrue(roundTrip(row).isNeedsPricing());
+        final ReservationRow stay = new ReservationRow();
+        stay.setPriceConcession("10% discount");
+        assertEquals(roundTrip(stay).getPriceConcession(), "10% discount");
+        assertNull(roundTrip(stay).getCostConcession());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T extends Serializable> T roundTrip(final T value) throws Exception {
+        final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ObjectOutputStream out = new ObjectOutputStream(bytes)) {
+            out.writeObject(value);
+        }
+        try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            return (T) in.readObject();
+        }
     }
 
 }

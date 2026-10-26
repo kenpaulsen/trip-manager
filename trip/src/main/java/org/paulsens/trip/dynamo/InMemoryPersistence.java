@@ -103,7 +103,8 @@ public class InMemoryPersistence implements Persistence {
             // to see other trips' stays, so a fake that answered nothing would make it untestable.
             Map.entry(LodgingDAO.RESERVATIONS_TABLE, new TableKeys(LodgingDAO.TRIP_ID, LodgingDAO.ID,
                     Map.of(LodgingDAO.BY_ACCOMMODATION, new TableKeys(LodgingDAO.ACC_ID, LodgingDAO.STAY_END)))),
-            Map.entry(LodgingDAO.BLOCKS_TABLE, new TableKeys(LodgingDAO.ACC_ID, LodgingDAO.ID)));
+            Map.entry(LodgingDAO.BLOCKS_TABLE, new TableKeys(LodgingDAO.ACC_ID, LodgingDAO.ID)),
+            Map.entry(LodgingDAO.RATE_PLANS_TABLE, new TableKeys(LodgingDAO.ACC_ID, LodgingDAO.ID)));
 
     /** table -> (pk -> (sk -> item)). sk is "" for PK-only tables. */
     private final Map<String, Map<String, Map<String, Map<String, AttributeValue>>>> store =

@@ -140,6 +140,10 @@ public class SerializationCompatibilityTest {
             of(ReservationOffer.class, SerializationCompatibilityTest::reservationOffer, ReservationOffer::getName),
             of(Reservation.class, SerializationCompatibilityTest::reservation, Reservation::getNotes),
             of(RoomBlock.class, SerializationCompatibilityTest::roomBlock, RoomBlock::getReason),
+            of(RateSchedule.class, SerializationCompatibilityTest::rateSchedule, RateSchedule::getNightlyCents),
+            of(CostExtra.class, SerializationCompatibilityTest::costExtra, CostExtra::getLabel),
+            of(Concession.class, SerializationCompatibilityTest::concession, Concession::getReason),
+            of(RatePlan.class, SerializationCompatibilityTest::ratePlan, RatePlan::getName),
             of(Payment.class, SerializationCompatibilityTest::payment, Payment::getOrderRef),
             of(Privilege.class, () -> new Privilege("peopleAdmin", "People admin", List.of(ADA)), Privilege::getId),
             of(TodoItem.class, SerializationCompatibilityTest::todoItem, TodoItem::getDataId),
@@ -231,8 +235,31 @@ public class SerializationCompatibilityTest {
     private static ReservationOffer reservationOffer() {
         return ReservationOffer.builder().id(ReservationOffer.Id.from("offer-double")).tripId("trip-rome")
                 .name("Double room").accommodationId(Accommodation.Id.from("acc-pansion")).roomTypeId("rt-double")
-                .tripEventId("event-1").nightlyPriceCents(5500).defaultStart(AT).defaultEnd(AT.plusDays(3))
+                .tripEventId("event-1").nightlyPriceCents(5500).cost(rateSchedule()).costExtras(List.of(costExtra()))
+                .ratePlanId("plan-autumn").ratePlanVersion(2L).defaultStart(AT).defaultEnd(AT.plusDays(3))
                 .createdBy(ADA).created(AT).build();
+    }
+
+    private static RateSchedule rateSchedule() {
+        return RateSchedule.builder().pricingModel(PricingModel.PER_ROOM).nightlyCents(5000)
+                .overrides(Map.of("2026-09-03", 6000L)).build();
+    }
+
+    private static CostExtra costExtra() {
+        return CostExtra.builder().label("City tax").basis(CostExtra.Basis.PER_PERSON_NIGHT).amountCents(250).build();
+    }
+
+    private static Concession concession() {
+        return Concession.builder().kind(Concession.Kind.PERCENT).percentBps(1000).reason("Loyal pilgrim").by(ADA)
+                .at(AT).build();
+    }
+
+    private static RatePlan ratePlan() {
+        return RatePlan.builder().id(RatePlan.Id.from("plan-autumn"))
+                .accommodationId(Accommodation.Id.from("acc-pansion")).name("Autumn rate")
+                .roomTypeIds(List.of("rt-double")).validFrom(AT.toLocalDate()).validUntil(AT.toLocalDate().plusDays(30))
+                .cost(rateSchedule()).costExtras(List.of(costExtra()))
+                .linkedTripIds(List.of("trip-rome")).createdBy(ADA).created(AT).version(2L).build();
     }
 
     private static RoomBlock roomBlock() {
@@ -246,7 +273,7 @@ public class SerializationCompatibilityTest {
         return Reservation.builder().id(Reservation.Id.from("res-1")).tripId("trip-rome")
                 .offerId(ReservationOffer.Id.from("offer-double")).accommodationId(Accommodation.Id.from("acc-pansion"))
                 .occupants(List.of(ADA, BOB)).start(AT).end(AT.plusDays(3)).roomId("room-114").notes("late arrival")
-                .createdBy(ADA).created(AT).build();
+                .priceConcession(concession()).createdBy(ADA).created(AT).build();
     }
 
     private static Family family() {

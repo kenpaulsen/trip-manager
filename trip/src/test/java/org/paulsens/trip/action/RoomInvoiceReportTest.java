@@ -6,24 +6,34 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Accommodation;
+import org.paulsens.trip.model.Concession;
+import org.paulsens.trip.model.CostExtra;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PricingModel;
+import org.paulsens.trip.model.RateSchedule;
 import org.paulsens.trip.model.Reservation;
 import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.Room;
 import org.paulsens.trip.model.RoomType;
+import org.paulsens.trip.model.Transaction;
+import org.paulsens.trip.pay.LodgingBiller;
 import org.paulsens.trip.pay.LodgingPricing;
+import org.paulsens.trip.pay.LodgingPricing.Side;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 /**
  * The room invoice: a group per lodging option, lines whose {@code quantity x nights x rate} IS the amount, the
- * single supplement on lines of its own, and a total that equals the lodging bills for the same stays.
+ * single supplement on lines of its own, and a total that equals the hotel's charge for the same stays. Since
+ * the price/cost split the invoice is the COST build: an option with no stated cost is invoiced at the
+ * participant price and flagged, so every pre-split scenario here still holds with its numbers unchanged;
+ * the scenarios after them give an option a cost of its own, extras and concessions.
  */
 public class RoomInvoiceReportTest {
 
@@ -72,14 +82,25 @@ public class RoomInvoiceReportTest {
                 .occupants(Arrays.stream(people).map(Person.Id::from).toList()).build();
     }
 
-    /** Every invoice built here also proves the owner's rule: per person and per option add up the same. */
+    /**
+     * Every invoice built here also proves the owner's rule: per person and per option add up the same, the
+     * hotel's extras (never attributed to a person) being the one documented difference.
+     */
     private ReportCommands.RoomInvoice invoice(final List<ReservationOffer> offers, final Reservation... stays) {
-        final ReportCommands.RoomInvoice invoice =
-                reports.roomInvoice(List.of(stays), id -> find(offers, id), this::findHotel);
+        return invoice(Side.COST, offers, stays);
+    }
+
+    private ReportCommands.RoomInvoice invoice(final Side side, final List<ReservationOffer> offers,
+            final Reservation... stays) {
+        final ReportCommands.RoomInvoice invoice = reports.roomInvoice(side, List.of(stays), id -> find(offers, id),
+                this::findHotel, Person.Id::getValue);
         for (final ReportCommands.InvoiceSection section : invoice.getSections()) {
-            Assert.assertEquals(section.getPeopleCents(), section.getCents(),
-                    section.getAccommodation() + ": the per-person table must total the per-option table");
-            Assert.assertEquals(section.getPeopleAmount(), section.getAmount());
+            Assert.assertEquals(section.getPeopleCents() + section.getExtrasCents(), section.getCents(),
+                    section.getAccommodation() + ": the per-person table plus the extras must total the per-option "
+                            + "table");
+            if (section.getExtrasCents() == 0L) {
+                Assert.assertEquals(section.getPeopleAmount(), section.getAmount());
+            }
         }
         return invoice;
     }
@@ -97,16 +118,31 @@ public class RoomInvoiceReportTest {
         return hotel.getId().getValue().equals(id) ? hotel : second.getId().getValue().equals(id) ? second : null;
     }
 
-    /** What the ledger bills for the same stays: the invoice must add up to exactly this. */
-    private long billed(final List<ReservationOffer> offers, final Reservation... stays) {
+    /** What the pricing engine charges on this side for the same stays: the invoice must add up to exactly this. */
+    private long charged(final Side side, final List<ReservationOffer> offers, final Reservation... stays) {
         long total = 0L;
         for (final Reservation res : stays) {
             final List<Reservation> onRoom = Arrays.stream(stays)
                     .filter(o -> res.getRoomId() != null && res.getRoomId().equals(o.getRoomId())).toList();
-            total += LodgingPricing.price(res, find(offers, res.getOfferId().getValue()), hotel, onRoom, null)
+            total += LodgingPricing.lines(side, res, find(offers, res.getOfferId().getValue()), hotel, onRoom, null)
                     .stream().mapToLong(LodgingPricing.Line::amountCents).sum();
         }
         return total;
+    }
+
+    /** With no cost stated the hotel's charge IS the participant price, so the pre-split equality still holds. */
+    private long billed(final List<ReservationOffer> offers, final Reservation... stays) {
+        Assert.assertEquals(charged(Side.COST, offers, stays), charged(Side.PRICE, offers, stays),
+                "cost assumed from the price: both sides charge the same");
+        return charged(Side.COST, offers, stays);
+    }
+
+    private static CostExtra extra(final String label, final CostExtra.Basis basis, final long cents) {
+        return CostExtra.builder().label(label).basis(basis).amountCents(cents).build();
+    }
+
+    private static Concession percentOff(final int bps, final String reason) {
+        return Concession.builder().kind(Concession.Kind.PERCENT).percentBps(bps).reason(reason).build();
     }
 
     private static ReportCommands.InvoiceLine only(final ReportCommands.InvoiceOffer group,
@@ -302,15 +338,21 @@ public class RoomInvoiceReportTest {
         Assert.assertEquals(invoice.getCents(), billed(offers, stays));
     }
 
+    /** The waiver is a PRICE-side concession: the participant is spared the supplement, the hotel still bills it. */
     @Test
-    public void aWaivedSupplementIsNotCharged() {
+    public void aWaivedSupplementComesOffThePriceButNotTheCost() {
         final ReservationOffer person = perPerson(hotel, 5_000L, 1_000L);
         final Reservation waived = stay(person, "003", ARRIVE, DEPART, "a");
         waived.setWaiveSingleSupplement(Boolean.TRUE);
-        final ReportCommands.InvoiceOffer group = invoice(List.of(person), waived,
-                stay(person, "004", ARRIVE, DEPART, "b")).getSections().get(0).getOffers().get(0);
-        assertLine(only(group, ReportCommands.LineKind.SUPPLEMENT), 1, "guest", 12, 1_000L);
-        assertLine(only(group, ReportCommands.LineKind.GUESTS), 2, "guests", 12, 5_000L);
+        final Reservation other = stay(person, "004", ARRIVE, DEPART, "b");
+        final ReportCommands.InvoiceOffer priced = invoice(Side.PRICE, List.of(person), waived, other)
+                .getSections().get(0).getOffers().get(0);
+        assertLine(only(priced, ReportCommands.LineKind.SUPPLEMENT), 1, "guest", 12, 1_000L);
+        assertLine(only(priced, ReportCommands.LineKind.GUESTS), 2, "guests", 12, 5_000L);
+        final ReportCommands.InvoiceOffer cost = invoice(Side.COST, List.of(person), waived, other)
+                .getSections().get(0).getOffers().get(0);
+        assertLine(only(cost, ReportCommands.LineKind.SUPPLEMENT), 2, "guests", 12, 1_000L);
+        Assert.assertEquals(cost.getCents(), charged(Side.COST, List.of(person), waived, other));
     }
 
     @Test
@@ -457,24 +499,264 @@ public class RoomInvoiceReportTest {
 
     @Test
     public void theRoomMixListsTheMostUsedTypeFirst() {
-        Assert.assertEquals(ReportCommands.roomMixOf(Map.of("Single", 1, "Double", 3, "Anex", 1), 2),
+        Assert.assertEquals(RoomInvoiceBuilder.roomMixOf(Map.of("Single", 1, "Double", 3, "Anex", 1), 2),
                 "3 Double rooms, 1 Anex room, 1 Single room, 2 reservations not yet placed in a room");
     }
 
     @Test
     public void theRateReadsTheWayTheOptionEditorWritesIt() {
-        Assert.assertEquals(ReportCommands.rateOf(perPerson(hotel, 5_000L, 0L)), "$50.00 per person per night");
-        Assert.assertEquals(ReportCommands.rateOf(perRoom(hotel, 6_000L)), "$60.00 per room per night");
+        Assert.assertEquals(RoomInvoiceBuilder.rateOf(perPerson(hotel, 5_000L, 0L).getPrice()),
+                "$50.00 per person per night");
+        Assert.assertEquals(RoomInvoiceBuilder.rateOf(perRoom(hotel, 6_000L).getPrice()), "$60.00 per room per night");
     }
 
     @Test
     public void aWindowAcrossNewYearNamesBothYears() {
-        Assert.assertEquals(ReportCommands.stayWindowOf(LocalDate.of(2028, 12, 30), LocalDate.of(2029, 1, 2)),
+        Assert.assertEquals(RoomInvoiceBuilder.stayWindowOf(LocalDate.of(2028, 12, 30), LocalDate.of(2029, 1, 2)),
                 "Dec 30, 2028 - Jan 2, 2029");
     }
 
+    // ------------------------------------------------------------------ price vs cost
+
+    /** A hotel that charges per room while the participants pay per person: the invoice is the hotel's number. */
     @Test
-    public void theSeededTripsInvoiceMatchesItsLodgingBills() {
+    public void anOptionWithItsOwnCostIsInvoicedAtCostNotPrice() {
+        final ReservationOffer person = perPerson(hotel, 5_000L, 1_000L);
+        person.setCost(RateSchedule.builder().pricingModel(PricingModel.PER_ROOM).nightlyCents(7_000L).build());
+        final List<ReservationOffer> offers = List.of(person);
+        final Reservation[] stays = {
+            stay(person, "003", ARRIVE, DEPART, "a", "b"),
+            stay(person, "001", ARRIVE, DEPART, "solo"),
+        };
+        final ReportCommands.RoomInvoice invoice = invoice(offers, stays);
+        final ReportCommands.InvoiceOffer group = invoice.getSections().get(0).getOffers().get(0);
+        assertLine(only(group, ReportCommands.LineKind.ROOMS), 2, "rooms", 12, 7_000L);
+        Assert.assertTrue(group.getLines().stream().noneMatch(l -> l.getKind() == ReportCommands.LineKind.SUPPLEMENT),
+                "a per-room cost has no supplement, whatever the price side charges");
+        Assert.assertEquals(group.getPricing(), "$70.00 per room per night");
+        Assert.assertFalse(group.isCostAssumed());
+        Assert.assertFalse(invoice.isAnyCostAssumed());
+        Assert.assertEquals(invoice.getCents(), 2 * 12 * 7_000L);
+        Assert.assertEquals(invoice.getCents(), charged(Side.COST, offers, stays));
+        final ReportCommands.InvoiceSection section = invoice.getSections().get(0);
+        Assert.assertEquals(person(section, "a").getRate(), "$35.00 (share of a $70.00 room)");
+        Assert.assertEquals(person(section, "solo").getRate(), "$70.00 room, alone");
+        // The participants' side is untouched by the cost.
+        final ReportCommands.RoomInvoice priced = invoice(Side.PRICE, offers, stays);
+        Assert.assertEquals(priced.getCents(), 3 * 12 * 5_000L + 12 * 1_000L);
+        Assert.assertEquals(priced.getCents(), charged(Side.PRICE, offers, stays));
+        Assert.assertFalse(priced.isAnyCostAssumed(), "the flag is a COST-side statement");
+    }
+
+    @Test
+    public void anOptionWithNoCostIsFlaggedAsAssumedOnTheCostSideOnly() {
+        final ReservationOffer assumed = perRoom(hotel, 6_000L);
+        final ReservationOffer stated = perRoom(second, 8_000L);
+        stated.setCost(RateSchedule.builder().nightlyCents(5_000L).build());
+        final ReportCommands.RoomInvoice invoice = invoice(List.of(assumed, stated),
+                stay(assumed, "114", ARRIVE, DEPART, "a"), stay(stated, "s1", ARRIVE, DEPART, "b"));
+        Assert.assertTrue(invoice.isAnyCostAssumed());
+        Assert.assertEquals(invoice.getAssumedOptions(), 1);
+        for (final ReportCommands.InvoiceSection section : invoice.getSections()) {
+            Assert.assertEquals(section.getOffers().get(0).isCostAssumed(),
+                    section.getAccommodation().equals("Pansion Ana"), section.getAccommodation());
+            Assert.assertFalse(section.getOffers().get(0).getOfferId().isBlank());
+        }
+        final ReportCommands.RoomInvoice priced = invoice(Side.PRICE, List.of(assumed, stated),
+                stay(assumed, "114", ARRIVE, DEPART, "a"), stay(stated, "s1", ARRIVE, DEPART, "b"));
+        Assert.assertFalse(priced.isAnyCostAssumed());
+        Assert.assertEquals(priced.getAssumedOptions(), 0);
+    }
+
+    /**
+     * Every basis multiplies out of the option's counts: 58 guest-nights (2 x 12 in a room, 2 x 12 not yet
+     * placed, 1 x 10), 34 room-nights (the unplaced stay is a room of its own), 3 stays; FIXED is once, and a
+     * coupon is a negative extra. The extras are the hotel's, so they are not on the people table.
+     */
+    @Test
+    public void costExtrasMultiplyOutByTheirBasis() {
+        final ReservationOffer roomRate = perRoom(hotel, 6_000L);
+        roomRate.setCostExtras(List.of(
+                extra("City tax", CostExtra.Basis.PER_PERSON_NIGHT, 250L),
+                extra("Resort fee", CostExtra.Basis.PER_ROOM_NIGHT, 500L),
+                extra("Cleaning", CostExtra.Basis.PER_STAY, 3_000L),
+                extra("Booking fee", CostExtra.Basis.FIXED, 1_500L),
+                extra("Coupon", CostExtra.Basis.FIXED, -2_000L)));
+        final List<ReservationOffer> offers = List.of(roomRate);
+        final Reservation[] stays = {
+            stay(roomRate, "114", ARRIVE, DEPART, "a", "b"),
+            stay(roomRate, null, ARRIVE, DEPART, "c", "d"),
+            stay(roomRate, "003", ARRIVE, DEPART.minusDays(2), "e"),
+        };
+        final ReportCommands.RoomInvoice invoice = invoice(offers, stays);
+        final ReportCommands.InvoiceOffer group = invoice.getSections().get(0).getOffers().get(0);
+        final List<ReportCommands.InvoiceLine> extras =
+                group.getLines().stream().filter(ReportCommands.InvoiceLine::isExtra).toList();
+        Assert.assertEquals(extras.stream().map(ReportCommands.InvoiceLine::getItem).toList(),
+                List.of("City tax", "Resort fee", "Cleaning", "Booking fee", "Coupon"),
+                "extras keep the order they were entered in");
+        final ReportCommands.InvoiceLine tax = extras.get(0);
+        assertLine(tax, 58, "guest-nights", 1, 250L);
+        Assert.assertEquals(tax.getAmount(), "$145.00");
+        Assert.assertEquals(tax.getDates(), "Sep 21 - Oct 3, 2028", "the option's whole window");
+        assertLine(extras.get(1), 34, "room-nights", 1, 500L);
+        assertLine(extras.get(2), 3, "stays", 1, 3_000L);
+        assertLine(extras.get(3), 1, "", 1, 1_500L);
+        final ReportCommands.InvoiceLine coupon = extras.get(4);
+        assertLine(coupon, 1, "", 1, -2_000L);
+        Assert.assertEquals(coupon.getAmount(), "-$20.00");
+        Assert.assertEquals(coupon.getRate(), "-$20.00");
+        final int lastLodging = group.getLines().indexOf(group.getLines().stream()
+                .filter(l -> l.getKind() == ReportCommands.LineKind.ROOMS).reduce((x, y) -> y).orElseThrow());
+        Assert.assertTrue(group.getLines().indexOf(coupon) > lastLodging, "extras follow the lodging lines");
+        final long lodging = 2 * 12 * 6_000L + 10 * 6_000L;
+        final long extrasTotal = 14_500L + 17_000L + 9_000L + 1_500L - 2_000L;
+        Assert.assertEquals(group.getCents(), lodging + extrasTotal);
+        final ReportCommands.InvoiceSection section = invoice.getSections().get(0);
+        Assert.assertEquals(section.getExtrasCents(), extrasTotal);
+        Assert.assertEquals(section.getExtrasAmount(), "$400.00");
+        Assert.assertEquals(section.getPeopleCents(), lodging, "nobody is charged an extra");
+        Assert.assertEquals(invoice.getCents(), lodging + extrasTotal);
+        Assert.assertEquals(invoice.getRooms(), 3);
+        Assert.assertTrue(invoice(Side.PRICE, offers, stays).getSections().get(0).getOffers().get(0).getLines()
+                .stream().noneMatch(ReportCommands.InvoiceLine::isExtra), "extras never reach the price side");
+    }
+
+    @Test
+    public void aCostConcessionIsANegativeLineAndANetPersonRowAndTheTotalsAgree() {
+        final ReservationOffer roomRate = perRoom(hotel, 6_000L);
+        final Reservation comped = stay(roomRate, "003", ARRIVE, DEPART, "a", "b");
+        comped.setCostConcession(percentOff(1_000, "Hotel comped the guide"));
+        final List<ReservationOffer> offers = List.of(roomRate);
+        final Reservation[] stays = {comped, stay(roomRate, "114", ARRIVE, DEPART, "c")};
+        final ReportCommands.RoomInvoice invoice = invoice(offers, stays);
+        final ReportCommands.InvoiceOffer group = invoice.getSections().get(0).getOffers().get(0);
+        final ReportCommands.InvoiceLine concession = only(group, ReportCommands.LineKind.CONCESSION);
+        Assert.assertTrue(concession.isConcession());
+        Assert.assertEquals(concession.getItem(), "Concession");
+        Assert.assertEquals(concession.getQuantity(), 1);
+        Assert.assertEquals(concession.getNights(), 0);
+        Assert.assertEquals(concession.getRate(), "");
+        Assert.assertEquals(concession.getUnit(), "");
+        Assert.assertEquals(concession.getCents(), -7_200L, "10% of a $720.00 room");
+        Assert.assertEquals(concession.getAmount(), "-$72.00");
+        Assert.assertEquals(concession.getNote(), "a, b: 10% discount -- Hotel comped the guide");
+        Assert.assertEquals(group.getLines().get(group.getLines().size() - 1), concession, "last in the group");
+        assertLine(only(group, ReportCommands.LineKind.ROOMS), 2, "rooms", 12, 6_000L);
+        Assert.assertEquals(group.getCents(), 2 * 72_000L - 7_200L);
+        final ReportCommands.InvoiceSection section = invoice.getSections().get(0);
+        Assert.assertEquals(person(section, "a").getRate(), "$30.00 (share of a $60.00 room) (10% discount)");
+        Assert.assertEquals(person(section, "a").getCents(), 32_400L);
+        Assert.assertEquals(person(section, "c").getRate(), "$60.00 room, alone", "no suffix without a concession");
+        Assert.assertEquals(section.getPeopleCents(), 2 * 32_400L + 72_000L);
+        Assert.assertEquals(invoice.getCents(), charged(Side.COST, offers, stays), "the engine's own net");
+    }
+
+    @Test
+    public void aConcessionWithoutAReasonNamesOnlyTheGuestsAndTheLabel() {
+        final ReservationOffer roomRate = perRoom(hotel, 6_000L);
+        final Reservation comped = stay(roomRate, "114", ARRIVE, DEPART, "zed", "amy");
+        comped.setCostConcession(Concession.builder().kind(Concession.Kind.COMPLIMENTARY).reason("  ").build());
+        final ReportCommands.InvoiceOffer group =
+                invoice(List.of(roomRate), comped).getSections().get(0).getOffers().get(0);
+        final ReportCommands.InvoiceLine concession = only(group, ReportCommands.LineKind.CONCESSION);
+        Assert.assertEquals(concession.getNote(), "amy, zed: complimentary");
+        Assert.assertEquals(group.getCents(), 0L, "the room is free");
+    }
+
+    @Test
+    public void aPriceConcessionIsInvisibleOnTheCostSide() {
+        final ReservationOffer roomRate = perRoom(hotel, 6_000L);
+        final Reservation discounted = stay(roomRate, "003", ARRIVE, DEPART, "a", "b");
+        discounted.setPriceConcession(percentOff(5_000, "Scholarship"));
+        final ReportCommands.InvoiceOffer cost = invoice(Side.COST, List.of(roomRate), discounted)
+                .getSections().get(0).getOffers().get(0);
+        Assert.assertTrue(cost.getLines().stream().noneMatch(ReportCommands.InvoiceLine::isConcession));
+        Assert.assertEquals(cost.getCents(), 72_000L, "the hotel charges the full room");
+        final ReportCommands.RoomInvoice priced = invoice(Side.PRICE, List.of(roomRate), discounted);
+        final ReportCommands.InvoiceOffer billed = priced.getSections().get(0).getOffers().get(0);
+        Assert.assertEquals(only(billed, ReportCommands.LineKind.CONCESSION).getNote(),
+                "a, b: 50% discount -- Scholarship", "the price side is internal, so its reason shows");
+        Assert.assertEquals(billed.getCents(), 36_000L);
+        Assert.assertEquals(person(priced.getSections().get(0), "a").getCents(), 18_000L);
+    }
+
+    @Test
+    public void anOptionWithNoScheduleOnThisSideIsUnpriced() {
+        final ReservationOffer unpriced = ReservationOffer.builder().name("Needs pricing")
+                .accommodationId(hotel.getId()).roomTypeIds(List.of("dbl")).build();
+        Assert.assertFalse(unpriced.isPriced());
+        final ReservationOffer costOnly = ReservationOffer.builder().name("Hotel-stated only")
+                .accommodationId(hotel.getId()).roomTypeIds(List.of("dbl"))
+                .cost(RateSchedule.builder().nightlyCents(4_000L).build()).build();
+        final Reservation[] stays = {
+            stay(unpriced, "003", ARRIVE, DEPART, "a"),
+            stay(costOnly, "004", ARRIVE, DEPART, "b"),
+        };
+        final ReportCommands.RoomInvoice cost = invoice(Side.COST, List.of(unpriced, costOnly), stays);
+        Assert.assertEquals(cost.getUnpriced(), 1, "no cost and no price: nothing to invoice");
+        Assert.assertEquals(cost.getCents(), 12 * 4_000L);
+        Assert.assertFalse(cost.isAnyCostAssumed(), "a stated cost is not assumed");
+        final ReportCommands.RoomInvoice price = invoice(Side.PRICE, List.of(unpriced, costOnly), stays);
+        Assert.assertEquals(price.getUnpriced(), 2, "neither has a participant price");
+        Assert.assertTrue(price.getSections().isEmpty());
+    }
+
+    // ------------------------------------------------------------------ who sees what
+
+    @Test
+    public void staysAreFilteredToAnOperatorsHotelsByTheStaysOwnHotelElseItsOptions() {
+        final ReservationOffer here = perRoom(hotel, 6_000L);
+        final ReservationOffer there = perRoom(second, 8_000L);
+        final Reservation atHotel = stay(here, "114", ARRIVE, DEPART, "a");
+        final Reservation atSecond = stay(there, "s1", ARRIVE, DEPART, "b");
+        final Reservation byOffer = stay(there, null, ARRIVE, DEPART, "c");
+        byOffer.setAccommodationId(null);
+        final Reservation orphan = stay(here, null, ARRIVE, DEPART, "d");
+        orphan.setAccommodationId(null);
+        orphan.setOfferId(ReservationOffer.Id.from("gone"));
+        final List<ReservationOffer> offers = List.of(here, there);
+        Assert.assertEquals(ReportCommands.staysAt(List.of(atHotel, atSecond, byOffer, orphan),
+                Set.of(second.getId().getValue()), id -> find(offers, id)), List.of(atSecond, byOffer));
+        Assert.assertEquals(ReportCommands.staysAt(List.of(atHotel, atSecond, byOffer, orphan),
+                Set.of(hotel.getId().getValue()), id -> find(offers, id)), List.of(atHotel));
+    }
+
+    @Test
+    public void theInvoiceForAnOperatorIsTheirHotelsAloneWithTheAssumedFlagStripped() {
+        final String tripId = FakeData.FAKE_TRIP_ID;
+        final ReportCommands.RoomInvoice everything = reports.roomInvoice(tripId);
+        Assert.assertTrue(everything.isAnyCostAssumed(), "the seeded option states no cost");
+        final LodgingAccess finance = LodgingAccess.none(tripId);
+        Assert.assertEquals(reports.roomInvoiceFor(tripId, finance, true), everything, "a finance viewer: all of it");
+        Assert.assertEquals(reports.roomInvoiceFor(tripId, null, true), everything, "...even with no access object");
+        final LodgingAccess internal = new LodgingAccess(tripId, true, Set.of(),
+                Set.of(FakeData.CFPW_ACCOMMODATION_ID));
+        Assert.assertEquals(reports.roomInvoiceFor(tripId, internal, false), everything, "the trip's own people too");
+
+        final LodgingAccess operator = new LodgingAccess(tripId, false, Set.of(FakeData.CFPW_ACCOMMODATION_ID),
+                Set.of(FakeData.CFPW_ACCOMMODATION_ID));
+        final ReportCommands.RoomInvoice theirs = reports.roomInvoiceFor(tripId, operator, false);
+        Assert.assertEquals(theirs.getSections().size(), 1);
+        Assert.assertEquals(theirs.getCents(), everything.getCents(), "the one hotel in play is theirs");
+        Assert.assertFalse(theirs.isAnyCostAssumed(), "the flag never reaches the hotel");
+        Assert.assertEquals(theirs.getAssumedOptions(), 0);
+        Assert.assertTrue(theirs.getSections().stream().flatMap(s -> s.getOffers().stream())
+                .noneMatch(ReportCommands.InvoiceOffer::isCostAssumed));
+
+        final LodgingAccess elsewhere = new LodgingAccess(tripId, false, Set.of("some-other-hotel"), Set.of());
+        Assert.assertTrue(reports.roomInvoiceFor(tripId, elsewhere, false).getSections().isEmpty(),
+                "an operator of a hotel not in play gets nothing");
+        Assert.assertTrue(reports.roomInvoiceFor(tripId, finance, false).getSections().isEmpty(),
+                "neither finance nor internal nor operator: nothing");
+        Assert.assertTrue(reports.roomInvoiceFor("no-such-trip", internal, true).getSections().isEmpty());
+    }
+
+    // ------------------------------------------------------------------ the seeded trip
+
+    /** The local fixture states no hotel cost, so the invoice is at the participant price and says so. */
+    @Test
+    public void theSeededTripsInvoiceIsAtCostAndSaysCostIsAssumed() {
         final ReportCommands.RoomInvoice invoice = reports.roomInvoice(FakeData.FAKE_TRIP_ID);
         Assert.assertEquals(invoice.getSections().size(), 1, "the local fixture reserves one hotel");
         Assert.assertEquals(invoice.getRooms(), 1, "Dave and the late-arriving Matt share one room");
@@ -486,14 +768,48 @@ public class RoomInvoiceReportTest {
         }
         final ReservationOffer rate = new LodgingCommands().findOffer(FakeData.FAKE_TRIP_ID,
                 active.get(0).getOfferId().getValue());
-        final ReportCommands.InvoiceLine line =
-                invoice.getSections().get(0).getOffers().get(0).getLines().get(0);
+        Assert.assertTrue(rate.isCostAssumed(), "the seed sets a price and no cost");
+        final ReportCommands.InvoiceOffer group = invoice.getSections().get(0).getOffers().get(0);
+        final ReportCommands.InvoiceLine line = group.getLines().get(0);
         Assert.assertEquals(line.getQuantity(), 1);
-        Assert.assertEquals(invoice.getCents(), rate.getNightlyPriceCents() * line.getNights(),
-                "a PER_ROOM room costs the room rate each night");
+        Assert.assertEquals(invoice.getCents(), rate.effectiveCost().getNightlyCents() * line.getNights(),
+                "a PER_ROOM room costs the room rate each night, at the assumed cost");
+        Assert.assertTrue(group.isCostAssumed());
+        Assert.assertTrue(invoice.isAnyCostAssumed());
+        Assert.assertEquals(invoice.getAssumedOptions(), 1);
         // Counted from the rows, not hard-coded: each initFakeData re-seeds the stays under fresh person ids.
         final long occupants = active.stream().flatMap(res -> res.getOccupants().stream()).distinct().count();
         Assert.assertEquals(line.getNote(), occupants + " guests");
+    }
+
+    /** Billed vs Cost over the fixture: its billed column IS the ledger, its cost column IS the invoice. */
+    @Test
+    public void theSeededTripsBilledColumnMatchesItsLodgingBills() {
+        final String tripId = FakeData.FAKE_TRIP_ID;
+        // The seed bills on reservation; recomputing here makes the test independent of that setting.
+        new LodgingCommands(TestCallers::siteAdmin).recomputeTrip(tripId);
+        final ReportCommands.BilledVsCost compared = reports.billedVsCost(tripId);
+        // Read the rows the way the biller does (per ACTIVE stay and occupant, by bill id): the roster's ids
+        // drift across re-seeds, and bills of cancelled stays stay in the ledger but leave the report.
+        long ledger = 0L;
+        for (final Reservation res : DAO.getInstance().getReservations(tripId, Cached.NO)) {
+            if (!res.isActive()) {
+                continue;
+            }
+            for (final Person.Id person : res.getOccupants()) {
+                final Transaction tx = DAO.getInstance()
+                        .getTransaction(person, LodgingBiller.billTxId(res.getId(), person), Cached.NO).orElse(null);
+                if (tx != null && tx.getAmount() != null) {
+                    ledger += Math.round(tx.getAmount() * 100);
+                }
+            }
+        }
+        Assert.assertTrue(ledger < 0L, "the seed wrote lodging bills");
+        Assert.assertEquals(compared.getBilledCents(), -ledger, "billed == -sum of the Lodging Bill rows");
+        Assert.assertEquals(compared.getCostCents(), reports.roomInvoice(tripId).getCents(),
+                "cost == the Room Invoice total");
+        Assert.assertEquals(compared.getDifferenceCents(), 0L, "cost assumed from the price");
+        Assert.assertTrue(compared.isAnyCostAssumed());
     }
 
     @Test

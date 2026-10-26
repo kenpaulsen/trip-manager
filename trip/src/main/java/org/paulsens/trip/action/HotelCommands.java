@@ -11,14 +11,19 @@ import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.action.HotelViews.HotelOptionRow;
+import org.paulsens.trip.action.HotelViews.HotelStayRow;
+import org.paulsens.trip.action.HotelViews.HotelTripRow;
 import org.paulsens.trip.action.LodgingViews.BlockForm;
 import org.paulsens.trip.action.LodgingViews.BlockRow;
 import org.paulsens.trip.action.LodgingViews.DayCell;
@@ -33,6 +38,7 @@ import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Reservation;
+import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.Room;
 import org.paulsens.trip.model.RoomBlock;
 import org.paulsens.trip.model.RoomType;
@@ -57,11 +63,12 @@ import static org.paulsens.trip.action.PageFeedback.refuse;
  * <p>Separate from {@link LodgingCommands} because the question is different. That bean answers "where do I
  * put this person on my trip"; this one answers "what does my hotel look like in September", which crosses
  * trips and organizations. Accommodations are the one GLOBAL entity, so this is the one place a read spans
- * the tenancy boundary -- and it is why nothing here carries a guest's NAME. A hotel sees counts, dates, and
- * whose trip it is when the caller could have seen that trip anyway; the names stay on each trip's own board.
+ * the tenancy boundary. The calendar and its day detail carry counts and dates and never a guest's NAME; a trip
+ * is named there to someone internal on it or to this hotel's operator ({@link LodgingAccessCommands#mayNameTrip}).
+ * The Trips tab ({@link #tripRows}) goes further for the hotel's OPERATORS alone -- see {@link HotelViews}.
  *
- * <p>Gates come from {@link LodgingCommands}: {@code canEditAccommodation} to change a block,
- * {@code canOpenLodgingAdmin} to read the calendar at all.
+ * <p>Gates come from {@link LodgingCommands}: {@code canEditAccommodation} to change a block or open the Trips
+ * tab, {@code canOpenLodgingAdmin} to read the calendar at all.
  */
 @Slf4j
 @Named("hotel")
@@ -70,12 +77,17 @@ public class HotelCommands {
     /** A block may not take out more rooms than the hotel has; a runaway multi-select is a mistake. */
     static final int MAX_BLOCK_ROOMS = LodgingCommands.MAX_ROOMS;
     private static final DateTimeFormatter MONTH = DateTimeFormatter.ofPattern("yyyy-MM");
+    private static final DateTimeFormatter MONTH_DAY = DateTimeFormatter.ofPattern("MMM d", Locale.ROOT);
+    private static final DateTimeFormatter MONTH_DAY_YEAR = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ROOT);
     /** Above this share of the rooms the day reads as "most"; at or above full it reads as full. */
     private static final double MOST = 0.8;
+    /** How far back the Trips tab looks: a stay that ended over a year ago is history, not an operation. */
+    static final int TRIPS_LOOKBACK_DAYS = 400;
 
     private final Supplier<Caller> callerSource;
     private final Supplier<LodgingCommands> lodgingSource;
     private final Supplier<AuditCommands> auditSource;
+    private final LodgingAccessCommands access;
 
     public HotelCommands() {
         this(Caller::current);
@@ -91,6 +103,7 @@ public class HotelCommands {
         this.callerSource = callerSource;
         this.lodgingSource = lodgingSource;
         this.auditSource = auditSource;
+        this.access = new LodgingAccessCommands(callerSource);
     }
 
     // ================================================================== blocks
@@ -293,10 +306,15 @@ public class HotelCommands {
         return row;
     }
 
-    /** What the hotel may be told about one trip's stay: whose trip, how many, when. Never who. */
+    /**
+     * What the calendar may be told about one trip's stay: whose trip, how many, when. Never who. The trip is
+     * named to someone internal on it or to this hotel's operator; anyone else reads "another organization's
+     * trip" (the Trips tab, operators only, is where the guests are named).
+     */
     private DayStay stayOf(final Reservation res) {
         final Trip trip = DAO.getInstance().getTrip(res.getTripId(), Cached.YES).orElse(null);
-        final boolean mine = trip != null && lodgingSource.get().canManageTripLodging(trip.getId());
+        final boolean mine = trip != null && access.mayNameTrip(trip.getId(), LodgingCommands.idValue(res
+                .getAccommodationId()));
         return new DayStay(label(trip, mine), orgName(trip, mine), res.getOccupants().size(), res.getStart(),
                 res.getEnd());
     }
@@ -449,6 +467,124 @@ public class HotelCommands {
                 .styleClass("cal-block")
                 .data(block.getId().getValue())
                 .build();
+    }
+
+    // ================================================================== the Trips tab (operators)
+
+    /**
+     * Every trip with an ACTIVE stay at this hotel over the last {@link #TRIPS_LOOKBACK_DAYS} days, newest
+     * first, each with its lodging options here and its stays -- dates, room and the GUESTS' names. For the
+     * hotel's operators ({@code canEditAccommodation}) alone; everyone else gets an empty list.
+     *
+     * <p>This is the deliberate tenancy extension the owner decided on 2026-10-25: an operator may see trip
+     * titles, dates and guest names at THEIR hotel across organizations, never a price or a bill. The trips
+     * are discovered two ways: through the by-accommodation index of reservations (the stays), and through the
+     * hotel's own {@code tripIds} (every trip that saved an OPTION here, {@link HotelUsage}), so a trip nobody
+     * has booked yet is listed with its options and an empty stays table -- the hotel may need to state its
+     * cost before the first stay exists. A recorded trip whose options here are gone is skipped.
+     */
+    public List<HotelTripRow> tripRows(final String accId) {
+        final List<HotelTripRow> rows = new ArrayList<>();
+        final Accommodation acc = accommodation(accId);
+        if (acc == null || !canEdit(accId)) {
+            return rows;
+        }
+        final LocalDateTime since = LocalDate.now().minusDays(TRIPS_LOOKBACK_DAYS).atStartOfDay();
+        final Map<String, List<Reservation>> byTrip = new LinkedHashMap<>();
+        for (final Reservation res : staysOver(acc, since)) {
+            if (res.isActive() && res.getTripId() != null) {
+                byTrip.computeIfAbsent(res.getTripId(), k -> new ArrayList<>()).add(res);
+            }
+        }
+        for (final String tripId : acc.getTripIds()) {
+            if (!byTrip.containsKey(tripId) && hasOptionAt(acc, tripId)) {
+                byTrip.put(tripId, new ArrayList<>());
+            }
+        }
+        for (final Map.Entry<String, List<Reservation>> entry : byTrip.entrySet()) {
+            final Trip trip = DAO.getInstance().getTrip(entry.getKey(), Cached.YES).orElse(null);
+            if (trip != null) {
+                rows.add(tripRow(acc, trip, entry.getValue()));
+            }
+        }
+        rows.sort(Comparator.comparing(HotelTripRow::getStart, Comparator.nullsLast(Comparator.reverseOrder())));
+        return rows;
+    }
+
+    private static boolean hasOptionAt(final Accommodation acc, final String tripId) {
+        for (final ReservationOffer offer : DAO.getInstance().getReservationOffers(tripId, Cached.YES)) {
+            if (acc.getId().equals(offer.getAccommodationId())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private HotelTripRow tripRow(final Accommodation acc, final Trip trip, final List<Reservation> stays) {
+        final HotelTripRow row = new HotelTripRow();
+        row.setTripId(trip.getId());
+        row.setTitle(trip.getTitle());
+        row.setOrgName(orgName(trip, true));
+        row.setStart(trip.getStartDate() == null ? null : trip.getStartDate().toLocalDate());
+        row.setEnd(trip.getEndDate() == null ? null : trip.getEndDate().toLocalDate());
+        row.setDates(dateSpan(row.getStart(), row.getEnd()));
+        row.setBoardUrl("/trip/lodging.jsf?trip=" + trip.getId() + "&acc=" + acc.getId().getValue());
+        row.setInvoiceUrl("/admin/reports/roomInvoice.jsf?trip=" + trip.getId());
+        final Map<ReservationOffer.Id, ReservationOffer> offers = new LinkedHashMap<>();
+        for (final ReservationOffer offer : DAO.getInstance().getReservationOffers(trip.getId(), Cached.YES)) {
+            offers.put(offer.getId(), offer);
+            if (acc.getId().equals(offer.getAccommodationId())) {
+                row.getOptions().add(optionRow(acc, offer));
+            }
+        }
+        final LodgingCommands lodging = lodgingSource.get();
+        stays.sort(Comparator.comparing(Reservation::getStart, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing((Reservation res) -> guestsOf(lodging, res)));
+        for (final Reservation res : stays) {
+            row.getStays().add(stayRow(acc, res, guestsOf(lodging, res), offers.get(res.getOfferId())));
+        }
+        return row;
+    }
+
+    /** The option as the operator reads it: its COST ("not set" when unstated), never its participant price. */
+    private static HotelOptionRow optionRow(final Accommodation acc, final ReservationOffer offer) {
+        final LocalDateTime from = (offer.getValidFrom() != null) ? offer.getValidFrom() : offer.getDefaultStart();
+        final LocalDateTime to = (offer.getValidUntil() != null) ? offer.getValidUntil() : offer.getDefaultEnd();
+        return new HotelOptionRow(offer.getId().getValue(), offer.getName(),
+                LodgingCommands.roomTypeNames(acc, offer), dateSpan(dateOf(from), dateOf(to)),
+                OfferSchedules.operatorCostLabel(offer));
+    }
+
+    private static HotelStayRow stayRow(final Accommodation acc, final Reservation res, final String guests,
+            final ReservationOffer offer) {
+        final String label = (res.getRoomId() == null) ? null : acc.roomLabel(res.getRoomId());
+        return new HotelStayRow(res.getId().getValue(), guests, dateSpan(dateOf(res.getStart()),
+                dateOf(res.getEnd())), res.nights(), label == null ? "not assigned" : "Room " + label,
+                LodgingConcessions.label(res.getCostConcession()), offer == null ? "?" : offer.getName());
+    }
+
+    private static String guestsOf(final LodgingCommands lodging, final Reservation res) {
+        final List<String> names = new ArrayList<>();
+        for (final Person.Id person : res.getOccupants()) {
+            names.add(lodging.displayName(person));
+        }
+        return String.join(", ", names);
+    }
+
+    private static LocalDate dateOf(final LocalDateTime when) {
+        return (when == null) ? null : when.toLocalDate();
+    }
+
+    /** "Sep 21 - Oct 1, 2026", or "Dec 30, 2026 - Jan 2, 2027" across a year end; one date when only one is set. */
+    static String dateSpan(final LocalDate from, final LocalDate to) {
+        if (from == null && to == null) {
+            return "";
+        }
+        if (from == null || to == null) {
+            return (from == null ? to : from).format(MONTH_DAY_YEAR);
+        }
+        final String first = (from.getYear() == to.getYear()) ? from.format(MONTH_DAY) : from.format(MONTH_DAY_YEAR);
+        return first + " - " + to.format(MONTH_DAY_YEAR);
     }
 
     // ---------------------------------------------------------------- the calendar's ajax events

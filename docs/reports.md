@@ -36,7 +36,8 @@ grants nothing: every card is separately `rendered=` on the gate of the page it 
 |------|-------|------|
 | Roster | `admin/reports/tripPilgrims.jsf?print=true&trip=` | `tripViewer` |
 | Rooms: Room List | `admin/reports/tripRooms.jsf?print=true&trip=` | `tripViewer` |
-| Rooms: Room Invoice | `admin/reports/roomInvoice.jsf?trip=` | `seeFinances` |
+| Rooms: Room Invoice | `admin/reports/roomInvoice.jsf?trip=` | `seeFinances` (the page itself also admits a Hotel Operator of a hotel in play, for their hotel's part) |
+| Rooms: Billed vs Cost | `admin/reports/billedVsCost.jsf?trip=` | `seeFinances` |
 | Events | `admin/tripEvents.jsf?id=` (that page reads `?id=`, not `?trip=`) | `tripViewer` |
 | Ground Transportation | `admin/reports/groundTransport.jsf?trip=` | `tripViewer` |
 | Export | `admin/reports/exportTrip.jsf?trip=` | `tripViewer` |
@@ -45,7 +46,7 @@ grants nothing: every card is separately `rendered=` on the gate of the page it 
 
 `tripViewer` is `showAll || tripView@trip`; `seeFinances` is `viewFinances || tripFinView@trip`. Both are
 computed into `requestScope` every request, so a grant made while the page is open takes effect on the next
-load. The **Rooms** card carries two buttons stacked (`.hub-stack`), each gated like its own page, and renders
+load. The **Rooms** card carries three buttons stacked (`.hub-stack`), each gated like its own page, and renders
 for either holder. The cards use the shared `.hub-grid` / `.hub-head` / `.hub-num` / `.hub-sub` vocabulary in
 `resources/css/trip.css`, which the organization Dashboard (`admin/orgSettings.xhtml`) uses as well; it lives
 there so the two hubs cannot drift apart.
@@ -80,25 +81,69 @@ the counts and the print rule.
 
 ## The room invoice
 
-`admin/reports/roomInvoice.xhtml` is what the hotels charge: one section per accommodation (earliest arrival
-first), one GROUP per lodging option, a subtotal per hotel and the grand total. Every line reads
-**quantity x nights x rate = amount**, and that arithmetic is the owner's requirement (2026-09-29): the first
-version grouped by ROOM and showed room-nights, which were correct but could not be multiplied back to the
-money once a per-person option and its single supplement shared a line.
+`admin/reports/roomInvoice.xhtml` is **what the hotels charge**: the COST side of each lodging option, one
+section per accommodation (earliest arrival first), one GROUP per lodging option, a subtotal per hotel and the
+grand total. Every line reads **quantity x nights x rate = amount**, and that arithmetic is the owner's
+requirement (2026-09-29): the first version grouped by ROOM and showed room-nights, which were correct but
+could not be multiplied back to the money once a per-person option and its single supplement shared a line.
+
+Until 2026-10-25 one schedule on the option drove both the participants' bills and this invoice, and "the
+invoice equals the bills" was a tested invariant. The price/cost split (`docs/lodging.md`, "Price vs cost")
+retired it on purpose: `ReservationOffer.price` is what a participant pays, `ReservationOffer.cost` is what
+the hotel charges, and the invoice reads the cost side (`offer.effectiveCost()`, which is the price when no
+cost has been entered). The participants' side now lives in **Billed vs Cost** below.
 
 - **A per-person option bills GUESTS.** Its lodging lines count guests; the **single supplement is a line of
-  its own** (the guests who were alone, for the nights they were alone, at the supplement's rate). A waived
-  supplement simply drops out of it.
+  its own** (the guests who were alone, for the nights they were alone, at the supplement's rate). The
+  WAIVED supplement is a price-side concession: the participant is spared it, the hotel still charges it, so
+  it stays on this invoice.
 - **A per-room option bills ROOMS**, with the guests who slept in those rooms as a note. A room shared by a
   late arriver counts every night anybody is in it; a reservation not yet placed in a room is a room of its
   own, because that is how it is billed.
 - **A new line whenever the arithmetic would break**: guests or rooms with different nights, and nights the
-  option prices differently (per-night overrides), each get their own line.
-- **Room types never split a line** (price does not depend on them); the option's heading notes the mix,
+  schedule prices differently (per-night overrides), each get their own line.
+- **Room types never split a line** (the rate does not depend on them); the option's heading notes the mix,
   "3 Double rooms, 1 Single room", plus any reservations not yet placed.
-- **The money is the ledger's money.** The rules are `LodgingPricing`'s (occupancy per room per night across
-  every stay on it, the waiver, the overrides), so the total equals the sum of the lodging bills. Cancelled
-  stays and their fees are left out; a stay whose option was deleted is counted as unpriced, and the page says so.
+- **Cost extras are lines of their own** (`LineKind.EXTRA`, COST side only): each of the option's
+  `costExtras` (city tax, resort fee, cleaning fee, booking fee, coupon) is one line whose item is its label,
+  quantity is the count its basis selects (`CostExtras.quantity`: guest-nights = occupants x nights over the
+  option's stays, room-nights = distinct room x night pairs with an unplaced stay counting as its own room,
+  stays = stays with at least one night, FIXED = 1), nights 1 and rate the signed unit amount, so the product
+  still holds and a coupon comes out negative. Extras are never attributed to a person.
+- **A cost concession is a negative line** (`LineKind.CONCESSION`): one per stay that carries a
+  `costConcession`, quantity 1, no nights and no rate, amount = minus what `LodgingPricing` forgave on that
+  stay's lines, and a note "Ada, Bob: 10% discount -- reason". The per-person rows for that stay are NET,
+  their rate suffixed "(10% discount)". A PRICE concession is invisible here: it changes the bills, not the
+  hotel's charge.
+- **Cost assumed.** An option with no `cost` is invoiced at its participant price and flagged
+  (`InvoiceOffer.costAssumed`, `RoomInvoice.anyCostAssumed`, `assumedOptions`). The page shows a warning
+  block (`.riAssumed`) and an asterisk after each flagged option heading **for internal readers only**; the
+  PDF does the same when rendered with `internal = true`. Whether we hold a hotel's cost is a fact about our
+  books and never reaches the hotel.
+- **The money is the pricing engine's.** The rules are `LodgingPricing.lines(Side.COST, ...)`'s (occupancy
+  per room per night across every stay on it, the overrides, the concession), so the total equals what that
+  engine says the hotel charges. Cancelled stays and their fees are left out; a stay whose option was
+  deleted, or whose option has no schedule on this side, is counted as unpriced, and the page says so.
+
+### Who may open it
+
+Finance viewers (`seeFinances`: site admin, the global `viewFinances`, `tripFinView@trip`), the trip's own
+lodging admins (`lodgingAccess.forTrip(tripId).internal`: `tripMgr`, the org's or the global `lodgingAdmin`,
+since the bill is the hotel's COST side, which is exactly what they reconcile with the hotel) and, since the
+2026-10-25 roles round, a **Hotel Operator** of a hotel in play on the trip (`.operatorHere`). The page computes
+`requestScope.invoiceInternal = seeFinances || access.internal` and asks
+`reports.roomInvoiceFor(tripId, lodgingAccess.forTrip(tripId), invoiceInternal)`:
+
+- `finance` or `access.internal` (the trip's own lodging people): every section, flags included.
+- an operator: the invoice is REBUILT over the stays at the hotels they operate on this trip
+  (`ReportCommands.staysAt`), so its counts, its people table and its total are theirs alone, and the
+  cost-assumed flags are stripped (`RoomInvoiceBuilder.withoutAssumedFlags`). They see trip title, dates and
+  guest names at their hotel (the documented tenancy extension) and never a participant price.
+- anyone else: an empty invoice (the page has already redirected them).
+
+The caller passes `finance` rather than the bean deciding it, because the finance privileges are not lodging
+privileges and `LodgingAccess` deliberately knows nothing about them. The operator reaches the page from the
+hotel's Trips tab and the trip's Lodging page ("Hotel invoice"), not from the Reports dashboard.
 
 ### Charges per person
 
@@ -106,29 +151,32 @@ Under each hotel's option table is a second table, **Charges per person** (Perso
 Amount, then a Total), added 2026-09-29 at the owner's request with the option table left unchanged.
 Decisions made building it:
 
-- **A row IS a lodging bill.** Each row is one occupant's `LodgingPricing.price` line for one stay (the call
-  the ledger's bills come from), so a person with two stays at the hotel, a room switch say, has two rows,
-  by name then date. The table's total therefore equals the option table's subtotal; every
-  `RoomInvoiceReportTest` scenario asserts it.
+- **A row IS one person's cost line for one stay.** Each row is one occupant's `LodgingPricing.lines(COST,
+  ...)` line (the same call, against the same room), net of any cost concession, so a person with two stays
+  at the hotel, a room switch say, has two rows, by name then date. The table's total therefore equals the
+  option table's subtotal LESS the hotel's extras, which belong to nobody; the page and the PDF say so under
+  the total ("Plus $X in hotel extras ... $Y in all"), and `InvoiceSection.extrasCents` is the difference.
+  Every `RoomInvoiceReportTest` scenario asserts `peopleCents + extrasCents == cents`.
 - **Rate is what one night costs THAT person.** Per person: `$50.00`, plus `+ $10.00 single supplement`
   when they were alone, with `(3 nights)` when that was not every night. Per room it is their SHARE of the
   room: `$60.00 room, alone`, `$30.00 (share of a $60.00 room)`, or `Share of a $60.00 room, varies by
   night` when someone arrived or left part-way (the rate cannot be one number then). Per-night overrides read
-  `Varies by night`.
+  `Varies by night`. A concession appends its label: `$30.00 (share of a $60.00 room) (10% discount)`.
 - **Names** are "Preferred Last" (`LodgingCommands.displayName`). The lodging option is shown under the
   name only when the hotel has more than one option, so a single-option hotel's table stays clean.
 - **One known edge:** a room holding stays under two DIFFERENT options on the same night bills each stay
-  its share of its own option's price, while the option table charges each option's full room rate for its
+  its share of its own option's rate, while the option table charges each option's full room rate for its
   nights, so the two totals can differ there. No trip does that today; the per-person table is the one that
-  matches the ledger.
+  matches the engine.
 
 In the PDF the per-person table follows the option table on the same sheet (no page break of its own), each
 accommodation still starting a new page; a table that spills repeats ITS OWN column headings on the
 continuation sheet, and a cell too long for its column is set in smaller type rather than overrunning.
 
-Money, so the page self-gates on `seeFinances` in `initPage` (as the dashboard does). Rows come from
-`ReportCommands.roomInvoice(tripId)`; the package-private overload over reservations and lookups is what
-`RoomInvoiceReportTest` drives, including the owner's own example.
+Rows come from `ReportCommands.roomInvoice(tripId)` (= `RoomInvoiceBuilder.build(Side.COST, ...)`); the
+package-private side-aware overload over reservations and lookups is what `RoomInvoiceReportTest` drives,
+including the owner's own example. `RoomInvoiceBuilder` holds the tally (`OfferTally`), the line arithmetic
+and the rate wording; `ReportCommands` keeps the entry points and the row types.
 
 ### The PDF download
 
@@ -136,17 +184,52 @@ The report page's **Download PDF** button is a plain GET to `/reports/room-invoi
 (`web/RoomInvoicePdfServlet`, mapped in the live `web.xml`), which answers the same `RoomInvoice` drawn by
 `action/RoomInvoicePdf` with **each accommodation starting a page of its own**, so one hotel's part can be sent
 to that hotel alone. A hotel that outruns a sheet continues with "(continued)" and its column headings
-repeated; the trip total closes the last page, and every page carries "Page n of m".
+repeated; the trip total closes the last page, and every page carries "Page n of m". Every page says "Hotel
+cost: what the hotels charge for the trip's rooms"; extra rows read like any other line, a concession row has
+a blank nights and rate, a negative amount and its note in prose beneath.
 
 - **The URL must not end in `.pdf`.** `PdfRedirectFilter` (mapped to `/*`) answers every such request in
   production with a 301 to the media CDN, and stands aside locally, so a `.pdf` URL passes every local test and
   breaks only once deployed. The file name travels in `Content-Disposition` instead; `AdminReportsPwIT`
   asserts the page never links a `.pdf`.
-- **Gate:** site admin, the global `viewFinances`, or `tripFinView@trip` (through `Caller.of(session)`); a
-  visitor goes to login and back, a signed-in refusal is a 403. `Cache-Control: private, no-store`.
+- **Gate:** internal = a finance viewer (site admin, the global `viewFinances`, or `tripFinView@trip`, through
+  `Caller.of(session)`) or the trip's own lodging admin (`access.isInternal()`); otherwise an operator of a
+  hotel in play (`new LodgingAccessCommands(() -> caller).forTrip(tripId).isOperatorHere()`; built on the
+  servlet's own caller because the CDI bean's default caller source reads the FacesContext a servlet does not
+  have). The servlet passes `roomInvoiceFor(tripId, access, internal)` and the same flag to the renderer, so an
+  operator's PDF is their hotel's part without the cost-assumed note. A visitor goes to login and back, a signed-in refusal is a 403.
+  `Cache-Control: private, no-store`.
+- **`RoomInvoicePdf.render(title, invoice, internal)`** is the entry point; the older two-arg overload
+  delegates with `internal = false`, so a caller that forgets the flag can only UNDER-share.
 - **Font:** Liberation Sans is embedded (subset), from OpenPDF's `openpdf-fonts-extra` jar (SIL OFL; OpenPDF
   itself is excluded). The PDF standard fonts are WinAnsi-only and cannot draw hotel and guest names such as
   Dragi&#263;evi&#263;. Drawing is PDFBox 3, pure Java.
+
+## Billed vs cost
+
+`admin/reports/billedVsCost.xhtml` (2026-10-25) puts the participants' lodging bills beside what the hotels
+charge for the same stays: per hotel a table of lodging options (Lodging option, Billed, Cost, Difference)
+and a table of people (Person, Lodging option, Dates, Nights, Billed, Cost, Difference), hotel subtotals and
+a grand total line (`#bvcTotal`, class `bvcTotal`). Difference = Billed - Cost, positive when the participants
+cover the hotel, negative amounts in `.bvcNeg`.
+
+Rows come from `ReportCommands.billedVsCost(tripId)`: the PRICE build and the COST build of
+`RoomInvoiceBuilder` zipped by accommodation id, by `offerId` and by `(reservationId, personId)`
+(`RoomInvoiceBuilder.compare`). What lands where:
+
+- an option row's **Billed** is its PRICE group total (price concessions already taken off); its **Cost** is
+  its COST group total, extras and cost concessions included. `costAssumed` marks an option whose cost is the
+  price, with an asterisk and the same warning block as the invoice (`#bvcAssumed`); such a row's difference
+  is zero by construction.
+- a person row is NET on both sides. Extras belong to no person, so the people table need not add up to the
+  option table; the option table is the one that carries them.
+- a row present on one side only shows `$0.00` on the other (an option with a cost and no price bills
+  nobody); an option with neither schedule has no row at all.
+
+Money on both sides, so the page is internal only (`seeFinances`, the dashboard's gate, checked in `initPage`
+like the invoice); a Hotel Operator has no door here. It carries the usual `reportsDone` link, a "Room
+Invoice" link and Print; no PDF this round (the page prints). The dashboard's Rooms card opens it with
+`toBilledVsCost`.
 
 ## The Ground Transportation report
 
@@ -183,9 +266,18 @@ Two behaviors worth knowing:
 - `ReportCommandsTest` (unit): ordering, the legacy fallback, the name format and its order, the head count,
   the overnight flag, the derived duration, non-GROUND exclusion, the seeded legs, and the rooming pages.
 - `RoomInvoicePdfTest` / `RoomInvoicePdfServletTest` (unit): a page per hotel, continuation sheets, the
-  totals and footers read back out of the PDF; the servlet's gate, login bounce, 404s and headers.
+  totals and footers read back out of the PDF, extra and concession rows, the cost-assumed note drawn only for
+  an internal reader; the servlet's gate (finance viewer sees every hotel with the note, an operator is
+  admitted to their hotel's part without it, a stranger gets 403), login bounce, 404s and headers.
 - `RoomInvoiceReportTest` (unit): per-option groups, the separate supplement line, lines split by stay and by
-  nightly price, per-room guest notes, unplaced/cancelled/unpriced stays, and that every total equals the bills.
+  nightly price, per-room guest notes, unplaced/cancelled/unpriced stays, the waiver on the price side only,
+  an option invoiced at its own cost, the cost-assumed flags, every extra basis multiplying out, a cost
+  concession as a negative line and a net person row, a price concession invisible at cost, the operator
+  filter (`staysAt`, `roomInvoiceFor`), that `peopleCents + extrasCents == cents` everywhere, and the seeded
+  trip: its invoice is at the assumed cost, and its billed column equals the ledger's `Lodging` Bill rows.
+- `BilledVsCostReportTest` (unit): the difference per option and per person, extras in the cost column only,
+  each concession on its own side, a one-sided row showing zero, hotels as sections, the empty and unknown
+  trip.
 - `AdminReportsPwIT`: the dashboard's cards and their hrefs, the room invoice over the fixture ($720.00), the ground report's rendered rows, and the
   one-way-back rule on every report.
 - `ReportsDashboardPwIT`: the per-privilege card sets (admin, finance viewer, trip viewer), the bounce for

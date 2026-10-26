@@ -7,6 +7,7 @@ import org.mockito.Mockito;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Organization;
@@ -16,6 +17,7 @@ import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.Reservation;
+import org.paulsens.trip.model.RatePlan;
 import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.Transaction;
@@ -234,8 +236,16 @@ public class TripDeleteCommandsTest {
         assertTrue(dao.savePrivilege(new Privilege(Privilege.idFor(PrivilegeCommands.TRIP_MGR, tripId),
                 "Doomed - Editor Admin", List.of(exMember.getId()))));
 
-        // A lodging offer and a reservation in the trip's partitions.
-        assertTrue(dao.saveReservationOffer(ReservationOffer.builder().tripId(tripId).name("Double").build()));
+        // A lodging offer and a reservation in the trip's partitions; the offer names a hotel that records the
+        // trip and follows one of the hotel's rate plans, which records the trip too.
+        final Accommodation hotel = Accommodation.builder().name("Doomed hotel " + unique())
+                .tripIds(List.of(tripId, "another-trip")).build();
+        assertTrue(dao.saveAccommodation(hotel));
+        final RatePlan plan = RatePlan.builder().accommodationId(hotel.getId()).name("Doomed plan")
+                .linkedTripIds(List.of(tripId, "another-trip")).build();
+        assertTrue(dao.saveRatePlan(plan));
+        assertTrue(dao.saveReservationOffer(ReservationOffer.builder().tripId(tripId).name("Double")
+                .accommodationId(hotel.getId()).ratePlanId(plan.getId().getValue()).ratePlanVersion(1L).build()));
         assertTrue(dao.saveReservation(Reservation.builder().tripId(tripId)
                 .occupants(List.of(exMember.getId())).build()));
 
@@ -260,6 +270,10 @@ public class TripDeleteCommandsTest {
         assertTrue(dao.getTripPrivileges(tripId, Cached.NO).isEmpty(), "trip-scoped privs must be gone");
         assertTrue(dao.getReservationOffers(tripId, Cached.NO).isEmpty(), "lodging offers must be gone");
         assertTrue(dao.getReservations(tripId, Cached.NO).isEmpty(), "lodging reservations must be gone");
+        assertEquals(dao.getAccommodation(hotel.getId(), Cached.NO).orElseThrow().getTripIds(),
+                List.of("another-trip"), "the hotel forgets the deleted trip and no other");
+        assertEquals(dao.getRatePlan(hotel.getId().getValue(), plan.getId(), Cached.NO).orElseThrow()
+                .getLinkedTripIds(), List.of("another-trip"), "the rate plan unlinks the deleted trip and no other");
         Mockito.verify(badges).deleteAllForTrip(Mockito.argThat(t -> tripId.equals(t.getId())));
 
         // The financial record survives, dangling on purpose. (The tx row itself is unobservable here:

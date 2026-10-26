@@ -118,7 +118,11 @@ public class ModelSerializationTest {
         for (final Class<?> view : org.paulsens.trip.action.LodgingViews.class.getDeclaredClasses()) {
             Assert.assertTrue(Serializable.class.isAssignableFrom(view),
                     view.getName() + " is a lodging page view type, so it must be Serializable");
-            roundTrip(view.getDeclaredConstructor().newInstance());
+            // A nested INTERFACE (the forms' shared cost-extras contract) has nothing to instantiate; its
+            // implementors are walked by this same loop.
+            if (!view.isInterface()) {
+                roundTrip(view.getDeclaredConstructor().newInstance());
+            }
         }
     }
 

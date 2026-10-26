@@ -187,6 +187,25 @@ public class PrivilegeCommandsTest {
         assertEquals(privCmds.getOrCreate("tripMgr", tripId, "x").getPeople(), List.of(hasAccess1));
     }
 
+    /**
+     * {@code lodgingManager} folded into the Hotel Operator on 2026-10-25: the constant stays (an inert
+     * production row carries the name) but no editor, roster or allow-list may offer it again.
+     */
+    @Test
+    @SuppressWarnings("deprecation")
+    public void theRetiredLodgingManagerIsInNoBaseListAndTheHotelOperatorIsNamed() {
+        for (final String kind : List.of("GLOBAL", "TRIP", "ORG", "ACCOMMODATION")) {
+            assertFalse(privCmds.knownBases(kind).contains(PrivilegeCommands.LODGING_MANAGER),
+                    "lodgingManager must not be offered for scope kind " + kind);
+        }
+        assertFalse(PrivilegeCommands.ORG_HUB_BASES.contains(PrivilegeCommands.LODGING_MANAGER));
+        assertEquals(privCmds.baseDescription(PrivilegeCommands.LODGING_MANAGER), "", "retired: no canonical copy");
+        assertEquals(PrivilegeCommands.ACCOMMODATION_ROLE_NAME, "Hotel Operator");
+        assertTrue(privCmds.baseDescription(PrivilegeCommands.ACCOMMODATION_ADMIN).startsWith("Operate this hotel"),
+                "the description says what the operator does, every trip included");
+        assertEquals(PrivilegeCommands.ACCOMMODATION_ADMIN, "accommodationAdmin", "the stored base name is unchanged");
+    }
+
     private Privilege getTestPriv() {
         return new Privilege(RandomData.genAlpha(8), RandomData.genAlpha(18), List.of(hasAccess1, hasAccess2));
     }

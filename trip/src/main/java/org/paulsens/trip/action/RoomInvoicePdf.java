@@ -27,6 +27,14 @@ import org.apache.pdfbox.pdmodel.font.PDType0Font;
  * cannot draw the letters in a name like Dragi&#263;evi&#263;, and a font found on the server would differ
  * between a laptop and the container. The files come from OpenPDF's font jar (see the pom).
  *
+ * <p>Since the 2026-10-25 price/cost split the invoice is the HOTEL'S bill ({@code ReportCommands.roomInvoice}
+ * at cost), and a Hotel Operator may download their hotel's part. {@code internal} says whether the reader is
+ * one of the trip's own people: only then is the "cost assumed from the participant price" note drawn, with an
+ * asterisk on each option it applies to, because whether we have a hotel's cost on file is a fact about our
+ * books and never leaves the organization. A caller that does not say is treated as EXTERNAL (the old two-arg
+ * {@link #render(String, ReportCommands.RoomInvoice)} delegates with {@code false}): a leak needs an explicit
+ * {@code true}, never a forgotten argument.
+ *
  * <p>Pure: an invoice and a title in, bytes out. {@code RoomInvoicePdfTest} reads the text back out.
  */
 public final class RoomInvoicePdf {
@@ -66,16 +74,22 @@ public final class RoomInvoicePdf {
     private RoomInvoicePdf() {
     }
 
-    /** The whole document, printed today. */
+    /** The whole document, printed today, for an EXTERNAL reader (no cost-assumed note). */
     public static byte[] render(final String tripTitle, final ReportCommands.RoomInvoice invoice) {
-        return render(tripTitle, invoice, LocalDate.now());
+        return render(tripTitle, invoice, false);
+    }
+
+    /** The whole document, printed today; {@code internal} readers also get the cost-assumed note. */
+    public static byte[] render(final String tripTitle, final ReportCommands.RoomInvoice invoice,
+            final boolean internal) {
+        return render(tripTitle, invoice, internal, LocalDate.now());
     }
 
     /** The whole document; {@code printed} is named in each page's footer. */
-    static byte[] render(final String tripTitle, final ReportCommands.RoomInvoice invoice,
+    static byte[] render(final String tripTitle, final ReportCommands.RoomInvoice invoice, final boolean internal,
             final LocalDate printed) {
         try (PDDocument doc = new PDDocument()) {
-            final Writer out = new Writer(doc, load(doc, REGULAR), load(doc, BOLD), tripTitle);
+            final Writer out = new Writer(doc, load(doc, REGULAR), load(doc, BOLD), tripTitle, internal);
             if (invoice.getSections().isEmpty()) {
                 out.newPage(null);
                 out.text(out.regular, BODY, INK, "No rooms are reserved on this trip yet, so there is nothing "
@@ -163,16 +177,20 @@ public final class RoomInvoicePdf {
         private final PDFont regular;
         private final PDFont bold;
         private final String tripTitle;
+        /** One of the trip's own people: may read the cost-assumed note. */
+        private final boolean internal;
         private PDPageContentStream page;
         private float y;
         /** The table being drawn, whose headings a continuation sheet repeats. */
         private Table table = OPTIONS;
 
-        private Writer(final PDDocument doc, final PDFont regular, final PDFont bold, final String tripTitle) {
+        private Writer(final PDDocument doc, final PDFont regular, final PDFont bold, final String tripTitle,
+                final boolean internal) {
             this.doc = doc;
             this.regular = regular;
             this.bold = bold;
             this.tripTitle = (tripTitle == null) ? "" : tripTitle;
+            this.internal = internal;
         }
 
         /** One accommodation, from a fresh page: every hotel starts its own sheet. */
@@ -215,12 +233,22 @@ public final class RoomInvoicePdf {
             ensure(ROW + 4, section.getAccommodation(), true);
             fill(GROUP_FILL, ROW);
             row(bold, new String[] {"Total", "", "", "", section.getPeopleAmount()});
+            if (section.getExtrasCents() != 0L) {
+                y -= SUB_ROW;
+                text(regular, SMALL, MUTED, "Plus " + section.getExtrasAmount() + " in hotel extras (taxes, fees, "
+                        + "coupons), which are not attributed to a person: " + section.getAmount() + " in all.",
+                        MARGIN);
+            }
         }
 
-        /** An option's heading (name, pricing, room mix) kept on the same sheet as at least its first line. */
+        /**
+         * An option's heading (name, pricing, room mix) kept on the same sheet as at least its first line. An
+         * internal reader sees an asterisk on an option priced at the participant price for want of a cost.
+         */
         private void group(final ReportCommands.InvoiceSection section, final ReportCommands.InvoiceOffer group)
                 throws IOException {
-            final List<String> names = wrap(bold, BODY, group.getName(), WIDTH - 8);
+            final String heading = group.getName() + (internal && group.isCostAssumed() ? " *" : "");
+            final List<String> names = wrap(bold, BODY, heading, WIDTH - 8);
             final List<String> notes = new ArrayList<>(wrap(regular, SMALL, group.getPricing(), WIDTH - 8));
             if (group.getRoomMix() != null && !group.getRoomMix().isEmpty()) {
                 notes.addAll(wrap(regular, SMALL, group.getRoomMix(), WIDTH - 8));
@@ -240,16 +268,33 @@ public final class RoomInvoicePdf {
             y -= 5;
             for (final ReportCommands.InvoiceLine line : group.getLines()) {
                 ensure(ROW + SUB_ROW, section.getAccommodation(), true);
-                row(regular, new String[] {"   " + line.getItem(), line.getDates(),
-                    line.getQuantity() + " " + line.getUnit(), String.valueOf(line.getNights()), line.getRate(),
-                    line.getAmount()});
-                if (!line.getNote().isEmpty()) {
+                row(regular, cells(line));
+                if (line.isConcession()) {
+                    // The note names the guests and the discount: prose, so it reads from the left.
+                    y -= SUB_ROW - 2;
+                    text(regular, SMALL, MUTED, line.getNote(), MARGIN + 12);
+                    y -= 2;
+                } else if (!line.getNote().isEmpty()) {
                     y -= SUB_ROW - 2;
                     textRight(regular, SMALL, MUTED, line.getNote(), OPTIONS.columnRight(QUANTITY));
                     y -= 2;
                 }
                 rule();
             }
+        }
+
+        /**
+         * One line's six cells. A concession sits outside the arithmetic, so its nights and rate are blank and
+         * its amount is negative; an extra (and a FIXED one has no unit) reads like any other line.
+         */
+        private static String[] cells(final ReportCommands.InvoiceLine line) {
+            if (line.isConcession()) {
+                return new String[] {"   " + line.getItem(), line.getDates(), String.valueOf(line.getQuantity()),
+                    "", "", line.getAmount()};
+            }
+            return new String[] {"   " + line.getItem(), line.getDates(),
+                (line.getQuantity() + " " + line.getUnit()).trim(), String.valueOf(line.getNights()), line.getRate(),
+                line.getAmount()};
         }
 
         /** After the last hotel: the trip's total and anything the page's own footnotes say. */
@@ -273,6 +318,11 @@ public final class RoomInvoicePdf {
                         ? " reservation has" : " reservations have")
                         + " no lodging option any more and could not be priced.", MARGIN);
             }
+            if (internal && invoice.isAnyCostAssumed()) {
+                y -= SUB_ROW;
+                text(regular, SMALL, MUTED, "* Cost assumed from the participant price: no hotel cost has been "
+                        + "entered for this lodging option.", MARGIN);
+            }
         }
 
         /** A new sheet with the trip's heading and, for a hotel, its name. */
@@ -283,6 +333,9 @@ public final class RoomInvoicePdf {
             page = new PDPageContentStream(doc, sheet);
             y = TOP - 14;
             text(bold, 14f, INK, tripTitle + ": Room Invoice", MARGIN);
+            y -= 12;
+            text(regular, SMALL, MUTED, "Hotel cost: what the hotels charge for the trip's rooms."
+                    + (internal ? " Participant billing is on the Finances pages." : ""), MARGIN);
             if (accommodation != null) {
                 y -= 22;
                 text(bold, 16f, INK, accommodation, MARGIN);

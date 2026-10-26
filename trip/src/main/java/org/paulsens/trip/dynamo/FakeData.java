@@ -154,6 +154,10 @@ public final class FakeData {
                 org.paulsens.trip.model.Accommodation.Id.from(CFPW_ACCOMMODATION_ID), Cached.NO).isEmpty()) {
             seedPansion(lodging, admin);
         }
+        if (DAO.getInstance().getRatePlan(CFPW_ACCOMMODATION_ID,
+                org.paulsens.trip.model.RatePlan.Id.from(CFPW_RATE_PLAN_ID), Cached.NO).isEmpty()) {
+            seedRatePlan(lodging.findAccommodation(CFPW_ACCOMMODATION_ID), admin);
+        }
         // Reservations are guarded separately: every initFakeData mints fresh person ids (the trips are
         // re-saved with them), so the CURRENT Dave and Matt must hold the demo reservations, whoever held
         // them under the previous ids.
@@ -163,6 +167,12 @@ public final class FakeData {
         final Person matt = fakePersona("user6");
         if (offerId.isEmpty() || dave == null || matt == null) {
             throw new IllegalStateException("Fake lodging seed: the offer or the user5/user6 personas are missing");
+        }
+        // Matt is the Pansion's Hotel Operator (accommodationAdmin on it) as well as a guest: signing in as
+        // user6 exercises the cross-org operator view (Admin > Lodging > Trips, the Assignments board, no
+        // prices), while Ken (user2) stays the internal lodgingAdmin@CFPW. Idempotent: the row dedups holders.
+        if (!lodging.addManager(CFPW_ACCOMMODATION_ID, matt.getId())) {
+            throw new IllegalStateException("Fake lodging seed: could not make Matt the Pansion's operator");
         }
         final org.paulsens.trip.model.ReservationOffer offer = lodging.findOffer(FAKE_TRIP_ID, offerId);
         final String room114 = lodging.findAccommodation(CFPW_ACCOMMODATION_ID).getRooms().stream()
@@ -216,6 +226,37 @@ public final class FakeData {
         offer.setPolicyHtml("<p>Cancellations within 30 days of arrival forfeit 10% of the stay.</p>");
         if (!lodging.saveOffer(FAKE_TRIP_ID, offer)) {
             throw new IllegalStateException("Fake lodging seed: could not save the offer");
+        }
+    }
+
+    /**
+     * The Pansion's rate plan, straight through the DAO (the command path mints a random id; the webtests need
+     * this one fixed). Cost only: a plan whose participant price an internal admin has yet to set is the case
+     * the "Needs participant pricing" badge exists for.
+     */
+    private static void seedRatePlan(final org.paulsens.trip.model.Accommodation pansion, final Person admin) {
+        final List<String> typeIds = new ArrayList<>();
+        for (final org.paulsens.trip.model.RoomType type : pansion.getRoomTypes()) {
+            typeIds.add(type.getId());
+        }
+        final org.paulsens.trip.model.RatePlan plan = org.paulsens.trip.model.RatePlan.builder()
+                .id(org.paulsens.trip.model.RatePlan.Id.from(CFPW_RATE_PLAN_ID))
+                .accommodationId(pansion.getId())
+                .name("Hotel rate 2027")
+                .roomTypeIds(typeIds)
+                .cost(new org.paulsens.trip.model.RateSchedule(org.paulsens.trip.model.PricingModel.PER_ROOM, 5000L,
+                        null, 0L))
+                .costExtras(List.of(new org.paulsens.trip.model.CostExtra("City tax",
+                        org.paulsens.trip.model.CostExtra.Basis.FIXED, 1200L)))
+                .notes("Rate the pansion quoted for the 2027 season.")
+                .createdBy(admin.getId()).created(LocalDateTime.now())
+                .build();
+        try {
+            if (!Boolean.TRUE.equals(DAO.getInstance().saveRatePlan(plan))) {
+                throw new IllegalStateException("Fake lodging seed: could not save the rate plan");
+            }
+        } catch (final IOException ex) {
+            throw new IllegalStateException("Fake lodging seed: could not save the rate plan", ex);
         }
     }
 
@@ -431,6 +472,14 @@ public final class FakeData {
     public static final String PLATFORM_ORG_ID = "c4f1e8d2-7a35-4b9c-8e21-5d6f0a3b7c19";
     /** The seeded Pansion (a global accommodation), fixed so re-seeds and webtests agree. */
     public static final String CFPW_ACCOMMODATION_ID = "e7a3c9d1-52b4-4f6e-8a1d-3c5b7e9f0a2d";
+
+    /**
+     * The Pansion's one seeded rate plan ("Hotel rate 2027": every room type, open dates, cost PER_ROOM $50
+     * plus a FIXED "City tax" $12, NO participant price yet). Deliberately NOT linked to the seeded offer:
+     * the browser tests assert the offer's own $60 x 12 nights, and a linked offer would copy the plan's
+     * unset price. Mirrored in the webtests' {@code SeededIds}.
+     */
+    public static final String CFPW_RATE_PLAN_ID = "a4c7e2f9-1b3d-4e8a-9f06-7d2c5b8e1a43";
 
     /**
      * Seeds the two demo organizations through the REAL {@code OrgCommands} membership path (so the

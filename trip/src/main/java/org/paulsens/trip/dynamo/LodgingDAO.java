@@ -19,6 +19,7 @@ import org.paulsens.trip.cache.CacheSupport;
 import org.paulsens.trip.cache.PartitionCache;
 import org.paulsens.trip.cache.PartitionScanCache;
 import org.paulsens.trip.model.Accommodation;
+import org.paulsens.trip.model.RatePlan;
 import org.paulsens.trip.model.Reservation;
 import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.RoomBlock;
@@ -28,7 +29,7 @@ import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 
 /**
- * The three lodging tables (one class, the {@link ChatDAO} precedent):
+ * The lodging tables (one class, the {@link ChatDAO} precedent):
  * <ul>
  *   <li>{@code lodging_accommodations} (PK id) -- GLOBAL hotels, the one entity deliberately not org-owned
  *       (see {@link Accommodation}). Small (tens to hundreds of rows) and every picker wants the whole list,
@@ -39,6 +40,9 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
  *       partition query. {@link PartitionCache} per trip.</li>
  *   <li>{@code lodging_blocks} (PK accommodationId, SK id) -- the hotel's own unavailability, kept apart from
  *       the accommodation row so blocking a room never races a room edit. {@link PartitionCache} per hotel.</li>
+ *   <li>{@code lodging_rate_plans} (PK accommodationId, SK id) -- a hotel's reusable rate plans (the operator's
+ *       cost side, internal staff's participant price), which linked offers copy from. {@link PartitionCache}
+ *       per hotel, the blocks shape.</li>
  * </ul>
  *
  * <p>Reservations additionally carry a top-level {@code accommodationId} and {@code stayEnd} feeding the
@@ -46,7 +50,7 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
  * hotel, and the rows are partitioned by TRIP, so without the index that question is a table scan. The index
  * is sparse on purpose -- a reservation with no hotel or no end date is simply not in it.
  *
- * <p>All three carry {@link FamilyDAO}-style optimistic versions: offers and reservations steer money, and an
+ * <p>All of them carry {@link FamilyDAO}-style optimistic versions: offers and reservations steer money, and an
  * accommodation's whole inventory is one row, so a lost admin race must surface, never merge. The
  * accommodation save also refuses a row that would not fit DynamoDB's 400 KB item cap, before the store does.
  */
@@ -57,6 +61,7 @@ public class LodgingDAO {
     static final String OFFERS_TABLE = "lodging_offers";
     static final String RESERVATIONS_TABLE = "lodging_reservations";
     static final String BLOCKS_TABLE = "lodging_blocks";
+    static final String RATE_PLANS_TABLE = "lodging_rate_plans";
     static final String ID = "id";
     static final String TRIP_ID = "tripId";
     static final String ACC_ID = "accommodationId";
@@ -78,6 +83,7 @@ public class LodgingDAO {
     private final PartitionCache<String, ReservationOffer> offers;
     private final PartitionCache<String, Reservation> reservations;
     private final PartitionCache<String, RoomBlock> blocks;
+    private final PartitionCache<String, RatePlan> plans;
 
     protected LodgingDAO(final ObjectMapper mapper, final Persistence persistence, final CacheClient cacheClient) {
         this.mapper = mapper;
@@ -123,6 +129,16 @@ public class LodgingDAO {
                 .serializer(this::toJson)
                 .deserializer(json -> parse(json, RoomBlock.class))
                 .order(Comparator.comparing(block -> block.getId().getValue()))
+                .build();
+        this.plans = PartitionCache.<String, RatePlan>builder()
+                .cache(cacheClient)
+                .keyPrefix(CacheKeys.LODGING_PLAN_PREFIX)
+                .softRevalidate(soft)
+                .idGetter(plan -> plan.getId().getValue())
+                .idFormatter(id -> id)
+                .serializer(this::toJson)
+                .deserializer(json -> parse(json, RatePlan.class))
+                .order(Comparator.comparing(plan -> plan.getId().getValue()))
                 .build();
     }
 
@@ -286,14 +302,56 @@ public class LodgingDAO {
     }
 
     private List<RoomBlock> loadBlocks(final String accId) {
-        return persistence.queryAll(qb -> qb.tableName(BLOCKS_TABLE)
+        return loadByAccommodation(BLOCKS_TABLE, accId, RoomBlock.class);
+    }
+
+    // ------------------------------------------------------------------ rate plans
+
+    protected Boolean savePlan(final RatePlan plan) throws IOException {
+        final Map<String, AttributeValue> map = new HashMap<>();
+        map.put(ACC_ID, AttributeValue.builder().s(plan.getAccommodationId().getValue()).build());
+        map.put(ID, AttributeValue.builder().s(plan.getId().getValue()).build());
+        return versionedPut(plan, plan.getVersion(), plan::setVersion, map, RATE_PLANS_TABLE,
+                () -> plans.put(plan.getAccommodationId().getValue(), plan));
+    }
+
+    protected List<RatePlan> getPlans(final String accId) {
+        if (accId == null) {
+            return List.of();
+        }
+        return plans.getAll(accId, () -> loadByAccommodation(RATE_PLANS_TABLE, accId, RatePlan.class));
+    }
+
+    protected Optional<RatePlan> getPlan(final String accId, final RatePlan.Id id) {
+        if (accId == null || id == null) {
+            return Optional.empty();
+        }
+        return plans.getOne(accId, id.getValue(),
+                () -> loadByAccommodation(RATE_PLANS_TABLE, accId, RatePlan.class));
+    }
+
+    protected Boolean deletePlan(final String accId, final RatePlan.Id id) {
+        if (accId == null || id == null) {
+            return false;
+        }
+        final Map<String, AttributeValue> key = Map.of(
+                ACC_ID, AttributeValue.builder().s(accId).build(),
+                ID, AttributeValue.builder().s(id.getValue()).build());
+        final boolean deleted = persistence.deleteItem(b -> b.tableName(RATE_PLANS_TABLE).key(key))
+                .sdkHttpResponse().isSuccessful();
+        return deleted && plans.remove(accId, id.getValue());
+    }
+
+    /** One hotel's partition of a table keyed (accommodationId, id): blocks and rate plans share the shape. */
+    private <T> List<T> loadByAccommodation(final String table, final String accId, final Class<T> type) {
+        return persistence.queryAll(qb -> qb.tableName(table)
                         .keyConditionExpression("accommodationId = :c")
                         .expressionAttributeValues(Map.of(":c", AttributeValue.builder().s(accId).build()))
                         .build()).stream()
                 .map(item -> item.get(CONTENT))
                 .filter(content -> content != null)
-                .map(content -> parse(content.s(), RoomBlock.class))
-                .filter(block -> block != null)
+                .map(content -> parse(content.s(), type))
+                .filter(row -> row != null)
                 .toList();
     }
 

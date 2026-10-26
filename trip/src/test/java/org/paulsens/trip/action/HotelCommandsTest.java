@@ -12,6 +12,7 @@ import java.util.UUID;
 import org.paulsens.trip.action.LodgingViews.AccommodationForm;
 import org.paulsens.trip.action.LodgingViews.BlockForm;
 import org.paulsens.trip.action.LodgingViews.BlockRow;
+import org.paulsens.trip.action.LodgingViews.ConcessionForm;
 import org.paulsens.trip.action.LodgingViews.DayCell;
 import org.paulsens.trip.action.LodgingViews.DayDetail;
 import org.paulsens.trip.action.LodgingViews.DayRoom;
@@ -195,16 +196,112 @@ public class HotelCommandsTest {
         assertTrue(mine.getRooms().get(1).getStays().isEmpty());
         assertTrue(mine.toString().indexOf("Mira") < 0, "no guest name reaches the hotel's view");
 
-        // The hotel's own manager, who is on no trip: they see that a room is taken, never by whom.
+        // The hotel's own operator, who is on no trip: whose trip it is (the 2026-10-25 naming rule), never who.
         final Person keeper = savedPerson("Nils");
         assertTrue(new PrivilegeCommands().savePrivilege(new PrivilegeCommands()
                 .getOrCreate(PrivilegeCommands.ACCOMMODATION_ADMIN, accId, "hotel staff")
                 .withNewPerson(keeper.getId())));
         final HotelCommands staff = new HotelCommands(() -> TestCallers.person(keeper.getId()));
         final DayDetail theirs = staff.dayDetail(accId, LocalDate.of(2027, 9, 22));
-        assertEquals(theirs.getRooms().get(0).getStays().get(0).getTripLabel(),
-                "another organization's trip", "the hotel is shared; the guest list is not");
-        assertEquals(theirs.getRooms().get(0).getStays().get(0).getPeople(), 1, "the count still reaches them");
+        assertEquals(theirs.getRooms().get(0).getStays().get(0).getTripLabel(), "Named trip",
+                "the operator of THIS hotel is told whose trip is staying");
+        assertEquals(theirs.getRooms().get(0).getStays().get(0).getPeople(), 1, "the count reaches them");
+        assertTrue(theirs.toString().indexOf("Mira") < 0, "the calendar still names no guest");
+
+        // A lodging admin of some OTHER organization reads the calendar but is neither internal on the trip
+        // nor this hotel's operator: the hotel is shared, the guest list and the trip's identity are not.
+        final Person elsewhere = savedPerson("Odd");
+        final OrgCommands orgs = new OrgCommands(TestCallers::siteAdmin);
+        final Organization otherOrg = orgs.createOrganization("Elsewhere " + RandomData.genAlpha(6), "ELS", null);
+        assertNotNull(otherOrg);
+        assertTrue(orgs.addMember(otherOrg.getId().getValue(), elsewhere.getId()));
+        assertTrue(orgs.grantOrgPrivilege(otherOrg.getId().getValue(), elsewhere.getId(),
+                PrivilegeCommands.LODGING_ADMIN));
+        final HotelCommands outsider = new HotelCommands(() -> TestCallers.person(elsewhere.getId()));
+        final DayDetail blind = outsider.dayDetail(accId, LocalDate.of(2027, 9, 22));
+        assertEquals(blind.getRooms().get(0).getStays().get(0).getTripLabel(), "another organization's trip");
+        assertEquals(blind.getRooms().get(0).getStays().get(0).getPeople(), 1);
+    }
+
+    /**
+     * The Trips tab is the operator's door: every trip staying at their hotel with its options and its stays,
+     * guests NAMED (the owner's 2026-10-25 tenancy extension), and never a price. Nobody else gets a row.
+     */
+    @Test
+    public void theTripsTabNamesTripsAndGuestsForTheHotelsOperatorsAlone() throws IOException {
+        final String accId = hotelWithRooms();
+        final Person ours = savedPerson("Olga");
+        final Person theirs = savedPerson("Piet");
+        final Trip mine = tripWith("Rows trip", ours);
+        final Trip other = tripWith("Rows other", theirs);
+        reserveInto(mine, accId, ours, roomId(accId, 0));
+        reserveInto(other, accId, theirs, null);
+        final Person keeper = savedPerson("Quin");
+        assertTrue(new PrivilegeCommands().savePrivilege(new PrivilegeCommands()
+                .getOrCreate(PrivilegeCommands.ACCOMMODATION_ADMIN, accId, "hotel staff")
+                .withNewPerson(keeper.getId())));
+        final HotelCommands staff = new HotelCommands(() -> TestCallers.person(keeper.getId()));
+
+        final List<HotelViews.HotelTripRow> rows = staff.tripRows(accId);
+        assertEquals(rows.size(), 2, "both organizations' trips, at THIS hotel");
+        final HotelViews.HotelTripRow row = rows.stream().filter(r -> r.getTripId().equals(mine.getId()))
+                .findFirst().orElseThrow();
+        assertEquals(row.getTitle(), "Rows trip");
+        assertEquals(row.getDates(), "Sep 21 - Sep 26, 2027");
+        assertEquals(row.getStart(), LocalDate.of(2027, 9, 21));
+        assertEquals(row.getBoardUrl(), "/trip/lodging.jsf?trip=" + mine.getId() + "&acc=" + accId);
+        assertEquals(row.getInvoiceUrl(), "/admin/reports/roomInvoice.jsf?trip=" + mine.getId());
+        assertEquals(row.getOptions().size(), 1);
+        assertEquals(row.getOptions().get(0).getRoomTypes(), "Double");
+        assertEquals(row.getOptions().get(0).getDates(), "Sep 21 - Sep 24, 2027");
+        assertEquals(row.getOptions().get(0).getCostSummary(), "not set",
+                "an unstated cost is 'not set' to the operator: never the price, never 'assumed'");
+        assertEquals(row.getStays().size(), 1);
+        final HotelViews.HotelStayRow stay = row.getStays().get(0);
+        assertTrue(stay.getGuests().startsWith("Olga "), stay.getGuests());
+        assertEquals(stay.getDates(), "Sep 21 - Sep 24, 2027");
+        assertEquals(stay.getNights(), 3);
+        assertEquals(stay.getRoomLabel(), "Room 101");
+        assertNull(stay.getCostConcession());
+        assertTrue(stay.getOfferName().startsWith("Room "), stay.getOfferName());
+        final HotelViews.HotelTripRow theirRow = rows.stream().filter(r -> r.getTripId().equals(other.getId()))
+                .findFirst().orElseThrow();
+        assertEquals(theirRow.getStays().get(0).getRoomLabel(), "not assigned");
+        assertTrue(theirRow.getStays().get(0).getGuests().startsWith("Piet "), "named across organizations");
+        assertFalse(rows.toString().contains("$"), "never a price");
+
+        final HotelCommands stranger = new HotelCommands(() -> TestCallers.person(Person.Id.newInstance()));
+        assertTrue(stranger.tripRows(accId).isEmpty(), "not this hotel's operator: no rows at all");
+        assertEquals(hotel.tripRows(accId).size(), 2, "a site admin operates every hotel");
+        assertTrue(hotel.tripRows("no-such-hotel").isEmpty());
+
+        // Once the hotel states its cost, THAT is what the tab shows -- still never the $100 participant price.
+        final ReservationOffer offer = admin.getOffers(mine.getId()).get(0);
+        final LodgingViews.OfferCostForm cost = admin.offerCostFormFor(mine.getId(), offer.getId().getValue());
+        cost.setCostKnown(true);
+        cost.setCostNightlyPrice(55.0);
+        assertTrue(admin.setOfferCost(cost));
+        final ConcessionForm comp = admin.concessionFormFor(mine.getId(), row.getStays().get(0).getReservationId(),
+                "COST");
+        comp.setKind("PERCENT");
+        comp.setAmount(10.0);
+        assertTrue(admin.setConcession(comp));
+        final HotelViews.HotelTripRow priced = staff.tripRows(accId).stream()
+                .filter(r -> r.getTripId().equals(mine.getId())).findFirst().orElseThrow();
+        assertEquals(priced.getOptions().get(0).getCostSummary(), "$55.00/night per room");
+        assertEquals(priced.getStays().get(0).getCostConcession(), "10% discount");
+        assertFalse(priced.toString().contains("100.00"), "the participant price never reaches the operator");
+    }
+
+    @Test
+    public void aDateSpanReadsAsOneLineAndCarriesTheYearWhereItChanges() {
+        assertEquals(HotelCommands.dateSpan(LocalDate.of(2026, 9, 21), LocalDate.of(2026, 10, 1)),
+                "Sep 21 - Oct 1, 2026");
+        assertEquals(HotelCommands.dateSpan(LocalDate.of(2026, 12, 30), LocalDate.of(2027, 1, 2)),
+                "Dec 30, 2026 - Jan 2, 2027");
+        assertEquals(HotelCommands.dateSpan(LocalDate.of(2026, 9, 21), null), "Sep 21, 2026");
+        assertEquals(HotelCommands.dateSpan(null, LocalDate.of(2026, 9, 21)), "Sep 21, 2026");
+        assertEquals(HotelCommands.dateSpan(null, null), "");
     }
 
     @Test
@@ -417,6 +514,52 @@ public class HotelCommandsTest {
         form.setRange(List.of(LocalDate.of(2027, 9, 22), LocalDate.of(2027, 9, 24)));
         assertFalse(hotel.saveBlock(null, form));
         assertFalse(hotel.saveBlock(hotelWithRooms(), null));
+    }
+
+    /**
+     * The hotel may go first: a trip that has only an OPTION here (nobody booked yet) is on the operator's
+     * Trips tab with an empty stays table, so the cost can be stated before the first stay; once a trip's
+     * last option here is deleted it drops off again.
+     */
+    @Test
+    public void aTripWithOnlyAnOptionAtTheHotelIsListedWithNoStays() throws IOException {
+        final String accId = hotelWithRooms();
+        final Person nobody = savedPerson("Opt");
+        final Trip planned = tripWith("Planned trip", nobody);
+        final OfferForm offerForm = new OfferForm();
+        offerForm.setName("Early option");
+        offerForm.setAccommodationId(accId);
+        offerForm.setRoomTypeIds(new ArrayList<>(List.of(admin.roomTypeRows(accId).get(0).getId())));
+        offerForm.setTripEventId(OfferForm.NEW_EVENT);
+        offerForm.setNightlyPrice(80.0);
+        offerForm.setDefaultStart(CHECK_IN);
+        offerForm.setDefaultEnd(CHECK_OUT);
+        assertTrue(admin.saveOffer(planned.getId(), offerForm));
+        assertTrue(admin.findAccommodation(accId).usedByTrip(planned.getId()), "the save records the trip");
+
+        final List<HotelViews.HotelTripRow> rows = hotel.tripRows(accId);
+        assertEquals(rows.size(), 1);
+        assertEquals(rows.get(0).getTripId(), planned.getId());
+        assertEquals(rows.get(0).getOptions().size(), 1);
+        assertEquals(rows.get(0).getOptions().get(0).getName(), "Early option");
+        assertEquals(rows.get(0).getOptions().get(0).getCostSummary(), "not set", "never the price");
+        assertTrue(rows.get(0).getStays().isEmpty(), "nobody is booked yet");
+
+        // A stay arrives: still ONE row for the trip, now with the stay.
+        reserveInto(planned, accId, nobody, roomId(accId, 0));
+        final List<HotelViews.HotelTripRow> withStay = hotel.tripRows(accId);
+        assertEquals(withStay.size(), 1, "the index and the hotel's record name the same trip once");
+        assertEquals(withStay.get(0).getStays().size(), 1);
+        assertEquals(withStay.get(0).getOptions().size(), 2);
+
+        // A trip recorded on the hotel whose options here are all gone is not listed.
+        final Trip gone = tripWith("Gone trip", savedPerson("Gon"));
+        offerForm.setName("Short-lived option");
+        assertTrue(admin.saveOffer(gone.getId(), offerForm));
+        final ReservationOffer shortLived = admin.getOffers(gone.getId()).get(0);
+        assertTrue(admin.deleteOffer(gone.getId(), shortLived.getId().getValue()));
+        assertFalse(admin.findAccommodation(accId).usedByTrip(gone.getId()), "the delete prunes the trip");
+        assertEquals(hotel.tripRows(accId).size(), 1);
     }
 
     private void saveBlock(final String accId, final LocalDate from, final LocalDate to, final String reason) {

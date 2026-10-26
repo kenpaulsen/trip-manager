@@ -5,8 +5,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import org.paulsens.trip.model.Accommodation;
+import org.paulsens.trip.model.Concession;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PricingModel;
+import org.paulsens.trip.model.RateSchedule;
 import org.paulsens.trip.model.Reservation;
 import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.Room;
@@ -14,6 +16,7 @@ import org.paulsens.trip.model.RoomType;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
 /** The lodging money rules as a worked-example table (the {@code PaymentRecorderTest} idea). */
@@ -195,6 +198,184 @@ public class LodgingPricingTest {
         assertEquals(LodgingPricing.joinNames(List.of(BOB), NAMES::get), "Bob");
         assertEquals(LodgingPricing.joinNames(List.of(BOB, ADA), id -> null), "a-ada and b-bob");
         assertEquals(LodgingPricing.joinNames(List.of(ADA), null), "a-ada");
+    }
+
+
+    // ------------------------------------------------------------------ price vs cost, concessions
+
+    @Test
+    public void linesWithoutAConcessionCarryTheirGrossAndNothingForgiven() {
+        final ReservationOffer offer = perRoom(12000);
+        final Reservation pair = reservation(List.of(ADA, BOB), 0, 2, "r-114");
+        final LodgingPricing.Line line = LodgingPricing.price(pair, offer, PANSION, List.of(pair), NAMES::get).get(0);
+        assertEquals(line.grossCents(), line.amountCents());
+        assertEquals(line.concessionCents(), 0L);
+        final LodgingPricing.Line legacy = new LodgingPricing.Line(pair.getId(), ADA, 500L, 2, 0, "Lodging: x");
+        assertEquals(legacy.grossCents(), 500L, "The 6-arg constructor is a line with no concession");
+        assertEquals(legacy.concessionCents(), 0L);
+    }
+
+    @Test
+    public void costSideReadsItsOwnScheduleAndModel() {
+        final ReservationOffer offer = perPerson(5500, 2000);
+        offer.setCost(RateSchedule.builder().pricingModel(PricingModel.PER_ROOM).nightlyCents(8000).build());
+        final Reservation pair = reservation(List.of(ADA, BOB), 0, 4, "r-114");
+        final List<LodgingPricing.Line> price = LodgingPricing.price(pair, offer, PANSION, List.of(pair), NAMES::get);
+        final List<LodgingPricing.Line> cost = LodgingPricing.cost(pair, offer, PANSION, List.of(pair), NAMES::get);
+        assertEquals(price.get(0).amountCents(), 4 * 5500L, "Participants pay per person");
+        assertEquals(cost.get(0).amountCents(), 4 * 4000L, "The hotel charges the room, split two ways");
+        assertEquals(cost.get(1).amountCents(), 4 * 4000L);
+        assertEquals(cost.get(0).description(), "Lodging: Double room — Pansion, Double, Room 114: 4 nights "
+                + "Sep 21–Sep 25, 2026, room rate $80.00/night split with Bob");
+        assertEquals(LodgingPricing.lines(LodgingPricing.Side.COST, pair, offer, PANSION, List.of(pair), NAMES::get),
+                cost, "cost(...) is lines(COST, ...)");
+        assertEquals(LodgingPricing.lines(LodgingPricing.Side.PRICE, pair, offer, PANSION, List.of(pair), NAMES::get),
+                price);
+    }
+
+    @Test
+    public void costIsAssumedFromThePriceWhenNoneIsStated() {
+        final ReservationOffer offer = perRoom(12000);
+        final Reservation pair = reservation(List.of(ADA, BOB), 0, 5, "r-114");
+        final Reservation cy = reservation(List.of(CY), 2, 5, "r-114");
+        assertEquals(LodgingPricing.cost(pair, offer, PANSION, List.of(pair, cy), NAMES::get),
+                LodgingPricing.price(pair, offer, PANSION, List.of(pair, cy), NAMES::get),
+                "No cost schedule: the invoice side is the bill side, line for line");
+    }
+
+    @Test
+    public void theSupplementWaiverIsAPriceSideConcessionOnly() {
+        final ReservationOffer offer = perPerson(5500, 2000);
+        final Reservation solo = reservation(List.of(ADA), 0, 3, "r-114");
+        solo.setWaiveSingleSupplement(true);
+        final LodgingPricing.Line price = LodgingPricing.price(solo, offer, PANSION, List.of(solo), NAMES::get).get(0);
+        final LodgingPricing.Line cost = LodgingPricing.cost(solo, offer, PANSION, List.of(solo), NAMES::get).get(0);
+        assertEquals(price.amountCents(), 3 * 5500L, "Waived for the participant");
+        assertEquals(price.supplementNights(), 0);
+        assertEquals(cost.amountCents(), 3 * 7500L, "The hotel still charges it");
+        assertEquals(cost.supplementNights(), 3);
+        assertTrue(cost.description().endsWith("+ single supplement $20.00 × 3 nights"), cost.description());
+    }
+
+    @Test
+    public void anUnpricedOfferPricesToNothingAndACostOnlyOfferInvoicesOnly() {
+        final Reservation pair = reservation(List.of(ADA, BOB), 0, 2, "r-114");
+        final ReservationOffer unpriced = ReservationOffer.builder().name("Double room").roomTypeId("rt-d").build();
+        assertFalse(unpriced.isPriced());
+        assertTrue(LodgingPricing.price(pair, unpriced, PANSION, List.of(pair), NAMES::get).isEmpty());
+        assertTrue(LodgingPricing.cost(pair, unpriced, PANSION, List.of(pair), NAMES::get).isEmpty(),
+                "Nothing to assume a cost from either");
+        unpriced.setCost(RateSchedule.builder().nightlyCents(8000).build());
+        assertTrue(LodgingPricing.price(pair, unpriced, PANSION, List.of(pair), NAMES::get).isEmpty(),
+                "Still nothing to bill");
+        assertEquals(LodgingPricing.cost(pair, unpriced, PANSION, List.of(pair), NAMES::get).get(0).amountCents(),
+                2 * 4000L, "...but the hotel's side is known");
+    }
+
+    @Test
+    public void percentConcessionAppliesPerLineOnItsOwnSideAndNamesItself() {
+        final ReservationOffer offer = perRoom(10001);
+        final Reservation trio = reservation(List.of(CY, BOB, ADA), 0, 1, "r-114");
+        trio.setPriceConcession(Concession.builder().kind(Concession.Kind.PERCENT).percentBps(1000)
+                .reason("Loyal pilgrims").build());
+        final List<LodgingPricing.Line> price = LodgingPricing.price(trio, offer, PANSION, List.of(trio), NAMES::get);
+        // Gross 3334 / 3334 / 3333 (the odd cent to the lowest id); 10% off each, half-up.
+        assertEquals(price.get(0).amountCents(), 3001L, "3000.6 rounds up");
+        assertEquals(price.get(0).grossCents(), 3334L);
+        assertEquals(price.get(0).concessionCents(), 333L);
+        assertEquals(price.get(1).amountCents(), 3001L);
+        assertEquals(price.get(2).amountCents(), 3000L, "2999.7 rounds up");
+        assertEquals(price.get(0).description(), "Lodging: Double room — Pansion, Double, Room 114: 1 night "
+                + "Sep 21–Sep 22, 2026, room rate $100.01/night split with Bob and Cy, 10% discount");
+        assertFalse(price.get(0).description().contains("Loyal"), "The reason never reaches a bill note");
+        final List<LodgingPricing.Line> cost = LodgingPricing.cost(trio, offer, PANSION, List.of(trio), NAMES::get);
+        assertEquals(cost.get(0).amountCents(), 3334L, "A price concession does not touch the hotel's side");
+        assertFalse(cost.get(0).description().contains("discount"), cost.get(0).description());
+        trio.setCostConcession(Concession.builder().kind(Concession.Kind.PERCENT).percentBps(5000).build());
+        final List<LodgingPricing.Line> halved = LodgingPricing.cost(trio, offer, PANSION, List.of(trio), NAMES::get);
+        assertEquals(halved.get(0).amountCents(), 1667L);
+        assertEquals(halved.get(2).amountCents(), 1667L, "1666.5 rounds half-up");
+        assertTrue(halved.get(0).description().endsWith(", 50% discount"), halved.get(0).description());
+        assertEquals(LodgingPricing.price(trio, offer, PANSION, List.of(trio), NAMES::get).get(0).amountCents(), 3001L,
+                "...and the cost concession does not touch the bills");
+    }
+
+    @Test
+    public void perNightConcessionIsAReservationAmountSplitAcrossTheOccupants() {
+        final ReservationOffer offer = perPerson(5500, 0);
+        final Reservation pair = reservation(List.of(ADA, BOB), 0, 4, "r-114");
+        pair.setPriceConcession(Concession.builder().kind(Concession.Kind.PER_NIGHT).amountCents(500).build());
+        final List<LodgingPricing.Line> price = LodgingPricing.price(pair, offer, PANSION, List.of(pair), NAMES::get);
+        // $5.00 x 4 nights = $20.00 off the RESERVATION, $10.00 off each of the two lines.
+        assertEquals(price.get(0).amountCents(), 4 * 5500L - 1000L);
+        assertEquals(price.get(1).amountCents(), 4 * 5500L - 1000L);
+        assertEquals(price.get(0).grossCents(), 4 * 5500L);
+        assertEquals(price.get(0).concessionCents(), 1000L);
+        assertTrue(price.get(0).description().endsWith(", $5.00/night discount"), price.get(0).description());
+        // An odd split hands the remainder cent to the lowest id, like every other split here.
+        final Reservation odd = reservation(List.of(BOB, ADA), 0, 3, "r-114");
+        odd.setPriceConcession(Concession.builder().kind(Concession.Kind.PER_NIGHT).amountCents(1).build());
+        final List<LodgingPricing.Line> lines = LodgingPricing.price(odd, offer, PANSION, List.of(odd), NAMES::get);
+        assertEquals(lines.get(0).personId(), ADA);
+        assertEquals(lines.get(0).concessionCents(), 2L);
+        assertEquals(lines.get(1).concessionCents(), 1L);
+        assertEquals(lines.stream().mapToLong(LodgingPricing.Line::concessionCents).sum(), 3L);
+        // On the COST side the same kind reads the hotel's schedule and the cost concession.
+        odd.setCostConcession(Concession.builder().kind(Concession.Kind.PER_NIGHT).amountCents(2000).build());
+        final List<LodgingPricing.Line> cost = LodgingPricing.cost(odd, offer, PANSION, List.of(odd), NAMES::get);
+        assertEquals(cost.get(0).amountCents(), 3 * 5500L - 3000L, "$20.00 x 3 nights, half each");
+        assertEquals(cost.get(1).amountCents(), 3 * 5500L - 3000L);
+    }
+
+    @Test
+    public void totalConcessionSplitsOnceAndFloorsEachLineAtZero() {
+        final ReservationOffer offer = perPerson(5500, 0);
+        final Reservation pair = reservation(List.of(ADA, BOB), 0, 2, "r-114");
+        pair.setPriceConcession(Concession.builder().kind(Concession.Kind.TOTAL).amountCents(3001).build());
+        final List<LodgingPricing.Line> price = LodgingPricing.price(pair, offer, PANSION, List.of(pair), NAMES::get);
+        assertEquals(price.get(0).amountCents(), 11000L - 1501L, "The odd cent of the discount goes to Ada");
+        assertEquals(price.get(1).amountCents(), 11000L - 1500L);
+        assertTrue(price.get(0).description().endsWith(", $30.01 discount"), price.get(0).description());
+        final Reservation solo = reservation(List.of(ADA), 0, 1, "r-114");
+        solo.setCostConcession(Concession.builder().kind(Concession.Kind.TOTAL).amountCents(20000).build());
+        final LodgingPricing.Line cost = LodgingPricing.cost(solo, perRoom(12000), PANSION, List.of(solo), NAMES::get)
+                .get(0);
+        assertEquals(cost.amountCents(), 0L, "Never below zero");
+        assertEquals(cost.grossCents(), 12000L);
+        assertEquals(cost.concessionCents(), 12000L, "Only what was there is forgiven");
+        assertTrue(cost.description().endsWith(", $200.00 discount"), cost.description());
+        assertEquals(LodgingPricing.price(solo, perRoom(12000), PANSION, List.of(solo), NAMES::get).get(0)
+                .amountCents(), 12000L, "The participant still pays: the hotel's gift was to us");
+    }
+
+    @Test
+    public void complimentaryZeroesTheLineSupplementIncludedOnEitherSide() {
+        final ReservationOffer offer = perPerson(5500, 2000);
+        final Reservation solo = reservation(List.of(ADA), 0, 2, "r-114");
+        solo.setPriceConcession(Concession.builder().kind(Concession.Kind.COMPLIMENTARY).reason("Guide").build());
+        final LodgingPricing.Line price = LodgingPricing.price(solo, offer, PANSION, List.of(solo), NAMES::get).get(0);
+        assertEquals(price.amountCents(), 0L, "Zero net: the biller writes no row");
+        assertEquals(price.grossCents(), 2 * 7500L, "What it would have been, supplement included");
+        assertEquals(price.concessionCents(), 2 * 7500L);
+        assertEquals(price.description(), "Lodging: Double room — Pansion, Double, Room 114: 2 nights "
+                + "Sep 21–Sep 23, 2026, $55.00/night per person, + single supplement $20.00 × 2 nights, "
+                + "complimentary");
+        final LodgingPricing.Line cost = LodgingPricing.cost(solo, offer, PANSION, List.of(solo), NAMES::get).get(0);
+        assertEquals(cost.amountCents(), 2 * 7500L, "The hotel did not comp it");
+        solo.setCostConcession(Concession.builder().kind(Concession.Kind.COMPLIMENTARY).build());
+        assertEquals(LodgingPricing.cost(solo, offer, PANSION, List.of(solo), NAMES::get).get(0).amountCents(), 0L);
+    }
+
+    @Test
+    public void everyUnconcessionedDescriptionIsByteIdenticalToThePreSplitWording() {
+        // The recompute compares amount AND note; a changed note would rewrite every bill row on deploy.
+        final ReservationOffer offer = perPerson(5500, 2000);
+        final Reservation res = reservation(List.of(ADA, BOB), 0, 4, "r-114");
+        res.setPriceConcession(null);
+        final String note = LodgingPricing.price(res, offer, PANSION, List.of(res), NAMES::get).get(0).description();
+        assertEquals(note, "Lodging: Double room — Pansion, Double, Room 114: 4 nights Sep 21–Sep 25, 2026, "
+                + "$55.00/night per person");
+        assertFalse(note.contains("discount") || note.contains("complimentary"));
     }
 
     private static ReservationOffer perPerson(final long nightly, final long supplement) {

@@ -1100,6 +1100,16 @@ public class OrgCommandsTest {
         assertEquals(cmds.allTripRoleBases(), PrivilegeCommands.TRIP_SCOPED_BASES);
     }
 
+    /** Retired 2026-10-25: the trip editor neither offers nor names the old hotel-staff role any more. */
+    @Test
+    @SuppressWarnings("deprecation")
+    public void theRetiredLodgingManagerIsNoTripRole() {
+        assertEquals(OrgCommands.tripRoleName(PrivilegeCommands.LODGING_MANAGER), null);
+        assertEquals(OrgCommands.tripRoleName(PrivilegeCommands.REGISTRATION_ADMIN), "Registration Admin");
+        assertFalse(admin().allTripRoleBases().contains(PrivilegeCommands.LODGING_MANAGER));
+        assertFalse(admin().allGrantableBases().contains(PrivilegeCommands.LODGING_MANAGER));
+    }
+
     @Test
     public void setTripRoleEnforcesOrgAdminAndAllowList() throws IOException {
         final Person orgAdmin = savedPerson();

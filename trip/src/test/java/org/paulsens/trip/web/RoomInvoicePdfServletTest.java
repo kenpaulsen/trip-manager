@@ -7,19 +7,37 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
+import org.paulsens.trip.action.Caller;
+import org.paulsens.trip.action.LodgingCommands;
+import org.paulsens.trip.action.LodgingViews.AccommodationForm;
+import org.paulsens.trip.action.LodgingViews.OfferForm;
+import org.paulsens.trip.action.LodgingViews.ReservationForm;
+import org.paulsens.trip.action.LodgingViews.RoomTypeForm;
+import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.action.PrivilegeCommands;
 import org.paulsens.trip.action.ReportCommands;
+import org.paulsens.trip.action.TripCommands;
+import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
@@ -27,7 +45,8 @@ import org.testng.annotations.Test;
 
 /**
  * The Room Invoice PDF download: who gets the file, who is sent to login, who is refused, and the headers that
- * make it a download with the trip's name on it.
+ * make it a download with the trip's name on it. A Hotel Operator of a hotel in play is admitted to THEIR
+ * hotel's part; a finance viewer gets every hotel and the internal cost-assumed note.
  */
 public class RoomInvoicePdfServletTest {
 
@@ -53,7 +72,7 @@ public class RoomInvoicePdfServletTest {
         servlet = new RoomInvoicePdfServlet();
         final Trip trip = Trip.builder().id(TRIP_ID).title("Spring Trip").build();
         servlet.setSources(id -> TRIP_ID.equals(id) ? trip : Trip.builder().build(),
-                id -> new ReportCommands.RoomInvoice());
+                (id, access, finance) -> new ReportCommands.RoomInvoice());
         Mockito.when(req.getRequestURI()).thenReturn("/reports/room-invoice");
         Mockito.when(req.getContextPath()).thenReturn("");
         final ServletOutputStream sink = new ServletOutputStream() {
@@ -113,6 +132,66 @@ public class RoomInvoicePdfServletTest {
         Assert.assertTrue(out.size() > 0);
     }
 
+    /**
+     * Two hotels on one trip, an operator of hotel A: the servlet admits them on their lodging access alone,
+     * builds the invoice through the real {@code roomInvoiceFor}, and the PDF names A and not B, with no
+     * cost-assumed note even though neither option states a cost. The finance viewer's PDF has both and the note.
+     */
+    @Test
+    public void anOperatorGetsTheirHotelsPartAndAFinanceViewerGetsEveryHotel() throws IOException {
+        final LodgingCommands admin = new LodgingCommands(RoomInvoicePdfServletTest::siteAdmin);
+        final Organization org = new OrgCommands(RoomInvoicePdfServletTest::siteAdmin)
+                .createOrganization("Invoice " + RandomData.genAlpha(8), "INV", null);
+        Assert.assertNotNull(org);
+        final Person guestA = savedPerson("Ava");
+        final Person guestB = savedPerson("Ben");
+        final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Two Hotels")
+                .startDate(CHECK_IN).endDate(CHECK_OUT.plusDays(2))
+                .people(new ArrayList<>(List.of(guestA.getId(), guestB.getId()))).build();
+        trip.setOrgId(org.getId().getValue());
+        Assert.assertTrue(DAO.getInstance().saveTrip(trip));
+        final String hotelA = hotel(admin, org.getId().getValue(), "Alpha House");
+        final String hotelB = hotel(admin, org.getId().getValue(), "Bravo Inn");
+        reserve(admin, trip.getId(), offerAt(admin, trip.getId(), hotelA), guestA);
+        reserve(admin, trip.getId(), offerAt(admin, trip.getId(), hotelB), guestB);
+        final Person operator = savedPerson("Keeper");
+        final PrivilegeCommands priv = new PrivilegeCommands();
+        Assert.assertTrue(priv.savePrivilege(priv.getOrCreate(PrivilegeCommands.ACCOMMODATION_ADMIN, hotelA,
+                PrivilegeCommands.ACCOMMODATION_ROLE_NAME).withNewPerson(operator.getId())));
+        final ReportCommands reports = new ReportCommands(TripCommands::new, LodgingCommands::new);
+        servlet.setSources(id -> DAO.getInstance().getTrip(id, Cached.NO).orElse(Trip.builder().build()),
+                reports::roomInvoiceFor);
+
+        signedIn(operator.getId().getValue(), "user", trip.getId());
+        servlet.doGet(req, resp);
+        Assert.assertEquals(status.get(), 200, "an operator of a hotel in play is admitted");
+        final String theirs = text(out.toByteArray());
+        Assert.assertTrue(theirs.contains("Alpha House"), theirs);
+        Assert.assertFalse(theirs.contains("Bravo Inn"), "the other hotel is not theirs: " + theirs);
+        Assert.assertTrue(theirs.contains("Ava"), "guest names at their hotel are theirs to see");
+        Assert.assertFalse(theirs.contains("Cost assumed"), "the flag never reaches the hotel: " + theirs);
+        Assert.assertFalse(theirs.contains("Finances pages"), theirs);
+
+        out.reset();
+        final Person viewer = savedPerson("Fin");
+        DAO.getInstance().savePrivilege(new Privilege(Privilege.idFor(PrivilegeCommands.TRIP_FIN_VIEW, trip.getId()),
+                "test", List.of(viewer.getId())));
+        signedIn(viewer.getId().getValue(), "user", trip.getId());
+        servlet.doGet(req, resp);
+        Assert.assertEquals(status.get(), 200);
+        final String everything = text(out.toByteArray());
+        Assert.assertTrue(everything.contains("Alpha House") && everything.contains("Bravo Inn"), everything);
+        Assert.assertTrue(everything.contains("* Cost assumed from the participant price"),
+                "no option states a cost, and a finance viewer is internal: " + everything);
+
+        out.reset();
+        final Person stranger = savedPerson("Nobody");
+        signedIn(stranger.getId().getValue(), "user", trip.getId());
+        servlet.doGet(req, resp);
+        Assert.assertEquals(status.get(), HttpServletResponse.SC_FORBIDDEN, "signed in, operates nothing here");
+        Assert.assertEquals(out.size(), 0);
+    }
+
     @Test
     public void someoneWithoutAFinancePrivilegeIsRefused() throws IOException {
         signedIn(UUID.randomUUID().toString(), "user", TRIP_ID);
@@ -152,6 +231,76 @@ public class RoomInvoicePdfServletTest {
     public void aNonAsciiFileNameKeepsBothForms() {
         Assert.assertEquals(RoomInvoicePdfServlet.disposition("Međugorje \"A\".pdf"),
                 "attachment; filename=\"Me_ugorje 'A'.pdf\"; filename*=UTF-8''Me%C4%91ugorje%20%22A%22.pdf");
+    }
+
+    // ------------------------------------------------------------------ fixtures
+
+    private static final LocalDateTime CHECK_IN = LocalDateTime.of(2027, 11, 2, 15, 0);
+    private static final LocalDateTime CHECK_OUT = LocalDateTime.of(2027, 11, 5, 10, 0);
+
+    /** The fixture's writer: a site administrator, so the fixture is not itself a test of authorization. */
+    private static Caller siteAdmin() {
+        final Person.Id id = Person.Id.from("test-site-admin");
+        return new Caller(id, true, new AuditActor("site-admin@example.com", id.getValue()), new PrivilegeCommands());
+    }
+
+    private static String text(final byte[] pdf) throws IOException {
+        try (PDDocument doc = Loader.loadPDF(pdf)) {
+            return new PDFTextStripper().getText(doc);
+        }
+    }
+
+    private static Person savedPerson(final String first) throws IOException {
+        final Person person = Person.builder().first(first).last(RandomData.genAlpha(8))
+                .email(first.toLowerCase(Locale.ROOT) + "." + RandomData.genAlpha(8).toLowerCase(Locale.ROOT)
+                        + "@example.com").build();
+        Assert.assertTrue(DAO.getInstance().savePerson(person));
+        return person;
+    }
+
+    private static String hotel(final LodgingCommands admin, final String orgId, final String name) {
+        final AccommodationForm form = new AccommodationForm();
+        final String tag = RandomData.genAlpha(8);
+        form.setName(name + " " + tag);
+        form.setEmail(tag.toLowerCase(Locale.ROOT) + "@invoice.example");
+        // Discovery compares phone DIGITS only, so the random part must be digits.
+        form.setPhone("+1 503 " + (1_000_000 + java.util.concurrent.ThreadLocalRandom.current().nextInt(9_000_000)));
+        form.setStreet(tag + " Way");
+        form.setCity("Portland");
+        final String accId = admin.saveAccommodation(form, orgId);
+        Assert.assertTrue(accId != null && !accId.isBlank(), "the hotel fixture was refused");
+        final RoomTypeForm type = new RoomTypeForm();
+        type.setName("Double");
+        type.setMinPeople(1);
+        type.setMaxPeople(2);
+        Assert.assertTrue(admin.saveRoomType(accId, type));
+        return accId;
+    }
+
+    private static String offerAt(final LodgingCommands admin, final String tripId, final String accId) {
+        final OfferForm form = new OfferForm();
+        form.setName("Room at " + RandomData.genAlpha(4));
+        form.setAccommodationId(accId);
+        form.setRoomTypeIds(new ArrayList<>(List.of(admin.roomTypeRows(accId).get(0).getId())));
+        form.setTripEventId(OfferForm.NEW_EVENT);
+        form.setPricingModel("PER_ROOM");
+        form.setNightlyPrice(100.0);
+        form.setDefaultStart(CHECK_IN);
+        form.setDefaultEnd(CHECK_OUT);
+        Assert.assertTrue(admin.saveOffer(tripId, form));
+        return DAO.getInstance().getReservationOffers(tripId, Cached.NO).stream()
+                .filter(offer -> accId.equals(offer.getAccommodationId().getValue()))
+                .findFirst().orElseThrow().getId().getValue();
+    }
+
+    private static void reserve(final LodgingCommands admin, final String tripId, final String offerId,
+            final Person who) {
+        final ReservationForm form = new ReservationForm();
+        form.setOfferId(offerId);
+        form.setPersonIds(List.of(who.getId().getValue()));
+        form.setStart(CHECK_IN);
+        form.setEnd(CHECK_OUT);
+        Assert.assertEquals(admin.createReservations(tripId, form), 1, "the stay fixture was refused");
     }
 
     /** Uninjected, the servlet asks CDI for the beans; the test JVM has no container, so that is what fails. */
