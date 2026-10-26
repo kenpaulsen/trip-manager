@@ -75,6 +75,8 @@ public enum AuditAction {
      * accommodation / offer / reservation, which is the axis anyone filters on.
      */
     LODGING,
+    /** A trip's planning budget: its inputs, a line or a lodging line was saved, moved or deleted. */
+    BUDGET,
     /**
      * A deployment was started from the admin UI.
      *

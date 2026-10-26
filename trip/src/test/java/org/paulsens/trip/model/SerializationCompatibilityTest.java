@@ -22,6 +22,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import org.paulsens.trip.action.BrandingPhotos;
+import org.paulsens.trip.action.BudgetViews;
 import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.PaymentCommands;
 import org.paulsens.trip.action.PrivacyView;
@@ -144,6 +145,14 @@ public class SerializationCompatibilityTest {
             of(CostExtra.class, SerializationCompatibilityTest::costExtra, CostExtra::getLabel),
             of(Concession.class, SerializationCompatibilityTest::concession, Concession::getReason),
             of(RatePlan.class, SerializationCompatibilityTest::ratePlan, RatePlan::getName),
+            of(TripBudget.class, SerializationCompatibilityTest::tripBudget, TripBudget::getTripId),
+            of(BudgetLine.class, SerializationCompatibilityTest::budgetLine, BudgetLine::getName),
+            of(BudgetLodgingLine.class, SerializationCompatibilityTest::budgetLodgingLine, BudgetLodgingLine::getLabel),
+            of(BudgetViews.InputsForm.class, SerializationCompatibilityTest::inputsForm,
+                    BudgetViews.InputsForm::getPeople),
+            of(BudgetViews.LineForm.class, SerializationCompatibilityTest::lineForm, BudgetViews.LineForm::getName),
+            of(BudgetViews.LodgingLineForm.class, SerializationCompatibilityTest::lodgingLineForm,
+                    BudgetViews.LodgingLineForm::getOfferId),
             of(Payment.class, SerializationCompatibilityTest::payment, Payment::getOrderRef),
             of(Privilege.class, () -> new Privilege("peopleAdmin", "People admin", List.of(ADA)), Privilege::getId),
             of(TodoItem.class, SerializationCompatibilityTest::todoItem, TodoItem::getDataId),
@@ -260,6 +269,50 @@ public class SerializationCompatibilityTest {
                 .roomTypeIds(List.of("rt-double")).validFrom(AT.toLocalDate()).validUntil(AT.toLocalDate().plusDays(30))
                 .cost(rateSchedule()).costExtras(List.of(costExtra()))
                 .linkedTripIds(List.of("trip-rome")).createdBy(ADA).created(AT).version(2L).build();
+    }
+
+    private static BudgetLine budgetLine() {
+        return BudgetLine.builder().id("line-guide").kind(BudgetLineKind.SHARED).category(BudgetCategory.GENERAL)
+                .name("Guide").amountCents(144_000).note("includes tip").payee("Guide").build();
+    }
+
+    private static BudgetLodgingLine budgetLodgingLine() {
+        return BudgetLodgingLine.builder().id("lodging-1").offerId("offer-double").label("Pansion · Double room")
+                .nights(10).people(46).rooms(28).singles(10).payee("Huanita").note("rooms held").build();
+    }
+
+    private static TripBudget tripBudget() {
+        return TripBudget.builder().tripId("trip-rome").orgId("org-acme").people(46).tripNights(10)
+                .perPersonBudgetCents(40_000).toBillCents(100_000).lines(List.of(budgetLine()))
+                .lodging(List.of(budgetLodgingLine())).createdBy(ADA).created(AT).version(2L).build();
+    }
+
+    private static BudgetViews.InputsForm inputsForm() {
+        final BudgetViews.InputsForm form = new BudgetViews.InputsForm();
+        form.setPeople(46);
+        form.setTripNights(10);
+        form.setPerPersonBudget(400.0);
+        form.setToBill(1000.0);
+        return form;
+    }
+
+    private static BudgetViews.LineForm lineForm() {
+        final BudgetViews.LineForm form = new BudgetViews.LineForm();
+        form.setId("line-guide");
+        form.setName("Guide");
+        form.setAmount(1440.0);
+        form.setPayee("Guide");
+        return form;
+    }
+
+    private static BudgetViews.LodgingLineForm lodgingLineForm() {
+        final BudgetViews.LodgingLineForm form = new BudgetViews.LodgingLineForm();
+        form.setOfferId("offer-double");
+        form.setNights(10);
+        form.setPeople(46);
+        form.setRooms(28);
+        form.setNeedsRooms(true);
+        return form;
     }
 
     private static RoomBlock roomBlock() {

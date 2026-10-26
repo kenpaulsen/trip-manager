@@ -126,6 +126,16 @@ public class ModelSerializationTest {
         }
     }
 
+    /** The budget page parks its dialog FORMS in viewScope too; every budget view type must round-trip. */
+    @Test
+    public void budgetViewTypesAreSerializable() throws Exception {
+        for (final Class<?> view : org.paulsens.trip.action.BudgetViews.class.getDeclaredClasses()) {
+            Assert.assertTrue(Serializable.class.isAssignableFrom(view),
+                    view.getName() + " is a budget page view type, so it must be Serializable");
+            roundTrip(view.getDeclaredConstructor().newInstance());
+        }
+    }
+
     @Test
     public void modelSweepDiscoversChatSubPackage() throws Exception {
         // Guard against silent escape: a non-recursive dir.listFiles would drop model.chat entirely.

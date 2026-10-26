@@ -56,6 +56,8 @@ public class PrivilegeCommands {
     public static final String TRIP_VIEW = "tripView";
     public static final String TRIP_FIN_VIEW = "tripFinView";
     public static final String TRIP_FIN_ADMIN = "tripFinAdmin";
+    /** GLOBAL read-only access to every trip's finances (the reports' finance cards, the budget). */
+    public static final String VIEW_FINANCES = "viewFinances";
     /** Moderates a trip's chat (delete messages, manage members). Trip-scoped. */
     public static final String CHAT_MGR = "chatMgr";
     /** Works the trip's registrations page (approve, move, rooms, approval mail). Trip-scoped. */

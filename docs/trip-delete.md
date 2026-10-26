@@ -66,7 +66,8 @@ LAST so a crash mid-cascade leaves a findable trip, and a re-run finishes the jo
 7. **Lodging** — every `ReservationOffer` and `Reservation` in the trip's two partitions
    (`DAO.deleteLodgingForTrip`, raw reads so rows the cache never saw go too). Their lodging Bill rows are
    transactions and follow the transaction rule: never destroyed, soft-deleted by the blocker before the
-   delete could start. See `docs/lodging.md`.
+   delete could start. See `docs/lodging.md`. The trip's planning budget (`trip_budgets`, one row) goes with
+   them (`DAO.deleteTripBudget`); see `docs/budget.md`.
 8. **The trip row** — `TripDAO.deleteTrip`: the item, its point-cache entry, and both `TripIndex` sorted
    sets (`idx:trips`, `idx:person_trips` — the previously dead `removed` branch of `TripIndex.update`).
 

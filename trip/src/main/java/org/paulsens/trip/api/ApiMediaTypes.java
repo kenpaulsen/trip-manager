@@ -37,6 +37,7 @@ public final class ApiMediaTypes {
     public static final String DEPLOY_V1 = "application/vnd.trip.deploy.v1+json";
     public static final String CACHE_V1 = "application/vnd.trip.cache.v1+json";
     public static final String LODGING_V1 = "application/vnd.trip.lodging.v1+json";
+    public static final String BUDGET_V1 = "application/vnd.trip.budget.v1+json";
     public static final String FAMILY_V1 = "application/vnd.trip.family.v1+json";
     public static final String ACCOUNT_V1 = "application/vnd.trip.account.v1+json";
     public static final String BLOCKS_V1 = "application/vnd.trip.blocks.v1+json";

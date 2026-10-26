@@ -33,8 +33,10 @@ is the UNION of three privileges, and `PrivilegeCommands.isAuthorized` can be to
 (`viewScope.reqPriv`). The old page named `tripView`, so a finance-only viewer was bounced off a page that had
 two cards for them.
 
-Admitted: `showAll` (site admin), `tripView@trip`, `tripFinView@trip`, or the global `viewFinances`. That is
-the same expression that shows the tab, so navigation and enforcement cannot disagree. Opening the dashboard
+Admitted: `showAll` (site admin), `tripView@trip`, `tripFinView@trip`, the global `viewFinances`, or (since
+the budget, 2026-10-26) `tripMgr@trip` or `tripFinAdmin@trip`, who edit the Budget and may hold nothing else on
+the trip. The page reads that last pair through `budget.canViewBudget` (`seeBudget`). That is the same union
+that shows the tab, so navigation and enforcement cannot disagree. Opening the dashboard
 grants nothing: every card is separately `rendered=` on the gate of the page it opens.
 
 | Card | Opens | Gate |
@@ -48,6 +50,7 @@ grants nothing: every card is separately `rendered=` on the gate of the page it 
 | Export | `admin/reports/exportTrip.jsf?trip=` | `tripViewer` |
 | Finances | `trip/tripTransactions.jsf?trip=` | `seeFinances` |
 | Payments | `admin/reports/tripPayments.jsf?print=true&trip=` | `seeFinances` |
+| Budget | `admin/reports/budget.jsf?trip=` (number: the overall surplus, or "No budget yet") | `seeBudget` = `budget.canViewBudget` (see `docs/budget.md`) |
 
 `tripViewer` is `showAll || tripView@trip`; `seeFinances` is `viewFinances || tripFinView@trip`. Both are
 computed into `requestScope` every request, so a grant made while the page is open takes effect on the next

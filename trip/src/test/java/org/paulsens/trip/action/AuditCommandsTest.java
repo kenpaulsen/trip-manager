@@ -92,6 +92,14 @@ public class AuditCommandsTest {
     }
 
     @Test
+    public void budgetRecordsTheTripTargetAndReturnsTheMessage() {
+        final String out = captureStdout(() -> audit.budget("trip-1", "org-1", "Budget of 'Rome': added line"));
+        Assert.assertTrue(out.contains("BUDGET") && out.contains("trip:trip-1"), out);
+        Assert.assertEquals(audit.budget("trip-1", null, "Budget of 'Rome': deleted line", null),
+                "Budget of 'Rome': deleted line");
+    }
+
+    @Test
     public void everyMethodReturnsTheMessageItRecorded() {
         // Pages send this same text as a notification email, which is why they used to build it themselves.
         final Person target = person("Ann", null, "Jones", "ann@example.com");

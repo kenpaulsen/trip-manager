@@ -271,6 +271,8 @@ public class TripDeleteCommands {
         final int lodging = DAO.getInstance().deleteLodgingForTrip(tripId);
         HotelUsage.forgetTripEverywhere(tripId, offers);
         final int plans = new RatePlanCommands(callerSource).unlinkAll(tripId, offers);
+        final boolean budget = DAO.getInstance().getTripBudget(tripId, Cached.NO).isPresent();
+        DAO.getInstance().deleteTripBudget(tripId);
         final List<String> eventIds = trip.getTripEventIds();
         for (final String eventId : eventIds) {
             DAO.getInstance().deleteTripEvent(eventId);
@@ -280,7 +282,7 @@ public class TripDeleteCommands {
         return "deleted trip '" + trip.getTitle() + "' with " + regs + " registrations, " + todoIds.size()
                 + " todos (" + pdvRows + " person-data rows), " + privs + " privilege rows, "
                 + eventIds.size() + " events, " + lodging + " lodging rows (" + plans + " rate plans unlinked), "
-                + badges + " badge objects; chat purged";
+                + (budget ? "the budget, " : "") + badges + " badge objects; chat purged";
     }
 
     private List<String> computeBlockers(final Trip trip) {

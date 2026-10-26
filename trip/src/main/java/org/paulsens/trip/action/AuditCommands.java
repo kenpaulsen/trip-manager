@@ -232,6 +232,22 @@ public class AuditCommands {
         return msg;
     }
 
+    /** A trip budget change: its inputs, a line or a lodging line saved, moved or deleted. Targets the trip. */
+    public String budget(final String tripId, final String orgId, final String msg) {
+        return budget(tripId, orgId, msg, AuditActor.current());
+    }
+
+    /** @see #budget(String, String, String) */
+    public String budget(final String tripId, final String orgId, final String msg, final AuditActor who) {
+        Audit.builder(AuditAction.BUDGET, AuditOutcome.SUCCESS)
+                .actor(who == null ? AuditActor.current() : who)
+                .target(AuditEventBuilder.TARGET_TRIP, tripId)
+                .org(orgId)
+                .message(msg)
+                .log();
+        return msg;
+    }
+
     /** A registration was cancelled. */
     public String registrationRemoved(final Person target, final Trip trip) {
         return registrationRemoved(target, trip, AuditActor.current());

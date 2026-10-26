@@ -104,7 +104,8 @@ public class InMemoryPersistence implements Persistence {
             Map.entry(LodgingDAO.RESERVATIONS_TABLE, new TableKeys(LodgingDAO.TRIP_ID, LodgingDAO.ID,
                     Map.of(LodgingDAO.BY_ACCOMMODATION, new TableKeys(LodgingDAO.ACC_ID, LodgingDAO.STAY_END)))),
             Map.entry(LodgingDAO.BLOCKS_TABLE, new TableKeys(LodgingDAO.ACC_ID, LodgingDAO.ID)),
-            Map.entry(LodgingDAO.RATE_PLANS_TABLE, new TableKeys(LodgingDAO.ACC_ID, LodgingDAO.ID)));
+            Map.entry(LodgingDAO.RATE_PLANS_TABLE, new TableKeys(LodgingDAO.ACC_ID, LodgingDAO.ID)),
+            Map.entry(BudgetDAO.BUDGETS_TABLE, new TableKeys(BudgetDAO.TRIP_ID, null)));
 
     /** table -> (pk -> (sk -> item)). sk is "" for PK-only tables. */
     private final Map<String, Map<String, Map<String, Map<String, AttributeValue>>>> store =

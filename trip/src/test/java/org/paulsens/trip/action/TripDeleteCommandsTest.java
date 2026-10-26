@@ -22,6 +22,7 @@ import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.TripBudget;
 import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.BeforeClass;
@@ -248,6 +249,7 @@ public class TripDeleteCommandsTest {
                 .accommodationId(hotel.getId()).ratePlanId(plan.getId().getValue()).ratePlanVersion(1L).build()));
         assertTrue(dao.saveReservation(Reservation.builder().tripId(tripId)
                 .occupants(List.of(exMember.getId())).build()));
+        assertTrue(dao.saveTripBudget(TripBudget.builder().tripId(tripId).people(1).build()));
 
         // A soft-deleted transaction, bound to the trip: allowed, and its rows must SURVIVE the delete.
         final Transaction tx = new Transaction(exMember.getId(), null, Transaction.Type.Tx);
@@ -270,6 +272,7 @@ public class TripDeleteCommandsTest {
         assertTrue(dao.getTripPrivileges(tripId, Cached.NO).isEmpty(), "trip-scoped privs must be gone");
         assertTrue(dao.getReservationOffers(tripId, Cached.NO).isEmpty(), "lodging offers must be gone");
         assertTrue(dao.getReservations(tripId, Cached.NO).isEmpty(), "lodging reservations must be gone");
+        assertTrue(dao.getTripBudget(tripId, Cached.NO).isEmpty(), "the trip budget must be gone");
         assertEquals(dao.getAccommodation(hotel.getId(), Cached.NO).orElseThrow().getTripIds(),
                 List.of("another-trip"), "the hotel forgets the deleted trip and no other");
         assertEquals(dao.getRatePlan(hotel.getId().getValue(), plan.getId(), Cached.NO).orElseThrow()

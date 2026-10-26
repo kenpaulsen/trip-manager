@@ -86,6 +86,8 @@ per-feature gates (e.g. `BackgroundRemover.GATE`).
   The `family` row is the source of truth for household membership (optimistic-version conditional puts);
   managers' `Person.managedUsers` lists are DERIVED from it — see `docs/family-accounts.md` before touching
   anything family-related.
+  Trip budgets add `BudgetDAO` (`trip_budgets`, PK `tripId`: ONE `TripBudget` row per trip with its lines
+  inline, one `PointCache`, one versioned conditional put per save) -- `docs/budget.md`.
 - **Caching** (`org.paulsens.trip.cache`) — full architecture doc: `docs/caching.md` (read it before
   touching any cache or DAO read path). All caching goes through the `CacheClient` abstraction —
   `ValkeyCacheClient` (production, shared across instances; TWO connections: foreground queue 5000,
@@ -152,7 +154,9 @@ Lombok-annotated, Jackson-serialized to/from DynamoDB. Core types: `Person` (nes
 `cost` = what the hotel charges, the Room Invoice, null = "not set", which REFUSES the invoice (never assumed
 from the price since 2026-10-26) -- plus `CostExtra`s and an optional `RatePlan` link; `Reservation` with a
 `priceConcession` and a `costConcession` (`Concession`, no side field: the field IS the side); the hotel-owned `RatePlan` (the hotel's cost side only -- no participant
-price on a plan); `PricingModel`, `OfferType` —
+price on a plan); `PricingModel`, `OfferType`; the trip's planning budget `TripBudget` with inline
+`BudgetLine`s (`BudgetLineKind` SHARED/INDIVIDUAL, `BudgetCategory`) and `BudgetLodgingLine`s that read one of
+the trip's options LIVE, `docs/budget.md` --
 `docs/lodging.md` "Price vs cost" before touching any money field; the four legacy flat price keys still
 fold on read and mirror on write for one release, `docs/migrations/lodging-price-cost.md`), plus
 `model/chat/*` (15 chat types) and `model/deploy/*`. **Accommodations are GLOBAL, not org-owned** — the one
@@ -196,7 +200,10 @@ and `brandingPhotos` (BrandingPhotos — their versioned `org/{orgId}/branding/{
 whose KEPT previous versions are what makes a replaced image recoverable; see `docs/org-admin.md`
 "Uploading the four images"), `lodging` (LodgingCommands — accommodations, room types, rooms, floor maps,
 offers, reservations, the room-assignment board, lodging bills, the itinerary rows; see `docs/lodging.md`
-before touching), `lodgingAccess` (LodgingAccessCommands -- the lodging gates' bodies, re-exposed by
+before touching), `budget` (BudgetCommands -- the trip's planning budget: typed inputs, shared and per-person
+lines, lodging lines reading the trip's options live, the page's rows and the dashboard headline; edit =
+tripMgr/tripFinAdmin, view adds tripFinView and the global viewFinances; arithmetic in `pay/BudgetMath`; see
+`docs/budget.md`), `lodgingAccess` (LodgingAccessCommands -- the lodging gates' bodies, re-exposed by
 `#{lodging.can*}`, and `forTrip(tripId)`: ONE per-request `LodgingAccess` -- `internal`, `operatorAccIds`,
 `allowedAccIds`, `canAssign`, `operatorHere` -- that `trip/lodging.xhtml` and `roomInvoice.xhtml` keep as
 `requestScope.access`; also `mayNameTrip`, the one naming rule for cross-trip reads), `hotel` (HotelCommands
@@ -230,8 +237,9 @@ on the trip side creates the option WITH its own participant price, `detach` cut
 
 Jersey servlet (declared in the live web.xml, sibling repo) running `TripApiApplication` — resources are
 registered **explicitly** in `getClasses()`, no package scanning; a new resource must be added there (and to
-`ApiSurfaceTest.RESOURCES`). 17 resources (auth, people, trips, registrations, transactions, todos,
-privileges, chat, chat-admin, photo-chat, audit, config, mail, payments, deploy, lodging, family) +
+`ApiSurfaceTest.RESOURCES`). Resources include auth, people, trips, registrations, transactions, todos,
+privileges, chat, chat-admin, photo-chat, audit, config, mail, payments, deploy, lodging, family and budget
+(`getClasses()` is the authoritative list) +
 `TripAuthFilter`, `JsonExceptionMapper`, `ObjectMapperProvider`. DTOs in `api/dto`, MapStruct mappers in
 `api/mapper`. Versioning is via the `Accept` media type, not a URL segment.
 

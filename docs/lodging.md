@@ -348,6 +348,10 @@ kinds `accPhoto`, `roomTypePhoto`, `floorMap` (floor plans are stored whole, 200
 
 ## Price vs cost (`pay/LodgingPricing`, `pay/LodgingBiller`, `pay/CostExtras`)
 
+(The trip's planning budget reads an option's two schedules LIVE as well: a budget lodging line multiplies the
+option's flat `price` and `cost` + `costExtras` by the nights, people and rooms planned, and follows any rate
+change made here. See `docs/budget.md`.)
+
 Until 2026-10-25 ONE set of money fields on an option drove both what a participant was billed and what the
 Room Invoice said the hotel charges, and "invoice total = sum of the lodging bills" was a tested invariant.
 Reality differs: the hotel's rate is often not the participant's, hotels comp or discount rooms that are not

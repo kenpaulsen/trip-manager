@@ -21,7 +21,7 @@ import org.testng.annotations.Test;
 public class ApiSurfaceTest {
 
     private static final List<Class<?>> RESOURCES = List.of(
-            AccountResource.class, AuditResource.class, AuthResource.class, BlocksResource.class,
+            AccountResource.class, AuditResource.class, AuthResource.class, BlocksResource.class, BudgetResource.class,
             ChatAdminResource.class, ChatInviteResource.class, ChatResource.class,
             ConfigResource.class, DeployResource.class, FamilyResource.class, LodgingResource.class, MailResource.class,
             MediaResource.class,
