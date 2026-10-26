@@ -94,6 +94,27 @@ public final class PhotoProcessor {
     }
 
     /**
+     * Both renditions, with the FULL one capped as well: its longest side at most {@code maxSide} pixels, the
+     * aspect ratio kept, never cropped and never enlarged. An image already within the cap is exactly what
+     * {@link #process(byte[])} makes of it (stored as uploaded; HEIC still becomes JPEG). A larger one is scaled
+     * down after its EXIF orientation is applied and re-encoded: JPEG for JPEG and HEIC, PNG for PNG and GIF so
+     * transparency survives (an animated GIF that must shrink keeps its first frame). The small rendition is
+     * the usual {@link #MAX_SMALL_WIDTH}-wide one, made from the capped image.
+     *
+     * @throws PhotoRejectedException as {@link #process(byte[])} does.
+     */
+    public ProcessedPhoto processWithin(final byte[] original, final int maxSide) {
+        final ImageFormat format = ImageFormat.detect(original).orElseThrow(PhotoProcessor::notAnImage);
+        final BufferedImage oriented = decodeOriented(original, format);
+        if (oriented.getWidth() <= maxSide && oriented.getHeight() <= maxSide) {
+            return process(original);
+        }
+        final BufferedImage bounded = fitWithin(oriented, maxSide, maxSide);
+        return (format == ImageFormat.PNG || format == ImageFormat.GIF)
+                ? croppedPngRenditions(bounded) : croppedJpegRenditions(bounded);
+    }
+
+    /**
      * A crop selection, expressed in the pixel space of the ORIENTED full-resolution image — the same space
      * whose dimensions {@link #preview} reports as {@code fullWidth}/{@code fullHeight}. Client-supplied and
      * therefore untrusted: every consumer clamps before cropping.

@@ -87,7 +87,9 @@ per-feature gates (e.g. `BackgroundRemover.GATE`).
   managers' `Person.managedUsers` lists are DERIVED from it — see `docs/family-accounts.md` before touching
   anything family-related.
   Trip budgets add `BudgetDAO` (`trip_budgets`, PK `tripId`: ONE `TripBudget` row per trip with its lines
-  inline, one `PointCache`, one versioned conditional put per save) -- `docs/budget.md`.
+  inline, one `PointCache`, one versioned conditional put per save) -- `docs/budget.md`. Trip expense reports
+  add `ExpenseReportDAO` (`trip_expense_reports`, the same shape: ONE shared `TripExpenseReport` per trip,
+  currencies, expenses and receipt ids inline) -- `docs/expense-report.md`.
 - **Caching** (`org.paulsens.trip.cache`) — full architecture doc: `docs/caching.md` (read it before
   touching any cache or DAO read path). All caching goes through the `CacheClient` abstraction —
   `ValkeyCacheClient` (production, shared across instances; TWO connections: foreground queue 5000,
@@ -156,7 +158,9 @@ from the price since 2026-10-26) -- plus `CostExtra`s and an optional `RatePlan`
 `priceConcession` and a `costConcession` (`Concession`, no side field: the field IS the side); the hotel-owned `RatePlan` (the hotel's cost side only -- no participant
 price on a plan); `PricingModel`, `OfferType`; the trip's planning budget `TripBudget` with inline
 `BudgetLine`s (`BudgetLineKind` SHARED/INDIVIDUAL, `BudgetCategory`) and `BudgetLodgingLine`s that read one of
-the trip's options LIVE, `docs/budget.md` --
+the trip's options LIVE, `docs/budget.md`; the trip's expense report `TripExpenseReport` with inline
+`CurrencyRate`s (foreign units per dollar, in millionths) and `ExpenseLine`s (one currency each, optionally
+matched to a budget line; dollar figures derived on read, never stored), `docs/expense-report.md` --
 `docs/lodging.md` "Price vs cost" before touching any money field; the four legacy flat price keys still
 fold on read and mirror on write for one release, `docs/migrations/lodging-price-cost.md`), plus
 `model/chat/*` (15 chat types) and `model/deploy/*`. **Accommodations are GLOBAL, not org-owned** — the one
@@ -203,7 +207,14 @@ offers, reservations, the room-assignment board, lodging bills, the itinerary ro
 before touching), `budget` (BudgetCommands -- the trip's planning budget: typed inputs, shared and per-person
 lines, lodging lines reading the trip's options live, the page's rows and the dashboard headline; edit =
 tripMgr/tripFinAdmin, view adds tripFinView and the global viewFinances; arithmetic in `pay/BudgetMath`; see
-`docs/budget.md`), `lodgingAccess` (LodgingAccessCommands -- the lodging gates' bodies, re-exposed by
+`docs/budget.md`; both gates live in `TripFinanceGate`, shared with the expense report), `expenses`
+(ExpenseCommands -- the trip's shared expense report: details, currencies, expenses matched to budget lines,
+the submit stamp, budget vs actual; arithmetic in `pay/ExpenseMath`; see `docs/expense-report.md`),
+`expenseReceipts` (ExpenseReceipts -- the report's receipts, images or PDFs, in the media bucket under
+`receipts/{tripId}/` and slot `receipts-{tripId}`, served ONLY by `web/ExpenseReceiptServlet` at
+`/expense-receipts/{id}` behind the report's view gate: never a CDN URL, fenced out of every media listing, and
+the CDN denied the prefix by `MediaStack`), `lodgingAccess` (LodgingAccessCommands -- the lodging gates'
+bodies, re-exposed by
 `#{lodging.can*}`, and `forTrip(tripId)`: ONE per-request `LodgingAccess` -- `internal`, `operatorAccIds`,
 `allowedAccIds`, `canAssign`, `operatorHere` -- that `trip/lodging.xhtml` and `roomInvoice.xhtml` keep as
 `requestScope.access`; also `mayNameTrip`, the one naming rule for cross-trip reads), `hotel` (HotelCommands
@@ -238,8 +249,8 @@ on the trip side creates the option WITH its own participant price, `detach` cut
 Jersey servlet (declared in the live web.xml, sibling repo) running `TripApiApplication` — resources are
 registered **explicitly** in `getClasses()`, no package scanning; a new resource must be added there (and to
 `ApiSurfaceTest.RESOURCES`). Resources include auth, people, trips, registrations, transactions, todos,
-privileges, chat, chat-admin, photo-chat, audit, config, mail, payments, deploy, lodging, family and budget
-(`getClasses()` is the authoritative list) +
+privileges, chat, chat-admin, photo-chat, audit, config, mail, payments, deploy, lodging, family, budget and
+expenses (`getClasses()` is the authoritative list) +
 `TripAuthFilter`, `JsonExceptionMapper`, `ObjectMapperProvider`. DTOs in `api/dto`, MapStruct mappers in
 `api/mapper`. Versioning is via the `Accept` media type, not a URL segment.
 

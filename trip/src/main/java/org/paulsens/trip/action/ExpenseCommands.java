@@ -1,0 +1,999 @@
+package org.paulsens.trip.action;
+
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Named;
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
+import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.action.BudgetViews.Choice;
+import org.paulsens.trip.action.ExpenseViews.BudgetRow;
+import org.paulsens.trip.action.ExpenseViews.CurrencyForm;
+import org.paulsens.trip.action.ExpenseViews.CurrencyRow;
+import org.paulsens.trip.action.ExpenseViews.ExpensePage;
+import org.paulsens.trip.action.ExpenseViews.HeaderForm;
+import org.paulsens.trip.action.ExpenseViews.ExpenseForm;
+import org.paulsens.trip.action.ExpenseViews.ExpenseRow;
+import org.paulsens.trip.action.ExpenseViews.ReceiptRow;
+import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.BudgetLine;
+import org.paulsens.trip.model.BudgetLodgingLine;
+import org.paulsens.trip.model.CurrencyRate;
+import org.paulsens.trip.model.ExpenseCategory;
+import org.paulsens.trip.model.ExpenseLine;
+import org.paulsens.trip.model.MediaItem;
+import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.ReservationOffer;
+import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.TripBudget;
+import org.paulsens.trip.model.TripExpenseReport;
+import org.paulsens.trip.pay.BudgetMath;
+import org.paulsens.trip.pay.ExpenseMath;
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
+
+import static org.paulsens.trip.action.MoneyForms.cents;
+import static org.paulsens.trip.action.MoneyForms.dollars;
+import static org.paulsens.trip.action.MoneyForms.dollarsProblem;
+import static org.paulsens.trip.action.MoneyForms.money;
+import static org.paulsens.trip.action.MoneyForms.parse;
+import static org.paulsens.trip.action.MoneyForms.refused;
+import static org.paulsens.trip.action.MoneyForms.tooLong;
+import static org.paulsens.trip.action.PageFeedback.info;
+import static org.paulsens.trip.action.PageFeedback.refuse;
+
+/**
+ * A trip's expense report, exposed to pages as {@code #{expenses}} ({@code docs/expense-report.md}): what was
+ * actually spent, in whatever currency, against the cash advanced, each expense optionally matched to a line of
+ * the trip's budget so the budget table shows what remains. The arithmetic is {@link ExpenseMath}'s; this bean
+ * gates (the budget's own gate, {@link TripFinanceGate}), validates, applies forms to a fresh read of the one
+ * {@link TripExpenseReport} row, saves it with one versioned put, audits, and renders {@link ExpenseViews} rows.
+ *
+ * <p>Receipts are stored by {@link ExpenseReceipts}; this bean only links their ids to the report or a line,
+ * and asks it to purge the files of a line it deletes.
+ */
+@Slf4j
+@Named("expenses")
+@ApplicationScoped
+public class ExpenseCommands {
+    static final int MAX_LINES = 300;
+    static final int MAX_CURRENCIES = 20;
+    static final int MAX_RECEIPTS_PER_LINE = 40;
+    static final int MAX_REPORT_RECEIPTS = 60;
+    static final int MAX_NAME = 120;
+    static final int MAX_DESCRIPTION = 200;
+    static final int MAX_NOTE = 500;
+    static final int MAX_TEXT = 2000;
+    /** Foreign units per dollar: a sanity cap well above any real currency (the dong is about 26,000). */
+    static final long MAX_RATE_MICROS = 1_000_000L * CurrencyRate.MICROS;
+    /** The largest foreign amount a line takes, in hundredths: a billion units covers any currency. */
+    static final long MAX_AMOUNT_MINOR = 100_000_000_000L;
+    static final String NO_EXPENSES = "No expenses yet";
+    static final String DELETED_LINE = "(deleted budget line)";
+    static final String VARIOUS = "Various";
+    static final String SHARED = "Shared";
+    static final String PER_PERSON = "Per person";
+    static final String LODGING = "Lodging";
+    private static final String NOT_ALLOWED =
+            "Not allowed: only the trip's managers and finance admins can edit its expense report.";
+    private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US);
+
+    private final Supplier<Caller> callerSource;
+    private final Supplier<AuditCommands> auditSource;
+    private final Supplier<ExpenseReceipts> receiptSource;
+    private final TripFinanceGate gate;
+
+    public ExpenseCommands() {
+        this(Caller::current);
+    }
+
+    /** Test seam (the BudgetCommands pattern): {@code Caller.current()} needs a FacesContext tests lack. */
+    public ExpenseCommands(final Supplier<Caller> callerSource) {
+        this(callerSource, () -> new TripCommands(() -> new OrgCommands(callerSource)), AuditCommands::new,
+                () -> new ExpenseReceipts(callerSource));
+    }
+
+    ExpenseCommands(final Supplier<Caller> callerSource, final Supplier<TripCommands> tripSource,
+            final Supplier<AuditCommands> auditSource, final Supplier<ExpenseReceipts> receiptSource) {
+        this.callerSource = callerSource;
+        this.auditSource = auditSource;
+        this.receiptSource = receiptSource;
+        this.gate = new TripFinanceGate(callerSource, tripSource);
+    }
+
+    // ================================================================== gates
+
+    /** May edit the report: the budget's editors (site admin, the trip's managers and finance admins). */
+    public boolean canEditExpenses(final String tripId) {
+        return gate.canEdit(tripId);
+    }
+
+    /** May read the report: an editor, the trip's finance viewers, or a global finance viewer. */
+    public boolean canViewExpenses(final String tripId) {
+        return gate.canView(tripId);
+    }
+
+    // ================================================================== reads
+
+    /** The stored report, else an empty one at version 0 naming the caller as its submitter. */
+    private TripExpenseReport reportOrDefault(final Trip trip, final Cached cached) {
+        final TripExpenseReport stored = DAO.getInstance().getTripExpenseReport(trip.getId(), cached).orElse(null);
+        if (stored != null) {
+            return stored;
+        }
+        return TripExpenseReport.builder().tripId(trip.getId()).orgId(trip.getOrgId())
+                .submittedBy(callerName()).build();
+    }
+
+    /** The trip's budget, or null when it has none. */
+    private static TripBudget budgetOf(final String tripId) {
+        return DAO.getInstance().getTripBudget(tripId, Cached.YES).orElse(null);
+    }
+
+    /** Everything the page renders; an empty page for a caller who may not view the report. */
+    public ExpensePage reportPage(final String tripId) {
+        final ExpensePage page = new ExpensePage();
+        if (!canViewExpenses(tripId)) {
+            return page;
+        }
+        final Trip trip = gate.knownTrip(tripId);
+        final TripExpenseReport report = reportOrDefault(trip, Cached.YES);
+        page.setExists(report.getVersion() > 0L);
+        page.setVersion(report.getVersion());
+        page.setStatus(report.getStatus().getLabel());
+        page.setStatusKey(report.getStatus().name().toLowerCase(Locale.ROOT));
+        page.setTripTitle(trip.getTitle());
+        page.setTripDates(tripDates(trip));
+        page.setOrgName(orgName(trip));
+        page.setSubmittedBy(report.getSubmittedBy());
+        page.setSubmitted(report.getSubmittedOn() != null);
+        if (report.getSubmittedOn() != null) {
+            page.setSubmittedLine("Submitted by " + nameOr(report.getSubmittedBy(), "(no name)") + " on "
+                    + DAY.format(report.getSubmittedOn()));
+        }
+        page.setCashAdvance(money(report.getCashAdvanceCents()));
+        page.setCashAdvanceDetails(report.getCashAdvanceDetails());
+        page.setPaymentInstructions(report.getPaymentInstructions());
+        page.setPaidOnText((report.getPaidOn() == null) ? null : DAY.format(report.getPaidOn()));
+        page.setPaidHow(report.getPaidHow());
+        for (final CurrencyRate rate : report.getCurrencies()) {
+            page.getCurrencyRows().add(currencyRow(report, rate));
+        }
+        final TripBudget budget = budgetOf(tripId);
+        fillBudget(page, report, budget, BudgetCommands.offersById(tripId));
+        fillLines(page, report, budget);
+        page.setReportReceipts(receiptRows(report.getReceiptIds()));
+        final long total = ExpenseMath.total(report);
+        final long due = ExpenseMath.due(report);
+        page.setTotal(money(total));
+        page.setDueToSubmitter(due < 0);
+        page.setDueLabel("Due to " + ((due < 0) ? nameOr(report.getSubmittedBy(), "the submitter")
+                : nameOr(page.getOrgName(), "the organization")));
+        page.setDue(money(Math.abs(due)));
+        page.setLinesWithoutReceipt(ExpenseMath.linesWithoutReceipt(report));
+        warnMissingRates(page, report);
+        return page;
+    }
+
+    private static CurrencyRow currencyRow(final TripExpenseReport report, final CurrencyRate rate) {
+        final CurrencyRow row = new CurrencyRow();
+        row.setCode(rate.getCode());
+        row.setRateText("1 USD = " + ExpenseMath.rate(rate.getPerUsdMicros()).toPlainString() + " " + rate.getCode());
+        final BigDecimal inverse = ExpenseMath.usdPerUnit(rate.getPerUsdMicros());
+        row.setInverseText((inverse == null) ? "no rate" : "1 " + rate.getCode() + " = $" + inverse.toPlainString());
+        row.setNote(rate.getNote());
+        row.setLines(report.linesUsing(rate.getCode()).size());
+        row.setForeignTotal(foreign(ExpenseMath.currencyTotal(report, rate.getCode()), rate.getCode()));
+        row.setUsdTotal(money(ExpenseMath.currencyUsd(report, rate.getCode())));
+        row.setRateMissing(rate.getPerUsdMicros() <= 0L);
+        return row;
+    }
+
+    /**
+     * The budget-versus-actual rows: every budget line in the budget page's order (shared, then per person,
+     * then lodging), what it planned, what the matched expenses spent and what remains; then the "Not in
+     * budget" row, so the Spent column always adds up to the report's total.
+     */
+    private static void fillBudget(final ExpensePage page, final TripExpenseReport report, final TripBudget budget,
+            final Map<String, ReservationOffer> offers) {
+        final Set<String> ids = new HashSet<>();
+        long planned = 0L;
+        long spent = 0L;
+        if (budget != null) {
+            page.setHasBudget(!budget.getLines().isEmpty() || !budget.getLodging().isEmpty());
+            for (final BudgetLine line : budget.getLines()) {
+                final long amount = ExpenseMath.budgeted(budget, line);
+                page.getBudgetRows().add(budgetRow(report, line.getId(), line.isShared() ? SHARED : PER_PERSON,
+                        line.getName(), BudgetMath.categoryOf(line), amount));
+                ids.add(line.getId());
+                planned += amount;
+                spent += ExpenseMath.spentOn(report, line.getId());
+            }
+            for (final BudgetLodgingLine line : budget.getLodging()) {
+                final ReservationOffer offer = offers.get(line.getOfferId());
+                final long amount = ExpenseMath.budgeted(line, offer);
+                page.getBudgetRows().add(budgetRow(report, line.getId(), LODGING,
+                        BudgetCommands.lodgingLabel(line, offer), BudgetMath.LODGING_CATEGORY, amount));
+                ids.add(line.getId());
+                planned += amount;
+                spent += ExpenseMath.spentOn(report, line.getId());
+            }
+        }
+        final BudgetRow outside = new BudgetRow();
+        outside.setNotInBudget(true);
+        outside.setLabel("Not in budget");
+        final long notInBudget = ExpenseMath.notInBudget(report, ids);
+        outside.setSpent(money(notInBudget));
+        page.getBudgetRows().add(outside);
+        page.setBudgetTotal(money(planned));
+        page.setSpentTotal(money(spent + notInBudget));
+        page.setRemainingTotal(money(planned - spent - notInBudget));
+        page.setRemainingNegative(planned - spent - notInBudget < 0);
+    }
+
+    private static BudgetRow budgetRow(final TripExpenseReport report, final String id, final String section,
+            final String label, final String category, final long planned) {
+        final long spent = ExpenseMath.spentOn(report, id);
+        final BudgetRow row = new BudgetRow();
+        row.setId(id);
+        row.setSection(section);
+        row.setLabel(label);
+        row.setCategory(category);
+        row.setBudget(money(planned));
+        row.setSpent(money(spent));
+        row.setRemaining(money(planned - spent));
+        row.setRemainingNegative(planned - spent < 0);
+        return row;
+    }
+
+    private void fillLines(final ExpensePage page, final TripExpenseReport report, final TripBudget budget) {
+        final List<ExpenseLine> lines = report.getLines();
+        for (int i = 0; i < lines.size(); i++) {
+            final ExpenseLine line = lines.get(i);
+            final ExpenseRow row = new ExpenseRow();
+            row.setId(line.getId());
+            row.setDateText((line.getDate() == null) ? VARIOUS : DAY.format(line.getDate()));
+            row.setCategory(line.getCategory().getLabel());
+            row.setDescription(line.getDescription());
+            row.setForeign(!line.isUsd());
+            row.setAmountText(line.isUsd() ? money(line.getAmountMinor())
+                    : foreign(line.getAmountMinor(), line.getCurrency()));
+            row.setUsd(money(ExpenseMath.lineUsd(report, line)));
+            row.setRateMissing(ExpenseMath.rateMissing(report, line));
+            row.setBudgetLabel(budgetLabel(budget, line.getBudgetLineId()));
+            row.setReceiptCount(line.getReceiptIds().size());
+            row.setNote(line.getNote());
+            row.setFirst(i == 0);
+            row.setLast(i == lines.size() - 1);
+            page.getLineRows().add(row);
+        }
+    }
+
+    /** The matched budget line's name; null when unmatched, {@link #DELETED_LINE} when it is gone. */
+    private static String budgetLabel(final TripBudget budget, final String budgetLineId) {
+        if (budgetLineId == null) {
+            return null;
+        }
+        final BudgetLine line = (budget == null) ? null : budget.line(budgetLineId);
+        if (line != null) {
+            return line.getName();
+        }
+        final BudgetLodgingLine lodging = (budget == null) ? null : budget.lodgingLine(budgetLineId);
+        if (lodging != null) {
+            return BudgetCommands.lodgingLabel(lodging,
+                    BudgetCommands.offersById(budget.getTripId()).get(lodging.getOfferId()));
+        }
+        return DELETED_LINE;
+    }
+
+    private static void warnMissingRates(final ExpensePage page, final TripExpenseReport report) {
+        final Set<String> warned = new HashSet<>();
+        for (final ExpenseLine line : report.getLines()) {
+            if (ExpenseMath.rateMissing(report, line) && warned.add(line.getCurrency())) {
+                page.getWarnings().add("The expenses in " + line.getCurrency() + " have no exchange rate and count "
+                        + "$0.00: enter the rate under Currencies.");
+            }
+        }
+    }
+
+    /** The receipts with these ids, in order; ids whose row is gone are skipped. */
+    List<ReceiptRow> receiptRows(final List<String> mediaIds) {
+        final List<ReceiptRow> rows = new ArrayList<>();
+        for (final String id : mediaIds) {
+            final MediaItem item = DAO.getInstance().getMedia(id, Cached.YES).orElse(null);
+            if (item != null) {
+                rows.add(receiptRow(item));
+            }
+        }
+        return rows;
+    }
+
+    static ReceiptRow receiptRow(final MediaItem item) {
+        final ReceiptRow row = new ReceiptRow();
+        row.setMediaId(item.getId());
+        row.setTitle((item.getTitle() == null) ? "Receipt" : item.getTitle());
+        row.setUrl(ExpenseReceipts.path(item.getId()));
+        row.setPdf(ExpenseReceipts.PDF.equals(item.getContentType()));
+        row.setThumbUrl(row.isPdf() ? null : ExpenseReceipts.path(item.getId()) + ExpenseReceipts.THUMB);
+        row.setSize(size(item.getSize()));
+        return row;
+    }
+
+    /** The receipt dialog's list: a line's receipts, or the report-level ones when {@code lineId} is blank. */
+    public List<ReceiptRow> receiptRowsFor(final String tripId, final String lineId) {
+        final Trip trip = gate.knownTrip(tripId);
+        if (trip == null || !canViewExpenses(tripId)) {
+            return new ArrayList<>();
+        }
+        final TripExpenseReport report = reportOrDefault(trip, Cached.YES);
+        if (lineId == null || lineId.isBlank()) {
+            return receiptRows(report.getReceiptIds());
+        }
+        final ExpenseLine line = report.line(lineId);
+        return (line == null) ? new ArrayList<>() : receiptRows(line.getReceiptIds());
+    }
+
+    /** The receipt dialog's heading: the line's description, or "Report receipts" at report level. */
+    public String receiptHeading(final String tripId, final String lineId) {
+        if (lineId == null || lineId.isBlank()) {
+            return "Report receipts";
+        }
+        final Trip trip = gate.knownTrip(tripId);
+        final ExpenseLine line = (trip == null || !canViewExpenses(tripId)) ? null
+                : reportOrDefault(trip, Cached.YES).line(lineId);
+        return (line == null) ? "Receipts" : "Receipts: " + nameOr(line.getDescription(), "expense");
+    }
+
+    /** The header fields as a form. */
+    public HeaderForm headerFormFor(final String tripId) {
+        final HeaderForm form = new HeaderForm();
+        final Trip trip = gate.knownTrip(tripId);
+        if (trip == null || !canViewExpenses(tripId)) {
+            return form;
+        }
+        final TripExpenseReport report = reportOrDefault(trip, Cached.YES);
+        form.setSubmittedBy(report.getSubmittedBy());
+        form.setCashAdvance(dollars(report.getCashAdvanceCents()));
+        form.setCashAdvanceDetails(report.getCashAdvanceDetails());
+        form.setPaymentInstructions(report.getPaymentInstructions());
+        form.setPaidOn(report.getPaidOn());
+        form.setPaidHow(report.getPaidHow());
+        return form;
+    }
+
+    /** A fresh expense form: dollars, Other. */
+    public ExpenseForm newLineForm() {
+        return new ExpenseForm();
+    }
+
+    /** The expense dialog's form for an existing line; a fresh form when the line is gone. */
+    public ExpenseForm lineFormFor(final String tripId, final String lineId) {
+        final Trip trip = gate.knownTrip(tripId);
+        final ExpenseLine line = (trip == null || !canViewExpenses(tripId)) ? null
+                : reportOrDefault(trip, Cached.YES).line(lineId);
+        return (line == null) ? newLineForm() : formOf(line);
+    }
+
+    private static ExpenseForm formOf(final ExpenseLine line) {
+        final ExpenseForm form = new ExpenseForm();
+        form.setId(line.getId());
+        form.setDate(line.getDate());
+        form.setCategory(line.getCategory().name());
+        form.setDescription(line.getDescription());
+        form.setCurrency(line.getCurrency());
+        form.setAmount(dollars(line.getAmountMinor()));
+        form.setBudgetLineId(line.getBudgetLineId());
+        form.setNote(line.getNote());
+        return form;
+    }
+
+    /** Every expense as a form (the REST GET). */
+    public List<ExpenseForm> lineFormsFor(final String tripId) {
+        final List<ExpenseForm> forms = new ArrayList<>();
+        final Trip trip = gate.knownTrip(tripId);
+        if (trip == null || !canViewExpenses(tripId)) {
+            return forms;
+        }
+        for (final ExpenseLine line : reportOrDefault(trip, Cached.YES).getLines()) {
+            forms.add(formOf(line));
+        }
+        return forms;
+    }
+
+    /** A fresh currency form. */
+    public CurrencyForm newCurrencyForm() {
+        return new CurrencyForm();
+    }
+
+    /** The currency dialog's form for a currency the report has; a fresh form when it is gone. */
+    public CurrencyForm currencyFormFor(final String tripId, final String code) {
+        final Trip trip = gate.knownTrip(tripId);
+        final CurrencyRate rate = (trip == null || !canViewExpenses(tripId)) ? null
+                : reportOrDefault(trip, Cached.YES).currency(code);
+        if (rate == null) {
+            return newCurrencyForm();
+        }
+        return currencyForm(rate);
+    }
+
+    private static CurrencyForm currencyForm(final CurrencyRate rate) {
+        final CurrencyForm form = new CurrencyForm();
+        form.setCode(rate.getCode());
+        form.setRate(ExpenseMath.rate(rate.getPerUsdMicros()).doubleValue());
+        form.setNote(rate.getNote());
+        form.setExisting(true);
+        return form;
+    }
+
+    /** Every currency as a form (the REST GET). */
+    public List<CurrencyForm> currencyFormsFor(final String tripId) {
+        final List<CurrencyForm> forms = new ArrayList<>();
+        final Trip trip = gate.knownTrip(tripId);
+        if (trip == null || !canViewExpenses(tripId)) {
+            return forms;
+        }
+        for (final CurrencyRate rate : reportOrDefault(trip, Cached.YES).getCurrencies()) {
+            forms.add(currencyForm(rate));
+        }
+        return forms;
+    }
+
+    /** The expense dialog's Currency menu: USD, the report's currencies, then "Add a currency...". */
+    public List<Choice> currencyChoices(final String tripId) {
+        final List<Choice> choices = new ArrayList<>();
+        choices.add(choice(ExpenseLine.USD, "USD"));
+        final Trip trip = gate.knownTrip(tripId);
+        if (trip != null && canViewExpenses(tripId)) {
+            for (final CurrencyRate rate : reportOrDefault(trip, Cached.YES).getCurrencies()) {
+                choices.add(choice(rate.getCode(), rate.getCode()));
+            }
+        }
+        choices.add(choice(ExpenseViews.NEW_CURRENCY, "Add a currency..."));
+        return choices;
+    }
+
+    /**
+     * The expense dialog's Budget line menu: every line of the trip's budget, shared then per person then
+     * lodging, labelled with what it plans for the whole trip ("Shared: Guide ($1,440.00)").
+     */
+    public List<Choice> budgetChoices(final String tripId) {
+        final List<Choice> choices = new ArrayList<>();
+        final TripBudget budget = canViewExpenses(tripId) ? budgetOf(tripId) : null;
+        if (budget == null) {
+            return choices;
+        }
+        for (final BudgetLine line : budget.getLines()) {
+            choices.add(choice(line.getId(), (line.isShared() ? SHARED : PER_PERSON) + ": " + line.getName()
+                    + " (" + money(ExpenseMath.budgeted(budget, line)) + ")"));
+        }
+        final Map<String, ReservationOffer> offers = BudgetCommands.offersById(tripId);
+        for (final BudgetLodgingLine line : budget.getLodging()) {
+            final ReservationOffer offer = offers.get(line.getOfferId());
+            choices.add(choice(line.getId(), LODGING + ": " + BudgetCommands.lodgingLabel(line, offer) + " ("
+                    + money(ExpenseMath.budgeted(line, offer)) + ")"));
+        }
+        return choices;
+    }
+
+    /** The Category menu: every category, in menu order, value = the enum name. */
+    public List<Choice> categories() {
+        final List<Choice> choices = new ArrayList<>();
+        for (final ExpenseCategory category : ExpenseCategory.values()) {
+            choices.add(choice(category.name(), category.getLabel()));
+        }
+        return choices;
+    }
+
+    /** The budget line just chosen in the dialog sets the category to match it (still editable after). */
+    public void pickBudgetLine(final String tripId, final ExpenseForm form) {
+        final ExpenseCategory category = (form == null) ? null : categoryOf(budgetOf(tripId), form.getBudgetLineId());
+        if (category != null) {
+            form.setCategory(category.name());
+        }
+    }
+
+    /** The category a budget line implies: its own (same name), Lodging, or Other for a per-person line. */
+    static ExpenseCategory categoryOf(final TripBudget budget, final String budgetLineId) {
+        if (budget == null || budgetLineId == null) {
+            return null;
+        }
+        final BudgetLine line = budget.line(budgetLineId);
+        if (line != null) {
+            return line.isShared() ? ExpenseCategory.ofBudget(line.getCategory()) : ExpenseCategory.GENERAL;
+        }
+        return (budget.lodgingLine(budgetLineId) == null) ? null : ExpenseCategory.LODGING;
+    }
+
+    /** The Reports dashboard card's number: what has been spent, or "No expenses yet". */
+    public String expenseHeadline(final String tripId) {
+        if (!canViewExpenses(tripId)) {
+            return "";
+        }
+        final TripExpenseReport report = DAO.getInstance().getTripExpenseReport(tripId, Cached.YES).orElse(null);
+        if (report == null || report.getLines().isEmpty()) {
+            return NO_EXPENSES;
+        }
+        return money(ExpenseMath.total(report)) + " spent";
+    }
+
+    // ================================================================== writes
+
+    /** Saves the report's own fields; refusals land on {@code form.problem} and growl. */
+    public boolean saveHeader(final String tripId, final HeaderForm form) {
+        final Consumer<String> refusal = (form == null) ? PageFeedback::refuse : headerRefusal(form);
+        final Trip trip = gate.editableTrip(tripId, form, refusal, NOT_ALLOWED);
+        if (trip == null) {
+            return false;
+        }
+        final String problem = headerProblem(form);
+        if (problem != null) {
+            return refused(refusal, problem);
+        }
+        final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
+        report.setSubmittedBy(trimToNull(form.getSubmittedBy()));
+        report.setCashAdvanceCents(cents(form.getCashAdvance()));
+        report.setCashAdvanceDetails(trimToNull(form.getCashAdvanceDetails()));
+        report.setPaymentInstructions(trimToNull(form.getPaymentInstructions()));
+        report.setPaidOn(form.getPaidOn());
+        report.setPaidHow(trimToNull(form.getPaidHow()));
+        if (!persist(trip, report, refusal, "saved the details", "Expense report saved.")) {
+            return false;
+        }
+        form.setProblem(null);
+        return true;
+    }
+
+    private static Consumer<String> headerRefusal(final HeaderForm form) {
+        return message -> refuseInto(form, message);
+    }
+
+    /** The header has no dialog of its own: a refusal both growls and stays on the form for the REST answer. */
+    private static void refuseInto(final HeaderForm form, final String message) {
+        form.setProblem(message);
+        refuse(message);
+    }
+
+    private static String headerProblem(final HeaderForm form) {
+        final String advance = dollarsProblem("The cash advance", form.getCashAdvance());
+        if (advance != null) {
+            return advance;
+        }
+        final String name = tooLong("The name", form.getSubmittedBy(), MAX_NAME);
+        if (name != null) {
+            return name;
+        }
+        final String details = tooLong("How the cash was advanced", form.getCashAdvanceDetails(), MAX_TEXT);
+        if (details != null) {
+            return details;
+        }
+        final String instructions = tooLong("The payment instructions", form.getPaymentInstructions(), MAX_TEXT);
+        return (instructions != null) ? instructions : tooLong("How it was paid", form.getPaidHow(), MAX_NOTE);
+    }
+
+    /** Stamps the report submitted, by the caller, now; refusals growl. Submitting again re-stamps it. */
+    public boolean submit(final String tripId) {
+        final Trip trip = gate.editableTrip(tripId, tripId, PageFeedback::refuse, NOT_ALLOWED);
+        if (trip == null) {
+            return false;
+        }
+        final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
+        if (report.getLines().isEmpty()) {
+            return refuse("Add at least one expense before submitting.");
+        }
+        if (report.getSubmittedBy() == null) {
+            report.setSubmittedBy(callerName());
+        }
+        report.setSubmittedById(caller().personId());
+        report.setSubmittedOn(LocalDateTime.now());
+        return persist(trip, report, PageFeedback::refuse, "submitted", "Expense report submitted.");
+    }
+
+    /** Takes the submit stamp back off (the report is a draft again, unless it has been paid); refusals growl. */
+    public boolean unsubmit(final String tripId) {
+        final Trip trip = gate.editableTrip(tripId, tripId, PageFeedback::refuse, NOT_ALLOWED);
+        if (trip == null) {
+            return false;
+        }
+        final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
+        if (report.getSubmittedOn() == null) {
+            return true;
+        }
+        report.setSubmittedOn(null);
+        report.setSubmittedById(null);
+        return persist(trip, report, PageFeedback::refuse, "withdrew the submission", "Submission withdrawn.");
+    }
+
+    /** Adds a currency or edits a rate; refusals land on {@code form.problem}. */
+    public boolean saveCurrency(final String tripId, final CurrencyForm form) {
+        final Consumer<String> refusal = (form == null) ? PageFeedback::refuse : form::setProblem;
+        final Trip trip = gate.editableTrip(tripId, form, refusal, NOT_ALLOWED);
+        if (trip == null) {
+            return false;
+        }
+        final String code = CurrencyRate.normalizeCode(form.getCode());
+        final String problem = currencyProblem(code, form.getRate(), form.getNote());
+        if (problem != null) {
+            return refused(refusal, problem);
+        }
+        final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
+        final CurrencyRate existing = report.currency(code);
+        if (form.isExisting() && existing == null) {
+            return refused(refusal, "This currency is no longer on the report: reload the page.");
+        }
+        if (!form.isExisting() && existing != null) {
+            return refused(refusal, code + " is already on the report: edit its rate instead.");
+        }
+        if (existing == null && report.getCurrencies().size() >= MAX_CURRENCIES) {
+            return refused(refusal, "A report holds at most " + MAX_CURRENCIES + " currencies.");
+        }
+        final CurrencyRate rate = CurrencyRate.builder().code(code).perUsdMicros(micros(form.getRate()))
+                .note(form.getNote()).build();
+        if (existing == null) {
+            report.getCurrencies().add(rate);
+        } else {
+            report.getCurrencies().set(report.getCurrencies().indexOf(existing), rate);
+        }
+        if (!persist(trip, report, refusal, ((existing == null) ? "added " : "set the rate of ") + code + " at "
+                + ExpenseMath.rate(rate.getPerUsdMicros()).toPlainString(), "Currency saved.")) {
+            return false;
+        }
+        form.setCode(code);
+        form.setExisting(true);
+        form.setProblem(null);
+        return true;
+    }
+
+    /** Why a currency cannot be saved, or null. */
+    private static String currencyProblem(final String code, final Double rate, final String note) {
+        if (code == null) {
+            return "A currency code is three letters, like EUR.";
+        }
+        if (ExpenseLine.USD.equals(code)) {
+            return "Dollars need no rate.";
+        }
+        final long micros = micros(rate);
+        if (rate == null || rate.isNaN() || rate.isInfinite() || micros <= 0L || micros > MAX_RATE_MICROS) {
+            return "Enter the rate: how many " + code + " one US dollar buys (more than 0).";
+        }
+        return tooLong("A note", note, MAX_NOTE);
+    }
+
+    /** A typed rate in millionths, HALF_UP; 0 for null or not a number. */
+    static long micros(final Double rate) {
+        if (rate == null || rate.isNaN() || rate.isInfinite()) {
+            return 0L;
+        }
+        return ExpenseMath.micros(BigDecimal.valueOf(rate));
+    }
+
+    /** Removes a currency no expense uses; refusals growl. Removing one that is already gone succeeds quietly. */
+    public boolean deleteCurrency(final String tripId, final String code) {
+        final Trip trip = gate.editableTrip(tripId, code, PageFeedback::refuse, NOT_ALLOWED);
+        if (trip == null) {
+            return false;
+        }
+        final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
+        final CurrencyRate rate = report.currency(code);
+        if (rate == null) {
+            return true;
+        }
+        final int using = report.linesUsing(code).size();
+        if (using > 0) {
+            return refuse(using + ((using == 1) ? " expense is" : " expenses are") + " in " + code
+                    + ": change or delete " + ((using == 1) ? "it" : "them") + " first.");
+        }
+        report.getCurrencies().remove(rate);
+        return persist(trip, report, PageFeedback::refuse, "removed " + code, "Currency removed.");
+    }
+
+    /**
+     * Creates or edits an expense; refusals land on {@code form.problem}, a new line's id on {@code form.id}.
+     * Choosing "Add a currency..." in the form adds that currency in the same put. A blank category takes the
+     * matched budget line's (else Other).
+     */
+    public boolean saveLine(final String tripId, final ExpenseForm form) {
+        final Consumer<String> refusal = (form == null) ? PageFeedback::refuse : form::setProblem;
+        final Trip trip = gate.editableTrip(tripId, form, refusal, NOT_ALLOWED);
+        if (trip == null) {
+            return false;
+        }
+        final String problem = lineProblem(form);
+        if (problem != null) {
+            return refused(refusal, problem);
+        }
+        final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
+        final String currency = currencyFor(report, form, refusal);
+        if (currency == null) {
+            return false;
+        }
+        final TripBudget budget = budgetOf(tripId);
+        final String budgetLineId = trimToNull(form.getBudgetLineId());
+        final ExpenseCategory matched = categoryOf(budget, budgetLineId);
+        if (budgetLineId != null && matched == null) {
+            return refused(refusal, "That budget line no longer exists: choose another.");
+        }
+        final ExpenseCategory category = (trimToNull(form.getCategory()) == null)
+                ? ((matched == null) ? ExpenseCategory.GENERAL : matched)
+                : parse(ExpenseCategory.class, form.getCategory());
+        final boolean adding = form.getId() == null || form.getId().isBlank();
+        final ExpenseLine existing = adding ? null : report.line(form.getId());
+        if (!adding && existing == null) {
+            return refused(refusal, "This expense no longer exists: reload the page.");
+        }
+        if (adding && report.getLines().size() >= MAX_LINES) {
+            return refused(refusal, "A report holds at most " + MAX_LINES + " expenses.");
+        }
+        final ExpenseLine line = ExpenseLine.builder().id(adding ? null : existing.getId()).date(form.getDate())
+                .category(category).description(form.getDescription()).currency(currency)
+                .amountMinor(cents(form.getAmount())).budgetLineId(budgetLineId).note(form.getNote())
+                .receiptIds(adding ? null : existing.getReceiptIds()).build();
+        if (adding) {
+            report.getLines().add(line);
+        } else {
+            report.getLines().set(report.getLines().indexOf(existing), line);
+        }
+        if (!persist(trip, report, refusal, (adding ? "added" : "edited") + " expense '" + line.getDescription()
+                + "'", "Expense saved.")) {
+            return false;
+        }
+        form.setId(line.getId());
+        form.setCurrency(currency);
+        form.setCategory(category.name());
+        form.setNewCode(null);
+        form.setNewRate(null);
+        form.setProblem(null);
+        return true;
+    }
+
+    private static String lineProblem(final ExpenseForm form) {
+        if (trimToNull(form.getCategory()) != null && parse(ExpenseCategory.class, form.getCategory()) == null) {
+            return "Choose a category.";
+        }
+        if (trimToNull(form.getDescription()) == null) {
+            return "An expense needs a description.";
+        }
+        final String description = tooLong("A description", form.getDescription(), MAX_DESCRIPTION);
+        if (description != null) {
+            return description;
+        }
+        final Double amount = form.getAmount();
+        if (amount == null || amount.isNaN() || amount.isInfinite() || amount < 0
+                || cents(amount) > MAX_AMOUNT_MINOR) {
+            return "Enter the amount, in the currency it was paid in.";
+        }
+        return tooLong("A note", form.getNote(), MAX_NOTE);
+    }
+
+    /**
+     * The line's currency code: USD, one the report has, or (for "Add a currency...") a new one added to
+     * {@code report} here so it saves with the line. Null after refusing.
+     */
+    private static String currencyFor(final TripExpenseReport report, final ExpenseForm form,
+            final Consumer<String> refusal) {
+        if (!form.isAddingCurrency()) {
+            final String code = CurrencyRate.normalizeCode(form.getCurrency());
+            if (code == null || (!ExpenseLine.USD.equals(code) && report.currency(code) == null)) {
+                refusal.accept("Choose a currency the report has, or add one.");
+                return null;
+            }
+            return code;
+        }
+        final String code = CurrencyRate.normalizeCode(form.getNewCode());
+        if (code != null && (ExpenseLine.USD.equals(code) || report.currency(code) != null)) {
+            return code;
+        }
+        final String problem = currencyProblem(code, form.getNewRate(), null);
+        if (problem != null) {
+            refusal.accept(problem);
+            return null;
+        }
+        if (report.getCurrencies().size() >= MAX_CURRENCIES) {
+            refusal.accept("A report holds at most " + MAX_CURRENCIES + " currencies.");
+            return null;
+        }
+        report.getCurrencies().add(CurrencyRate.builder().code(code).perUsdMicros(micros(form.getNewRate())).build());
+        return code;
+    }
+
+    /** Deletes an expense and its receipts; refusals growl. Deleting one that is already gone succeeds quietly. */
+    public boolean deleteLine(final String tripId, final String lineId) {
+        final Trip trip = gate.editableTrip(tripId, lineId, PageFeedback::refuse, NOT_ALLOWED);
+        if (trip == null) {
+            return false;
+        }
+        final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
+        final ExpenseLine line = report.line(lineId);
+        if (line == null) {
+            return true;
+        }
+        report.getLines().remove(line);
+        if (!persist(trip, report, PageFeedback::refuse, "deleted expense '" + line.getDescription() + "'",
+                "Expense deleted.")) {
+            return false;
+        }
+        // After the put: a refused save must leave the files its line still points at.
+        receiptSource.get().purge(line.getReceiptIds());
+        return true;
+    }
+
+    /** Moves an expense one place up ({@code dir < 0}) or down. */
+    public boolean moveLine(final String tripId, final String lineId, final int dir) {
+        final Trip trip = gate.editableTrip(tripId, lineId, PageFeedback::refuse, NOT_ALLOWED);
+        if (trip == null) {
+            return false;
+        }
+        final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
+        final ExpenseLine line = report.line(lineId);
+        if (line == null) {
+            return refuse("This expense no longer exists: reload the page.");
+        }
+        final List<ExpenseLine> lines = report.getLines();
+        final int from = lines.indexOf(line);
+        final int to = from + ((dir < 0) ? -1 : 1);
+        if (to < 0 || to >= lines.size()) {
+            return true;
+        }
+        Collections.swap(lines, from, to);
+        return persist(trip, report, PageFeedback::refuse, "moved expense '" + line.getDescription() + "'", null);
+    }
+
+    /**
+     * Links a stored receipt to a line, or to the report when {@code lineId} is blank, with the report's own
+     * versioned put. Called by {@link ExpenseReceipts} after it stored the file, which rolls the file back when
+     * this refuses.
+     */
+    boolean attachReceipt(final String tripId, final String lineId, final String mediaId,
+            final Consumer<String> refusal) {
+        final Trip trip = gate.editableTrip(tripId, mediaId, refusal, NOT_ALLOWED);
+        if (trip == null) {
+            return false;
+        }
+        final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
+        final List<String> ids;
+        if (lineId == null || lineId.isBlank()) {
+            ids = report.getReceiptIds();
+            if (ids.size() >= MAX_REPORT_RECEIPTS) {
+                return refused(refusal, "A report holds at most " + MAX_REPORT_RECEIPTS + " report-level receipts.");
+            }
+        } else {
+            final ExpenseLine line = report.line(lineId);
+            if (line == null) {
+                return refused(refusal, "This expense no longer exists: reload the page.");
+            }
+            ids = line.getReceiptIds();
+            if (ids.size() >= MAX_RECEIPTS_PER_LINE) {
+                return refused(refusal, "An expense holds at most " + MAX_RECEIPTS_PER_LINE + " receipts.");
+            }
+        }
+        ids.add(mediaId);
+        return persist(trip, report, refusal, "attached a receipt", null);
+    }
+
+    /** Unlinks a receipt from wherever the report holds it; false (after refusing) when it holds it nowhere. */
+    boolean detachReceipt(final String tripId, final String mediaId, final Consumer<String> refusal) {
+        final Trip trip = gate.editableTrip(tripId, mediaId, refusal, NOT_ALLOWED);
+        if (trip == null) {
+            return false;
+        }
+        final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
+        if (!report.getReceiptIds().remove(mediaId)) {
+            final ExpenseLine line = report.lineWithReceipt(mediaId);
+            if (line == null) {
+                return refused(refusal, "That receipt is not on this report.");
+            }
+            line.getReceiptIds().remove(mediaId);
+        }
+        return persist(trip, report, refusal, "removed a receipt", null);
+    }
+
+    // ================================================================== write plumbing
+
+    /** Stamps a new report, saves it with one versioned put, audits, and growls {@code done} when non-null. */
+    private boolean persist(final Trip trip, final TripExpenseReport report, final Consumer<String> refusal,
+            final String what, final String done) {
+        if (report.getVersion() == 0L) {
+            report.setTripId(trip.getId());
+            report.setOrgId(trip.getOrgId());
+            report.setCreatedBy(caller().personId());
+            report.setCreated(LocalDateTime.now());
+        }
+        try {
+            if (!DAO.getInstance().saveTripExpenseReport(report)) {
+                return refused(refusal, "The expense report could not be saved.");
+            }
+        } catch (final ConditionalCheckFailedException ex) {
+            return refused(refusal, "Saved by someone else: reload the page and try again.");
+        } catch (final IllegalArgumentException ex) {
+            return refused(refusal, "The expense report is too large to save: shorten some notes.");
+        } catch (final IOException ex) {
+            log.error("Unable to save the expense report of trip {}", trip.getId(), ex);
+            return refused(refusal, "The expense report was not saved: the error has been logged. Try again.");
+        }
+        auditSource.get().expenseReport(trip.getId(), trip.getOrgId(),
+                "Expense report of '" + trip.getTitle() + "': " + what, caller().auditActor());
+        if (done != null) {
+            info(done);
+        }
+        return true;
+    }
+
+    // ================================================================== names and text
+
+    /** The caller's name as a report would print it ("Ken Paulsen"); null when nobody is signed in. */
+    private String callerName() {
+        final Person.Id id = caller().personId();
+        if (id == null) {
+            return null;
+        }
+        final Person person = DAO.getInstance().getPerson(id, Cached.YES).orElse(null);
+        if (person == null) {
+            return null;
+        }
+        return trimToNull((nameOr(person.getPreferredName(), "") + " " + nameOr(person.getLast(), "")).trim());
+    }
+
+    private static String orgName(final Trip trip) {
+        final Organization org = trip.getOrganization();
+        return (org == null) ? null : org.getName();
+    }
+
+    /** "Sep 20, 2026 to Oct 5, 2026"; just the start when there is no end; null with no dates. */
+    static String tripDates(final Trip trip) {
+        final LocalDateTime start = trip.getStartDate();
+        final LocalDateTime end = trip.getEndDate();
+        if (start == null) {
+            return null;
+        }
+        return (end == null) ? DAY.format(start) : DAY.format(start) + " to " + DAY.format(end);
+    }
+
+    /** "23.00 EUR": hundredths of a foreign currency with its code. */
+    static String foreign(final long amountMinor, final String code) {
+        return String.format(Locale.US, "%,.2f %s",
+                BigDecimal.valueOf(amountMinor).movePointLeft(2).setScale(2, RoundingMode.UNNECESSARY), code);
+    }
+
+    /** "1.2 MB", "340 KB". */
+    static String size(final long bytes) {
+        if (bytes >= 1_000_000L) {
+            return BigDecimal.valueOf(bytes).movePointLeft(6).setScale(1, RoundingMode.HALF_UP).toPlainString()
+                    + " MB";
+        }
+        return Math.max(1L, (bytes + 500L) / 1_000L) + " KB";
+    }
+
+    private static String nameOr(final String text, final String fallback) {
+        return (text == null || text.isBlank()) ? fallback : text;
+    }
+
+    private static String trimToNull(final String text) {
+        if (text == null) {
+            return null;
+        }
+        final String trimmed = text.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static Choice choice(final String id, final String label) {
+        final Choice choice = new Choice();
+        choice.setId(id);
+        choice.setLabel(label);
+        return choice;
+    }
+
+    Caller caller() {
+        return callerSource.get();
+    }
+}

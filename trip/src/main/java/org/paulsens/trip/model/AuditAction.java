@@ -77,6 +77,8 @@ public enum AuditAction {
     LODGING,
     /** A trip's planning budget: its inputs, a line or a lodging line was saved, moved or deleted. */
     BUDGET,
+    /** A trip's expense report: its details, a currency or an expense saved, moved or deleted, or a submit. */
+    EXPENSE_REPORT,
     /**
      * A deployment was started from the admin UI.
      *

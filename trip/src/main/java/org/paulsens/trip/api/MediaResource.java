@@ -14,6 +14,7 @@ import jakarta.ws.rs.core.Response;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.ChatPhotos;
+import org.paulsens.trip.action.ExpenseReceipts;
 import org.paulsens.trip.action.MediaCommands;
 import org.paulsens.trip.api.dto.MediaBasesDto;
 import org.paulsens.trip.api.dto.MediaItemDto;
@@ -112,7 +113,9 @@ public class MediaResource extends BaseResource {
         }
         final MediaCommands media = Beans.get(MediaCommands.class);
         final boolean admin = mediaAdminHere();
-        if (!admin && !mayBrowseSlot(slot)) {
+        // A receipt slot is no one's to browse here, admins included: receipts go out only through the
+        // expense report's own gated servlet. Same answer as an unknown slot.
+        if (ExpenseReceipts.isReceiptSlot(slot) || (!admin && !mayBrowseSlot(slot))) {
             // Same answer as an unknown slot: a slot name is guessable (tripChat-{tripId}), and "exists but
             // not yours" would confirm another tenant's trip.
             return error(404, ApiErrors.NOT_FOUND, "No such slot.");
@@ -176,7 +179,8 @@ public class MediaResource extends BaseResource {
         final MediaCommands media = Beans.get(MediaCommands.class);
         final MediaItem item = mediaAdminHere()
                 ? media.get(id) : media.getVisible(id);
-        if (item == null) {
+        // A receipt's DTO would carry its CDN URL: it reads as absent here (see inSlot).
+        if (item == null || ExpenseReceipts.isReceiptSlot(item.getSlot())) {
             return error(404, ApiErrors.NOT_FOUND, "No such media item.");
         }
         return ok(toDto(media, item));

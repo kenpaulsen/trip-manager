@@ -48,6 +48,9 @@ public final class CacheKeys {
     // Trip budgets are point entries: BUDGET_PREFIX + {tripId} (one row per trip, lines inline).
     public static final String BUDGET_PREFIX = FORMAT_VERSION + "budget:";
 
+    // Trip expense reports are point entries too: EXPENSE_PREFIX + {tripId} (one row per trip, lines inline).
+    public static final String EXPENSE_PREFIX = FORMAT_VERSION + "expense:";
+
     // Organizations: the whole (small) table in ONE hash, like config/media -- org lists render on ordinary
     // admin pages and pickers, so a read must be one HGETALL. Membership rows are a per-org partition hash
     // (append the orgId); the reverse edge is Person.orgIds, so there is no by-person partition.

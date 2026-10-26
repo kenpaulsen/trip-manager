@@ -223,6 +223,7 @@ public class MediaCommandsPresignTest {
         Assert.assertTrue(MediaCommands.isReservedKey("/profilePics/p1.jpg"));
         Assert.assertTrue(MediaCommands.isReservedKey("chat/trip-1/photo.jpg"));
         Assert.assertTrue(MediaCommands.isReservedKey("badgeImages/trip-1/1.jpg"));
+        Assert.assertTrue(MediaCommands.isReservedKey("receipts/trip-1/r.pdf"), "expense receipts");
         Assert.assertTrue(MediaCommands.isReservedKey("org/some-org/x.jpg"), "an org namespace, off its host");
         Assert.assertTrue(MediaCommands.isReservedKey(null));
         Assert.assertTrue(MediaCommands.isReservedKey("   "));

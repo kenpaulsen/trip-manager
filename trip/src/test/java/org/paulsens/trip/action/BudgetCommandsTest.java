@@ -805,10 +805,10 @@ public class BudgetCommandsTest {
 
     @Test
     public void staticHelpers() {
-        assertEquals(BudgetCommands.cents(null), 0L);
-        assertEquals(BudgetCommands.cents(1848.53), 1_848_53L);
-        assertEquals(BudgetCommands.cents(0.005), 1L, "HALF_UP to the cent");
-        assertEquals(BudgetCommands.money(-1_50), "-$1.50");
+        assertEquals(MoneyForms.cents(null), 0L);
+        assertEquals(MoneyForms.cents(1848.53), 1_848_53L);
+        assertEquals(MoneyForms.cents(0.005), 1L, "HALF_UP to the cent");
+        assertEquals(MoneyForms.money(-1_50), "-$1.50");
         final LineForm form = admin.newLineForm(" ", null);
         assertEquals(form.getKind(), "SHARED");
         assertEquals(form.getCategory(), "GENERAL");

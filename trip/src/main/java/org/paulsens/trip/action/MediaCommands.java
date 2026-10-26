@@ -98,8 +98,11 @@ public class MediaCommands {
      */
     public List<MediaItem> getAll() {
         try {
+            // Expense receipts are financial documents served only through their own gated servlet: no
+            // library, picker or listing ever shows one.
             return DAO.getInstance().getAllMedia(Cached.NO).stream()
                     .filter(MediaCommands::discoverable)
+                    .filter(item -> !ExpenseReceipts.isReceiptSlot(item.getSlot()))
                     .sorted(Comparator.comparing(MediaItem::getUploaded,
                             Comparator.nullsLast(Comparator.reverseOrder())))
                     .toList();
@@ -183,7 +186,8 @@ public class MediaCommands {
      * whoever owns the rows. Ownership is the ITEM's, never the request's host.
      */
     boolean mayManage(final MediaItem item) {
-        if (item == null || !writableHere(item)) {
+        // A receipt is managed only through its expense report (ExpenseReceipts), never as library media.
+        if (item == null || ExpenseReceipts.isReceiptSlot(item.getSlot()) || !writableHere(item)) {
             return false;
         }
         final Caller caller = callerSource.get();
@@ -728,6 +732,7 @@ public class MediaCommands {
                 || cleanKey.startsWith(ProfilePhotos.PREFIX)
                 || cleanKey.startsWith(ChatPhotos.KEY_PREFIX)
                 || cleanKey.startsWith(BadgePhotoCommands.PREFIX)
+                || cleanKey.startsWith(ExpenseReceipts.KEY_PREFIX)
                 || isForeignOrgKey(cleanKey);
     }
 

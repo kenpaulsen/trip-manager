@@ -136,6 +136,16 @@ public class ModelSerializationTest {
         }
     }
 
+    /** The expense report page parks its dialog FORMS in viewScope the same way. */
+    @Test
+    public void expenseViewTypesAreSerializable() throws Exception {
+        for (final Class<?> view : org.paulsens.trip.action.ExpenseViews.class.getDeclaredClasses()) {
+            Assert.assertTrue(Serializable.class.isAssignableFrom(view),
+                    view.getName() + " is an expense report page view type, so it must be Serializable");
+            roundTrip(view.getDeclaredConstructor().newInstance());
+        }
+    }
+
     @Test
     public void modelSweepDiscoversChatSubPackage() throws Exception {
         // Guard against silent escape: a non-recursive dir.listFiles would drop model.chat entirely.

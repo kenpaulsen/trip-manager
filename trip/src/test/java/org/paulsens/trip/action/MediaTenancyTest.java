@@ -267,6 +267,14 @@ public class MediaTenancyTest {
         Assert.assertTrue(MediaCommands.writableHere(chat));
         Assert.assertTrue(media.mayManage(chat));
         Assert.assertTrue(onSite(ACME_SITE, () -> media.mayManage(chat)));
+
+        // An expense receipt is no one's to manage as media, and no listing shows it.
+        final MediaItem receipt = new MediaItem("receipt-x", "receipts/t/r.pdf", "r", null, "application/pdf", 1L,
+                "receipts-t", 0, LocalDateTime.now(), "x", null, Boolean.TRUE, null);
+        Assert.assertTrue(DAO.getInstance().saveMedia(receipt));
+        Assert.assertFalse(media.mayManage(receipt));
+        Assert.assertTrue(media.getAll().stream().noneMatch(item -> "receipt-x".equals(item.getId())));
+        Assert.assertTrue(DAO.getInstance().deleteMedia("receipt-x"));
     }
 
     @Test

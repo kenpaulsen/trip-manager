@@ -225,6 +225,19 @@ public class MediaResourceTest extends ResourceTestSupport {
         assertOk(listed);
     }
 
+    /** Expense receipts are served only by their own gated servlet: absent here even to a media admin. */
+    @Test
+    public void receiptsAreAbsentEvenToAnAdmin() {
+        signedInAsSiteAdmin(ADMIN);
+        final MediaResource adminResource = resource(new MediaResource());
+        assertError(adminResource.inSlot("receipts-trip-1"), 404, ApiErrors.NOT_FOUND);
+        final MediaItem receipt = new MediaItem("r1", "receipts/trip-1/r.pdf", "r", null, "application/pdf", 9L,
+                "receipts-trip-1", 0, LocalDateTime.of(2026, 8, 1, 12, 0), "who@example.com", null, true);
+        Mockito.when(media.get("r1")).thenReturn(receipt);
+        assertError(adminResource.get("r1"), 404, ApiErrors.NOT_FOUND);
+        Mockito.verify(media, Mockito.never()).getInSlot(ArgumentMatchers.anyString());
+    }
+
     /** Hidden reads as absent for a non-admin: 404, not a redacted body. */
     @Test
     public void gettingOneItemRedactsByPrivilege() {
@@ -291,7 +304,8 @@ public class MediaResourceTest extends ResourceTestSupport {
     public void keysInAnotherFeaturesNamespaceAreRefused() {
         signedInAsSiteAdmin(ADMIN);
 
-        for (final String reserved : List.of("profilePics/p1/1-1.jpg", "chat/trip-1/photo.jpg")) {
+        for (final String reserved : List.of("profilePics/p1/1-1.jpg", "chat/trip-1/photo.jpg",
+                "receipts/trip-1/r.pdf")) {
             assertError(resource.uploadUrl(CSRF_OK,
                     new MediaResource.UploadUrlRequest(reserved, "image/jpeg", 1L)),
                     422, ApiErrors.VALIDATION_FAILED);

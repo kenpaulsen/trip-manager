@@ -44,11 +44,16 @@ import org.paulsens.trip.pay.BudgetMath;
 import org.paulsens.trip.pay.BudgetMath.LodgingFigures;
 import org.paulsens.trip.pay.BudgetMath.OtherItem;
 import org.paulsens.trip.pay.BudgetMath.PayeeTotal;
-import org.paulsens.trip.pay.CostExtras;
 import org.paulsens.trip.pay.LodgingPricing;
-import org.paulsens.trip.pay.MoneyMath;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
+import static org.paulsens.trip.action.MoneyForms.cents;
+import static org.paulsens.trip.action.MoneyForms.dollars;
+import static org.paulsens.trip.action.MoneyForms.dollarsProblem;
+import static org.paulsens.trip.action.MoneyForms.money;
+import static org.paulsens.trip.action.MoneyForms.parse;
+import static org.paulsens.trip.action.MoneyForms.refused;
+import static org.paulsens.trip.action.MoneyForms.tooLong;
 import static org.paulsens.trip.action.PageFeedback.info;
 import static org.paulsens.trip.action.PageFeedback.refuse;
 
@@ -70,7 +75,6 @@ public class BudgetCommands {
     static final int MAX_LODGING_LINES = 50;
     static final int MAX_PEOPLE = 10_000;
     static final int MAX_NIGHTS = 365;
-    static final long MAX_CENTS = 10_000_000_00L;
     static final int MAX_NAME = 120;
     static final int MAX_NOTE = 500;
     static final int MAX_PAYEE = 80;
@@ -81,6 +85,7 @@ public class BudgetCommands {
     private final Supplier<Caller> callerSource;
     private final Supplier<TripCommands> tripSource;
     private final Supplier<AuditCommands> auditSource;
+    private final TripFinanceGate gate;
 
     public BudgetCommands() {
         this(Caller::current);
@@ -96,39 +101,23 @@ public class BudgetCommands {
         this.callerSource = callerSource;
         this.tripSource = tripSource;
         this.auditSource = auditSource;
+        this.gate = new TripFinanceGate(callerSource, tripSource);
     }
 
     // ================================================================== gates
 
-    /** May edit the budget: site admin, the trip's managers or its finance admins. */
+    /** May edit the budget: site admin, the trip's managers or its finance admins ({@link TripFinanceGate}). */
     public boolean canEditBudget(final String tripId) {
-        if (!signedInOnKnownTrip(tripId)) {
-            return false;
-        }
-        final Caller caller = caller();
-        return caller.has(PrivilegeCommands.TRIP_MGR, tripId) || caller.has(PrivilegeCommands.TRIP_FIN_ADMIN, tripId);
+        return gate.canEdit(tripId);
     }
 
     /** May read the budget: an editor, the trip's finance viewers, or a global finance viewer. */
     public boolean canViewBudget(final String tripId) {
-        if (canEditBudget(tripId)) {
-            return true;
-        }
-        if (!signedInOnKnownTrip(tripId)) {
-            return false;
-        }
-        final Caller caller = caller();
-        return caller.has(PrivilegeCommands.TRIP_FIN_VIEW, tripId) || caller.has(PrivilegeCommands.VIEW_FINANCES);
+        return gate.canView(tripId);
     }
 
-    private boolean signedInOnKnownTrip(final String tripId) {
-        return tripId != null && !tripId.isBlank() && caller().isAuthenticated() && knownTrip(tripId) != null;
-    }
-
-    /** The trip, or null for an unknown one ({@code getTrip} answers a miss with a blank trip and a fresh id). */
     private Trip knownTrip(final String tripId) {
-        final Trip trip = tripSource.get().getTrip(tripId);
-        return (trip == null || !tripId.equals(trip.getId())) ? null : trip;
+        return gate.knownTrip(tripId);
     }
 
     // ================================================================== reads
@@ -324,7 +313,7 @@ public class BudgetCommands {
     }
 
     /** What a lodging line is called in a list: the live option's name, else its captured label, flagged. */
-    private static String lodgingLabel(final BudgetLodgingLine line, final ReservationOffer offer) {
+    static String lodgingLabel(final BudgetLodgingLine line, final ReservationOffer offer) {
         return (offer == null) ? deletedLabel(line) : offerName(offer);
     }
 
@@ -957,20 +946,8 @@ public class BudgetCommands {
 
     /** The gate, the form, and the trip read for edit; null (after refusing) when any of them fails. */
     private Trip editableTrip(final String tripId, final Object form, final Consumer<String> refusal) {
-        if (!canEditBudget(tripId)) {
-            refuse("Not allowed: only the trip's managers and finance admins can edit its budget.");
-            return null;
-        }
-        if (form == null) {
-            refuse("Nothing to save.");
-            return null;
-        }
-        final Trip trip = tripSource.get().getTripForEdit(tripId);
-        if (trip == null || !tripId.equals(trip.getId())) {
-            refusal.accept("Unknown trip.");
-            return null;
-        }
-        return trip;
+        return gate.editableTrip(tripId, form, refusal,
+                "Not allowed: only the trip's managers and finance admins can edit its budget.");
     }
 
     /** Stamps a new budget, saves it with one versioned put, audits, and growls {@code done} when non-null. */
@@ -1004,46 +981,15 @@ public class BudgetCommands {
         return true;
     }
 
-    private static boolean refused(final Consumer<String> refusal, final String message) {
-        refusal.accept(message);
-        return false;
-    }
-
-    private static String dollarsProblem(final String what, final Double dollars) {
-        if (dollars == null) {
-            return null;
-        }
-        if (dollars.isNaN() || dollars.isInfinite() || dollars < 0 || cents(dollars) > MAX_CENTS) {
-            return what + " must be between $0 and " + MoneyMath.formatCents(MAX_CENTS) + ".";
-        }
-        return null;
-    }
-
     private static String textProblem(final String note, final String payee) {
-        if (note != null && note.trim().length() > MAX_NOTE) {
-            return "A note is at most " + MAX_NOTE + " characters.";
-        }
-        if (payee != null && payee.trim().length() > MAX_PAYEE) {
-            return "A payee is at most " + MAX_PAYEE + " characters.";
-        }
-        return null;
-    }
-
-    private static <E extends Enum<E>> E parse(final Class<E> type, final String name) {
-        if (name == null || name.isBlank()) {
-            return null;
-        }
-        try {
-            return Enum.valueOf(type, name.trim());
-        } catch (final IllegalArgumentException ex) {
-            return null;
-        }
+        final String tooLongNote = tooLong("A note", note, MAX_NOTE);
+        return (tooLongNote != null) ? tooLongNote : tooLong("A payee", payee, MAX_PAYEE);
     }
 
     // ================================================================== offers and names
 
     /** The trip's lodging options by id, enabled or not: a line keeps reading an option that stopped selling. */
-    private static Map<String, ReservationOffer> offersById(final String tripId) {
+    static Map<String, ReservationOffer> offersById(final String tripId) {
         final Map<String, ReservationOffer> byId = new LinkedHashMap<>();
         for (final ReservationOffer offer : DAO.getInstance().getReservationOffers(tripId, Cached.YES)) {
             byId.put(offer.getId().getValue(), offer);
@@ -1072,21 +1018,6 @@ public class BudgetCommands {
         }
         return DAO.getInstance().getRatePlan(offer.getAccommodationId().getValue(),
                 RatePlan.Id.from(offer.getRatePlanId()), Cached.YES).map(RatePlan::getName).orElse("(deleted plan)");
-    }
-
-    // ================================================================== money
-
-    static String money(final long cents) {
-        return CostExtras.formatSigned(cents);
-    }
-
-    static long cents(final Double dollars) {
-        return (dollars == null) ? 0L
-                : BigDecimal.valueOf(dollars).movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValue();
-    }
-
-    private static Double dollars(final long cents) {
-        return BigDecimal.valueOf(cents).movePointLeft(2).doubleValue();
     }
 
     Caller caller() {

@@ -248,6 +248,17 @@ public class AuditCommands {
         return msg;
     }
 
+    /** An expense report change: its details, a currency or an expense saved, moved or deleted, or a submit. */
+    public String expenseReport(final String tripId, final String orgId, final String msg, final AuditActor who) {
+        Audit.builder(AuditAction.EXPENSE_REPORT, AuditOutcome.SUCCESS)
+                .actor(who == null ? AuditActor.current() : who)
+                .target(AuditEventBuilder.TARGET_TRIP, tripId)
+                .org(orgId)
+                .message(msg)
+                .log();
+        return msg;
+    }
+
     /** A registration was cancelled. */
     public String registrationRemoved(final Person target, final Trip trip) {
         return registrationRemoved(target, trip, AuditActor.current());

@@ -24,6 +24,7 @@ public class TripApiApplication extends Application {
                 AuthResource.class,
                 BlocksResource.class,
                 BudgetResource.class,
+                ExpenseReportResource.class,
                 CacheResource.class,
                 PasskeyResource.class,
                 ChatAdminResource.class,

@@ -57,6 +57,7 @@ import org.paulsens.trip.model.TodoItem;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripBudget;
+import org.paulsens.trip.model.TripExpenseReport;
 import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatDraft;
@@ -83,6 +84,7 @@ public final class DAO {
     private final PaymentProcessorDAO paymentProcessorDao;
     private final LodgingDAO lodgingDao;
     private final BudgetDAO budgetDao;
+    private final ExpenseReportDAO expenseDao;
     private final PaymentDAO paymentDao;
     private final TripEventDAO tripEventDao;
     private final TripDAO tripDao;
@@ -120,6 +122,7 @@ public final class DAO {
         this.paymentProcessorDao = new PaymentProcessorDAO(mapper, persistence, cacheClient);
         this.lodgingDao = new LodgingDAO(mapper, persistence, cacheClient);
         this.budgetDao = new BudgetDAO(mapper, persistence, cacheClient);
+        this.expenseDao = new ExpenseReportDAO(mapper, persistence, cacheClient);
         // No cacheClient: payment rows authorize captures and steer money; a stale read double-charges.
         this.paymentDao = new PaymentDAO(mapper, persistence);
         this.tripEventDao = new TripEventDAO(mapper, persistence, cacheClient);
@@ -406,6 +409,18 @@ public final class DAO {
     }
     public Boolean deleteTripBudget(final String tripId) {
         return budgetDao.deleteBudget(tripId);
+    }
+
+    // Trip expense reports (see ExpenseReportDAO): the budget's shape, one versioned row per trip, the same two
+    // exceptions.
+    public Boolean saveTripExpenseReport(final TripExpenseReport report) throws IOException {
+        return expenseDao.saveReport(report);
+    }
+    public Optional<TripExpenseReport> getTripExpenseReport(final String tripId, final Cached cached) {
+        return NearCacheContext.call(cached, () -> expenseDao.getReport(tripId));
+    }
+    public Boolean deleteTripExpenseReport(final String tripId) {
+        return expenseDao.deleteReport(tripId);
     }
 
     // Payments (uncached state machine; see PaymentDAO). Transitions throw ConditionalCheckFailedException
@@ -904,7 +919,7 @@ public final class DAO {
      */
     public enum CacheScope {
         PERSON, FAMILY, TRIP, TRIP_EVENT, REG, TX, TODO, PDV, PRIV, CONFIG, MEDIA, TEMPLATE, CONTENT,
-        ORG, BINDING, LODGING, BUDGET, ALL
+        ORG, BINDING, LODGING, BUDGET, EXPENSE, ALL
     }
 
     /**
@@ -938,6 +953,7 @@ public final class DAO {
             case BINDING -> clearBindingScope();
             case LODGING -> clearLodgingScope();
             case BUDGET -> clearPrefix(CacheKeys.BUDGET_PREFIX);
+            case EXPENSE -> clearPrefix(CacheKeys.EXPENSE_PREFIX);
             case ALL -> clearPrefix(CacheKeys.FORMAT_VERSION);
         };
     }

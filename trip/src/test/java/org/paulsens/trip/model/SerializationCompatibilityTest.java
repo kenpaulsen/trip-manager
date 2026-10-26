@@ -23,6 +23,7 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 import org.paulsens.trip.action.BrandingPhotos;
 import org.paulsens.trip.action.BudgetViews;
+import org.paulsens.trip.action.ExpenseViews;
 import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.PaymentCommands;
 import org.paulsens.trip.action.PrivacyView;
@@ -153,6 +154,16 @@ public class SerializationCompatibilityTest {
             of(BudgetViews.LineForm.class, SerializationCompatibilityTest::lineForm, BudgetViews.LineForm::getName),
             of(BudgetViews.LodgingLineForm.class, SerializationCompatibilityTest::lodgingLineForm,
                     BudgetViews.LodgingLineForm::getOfferId),
+            of(TripExpenseReport.class, SerializationCompatibilityTest::expenseReport, TripExpenseReport::getTripId),
+            of(ExpenseLine.class, SerializationCompatibilityTest::expenseLine, ExpenseLine::getDescription),
+            of(CurrencyRate.class, () -> CurrencyRate.builder().code("EUR").perUsdMicros(830_000L).build(),
+                    CurrencyRate::getPerUsdMicros),
+            of(ExpenseViews.HeaderForm.class, SerializationCompatibilityTest::headerForm,
+                    ExpenseViews.HeaderForm::getSubmittedBy),
+            of(ExpenseViews.ExpenseForm.class, SerializationCompatibilityTest::expenseForm,
+                    ExpenseViews.ExpenseForm::getDescription),
+            of(ExpenseViews.CurrencyForm.class, SerializationCompatibilityTest::currencyForm,
+                    ExpenseViews.CurrencyForm::getCode),
             of(Payment.class, SerializationCompatibilityTest::payment, Payment::getOrderRef),
             of(Privilege.class, () -> new Privilege("peopleAdmin", "People admin", List.of(ADA)), Privilege::getId),
             of(TodoItem.class, SerializationCompatibilityTest::todoItem, TodoItem::getDataId),
@@ -312,6 +323,47 @@ public class SerializationCompatibilityTest {
         form.setPeople(46);
         form.setRooms(28);
         form.setNeedsRooms(true);
+        return form;
+    }
+
+    private static ExpenseLine expenseLine() {
+        return ExpenseLine.builder().id("expense-candles").date(AT.toLocalDate()).category(ExpenseCategory.SUPPLIES)
+                .description("Candles").currency("EUR").amountMinor(2_300L).budgetLineId("line-guide")
+                .note("for the consecration").receiptIds(List.of("receipt-1")).build();
+    }
+
+    private static TripExpenseReport expenseReport() {
+        return TripExpenseReport.builder().tripId("trip-rome").orgId("org-acme").submittedBy("Ada Lovelace")
+                .submittedById(ADA).submittedOn(AT).cashAdvanceCents(4_576_500L).cashAdvanceDetails("Check 1001")
+                .paymentInstructions("Zelle").paidOn(AT.toLocalDate()).paidHow("Check 2002")
+                .currencies(List.of(CurrencyRate.builder().code("EUR").perUsdMicros(830_000L).build()))
+                .lines(List.of(expenseLine())).receiptIds(List.of("receipt-0")).createdBy(ADA).created(AT)
+                .version(3L).build();
+    }
+
+    private static ExpenseViews.HeaderForm headerForm() {
+        final ExpenseViews.HeaderForm form = new ExpenseViews.HeaderForm();
+        form.setSubmittedBy("Ada Lovelace");
+        form.setCashAdvance(45_765.0);
+        form.setPaidOn(AT.toLocalDate());
+        return form;
+    }
+
+    private static ExpenseViews.ExpenseForm expenseForm() {
+        final ExpenseViews.ExpenseForm form = new ExpenseViews.ExpenseForm();
+        form.setId("expense-candles");
+        form.setDate(AT.toLocalDate());
+        form.setDescription("Candles");
+        form.setCurrency("EUR");
+        form.setAmount(23.0);
+        return form;
+    }
+
+    private static ExpenseViews.CurrencyForm currencyForm() {
+        final ExpenseViews.CurrencyForm form = new ExpenseViews.CurrencyForm();
+        form.setCode("EUR");
+        form.setRate(0.83);
+        form.setExisting(true);
         return form;
     }
 

@@ -138,7 +138,8 @@ option's default stay (else the trip dates).
 
 ## Privileges
 
-No new privilege. Edit (`BudgetCommands.canEditBudget`): site admin, `tripMgr@trip`, `tripFinAdmin@trip`.
+No new privilege. Both gates live in `action/TripFinanceGate`, shared with the expense report so the two pages
+can never disagree. Edit (`BudgetCommands.canEditBudget`): site admin, `tripMgr@trip`, `tripFinAdmin@trip`.
 View (`canViewBudget`): an editor, `tripFinView@trip`, or the global `viewFinances`
 (`PrivilegeCommands.VIEW_FINANCES`). Both answer false for an unknown trip or nobody signed in. The Reports
 tab and dashboard admit `tripMgr` and `tripFinAdmin` too, so a trip manager with no other role still reaches
@@ -204,4 +205,5 @@ row commands by identity, negative figures, the gate matrix), with the Budget ca
 
 ## Out of scope
 
-Actuals and an expense report, currencies other than USD, several budgets per trip, snapshotting prices.
+Currencies other than USD, several budgets per trip, snapshotting prices. Actuals are the trip's expense report
+([expense-report.md](expense-report.md)), which shows every budget line's spent and remaining amounts.

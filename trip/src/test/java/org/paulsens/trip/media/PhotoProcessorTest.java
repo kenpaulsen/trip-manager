@@ -244,6 +244,45 @@ public class PhotoProcessorTest {
         return img;
     }
 
+    @Test
+    public void processWithinCapsTheLongestSideKeepingTheAspect() throws IOException {
+        final ProcessedPhoto wide = processor.processWithin(PhotoFixtures.jpeg(3000, 2000), 1280);
+        final BufferedImage full = decode(wide.fullBytes());
+        assertEquals(full.getWidth(), 1280);
+        assertEquals(full.getHeight(), 853, "3000x2000 scaled by 1280/3000, never cropped");
+        assertEquals(wide.fullContentType(), "image/jpeg");
+        assertEquals(decode(wide.smallBytes()).getWidth(), PhotoProcessor.MAX_SMALL_WIDTH);
+
+        final BufferedImage tall = decode(processor.processWithin(PhotoFixtures.jpeg(1500, 2400), 1280).fullBytes());
+        assertEquals(tall.getWidth(), 800);
+        assertEquals(tall.getHeight(), 1280, "a portrait is capped on its height");
+    }
+
+    @Test
+    public void processWithinMeasuresTheOrientedImage() throws IOException {
+        // Stored 2000x1000 but EXIF says rotate 90: the picture is 1000x2000, and that is what gets capped.
+        final ProcessedPhoto rotated = processor.processWithin(PhotoFixtures.jpegWithOrientation(2000, 1000, 6), 1280);
+        final BufferedImage full = decode(rotated.fullBytes());
+        assertEquals(full.getWidth(), 640);
+        assertEquals(full.getHeight(), 1280);
+    }
+
+    @Test
+    public void processWithinKeepsPngAsPngAndSmallImagesAsUploaded() throws IOException {
+        final ProcessedPhoto png = processor.processWithin(PhotoFixtures.png(2560, 1000, true), 1280);
+        assertEquals(png.fullContentType(), "image/png");
+        final BufferedImage full = decode(png.fullBytes());
+        assertEquals(full.getWidth(), 1280);
+        assertEquals(full.getHeight(), 500);
+        assertTrue(full.getColorModel().hasAlpha(), "transparency survives");
+
+        final byte[] small = PhotoFixtures.jpeg(1280, 900);
+        assertSame(processor.processWithin(small, 1280).fullBytes(), small, "within the cap: stored as uploaded");
+        final ProcessedPhoto gif = processor.processWithin(PhotoFixtures.gif(2000, 400), 1280);
+        assertEquals(gif.fullContentType(), "image/png", "a GIF that must shrink is re-encoded as PNG");
+        assertEquals(decode(gif.fullBytes()).getWidth(), 1280);
+    }
+
     private BufferedImage decode(final byte[] bytes) throws IOException {
         return ImageIO.read(new ByteArrayInputStream(bytes));
     }

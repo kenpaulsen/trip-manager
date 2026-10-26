@@ -100,6 +100,13 @@ public class AuditCommandsTest {
     }
 
     @Test
+    public void expenseReportRecordsTheTripTargetAndReturnsTheMessage() {
+        final String out = captureStdout(() -> audit.expenseReport("trip-1", "org-1", "Expense report: submitted",
+                null));
+        Assert.assertTrue(out.contains("EXPENSE_REPORT") && out.contains("trip:trip-1"), out);
+    }
+
+    @Test
     public void everyMethodReturnsTheMessageItRecorded() {
         // Pages send this same text as a notification email, which is why they used to build it themselves.
         final Person target = person("Ann", null, "Jones", "ann@example.com");

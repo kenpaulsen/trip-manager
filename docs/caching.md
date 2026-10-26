@@ -38,7 +38,8 @@ which clears the scope's Valkey namespaces plus this JVM's heap, then broadcasts
 subscribed at startup by `web/CacheInvalidationListener`, declared in the live `web.xml` after
 `TripBootstrapListener`). Scopes are `DAO.CacheScope` names — scopes, not raw prefixes, so key-layout
 knowledge (person ⇒ `t1:person:` + `t1:email` + the search index) stays out of shell scripts. Trip budgets
-(`t1:budget:{tripId}`, one `PointCache` entry per trip, `docs/budget.md`) are the `BUDGET` scope.
+(`t1:budget:{tripId}`, one `PointCache` entry per trip, `docs/budget.md`) are the `BUDGET` scope, and trip
+expense reports (`t1:expense:{tripId}`, the same shape, `docs/expense-report.md`) the `EXPENSE` scope.
 
 **Tier 2 (backstop): soft-TTL revalidation.** Every cached value knows when it was loaded:
 `PointCache` stores an envelope `"<epochMillis>|<json>"`, `PartitionCache` an in-hash `__loaded_at__`
