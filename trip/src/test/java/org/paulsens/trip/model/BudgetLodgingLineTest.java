@@ -5,8 +5,10 @@ import org.paulsens.trip.dynamo.DAO;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
+import static org.testng.Assert.assertTrue;
 
 public class BudgetLodgingLineTest {
 
@@ -17,6 +19,8 @@ public class BudgetLodgingLineTest {
         assertNotNull(built.getId());
         plain.setId(built.getId());
         assertEquals(built, plain);
+        assertTrue(plain.isOnSite());
+        assertFalse(BudgetLodgingLine.builder().offSite(true).build().isOnSite());
     }
 
     @Test
@@ -37,7 +41,7 @@ public class BudgetLodgingLineTest {
     public void jsonRoundTrip() throws Exception {
         final ObjectMapper mapper = DAO.getInstance().getMapper();
         final BudgetLodgingLine line = BudgetLodgingLine.builder().id("x").offerId("o").label("L").nights(10)
-                .people(46).rooms(28).singles(10).payee("Huanita").note("note").build();
+                .people(46).rooms(28).singles(10).payee("Huanita").note("note").offSite(true).build();
         assertEquals(mapper.readValue(mapper.writeValueAsString(line), BudgetLodgingLine.class), line);
     }
 }

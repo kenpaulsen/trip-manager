@@ -80,7 +80,11 @@ public class BudgetResource extends BaseResource {
                 : error(400, ApiErrors.VALIDATION_FAILED, "The inputs were not saved.");
     }
 
-    /** Body: {@code {kind, category, name, amount, perNight, note, payee}}. Answers {@code {id}}. */
+    /**
+     * Body: {@code {kind, category, name, amount, perNight, note, payee, onSite, percent, percentOf}}; a line
+     * with {@code percentOf} takes {@code percent} (12.5 = 12.5%) of that line and ignores {@code amount}.
+     * {@code onSite} defaults to true. Answers {@code {id}}.
+     */
     @POST
     @Path("trips/{tripId}/lines")
     @Consumes({V1, MediaType.APPLICATION_JSON})
@@ -113,7 +117,7 @@ public class BudgetResource extends BaseResource {
                 : error(400, ApiErrors.VALIDATION_FAILED, "The line was not deleted.");
     }
 
-    /** Body: {@code {offerId, nights, people, rooms, singles, payee, note}}. Answers {@code {id}}. */
+    /** Body: {@code {offerId, nights, people, rooms, singles, payee, note, onSite}}. Answers {@code {id}}. */
     @POST
     @Path("trips/{tripId}/lodging")
     @Consumes({V1, MediaType.APPLICATION_JSON})
@@ -146,6 +150,25 @@ public class BudgetResource extends BaseResource {
                 : error(400, ApiErrors.VALIDATION_FAILED, "The lodging line was not deleted.");
     }
 
+    /**
+     * Fills this trip's EMPTY budget from another of the same organization's budgets. Body:
+     * {@code {fromTripId}}. Answers {@code {ok:true}}; 400 when the budget already has lines or the source is
+     * not one this trip may clone (another org's, unreadable, or without lines).
+     */
+    @POST
+    @Path("trips/{tripId}/clone")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response cloneFrom(@PathParam("tripId") final String tripId,
+            @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
+        final Response refused = refuseWrite(tripId, csrf);
+        if (refused != null) {
+            return refused;
+        }
+        return budget().cloneBudget(tripId, str(body, "fromTripId")) ? ok(Map.of("ok", true))
+                : error(400, ApiErrors.VALIDATION_FAILED, "The budget was not cloned.");
+    }
+
     // ------------------------------------------------------------------ plumbing
 
     private Response saveLine(final String tripId, final String lineId, final String csrf,
@@ -162,6 +185,10 @@ public class BudgetResource extends BaseResource {
         form.setPerNight(Boolean.TRUE.equals(body == null ? null : body.get("perNight")));
         form.setNote(str(body, "note"));
         form.setPayee(str(body, "payee"));
+        form.setOnSite(!Boolean.FALSE.equals(body == null ? null : body.get("onSite")));
+        form.setPercentOf(str(body, "percentOf"));
+        form.setPercentMode(form.getPercentOf() != null);
+        form.setPercent(dbl(body, "percent"));
         if (!budget.saveLine(tripId, form)) {
             return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(), "The line was not saved."));
         }
@@ -184,6 +211,7 @@ public class BudgetResource extends BaseResource {
         form.setSingles(intOf(body, "singles", 0));
         form.setPayee(str(body, "payee"));
         form.setNote(str(body, "note"));
+        form.setOnSite(!Boolean.FALSE.equals(body == null ? null : body.get("onSite")));
         if (!budget.saveLodgingLine(tripId, form)) {
             return error(400, ApiErrors.VALIDATION_FAILED,
                     problemOr(form.getProblem(), "The lodging line was not saved."));

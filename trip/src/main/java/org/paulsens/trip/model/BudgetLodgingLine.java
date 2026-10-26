@@ -1,6 +1,7 @@
 package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serial;
 import java.io.Serializable;
@@ -14,7 +15,8 @@ import lombok.Data;
  * live, so a rate change on the Lodging tab shows up in the budget at once. {@code label} (hotel and option
  * name, captured at save) is only what the page shows once the option has been deleted.
  *
- * <p>Counts never go negative, and {@code singles} never exceeds {@code people}.
+ * <p>Counts never go negative, and {@code singles} never exceeds {@code people}. {@code offSite} is stored
+ * inverted, as on {@link BudgetLine}, so a line that never mentions it is an on-site payment.
  */
 @Data
 public final class BudgetLodgingLine implements Serializable {
@@ -30,6 +32,8 @@ public final class BudgetLodgingLine implements Serializable {
     private int singles;
     private String payee;
     private String note;
+    /** True when the hotel is NOT paid on site: the line is listed under Other trip items, not the Payees. */
+    private boolean offSite;
 
     @Builder
     @JsonCreator
@@ -42,7 +46,8 @@ public final class BudgetLodgingLine implements Serializable {
             @JsonProperty("rooms") final int rooms,
             @JsonProperty("singles") final int singles,
             @JsonProperty("payee") final String payee,
-            @JsonProperty("note") final String note) {
+            @JsonProperty("note") final String note,
+            @JsonProperty("offSite") final boolean offSite) {
         this.id = (id == null || id.isBlank()) ? UUID.randomUUID().toString() : id;
         this.offerId = BudgetLine.trimToNull(offerId);
         this.label = BudgetLine.trimToNull(label);
@@ -52,9 +57,16 @@ public final class BudgetLodgingLine implements Serializable {
         this.singles = Math.min(Math.max(0, singles), this.people);
         this.payee = BudgetLine.trimToNull(payee);
         this.note = BudgetLine.trimToNull(note);
+        this.offSite = offSite;
     }
 
     public BudgetLodgingLine() {
-        this(null, null, null, 0, 0, 0, 0, null, null);
+        this(null, null, null, 0, 0, 0, 0, null, null, false);
+    }
+
+    /** Whether the hotel is paid on site (listed with the Payees); the inverse of the stored flag. */
+    @JsonIgnore
+    public boolean isOnSite() {
+        return !offSite;
     }
 }

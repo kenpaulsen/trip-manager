@@ -99,6 +99,28 @@ public final class TripBudget implements Serializable {
         return out;
     }
 
+    /** Every SHARED line, in the budget's order: the one Shared Expenses table. */
+    public List<BudgetLine> sharedLines() {
+        final List<BudgetLine> out = new ArrayList<>();
+        for (final BudgetLine line : lines) {
+            if (line.isShared()) {
+                out.add(line);
+            }
+        }
+        return out;
+    }
+
+    /** The lines that take a percentage of {@code lineId}: what a delete of that line would orphan. */
+    public List<BudgetLine> linesFollowing(final String lineId) {
+        final List<BudgetLine> out = new ArrayList<>();
+        for (final BudgetLine line : lines) {
+            if (lineId != null && lineId.equals(line.getPercentOf())) {
+                out.add(line);
+            }
+        }
+        return out;
+    }
+
     /** The INDIVIDUAL (per-person) lines, in the budget's order. */
     public List<BudgetLine> individualLines() {
         final List<BudgetLine> out = new ArrayList<>();

@@ -12,11 +12,13 @@ import org.paulsens.trip.model.RateSchedule;
 import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.TripBudget;
 import org.paulsens.trip.pay.BudgetMath.LodgingFigures;
+import org.paulsens.trip.pay.BudgetMath.OtherItem;
 import org.paulsens.trip.pay.BudgetMath.PayeeTotal;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
 /**
@@ -211,8 +213,11 @@ public class BudgetMathTest {
 
     @Test
     public void payeesGroupCaseInsensitivelyAndLodgingDefaultsToTheHotel() {
-        final TripBudget budget = sheet();
-        budget.getLines().add(shared(BudgetCategory.GENERAL, "More tips", 50_00, "  tips "));
+        final TripBudget budget = TripBudget.builder().people(46).tripNights(10).build();
+        budget.getLines().add(shared(BudgetCategory.GUIDE, "Guide", 1_440_00, "Guide"));
+        budget.getLines().add(shared(BudgetCategory.TIPS, "Tips", 700_00, "Tips"));
+        budget.getLines().add(shared(BudgetCategory.TIPS, "More tips", 50_00, "  tips "));
+        budget.getLines().add(shared(BudgetCategory.SUPPLIES, "Badges", 300_00, null));
         budget.getLines().add(BudgetLine.builder().kind(BudgetLineKind.INDIVIDUAL).name("Snacks").amountCents(1_00)
                 .perNight(true).payee("Market").build());
         budget.getLodging().add(oracleLine());
@@ -226,9 +231,96 @@ public class BudgetMathTest {
                 new PayeeTotal("Pansion Ivan", 1, 62_00L),
                 new PayeeTotal("Guide", 1, 1_440_00L),
                 new PayeeTotal("Tips", 2, 750_00L),
-                new PayeeTotal("Other", 1, 500_00L),
+                new PayeeTotal("[Badges]", 1, 300_00L),
                 new PayeeTotal("Market", 1, 460_00L)));
-        assertEquals(BudgetMath.grandTotal(payees), 17_224_00L);
+        assertEquals(BudgetMath.grandTotal(payees), 17_024_00L);
         assertEquals(BudgetMath.grandTotal(List.of()), 0L);
+        final List<PayeeTotal> unknownHotel = BudgetMath.payeeTotals(TripBudget.builder()
+                .lodging(List.of(BudgetLodgingLine.builder().label("Gone hotel").build())).build(),
+                line -> BudgetMath.lodging(line, null), line -> null);
+        assertEquals(unknownHotel.get(0).name(), "[Gone hotel]", "no payee and no hotel: the line's own name");
+        final List<PayeeTotal> unlabelled = BudgetMath.payeeTotals(TripBudget.builder()
+                .lines(List.of(BudgetLine.builder().build())).build(), line -> null, line -> null);
+        assertEquals(unlabelled.get(0).name(), "[unnamed]");
+    }
+
+    @Test
+    public void offSiteLinesLeaveThePayeesForTheOtherItems() {
+        final TripBudget budget = TripBudget.builder().people(10).tripNights(5).build();
+        budget.getLines().add(shared(BudgetCategory.TRANSPORTATION, "Flights", 9_000_00, "Airline"));
+        budget.getLines().get(0).setOffSite(true);
+        budget.getLines().add(shared(BudgetCategory.GUIDE, "Guide", 500_00, "Guide"));
+        budget.getLines().add(BudgetLine.builder().kind(BudgetLineKind.INDIVIDUAL).name("Insurance")
+                .amountCents(20_00).offSite(true).build());
+        final BudgetLodgingLine hotel = BudgetLodgingLine.builder().id("h").offerId("offer-1").nights(1).people(10)
+                .rooms(5).offSite(true).build();
+        budget.getLodging().add(hotel);
+        final List<PayeeTotal> payees = BudgetMath.payeeTotals(budget,
+                line -> BudgetMath.lodging(line, seededShape()), line -> "Pansion");
+        assertEquals(payees, List.of(new PayeeTotal("Guide", 1, 500_00L)), "only the on-site line");
+        final List<OtherItem> others = BudgetMath.otherItems(budget,
+                line -> BudgetMath.lodging(line, seededShape()), line -> "Pansion · Double", line -> "Pansion");
+        assertEquals(others, List.of(
+                new OtherItem("Pansion · Double", "Pansion", 262_00L),
+                new OtherItem("Flights", "Airline", 9_000_00L),
+                new OtherItem("Insurance", null, 200_00L)));
+        assertEquals(BudgetMath.otherTotal(others), 9_462_00L);
+        assertEquals(BudgetMath.otherTotal(List.of()), 0L);
+    }
+
+    @Test
+    public void percentLinesFollowTheLineTheyAreOf() {
+        final BudgetLine guide = BudgetLine.builder().id("guide").name("Guide").amountCents(1_440_00).build();
+        final BudgetLine tips = BudgetLine.builder().id("tips").name("Tips").percentOf("guide").percentBps(1_000)
+                .amountCents(999).build();
+        final BudgetLine extra = BudgetLine.builder().id("extra").name("Extra").percentOf("tips").percentBps(3_333)
+                .build();
+        final BudgetLine orphan = BudgetLine.builder().id("orphan").percentOf("gone").percentBps(5_000).build();
+        final TripBudget budget = TripBudget.builder().people(1).lines(List.of(guide, tips, extra, orphan)).build();
+        BudgetMath.resolvePercents(budget);
+        assertEquals(tips.getAmountCents(), 144_00L, "10% of $1,440.00; the stored 999 was stale");
+        assertEquals(extra.getAmountCents(), 48_00L, "33.33% of $144.00 = 47.99..., HALF_UP");
+        assertEquals(orphan.getAmountCents(), 0L, "a line whose base is gone counts nothing");
+        assertEquals(guide.getAmountCents(), 1_440_00L, "typed amounts are untouched");
+        assertEquals(BudgetMath.sharedTotal(budget), 1_632_00L);
+        guide.setAmountCents(2_000_00L);
+        BudgetMath.resolvePercents(budget);
+        assertEquals(extra.getAmountCents(), 66_66L, "a chain follows an edit of its root");
+
+        assertNull(BudgetMath.percentProblem(budget, guide), "a typed line has nothing to check");
+        assertNull(BudgetMath.percentProblem(budget, extra));
+        assertEquals(BudgetMath.percentProblem(budget, orphan), "Choose another line for the percentage to apply to.");
+        final BudgetLine self = BudgetLine.builder().id("self").percentOf("self").percentBps(100).build();
+        budget.getLines().add(self);
+        assertEquals(BudgetMath.percentProblem(budget, self), "Choose another line for the percentage to apply to.");
+        final BudgetLine perPerson = BudgetLine.builder().id("pp").kind(BudgetLineKind.INDIVIDUAL)
+                .percentOf("guide").percentBps(100).build();
+        budget.getLines().add(perPerson);
+        assertEquals(BudgetMath.percentProblem(budget, perPerson),
+                "A percentage must be of a line of the same kind (shared or per person).");
+        guide.setPercentOf("extra");
+        guide.setPercentBps(100);
+        assertTrue(BudgetMath.percentProblem(budget, guide)
+                .startsWith("That would make the percentages go in a circle"));
+        BudgetMath.resolvePercents(budget);
+        assertEquals(guide.getAmountCents(), 0L, "a cycle that slipped through resolves to 0, never loops");
+    }
+
+    @Test
+    public void theBasicGroundBudgetCeilingAndEstimate() {
+        final TripBudget budget = sheet();
+        assertEquals(BudgetMath.maxSingleAddOn(budget, line -> BudgetMath.lodging(line, seededShape())), 0L);
+        budget.getLodging().add(oracleLine());
+        budget.getLodging().add(BudgetLodgingLine.builder().nights(3).people(2).singles(1).build());
+        assertEquals(BudgetMath.maxSingleAddOn(budget, line -> BudgetMath.lodging(line, seededShape())), 200_00L,
+                "the largest add-on across the lines");
+        assertEquals(BudgetMath.estimatedGroundPerPerson(budget, 14_012_00L), 650_31L,
+                "(15,902.19 + 14,012.00) / 46");
+        budget.setPeople(0);
+        assertEquals(BudgetMath.estimatedGroundPerPerson(budget, 1L), 0L);
+        final BudgetLine perPerson = BudgetLine.builder().kind(BudgetLineKind.INDIVIDUAL).amountCents(5_00)
+                .perNight(true).build();
+        budget.setPeople(3);
+        assertEquals(BudgetMath.tripCents(budget, perPerson), 150_00L, "$5 × 10 nights × 3 people");
     }
 }

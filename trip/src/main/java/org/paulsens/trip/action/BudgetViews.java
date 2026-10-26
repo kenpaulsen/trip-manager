@@ -49,8 +49,23 @@ public final class BudgetViews {
         private boolean perNight;
         private String note;
         private String payee;
+        /** True when the amount is a percentage of another line ({@code percent} of {@code percentOf}). */
+        private boolean percentMode;
+        private Double percent;
+        private String percentOf;
+        /** Stored inverted (see {@link #isOnSite}): a form revived without the field reads as on-site. */
+        private boolean offSite;
         /** Why the last save was refused, shown inside the dialog. */
         private String problem;
+
+        /** The dialog's "On-site Payments" checkbox. */
+        public boolean isOnSite() {
+            return !offSite;
+        }
+
+        public void setOnSite(final boolean onSite) {
+            this.offSite = !onSite;
+        }
     }
 
     /** The lodging-line dialog. The two flags hide the fields the chosen option does not need. */
@@ -73,6 +88,17 @@ public final class BudgetViews {
         private boolean needsSingles;
         /** The hotel's name, the payee a blank payee falls back to (the field's placeholder). */
         private String defaultPayee;
+        /** Stored inverted (see {@link #isOnSite}): a form revived without the field reads as on-site. */
+        private boolean offSite;
+
+        /** The dialog's "On-site Payments" checkbox. */
+        public boolean isOnSite() {
+            return !offSite;
+        }
+
+        public void setOnSite(final boolean onSite) {
+            this.offSite = !onSite;
+        }
     }
 
     // ================================================================== rows (requestScope)
@@ -91,7 +117,17 @@ public final class BudgetViews {
         private boolean costMissing;
     }
 
-    /** A typed line. {@code first}/{@code last} are within its group, for the move buttons. */
+    /** A line the percent menu offers, or a budget the clone menu offers: an id and what to call it. */
+    @Data
+    @NoArgsConstructor
+    public static final class Choice implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String id;
+        private String label;
+    }
+
+    /** A typed line. {@code first}/{@code last} are within its table, for the move buttons. */
     @Data
     @NoArgsConstructor
     public static final class LineRow implements Serializable {
@@ -99,9 +135,14 @@ public final class BudgetViews {
         private static final long serialVersionUID = 1L;
         private String id;
         private String name;
+        /** The category's label ("Transportation"); empty for a per-person line. */
+        private String category;
         private String note;
         private String payee;
         private String amount;
+        /** "10% of Guide" for a percent line; null for a typed amount. */
+        private String percentLabel;
+        private boolean onSite;
         private boolean perNight;
         /** The per-person total of an INDIVIDUAL line: the amount, or "$10.00 × 10 nights = $100.00". */
         private String total;
@@ -109,16 +150,15 @@ public final class BudgetViews {
         private boolean last;
     }
 
-    /** One category of SHARED lines with its subtotal. */
+    /** One line NOT paid on site, for the Other trip items table. */
     @Data
     @NoArgsConstructor
-    public static final class CategoryGroup implements Serializable {
+    public static final class OtherRow implements Serializable {
         @Serial
         private static final long serialVersionUID = 1L;
-        private String category;
-        private String label;
-        private List<LineRow> rows = new ArrayList<>();
-        private String subtotal;
+        private String name;
+        private String payee;
+        private String amount;
     }
 
     /** One lodging line with its live figures. */
@@ -139,6 +179,7 @@ public final class BudgetViews {
         private String hotelCost;
         private String margin;
         private boolean marginNegative;
+        private boolean onSite;
         private String perPersonPrice;
         /** The single-room add-on, or "none" under a per-room price. */
         private String singleAddOn;
@@ -174,7 +215,8 @@ public final class BudgetViews {
         private long version;
         private int people;
         private int tripNights;
-        private List<CategoryGroup> groups = new ArrayList<>();
+        /** Every SHARED line, one table, each row naming its category. */
+        private List<LineRow> sharedRows = new ArrayList<>();
         private String sharedTotal;
         private List<LineRow> individualRows = new ArrayList<>();
         private String individualExtras;
@@ -184,16 +226,34 @@ public final class BudgetViews {
         private String lodgingCost;
         private String lodgingMargin;
         private boolean marginNegative;
+        private boolean marginPositive;
         private String perPersonBudget;
         /** The typed per-person budget is at least the estimated per-person cost. */
         private boolean budgetAboveEstimate;
+        /** The typed basic ground budget (shared + lodging) per person. */
         private String toBill;
+        /**
+         * The basic ground budget as shown: the typed figure alone, or "$1,000.00 to $1,300.00" when a
+         * single-room add-on or per-person extras can raise what one participant pays.
+         */
+        private String toBillRange;
+        /** (shared costs + lodging hotel cost) / people: what the basic ground budget has to cover. */
+        private String estimatedGroundPerPerson;
         private String budgetLeftOver;
         private boolean leftOverNegative;
+        /** Signed, as the dashboard headline shows it. */
         private String overall;
         private boolean overallNegative;
+        /** "Overall surplus" or "Overall deficit", with the unsigned amount beside it. */
+        private String overallLabel;
+        private String overallAmount;
         private List<PayeeRow> payees = new ArrayList<>();
-        private String grandTotal;
+        /** The payees' total: what is paid on site. */
+        private String onSiteTotal;
+        private List<OtherRow> otherRows = new ArrayList<>();
+        private String otherTotal;
+        /** On-site payments plus other trip items: the estimated cost of the whole trip. */
+        private String tripTotal;
         /** The roster's head count and the trip dates' nights, beside the typed inputs. */
         private int tripPeople;
         private int tripNightsFromDates;

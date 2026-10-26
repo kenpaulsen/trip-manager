@@ -34,6 +34,7 @@ import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
@@ -189,7 +190,7 @@ public class BudgetCommandsTest {
         assertFalse(admin.canViewBudget(" "));
 
         assertFalse(stranger.budgetPage(id).isExists(), "No view, an empty page");
-        assertTrue(stranger.budgetPage(id).getGroups().isEmpty());
+        assertTrue(stranger.budgetPage(id).getSharedRows().isEmpty());
         assertEquals(stranger.budgetHeadline(id), "");
         assertTrue(stranger.lodgingChoices(id).isEmpty());
         assertTrue(stranger.lineFormsFor(id).isEmpty());
@@ -216,8 +217,8 @@ public class BudgetCommandsTest {
         assertFalse(page.isHasLodging());
         assertEquals(page.getWarnings().get(0),
                 "No lodging line yet: the per-person figures do not include lodging.");
-        assertEquals(page.getGroups().size(), 3);
-        assertEquals(page.getGroups().get(1).getLabel(), "Scholarships");
+        assertTrue(page.getSharedRows().isEmpty());
+        assertEquals(page.getSharedTotal(), "$0.00");
         assertEquals(admin.budgetHeadline(id), BudgetCommands.NO_BUDGET);
         final InputsForm form = admin.inputsFormFor(id);
         assertEquals(form.getPeople(), 3);
@@ -303,9 +304,9 @@ public class BudgetCommandsTest {
         assertTrue(lodging.getId() != null && !lodging.getId().isBlank(), "The new line's id comes back");
 
         final BudgetPage page = admin.budgetPage(id);
-        assertEquals(page.getGroups().get(0).getSubtotal(), "$5,940.00");
-        assertEquals(page.getGroups().get(1).getSubtotal(), "$3,848.53");
-        assertEquals(page.getGroups().get(2).getSubtotal(), "$6,113.66");
+        assertEquals(page.getSharedRows().size(), 13, "one Shared Expenses table");
+        assertEquals(page.getSharedRows().get(7).getCategory(), "Scholarships");
+        assertEquals(page.getSharedRows().get(0).getCategory(), "Other");
         assertEquals(page.getSharedTotal(), "$15,902.19");
         assertEquals(page.getEstimatedPerPerson(), "$345.70");
         assertTrue(page.isBudgetAboveEstimate());
@@ -333,8 +334,17 @@ public class BudgetCommandsTest {
         for (final PayeeRow payee : page.getPayees()) {
             payees.add(payee.getName() + "=" + payee.getAmount());
         }
-        assertEquals(payees, List.of("Huanita=$14,012.00", "Guide=$1,440.00", "Tips=$700.00", "Other=$500.00"));
-        assertEquals(page.getGrandTotal(), "$16,652.00");
+        assertEquals(payees.subList(0, 4), List.of("Huanita=$14,012.00", "[Van]=$0.00", "[Badges + Printing]=$300.00",
+                "Guide=$1,440.00"), "every on-site line is a payee, by its own name in brackets when none is given");
+        assertEquals(payees.size(), 14);
+        assertEquals(page.getOnSiteTotal(), "$29,914.19", "hotel cost + every shared line");
+        assertTrue(page.getOtherRows().isEmpty());
+        assertEquals(page.getTripTotal(), "$29,914.19");
+        assertEquals(page.getToBillRange(), "$1,000.00 to $1,200.00", "plus the $200.00 single add-on");
+        assertEquals(page.getEstimatedGroundPerPerson(), "$650.31", "(15,902.19 + 14,012.00) / 46");
+        assertEquals(page.getOverallLabel(), "Overall surplus");
+        assertEquals(page.getOverallAmount(), "$18,085.81");
+        assertTrue(page.isMarginPositive());
 
         // The reference follows the typed budget ($300 + $600 = $900): $850 is below it, $1,200 above.
         assertTrue(admin.saveInputs(id, inputs(46, 10, 300.0, 850.0)));
@@ -416,39 +426,45 @@ public class BudgetCommandsTest {
         assertTrue(mgr.saveLine(id, line("INDIVIDUAL", null, "Rosary", null, null)), "A blank amount is $0");
 
         BudgetPage page = mgr.budgetPage(id);
-        assertEquals(page.getGroups().get(0).getRows().size(), 2);
-        assertTrue(page.getGroups().get(0).getRows().get(0).isFirst());
-        assertTrue(page.getGroups().get(0).getRows().get(1).isLast());
+        assertEquals(page.getSharedRows().size(), 3, "one shared table, every category");
+        assertTrue(page.getSharedRows().get(0).isFirst());
+        assertTrue(page.getSharedRows().get(2).isLast());
+        assertEquals(page.getSharedRows().get(2).getCategory(), "Leader expenses");
         assertEquals(page.getIndividualRows().get(0).getTotal(), "$5.00 × 10 nights = $50.00");
         assertTrue(page.getIndividualRows().get(0).isPerNight());
         assertEquals(page.getIndividualRows().get(0).getNote(), "daily");
         assertEquals(page.getIndividualRows().get(1).getTotal(), "$0.00");
         assertEquals(page.getIndividualExtras(), "$50.00");
-        assertEquals(page.getPayees().get(1).getAmount(), "$200.00", "Market: $50 x 4 people");
+        assertEquals(payeeAmount(page, "Market"), "$200.00", "Market: $50 x 4 people");
+        assertEquals(page.getToBillRange(), "$0.00 to $50.00", "the per-person extras raise the ceiling");
 
-        final String guideId = page.getGroups().get(0).getRows().get(0).getId();
-        final String tipsId = page.getGroups().get(0).getRows().get(1).getId();
+        final String guideId = page.getSharedRows().get(0).getId();
+        final String tipsId = page.getSharedRows().get(1).getId();
         final LineForm edit = mgr.lineFormFor(id, guideId);
         assertEquals(edit.getAmount(), 1440.0);
         assertEquals(edit.getPayee(), "Guide");
+        assertTrue(edit.isOnSite());
         edit.setAmount(1500.0);
         edit.setCategory("SCHOLARSHIP");
         assertTrue(mgr.saveLine(id, edit));
         assertEquals(edit.getId(), guideId, "An edit keeps its id");
         page = mgr.budgetPage(id);
-        assertEquals(page.getGroups().get(1).getRows().get(0).getAmount(), "$1,500.00", "Moved to Scholarships");
+        assertEquals(page.getSharedRows().get(0).getAmount(), "$1,500.00");
+        assertEquals(page.getSharedRows().get(0).getCategory(), "Scholarships");
         assertEquals(mgr.lineFormFor(id, "nope").getKind(), "SHARED", "A gone line opens a fresh form");
         assertEquals(mgr.lineFormFor(id, snacks.getId()).getCategory(), "GENERAL");
         assertEquals(mgr.lineFormsFor(id).size(), 5);
 
-        // Moves stay within a group: Tips steps past Audie, Snacks and Rosary to swap with Misc.
+        // Moves stay among the shared lines: Tips swaps with Audie, then steps past the per-person lines.
         assertTrue(mgr.saveLine(id, line("SHARED", "GENERAL", "Misc", 500.0, null)));
         assertTrue(mgr.moveLine(id, tipsId, 1));
-        assertEquals(mgr.budgetPage(id).getGroups().get(0).getRows().get(1).getId(), tipsId,
-                "Tips moved below Misc, past the lines of other groups");
+        assertEquals(mgr.budgetPage(id).getSharedRows().get(2).getId(), tipsId);
+        assertTrue(mgr.moveLine(id, tipsId, 1));
+        assertEquals(mgr.budgetPage(id).getSharedRows().get(3).getId(), tipsId,
+                "Tips moved below Misc, past the per-person lines");
         assertTrue(mgr.moveLine(id, tipsId, 1), "Already last: nothing to do");
         assertTrue(mgr.moveLine(id, tipsId, -1));
-        assertEquals(mgr.budgetPage(id).getGroups().get(0).getRows().get(0).getId(), tipsId);
+        assertEquals(mgr.budgetPage(id).getSharedRows().get(2).getId(), tipsId);
         assertFalse(mgr.moveLine(id, "nope", 1));
 
         assertTrue(mgr.deleteLine(id, tipsId));
@@ -503,6 +519,11 @@ public class BudgetCommandsTest {
         assertFalse(stranger.moveLine(id, "x", 1));
         assertFalse(stranger.deleteLodgingLine(id, "x"));
         assertFalse(stranger.saveLodgingLine(id, new LodgingLineForm()));
+    }
+
+    private static String payeeAmount(final BudgetPage page, final String payee) {
+        return page.getPayees().stream().filter(row -> row.getName().equals(payee)).findFirst().orElseThrow()
+                .getAmount();
     }
 
     private void assertRefused(final String tripId, final LineForm form, final String problem) {
@@ -604,6 +625,174 @@ public class BudgetCommandsTest {
         assertTrue(finAdmin.budgetPage(id).getLodgingRows().isEmpty());
         assertTrue(finAdmin.deleteLodgingLine(id, lineId), "Already gone: quietly true");
         assertFalse(finAdmin.deleteLodgingLine(id, null));
+    }
+
+    // ------------------------------------------------------------------ percent lines, on site, clone
+
+    @Test
+    public void percentLinesSaveFollowAndRefuse() throws IOException {
+        final Trip trip = newTrip(10);
+        final String id = trip.getId();
+        assertTrue(admin.saveLine(id, line("SHARED", "GUIDE", "Guide", 1440.0, "Guide")));
+        final String guideId = admin.budgetPage(id).getSharedRows().get(0).getId();
+        assertTrue(admin.saveLine(id, line("INDIVIDUAL", null, "Snacks", 5.0, null)));
+        final String snacksId = admin.budgetPage(id).getIndividualRows().get(0).getId();
+
+        final LineForm tips = line("SHARED", "TIPS", "Tips", null, null);
+        tips.setPercentMode(true);
+        assertFalse(admin.saveLine(id, tips));
+        assertEquals(tips.getProblem(), "Choose the line the percentage is of.");
+        tips.setPercentOf(guideId);
+        assertFalse(admin.saveLine(id, tips));
+        assertEquals(tips.getProblem(), "The percentage must be more than 0% and at most 1000%.");
+        tips.setPercent(1000.01);
+        assertFalse(admin.saveLine(id, tips));
+        tips.setPercent(Double.NaN);
+        assertFalse(admin.saveLine(id, tips));
+        tips.setPercentOf(snacksId);
+        tips.setPercent(10.0);
+        assertFalse(admin.saveLine(id, tips));
+        assertEquals(tips.getProblem(), "A percentage must be of a line of the same kind (shared or per person).");
+        tips.setPercentOf(guideId);
+        assertTrue(admin.saveLine(id, tips), tips.getProblem());
+
+        BudgetPage page = admin.budgetPage(id);
+        assertEquals(page.getSharedRows().get(1).getAmount(), "$144.00");
+        assertEquals(page.getSharedRows().get(1).getPercentLabel(), "10% of Guide");
+        assertNull(page.getSharedRows().get(0).getPercentLabel());
+        final LineForm reopened = admin.lineFormFor(id, tips.getId());
+        assertTrue(reopened.isPercentMode());
+        assertEquals(reopened.getPercent(), 10.0);
+        assertEquals(reopened.getPercentOf(), guideId);
+
+        // Editing the base re-derives the percent line on the same save.
+        final LineForm guide = admin.lineFormFor(id, guideId);
+        guide.setAmount(2000.0);
+        assertTrue(admin.saveLine(id, guide));
+        assertEquals(admin.budgetPage(id).getSharedRows().get(1).getAmount(), "$200.00");
+
+        // The base may not become circular, change kind, or be deleted while followed.
+        guide.setPercentMode(true);
+        guide.setPercentOf(tips.getId());
+        guide.setPercent(50.0);
+        assertFalse(admin.saveLine(id, guide));
+        assertTrue(guide.getProblem().startsWith("That would make the percentages go in a circle"), guide.getProblem());
+        final LineForm toPerPerson = admin.lineFormFor(id, guideId);
+        toPerPerson.setKind("INDIVIDUAL");
+        assertFalse(admin.saveLine(id, toPerPerson));
+        assertEquals(toPerPerson.getProblem(),
+                "Other lines are a percentage of this one, so it cannot change between shared and per person.");
+        assertFalse(admin.deleteLine(id, guideId), "Tips follows it");
+        assertTrue(admin.deleteLine(id, tips.getId()));
+        assertTrue(admin.deleteLine(id, guideId), "nothing follows it any more");
+
+        final java.util.List<BudgetViews.Choice> bases = admin.percentChoices(id, "INDIVIDUAL", null);
+        assertEquals(bases.size(), 1);
+        assertEquals(bases.get(0).getLabel(), "Snacks ($5.00)");
+        assertTrue(admin.percentChoices(id, "INDIVIDUAL", snacksId).isEmpty(), "never itself");
+        assertTrue(admin.percentChoices(id, "BOGUS", null).isEmpty());
+        assertTrue(as(Person.Id.newInstance()).percentChoices(id, "SHARED", null).isEmpty());
+        assertEquals(admin.categories().size(), 7);
+        assertEquals(admin.categories().get(0).getLabel(), "Transportation");
+        assertEquals(admin.categories().get(6).getId(), "GENERAL");
+        assertEquals(BudgetCommands.percentText(1250), "12.5%");
+        assertEquals(BudgetCommands.bps(null), 0);
+    }
+
+    @Test
+    public void offSiteLinesMoveToOtherTripItems() throws IOException {
+        final Trip trip = newTrip(10);
+        final String id = trip.getId();
+        final LineForm flights = line("SHARED", "TRANSPORTATION", "Flights", 9000.0, "Airline");
+        flights.setOnSite(false);
+        assertTrue(admin.saveLine(id, flights));
+        assertFalse(admin.lineFormFor(id, flights.getId()).isOnSite());
+        assertTrue(admin.saveLine(id, line("SHARED", "GUIDE", "Guide", 500.0, null)));
+        final ReservationOffer offer = perPersonOffer(trip, schedule(PricingModel.PER_PERSON, 30_00, 0));
+        final LodgingLineForm hotel = admin.newLodgingForm(id);
+        hotel.setOfferId(offer.getId().getValue());
+        hotel.setNights(2);
+        hotel.setOnSite(false);
+        assertTrue(admin.saveLodgingLine(id, hotel), hotel.getProblem());
+        assertFalse(admin.lodgingFormFor(id, hotel.getId()).isOnSite());
+
+        final BudgetPage page = admin.budgetPage(id);
+        assertEquals(page.getPayees().size(), 1);
+        assertEquals(page.getPayees().get(0).getName(), "[Guide]");
+        assertEquals(page.getOnSiteTotal(), "$500.00");
+        assertEquals(page.getOtherRows().size(), 2);
+        assertEquals(page.getOtherRows().get(0).getName(), pansion.getName() + " · Per person");
+        assertEquals(page.getOtherRows().get(0).getAmount(), "$600.00", "10 people × 2 nights × $30 hotel cost");
+        assertEquals(page.getOtherRows().get(1).getPayee(), "Airline");
+        assertEquals(page.getOtherTotal(), "$9,600.00");
+        assertEquals(page.getTripTotal(), "$10,100.00");
+        assertFalse(page.getLodgingRows().get(0).isOnSite());
+        assertFalse(page.getSharedRows().get(0).isOnSite());
+        assertEquals(page.getOverallLabel(), "Overall deficit");
+        assertEquals(page.getOverallAmount(), "$9,300.00", "unsigned beside the label; the signed figure stays");
+        assertEquals(page.getOverall(), "-$9,300.00");
+    }
+
+    @Test
+    public void aBudgetClonesFromTheSameOrganizationOnly() throws IOException {
+        final Trip source = newTrip(5);
+        assertTrue(admin.saveInputs(source.getId(), inputs(5, 10, 400.0, 1000.0)));
+        assertTrue(admin.saveLine(source.getId(), line("SHARED", "GUIDE", "Guide", 1000.0, "Guide")));
+        final String guideId = admin.budgetPage(source.getId()).getSharedRows().get(0).getId();
+        final LineForm tips = line("SHARED", "TIPS", "Tips", null, null);
+        tips.setPercentMode(true);
+        tips.setPercentOf(guideId);
+        tips.setPercent(15.0);
+        tips.setOnSite(false);
+        assertTrue(admin.saveLine(source.getId(), tips), tips.getProblem());
+        final LodgingLineForm lodging = admin.newLodgingForm(source.getId());
+        lodging.setOfferId(perPersonOffer(source, schedule(PricingModel.PER_PERSON, 1_00, 0)).getId().getValue());
+        assertTrue(admin.saveLodgingLine(source.getId(), lodging), lodging.getProblem());
+
+        final Organization other = new OrgCommands(TestCallers::siteAdmin)
+                .createOrganization("Other " + RandomData.genAlpha(8), "OTH", null);
+        final Trip foreign = Trip.builder().id(UUID.randomUUID().toString()).title("Foreign trip").startDate(START)
+                .endDate(START.plusDays(10)).build();
+        foreign.setOrgId(other.getId().getValue());
+        assertTrue(DAO.getInstance().saveTrip(foreign));
+        assertTrue(admin.saveLine(foreign.getId(), line("SHARED", "GUIDE", "Foreign guide", 1.0, null)));
+
+        final Trip target = newTrip(7);
+        final String id = target.getId();
+        assertTrue(admin.canClone(id), "a budget with no lines");
+        final java.util.List<BudgetViews.Choice> choices = admin.cloneChoices(id);
+        assertTrue(choices.stream().anyMatch(c -> c.getId().equals(source.getId())));
+        assertTrue(choices.stream().noneMatch(c -> c.getId().equals(foreign.getId())), "never another org's budget");
+        assertTrue(choices.stream().noneMatch(c -> c.getId().equals(id)), "never itself");
+        assertTrue(choices.stream().filter(c -> c.getId().equals(source.getId())).findFirst().orElseThrow()
+                .getLabel().endsWith("(2 lines)"));
+        assertFalse(admin.cloneBudget(id, foreign.getId()), "the same refusal for another org's trip");
+        assertFalse(admin.cloneBudget(id, UUID.randomUUID().toString()));
+        assertFalse(admin.cloneBudget(id, newTrip(1).getId()), "a trip with no budget lines");
+        assertFalse(admin.cloneBudget(id, null));
+
+        assertTrue(admin.cloneBudget(id, source.getId()));
+        final TripBudget cloned = DAO.getInstance().getTripBudget(id, Cached.NO).orElseThrow();
+        assertEquals(cloned.getLines().size(), 2);
+        assertEquals(cloned.getPeople(), 7, "people stay this trip's");
+        assertEquals(cloned.getPerPersonBudgetCents(), 400_00L);
+        assertEquals(cloned.getToBillCents(), 1_000_00L);
+        assertTrue(cloned.getLodging().isEmpty(), "lodging lines point at the source trip's options");
+        final BudgetLine copiedGuide = cloned.getLines().get(0);
+        final BudgetLine copiedTips = cloned.getLines().get(1);
+        assertNotEquals(copiedGuide.getId(), guideId, "fresh ids");
+        assertEquals(copiedTips.getPercentOf(), copiedGuide.getId(), "the percent link follows the copy");
+        assertEquals(copiedTips.getAmountCents(), 150_00L);
+        assertTrue(copiedTips.isOffSite());
+        assertFalse(admin.canClone(id), "no longer empty");
+        assertFalse(admin.cloneBudget(id, source.getId()), "a budget is only cloned into an empty one");
+        assertTrue(admin.cloneChoices(UUID.randomUUID().toString()).isEmpty());
+        assertTrue(as(Person.Id.newInstance()).cloneChoices(id).isEmpty());
+        assertFalse(as(Person.Id.newInstance()).canClone(id));
+
+        final Trip orgless = Trip.builder().id(UUID.randomUUID().toString()).title("Orgless").build();
+        assertTrue(DAO.getInstance().saveTrip(orgless));
+        assertTrue(admin.cloneChoices(orgless.getId()).isEmpty(), "no organization, nothing to clone from");
     }
 
     @Test

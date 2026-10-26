@@ -17,15 +17,28 @@ budget's lodging comes from the trip's lodging options instead of a typed nightl
 | Type | What it is |
 |------|------------|
 | `model/TripBudget` | ONE row per trip: `people`, `tripNights`, `perPersonBudgetCents`, `toBillCents` (the four typed inputs), `lines`, `lodging`, `orgId`, `createdBy`, `created`, `version` |
-| `model/BudgetLine` | A typed line: `kind` (`BudgetLineKind`), `category` (`BudgetCategory`, SHARED only), `name`, `amountCents`, `perNight` (INDIVIDUAL only), `note`, `payee` |
-| `model/BudgetLodgingLine` | A lodging line: `offerId` (one of the trip's `ReservationOffer`s), `label` (hotel and option name captured at save), `nights`, `people`, `rooms`, `singles`, `payee`, `note` |
+| `model/BudgetLine` | A typed line: `kind` (`BudgetLineKind`), `category` (`BudgetCategory`, SHARED only), `name`, `amountCents`, `perNight` (INDIVIDUAL only), `note`, `payee`, `percentOf` + `percentBps` (a percentage of another line), `offSite` |
+| `model/BudgetLodgingLine` | A lodging line: `offerId` (one of the trip's `ReservationOffer`s), `label` (hotel and option name captured at save), `nights`, `people`, `rooms`, `singles`, `payee`, `note`, `offSite` |
 | `BudgetLineKind` | `SHARED` (a whole-group cost, divided across everyone) or `INDIVIDUAL` (each participant pays it) |
-| `BudgetCategory` | `GENERAL`, `SCHOLARSHIP` ("Scholarships"), `LEADER` ("Leader expenses"): the sheet's two named sub-lists became categories, each with a subtotal |
+| `BudgetCategory` | In menu order: `TRANSPORTATION`, `GUIDE`, `SUPPLIES`, `TIPS`, `SCHOLARSHIP` ("Scholarships"), `LEADER` ("Leader expenses"), `GENERAL` ("Other", the catch-all; the stored name predates the named categories, so older lines still read). Shown in the Shared Expenses table's Category column; no per-category subtotal |
 
 Money is `long` cents in the model and `Double` dollars in forms (USD only). The constructors normalize, so
 Jackson, the builders and the no-arg constructors all produce valid rows: a SHARED line always has a category
 and is never per night, an INDIVIDUAL line has no category, amounts and counts never go negative, `singles`
 never exceeds `people`, and blank text is null.
+
+**Percent lines.** A line with `percentOf` takes `percentBps` basis points (1250 = 12.5%, capped at 1000%) of
+another line OF THE SAME KIND (Tips = 10% of Guide; a per-person line only of another per-person line). Its
+`amountCents` is derived, not typed: `BudgetMath.resolvePercents` recomputes every percent line on every save
+(recursively, so a percent of a percent works), so an edit of the base reaches its followers in the same put
+and every reader keeps using `amountCents`. A save is refused when the base is missing, of the other kind,
+itself, or would close a cycle (`BudgetMath.percentProblem`); a line others follow cannot be deleted or switch
+kind until they change.
+
+**On site or not.** Every line, lodging lines included, is either paid on site (the default; it is listed with
+the Payees) or not (Other trip items: flights, insurance, a hotel paid ahead). The flag is stored INVERTED as
+`offSite`, the way an option stores `disabled`: a row written before it existed, a builder that never mentions
+it, and a form revived from a session all read as on site. The forms expose it as `onSite` for the checkbox.
 
 ### One row, one put
 
@@ -80,11 +93,17 @@ The whole budget:
 | budgetLeftOver | perPersonBudget × people − sharedTotal ("should be a positive number") | 2,497.81 |
 | lodgingRevenue / lodgingCost / lodgingMargin | Σ over the lodging lines | |
 | overall | budgetLeftOver + lodgingMargin | |
-| payee totals | lodging line → its hotelCost under its payee (default: the hotel's name); SHARED → amount; INDIVIDUAL → per-person total × people; grouped case-insensitively on the trimmed payee, first spelling kept, blank skipped | |
-| total to bring | Σ payee totals | |
+| tripCents(line) | SHARED → amount; INDIVIDUAL → per-person total × people | |
+| payee totals | on-site lines only: lodging line → its hotelCost under its payee (default: the hotel's name); a typed line → tripCents under its payee, or under its own name in brackets ("[Badges]") when it has none; grouped case-insensitively on the trimmed payee, first spelling kept | |
+| On-site Payments | Σ payee totals | 29,914.19 with the lodging oracle |
+| other trip items | the lines NOT on site, one row each, the same amounts | |
+| estimated trip total | On-site Payments + Σ other trip items | |
+| basic ground budget range | toBill, or toBill to toBill + max singleAddOn + individualExtras when either is positive | 1,000.00 to 1,200.00 |
+| estimatedGroundPerPerson | (sharedTotal + lodgingCost) / people | 650.31 |
 
-"Budget left over" stays shared-only, exactly as on the sheet; the lodging profit or loss is its own figure,
-and **Overall surplus/deficit** adds the two. The single-room add-on is shown per option and never folded
+The sheet's "Budget left over" (shared only) is still computed but no longer has a card: the **Overall
+surplus** or **Overall deficit** card (named by its sign, green or red, the amount unsigned beside the label)
+is budgetLeftOver plus the lodging margin. The single-room add-on is shown per option and never folded
 into a per-person total. The per-person budget and the to-bill figure stay single TYPED inputs: the
 per-option table shows each option's computed reference beside them, flagged above or below.
 
@@ -93,6 +112,16 @@ FIXED $12 "City tax"; nights 10, people 46, rooms 28, singles 10 → revenue 29,
 margin 15,588.00, per-person price 600.00, single add-on 200.00, total per-person ground 945.70, to-bill
 reference 1,000.00, overall 18,085.81. (The sheet's "Money to Huanita" cell, $32,600, includes something it
 does not itemize; the inputs alone give $29,600, so the tests use the formulas, not that cell.)
+
+## Cloning
+
+**Clone budget from...** is offered while this trip's budget has no lines at all (`canClone`), so a clone never
+overwrites anything. The menu (`cloneChoices`, looked up when the dialog opens, not on every render) lists the
+other trips of the SAME organization, among the 400 most recent, whose budget the caller may read and that has
+at least one line; another organization's budget is never offered or accepted (the tenancy rule). The clone
+copies every typed line with fresh ids (percent links re-pointed at the copies), the per-person shared budget
+and the basic ground budget. People and nights stay this trip's, and lodging lines are not copied: they point
+at the source trip's own lodging options, and the growl says so.
 
 ## Pre-fills
 
@@ -114,9 +143,16 @@ the Budget card (`docs/reports.md`, "Admission").
 
 Reached from the Reports dashboard's **Budget** card (`toBudget`, its number is `budgetHeadline`: the overall
 surplus, or "No budget yet"); `reportsDone` back, `toLodging` to the trip's Lodging tab, and a print view
-(`?print=true`) that edits nothing. Sections: warnings (`bgMissing`), Inputs, Shared costs by category with
-subtotals and "Ground cost (excluding lodging)", Lodging, Individual extras, Per person by lodging option,
-Summary, Payees with "Total to bring".
+(`?print=true`) that edits nothing. Sections: Clone budget from... (empty budgets only), warnings
+(`bgMissing`), Inputs (people, trip nights, Per-person shared budget, Basic ground budget (shared + lodging)),
+Shared Expenses (one table with a Category column), Lodging, Individual extras, Per person by lodging option,
+Summary, Payees (totalled as "On-site Payments"), Other trip items, and the estimated trip total.
+
+The Summary has three cards and a fourth on its own line: **Per-person shared budget** (the typed figure, the
+estimated per-person shared cost under it), **Basic ground budget (shared + lodging)** (the typed figure, as a
+range when a single add-on or per-person extras can raise it, the estimated shared + lodging hotel cost per
+person under it), **Lodging revenue** (hotel cost under it, a rule, then the lodging margin in green or red),
+and the **Overall surplus / deficit** card.
 
 State follows `docs/page-state-and-identity.md`: `requestScope.bp = budget.budgetPage(tripId)` every request
 and again after every write (`SessionScopePolicyIT` lists `budget.budgetPage` as domain-valued); only the
@@ -133,22 +169,28 @@ pages' `keepOpen` idiom; Cancel clears the form.
 |---|---|---|
 | GET | `budget/trips/{tripId}` | `{inputs, lines, lodging, summary}` (summary = the page's `BudgetPage`) |
 | PUT | `budget/trips/{tripId}/inputs` | `{people, tripNights, perPersonBudget, toBill}` → `{ok:true}` |
-| POST / PUT / DELETE | `budget/trips/{tripId}/lines[/{lineId}]` | `{kind, category, name, amount, perNight, note, payee}` → `{id}` |
-| POST / PUT / DELETE | `budget/trips/{tripId}/lodging[/{lineId}]` | `{offerId, nights, people, rooms, singles, payee, note}` → `{id}` |
+| POST / PUT / DELETE | `budget/trips/{tripId}/lines[/{lineId}]` | `{kind, category, name, amount, perNight, note, payee, onSite, percent, percentOf}` → `{id}` (`percentOf` makes it a percent line; `onSite` defaults to true) |
+| POST / PUT / DELETE | `budget/trips/{tripId}/lodging[/{lineId}]` | `{offerId, nights, people, rooms, singles, payee, note, onSite}` → `{id}` |
+| POST | `budget/trips/{tripId}/clone` | `{fromTripId}` → `{ok:true}`; 400 unless this budget is empty and the source is one this trip may clone |
 
 Writes need the CSRF header (403) and the edit gate (403); a refusal is 400 `VALIDATION_FAILED` carrying the
-bean's reason; an unknown trip is 404. Deleting a line that is already gone succeeds.
+bean's reason; an unknown trip is 404. Deleting a line that is already gone succeeds; deleting one a percent line
+follows is refused.
 
 ## Tests
 
 Unit (`trip/`): `TripBudgetTest`, `BudgetLineTest`, `BudgetLodgingLineTest` (normalization, builder parity,
 Jackson), `BudgetMathTest` (both oracles, PER_ROOM shares, missing schedules, extras per basis, HALF_UP,
-nobody counted, payee grouping), `BudgetDAOTest`, `BudgetCommandsTest` (gate matrix, pre-fills, `pickOffer`,
-the oracles on the page rows, refusals, caps, moves, deletes, a deleted option), `BudgetResourceTest`, plus
+nobody counted, payee grouping and the bracketed fallback, on-site vs other items, percent chains and their
+refusals, the basic ground budget ceiling and estimate), `BudgetDAOTest`, `BudgetCommandsTest` (gate matrix, pre-fills, `pickOffer`,
+the oracles on the page rows, refusals, caps, moves, deletes, a deleted option, percent lines, off-site lines,
+and cloning within one organization only), `BudgetResourceTest`, plus
 cases in `AuditCommandsTest`, `TripDeleteCommandsTest`, `ModelSerializationTest`,
 `SerializationCompatibilityTest` and `ApiSurfaceTest`.
 
-Browser (`medjugorje/webtest`): `TripBudgetPwIT` (both oracles rendered, the print view, pre-fills and Use,
+Browser (`medjugorje/webtest`): `TripBudgetPwIT` (both oracles rendered in the new summary, the print view,
+a percent line set in the dialog and following its base, an off-site line under Other trip items, the clone
+dialog, pre-fills and Use,
 the lodging dialog's fields per option, a plan-linked option, a cost-less option's warning, line dialog and
 row commands by identity, negative figures, the gate matrix), with the Budget card and page added to
 `ReportsDashboardPwIT`, `AdminReportsPwIT` and `AuthGatePwIT`.

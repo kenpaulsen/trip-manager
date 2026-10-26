@@ -131,10 +131,31 @@ public class BudgetResourceTest extends ResourceTestSupport {
         assertEquals(summary.getSharedTotal(), "$1,500.00");
         assertEquals(summary.getLodgingRows().get(0).getRevenue(), "$24,840.00", "46 x 9 x $60");
 
+        final Response percent = api.createLine(id, CSRF_OK, Map.of("kind", "SHARED", "category", "TIPS",
+                "name", "Tips", "percentOf", lineId, "percent", 10, "onSite", false));
+        assertOk(percent);
+        final String percentId = (String) ((Map<?, ?>) percent.getEntity()).get("id");
+        final BudgetViews.BudgetPage after = (BudgetViews.BudgetPage) ((Map<String, Object>) api.get(id).getEntity())
+                .get("summary");
+        assertEquals(after.getOtherRows().get(0).getAmount(), "$150.00", "10% of $1,500.00, not paid on site");
+        assertError(api.deleteLine(id, lineId, CSRF_OK), 400, ApiErrors.VALIDATION_FAILED);
+        assertOk(api.deleteLine(id, percentId, CSRF_OK));
         assertOk(api.deleteLine(id, lineId, CSRF_OK));
         assertOk(api.deleteLodging(id, roomId, CSRF_OK));
         assertError(api.deleteLine(id, null, CSRF_OK), 400, ApiErrors.VALIDATION_FAILED);
         assertError(api.deleteLodging(id, null, CSRF_OK), 400, ApiErrors.VALIDATION_FAILED);
+    }
+
+    @Test
+    public void cloneNeedsTheGateAndAnEmptyBudget() throws IOException {
+        signedInAsSiteAdmin(Person.Id.newInstance());
+        final BudgetResource api = resource(new BudgetResource());
+        final Trip target = Trip.builder().id(UUID.randomUUID().toString()).title("Api clone target").build();
+        target.setOrgId(trip.getOrgId());
+        assertTrue(DAO.getInstance().saveTrip(target));
+        assertError(api.cloneFrom(target.getId(), null, Map.of()), 403, ApiErrors.CSRF);
+        assertError(api.cloneFrom(target.getId(), CSRF_OK, Map.of("fromTripId", "nope")), 400,
+                ApiErrors.VALIDATION_FAILED);
     }
 
     @Test

@@ -53,6 +53,12 @@ public class TripBudgetTest {
         assertEquals(budget.sharedLines(BudgetCategory.SCHOLARSHIP), List.of(sister));
         assertTrue(budget.sharedLines(BudgetCategory.LEADER).isEmpty());
         assertEquals(budget.individualLines(), List.of(snacks));
+        assertEquals(budget.sharedLines(), List.of(guide, sister, tips));
+        final BudgetLine follower = BudgetLine.builder().id("f").percentOf("guide").percentBps(100).build();
+        budget.getLines().add(follower);
+        assertEquals(budget.linesFollowing("guide"), List.of(follower));
+        assertTrue(budget.linesFollowing("tips").isEmpty());
+        assertTrue(budget.linesFollowing(null).isEmpty());
         assertTrue(budget.hasLodging());
     }
 

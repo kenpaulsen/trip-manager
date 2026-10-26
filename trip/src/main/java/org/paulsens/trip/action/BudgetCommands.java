@@ -14,17 +14,20 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
+import java.util.function.Function;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.BudgetViews.BudgetPage;
-import org.paulsens.trip.action.BudgetViews.CategoryGroup;
+import org.paulsens.trip.action.BudgetViews.Choice;
 import org.paulsens.trip.action.BudgetViews.InputsForm;
 import org.paulsens.trip.action.BudgetViews.LineForm;
 import org.paulsens.trip.action.BudgetViews.LineRow;
 import org.paulsens.trip.action.BudgetViews.LodgingLineForm;
 import org.paulsens.trip.action.BudgetViews.LodgingRow;
 import org.paulsens.trip.action.BudgetViews.OfferChoice;
+import org.paulsens.trip.action.BudgetViews.OtherRow;
 import org.paulsens.trip.action.BudgetViews.PayeeRow;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
@@ -39,6 +42,7 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripBudget;
 import org.paulsens.trip.pay.BudgetMath;
 import org.paulsens.trip.pay.BudgetMath.LodgingFigures;
+import org.paulsens.trip.pay.BudgetMath.OtherItem;
 import org.paulsens.trip.pay.BudgetMath.PayeeTotal;
 import org.paulsens.trip.pay.CostExtras;
 import org.paulsens.trip.pay.LodgingPricing;
@@ -175,11 +179,9 @@ public class BudgetCommands {
         page.setTripNightsFromDates(nightsOf(trip));
         page.setPeopleDiffers(page.getTripPeople() != budget.getPeople());
         page.setNightsDiffers(page.getTripNightsFromDates() != budget.getTripNights());
-        for (final BudgetCategory category : BudgetCategory.values()) {
-            page.getGroups().add(groupOf(budget, category));
-        }
+        page.setSharedRows(rowsOf(budget, budget.sharedLines()));
         page.setSharedTotal(money(BudgetMath.sharedTotal(budget)));
-        page.setIndividualRows(rowsOf(budget.individualLines(), budget.getTripNights()));
+        page.setIndividualRows(rowsOf(budget, budget.individualLines()));
         page.setIndividualExtras(money(BudgetMath.individualExtras(budget)));
         final long estimate = BudgetMath.estimatedPerPerson(budget);
         page.setEstimatedPerPerson(money(estimate));
@@ -190,18 +192,58 @@ public class BudgetCommands {
         final long leftOver = BudgetMath.budgetLeftOver(budget);
         page.setBudgetLeftOver(money(leftOver));
         page.setLeftOverNegative(leftOver < 0);
-        final List<PayeeTotal> payees = BudgetMath.payeeTotals(budget,
-                line -> BudgetMath.lodging(line, offers.get(line.getOfferId())),
-                line -> hotelName(offers.get(line.getOfferId())));
+        final Function<BudgetLodgingLine, LodgingFigures> figures =
+                line -> BudgetMath.lodging(line, offers.get(line.getOfferId()));
+        final Function<BudgetLodgingLine, String> hotel = line -> hotelName(offers.get(line.getOfferId()));
+        fillToBill(page, budget, figures);
+        final List<PayeeTotal> payees = BudgetMath.payeeTotals(budget, figures, hotel);
         for (final PayeeTotal payee : payees) {
-            final PayeeRow row = new PayeeRow();
-            row.setName(payee.name());
-            row.setItems(payee.items());
-            row.setAmount(money(payee.cents()));
-            page.getPayees().add(row);
+            page.getPayees().add(payeeRow(payee));
         }
-        page.setGrandTotal(money(BudgetMath.grandTotal(payees)));
+        final List<OtherItem> others = BudgetMath.otherItems(budget, figures,
+                line -> lodgingLabel(line, offers.get(line.getOfferId())), hotel);
+        for (final OtherItem item : others) {
+            page.getOtherRows().add(otherRow(item));
+        }
+        final long onSite = BudgetMath.grandTotal(payees);
+        final long other = BudgetMath.otherTotal(others);
+        page.setOnSiteTotal(money(onSite));
+        page.setOtherTotal(money(other));
+        page.setTripTotal(money(onSite + other));
         return page;
+    }
+
+    /**
+     * The basic ground budget card: the typed figure, as a range up to + the largest single-room add-on +
+     * the per-person extras when either can raise what one participant pays, and below it what the budget has
+     * to cover per person ((shared costs + lodging hotel cost) / people).
+     */
+    private static void fillToBill(final BudgetPage page, final TripBudget budget,
+            final Function<BudgetLodgingLine, LodgingFigures> figures) {
+        final long floor = budget.getToBillCents();
+        final long ceiling = floor + BudgetMath.maxSingleAddOn(budget, figures) + BudgetMath.individualExtras(budget);
+        page.setToBillRange((ceiling > floor) ? money(floor) + " to " + money(ceiling) : money(floor));
+        long lodgingCost = 0L;
+        for (final BudgetLodgingLine line : budget.getLodging()) {
+            lodgingCost += figures.apply(line).hotelCost();
+        }
+        page.setEstimatedGroundPerPerson(money(BudgetMath.estimatedGroundPerPerson(budget, lodgingCost)));
+    }
+
+    private static PayeeRow payeeRow(final PayeeTotal payee) {
+        final PayeeRow row = new PayeeRow();
+        row.setName(payee.name());
+        row.setItems(payee.items());
+        row.setAmount(money(payee.cents()));
+        return row;
+    }
+
+    private static OtherRow otherRow(final OtherItem item) {
+        final OtherRow row = new OtherRow();
+        row.setName(item.name());
+        row.setPayee(item.payee());
+        row.setAmount(money(item.cents()));
+        return row;
     }
 
     private void fillLodging(final BudgetPage page, final TripBudget budget,
@@ -236,9 +278,12 @@ public class BudgetCommands {
         page.setLodgingCost(money(cost));
         page.setLodgingMargin(money(revenue - cost));
         page.setMarginNegative(revenue - cost < 0);
+        page.setMarginPositive(revenue - cost > 0);
         final long overall = BudgetMath.overall(budget, revenue - cost);
         page.setOverall(money(overall));
         page.setOverallNegative(overall < 0);
+        page.setOverallLabel((overall < 0) ? "Overall deficit" : "Overall surplus");
+        page.setOverallAmount(money(Math.abs(overall)));
     }
 
     private LodgingRow lodgingRow(final TripBudget budget, final BudgetLodgingLine line,
@@ -246,8 +291,9 @@ public class BudgetCommands {
         final LodgingRow row = new LodgingRow();
         row.setId(line.getId());
         row.setDeletedOption(offer == null);
-        row.setLabel((offer == null) ? deletedLabel(line) : offerName(offer));
+        row.setLabel(lodgingLabel(line, offer));
         row.setRatePlanName((offer == null) ? null : ratePlanName(offer));
+        row.setOnSite(line.isOnSite());
         row.setQuantities(quantities(line, offer));
         row.setPriceLabel((offer == null) ? "" : OfferSchedules.pricingLabel(offer));
         row.setCostLabel((offer == null) ? "" : OfferSchedules.costLabel(offer));
@@ -269,6 +315,11 @@ public class BudgetCommands {
         return row;
     }
 
+    /** What a lodging line is called in a list: the live option's name, else its captured label, flagged. */
+    private static String lodgingLabel(final BudgetLodgingLine line, final ReservationOffer offer) {
+        return (offer == null) ? deletedLabel(line) : offerName(offer);
+    }
+
     private static String deletedLabel(final BudgetLodgingLine line) {
         return (line.getLabel() == null) ? DELETED_OPTION : line.getLabel() + " " + DELETED_OPTION;
     }
@@ -287,25 +338,20 @@ public class BudgetCommands {
         return sb.toString();
     }
 
-    private static CategoryGroup groupOf(final TripBudget budget, final BudgetCategory category) {
-        final CategoryGroup group = new CategoryGroup();
-        group.setCategory(category.name());
-        group.setLabel(category.getLabel());
-        group.setRows(rowsOf(budget.sharedLines(category), budget.getTripNights()));
-        group.setSubtotal(money(BudgetMath.sharedTotal(budget, category)));
-        return group;
-    }
-
-    private static List<LineRow> rowsOf(final List<BudgetLine> lines, final int tripNights) {
+    private static List<LineRow> rowsOf(final TripBudget budget, final List<BudgetLine> lines) {
+        final int tripNights = budget.getTripNights();
         final List<LineRow> rows = new ArrayList<>();
         for (int i = 0; i < lines.size(); i++) {
             final BudgetLine line = lines.get(i);
             final LineRow row = new LineRow();
             row.setId(line.getId());
             row.setName(line.getName());
+            row.setCategory(line.isShared() ? line.getCategory().getLabel() : "");
             row.setNote(line.getNote());
             row.setPayee(line.getPayee());
             row.setAmount(money(line.getAmountCents()));
+            row.setPercentLabel(percentLabel(budget, line));
+            row.setOnSite(line.isOnSite());
             row.setPerNight(line.isPerNight());
             row.setTotal(line.isPerNight()
                     ? money(line.getAmountCents()) + " × " + tripNights + " nights = "
@@ -316,6 +362,20 @@ public class BudgetCommands {
             rows.add(row);
         }
         return rows;
+    }
+
+    /** "10% of Guide" for a percent line; null for a typed amount. */
+    static String percentLabel(final TripBudget budget, final BudgetLine line) {
+        if (!line.isPercent()) {
+            return null;
+        }
+        final BudgetLine base = budget.line(line.getPercentOf());
+        return percentText(line.getPercentBps()) + " of " + ((base == null) ? "(deleted line)" : base.getName());
+    }
+
+    /** Basis points as a percentage with no trailing zeros: 1000 is "10%", 1250 is "12.5%". */
+    static String percentText(final int bps) {
+        return BigDecimal.valueOf(bps).movePointLeft(2).stripTrailingZeros().toPlainString() + "%";
     }
 
     /** The inputs dialog's form: the stored inputs, else the pre-filled defaults. */
@@ -359,6 +419,11 @@ public class BudgetCommands {
         form.setPerNight(line.isPerNight());
         form.setNote(line.getNote());
         form.setPayee(line.getPayee());
+        form.setPercentMode(line.isPercent());
+        form.setPercentOf(line.getPercentOf());
+        form.setPercent(line.isPercent() ? BigDecimal.valueOf(line.getPercentBps()).movePointLeft(2).doubleValue()
+                : null);
+        form.setOffSite(line.isOffSite());
         return form;
     }
 
@@ -373,6 +438,131 @@ public class BudgetCommands {
             forms.add(formOf(line));
         }
         return forms;
+    }
+
+    /** The line dialog's Category menu: every category, in menu order, value = the enum name. */
+    public List<Choice> categories() {
+        final List<Choice> choices = new ArrayList<>();
+        for (final BudgetCategory category : BudgetCategory.values()) {
+            choices.add(choice(category.name(), category.getLabel()));
+        }
+        return choices;
+    }
+
+    /**
+     * The lines a percent line of {@code kind} may follow: every line of the same kind except {@code lineId}
+     * itself, labelled with its current amount ("Guide ($1,440.00)"). Lines that already depend on
+     * {@code lineId} are listed too; choosing one is refused on save as a cycle, with the reason.
+     */
+    public List<Choice> percentChoices(final String tripId, final String kind, final String lineId) {
+        final List<Choice> choices = new ArrayList<>();
+        final Trip trip = knownTrip(tripId);
+        final BudgetLineKind wanted = parse(BudgetLineKind.class, kind);
+        if (trip == null || wanted == null || !canViewBudget(tripId)) {
+            return choices;
+        }
+        for (final BudgetLine line : budgetOrDefault(trip, Cached.YES).getLines()) {
+            if (line.getKind() == wanted && !line.getId().equals(lineId)) {
+                choices.add(choice(line.getId(), line.getName() + " (" + money(line.getAmountCents()) + ")"));
+            }
+        }
+        return choices;
+    }
+
+    private static Choice choice(final String id, final String label) {
+        final Choice choice = new Choice();
+        choice.setId(id);
+        choice.setLabel(label);
+        return choice;
+    }
+
+    // ================================================================== clone
+
+    /** How many recent trips the clone menu looks through for the organization's budgets. */
+    static final int CLONE_SCAN = 400;
+
+    /** Whether "Clone budget from..." is offered: an editor, on a budget with no lines of any kind yet. */
+    public boolean canClone(final String tripId) {
+        if (!canEditBudget(tripId)) {
+            return false;
+        }
+        final TripBudget budget = DAO.getInstance().getTripBudget(tripId, Cached.YES).orElse(null);
+        return budget == null || (budget.getLines().isEmpty() && budget.getLodging().isEmpty());
+    }
+
+    /**
+     * The budgets this trip may be cloned from: other trips of the SAME organization (the tenancy boundary;
+     * never another org's) whose budget the caller may read and that has at least one line, newest first.
+     */
+    public List<Choice> cloneChoices(final String tripId) {
+        final List<Choice> choices = new ArrayList<>();
+        final Trip trip = knownTrip(tripId);
+        if (trip == null || trip.getOrgId() == null || !canEditBudget(tripId)) {
+            return choices;
+        }
+        for (final Trip source : DAO.getInstance().getRecentTrips(CLONE_SCAN, Cached.YES)) {
+            if (cloneable(trip, source)) {
+                final TripBudget budget = DAO.getInstance().getTripBudget(source.getId(), Cached.YES).orElse(null);
+                if (budget != null && !budget.getLines().isEmpty()) {
+                    choices.add(choice(source.getId(), source.getTitle() + " (" + budget.getLines().size()
+                            + (budget.getLines().size() == 1 ? " line)" : " lines)")));
+                }
+            }
+        }
+        return choices;
+    }
+
+    private boolean cloneable(final Trip target, final Trip source) {
+        return !source.getId().equals(target.getId()) && target.getOrgId().equals(source.getOrgId())
+                && canViewBudget(source.getId());
+    }
+
+    /**
+     * Fills this trip's EMPTY budget from another of the organization's budgets: every typed line (fresh ids,
+     * percent links re-pointed at the copies), the per-person shared budget and the basic ground budget.
+     * People and nights stay this trip's, and lodging lines are not copied, because they point at the source
+     * trip's own lodging options; the growl says so.
+     */
+    public boolean cloneBudget(final String tripId, final String fromTripId) {
+        final Trip trip = editableTrip(tripId, fromTripId, PageFeedback::refuse);
+        if (trip == null) {
+            return false;
+        }
+        if (!canClone(tripId)) {
+            return refuse("This budget already has lines: a budget can only be cloned into an empty one.");
+        }
+        final Trip source = knownTrip(fromTripId);
+        if (source == null || trip.getOrgId() == null || !cloneable(trip, source)) {
+            return refuse("Choose another of this organization's budgets to clone from.");
+        }
+        final TripBudget from = DAO.getInstance().getTripBudget(fromTripId, Cached.NO).orElse(null);
+        if (from == null || from.getLines().isEmpty()) {
+            return refuse("That trip has no budget lines to clone.");
+        }
+        final TripBudget budget = budgetOrDefault(trip, Cached.NO);
+        budget.setPerPersonBudgetCents(from.getPerPersonBudgetCents());
+        budget.setToBillCents(from.getToBillCents());
+        budget.getLines().addAll(copies(from.getLines()));
+        final String lodging = from.hasLodging() ? " Lodging lines were not copied: add this trip's own." : "";
+        return persist(trip, budget, PageFeedback::refuse, "cloned " + from.getLines().size() + " lines from '"
+                + source.getTitle() + "'", "Budget cloned from " + source.getTitle() + "." + lodging);
+    }
+
+    /** Copies of the lines with fresh ids, each percent link re-pointed at the copy of the line it followed. */
+    private static List<BudgetLine> copies(final List<BudgetLine> lines) {
+        final Map<String, String> ids = new LinkedHashMap<>();
+        for (final BudgetLine line : lines) {
+            ids.put(line.getId(), UUID.randomUUID().toString());
+        }
+        final List<BudgetLine> out = new ArrayList<>();
+        for (final BudgetLine line : lines) {
+            out.add(BudgetLine.builder().id(ids.get(line.getId())).kind(line.getKind()).category(line.getCategory())
+                    .name(line.getName()).amountCents(line.getAmountCents()).perNight(line.isPerNight())
+                    .note(line.getNote()).payee(line.getPayee())
+                    .percentOf(line.isPercent() ? ids.get(line.getPercentOf()) : null)
+                    .percentBps(line.getPercentBps()).offSite(line.isOffSite()).build());
+        }
+        return out;
     }
 
     /** The trip's offered lodging options for the lodging dialog's menu, by hotel then option name. */
@@ -452,6 +642,7 @@ public class BudgetCommands {
         form.setSingles(line.getSingles());
         form.setPayee(line.getPayee());
         form.setNote(line.getNote());
+        form.setOffSite(line.isOffSite());
         return form;
     }
 
@@ -563,12 +754,25 @@ public class BudgetCommands {
             return refused(refusal, "A budget holds at most " + MAX_LINES + " lines.");
         }
         final BudgetLine line = BudgetLine.builder().id(adding ? null : existing.getId()).kind(kind)
-                .category(category).name(form.getName()).amountCents(cents(form.getAmount()))
-                .perNight(form.isPerNight()).note(form.getNote()).payee(form.getPayee()).build();
+                .category(category).name(form.getName())
+                .amountCents(form.isPercentMode() ? 0L : cents(form.getAmount()))
+                .percentOf(form.isPercentMode() ? form.getPercentOf() : null)
+                .percentBps(form.isPercentMode() ? bps(form.getPercent()) : 0)
+                .perNight(form.isPerNight()).note(form.getNote()).payee(form.getPayee()).offSite(form.isOffSite())
+                .build();
         if (adding) {
             budget.getLines().add(line);
         } else {
             budget.getLines().set(budget.getLines().indexOf(existing), line);
+        }
+        // Checked against the budget WITH this line in place: a cycle runs through the line being saved.
+        final String percent = BudgetMath.percentProblem(budget, line);
+        if (percent != null) {
+            return refused(refusal, percent);
+        }
+        if (!adding && line.getKind() != existing.getKind() && !budget.linesFollowing(line.getId()).isEmpty()) {
+            return refused(refusal, "Other lines are a percentage of this one, so it cannot change between shared "
+                    + "and per person.");
         }
         if (!persist(trip, budget, refusal, (adding ? "added" : "edited") + " line '" + line.getName() + "'",
                 "Line saved.")) {
@@ -592,8 +796,28 @@ public class BudgetCommands {
         if (form.getName().trim().length() > MAX_NAME) {
             return "A line's name is at most " + MAX_NAME + " characters.";
         }
-        final String amount = dollarsProblem("The amount", form.getAmount());
+        final String amount = form.isPercentMode() ? percentProblem(form) : dollarsProblem("The amount",
+                form.getAmount());
         return (amount != null) ? amount : textProblem(form.getNote(), form.getPayee());
+    }
+
+    private static String percentProblem(final LineForm form) {
+        if (form.getPercentOf() == null || form.getPercentOf().isBlank()) {
+            return "Choose the line the percentage is of.";
+        }
+        final Double percent = form.getPercent();
+        if (percent == null || percent.isNaN() || percent.isInfinite() || percent <= 0
+                || bps(percent) > BudgetLine.MAX_PERCENT_BPS) {
+            return "The percentage must be more than 0% and at most "
+                    + percentText(BudgetLine.MAX_PERCENT_BPS) + ".";
+        }
+        return null;
+    }
+
+    /** A percentage (12.5) to basis points (1250), HALF_UP; 0 for null. */
+    static int bps(final Double percent) {
+        return (percent == null) ? 0
+                : BigDecimal.valueOf(percent).movePointRight(2).setScale(0, RoundingMode.HALF_UP).intValueExact();
     }
 
     /** Deletes a typed line; refusals growl. Deleting a line that is already gone succeeds quietly. */
@@ -607,13 +831,18 @@ public class BudgetCommands {
         if (line == null) {
             return true;
         }
+        final List<BudgetLine> following = budget.linesFollowing(lineId);
+        if (!following.isEmpty()) {
+            return refuse("'" + following.get(0).getName() + "' is a percentage of '" + line.getName()
+                    + "': change or delete it first.");
+        }
         budget.getLines().remove(line);
         return persist(trip, budget, PageFeedback::refuse, "deleted line '" + line.getName() + "'", "Line deleted.");
     }
 
     /**
-     * Moves a typed line one place up ({@code dir < 0}) or down within its own group (same kind and category):
-     * the page lists each group on its own, so a swap across groups would look like nothing happened.
+     * Moves a typed line one place up ({@code dir < 0}) or down within its own table (same kind): the shared
+     * and per-person lines are listed apart, so a swap across them would look like nothing happened.
      */
     public boolean moveLine(final String tripId, final String lineId, final int dir) {
         final Trip trip = editableTrip(tripId, lineId, PageFeedback::refuse);
@@ -630,7 +859,7 @@ public class BudgetCommands {
         final int step = (dir < 0) ? -1 : 1;
         for (int i = from + step; i >= 0 && i < lines.size(); i += step) {
             final BudgetLine other = lines.get(i);
-            if (other.getKind() == line.getKind() && other.getCategory() == line.getCategory()) {
+            if (other.getKind() == line.getKind()) {
                 Collections.swap(lines, from, i);
                 return persist(trip, budget, PageFeedback::refuse, "moved line '" + line.getName() + "'", null);
             }
@@ -668,6 +897,7 @@ public class BudgetCommands {
                 .offerId(offer.getId().getValue()).label(offerName(offer)).nights(form.getNights())
                 .people(form.getPeople()).rooms(form.isNeedsRooms() ? form.getRooms() : 0)
                 .singles(form.isNeedsSingles() ? form.getSingles() : 0).payee(form.getPayee()).note(form.getNote())
+                .offSite(form.isOffSite())
                 .build();
         if (adding) {
             budget.getLodging().add(line);
@@ -738,6 +968,8 @@ public class BudgetCommands {
     /** Stamps a new budget, saves it with one versioned put, audits, and growls {@code done} when non-null. */
     private boolean persist(final Trip trip, final TripBudget budget, final Consumer<String> refusal,
             final String what, final String done) {
+        // Every save re-derives the percent lines, so an edit of the line they follow reaches them too.
+        BudgetMath.resolvePercents(budget);
         if (budget.getVersion() == 0L) {
             budget.setTripId(trip.getId());
             budget.setOrgId(trip.getOrgId());

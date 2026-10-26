@@ -1,14 +1,18 @@
 package org.paulsens.trip.model;
 
 /**
- * The group a SHARED {@link BudgetLine} is listed under on the budget page, each with its own subtotal. The
- * sheet the budget replaced kept scholarships and leader expenses as named sub-lists that rolled up into one
- * shared line each; the categories are those sub-lists.
+ * What kind of cost a SHARED {@link BudgetLine} is: shown in the Shared Expenses table's Category column and
+ * offered, in this order, by the line dialog. {@code GENERAL} is the catch-all ("Other"); its stored name is
+ * kept so lines saved before the named categories existed still read.
  */
 public enum BudgetCategory {
-    GENERAL("General"),
+    TRANSPORTATION("Transportation"),
+    GUIDE("Guide"),
+    SUPPLIES("Supplies"),
+    TIPS("Tips"),
     SCHOLARSHIP("Scholarships"),
-    LEADER("Leader expenses");
+    LEADER("Leader expenses"),
+    GENERAL("Other");
 
     private final String label;
 

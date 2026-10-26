@@ -50,11 +50,36 @@ public class BudgetLineTest {
     }
 
     @Test
+    public void percentLinesClampAndAPlainLineIsOnSite() {
+        final BudgetLine plain = new BudgetLine();
+        assertFalse(plain.isPercent());
+        assertTrue(plain.isOnSite(), "on site unless marked otherwise");
+        assertEquals(BudgetLine.builder().percentBps(500).build().getPercentBps(), 0, "no base, no percentage");
+        final BudgetLine tips = BudgetLine.builder().percentOf(" guide ").percentBps(250_000).offSite(true).build();
+        assertTrue(tips.isPercent());
+        assertEquals(tips.getPercentOf(), "guide");
+        assertEquals(tips.getPercentBps(), BudgetLine.MAX_PERCENT_BPS);
+        assertEquals(BudgetLine.builder().percentOf("g").percentBps(-5).build().getPercentBps(), 0);
+        assertFalse(tips.isOnSite());
+    }
+
+    @Test
+    public void aRowWrittenBeforeTheFlagsReadsAsATypedOnSiteLine() throws Exception {
+        final BudgetLine old = DAO.getInstance().getMapper().readValue(
+                "{\"id\":\"l\",\"kind\":\"SHARED\",\"category\":\"GENERAL\",\"name\":\"Van\",\"amountCents\":5}",
+                BudgetLine.class);
+        assertTrue(old.isOnSite());
+        assertFalse(old.isPercent());
+        assertEquals(old.getCategory(), BudgetCategory.GENERAL);
+        assertEquals(old.getCategory().getLabel(), "Other");
+    }
+
+    @Test
     public void jsonRoundTrip() throws Exception {
         final ObjectMapper mapper = DAO.getInstance().getMapper();
         final BudgetLine line = BudgetLine.builder().id("l1").kind(BudgetLineKind.SHARED)
                 .category(BudgetCategory.SCHOLARSHIP).name("Sr. Dorothy").amountCents(184_853).note("air")
-                .payee("Airline").build();
+                .payee("Airline").percentOf("base").percentBps(1_250).offSite(true).build();
         final BudgetLine back = mapper.readValue(mapper.writeValueAsString(line), BudgetLine.class);
         assertEquals(back, line);
         assertFalse(mapper.writeValueAsString(line).contains("shared"), "Derived flags are not stored");
