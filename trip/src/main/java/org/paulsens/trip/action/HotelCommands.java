@@ -555,7 +555,7 @@ public class HotelCommands {
         final LocalDateTime to = (offer.getValidUntil() != null) ? offer.getValidUntil() : offer.getDefaultEnd();
         return new HotelOptionRow(offer.getId().getValue(), offer.getName(),
                 LodgingCommands.roomTypeNames(acc, offer), dateSpan(dateOf(from), dateOf(to)),
-                OfferSchedules.operatorCostLabel(offer));
+                OfferSchedules.operatorCostLabel(offer), OfferSchedules.extraLines(offer.getCostExtras()));
     }
 
     private static HotelStayRow stayRow(final Accommodation acc, final Reservation res, final String guests,

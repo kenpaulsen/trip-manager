@@ -1010,8 +1010,8 @@ public class LodgingCommands {
                     roomTypeNames(acc, offer), event == null ? "" : event.getTitle(),
                     OfferSchedules.pricingLabel(offer), range(offer.getValidFrom(), offer.getValidUntil()),
                     range(offer.getDefaultStart(), offer.getDefaultEnd()), count, referencing, offer.isEnabled(),
-                    OfferSchedules.costLabel(offer), !offer.isPriced(), link.planName(), link.drift(),
-                    offer.isLinked()));
+                    OfferSchedules.costRateLabel(offer), !offer.isPriced(), link.planName(), link.drift(),
+                    offer.isLinked(), OfferSchedules.extraLines(offer.getCostExtras())));
         }
         return rows;
     }

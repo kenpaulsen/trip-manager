@@ -60,8 +60,10 @@ public final class HotelViews {
         /** The room types the option sells, names joined with ", ". */
         private String roomTypes;
         private String dates;
-        /** The hotel's stated cost ("$50.00/night per room, +1 extra"), or "not set". Never the price. */
+        /** The hotel's stated nightly cost ("$50.00/night per room"), or "not set". Never the price. */
         private String costSummary;
+        /** The lines under the cost: nightly extras summed per basis, then each one-time extra. */
+        private List<String> costExtras = new ArrayList<>();
     }
 
     /** One active stay at this hotel: who, when, which room. */

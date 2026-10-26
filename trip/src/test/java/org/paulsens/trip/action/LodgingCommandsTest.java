@@ -2060,8 +2060,9 @@ public class LodgingCommandsTest {
         assertEquals(back.getCostPerNightRates().get("2027-09-22"), "60.00");
         assertEquals(back.getCostExtras().get(0).getLabel(), "City tax");
         assertEquals(back.getCostExtras().get(1).getAmount(), -20.0);
-        assertEquals(admin.offerRows(own.getId()).get(0).getCost(),
-                "varies by night per person, +$5.00 single, +2 extras");
+        assertEquals(admin.offerRows(own.getId()).get(0).getCost(), "varies by night per person, +$5.00 single");
+        assertEquals(admin.offerRows(own.getId()).get(0).getCostExtras(),
+                List.of("+$1.50/night per person (City tax)", "Coupon: -$20.00 once"), "the extras sit under the rate");
 
         audit.lines.clear();
         back.setNightlyPrice(100.0);
@@ -2132,7 +2133,7 @@ public class LodgingCommandsTest {
         assertEquals(new LodgingBiller(new TransactionsCommands()).billedByPerson(res),
                 Map.of(guest.getId(), 3 * 12000L), "a cost is not a bill");
         assertEquals(admin.offerRows(own.getId()).stream().filter(r -> r.getId().equals(costed.getId().getValue()))
-                .findFirst().orElseThrow().getCost(), "$70.00/night per room, +1 extra");
+                .findFirst().orElseThrow().getCost(), "$70.00/night per room");
 
         final LodgingViews.OfferCostForm elsewhere = admin.offerCostFormFor(own.getId(), b.offer().getId().getValue());
         elsewhere.setCostKnown(true);

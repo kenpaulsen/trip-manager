@@ -6,6 +6,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import org.paulsens.trip.action.LodgingViews.CostExtraForm;
 import org.paulsens.trip.action.RatePlanViews.AttachForm;
@@ -60,9 +61,11 @@ public class RatePlanViewsTest {
     @Test
     public void aRowCarriesTheHotelsSideOnly() throws Exception {
         final RatePlanRow row = new RatePlanRow("p-1", "Autumn", "Double, Triple", "Sep 1 - Oct 31, 2027",
-                "$50.00/night per room, +1 extra", "Spring trip, 1 other trip", 2, false, "notes");
+                "$50.00/night per room", "Spring trip, 1 other trip", 2, false, "notes",
+                new ArrayList<>(List.of("City tax: $12.00 once")));
         final RatePlanRow back = roundTrip(row);
-        assertEquals(back.getCostSummary(), "$50.00/night per room, +1 extra");
+        assertEquals(back.getCostSummary(), "$50.00/night per room");
+        assertEquals(back.getCostExtras(), List.of("City tax: $12.00 once"));
         assertEquals(back.getLinkedCount(), 2);
         assertEquals(back.getLinkedTrips(), "Spring trip, 1 other trip");
         assertEquals(back.getDates(), "Sep 1 - Oct 31, 2027");

@@ -341,14 +341,19 @@ final class OfferSchedules {
         return offer.isPriced() ? scheduleLabel(offer.getPrice()) : NEEDS_PRICING;
     }
 
-    /** The Offers tab's cost column: the stated cost (extras counted), else {@link #COST_UNSET}. */
+    /** The audit line's cost: the stated cost (extras counted), else {@link #COST_UNSET}. */
     static String costLabel(final ReservationOffer offer) {
         return (offer.getCost() == null) ? COST_UNSET : scheduleLabel(offer.getCost()) + extrasSuffix(offer);
     }
 
+    /** The Offers tab's cost column: the stated nightly cost, else {@link #COST_UNSET}; extras go below it. */
+    static String costRateLabel(final ReservationOffer offer) {
+        return (offer.getCost() == null) ? COST_UNSET : scheduleLabel(offer.getCost());
+    }
+
     /** The cost as a Hotel Operator reads it: the stated cost, else {@link #COST_NOT_SET}; never the price. */
     static String operatorCostLabel(final ReservationOffer offer) {
-        return (offer.getCost() == null) ? COST_NOT_SET : scheduleLabel(offer.getCost()) + extrasSuffix(offer);
+        return (offer.getCost() == null) ? COST_NOT_SET : scheduleLabel(offer.getCost());
     }
 
     static String scheduleLabel(final RateSchedule schedule) {
@@ -368,10 +373,48 @@ final class OfferSchedules {
         return (count == 0) ? "" : ", +" + count + (count == 1 ? " extra" : " extras");
     }
 
+    /**
+     * The lines shown under a cost: the NIGHTLY extras summed per basis ("+$12.00/night per person (City tax,
+     * Tourist tax)"), then each ONE-TIME extra by name ("Cleaning: $20.00 per stay", "Coupon: -$10.00 once").
+     * Nightly ones are summed only within a basis: a per-person and a per-room amount do not add up to a rate.
+     */
+    static List<String> extraLines(final List<CostExtra> extras) {
+        final List<String> lines = new ArrayList<>();
+        nightlyLine(extras, CostExtra.Basis.PER_PERSON_NIGHT, " per person", lines);
+        nightlyLine(extras, CostExtra.Basis.PER_ROOM_NIGHT, " per room", lines);
+        for (final CostExtra extra : extras) {
+            if (extra.getBasis() == CostExtra.Basis.PER_STAY) {
+                lines.add(extra.getLabel() + ": " + signed(extra.getAmountCents(), "") + " per stay");
+            } else if (extra.getBasis() == CostExtra.Basis.FIXED) {
+                lines.add(extra.getLabel() + ": " + signed(extra.getAmountCents(), "") + " once");
+            }
+        }
+        return lines;
+    }
+
+    private static void nightlyLine(final List<CostExtra> extras, final CostExtra.Basis basis, final String per,
+            final List<String> lines) {
+        long sum = 0;
+        final List<String> names = new ArrayList<>();
+        for (final CostExtra extra : extras) {
+            if (extra.getBasis() == basis) {
+                sum += extra.getAmountCents();
+                names.add(extra.getLabel());
+            }
+        }
+        if (!names.isEmpty()) {
+            lines.add(signed(sum, "+") + "/night" + per + " (" + String.join(", ", names) + ")");
+        }
+    }
+
+    /** "$12.00" led by {@code plus}, or "-$10.00": {@code formatCents} alone would write "$-10.00". */
+    private static String signed(final long cents, final String plus) {
+        return (cents < 0) ? "-" + MoneyMath.formatCents(-cents) : plus + MoneyMath.formatCents(cents);
+    }
+
     /** The plan's cost as any reader of the plan table sees it: the stated cost, else {@link #COST_NOT_SET}. */
     static String planCostLabel(final RatePlan plan) {
-        return (plan.getCost() == null) ? COST_NOT_SET
-                : scheduleLabel(plan.getCost()) + extrasSuffix(plan.getCostExtras().size());
+        return (plan.getCost() == null) ? COST_NOT_SET : scheduleLabel(plan.getCost());
     }
 
     // ================================================================== the link, as the Offers tab reads it

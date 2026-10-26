@@ -113,7 +113,8 @@ public class RatePlanCommands {
     private RatePlanRow rowOf(final Accommodation acc, final RatePlan plan) {
         return new RatePlanRow(plan.getId().getValue(), plan.getName(), roomTypeNames(acc, plan.getRoomTypeIds()),
                 datesLabel(plan), OfferSchedules.planCostLabel(plan), linkedTripsLabel(acc, plan),
-                plan.getLinkedTripIds().size(), plan.isRetired(), plan.getNotes());
+                plan.getLinkedTripIds().size(), plan.isRetired(), plan.getNotes(),
+                OfferSchedules.extraLines(plan.getCostExtras()));
     }
 
     /** "Double, Triple": the plan's room types by name, in its order; a type no longer at the hotel reads "?". */

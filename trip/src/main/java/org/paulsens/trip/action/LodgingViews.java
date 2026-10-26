@@ -768,7 +768,7 @@ public final class LodgingViews {
         /** Every reservation naming the option, cancelled ones included: what {@code deleteOffer} refuses on. */
         private int referencingCount;
         private boolean enabled;
-        /** The hotel's cost ("$60.00/night per room, +1 extra"), or "not set". */
+        /** The hotel's nightly cost ("$60.00/night per room"), or "not set"; its extras are {@link #costExtras}. */
         private String cost;
         /** True while the option has no participant price: no stay may be reserved on it. */
         private boolean needsPricing;
@@ -778,6 +778,8 @@ public final class LodgingViews {
         private boolean planDrift;
         /** True when the option follows a rate plan (the "from plan X" chip, the Detach button). */
         private boolean linked;
+        /** The lines under the cost: nightly extras summed per basis, then each one-time extra. */
+        private List<String> costExtras = new ArrayList<>();
     }
 
     @Data

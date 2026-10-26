@@ -454,7 +454,12 @@ pairs), `PER_STAY` (x active stays with at least one night), `FIXED` (once per o
 counts) -- and a SIGNED `amountCents`, so a coupon is a negative extra and comes out negative
 (`CostExtras.quantity` / `amountCents` / `describe`: "City tax: $2.50 × 12 guest-nights", "Coupon:
 -$20.00"). Extras are never attributed to a person and never reach a bill or the price side; the invoice
-totals them per option as `EXTRA` lines (`RoomInvoiceBuilder`, `docs/reports.md`).
+totals them per option as `EXTRA` lines (`RoomInvoiceBuilder`, `docs/reports.md`). Every cost cell (the
+Offers tab's "Hotel cost", the hotel page's Trips and Rate plans tabs) shows the nightly rate alone and lists
+the extras UNDER it (`OfferSchedules.extraLines`, 2026-10-26: the column used to say only "+1 extra"):
+nightly extras summed per basis ("+$4.00/night per person (City tax, Tourist tax)"; a per-person and a
+per-room amount are never added together), then each one-time extra by name ("Cleaning: $20.00 per stay",
+"Coupon: -$10.00 once").
 
 ## Cancelling
 

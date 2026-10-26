@@ -104,7 +104,8 @@ public class RatePlanCommandsTest {
         assertEquals(keeperRows.get(0).getName(), "Hotel rate");
         assertEquals(keeperRows.get(0).getRoomTypes(), "Double");
         assertEquals(keeperRows.get(0).getDates(), "Sep 1 - Oct 31, 2027");
-        assertEquals(keeperRows.get(0).getCostSummary(), "$50.00/night per room, +1 extra");
+        assertEquals(keeperRows.get(0).getCostSummary(), "$50.00/night per room");
+        assertEquals(keeperRows.get(0).getCostExtras().size(), 1, "the extra is listed under the cost");
         assertEquals(keeperRows.get(0).getLinkedCount(), 0);
         assertEquals(keeperRows.get(0).getLinkedTrips(), "");
         assertEquals(plans.rows(accId), keeperRows, "a site admin reads exactly the operator's rows: no price");
@@ -279,7 +280,8 @@ public class RatePlanCommandsTest {
         assertTrue(row.isNeedsPricing());
         assertEquals(row.getRatePlanName(), "Season rate");
         assertFalse(row.isPlanDrift());
-        assertEquals(row.getCost(), "$50.00/night per room, +1 extra");
+        assertEquals(row.getCost(), "$50.00/night per room");
+        assertEquals(row.getCostExtras().size(), 1, "the plan's extra follows the option");
         assertTrue(admin.pricedOffers(trip.getId()).isEmpty(), "no stay may be taken on it yet");
 
         // The Offers tab prices the linked option: ITS price, the cost still the plan's whatever the form says.

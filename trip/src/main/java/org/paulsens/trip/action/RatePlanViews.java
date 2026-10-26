@@ -39,13 +39,15 @@ public final class RatePlanViews {
         private String roomTypes;
         /** "Sep 1 - Oct 31, 2026", "from Sep 1, 2026", "until Oct 31, 2026" or "any dates". */
         private String dates;
-        /** The hotel's cost ("$50.00/night per room, +1 extra"), or "not set". */
+        /** The hotel's nightly cost ("$50.00/night per room"), or "not set"; its extras are {@link #costExtras}. */
         private String costSummary;
         /** The linked trips the caller may name, joined with ", "; unnamed ones counted ("2 other trips"). */
         private String linkedTrips;
         private int linkedCount;
         private boolean retired;
         private String notes;
+        /** The lines under the cost: nightly extras summed per basis, then each one-time extra. */
+        private List<String> costExtras = new ArrayList<>();
     }
 
     /**

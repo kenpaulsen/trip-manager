@@ -246,7 +246,7 @@ public class LodgingResourceTest extends ResourceTestSupport {
         final List<?> rows = (List<?>) keeperRows.getEntity();
         assertEquals(rows.size(), 1);
         final RatePlanViews.RatePlanRow row = (RatePlanViews.RatePlanRow) rows.get(0);
-        assertEquals(row.getCostSummary(), "$50.00/night per room, +1 extra");
+        assertEquals(row.getCostSummary(), "$50.00/night per room");
         assertEquals(row.getLinkedCount(), 0);
         assertError(asKeeper.createOfferFromPlan(own.getId(), CSRF_OK, Map.of("accId", a[0], "planId", planId)),
                 403, ApiErrors.FORBIDDEN, "attaching is the trip's business");
@@ -255,7 +255,7 @@ public class LodgingResourceTest extends ResourceTestSupport {
         final Response adminRows = resource.ratePlans(a[0]);
         assertOk(adminRows);
         assertEquals(((RatePlanViews.RatePlanRow) ((List<?>) adminRows.getEntity()).get(0)).getCostSummary(),
-                "$50.00/night per room, +1 extra", "the same row for every reader");
+                "$50.00/night per room", "the same row for every reader");
 
         // Without price keys: the option follows the plan's cost and needs participant pricing.
         final Set<String> before = new HashSet<>();
