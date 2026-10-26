@@ -181,7 +181,10 @@ public final class BudgetViews {
         private String margin;
         private boolean marginNegative;
         private boolean onSite;
+        /** What one participant is charged for lodging. */
         private String perPersonPrice;
+        /** What one participant costs at the hotel: the line's hotel cost over its people. */
+        private String perPersonCost;
         /** The single-room add-on, or "none" under a per-room price. */
         private String singleAddOn;
         private String totalPerPersonGround;

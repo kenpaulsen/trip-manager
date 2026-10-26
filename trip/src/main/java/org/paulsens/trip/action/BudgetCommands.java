@@ -311,6 +311,7 @@ public class BudgetCommands {
         row.setMargin(money(figures.margin()));
         row.setMarginNegative(figures.margin() < 0);
         row.setPerPersonPrice(money(figures.perPersonPrice()));
+        row.setPerPersonCost(money(figures.perPersonCost()));
         row.setSingleAddOn(figures.singleAddOnApplies() ? money(figures.singleAddOn()) : "none");
         row.setTotalPerPersonGround(money(BudgetMath.totalPerPersonGround(budget, figures)));
         final long reference = BudgetMath.toBillReference(budget, figures);

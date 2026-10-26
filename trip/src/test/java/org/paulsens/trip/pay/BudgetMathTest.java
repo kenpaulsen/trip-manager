@@ -100,7 +100,9 @@ public class BudgetMathTest {
         assertTrue(figures.singleAddOnApplies());
         assertFalse(figures.priceMissing());
         assertFalse(figures.costMissing());
-        assertEquals(BudgetMath.totalPerPersonGround(budget, figures), 945_70L);
+        assertEquals(figures.perPersonCost(), 304_61L, "14,012.00 / 46 = 304.608..., HALF_UP");
+        assertEquals(BudgetMath.totalPerPersonGround(budget, figures), 650_31L,
+                "345.70 shared + 304.61 hotel cost: the participant price never enters a cost");
         assertEquals(BudgetMath.toBillReference(budget, figures), 1_000_00L);
         assertEquals(BudgetMath.overall(budget, figures.margin()), 18_085_81L);
     }
@@ -116,6 +118,7 @@ public class BudgetMathTest {
         assertFalse(figures.singleAddOnApplies(), "A single occupant pays the whole room");
         assertEquals(figures.singleAddOn(), 0L);
         assertEquals(figures.hotelCost(), 645_00L, "7 x 3 x $30 + 1 x 3 x $5");
+        assertEquals(figures.perPersonCost(), 92_14L, "645 / 7 = 92.142..., the single supplement spread over all");
         assertEquals(BudgetMath.lodging(BudgetLodgingLine.builder().nights(3).build(), offer).perPersonPrice(), 0L,
                 "Nobody to share it: 0, not a division by zero");
     }
@@ -141,7 +144,7 @@ public class BudgetMathTest {
         final LodgingFigures gone = BudgetMath.lodging(line, null);
         assertTrue(gone.priceMissing());
         assertTrue(gone.costMissing());
-        assertEquals(gone.revenue() + gone.hotelCost() + gone.perPersonPrice(), 0L);
+        assertEquals(gone.revenue() + gone.hotelCost() + gone.perPersonPrice() + gone.perPersonCost(), 0L);
         assertEquals(BudgetMath.lodging(null, seededShape()), gone);
     }
 
@@ -194,7 +197,7 @@ public class BudgetMathTest {
                 .build());
         assertEquals(BudgetMath.individualExtras(budget), 53_00L, "$5 x 10 nights + $3");
         final LodgingFigures figures = BudgetMath.lodging(oracleLine(), seededShape());
-        assertEquals(BudgetMath.totalPerPersonGround(budget, figures), 998_70L);
+        assertEquals(BudgetMath.totalPerPersonGround(budget, figures), 703_31L);
         assertEquals(BudgetMath.toBillReference(budget, figures), 1_053_00L);
         assertEquals(BudgetMath.sharedTotal(budget), 15_902_19L, "Individual lines are not shared costs");
     }

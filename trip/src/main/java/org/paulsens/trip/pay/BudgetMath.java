@@ -30,12 +30,14 @@ public final class BudgetMath {
     }
 
     /**
-     * One lodging line's figures. {@code singleAddOn} is meaningful only when {@code singleAddOnApplies} (a
+     * One lodging line's figures. {@code perPersonPrice} is what one participant is CHARGED; {@code perPersonCost}
+     * is what one participant COSTS at the hotel (the line's hotel cost, extras and cost-side supplements
+     * included, over its people). {@code singleAddOn} is meaningful only when {@code singleAddOnApplies} (a
      * PER_PERSON price): under PER_ROOM a single occupant pays the whole room, so there is no add-on.
      */
-    public record LodgingFigures(long revenue, long hotelCost, long margin, long perPersonPrice, long singleAddOn,
-            boolean singleAddOnApplies, boolean priceMissing, boolean costMissing) {
-        static final LodgingFigures NONE = new LodgingFigures(0L, 0L, 0L, 0L, 0L, false, true, true);
+    public record LodgingFigures(long revenue, long hotelCost, long margin, long perPersonPrice, long perPersonCost,
+            long singleAddOn, boolean singleAddOnApplies, boolean priceMissing, boolean costMissing) {
+        static final LodgingFigures NONE = new LodgingFigures(0L, 0L, 0L, 0L, 0L, 0L, false, true, true);
     }
 
     /**
@@ -84,8 +86,8 @@ public final class BudgetMath {
             perPersonPrice = divide(revenue, line.getPeople());
         }
         final long singleAddOn = perPerson ? line.getNights() * price.getSingleSupplementCents() : 0L;
-        return new LodgingFigures(revenue, hotelCost, revenue - hotelCost, perPersonPrice, singleAddOn, perPerson,
-                price == null, offer.getCost() == null);
+        return new LodgingFigures(revenue, hotelCost, revenue - hotelCost, perPersonPrice,
+                divide(hotelCost, line.getPeople()), singleAddOn, perPerson, price == null, offer.getCost() == null);
     }
 
     /** What one schedule charges for the line: per person (plus single supplements) or per room; 0 when null. */
@@ -221,9 +223,12 @@ public final class BudgetMath {
         return sum;
     }
 
-    /** What one participant on this lodging line costs: shared share + lodging price + individual extras. */
+    /**
+     * What one participant on this lodging line actually COSTS: the shared share + the per-person HOTEL cost +
+     * individual extras. The hotel cost, never the participant price: a price is what is charged, not a cost.
+     */
     public static long totalPerPersonGround(final TripBudget budget, final LodgingFigures figures) {
-        return estimatedPerPerson(budget) + figures.perPersonPrice() + individualExtras(budget);
+        return estimatedPerPerson(budget) + figures.perPersonCost() + individualExtras(budget);
     }
 
     /** The computed to-bill figure for this lodging line: per-person budget + lodging price + individual extras. */

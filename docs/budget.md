@@ -90,7 +90,8 @@ The whole budget:
 | sharedTotal(category) / sharedTotal | Σ SHARED lines in the category / all | 5,940.00 · 3,848.53 · 6,113.66 / 15,902.19 |
 | estimatedPerPerson | sharedTotal / people (0 when people = 0) | 345.70 |
 | individualExtras | Σ over INDIVIDUAL lines of (perNight ? amount × tripNights : amount) | 0 |
-| totalPerPersonGround(L) | estimatedPerPerson + perPersonPrice(L) + individualExtras | 945.70 |
+| perPersonCost(L) | hotelCost(L) / people(L), HALF_UP (0 when people = 0): cost extras and cost-side supplements spread over everyone | 304.61 |
+| totalPerPersonGround(L) | estimatedPerPerson + perPersonCost(L) + individualExtras: a COST, so the hotel cost, never the participant price | 650.31 |
 | toBillReference(L) | perPersonBudget + perPersonPrice(L) + individualExtras | 1,000.00 |
 | budgetLeftOver | perPersonBudget × people − sharedTotal ("should be a positive number") | 2,497.81 |
 | lodgingRevenue / lodgingCost / lodgingMargin | Σ over the lodging lines | |
@@ -112,7 +113,8 @@ per-option table shows each option's computed reference beside them, flagged abo
 
 **Lodging oracle** (the seeded rate plan's shape): price PER_PERSON $60 + $20 single, cost PER_ROOM $50 +
 FIXED $12 "City tax"; nights 10, people 46, rooms 28, singles 10 → revenue 29,600.00, hotel cost 14,012.00,
-margin 15,588.00, per-person price 600.00, single add-on 200.00, total per-person ground 945.70, to-bill
+margin 15,588.00, per-person price 600.00, per-person hotel cost 304.61, single add-on 200.00, total per-person
+ground 650.31, to-bill
 reference 1,000.00, overall 18,085.81. (The sheet's "Money to Huanita" cell, $32,600, includes something it
 does not itemize; the inputs alone give $29,600, so the tests use the formulas, not that cell.)
 

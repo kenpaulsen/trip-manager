@@ -321,7 +321,8 @@ public class BudgetCommandsTest {
         assertEquals(row.getMargin(), "$15,588.00");
         assertEquals(row.getPerPersonPrice(), "$600.00");
         assertEquals(row.getSingleAddOn(), "$200.00");
-        assertEquals(row.getTotalPerPersonGround(), "$945.70");
+        assertEquals(row.getPerPersonCost(), "$304.61");
+        assertEquals(row.getTotalPerPersonGround(), "$650.31", "shared + the per-person HOTEL cost");
         assertEquals(row.getToBillReference(), "$1,000.00");
         assertFalse(row.isBillAbove());
         assertFalse(row.isBillBelow(), "Typed $1,000 equals the reference");
