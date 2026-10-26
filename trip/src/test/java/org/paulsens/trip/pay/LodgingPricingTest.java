@@ -142,6 +142,36 @@ public class LodgingPricingTest {
         assertEquals(split.get(1).amountCents(), 2 * 5000L);
     }
 
+    /**
+     * Owner decision 2026-10-26: a room's nights are priced under ONE option. Every write refuses a second, so a
+     * mixed room is old data -- and each stay in it then pays its own option's whole room, which is what the Room
+     * Invoice's option table charges, so the two tables agree.
+     */
+    @Test
+    public void aRoomHoldingTwoOptionsChargesEachStayItsOwnWholeRoom() {
+        final ReservationOffer shared = perRoom(12000);
+        final ReservationOffer other = perRoom(8000);
+        final Reservation ada = under(shared, List.of(ADA), 0, 2);
+        final Reservation bob = under(other, List.of(BOB), 0, 2);
+        final Reservation cy = under(shared, List.of(CY), 0, 2);
+        final List<Reservation> room = List.of(ada, bob, cy);
+        assertEquals(LodgingPricing.underOption(room, ada), List.of(ada, cy));
+        assertEquals(LodgingPricing.underOption(List.of(bob), ada), List.of(ada), "self is added when absent");
+        final LodgingPricing.Line adaLine = LodgingPricing.price(ada, shared, PANSION, room, NAMES::get).get(0);
+        assertEquals(adaLine.amountCents(), 2 * 6000L, "split with Cy under the same option, never with Bob");
+        assertEquals(adaLine.description(), "Lodging: Double room — Pansion, Double, Room 114: 2 nights "
+                + "Sep 21–Sep 23, 2026, room rate $120.00/night split with Cy");
+        final LodgingPricing.Line bobLine = LodgingPricing.price(bob, other, PANSION, room, NAMES::get).get(0);
+        assertEquals(bobLine.amountCents(), 2 * 8000L, "Bob pays his own option's whole room");
+        assertFalse(bobLine.description().contains("split with"), bobLine.description());
+        final ReservationOffer perPerson = perPerson(5500, 2000);
+        final Reservation solo = under(perPerson, List.of(ADA), 0, 2);
+        assertEquals(LodgingPricing.price(solo, perPerson, PANSION, List.of(solo, bob), NAMES::get).get(0)
+                .supplementNights(), 2, "somebody under another option is not company either");
+        assertEquals(LodgingPricing.price(solo, perPerson, PANSION, List.of(solo, under(perPerson, List.of(CY), 0, 2)),
+                NAMES::get).get(0).supplementNights(), 0, "...where a roommate under the same option is");
+    }
+
     @Test
     public void cancelledAndInactiveReservationsNeverCount() {
         final ReservationOffer offer = perRoom(12000);
@@ -394,6 +424,14 @@ public class LodgingPricingTest {
                 .pricingModel(PricingModel.PER_ROOM).nightlyPriceCents(nightly).build();
         offer.setCost(new RateSchedule(PricingModel.PER_ROOM, nightly, null, 0L));
         return offer;
+    }
+
+    /** A stay in 114 under a NAMED option: the one-option-per-room rule compares offer ids. */
+    private static Reservation under(final ReservationOffer offer, final List<Person.Id> who, final int fromNight,
+            final int toNight) {
+        final Reservation res = reservation(who, fromNight, toNight, "r-114");
+        res.setOfferId(offer.getId());
+        return res;
     }
 
     private static Reservation reservation(final List<Person.Id> who, final int fromNight, final int toNight,

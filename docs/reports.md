@@ -186,10 +186,13 @@ Decisions made building it:
   `Varies by night`. A concession appends its label: `$30.00 (share of a $60.00 room) (10% discount)`.
 - **Names** are "Preferred Last" (`LodgingCommands.displayName`). The lodging option is shown under the
   name only when the hotel has more than one option, so a single-option hotel's table stays clean.
-- **One known edge:** a room holding stays under two DIFFERENT options on the same night bills each stay
-  its share of its own option's rate, while the option table charges each option's full room rate for its
-  nights, so the two totals can differ there. No trip does that today; the per-person table is the one that
-  matches the engine.
+- **A room holding two options agrees too (since 2026-10-26).** A room's nights are priced under ONE lodging
+  option -- every path that puts a stay into a room refuses a second option outright (`docs/lodging.md`, "One
+  lodging option per room per night") -- so a mixed room is old data. Where one exists, `LodgingPricing`
+  splits a per-room rate only among the occupants under the SAME option (`underOption`), so each stay pays its
+  own option's whole room, exactly what the option table charges; `RoomInvoiceReportTest
+  .aRoomHoldingTwoOptionsChargesEachItsWholeRoomInBothTables` guards the equality. The older "known edge" where
+  the per-person table split the rate across the options and the totals could differ is gone.
 
 In the PDF the per-person table follows the option table on the same sheet (no page break of its own), each
 accommodation still starting a new page; a table that spills repeats ITS OWN column headings on the

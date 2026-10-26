@@ -204,9 +204,10 @@ final class LodgingConcessions {
                 : "Not allowed: only the trip's lodging admins and the hotel's operators record a cost concession.";
     }
 
+    /** The dialog shows the form's problem; a growl too would render twice under the dialog's p:messages. */
     private static boolean refuseInto(final ConcessionForm form, final String message) {
         form.setProblem(message);
-        return refuse(message);
+        return false;
     }
 
     private static String sideOf(final String side) {

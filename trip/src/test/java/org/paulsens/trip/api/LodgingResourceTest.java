@@ -49,6 +49,7 @@ public class LodgingResourceTest extends ResourceTestSupport {
     private Person ada;
     private Person bob;
     private Person cy;
+    private Person dee;
     private Trip trip;
     private LodgingResource resource;
 
@@ -64,9 +65,10 @@ public class LodgingResourceTest extends ResourceTestSupport {
         ada = savedPerson("Ada");
         bob = savedPerson("Bob");
         cy = savedPerson("Cy");
+        dee = savedPerson("Dee");
         trip = Trip.builder().id(UUID.randomUUID().toString()).title("Api lodging trip")
                 .startDate(CHECK_IN).endDate(CHECK_OUT)
-                .people(new ArrayList<>(List.of(ada.getId(), bob.getId(), cy.getId()))).build();
+                .people(new ArrayList<>(List.of(ada.getId(), bob.getId(), cy.getId(), dee.getId()))).build();
         trip.setOrgId(orgId);
         assertTrue(DAO.getInstance().saveTrip(trip));
     }
@@ -546,9 +548,9 @@ public class LodgingResourceTest extends ResourceTestSupport {
         assertOk(resource.assignRoom(trip.getId(), resId, CSRF_OK, Map.of("roomId", room101)));
         final LodgingCommands lodging = new LodgingCommands(LodgingResourceTest::siteAdmin);
         assertEquals(lodging.findReservation(trip.getId(), resId).getRoomId(), room101);
-        // A third guest on the second offer over-fills the Double: refused unless forced, then cleared again.
-        final Response overflow = resource.createReservations(trip.getId(), CSRF_OK, Map.of("offerId",
-                (String) ((Map<?, ?>) second.getEntity()).get("id"), "personIds", List.of(cy.getId().getValue())));
+        // A third guest on the SAME option over-fills the Double: refused unless forced, then cleared again.
+        final Response overflow = resource.createReservations(trip.getId(), CSRF_OK, Map.of("offerId", offerId,
+                "personIds", List.of(cy.getId().getValue())));
         assertOk(overflow);
         final String cyRes = (String) ((List<?>) ((Map<?, ?>) overflow.getEntity()).get("ids")).get(0);
         assertError(resource.assignRoom(trip.getId(), cyRes, CSRF_OK, Map.of("roomId", room101)), 409,
@@ -562,6 +564,33 @@ public class LodgingResourceTest extends ResourceTestSupport {
         assertFalse(shared.getOccupants().isEmpty());
         assertError(resource.assignRoom(trip.getId(), cyRes, CSRF_OK, Map.of("roomId", "not-a-room")), 409,
                 ApiErrors.CONFLICT);
+
+        // A stay under the trip's OTHER option may never share 101 with Ada and Bob: a room's nights are priced
+        // under one lodging option, and unlike capacity there is no "force" past it. The create endpoint answers
+        // the form's own refusal (as it does a block), the room endpoint a 409 carrying the same text.
+        final String secondId = (String) ((Map<?, ?>) second.getEntity()).get("id");
+        final Response mixed = resource.createReservations(trip.getId(), CSRF_OK, Map.of("offerId", secondId,
+                "personIds", List.of(dee.getId().getValue()), "roomId", room101));
+        assertError(mixed, 400, ApiErrors.VALIDATION_FAILED, "a second option in the room is refused");
+        assertTrue(messageOf(mixed).contains("already holds"), messageOf(mixed));
+        assertTrue(messageOf(mixed).contains("under 'Double room'"), messageOf(mixed));
+        final String deeRes = reservationId(resource.createReservations(trip.getId(), CSRF_OK, Map.of("offerId",
+                secondId, "personIds", List.of(dee.getId().getValue()))));
+        final Response refused = resource.assignRoom(trip.getId(), deeRes, CSRF_OK,
+                Map.of("roomId", room101, "force", true));
+        assertError(refused, 409, ApiErrors.CONFLICT, "force overrides capacity, never the one-option rule");
+        assertTrue(messageOf(refused).contains("priced under one lodging option"), messageOf(refused));
+        assertNull(lodging.findReservation(trip.getId(), deeRes).getRoomId());
+        final Response elsewhere = resource.assignRoom(trip.getId(), deeRes, CSRF_OK,
+                Map.of("roomId", roomIds.get("102")));
+        assertOk(elsewhere);
+        final LodgingViews.AssignOutcome outcome = (LodgingViews.AssignOutcome) elsewhere.getEntity();
+        assertFalse(outcome.isRefused(), "the outcome carries the page's refusal flag");
+        assertTrue(outcome.isAssigned());
+    }
+
+    private static String messageOf(final Response response) {
+        return String.valueOf(((Map<?, ?>) response.getEntity()).get("message"));
     }
 
     private Map<String, Object> accommodation(final String name, final List<Map<String, Object>> types,

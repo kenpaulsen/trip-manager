@@ -1210,10 +1210,10 @@ public class LodgingCommands {
         }
     }
 
-    /** A refusal the dialog shows in place AND growls (the growl alone hides under a modal; see ReservationForm). */
+    /** A refusal the dialog shows through its form; NOT also growled, or the dialog's p:messages shows it twice. */
     private static boolean refuseInto(final java.util.function.Consumer<String> problem, final String message) {
         problem.accept(message);
-        return refuse(message);
+        return false;
     }
 
     /** An edited PRICE changes what the option's ACTIVE reservations cost: recompute them, by room where placed. */
@@ -1576,21 +1576,19 @@ public class LodgingCommands {
         form.fillRanges();
     }
 
-    /** A refusal put on the form, where the open modal dialog can show it (a growl hides under the overlay). */
+    /** A refusal put on the form, where the dialog shows it; growled only when there is no form to land in. */
     private int refuseReservation(final ReservationForm form, final String message) {
-        if (form != null) {
-            form.setProblem(message);
-        }
-        refuse(message);
+        refuseEdit(form, message);
         return 0;
     }
 
     /** As {@link #refuseReservation}, for the edit path, which answers a boolean. */
     private boolean refuseEdit(final ReservationForm form, final String message) {
-        if (form != null) {
-            form.setProblem(message);
+        if (form == null) {
+            return refuse(message);
         }
-        return refuse(message);
+        form.setProblem(message);
+        return false;
     }
 
     /**
@@ -1628,10 +1626,10 @@ public class LodgingCommands {
             return refuseReservation(form,
                     "That room is not at " + (acc == null ? "the accommodation" : acc.getName()) + ".");
         }
-        final String blocked = (acc == null) ? null : RoomAvailability.blockProblem(acc.room(form.getRoomId()),
-                blocksOf(acc), form.getStart(), form.getEnd());
-        if (blocked != null) {
-            return refuseReservation(form, blocked);
+        final String taken = roomProblem(tripId, acc, blankToNull(form.getRoomId()), offer, form.getStart(),
+                form.getEnd(), null);
+        if (taken != null) {
+            return refuseReservation(form, taken);
         }
         form.setProblem(null);
         final List<List<Person.Id>> groups = new ArrayList<>();
@@ -1699,7 +1697,8 @@ public class LodgingCommands {
     private String overlappingStay(final String tripId, final List<Person.Id> people, final LocalDateTime start,
             final LocalDateTime end, final Reservation.Id except) {
         for (final Reservation other : DAO.getInstance().getReservations(tripId, Cached.NO)) {
-            if (!other.isActive() || other.getId().equals(except) || !sharesANight(other, start, end)) {
+            if (!other.isActive() || other.getId().equals(except)
+                    || !RoomAvailability.sharesANight(other, start, end)) {
                 continue;
             }
             for (final Person.Id person : people) {
@@ -1710,14 +1709,6 @@ public class LodgingCommands {
             }
         }
         return null;
-    }
-
-    private static boolean sharesANight(final Reservation other, final LocalDateTime start, final LocalDateTime end) {
-        if (other.getStart() == null || other.getEnd() == null || start == null || end == null) {
-            return false;
-        }
-        return start.toLocalDate().isBefore(other.getEnd().toLocalDate())
-                && other.getStart().toLocalDate().isBefore(end.toLocalDate());
     }
 
     /** " (Pansion, room 105)" for a refusal that has to be actionable; "" when the stay has no room yet. */
@@ -1735,7 +1726,34 @@ public class LodgingCommands {
         return (acc == null) ? List.of() : DAO.getInstance().getRoomBlocks(acc.getId(), Cached.NO);
     }
 
-    /** Edits dates, room, occupants, notes and the supplement waiver; recomputes both rooms. */
+    /**
+     * The refusals every path that puts a stay into a room shares: the hotel's block, then the one-option-per-room
+     * rule ({@link RoomAvailability#optionProblem}). Null when free (or no room). Neither has an override.
+     */
+    private String roomProblem(final String tripId, final Accommodation acc, final String roomId,
+            final ReservationOffer offer, final LocalDateTime start, final LocalDateTime end,
+            final Reservation.Id self) {
+        final Room room = (acc == null || roomId == null) ? null : acc.room(roomId);
+        if (room == null) {
+            return null;
+        }
+        final String blocked = RoomAvailability.blockProblem(room, blocksOf(acc), start, end);
+        return (blocked != null) ? blocked : RoomAvailability.optionProblem(room, offer, activeOnRoom(tripId, roomId),
+                start, end, self, this::displayName, id -> findOffer(tripId, id));
+    }
+
+    /** The option does not sell this room's type: a WARNING, never a refusal (owner requirement). */
+    private static void warnRoomType(final Accommodation acc, final Room room, final ReservationOffer offer) {
+        final RoomType type = acc.roomType(room.getRoomTypeId());
+        if (type != null && type.getName() != null && offer != null && !offer.covers(room.getRoomTypeId())) {
+            warn("Room " + room.getRoomNumber() + " is a " + type.getName() + ", not one of the option's room types.");
+        }
+    }
+
+    /**
+     * Edits the option, dates, room, occupants, notes and the supplement waiver; recomputes both rooms. A changed
+     * option is validated like a new stay, must own the room's hotel, and takes the occupants to its event.
+     */
     public boolean updateReservation(final String tripId, final ReservationForm form) {
         if (!canManageTripLodging(tripId)) {
             return refuseEdit(form,
@@ -1746,9 +1764,12 @@ public class LodgingCommands {
             return refuseEdit(form, "This reservation no longer exists or is cancelled.");
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
-        final ReservationOffer offer = findOffer(tripId, idValue(res.getOfferId()));
+        final ReservationOffer was = findOffer(tripId, idValue(res.getOfferId()));
+        final ReservationOffer offer = (blankToNull(form.getOfferId()) == null) ? was
+                : findOffer(tripId, form.getOfferId());
         if (offer == null) {
-            return refuseEdit(form, "The reservation's offer no longer exists.");
+            return refuseEdit(form, was == null ? "The reservation's offer no longer exists."
+                    : "Choose a lodging option.");
         }
         final List<Person.Id> people = new ArrayList<>();
         for (final String id : new LinkedHashSet<>(form.getPersonIds())) {
@@ -1765,18 +1786,25 @@ public class LodgingCommands {
         final Accommodation acc = findAccommodation(idValue(offer.getAccommodationId()));
         final String roomId = blankToNull(form.getRoomId());
         if (roomId != null && (acc == null || acc.room(roomId) == null)) {
-            return refuseEdit(form, "That room is not at the accommodation.");
+            return refuseEdit(form, RoomAvailability.hotelProblem(
+                    findAccommodation(idValue(res.getAccommodationId())), roomId));
         }
-        final String blocked = (acc == null || roomId == null) ? null
-                : RoomAvailability.blockProblem(acc.room(roomId), blocksOf(acc), form.getStart(), form.getEnd());
-        if (blocked != null) {
-            return refuseEdit(form, blocked);
+        final String taken = roomProblem(tripId, acc, roomId, offer, form.getStart(), form.getEnd(), res.getId());
+        if (taken != null) {
+            return refuseEdit(form, taken);
+        }
+        if (roomId != null) {
+            warnRoomType(acc, acc.room(roomId), offer);
         }
         form.setProblem(null);
         final String previousRoom = res.getRoomId();
-        final List<Person.Id> leaving = new ArrayList<>(res.getOccupants());
+        final List<Person.Id> before = new ArrayList<>(res.getOccupants());
+        final List<Person.Id> leaving = new ArrayList<>(before);
         leaving.removeAll(people);
         final boolean waiverChanged = res.isSupplementWaived() != form.isWaiveSingleSupplement();
+        final boolean optionChanged = !offer.getId().equals(res.getOfferId());
+        res.setOfferId(offer.getId());
+        res.setAccommodationId(offer.getAccommodationId());
         res.setOccupants(people);
         res.setStart(form.getStart());
         res.setEnd(form.getEnd());
@@ -1787,7 +1815,15 @@ public class LodgingCommands {
             form.setProblem("The reservation could not be saved.");
             return false;
         }
-        leaveEventIfLast(trip, offer, leaving, res.getId());
+        // Everybody leaves the OLD option's event when the new option has another; otherwise just the dropped.
+        final boolean eventChanged = optionChanged && (was == null
+                || !Objects.equals(was.getTripEventId(), offer.getTripEventId()));
+        leaveEventIfLast(trip, was, eventChanged ? before : leaving, res.getId());
+        if (optionChanged) {
+            auditSource.get().lodging(AuditEventBuilder.TARGET_RESERVATION, res.getId().getValue(), trip.getOrgId(),
+                    "Changed option from " + (was == null ? "a deleted option" : "'" + was.getName() + "'") + " to '"
+                            + offer.getName() + "' for " + names(people), caller().auditActor());
+        }
         if (waiverChanged) {
             auditSource.get().lodging(AuditEventBuilder.TARGET_RESERVATION, res.getId().getValue(), trip.getOrgId(),
                     (form.isWaiveSingleSupplement() ? "Waived" : "Reinstated") + " the single supplement for "
@@ -1829,9 +1865,9 @@ public class LodgingCommands {
         final String personId = res.getOccupants().isEmpty() ? null : res.getOccupants().get(0).getValue();
         // The hotel's own block comes first and is a refusal, not a warning: capacity is ours to overrule,
         // a room another group holds is not ours to hand out.
-        final String blocked = RoomAvailability.blockProblem(room, blocksOf(acc), res.getStart(), res.getEnd());
-        if (blocked != null) {
-            return outcome(false, false, blocked, personId, reservationId, roomId);
+        final String taken = roomProblem(tripId, acc, roomId, offer, res.getStart(), res.getEnd(), res.getId());
+        if (taken != null) {
+            return outcome(false, false, taken, personId, reservationId, roomId);
         }
         final String tooFull = capacityProblem(tripId, acc, room, res, windowStart(winStart, res),
                 windowEnd(winEnd, res));
@@ -1840,10 +1876,7 @@ public class LodgingCommands {
             callbackParam("overCapacityMsg", tooFull);
             return outcome(false, true, tooFull, personId, res.getId().getValue(), roomId);
         }
-        final RoomType type = acc.roomType(room.getRoomTypeId());
-        if (type != null && type.getName() != null && offer != null && !offer.covers(room.getRoomTypeId())) {
-            warn("Room " + room.getRoomNumber() + " is a " + type.getName() + ", not one of the option's room types.");
-        }
+        warnRoomType(acc, room, offer);
         final String previousRoom = res.getRoomId();
         if (roomId.equals(previousRoom)) {
             info(names(res.getOccupants()) + " already in room " + room.getRoomNumber() + ".");
@@ -1961,21 +1994,22 @@ public class LodgingCommands {
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         final ReservationOffer offer = findOffer(tripId, form.getOfferId());
         if (offer == null || !tripId.equals(trip.getId())) {
-            return placementProblem(form, "Choose a lodging option.", personId, roomId);
+            return dialogProblem(form::setProblem, "Choose a lodging option.", personId, null, roomId);
         }
         final Accommodation acc = findAccommodation(idValue(offer.getAccommodationId()));
         final Room room = (acc == null || roomId == null) ? null : acc.room(roomId);
         if (room == null) {
-            return placementProblem(form, "That room is not at the accommodation.", personId, roomId);
+            return dialogProblem(form::setProblem, "That room is not at the accommodation.", personId, null,
+                    roomId);
         }
         final Person.Id person = Person.Id.from(personId);
         final String problem = stayProblem(trip, offer, List.of(person), form.start(), form.end(), null);
         if (problem != null) {
-            return placementProblem(form, problem, personId, roomId);
+            return dialogProblem(form::setProblem, problem, personId, null, roomId);
         }
-        final String blocked = RoomAvailability.blockProblem(room, blocksOf(acc), form.start(), form.end());
-        if (blocked != null) {
-            return placementProblem(form, blocked, personId, roomId);
+        final String taken = roomProblem(tripId, acc, roomId, offer, form.start(), form.end(), null);
+        if (taken != null) {
+            return dialogProblem(form::setProblem, taken, personId, null, roomId);
         }
         final Reservation res = Reservation.builder().tripId(tripId).orgId(trip.getOrgId()).offerId(offer.getId())
                 .accommodationId(offer.getAccommodationId()).occupants(List.of(person))
@@ -1984,18 +2018,15 @@ public class LodgingCommands {
                 .created(LocalDateTime.now()).build();
         final String tooFull = capacityProblem(tripId, acc, room, res, form.start(), form.end());
         if (tooFull != null && !form.isForce()) {
-            form.setProblem(tooFull);
+            form.confirmable(tooFull);
             callbackParam("overCapacity", true);
             return outcome(false, true, tooFull, personId, null, roomId);
         }
-        if (!offer.covers(room.getRoomTypeId())) {
-            final RoomType type = acc.roomType(room.getRoomTypeId());
-            warn("Room " + room.getRoomNumber() + (type == null ? "" : " is a " + type.getName())
-                    + ", not one of the option's room types.");
-        }
+        warnRoomType(acc, room, offer);
         res.setRoomId(roomId);
         if (!persistReservation(trip, offer, acc, res, null)) {
-            return placementProblem(form, "The reservation could not be saved.", personId, roomId);
+            return dialogProblem(form::setProblem, "The reservation could not be saved.", personId, null,
+                    roomId);
         }
         if (res.isSupplementWaived()) {
             auditSource.get().lodging(AuditEventBuilder.TARGET_RESERVATION, res.getId().getValue(), trip.getOrgId(),
@@ -2009,11 +2040,11 @@ public class LodgingCommands {
         return outcome(true, tooFull != null, msg, personId, res.getId().getValue(), roomId);
     }
 
-    /** A refusal the dialog shows in place, rather than a growl behind a modal. */
-    private static AssignOutcome placementProblem(final PlacementForm form, final String message,
-            final String personId, final String roomId) {
-        form.setProblem(message);
-        return new AssignOutcome(false, false, message, personId, null, roomId);
+    /** A refusal the dialog shows through its form, never ALSO growled (the dialog's p:messages would double it). */
+    private static AssignOutcome dialogProblem(final java.util.function.Consumer<String> problem, final String message,
+            final String personId, final String reservationId, final String roomId) {
+        problem.accept(message);
+        return new AssignOutcome(false, false, true, message, personId, reservationId, roomId);
     }
 
     // ---------------------------------------------------------------- changing rooms part-way through a stay
@@ -2055,10 +2086,9 @@ public class LodgingCommands {
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         final ReservationOffer offer = findOffer(tripId, idValue(res.getOfferId()));
         final Accommodation acc = findAccommodation(idValue(res.getAccommodationId()));
-        final String problem = splitProblem(acc, res, form);
+        final String problem = splitProblem(tripId, acc, offer, res, form);
         if (problem != null) {
-            form.setProblem(problem);
-            return outcome(false, false, problem, null, res.getId().getValue(), form.getRoomId());
+            return dialogProblem(form::setProblem, problem, null, res.getId().getValue(), form.getRoomId());
         }
         final LocalDateTime changeover = form.getDate().atTime(res.getStart().toLocalTime());
         final String newRoom = blankToNull(form.getRoomId());
@@ -2070,7 +2100,7 @@ public class LodgingCommands {
         final String tooFull = (newRoom == null) ? null
                 : capacityProblem(tripId, acc, acc.room(newRoom), second, changeover, res.getEnd());
         if (tooFull != null && !form.isForce()) {
-            form.setProblem(tooFull);
+            form.confirmable(tooFull);
             return outcome(false, true, tooFull, null, res.getId().getValue(), newRoom);
         }
         final LocalDateTime wholeEnd = res.getEnd();
@@ -2097,7 +2127,8 @@ public class LodgingCommands {
     }
 
     /** Why this stay cannot be split where it is asked to be; null when it can. */
-    private String splitProblem(final Accommodation acc, final Reservation res, final SplitForm form) {
+    private String splitProblem(final String tripId, final Accommodation acc, final ReservationOffer offer,
+            final Reservation res, final SplitForm form) {
         if (res.getStart() == null || res.getEnd() == null) {
             return "This stay has no dates to split.";
         }
@@ -2113,9 +2144,8 @@ public class LodgingCommands {
         if (newRoom != null && newRoom.equals(res.getRoomId())) {
             return "That is the room they are already in.";
         }
-        final LocalDateTime secondStart = date.atTime(res.getStart().toLocalTime());
-        return (newRoom == null) ? null
-                : RoomAvailability.blockProblem(acc.room(newRoom), blocksOf(acc), secondStart, res.getEnd());
+        return roomProblem(tripId, acc, newRoom, offer, date.atTime(res.getStart().toLocalTime()), res.getEnd(),
+                res.getId());
     }
 
     private static LocalDateTime windowStart(final LocalDateTime winStart, final Reservation res) {
@@ -2146,12 +2176,13 @@ public class LodgingCommands {
         return Math.max(peak, candidate.getOccupants().size());
     }
 
+    /** Neither assigned nor held for the capacity confirmation is a REFUSAL, which the page shows in a dialog. */
     private static AssignOutcome outcome(final boolean assigned, final boolean over, final String message,
             final String personId, final String reservationId, final String roomId) {
         if (!assigned && !over) {
             error(message);
         }
-        return new AssignOutcome(assigned, over, message, personId, reservationId, roomId);
+        return new AssignOutcome(assigned, over, !assigned && !over, message, personId, reservationId, roomId);
     }
 
     public boolean unassignRoom(final String tripId, final String reservationId) {

@@ -687,16 +687,18 @@ public class RatePlanCommands {
         }
     }
 
+    /** The dialog shows the form's problem; growled only with no form to land in (a growl too would double it). */
     private static boolean refuseInto(final RatePlanForm form, final String message) {
-        if (form != null) {
-            form.setProblem(message);
+        if (form == null) {
+            return refuse(message);
         }
-        return refuse(message);
+        form.setProblem(message);
+        return false;
     }
 
     private static boolean refuseInto(final AttachForm form, final String message) {
         form.setProblem(message);
-        return refuse(message);
+        return false;
     }
 
     private void audit(final RatePlan plan, final String orgId, final String what) {

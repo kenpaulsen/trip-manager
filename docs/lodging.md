@@ -129,7 +129,8 @@ touches no DAO, so either bean may call it inside a render loop without owning t
 **Blocks are a refusal, not a warning.** `RoomAvailability.blockProblem` names the block ("Room 401 is not
 available Sep 23 – Sep 25: another group. Change the block on the hotel's Availability tab first.") and
 `assignRoom`, `place`, `createReservations`, `updateReservation` and `splitStay` all check it ahead of the
-capacity warning. This is deliberately unlike over-capacity, which is the warning `force` overrides:
+capacity warning (through `LodgingCommands.roomProblem`, which runs the one-option-per-room check right after
+it; see "One lodging option per room per night"). This is deliberately unlike over-capacity, which is the warning `force` overrides:
 capacity is OUR call to overrule -- three people in a double is a decision an admin may make -- but a room
 another group is sleeping in is not ours to hand out, so there is no "Block anyway". A blocked empty room
 gets the CSS state `rs-blocked` rather than `rs-empty` (it is not ours to fill); a room both blocked and
@@ -385,9 +386,11 @@ caller reaches, next bullet) and the concession (`reservation.getPriceConcession
   reservation not placed yet (its own occupants are all that is known; placing them with someone recomputes
   it away). Room type is irrelevant.
 - **`PER_ROOM`.** The room rate for a night is split with `MoneyMath.splitEvenly` among that night's occupants
-  of the room, sorted by person id (remainder cents to the lowest ids, so a recompute is deterministic). An
+  of the room UNDER THE SAME OPTION (`LodgingPricing.underOption`; see "One lodging option per room per
+  night"), sorted by person id (remainder cents to the lowest ids, so a recompute is deterministic). An
   unassigned reservation splits among its own occupants. A `PER_ROOM` schedule ignores the supplement (the
-  sole occupant already pays the whole room). Invariant: a room's occupants sum to the room rate per night.
+  sole occupant already pays the whole room). Invariant: an option's occupants of a room sum to the room rate
+  per night. The `PER_PERSON` "alone" test reads the same list: somebody under another option is not company.
 - **The waiver stays price-side.** `waiveSingleSupplement` removes the supplement on the PRICE side only: the
   hotel still charges it, so the cost side ignores the flag (a hotel that forgives it is a cost concession).
 - **A bill** is a `Transaction` of type `Bill`, written NEGATIVE (balance = sum of amounts, negative "owes"),
@@ -478,6 +481,71 @@ room. Creating a reservation joins its occupants to the offer's `TripEvent`
 (`TripCommands.updateEventParticipants`); reservations are admin-only for now (self-service is a later
 API on the same commands). A reservation write is NOT atomic across the reservation row, the trip save and
 the bills; a recompute heals.
+
+**Editing may change the lodging option (2026-10-26).** `updateReservation` honors `ReservationForm.offerId`
+(blank keeps the stored one; an unknown id refuses "Choose a lodging option."). The new option is validated
+like a new stay (`stayProblem`: priced, enabled, roster, `minNights`, inside the option's dates, no
+overlapping stay of the same people), the room -- if any -- must be at the new option's hotel, else "Room 114
+is at Pansion; pick an option at that hotel, or take them out of the room first."
+(`RoomAvailability.hotelProblem`), the room-type mismatch stays a warning, and the block and one-option
+checks run as on every path. On success the stay's `offerId` and `accommodationId` follow the option, the
+occupants join the new option's event and leave the old one's unless another active stay of theirs still
+uses it (`leaveEventIfLast`; nothing moves when both options share an event), one audit line reads "Changed
+option from 'X' to 'Y' for ...", and the bills recompute as for any write. Guarded by
+`LodgingCommandsTest.editingAReservationMayChangeItsLodgingOption`.
+
+## Every refusal is shown inside its dialog (2026-10-26)
+
+A growl is invisible under a modal dialog (the overlay outranks it), and JSF's own conversion and validation
+messages (a required field, a bad number, an unparseable date) used to go nowhere else. Every modal dialog on
+`trip/lodging.xhtml` and `admin/lodging.xhtml` now carries a `p:messages` at its top (`resMsgs`, `offerMsgs`,
+`placeMsgs`, `splitMsgs`, `pcMsgs`, `ccMsgs`, `ppMsgs`, `cancelMsgs`, `winMsgs`, `qbMsgs`; `accMsgs`, `rtMsgs`,
+`roomMsgs`, `blockMsgs`, `bulkMsgs`, `cdMsgs`, `rpMsgs`), every submitting button in the dialog updates it, and
+every save keeps the dialog open on `args.validationFailed || args.keepOpen`. The bean's own refusals keep
+landing in the form's `problem` (the `.lo-problem` block) and NO LONGER raise a FacesMessage when a form is
+there to carry them -- otherwise the same sentence shows twice; the growl remains for refusals with no form
+(the board's one-click assign, gates, REST). The board's one-click assign opens `refusalDlg` for any refusal
+that is not the over-capacity warning (a block, the one-option rule, a hotel mismatch); `PlacementForm` and
+`SplitForm` carry `canForce`, true only for that warning, and the "Place anyway" / "Move anyway" buttons render
+on it, so an outright refusal never offers an override.
+
+**An EDIT keeps the booked dates when the option changes.** The reservation dialog's option menu is enabled
+on edit; for a NEW reservation a change re-defaults the stay to the option's default dates, for an edit it
+leaves the stay alone, so the switch is validated against the stay the person actually has (an option whose
+dates do not cover it is refused, in the dialog). The webtest that found this wrote the original range back
+after the switch and saw the save succeed: the dialog had quietly moved the stay inside the new option's range.
+
+## One lodging option per room per night
+
+Owner decision 2026-10-26: **a room's nights are priced under ONE lodging option, and a second is refused
+outright** -- from every path that puts a stay into a room: `assignRoom` (the board's click), `place` (the
+placement dialog), `createReservations` with a room, `updateReservation` with a room (a changed option
+included) and `splitStay` (the second half's room). `RoomAvailability.optionProblem` is the check, run by
+`LodgingCommands.roomProblem` right after `blockProblem` on each of those paths, and it answers "Room 003
+already holds Trinity Paulsen under 'Double room, shared' for Jan 21 - Jan 31, 2027; a room's nights are
+priced under one lodging option. Pick another room, or move them first." -- the occupants in the way, their
+option, their dates -- when the room holds an ACTIVE stay of the trip under a different option on any shared
+NIGHT (calendar dates, `sharesANight`: checking in the morning they leave is fine). The stay being edited or
+split is excluded; two stays under the SAME option sharing a room are the shared-room case and stay allowed;
+another trip's guests in the room are a capacity matter, not an option one.
+
+Why a refusal and not the capacity warning: a per-room rate is split among a room's occupants and the Room
+Invoice charges each option its whole room, so two options on one night would bill the room twice -- there is
+no "anyway" that makes that right, which is also why `force` does not get past it (the REST room endpoint
+answers the text with a 409, the create endpoint with the form's problem as it does a block). The pricing
+side was made to agree for the rooms created before the rule: `LodgingPricing.underOption` filters a room's
+stays to the priced stay's option, so an old mixed room charges each stay its own option's whole room and
+the invoice's two tables add up alike (`docs/reports.md`, "Charges per person").
+
+`AssignOutcome.refused` is true for every refusal that is not the capacity warning (block, option, hotel,
+gate, a failed save), so the board can open a refusal dialog with `message` instead of growling under a
+modal. Form-bound refusals (the reservation, placement, split, option, cost, concession and rate-plan
+dialogs) set the form's `problem` and raise NO growl: every dialog carries a `p:messages`, so a growl too
+would show the same text twice; the growl stays for callers with no form (the board's one-click assign, REST).
+Tests: `RoomAvailabilityTest.aRoomPricedUnderAnotherOptionRefusesAStayAndNamesWhoIsInIt`,
+`LodgingCommandsTest.aRoomPricedUnderOneOptionRefusesASecondOptionEveryWay`,
+`LodgingPricingTest.aRoomHoldingTwoOptionsChargesEachStayItsOwnWholeRoom`, the invoice test above and
+`LodgingResourceTest.theWholeFixtureChainWorksEndToEnd`.
 
 ## Several stays per person on one trip
 

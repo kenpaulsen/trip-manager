@@ -6,6 +6,7 @@ import java.util.List;
 import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Reservation;
+import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.Room;
 import org.paulsens.trip.model.RoomBlock;
 import org.testng.annotations.Test;
@@ -93,6 +94,66 @@ public class RoomAvailabilityTest {
         assertTrue(RoomAvailability.overlaps(stay, null, SEP26));
         assertTrue(RoomAvailability.overlaps(stay, SEP21, null));
         assertFalse(RoomAvailability.overlaps(stay, SEP26, SEP26.plusDays(3)));
+    }
+
+    /** Owner decision 2026-10-26: a room's nights are priced under ONE lodging option, refused outright. */
+    @Test
+    public void aRoomPricedUnderAnotherOptionRefusesAStayAndNamesWhoIsInIt() {
+        final Room room = Room.builder().id("r-003").roomNumber("003").build();
+        final ReservationOffer shared = ReservationOffer.builder().name("Double room, shared").build();
+        final ReservationOffer single = ReservationOffer.builder().name("Single").build();
+        final Reservation trinity = stay("t-1", "r-003", 21, 31);
+        trinity.setOfferId(shared.getId());
+        trinity.setOccupants(List.of(Person.Id.from("p-trinity")));
+        final java.util.function.Function<Person.Id, String> names = id -> "Trinity Paulsen";
+        final java.util.function.Function<String, ReservationOffer> offers =
+                id -> shared.getId().getValue().equals(id) ? shared : null;
+        final String problem = RoomAvailability.optionProblem(room, single, List.of(trinity), SEP21, SEP26, null,
+                names, offers);
+        assertEquals(problem, "Room 003 already holds Trinity Paulsen under 'Double room, shared' for Sep 21 - "
+                + "Oct 1, 2026; a room's nights are priced under one lodging option. Pick another room, or move "
+                + "them first.");
+        assertNull(RoomAvailability.optionProblem(room, shared, List.of(trinity), SEP21, SEP26, null, names, offers),
+                "the same option sharing a room is the shared-room case");
+        assertNull(RoomAvailability.optionProblem(room, single, List.of(trinity), SEP21, SEP26, trinity.getId(),
+                names, offers), "the stay being edited never conflicts with itself");
+        assertNull(RoomAvailability.optionProblem(room, single, List.of(trinity), SEP26.plusDays(5),
+                SEP26.plusDays(7), null, names, offers), "no shared night: checking in the morning they leave");
+        final Reservation cancelled = stay("t-1", "r-003", 21, 31);
+        cancelled.setOfferId(shared.getId());
+        cancelled.setStatus(Reservation.Status.CANCELLED);
+        assertNull(RoomAvailability.optionProblem(room, single, List.of(cancelled), SEP21, SEP26, null, names,
+                offers), "a cancelled stay holds nothing");
+        final Reservation elsewhere = stay("t-1", "r-004", 21, 31);
+        elsewhere.setOfferId(shared.getId());
+        assertNull(RoomAvailability.optionProblem(room, single, List.of(elsewhere), SEP21, SEP26, null, names,
+                offers), "another room's stay is not in the way");
+        assertTrue(RoomAvailability.optionProblem(room, single, List.of(trinity), SEP21, SEP26, null, names,
+                id -> null).contains("under another lodging option for"), "a deleted option is still a refusal");
+        assertNull(RoomAvailability.optionProblem(null, single, List.of(trinity), SEP21, SEP26, null, names, offers));
+        assertNull(RoomAvailability.optionProblem(room, null, List.of(trinity), SEP21, SEP26, null, names, offers));
+        assertNull(RoomAvailability.optionProblem(room, single, null, SEP21, SEP26, null, names, offers));
+        assertNull(RoomAvailability.optionProblem(room, single, List.of(trinity), null, SEP26, null, names, offers));
+    }
+
+    @Test
+    public void anEditedRoomNotAtTheNewOptionsHotelIsNamedAfterItsOwn() {
+        final Accommodation pansion = Accommodation.builder().name("Pansion")
+                .rooms(List.of(Room.builder().id("r-114").roomNumber("114").build())).build();
+        assertEquals(RoomAvailability.hotelProblem(pansion, "r-114"),
+                "Room 114 is at Pansion; pick an option at that hotel, or take them out of the room first.");
+        assertEquals(RoomAvailability.hotelProblem(pansion, "r-999"), "That room is not at the accommodation.");
+        assertEquals(RoomAvailability.hotelProblem(null, "r-114"), "That room is not at the accommodation.");
+    }
+
+    @Test
+    public void aSharedNightIsADateNotAnInstant() {
+        final Reservation stay = stay("t-1", "r-101", 21, 26);
+        assertTrue(RoomAvailability.sharesANight(stay, SEP26.minusDays(1), SEP26.plusDays(2)));
+        assertFalse(RoomAvailability.sharesANight(stay, SEP26.withHour(1), SEP26.plusDays(2)),
+                "arriving the morning they leave shares the date and no night");
+        assertFalse(RoomAvailability.sharesANight(stay, null, SEP26));
+        assertFalse(RoomAvailability.sharesANight(Reservation.builder().build(), SEP21, SEP26));
     }
 
     private static RoomBlock block(final String roomId, final int from, final int to, final String reason) {

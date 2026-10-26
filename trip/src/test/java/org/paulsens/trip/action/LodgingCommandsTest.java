@@ -546,6 +546,7 @@ public class LodgingCommandsTest {
         assertTrue(outcome.isOverCapacity(), "101 sleeps 2");
         assertTrue(outcome.getMessage().contains("sleeps 2"), outcome.getMessage());
         assertEquals(place.getProblem(), outcome.getMessage(), "the dialog shows why, in place");
+        assertTrue(place.isCanForce(), "...and may offer Place anyway: capacity is a warning");
         assertTrue(admin.activeReservationsFor(own.getId(), three.getId()).stream()
                 .noneMatch(res -> res.getOfferId().getValue().equals(offerId)), "Nothing minted on a refusal");
         place.setForce(true);
@@ -2285,6 +2286,196 @@ public class LodgingCommandsTest {
         assertTrue(nobody.getProblem().startsWith("Not allowed"), nobody.getProblem());
         nobody.setKind("COMPLIMENTARY");
         assertFalse(stranger.setConcession(nobody));
+    }
+
+    // ------------------------------------------------------------------ 2026-10-26 round: one option per room
+
+    /**
+     * Owner decision 2026-10-26: a room's nights are priced under ONE lodging option. A stay under another option
+     * is refused from every path that puts somebody in a room, with no override -- unlike capacity -- and the
+     * board's outcome says so ({@code refused}) so the page can open a dialog rather than growl under one.
+     */
+    @Test
+    public void aRoomPricedUnderOneOptionRefusesASecondOptionEveryWay() throws IOException {
+        final Person first = savedPerson("Ines");
+        final Person second = savedPerson("Jon");
+        final Person third = savedPerson("Kai");
+        final Person fourth = savedPerson("Lea");
+        final Trip own = ownTrip("One option per room", first, second, third, fourth);
+        final Stay stay = stay(true, own);
+        final ReservationOffer other = otherOption(own, stay, "PER_PERSON", 70.0);
+        final ReservationForm anchor = form(own, stay, first, CHECK_IN, CHECK_OUT);
+        anchor.setRoomId(stay.r101());
+        assertEquals(admin.createReservations(own.getId(), anchor), 1);
+        final String expected = "Room 101 already holds " + admin.displayName(first.getId()) + " under '"
+                + stay.offer().getName() + "' for Sep 21 - Sep 24, 2027; a room's nights are priced under one lodging "
+                + "option. Pick another room, or move them first.";
+
+        final ReservationForm create = form(own, stay, second, CHECK_IN, CHECK_OUT);
+        create.setOfferId(other.getId().getValue());
+        create.setRoomId(stay.r101());
+        assertEquals(admin.createReservations(own.getId(), create), 0, "create with a room");
+        assertEquals(create.getProblem(), expected);
+
+        final PlacementForm place = admin.placementFormFor(own.getId(), stay.accId(), second.getId().getValue(),
+                stay.r101());
+        place.setOfferId(other.getId().getValue());
+        // The dialog re-defaults the stay when the option changes; the test does what the dialog does.
+        admin.applyPlacementOption(own.getId(), place);
+        place.setForce(true);
+        final AssignOutcome placed = admin.place(own.getId(), place);
+        assertFalse(placed.isAssigned(), "force overrides capacity, never the one-option rule");
+        assertTrue(placed.isRefused());
+        assertFalse(placed.isOverCapacity());
+        assertEquals(place.getProblem(), expected);
+        assertEquals(placed.getMessage(), expected);
+        assertFalse(place.isCanForce(), "no Place anyway for a refusal");
+
+        create.setRoomId(null);
+        assertEquals(admin.createReservations(own.getId(), create), 1, "the same stay with no room is fine");
+        final Reservation res = reservationOf(own, second, other.getId().getValue());
+        final AssignOutcome assigned = admin.assignRoom(own.getId(), res.getId().getValue(), stay.r101(), true,
+                null, null);
+        assertFalse(assigned.isAssigned(), "the board's one click");
+        assertTrue(assigned.isRefused());
+        assertFalse(assigned.isOverCapacity());
+        assertEquals(assigned.getMessage(), expected);
+        assertNull(admin.findReservation(own.getId(), res.getId().getValue()).getRoomId());
+
+        final ReservationForm edit = admin.reservationFormFor(own.getId(), res.getId().getValue());
+        edit.setRoomId(stay.r101());
+        assertFalse(admin.updateReservation(own.getId(), edit), "the edit dialog");
+        assertEquals(edit.getProblem(), expected);
+
+        assertTrue(admin.assignRoom(own.getId(), res.getId().getValue(), stay.r102(), false, null, null)
+                .isAssigned(), "an empty room takes them");
+        final SplitForm split = admin.splitFormFor(own.getId(), res.getId().getValue());
+        split.setDate(CHECK_IN.toLocalDate().plusDays(1));
+        split.setRoomId(stay.r101());
+        final AssignOutcome halves = admin.splitStay(own.getId(), split);
+        assertFalse(halves.isAssigned(), "the room switch's second half");
+        assertTrue(halves.isRefused());
+        assertEquals(split.getProblem(), expected);
+        assertFalse(split.isCanForce(), "no Move anyway for a refusal");
+        assertEquals(admin.activeReservationsFor(own.getId(), second.getId()).size(), 1, "nothing was split");
+
+        assertEquals(admin.createReservations(own.getId(), form(own, stay, third, CHECK_IN, CHECK_OUT)), 1);
+        final Reservation mate = reservationOf(own, third, stay.offer().getId().getValue());
+        final AssignOutcome shared = admin.assignRoom(own.getId(), mate.getId().getValue(), stay.r101(), false,
+                null, null);
+        assertTrue(shared.isAssigned(), "two stays under the SAME option share a room: " + shared.getMessage());
+        assertFalse(shared.isRefused());
+        final LodgingBiller biller = new LodgingBiller(new TransactionsCommands());
+        assertEquals(biller.billedByPerson(admin.findReservation(own.getId(), mate.getId().getValue())),
+                Map.of(third.getId(), 3 * 6000L), "...and split its room rate");
+        assertEquals(admin.createReservations(own.getId(), form(own, stay, fourth, CHECK_IN, CHECK_OUT)), 1);
+        final Reservation extra = reservationOf(own, fourth, stay.offer().getId().getValue());
+        final AssignOutcome over = admin.assignRoom(own.getId(), extra.getId().getValue(), stay.r101(), false,
+                null, null);
+        assertTrue(over.isOverCapacity(), "a third in a double is the capacity WARNING...");
+        assertFalse(over.isRefused(), "...which is not a refusal: the page asks, it does not refuse");
+
+        // The same warning on a split: Move anyway is offered, and takes them in.
+        assertEquals(admin.bulkAddRooms(stay.accId(), "", 103, 103, "1", stay.typeId()), 1);
+        final String r103 = admin.roomRows(stay.accId()).get(2).getId();
+        assertTrue(admin.assignRoom(own.getId(), extra.getId().getValue(), r103, false, null, null).isAssigned());
+        final SplitForm crowded = admin.splitFormFor(own.getId(), extra.getId().getValue());
+        crowded.setDate(CHECK_IN.toLocalDate().plusDays(1));
+        crowded.setRoomId(stay.r101());
+        final AssignOutcome asked = admin.splitStay(own.getId(), crowded);
+        assertFalse(asked.isAssigned());
+        assertTrue(asked.isOverCapacity());
+        assertFalse(asked.isRefused());
+        assertTrue(crowded.isCanForce(), "Move anyway may answer a capacity warning");
+        crowded.setForce(true);
+        assertTrue(admin.splitStay(own.getId(), crowded).isAssigned(), crowded.getProblem());
+        assertFalse(crowded.isCanForce(), "cleared with the problem on success");
+        assertEquals(admin.activeReservationsFor(own.getId(), fourth.getId()).size(), 2, "split into two stays");
+    }
+
+    /** Editing a reservation may move it to another option: validated like a new stay; bills and the event follow. */
+    @Test
+    public void editingAReservationMayChangeItsLodgingOption() throws IOException {
+        final Person guest = savedPerson("Mira");
+        final Trip own = ownTrip("Option switch", guest);
+        final Stay stay = stay(true, own);
+        final ReservationOffer single = otherOption(own, stay, "PER_PERSON", 70.0);
+        assertNotEquals(single.getTripEventId(), stay.eventId(), "the fixture's two options track two events");
+        final RecordingAudit audit = new RecordingAudit();
+        final LodgingCommands audited = auditedAdmin(audit);
+        final ReservationForm create = form(own, stay, guest, CHECK_IN, CHECK_OUT);
+        create.setRoomId(stay.r101());
+        assertEquals(admin.createReservations(own.getId(), create), 1);
+        final Reservation res = reservationOf(own, guest, stay.offer().getId().getValue());
+        final LodgingBiller biller = new LodgingBiller(new TransactionsCommands());
+        assertEquals(biller.billedByPerson(res), Map.of(guest.getId(), 3 * 12000L), "alone on a per-room option");
+
+        final ReservationForm edit = admin.reservationFormFor(own.getId(), res.getId().getValue());
+        assertEquals(edit.getOfferId(), stay.offer().getId().getValue(), "the form carries the stored option");
+        edit.setOfferId(single.getId().getValue());
+        assertTrue(audited.updateReservation(own.getId(), edit), edit.getProblem());
+        final Reservation switched = admin.findReservation(own.getId(), res.getId().getValue());
+        assertEquals(switched.getOfferId(), single.getId());
+        assertEquals(switched.getRoomId(), stay.r101(), "same hotel: the room stays");
+        assertEquals(biller.billedByPerson(switched), Map.of(guest.getId(), 3 * 7000L), "billed under the new option");
+        final Trip after = DAO.getInstance().getTrip(own.getId(), Cached.NO).orElseThrow();
+        assertTrue(after.getTripEvent(single.getTripEventId()).getParticipants().contains(guest.getId()),
+                "joined the new option's event");
+        assertFalse(after.getTripEvent(stay.eventId()).getParticipants().contains(guest.getId()),
+                "and left the old one's, which no other stay of hers keeps her on");
+        assertTrue(audit.lines.stream().anyMatch(line -> line.startsWith("Changed option from '"
+                + stay.offer().getName() + "' to '" + single.getName() + "'")), String.join("\n", audit.lines));
+
+        final ReservationOffer narrow = otherOption(own, stay, "PER_ROOM", 50.0);
+        final OfferForm shrink = admin.offerFormFor(own.getId(), narrow.getId().getValue());
+        shrink.setValidFrom(CHECK_OUT.plusDays(1));
+        shrink.setValidUntil(CHECK_OUT.plusDays(5));
+        shrink.setDefaultStart(CHECK_OUT.plusDays(1));
+        shrink.setDefaultEnd(CHECK_OUT.plusDays(3));
+        assertTrue(admin.saveOffer(own.getId(), shrink), shrink.getProblem());
+        final ReservationForm outside = admin.reservationFormFor(own.getId(), res.getId().getValue());
+        outside.setOfferId(narrow.getId().getValue());
+        assertFalse(admin.updateReservation(own.getId(), outside), "the new option must cover the stay's dates");
+        assertTrue(outside.getProblem().contains("must fall within the dates of '" + narrow.getName() + "'"),
+                outside.getProblem());
+        outside.setOfferId("no-such-option");
+        assertFalse(admin.updateReservation(own.getId(), outside));
+        assertEquals(outside.getProblem(), "Choose a lodging option.");
+        assertEquals(admin.findReservation(own.getId(), res.getId().getValue()).getOfferId(), single.getId(),
+                "a refused edit changes nothing");
+
+        final Stay elsewhere = stay(true, own);
+        final ReservationForm away = admin.reservationFormFor(own.getId(), res.getId().getValue());
+        away.setOfferId(elsewhere.offer().getId().getValue());
+        assertFalse(admin.updateReservation(own.getId(), away), "roomed at one hotel, priced at another: no");
+        assertEquals(away.getProblem(), "Room 101 is at " + admin.findAccommodation(stay.accId()).getName()
+                + "; pick an option at that hotel, or take them out of the room first.");
+        away.setRoomId(null);
+        assertTrue(admin.updateReservation(own.getId(), away), away.getProblem());
+        final Reservation moved = admin.findReservation(own.getId(), res.getId().getValue());
+        assertEquals(moved.getAccommodationId().getValue(), elsewhere.accId(), "the stay follows its option's hotel");
+        assertNull(moved.getRoomId());
+        assertEquals(biller.billedByPerson(moved), Map.of(guest.getId(), 3 * 12000L), "re-billed at the new hotel");
+        final Trip later = DAO.getInstance().getTrip(own.getId(), Cached.NO).orElseThrow();
+        assertTrue(later.getTripEvent(elsewhere.eventId()).getParticipants().contains(guest.getId()));
+        assertFalse(later.getTripEvent(single.getTripEventId()).getParticipants().contains(guest.getId()));
+    }
+
+    /** A second lodging option at the stay's hotel, on a LODGING event of its own: a room can be asked to hold two. */
+    private ReservationOffer otherOption(final Trip onTrip, final Stay stay, final String model, final double price) {
+        final OfferForm form = admin.offerFormFor(onTrip.getId(), null);
+        form.setName("Other " + RandomData.genAlpha(4));
+        form.setAccommodationId(stay.accId());
+        form.setRoomTypeIds(new ArrayList<>(List.of(stay.typeId())));
+        form.setTripEventId(OfferForm.NEW_EVENT);
+        form.setNewEventTitle("Event for " + form.getName());
+        form.setPricingModel(model);
+        form.setNightlyPrice(price);
+        form.setDefaultStart(CHECK_IN);
+        form.setDefaultEnd(CHECK_OUT);
+        assertTrue(admin.saveOffer(onTrip.getId(), form), form.getProblem());
+        return admin.getOffers(onTrip.getId()).stream().filter(o -> o.getName().equals(form.getName())).findFirst()
+                .orElseThrow();
     }
 
     /** The live bill row's note for one person. */

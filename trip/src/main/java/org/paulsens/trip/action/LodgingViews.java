@@ -453,6 +453,12 @@ public final class LodgingViews {
         private boolean force;
         /** Shown in the dialog when the room cannot take them on those dates. */
         private String problem;
+        /**
+         * Whether "Place anyway" may be offered for {@link #problem}: true only for the over-capacity WARNING
+         * {@link #force} overrides, false for every outright refusal (a block, a second lodging option in the
+         * room, a stay outside the option's dates). {@link #setProblem} clears it; {@link #confirmable} sets it.
+         */
+        private boolean canForce;
         /** The reservation dialog's concession, offered at placement too (2026-09-11). */
         private boolean waiveSingleSupplement;
         /** True when this person already stays here: an extra stay, not their first. */
@@ -470,6 +476,18 @@ public final class LodgingViews {
 
         public void setDepartureTime(final LocalTime time) {
             departureTime = time;
+        }
+
+        /** A refusal: nothing to confirm, so "Place anyway" is withdrawn until a warning re-arms it. */
+        public void setProblem(final String why) {
+            problem = why;
+            canForce = false;
+        }
+
+        /** The over-capacity WARNING: shown like a problem, but "Place anyway" may answer it. */
+        public void confirmable(final String warning) {
+            problem = warning;
+            canForce = true;
         }
 
         /** The stay these three fields describe; null when no range has been picked. */
@@ -520,6 +538,20 @@ public final class LodgingViews {
         private boolean force;
         /** Shown in the dialog when the second half cannot go where it is asked to. */
         private String problem;
+        /** Whether "Move anyway" may answer {@link #problem}: only the capacity warning, never a refusal. */
+        private boolean canForce;
+
+        /** A refusal: "Move anyway" is withdrawn until a capacity warning re-arms it. */
+        public void setProblem(final String why) {
+            problem = why;
+            canForce = false;
+        }
+
+        /** The over-capacity WARNING in the new room, which "Move anyway" ({@link #force}) overrides. */
+        public void confirmable(final String warning) {
+            problem = warning;
+            canForce = true;
+        }
 
         /** The earliest changeover the picker offers: one night in, or null when the stay has no dates. */
         public LocalDate getMinDate() {
@@ -913,7 +945,12 @@ public final class LodgingViews {
         private String floorMapMediaId;
     }
 
-    /** What the assignment click did: assigned, or held for the over-capacity confirmation. */
+    /**
+     * What the assignment click did: assigned, held for the over-capacity confirmation ({@code overCapacity},
+     * which {@code force} overrides), or REFUSED ({@code refused}: a block, a second lodging option in the room,
+     * another hotel's room, a gate -- anything with no override), so the page can open a refusal dialog with
+     * {@code message} rather than growl under a modal.
+     */
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
@@ -922,6 +959,7 @@ public final class LodgingViews {
         private static final long serialVersionUID = 1L;
         private boolean assigned;
         private boolean overCapacity;
+        private boolean refused;
         private String message;
         private String personId;
         private String reservationId;

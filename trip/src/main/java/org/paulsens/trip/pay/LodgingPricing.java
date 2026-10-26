@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -37,8 +38,11 @@ import org.paulsens.trip.model.RoomType;
  * ({@link Reservation#nightsBetween}); times are informational.
  *
  * <p><b>Occupancy.</b> For each night, the distinct occupants across every ACTIVE reservation on the same
- * room (an unassigned reservation counts only its own people). A late arriver on a shared room is her own
- * reservation, so the group's nights before she lands price as if she were absent -- because she was.
+ * room UNDER THE SAME LODGING OPTION ({@link #underOption}; an unassigned reservation counts only its own
+ * people). A late arriver on a shared room is her own reservation, so the group's nights before she lands price
+ * as if she were absent -- because she was. A room's nights are priced under one option (every write refuses a
+ * second since 2026-10-26), so a stay under another option in the same room -- old data -- neither shares the
+ * rate nor counts as company: each option is charged its whole room, as the Room Invoice's option table does.
  *
  * <p><b>PER_PERSON.</b> The nightly rate per occupant; plus the schedule's single supplement on a night the
  * person is the ONLY occupant of an ASSIGNED room and the reservation has not waived it. Room type never
@@ -120,6 +124,21 @@ public final class LodgingPricing {
     }
 
     /**
+     * The stays on {@code self}'s room that are priced WITH it: the ACTIVE ones under the same lodging option,
+     * {@code self} included (added when the list lacks it), in the order given. A PER_ROOM rate is split among
+     * these, and a PER_PERSON supplement is judged against them; a stay under another option is neither.
+     */
+    public static List<Reservation> underOption(final List<Reservation> activeOnRoom, final Reservation self) {
+        final List<Reservation> mine = new ArrayList<>();
+        for (final Reservation res : withSelf(activeOnRoom, self)) {
+            if (res.isActive() && Objects.equals(res.getOfferId(), self.getOfferId())) {
+                mine.add(res);
+            }
+        }
+        return mine;
+    }
+
+    /**
      * The PRICE lines for one reservation: what its occupants are billed.
      *
      * @param activeOnSameRoom every ACTIVE reservation on the reservation's room (including this one when it
@@ -155,7 +174,7 @@ public final class LodgingPricing {
         final Concession concession = (side == Side.PRICE) ? reservation.getPriceConcession()
                 : reservation.getCostConcession();
         final List<Reservation> relevant = reservation.isAssigned()
-                ? withSelf(activeOnSameRoom, reservation) : List.of(reservation);
+                ? underOption(activeOnSameRoom, reservation) : List.of(reservation);
         final Map<LocalDate, List<Person.Id>> occupancy = occupancyByNight(relevant);
         final List<LocalDate> nights = nightsOf(reservation.getStart(), reservation.getEnd());
         final List<Person.Id> occupants = reservation.sortedOccupants();
@@ -293,7 +312,7 @@ public final class LodgingPricing {
     }
 
     /** "Ada", "Ada and Bob", "Ada, Bob and Cy" -- alphabetical, the payment recorder's wording. */
-    static String joinNames(final List<Person.Id> ids, final Function<Person.Id, String> names) {
+    public static String joinNames(final List<Person.Id> ids, final Function<Person.Id, String> names) {
         final List<String> list = ids.stream().map(id -> displayName(id, names)).sorted().toList();
         if (list.size() == 1) {
             return list.get(0);

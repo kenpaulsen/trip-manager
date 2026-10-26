@@ -361,7 +361,7 @@ public class LodgingResource extends BaseResource {
         // Which ids existed BEFORE the save is how this call knows which offer is its own; see createdOffer.
         final Set<String> before = offerIds(lodging.getOffers(tripId));
         if (!lodging.saveOffer(tripId, form)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "The offer was not created.");
+            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(), "The offer was not created."));
         }
         final ReservationOffer offer = createdOffer(lodging.getOffers(tripId), before, form.getName());
         return offer == null ? error(500, ApiErrors.INTERNAL, "Offer saved but not found.")

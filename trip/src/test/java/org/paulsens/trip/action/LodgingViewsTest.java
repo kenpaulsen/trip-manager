@@ -212,6 +212,25 @@ public class LodgingViewsTest {
         assertEquals(form.getMaxDate(), DAY_4.minusDays(1));
     }
 
+    /** "Place anyway" / "Move anyway" answer a capacity WARNING only; a refusal written as a problem withdraws them. */
+    @Test
+    public void onlyACapacityWarningCanBeForced() {
+        final PlacementForm place = new PlacementForm();
+        assertFalse(place.isCanForce(), "nothing to confirm yet");
+        place.confirmable("Room 101 sleeps 2. Placing Cy makes it 3.");
+        assertTrue(place.isCanForce());
+        assertEquals(place.getProblem(), "Room 101 sleeps 2. Placing Cy makes it 3.");
+        place.setProblem("Room 101 is not available Sep 23 – Sep 25: another group.");
+        assertFalse(place.isCanForce(), "a refusal is not forceable");
+        place.setProblem(null);
+        assertFalse(place.isCanForce());
+        final SplitForm split = new SplitForm();
+        split.confirmable("Room 102 sleeps 2. Assigning Ada makes it 3.");
+        assertTrue(split.isCanForce());
+        split.setProblem("Room 102 already holds Bob under 'Single'; a room's nights are priced under one option.");
+        assertFalse(split.isCanForce());
+    }
+
     @Test
     public void aBlockFormCopiesItsListsAndReadsItsRange() {
         final BlockForm form = new BlockForm();

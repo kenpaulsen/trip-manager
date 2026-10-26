@@ -277,6 +277,31 @@ public class RoomInvoiceReportTest {
         Assert.assertEquals(person(section, "pair2").getAmount(), "$360.00");
     }
 
+    /**
+     * A room holding stays under two DIFFERENT options on one night is old data (every write refuses it since
+     * 2026-10-26), and both tables now charge each option its whole room, so they agree -- the "known edge" where
+     * the per-person table split the rate across the options is gone.
+     */
+    @Test
+    public void aRoomHoldingTwoOptionsChargesEachItsWholeRoomInBothTables() {
+        final ReservationOffer shared = perRoom(hotel, 6_000L);
+        final ReservationOffer other = ReservationOffer.builder().name("Triple, per room")
+                .accommodationId(hotel.getId()).roomTypeIds(List.of("tri")).pricingModel(PricingModel.PER_ROOM)
+                .nightlyPriceCents(4_500L).minNights(1)
+                .cost(new RateSchedule(PricingModel.PER_ROOM, 4_500L, Map.of(), 0L)).build();
+        final Reservation pair = stay(shared, "003", ARRIVE, DEPART, "a", "b");
+        final Reservation third = stay(other, "003", ARRIVE, DEPART, "c");
+        final ReportCommands.InvoiceSection section = invoice(List.of(shared, other), pair, third).getSections()
+                .get(0);
+        Assert.assertEquals(section.getCents(), 12 * (6_000L + 4_500L), "each option its whole room, 12 nights");
+        Assert.assertEquals(section.getPeopleCents(), section.getCents(), "the per-person table says the same");
+        Assert.assertEquals(person(section, "a").getRate(), "$30.00 (share of a $60.00 room)");
+        Assert.assertEquals(person(section, "c").getRate(), "$45.00 room, alone", "not a third of anything");
+        Assert.assertEquals(person(section, "c").getAmount(), "$540.00");
+        Assert.assertEquals(charged(Side.COST, List.of(shared, other), pair, third), section.getCents(),
+                "and the pricing engine, priced against the same room, says the same");
+    }
+
     @Test
     public void nightlyOverridesReadAsVaryingRates() {
         final ReservationOffer roomRate = perRoom(hotel, 6_000L);

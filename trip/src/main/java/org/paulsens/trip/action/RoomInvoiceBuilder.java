@@ -513,8 +513,11 @@ final class RoomInvoiceBuilder {
             guests.addAll(res.getOccupants());
             guestNightCount += res.getOccupants().size() * nights.size();
             stays++;
-            // Each occupant's charge IS their line on this side: the same call, against the same room.
-            final List<Reservation> context = res.isAssigned() ? onRoom : List.of(res);
+            // Each occupant's charge IS their line on this side: the same call, against the same room -- the
+            // stays under THIS option on it, so a room holding two options (old data) charges each its whole
+            // room here exactly as the option table does above, and the two tables agree.
+            final List<Reservation> context = res.isAssigned() ? LodgingPricing.underOption(onRoom, res)
+                    : List.of(res);
             final Concession concession = (side == Side.PRICE) ? res.getPriceConcession() : res.getCostConcession();
             final List<LodgingPricing.Line> lines = LodgingPricing.lines(side, res, offer, acc, context, null);
             for (final LodgingPricing.Line line : lines) {
