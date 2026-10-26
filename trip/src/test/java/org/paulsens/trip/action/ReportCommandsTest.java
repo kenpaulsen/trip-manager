@@ -315,16 +315,15 @@ public class ReportCommandsTest {
         Assert.assertFalse(reports.invoiceReady(trip.getId(), internal));
         Assert.assertEquals(reports.invoiceBlockedMessage(trip.getId(), internal),
                 "No hotel cost is set for " + nameOfB + ". Set the cost on the trip's Offers tab (Edit the option, "
-                        + "tick 'Hotel cost is known') or ask the hotel's operator to set it on the hotel's Trips "
-                        + "tab.");
+                        + "tick 'Hotel cost is known'), or use a hotel rate plan for that option.");
         Assert.assertFalse(reports.invoiceReady(trip.getId(), null), "no access object: the whole trip");
         Assert.assertFalse(reports.invoiceReady(trip.getId(), LodgingAccess.none(trip.getId())));
         Assert.assertTrue(reports.invoiceReady(trip.getId(), operatorA), "A's options all have a cost");
         Assert.assertEquals(reports.invoiceBlockedMessage(trip.getId(), operatorA), "");
         Assert.assertFalse(reports.invoiceReady(trip.getId(), operatorB));
         Assert.assertEquals(reports.invoiceBlockedMessage(trip.getId(), operatorB),
-                "No hotel cost is set for " + nameOfB + ". Set the cost on this trip's options on your hotel's "
-                        + "Trips tab.");
+                "No hotel cost is set for " + nameOfB + ". Ask the trip's lodging admin to set it, or to use one"
+                        + " of your hotel's rate plans for that option.");
         Assert.assertFalse(reports.invoiceReady(trip.getId(), both));
         Assert.assertTrue(reports.invoiceReady("no-such-trip", internal), "nothing to refuse");
         Assert.assertEquals(reports.invoiceBlockedMessage("no-such-trip", internal), "");

@@ -176,7 +176,7 @@ public class LodgingCommands {
         return access.canManageTripLodging(tripId);
     }
 
-    /** May state the hotel's COST on this trip's options and stays at {@code accId}: internal, or its operator. */
+    /** May discount the hotel's COST of a stay at {@code accId} (a cost concession): internal, or its operator. */
     public boolean canSetCost(final String tripId, final String accId) {
         return canManageTripLodging(tripId) || canEditAccommodation(accId);
     }
@@ -1331,20 +1331,23 @@ public class LodgingCommands {
         return offers.isEmpty() ? "" : offers.get(0).getId().getValue();
     }
 
-    // ------------------------------------------------------------------ the cost side (operators too)
+    // ------------------------------------------------------------------ the cost side
 
-    /** The "Set cost" dialog for one option; blank when the caller may not state its cost or it is gone. */
+    /**
+     * The "Set cost" dialog for one option; blank when the caller may not state its cost or it is gone. An
+     * option's cost is the trip's own lodging admins' alone: an operator states it in its rate plans (2026-10-26).
+     */
     public OfferCostForm offerCostFormFor(final String tripId, final String offerId) {
         final ReservationOffer offer = findOffer(tripId, offerId);
-        if (offer == null || !canSetCost(tripId, idValue(offer.getAccommodationId()))) {
+        if (offer == null || !canManageTripLodging(tripId)) {
             return new OfferCostForm();
         }
         return OfferSchedules.costFormFor(tripId, offer);
     }
 
     /**
-     * Writes the COST side of one option -- the operator's path: {@link #canSetCost}, the form carries no price
-     * field, and no bill is recomputed (a hotel's cost is not a participant's price).
+     * Writes the COST side of one option from the hotel page's "Set cost": {@link #canManageTripLodging}, the form
+     * carries no price field, and no bill is recomputed (a hotel's cost is not a participant's price).
      */
     public boolean setOfferCost(final OfferCostForm form) {
         if (form == null) {
@@ -1356,9 +1359,9 @@ public class LodgingCommands {
         if (offer == null) {
             return refuseInto(form::setProblem, "This lodging option no longer exists.");
         }
-        if (!canSetCost(form.getTripId(), idValue(offer.getAccommodationId()))) {
-            return refuseInto(form::setProblem,
-                    "Not allowed: only the trip's lodging admins and the hotel's operators set a cost.");
+        if (!canManageTripLodging(form.getTripId())) {
+            return refuseInto(form::setProblem, "Not allowed: only the trip's lodging admins set an option's cost;"
+                    + " a hotel states its cost in its rate plans.");
         }
         final String problem = OfferSchedules.costProblem(form);
         if (problem != null) {

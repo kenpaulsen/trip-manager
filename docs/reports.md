@@ -14,6 +14,11 @@ did not name the trip, carried no tab strip and had no way back. The header now 
 - **Out:** each report carries exactly ONE control back, a `p:linkButton id="reportsDone"` labelled "Reports"
   with a `pi pi-arrow-left` icon, a plain GET, never a postback. It is the org hub's `orgDone` idiom.
   `admin/tripEvents.xhtml` used to carry two "Back to Trip Contacts" buttons; both are gone.
+  ONE exception, the Room Invoice, whose readers include people the dashboard refuses (it needs `tripView`
+  or a finance role): there the back control is `reportsDone` only for a reader the dashboard admits, else
+  `lodgingDone` ("Lodging", the trip's Lodging page) for a trip lodging admin, else `hotelDone` ("Hotel",
+  `LodgingAccess.hotelTripsUrl(?acc=)`: the operator's hotel Trips tab on this trip). Before 2026-10-26 an
+  operator's "Reports" click ended on "needs the Viewer role".
 - A report page that includes `tripTabs` sets `requestScope.activeTab = "reports";` so the strip highlights
   where the reader is. (`exportTrip` used to set `"9"`, a value the strip never defined, and `tripAges` and
   `tsv-passport-info` set `"4"`, which lit up Registrations.)

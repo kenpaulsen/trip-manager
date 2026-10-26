@@ -210,8 +210,8 @@ who may see what a participant is charged.
 | Role (display) | Privilege base | Internal? | Granted where | May do |
 |---|---|---|---|---|
 | **Lodging Admin** | `lodgingAdmin` on an ORG (`ORG_SCOPED_BASES`, on the org hub allow-list) or GLOBAL (`GLOBAL_BASES`, the `contentAdmin` dual pattern) | yes | org People page (`OrgCommands.grantOrgPrivilege`); the Global Privileges editor | create hotels (`canCreateAccommodation`), open `admin/lodging.jsf`, read every hotel's Availability, the FULL Lodging tab (options, reservations, prices, bills, price concessions) on that org's trips -- every trip for the global grant, which also edits every hotel. An org Lodging Admin does NOT edit an existing hotel unless also its operator (auto-granted on hotels they create), and that includes its rate plans: a plan has no price side for an organization to own (2026-10-26), and the price an org charges for a plan's rooms is entered on ITS trip's option when the plan is attached. |
-| **Hotel Operator** | `accommodationAdmin` scoped to ONE hotel's UUID (`ACCOMMODATION_SCOPED_BASES`; display `PrivilegeCommands.ACCOMMODATION_ROLE_NAME`) | NO (external) | hotel create (creator + contact, `saveAccommodation`); the **Hotel operators** roster on the hotel page's Details tab (`managers` / `addManagerById` / `removeManagerById`; REST `POST accommodations/{acc}/operators {personId}` for fixtures). The roster is the ONLY grant path: no privilege editor knows the ACCOMMODATION scope. | the hotel's inventory as before (details, room types, rooms, floor maps, photos, retire, the roster, `RoomBlock`s -- `HotelCommands.canEdit` is exactly `canEditAccommodation`); the hotel page's **Trips** tab (every trip with an option or a stay there, with guest names); the Assignments board, room switches and quick blocks of every trip with an option or an active stay at their hotel (`canAssignAt`); the cost-only Room Invoice for their hotel's section; the cost side of any option at their hotel ("Set cost", `LodgingCommands.canSetCost`), cost concessions on stays there ("Discount" on the Trips tab), and their hotel's rate plans in full -- cost schedule, cost extras, room types, dates, notes, retired; `RatePlanCommands.canEditCost` = `canEditAccommodation` is the ONE plan gate, since a plan carries nothing an operator may not see. NEVER a participant price, a bill, or a price concession. |
-| **Trip Lodging Admin** (prose only; no new base) | `tripMgr@trip`, or `lodgingAdmin` on the trip's org | yes | the Trip Managers roster (`OrgCommands.setTripRole`; `tripMgr` is auto-granted to a trip's creator) | the trip's Lodging tab as before -- options, reservations, cancellations, recompute, every price -- which is `canManageTripLodging`; also price concessions, attaching rate plans (pricing the option they become) and detaching them, and both sides of the trip's own options (`canSetCost` is `canManageTripLodging` OR the hotel's operator). |
+| **Hotel Operator** | `accommodationAdmin` scoped to ONE hotel's UUID (`ACCOMMODATION_SCOPED_BASES`; display `PrivilegeCommands.ACCOMMODATION_ROLE_NAME`) | NO (external) | hotel create (creator + contact, `saveAccommodation`); the **Hotel operators** roster on the hotel page's Details tab (`managers` / `addManagerById` / `removeManagerById`; REST `POST accommodations/{acc}/operators {personId}` for fixtures). The roster is the ONLY grant path: no privilege editor knows the ACCOMMODATION scope. | the hotel's inventory as before (details, room types, rooms, floor maps, photos, retire, the roster, `RoomBlock`s -- `HotelCommands.canEdit` is exactly `canEditAccommodation`); the hotel page's **Trips** tab (every trip with an option or a stay there, with guest names); the Assignments board, room switches and quick blocks of every trip with an option or an active stay at their hotel (`canAssignAt`); the cost-only Room Invoice for their hotel's section; cost concessions on stays there ("Discount" on the Trips tab, `LodgingCommands.canSetCost`), and their hotel's rate plans in full -- the ONE place an operator states the hotel's cost (owner decision 2026-10-26, reversing 10-25: a trip's lodging OPTIONS, and their cost, are not shown to an operator at all) -- cost schedule, cost extras, room types, dates, notes, retired; `RatePlanCommands.canEditCost` = `canEditAccommodation` is the ONE plan gate, since a plan carries nothing an operator may not see. NEVER a participant price, a bill, or a price concession. |
+| **Trip Lodging Admin** (prose only; no new base) | `tripMgr@trip`, or `lodgingAdmin` on the trip's org | yes | the Trip Managers roster (`OrgCommands.setTripRole`; `tripMgr` is auto-granted to a trip's creator) | the trip's Lodging tab as before -- options, reservations, cancellations, recompute, every price -- which is `canManageTripLodging`; also price concessions, attaching rate plans (pricing the option they become) and detaching them, and both sides of the trip's own options (an option's cost is `canManageTripLodging` alone; `canSetCost`, the stay-level cost discount, is that OR the hotel's operator). |
 | site admin | | yes | | everything |
 | `tripFinView@trip` / global `viewFinances` | | yes | | the Reports dashboard's money gate (`seeFinances`): the Room Invoice and its PDF, and the new billed-vs-cost report. No lodging privilege opens the dashboard. |
 
@@ -367,8 +367,9 @@ caller reaches, next bullet) and the concession (`reservation.getPriceConcession
   `RoomInvoiceBuilder.scheduleOf(COST, offer)` is `offer.getCost()` strictly, and ONE active-stay option in
   the caller's scope without a cost blocks the whole build (`RoomInvoice.blocked`, `missingCost` naming the
   options hotel-qualified: "Double room (Pansion)"). Every reader is told, in their own words
-  (`ReportCommands.blockedMessage`): an internal reader is sent to the trip's Offers tab, an operator to
-  their hotel's Trips tab. Only the Billed vs Cost report tolerates a missing cost, reading "not set" and
+  (`ReportCommands.blockedMessage`): an internal reader is sent to the trip's Offers tab (or a hotel rate
+  plan), an operator to the trip's lodging admin or one of their hotel's rate plans, since an operator sets
+  no option's cost (2026-10-26). Only the Billed vs Cost report tolerates a missing cost, reading "not set" and
   counting 0, because showing exactly such gaps is what it is for. `ReservationOffer.effectiveCost()` /
   `isCostAssumed()` and the `effectiveCost()` read inside `LodgingPricing.Side.COST` are still in the code,
   but no caller reaches that fallback with a cost-less option: the invoice builder refuses before pricing
@@ -716,23 +717,30 @@ both re-renders with what was typed.
   Remove plan), Photos, and **Availability** (gate `hotel.canRead`): the `p:schedule` month calendar, a
   legend, and the "Rooms held for something else" table with its block dialog (rooms multi-select, a range
   picker reading "first night - free again", free-text reason), and **Trips** (index 6, rendered on
-  `requestScope.editable` = `canEditAccommodation`): the Hotel Operator's door, one `p:panel` per trip with
-  an option or a stay at this hotel (title and dates, the org's name, an "Assign rooms" link to
-  `/trip/lodging.jsf?trip=&acc=` and a "Hotel invoice" link to `/admin/reports/roomInvoice.jsf?trip=` -- or,
-  while an option here has no cost, a `hotelInvoiceBlocked` button whose `invoiceBlockedDlg` names it and
-  points at the "Set cost" button below; the row's trip id rides an `f:param` and the text lands in
-  `viewScope.invoiceBlockedText`, ONE dialog serving every row), its
-  options here (name, room types, dates, a Cost column reading `HotelOptionRow.costSummary` --
-  `OfferSchedules.operatorCostLabel`, "not set" while unstated and never the word "assumed" -- and a
-  "Set cost" button per option opening `costDlg`: `lodging.offerCostFormFor(tripId, offerId)`, then
-  `lodging.setOfferCost(form)`, gated `canSetCost` = internal on the trip OR operator of the hotel, on an
-  `OfferCostForm` that carries NO price field and keeps any per-night cost overrides an internal admin typed,
-  since this dialog has no per-night table) and its stays (guest names, dates, nights, room, the hotel's
-  Discount label, and a "Discount" button opening `costConcDlg` -- `lodging.concessionFormFor(tripId, resId,
-  'COST')`: kind, amount, reason, the refusal shown IN the dialog). No price and no bill anywhere on this
-  tab, by construction of `HotelViews`. Its rows are built in initPage (the row commands sit
-  in a `ui:repeat` and must exist at decode) and again in a `beforeEncode` on a wrapper that always renders,
-  so a command elsewhere on the page shows the trips as they are after it ran. Tabs are APPENDED after the
+  `requestScope.editable` = `canEditAccommodation`): the Hotel Operator's door onto every trip with an option
+  or a stay at this hotel, ONE trip at a time (2026-10-26): `hotel.tripsTab(accId, ?trip=)` answers a
+  `HotelTripsTab` -- every trip as a picker entry, newest start first, and the row of the asked-for trip, or
+  of the newest when `?trip=` is absent or not one of them; changing the `tripPick` menu re-navigates to
+  `?acc=&tab=6&trip=` (a plain GET, so a reload or a shared link shows the same trip). The shown trip is one
+  `p:panel`: title and dates, the org's name, an "Assign rooms" link to `/trip/lodging.jsf?trip=&acc=` and a
+  "Hotel invoice" link to `/admin/reports/roomInvoice.jsf?trip=&acc=` (the `acc` is where the invoice's back
+  button returns an operator) -- or, while an option here has no cost, a `hotelInvoiceBlocked` button whose
+  `invoiceBlockedDlg` names it; the row's trip id rides an `f:param` and the text lands in
+  `viewScope.invoiceBlockedText`. Its lodging OPTIONS here, with their Cost column and "Set cost"
+  (`costDlg`: `lodging.offerCostFormFor` / `setOfferCost`, gated `canManageTripLodging`, an `OfferCostForm`
+  with NO price field), render only for the trip's OWN lodging admins (`HotelTripRow.internal`; `options`
+  stays empty for anyone else): an operator states the hotel's cost in its rate plans (owner decision
+  2026-10-26, reversing 10-25). Its stays: guest names, dates, nights, room, and **Room Price** -- what the
+  hotel is paid for the stay's room nights (`LodgingPricing.cost` over the trip's active stays on that room;
+  extras stay on the invoice), "not set" without a cost; under a hotel discount the undiscounted amount
+  struck through (`roomPriceBefore`, `.ht-before`), the discounted one, and the discount's label below
+  ("50% discount", "complimentary") -- plus a "Discount" button opening `costConcDlg`
+  (`lodging.concessionFormFor(tripId, resId, 'COST')`: kind, amount, reason, the refusal shown IN the
+  dialog). No participant price and no bill anywhere on this tab, by construction of `HotelViews`. The row is
+  built in initPage (the row commands sit in a `ui:repeat` over `tripsTab.rows`, zero or one, and must exist
+  at decode) and again in a `beforeEncode` on a wrapper that always renders, so a command elsewhere on the
+  page shows the trip as it is after it ran. The list mode's per-hotel button reads **Manage** (was "Open",
+  2026-10-26). Tabs are APPENDED after the
   last one so every `?tab=` link ever handed out keeps its meaning: Availability became 5 in 2026-09, Trips 6
   and **Rate plans** 7 in 2026-10 (see "Rate plans"); the next tab goes in at 8. `viewScope.calMonth` says
   which month it OPENS on (`?month=`, which is also how a test pins it); the data does not come from it. The
@@ -974,7 +982,8 @@ since no bill reads the cost side a plan edit never recomputes anything.
   trips/{t}/offers/{id}/detach`; from the price/cost split, `PUT trips/{t}/offers/{id}/cost` (`setOfferCost`;
   `costKnown:false` clears the stated cost back to "not set", which blocks the invoice), `PUT
   trips/{t}/reservations/{id}/concessions/{price|cost}` (`{kind, amount, reason}`; a missing or "" kind
-  clears; `price` needs `canManageTripLodging`, `cost` needs `canSetCost`) and `POST
+  clears; `price` needs `canManageTripLodging`, `cost` needs `canSetCost`; the option-cost PUT needs
+  `canManageTripLodging` alone since 2026-10-26) and `POST
   accommodations/{acc}/operators {personId}` (the roster, for fixtures). `POST trips/{t}/offers` gained
   optional `priceKnown` (false saves "needs participant pricing") and the cost side -- `costPricingModel`,
   `costNightlyPrice`, `costSupplement`, `costExtras[{label, basis, amount}]`, stated as soon as any cost key
@@ -1041,8 +1050,9 @@ stays unpriced, a `price` object outranks the mirror, a fresh offer is unpriced,
 flag + mirror), `CostExtrasTest`, `LodgingPricingTest`'s cost-side and concession cases plus the
 byte-identical-notes guard, and the browser test `OperatorTripsPwIT` (a two-hotel trip: the operator of A
 sees A only, `?acc=B` falls back, no "$" in the body, guest names visible; plus the invoice page admitting
-an operator, the Trips tab listing the trip with guest names, and an operator setting an option's cost and
-granting a complimentary stay from it).
+an operator and its back button returning them to their hotel's Trips tab, the Trips tab showing one picked
+trip with guest names and Room Prices but no lodging options, the option-cost write refused to an operator,
+and an operator granting a complimentary stay, struck through in Room Price).
 The price/cost and rate-plan phases added `RoomInvoiceReportTest`'s
 seeded case split in two (`theSeededTripsInvoiceRendersAtTheSeededCost`,
 `theSeededTripsBilledColumnMatchesItsLodgingBills`), its `anOptionWithoutACostBlocksTheWholeInvoice` and

@@ -258,7 +258,7 @@ public class RoomInvoicePdfTest {
         Assert.assertTrue(internal.get(0).contains("Offers tab"), "the internal reader's words: " + internal.get(0));
         Assert.assertFalse(internal.get(0).contains("nothing to invoice"), internal.get(0));
         final String operator = pages(RoomInvoicePdf.render(heading("T"), blocked, false, PRINTED)).get(0);
-        Assert.assertTrue(operator.contains("your hotel's Trips tab"), operator);
+        Assert.assertTrue(operator.contains("Ask the trip's lodging admin"), operator);
     }
 
     @Test

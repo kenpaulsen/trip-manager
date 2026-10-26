@@ -122,9 +122,9 @@ public class LodgingResourceTest extends ResourceTestSupport {
     }
 
     /**
-     * The cost endpoint is the operator's: allowed at their own hotel, refused at another, and it has no price
-     * field to reach. The concessions endpoint follows its side: PRICE is the trip's alone, COST is also the
-     * operator's; a bad kind is a 400 with the bean's own reason.
+     * The option-cost endpoint is the trip's lodging admins' alone (2026-10-26: an operator states the hotel's
+     * cost in its rate plans), and it has no price field to reach. The concessions endpoint follows its side:
+     * PRICE is the trip's alone, COST is also the operator's; a bad kind is a 400 with the bean's own reason.
      */
     @Test
     public void theCostAndConcessionEndpointsFollowTheirGates() throws IOException {
@@ -141,15 +141,22 @@ public class LodgingResourceTest extends ResourceTestSupport {
         final String resId = reservationId(resource.createReservations(own.getId(), CSRF_OK,
                 Map.of("offerId", a[1], "personIds", List.of(guest.getId().getValue()))));
         final LodgingCommands lodging = new LodgingCommands(LodgingResourceTest::siteAdmin);
-
-        signedInAs(keeper.getId());
-        final LodgingResource asKeeper = resource(new LodgingResource());
         final Map<String, Object> cost = new HashMap<>();
         cost.put("costPricingModel", "PER_PERSON");
         cost.put("costNightlyPrice", 45);
         cost.put("costSupplement", 5);
         cost.put("costExtras", List.of(Map.of("label", "City tax", "basis", "PER_PERSON_NIGHT", "amount", 1.5)));
-        final Response set = asKeeper.setOfferCost(own.getId(), a[1], CSRF_OK, cost);
+
+        signedInAs(keeper.getId());
+        final LodgingResource asKeeper = resource(new LodgingResource());
+        assertError(asKeeper.setOfferCost(own.getId(), a[1], CSRF_OK, cost), 403, ApiErrors.FORBIDDEN,
+                "an operator sets no option's cost, even at their own hotel");
+        assertError(asKeeper.setOfferCost(own.getId(), b[1], CSRF_OK, cost), 403, ApiErrors.FORBIDDEN,
+                "nor at another");
+        assertNull(lodging.findOffer(own.getId(), a[1]).getCost());
+
+        signedInAsSiteAdmin(admin.getId());
+        final Response set = resource.setOfferCost(own.getId(), a[1], CSRF_OK, cost);
         assertOk(set);
         assertEquals(((Map<?, ?>) set.getEntity()).get("costKnown"), true);
         final ReservationOffer offer = lodging.findOffer(own.getId(), a[1]);
@@ -157,12 +164,11 @@ public class LodgingResourceTest extends ResourceTestSupport {
         assertEquals(offer.getCost().getSingleSupplementCents(), 500L);
         assertEquals(offer.getCostExtras().get(0).getAmountCents(), 150L);
         assertEquals(offer.getNightlyPriceCents(), 6000L, "the price is not this endpoint's to touch");
-        assertError(asKeeper.setOfferCost(own.getId(), b[1], CSRF_OK, cost), 403, ApiErrors.FORBIDDEN,
-                "not their hotel");
-        assertError(asKeeper.setOfferCost(own.getId(), a[1], CSRF_OK, Map.of("costNightlyPrice", -1)), 400,
+        assertError(resource.setOfferCost(own.getId(), a[1], CSRF_OK, Map.of("costNightlyPrice", -1)), 400,
                 ApiErrors.VALIDATION_FAILED);
-        assertOk(asKeeper.setOfferCost(own.getId(), a[1], CSRF_OK, Map.of("costKnown", false)));
+        assertOk(resource.setOfferCost(own.getId(), a[1], CSRF_OK, Map.of("costKnown", false)));
         assertNull(lodging.findOffer(own.getId(), a[1]).getCost(), "costKnown=false clears the stated cost");
+        signedInAs(keeper.getId());
 
         // Concessions: the operator records the hotel's, never the participant's.
         final Response conceded = asKeeper.setConcession(own.getId(), resId, "cost", CSRF_OK,

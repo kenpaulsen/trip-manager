@@ -23,7 +23,9 @@ import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.HotelViews.HotelOptionRow;
 import org.paulsens.trip.action.HotelViews.HotelStayRow;
+import org.paulsens.trip.action.HotelViews.HotelTripChoice;
 import org.paulsens.trip.action.HotelViews.HotelTripRow;
+import org.paulsens.trip.action.HotelViews.HotelTripsTab;
 import org.paulsens.trip.action.LodgingViews.BlockForm;
 import org.paulsens.trip.action.LodgingViews.BlockRow;
 import org.paulsens.trip.action.LodgingViews.DayCell;
@@ -44,6 +46,7 @@ import org.paulsens.trip.model.RoomBlock;
 import org.paulsens.trip.model.RoomType;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.pay.LodgingPricing;
+import org.paulsens.trip.pay.MoneyMath;
 import org.primefaces.event.SelectEvent;
 import org.primefaces.model.DefaultScheduleEvent;
 import org.primefaces.model.DefaultScheduleModel;
@@ -473,15 +476,16 @@ public class HotelCommands {
 
     /**
      * Every trip with an ACTIVE stay at this hotel over the last {@link #TRIPS_LOOKBACK_DAYS} days, newest
-     * first, each with its lodging options here and its stays -- dates, room and the GUESTS' names. For the
-     * hotel's operators ({@code canEditAccommodation}) alone; everyone else gets an empty list.
+     * first, each with its stays -- dates, room, the GUESTS' names and what the hotel is paid -- and, for the
+     * trip's own lodging admins only, its lodging options here. For the hotel's operators
+     * ({@code canEditAccommodation}) alone; everyone else gets an empty list.
      *
      * <p>This is the deliberate tenancy extension the owner decided on 2026-10-25: an operator may see trip
      * titles, dates and guest names at THEIR hotel across organizations, never a price or a bill. The trips
      * are discovered two ways: through the by-accommodation index of reservations (the stays), and through the
      * hotel's own {@code tripIds} (every trip that saved an OPTION here, {@link HotelUsage}), so a trip nobody
-     * has booked yet is listed with its options and an empty stays table -- the hotel may need to state its
-     * cost before the first stay exists. A recorded trip whose options here are gone is skipped.
+     * has booked yet is listed with an empty stays table. A recorded trip whose options here are gone is
+     * skipped. The page reads {@link #tripsTab} instead, which builds ONE trip's row.
      */
     public List<HotelTripRow> tripRows(final String accId) {
         final List<HotelTripRow> rows = new ArrayList<>();
@@ -489,6 +493,46 @@ public class HotelCommands {
         if (acc == null || !canEdit(accId)) {
             return rows;
         }
+        for (final TripStays found : tripsAt(acc)) {
+            rows.add(tripRow(acc, found.trip(), found.stays()));
+        }
+        return rows;
+    }
+
+    /**
+     * The Trips tab: every trip of {@link #tripRows} as a picker entry, newest first, and the row of ONE of
+     * them -- {@code requestedTripId} when it is among them, else the newest (owner decision 2026-10-26: a
+     * hotel with many trips listed them all on one page). Only the shown trip's row is built.
+     */
+    public HotelTripsTab tripsTab(final String accId, final String requestedTripId) {
+        final HotelTripsTab tab = new HotelTripsTab();
+        final Accommodation acc = accommodation(accId);
+        if (acc == null || !canEdit(accId)) {
+            return tab;
+        }
+        final List<TripStays> trips = tripsAt(acc);
+        TripStays shown = trips.isEmpty() ? null : trips.get(0);
+        for (final TripStays found : trips) {
+            final Trip trip = found.trip();
+            tab.getChoices().add(new HotelTripChoice(trip.getId(), trip.getTitle() + " -- "
+                    + dateSpan(dateOf(trip.getStartDate()), dateOf(trip.getEndDate()))));
+            if (trip.getId().equals(requestedTripId)) {
+                shown = found;
+            }
+        }
+        if (shown != null) {
+            tab.setSelectedTripId(shown.trip().getId());
+            tab.setRow(tripRow(acc, shown.trip(), shown.stays()));
+        }
+        return tab;
+    }
+
+    /** One trip at the hotel and its active stays there. */
+    private record TripStays(Trip trip, List<Reservation> stays) {
+    }
+
+    /** The trips at the hotel (see {@link #tripRows}), newest start first, a trip with no dates last. */
+    private List<TripStays> tripsAt(final Accommodation acc) {
         final LocalDateTime since = LocalDate.now().minusDays(TRIPS_LOOKBACK_DAYS).atStartOfDay();
         final Map<String, List<Reservation>> byTrip = new LinkedHashMap<>();
         for (final Reservation res : staysOver(acc, since)) {
@@ -501,14 +545,16 @@ public class HotelCommands {
                 byTrip.put(tripId, new ArrayList<>());
             }
         }
+        final List<TripStays> trips = new ArrayList<>();
         for (final Map.Entry<String, List<Reservation>> entry : byTrip.entrySet()) {
             final Trip trip = DAO.getInstance().getTrip(entry.getKey(), Cached.YES).orElse(null);
             if (trip != null) {
-                rows.add(tripRow(acc, trip, entry.getValue()));
+                trips.add(new TripStays(trip, entry.getValue()));
             }
         }
-        rows.sort(Comparator.comparing(HotelTripRow::getStart, Comparator.nullsLast(Comparator.reverseOrder())));
-        return rows;
+        trips.sort(Comparator.comparing((TripStays found) -> found.trip().getStartDate(),
+                Comparator.nullsLast(Comparator.reverseOrder())));
+        return trips;
     }
 
     private static boolean hasOptionAt(final Accommodation acc, final String tripId) {
@@ -522,29 +568,33 @@ public class HotelCommands {
 
     private HotelTripRow tripRow(final Accommodation acc, final Trip trip, final List<Reservation> stays) {
         final HotelTripRow row = new HotelTripRow();
+        final LodgingCommands lodging = lodgingSource.get();
         row.setTripId(trip.getId());
         row.setTitle(trip.getTitle());
         row.setOrgName(orgName(trip, true));
-        row.setStart(trip.getStartDate() == null ? null : trip.getStartDate().toLocalDate());
-        row.setEnd(trip.getEndDate() == null ? null : trip.getEndDate().toLocalDate());
+        row.setStart(dateOf(trip.getStartDate()));
+        row.setEnd(dateOf(trip.getEndDate()));
         row.setDates(dateSpan(row.getStart(), row.getEnd()));
         row.setBoardUrl("/trip/lodging.jsf?trip=" + trip.getId() + "&acc=" + acc.getId().getValue());
-        row.setInvoiceUrl("/admin/reports/roomInvoice.jsf?trip=" + trip.getId());
+        // The acc rides along so the invoice's back button returns to THIS hotel's Trips tab.
+        row.setInvoiceUrl("/admin/reports/roomInvoice.jsf?trip=" + trip.getId() + "&acc=" + acc.getId().getValue());
         // The operator's view of the invoice: this hotel alone, whoever is reading the tab.
         row.setInvoiceReady(reports().invoiceReady(trip.getId(),
                 new LodgingAccess(trip.getId(), false, Set.of(acc.getId().getValue()), Set.of())));
+        row.setInternal(lodging.canManageTripLodging(trip.getId()));
         final Map<ReservationOffer.Id, ReservationOffer> offers = new LinkedHashMap<>();
         for (final ReservationOffer offer : DAO.getInstance().getReservationOffers(trip.getId(), Cached.YES)) {
             offers.put(offer.getId(), offer);
-            if (acc.getId().equals(offer.getAccommodationId())) {
+            if (row.isInternal() && acc.getId().equals(offer.getAccommodationId())) {
                 row.getOptions().add(optionRow(acc, offer));
             }
         }
-        final LodgingCommands lodging = lodgingSource.get();
+        // Read once for the whole trip: each stay's PER_ROOM share depends on who else is in its room.
+        final List<Reservation> tripStays = DAO.getInstance().getReservations(trip.getId(), Cached.YES);
         stays.sort(Comparator.comparing(Reservation::getStart, Comparator.nullsLast(Comparator.naturalOrder()))
                 .thenComparing((Reservation res) -> guestsOf(lodging, res)));
         for (final Reservation res : stays) {
-            row.getStays().add(stayRow(acc, res, guestsOf(lodging, res), offers.get(res.getOfferId())));
+            row.getStays().add(stayRow(lodging, acc, res, offers.get(res.getOfferId()), tripStays));
         }
         return row;
     }
@@ -558,12 +608,33 @@ public class HotelCommands {
                 OfferSchedules.operatorCostLabel(offer), OfferSchedules.extraLines(offer.getCostExtras()));
     }
 
-    private static HotelStayRow stayRow(final Accommodation acc, final Reservation res, final String guests,
-            final ReservationOffer offer) {
+    private static HotelStayRow stayRow(final LodgingCommands lodging, final Accommodation acc,
+            final Reservation res, final ReservationOffer offer, final List<Reservation> tripStays) {
         final String label = (res.getRoomId() == null) ? null : acc.roomLabel(res.getRoomId());
-        return new HotelStayRow(res.getId().getValue(), guests, dateSpan(dateOf(res.getStart()),
-                dateOf(res.getEnd())), res.nights(), label == null ? "not assigned" : "Room " + label,
-                LodgingConcessions.label(res.getCostConcession()), offer == null ? "?" : offer.getName());
+        final HotelStayRow row = new HotelStayRow(res.getId().getValue(), guestsOf(lodging, res),
+                dateSpan(dateOf(res.getStart()), dateOf(res.getEnd())), res.nights(),
+                label == null ? "not assigned" : "Room " + label, LodgingConcessions.label(res.getCostConcession()),
+                offer == null ? "?" : offer.getName(), OfferSchedules.COST_NOT_SET, null);
+        if (offer == null || offer.getCost() == null) {
+            return row;
+        }
+        final List<Reservation> onRoom = new ArrayList<>();
+        for (final Reservation other : tripStays) {
+            if (other.isActive() && res.getRoomId() != null && res.getRoomId().equals(other.getRoomId())) {
+                onRoom.add(other);
+            }
+        }
+        long net = 0L;
+        long gross = 0L;
+        for (final LodgingPricing.Line line : LodgingPricing.cost(res, offer, acc, onRoom, lodging.nameResolver())) {
+            net += line.amountCents();
+            gross += line.grossCents();
+        }
+        row.setRoomPrice(MoneyMath.formatCents(net));
+        if (res.getCostConcession() != null) {
+            row.setRoomPriceBefore(MoneyMath.formatCents(gross));
+        }
+        return row;
     }
 
     private ReportCommands reports() {

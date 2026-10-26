@@ -616,8 +616,9 @@ public class LodgingResource extends BaseResource {
         if (offer == null) {
             return error(404, ApiErrors.NOT_FOUND, "No such offer on this trip.");
         }
-        if (!lodging.canSetCost(tripId, offer.getAccommodationId().getValue())) {
-            return error(403, ApiErrors.FORBIDDEN, "Trip lodging manager or hotel operator required.");
+        if (!lodging.canManageTripLodging(tripId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Trip lodging manager required; a hotel sets its cost in its"
+                    + " rate plans.");
         }
         final LodgingViews.OfferCostForm form = lodging.offerCostFormFor(tripId, offerId);
         form.setCostKnown(!body.containsKey("costKnown") || Boolean.TRUE.equals(body.get("costKnown")));

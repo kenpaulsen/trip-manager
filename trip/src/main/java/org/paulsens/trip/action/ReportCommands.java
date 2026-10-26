@@ -404,12 +404,14 @@ public class ReportCommands {
 
     /**
      * The refusal, naming the options without a cost ("Double room (Pansion) and Single room (Berulia)") and
-     * where to fix it: the trip's Offers tab for an internal reader, the hotel's Trips tab for its operator.
+     * how it gets fixed: the trip's Offers tab for an internal reader; for the operator, who may not set an
+     * option's cost (2026-10-26), the trip's lodging admins or one of the hotel's rate plans.
      */
     public static String blockedMessage(final List<String> missingCost, final boolean operator) {
-        final String where = operator ? "Set the cost on this trip's options on your hotel's Trips tab."
-                : "Set the cost on the trip's Offers tab (Edit the option, tick 'Hotel cost is known') or ask the"
-                        + " hotel's operator to set it on the hotel's Trips tab.";
+        final String where = operator ? "Ask the trip's lodging admin to set it, or to use one of your hotel's"
+                + " rate plans for that option."
+                : "Set the cost on the trip's Offers tab (Edit the option, tick 'Hotel cost is known'), or use a"
+                        + " hotel rate plan for that option.";
         return "No hotel cost is set for " + joinNames(missingCost) + ". " + where;
     }
 

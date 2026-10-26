@@ -627,11 +627,11 @@ public class RoomInvoiceReportTest {
         Assert.assertEquals(fine.getCents(), 12 * 5_000L);
         Assert.assertEquals(ReportCommands.blockedMessage(invoice.getMissingCost(), false),
                 "No hotel cost is set for Anex room (Hotel Split) and Double room, shared (Pansion Ana). Set the "
-                        + "cost on the trip's Offers tab (Edit the option, tick 'Hotel cost is known') or ask the "
-                        + "hotel's operator to set it on the hotel's Trips tab.");
+                        + "cost on the trip's Offers tab (Edit the option, tick 'Hotel cost is known'), or use a "
+                        + "hotel rate plan for that option.");
         Assert.assertEquals(ReportCommands.blockedMessage(List.of("Double room (Pansion)"), true),
-                "No hotel cost is set for Double room (Pansion). Set the cost on this trip's options on your "
-                        + "hotel's Trips tab.");
+                "No hotel cost is set for Double room (Pansion). Ask the trip's lodging admin to set it, or to"
+                        + " use one of your hotel's rate plans for that option.");
         Assert.assertEquals(ReportCommands.joinNames(List.of("A", "B", "C")), "A, B and C");
         Assert.assertEquals(ReportCommands.joinNames(List.of()), "");
     }

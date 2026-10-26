@@ -2093,11 +2093,13 @@ public class LodgingCommandsTest {
     }
 
     /**
-     * A Hotel Operator states the cost of an option at THEIR hotel through the cost dialog, which has no price
-     * field and triggers no recompute; at another hotel of the same trip they are refused.
+     * An option's hotel cost is the trip's own lodging admins' alone (owner decision 2026-10-26, reversing 10-25):
+     * a Hotel Operator states the hotel's cost in its rate plans, so the cost dialog comes back blank for them
+     * and a save is refused, even at their own hotel. They may still discount a stay there ({@code canSetCost}).
+     * The trip's admin sets the cost through the same dialog, which has no price field and recomputes nothing.
      */
     @Test
-    public void anOperatorSetsTheCostAtTheirHotelAndNeverThePrice() throws IOException {
+    public void onlyTheTripSetsAnOptionsCostNeverTheOperator() throws IOException {
         final Person guest = savedPerson("Wes");
         final Trip own = ownTrip("Operator cost trip", guest);
         final Stay a = stay(true, own);
@@ -2107,51 +2109,45 @@ public class LodgingCommandsTest {
         final Person keeper = savedPerson("Xin");
         makeOperator(keeper, a.accId());
         final LodgingCommands operator = new LodgingCommands(() -> TestCallers.person(keeper.getId()));
-        assertTrue(operator.canSetCost(own.getId(), a.accId()));
+        assertTrue(operator.canSetCost(own.getId(), a.accId()), "a stay's cost discount at their hotel");
         assertFalse(operator.canSetCost(own.getId(), b.accId()));
+        assertNull(operator.offerCostFormFor(own.getId(), a.offer().getId().getValue()).getOfferId(),
+                "the option's cost dialog comes back blank, even at their own hotel");
 
-        final LodgingViews.OfferCostForm form = operator.offerCostFormFor(own.getId(), a.offer().getId().getValue());
+        final LodgingViews.OfferCostForm form = admin.offerCostFormFor(own.getId(), a.offer().getId().getValue());
         assertEquals(form.getOfferId(), a.offer().getId().getValue());
         assertEquals(form.getOfferName(), a.offer().getName());
         assertFalse(form.isCostKnown());
-        assertNull(operator.offerCostFormFor(own.getId(), b.offer().getId().getValue()).getOfferId(),
-                "the other hotel's dialog comes back blank");
         form.setCostKnown(true);
         form.setCostNightlyPrice(70.0);
-        operator.addCostExtra(form);
+        assertFalse(operator.setOfferCost(form), "an operator's save is refused");
+        assertTrue(form.getProblem().startsWith("Not allowed"), form.getProblem());
+        assertTrue(form.getProblem().contains("rate plans"), "and says where the hotel's cost goes instead");
+        assertNull(admin.findOffer(own.getId(), a.offer().getId().getValue()).getCost());
+
+        admin.addCostExtra(form);
         form.getCostExtras().get(0).setLabel("City tax");
         form.getCostExtras().get(0).setAmount(12.0);
-        operator.addCostExtra(form);
-        operator.removeCostExtra(form, 1);
-        operator.removeCostExtra(form, 7);
+        admin.addCostExtra(form);
+        admin.removeCostExtra(form, 1);
+        admin.removeCostExtra(form, 7);
         assertEquals(form.getCostExtras().size(), 1);
-        assertTrue(operator.setOfferCost(form));
+        assertTrue(admin.setOfferCost(form));
         final ReservationOffer costed = admin.findOffer(own.getId(), a.offer().getId().getValue());
         assertEquals(costed.getCost().getNightlyCents(), 7000L);
         assertEquals(costed.getCostExtras().get(0).getLabel(), "City tax");
-        assertEquals(costed.getNightlyPriceCents(), 12000L, "no price field exists on the operator's form");
+        assertEquals(costed.getNightlyPriceCents(), 12000L, "no price field exists on the cost form");
         assertEquals(new LodgingBiller(new TransactionsCommands()).billedByPerson(res),
                 Map.of(guest.getId(), 3 * 12000L), "a cost is not a bill");
         assertEquals(admin.offerRows(own.getId()).stream().filter(r -> r.getId().equals(costed.getId().getValue()))
                 .findFirst().orElseThrow().getCost(), "$70.00/night per room");
-
-        final LodgingViews.OfferCostForm elsewhere = admin.offerCostFormFor(own.getId(), b.offer().getId().getValue());
-        elsewhere.setCostKnown(true);
-        elsewhere.setCostNightlyPrice(70.0);
-        assertFalse(operator.setOfferCost(elsewhere), "B is somebody else's hotel");
-        assertTrue(elsewhere.getProblem().startsWith("Not allowed"), elsewhere.getProblem());
-        assertNull(admin.findOffer(own.getId(), b.offer().getId().getValue()).getCost());
         form.setCostNightlyPrice(-5.0);
-        assertFalse(operator.setOfferCost(form));
+        assertFalse(admin.setOfferCost(form));
         assertEquals(form.getProblem(), "The nightly cost cannot be negative.");
         form.setCostNightlyPrice(70.0);
         form.setCostKnown(false);
-        assertTrue(operator.setOfferCost(form));
+        assertTrue(admin.setOfferCost(form));
         assertNull(admin.findOffer(own.getId(), a.offer().getId().getValue()).getCost(), "costKnown off clears it");
-        assertFalse(operator.setOfferCost(null));
-        form.setOfferId("gone");
-        assertFalse(operator.setOfferCost(form));
-        assertEquals(form.getProblem(), "This lodging option no longer exists.");
     }
 
     /**

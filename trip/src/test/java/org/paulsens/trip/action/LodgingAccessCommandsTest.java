@@ -49,6 +49,18 @@ public class LodgingAccessCommandsTest {
         orgId = org.getId().getValue();
     }
 
+    /** An operator's way back from a page of the trip: their hotel's Trips tab, on this trip (2026-10-26). */
+    @Test
+    public void anOperatorGoesBackToTheirHotelsTripsTab() {
+        final LodgingAccess two = new LodgingAccess("t-1", false, Set.of("b-hotel", "a-hotel"), Set.of());
+        assertEquals(two.hotelTripsUrl("b-hotel"), "/admin/lodging.jsf?acc=b-hotel&tab=6&trip=t-1",
+                "the hotel they came from, when they operate it");
+        assertEquals(two.hotelTripsUrl("someone-elses"), "/admin/lodging.jsf?acc=a-hotel&tab=6&trip=t-1",
+                "else the first hotel they operate here, never a parameter they do not hold");
+        assertEquals(two.hotelTripsUrl(null), "/admin/lodging.jsf?acc=a-hotel&tab=6&trip=t-1");
+        assertEquals(LodgingAccess.none("t-1").hotelTripsUrl("a-hotel"), "", "no hotel of theirs: nowhere");
+    }
+
     @Test
     public void aHotelIsInPlayByAnOptionOrByAnActiveReservationAndLeavesPlayWhenItIsCancelled()
             throws IOException {

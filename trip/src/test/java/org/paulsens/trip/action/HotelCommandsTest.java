@@ -250,12 +250,17 @@ public class HotelCommandsTest {
         assertEquals(row.getDates(), "Sep 21 - Sep 26, 2027");
         assertEquals(row.getStart(), LocalDate.of(2027, 9, 21));
         assertEquals(row.getBoardUrl(), "/trip/lodging.jsf?trip=" + mine.getId() + "&acc=" + accId);
-        assertEquals(row.getInvoiceUrl(), "/admin/reports/roomInvoice.jsf?trip=" + mine.getId());
-        assertEquals(row.getOptions().size(), 1);
-        assertEquals(row.getOptions().get(0).getRoomTypes(), "Double");
-        assertEquals(row.getOptions().get(0).getDates(), "Sep 21 - Sep 24, 2027");
-        assertEquals(row.getOptions().get(0).getCostSummary(), "not set",
-                "an unstated cost is 'not set' to the operator: never the price, never 'assumed'");
+        assertEquals(row.getInvoiceUrl(), "/admin/reports/roomInvoice.jsf?trip=" + mine.getId() + "&acc=" + accId);
+        assertFalse(row.isInternal(), "an operator is not one of the trip's own lodging admins");
+        assertTrue(row.getOptions().isEmpty(), "so the trip's options are not theirs to see (2026-10-26)");
+        final HotelViews.HotelTripRow internalRow = hotel.tripRows(accId).stream()
+                .filter(r -> r.getTripId().equals(mine.getId())).findFirst().orElseThrow();
+        assertTrue(internalRow.isInternal(), "a site admin is internal on every trip");
+        assertEquals(internalRow.getOptions().size(), 1);
+        assertEquals(internalRow.getOptions().get(0).getRoomTypes(), "Double");
+        assertEquals(internalRow.getOptions().get(0).getDates(), "Sep 21 - Sep 24, 2027");
+        assertEquals(internalRow.getOptions().get(0).getCostSummary(), "not set",
+                "an unstated cost is 'not set': never the price, never 'assumed'");
         assertFalse(row.isInvoiceReady(), "a stay on an option without a cost: the hotel's invoice is refused");
         assertEquals(row.getStays().size(), 1);
         final HotelViews.HotelStayRow stay = row.getStays().get(0);
@@ -265,6 +270,8 @@ public class HotelCommandsTest {
         assertEquals(stay.getRoomLabel(), "Room 101");
         assertNull(stay.getCostConcession());
         assertTrue(stay.getOfferName().startsWith("Room "), stay.getOfferName());
+        assertEquals(stay.getRoomPrice(), "not set", "no hotel cost, no Room Price");
+        assertNull(stay.getRoomPriceBefore());
         final HotelViews.HotelTripRow theirRow = rows.stream().filter(r -> r.getTripId().equals(other.getId()))
                 .findFirst().orElseThrow();
         assertEquals(theirRow.getStays().get(0).getRoomLabel(), "not assigned");
@@ -275,6 +282,23 @@ public class HotelCommandsTest {
         assertTrue(stranger.tripRows(accId).isEmpty(), "not this hotel's operator: no rows at all");
         assertEquals(hotel.tripRows(accId).size(), 2, "a site admin operates every hotel");
         assertTrue(hotel.tripRows("no-such-hotel").isEmpty());
+
+        // The page shows ONE trip (2026-10-26): the asked-for one when it is here, else the newest.
+        final HotelViews.HotelTripsTab picked = staff.tripsTab(accId, other.getId());
+        assertEquals(picked.getChoices().size(), 2, "every trip at the hotel is in the picker");
+        assertEquals(picked.getChoices().get(0).getTripId(), rows.get(0).getTripId(), "in the rows' order");
+        assertTrue(picked.getChoices().stream()
+                .anyMatch(c -> c.getLabel().equals("Rows trip -- Sep 21 - Sep 26, 2027")),
+                picked.getChoices().toString());
+        assertEquals(picked.getSelectedTripId(), other.getId());
+        assertEquals(picked.getRows().size(), 1, "only the picked trip's row is built");
+        assertEquals(picked.getRows().get(0).getTripId(), other.getId());
+        final HotelViews.HotelTripsTab newest = staff.tripsTab(accId, "not-a-trip-here");
+        assertEquals(newest.getSelectedTripId(), rows.get(0).getTripId(),
+                "an unknown ?trip= falls back to the newest");
+        assertTrue(stranger.tripsTab(accId, mine.getId()).getChoices().isEmpty(), "not their hotel: nothing");
+        assertTrue(stranger.tripsTab(accId, mine.getId()).getRows().isEmpty());
+        assertNull(stranger.tripsTab(accId, null).getRow());
 
         // Once the hotel states its cost, THAT is what the tab shows -- still never the $100 participant price.
         final ReservationOffer offer = admin.getOffers(mine.getId()).get(0);
@@ -289,9 +313,13 @@ public class HotelCommandsTest {
         assertTrue(admin.setConcession(comp));
         final HotelViews.HotelTripRow priced = staff.tripRows(accId).stream()
                 .filter(r -> r.getTripId().equals(mine.getId())).findFirst().orElseThrow();
-        assertEquals(priced.getOptions().get(0).getCostSummary(), "$55.00/night per room");
+        assertEquals(hotel.tripRows(accId).stream().filter(r -> r.getTripId().equals(mine.getId())).findFirst()
+                .orElseThrow().getOptions().get(0).getCostSummary(), "$55.00/night per room");
         assertTrue(priced.isInvoiceReady(), "every option with a stay here now has a cost");
         assertEquals(priced.getStays().get(0).getCostConcession(), "10% discount");
+        // Room Price: 3 nights x $55 for the room, 10% off -- struck-through gross, then the net.
+        assertEquals(priced.getStays().get(0).getRoomPriceBefore(), "$165.00");
+        assertEquals(priced.getStays().get(0).getRoomPrice(), "$148.50");
         assertFalse(priced.toString().contains("100.00"), "the participant price never reaches the operator");
     }
 

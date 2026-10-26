@@ -83,6 +83,18 @@ public final class LodgingAccess implements Serializable {
         return accId != null && operatorAccIds.contains(accId);
     }
 
+    /**
+     * Where an operator goes BACK to from a page of this trip (the Room Invoice): their hotel page's Trips tab
+     * showing this trip -- {@code preferredAccId} when they operate it (the hotel they came from), else the
+     * first hotel they operate here; "" when they operate none. The Reports dashboard is no door of theirs: it
+     * needs a trip role an operator does not hold.
+     */
+    public String hotelTripsUrl(final String preferredAccId) {
+        final String accId = operatorOf(preferredAccId) ? preferredAccId
+                : operatorAccIds.stream().sorted().findFirst().orElse(null);
+        return (accId == null) ? "" : "/admin/lodging.jsf?acc=" + accId + "&tab=6&trip=" + tripId;
+    }
+
     private static Set<String> frozen(final Collection<String> ids) {
         return Collections.unmodifiableSet(new LinkedHashSet<>(ids));
     }

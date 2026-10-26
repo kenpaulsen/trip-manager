@@ -44,6 +44,12 @@ public final class HotelViews {
         private String invoiceUrl;
         /** Whether every active-stay option of the trip at THIS hotel has a cost, so that invoice renders. */
         private boolean invoiceReady;
+        /**
+         * Whether the caller is one of the trip's OWN lodging admins (internal). Only they see the trip's lodging
+         * options here and their "Set cost" (owner decision 2026-10-26: an operator states the hotel's cost
+         * through its rate plans, never on a trip's option); {@link #options} stays empty for anyone else.
+         */
+        private boolean internal;
         private List<HotelOptionRow> options = new ArrayList<>();
         private List<HotelStayRow> stays = new ArrayList<>();
     }
@@ -84,5 +90,40 @@ public final class HotelViews {
         private String costConcession;
         /** The lodging option the stay is on, by name. */
         private String offerName;
+        /** What the hotel is paid for this stay's room nights, after its discount ("$300.00"), or "not set". */
+        private String roomPrice;
+        /** The same before the discount, shown struck through; null when the stay has no hotel discount. */
+        private String roomPriceBefore;
+    }
+
+    /** One entry of the Trips tab's trip picker: the trip by id, labelled "Spring trip -- Dec 13 - Dec 25, 2026". */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static final class HotelTripChoice implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String tripId;
+        private String label;
+    }
+
+    /**
+     * The Trips tab as one request reads it: every trip at the hotel as a picker entry, newest first, and the
+     * ONE trip shown ({@code selectedTripId}, the {@code ?trip=} asked for when it is one of them, else the
+     * newest). {@code row} is null when the hotel has no trip at all.
+     */
+    @Data
+    @NoArgsConstructor
+    public static final class HotelTripsTab implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private List<HotelTripChoice> choices = new ArrayList<>();
+        private String selectedTripId = "";
+        private HotelTripRow row;
+
+        /** The shown row as a list of zero or one, for the page's ui:repeat (its row commands need one). */
+        public List<HotelTripRow> getRows() {
+            return (row == null) ? new ArrayList<>() : new ArrayList<>(List.of(row));
+        }
     }
 }
