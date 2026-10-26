@@ -100,7 +100,7 @@ The whole budget:
 | Payments During Trip | Σ payee totals | 29,914.19 with the lodging oracle |
 | Other Payments | the lines paid before the trip, one row each with its category, the same amounts | |
 | estimated trip total | Payments During Trip + Σ Other Payments | |
-| estimated money to collect | perPersonBudget × people + lodgingRevenue (what participants are charged for lodging: per person, people × nights × nightly + singles × nights × supplement; per room, rooms × nights × nightly). Per-person extras are not included | 48,000.00 with the lodging oracle |
+| estimated money to collect | (perPersonBudget + individualExtras) × people + lodgingRevenue (what participants are charged for lodging: per person, people × nights × nightly + singles × nights × supplement; per room, rooms × nights × nightly). The extras count whether paid during the trip or before it | 48,000.00 with the lodging oracle (no extras) |
 | basic ground budget range | toBill, or toBill to toBill + max singleAddOn + individualExtras when either is positive | 1,000.00 to 1,200.00 |
 | estimatedGroundPerPerson | (sharedTotal + lodgingCost) / people | 650.31 |
 

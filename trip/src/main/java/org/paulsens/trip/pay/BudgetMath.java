@@ -296,12 +296,13 @@ public final class BudgetMath {
     }
 
     /**
-     * The money to collect from the participants: the per-person shared budget × people, plus what they are
-     * charged for lodging (the lodging REVENUE: per person, people × nights × the nightly price + singles × nights
-     * × the single supplement; per room, rooms × nights × the room price). Per-person extras are not included.
+     * The money to collect from the participants: (the per-person shared budget + the per-person extras) ×
+     * people, plus what they are charged for lodging (the lodging REVENUE: per person, people × nights × the
+     * nightly price + singles × nights × the single supplement; per room, rooms × nights × the room price). The
+     * extras count whether they are paid during the trip or before it: the participants pay them either way.
      */
     public static long moneyToCollect(final TripBudget budget, final long lodgingRevenue) {
-        return budget.getPerPersonBudgetCents() * budget.getPeople() + lodgingRevenue;
+        return (budget.getPerPersonBudgetCents() + individualExtras(budget)) * budget.getPeople() + lodgingRevenue;
     }
 
     /** What a typed line costs the whole trip: a SHARED amount as is, an INDIVIDUAL per-person total × people. */

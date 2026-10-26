@@ -440,6 +440,7 @@ public class BudgetCommandsTest {
         assertEquals(page.getIndividualExtras(), "$50.00");
         assertEquals(payeeAmount(page, "Market"), "$200.00", "Market: $50 x 4 people");
         assertEquals(page.getToBillRange(), "$0.00 to $50.00", "the per-person extras raise the ceiling");
+        assertEquals(page.getMoneyToCollect(), "$200.00", "no shared budget or lodging: $50 of extras × 4 people");
 
         final String guideId = page.getSharedRows().get(0).getId();
         final String tipsId = page.getSharedRows().get(1).getId();

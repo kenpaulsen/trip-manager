@@ -280,12 +280,18 @@ public class BudgetMathTest {
     }
 
     @Test
-    public void moneyToCollectIsTheSharedBudgetPlusWhatLodgingCharges() {
+    public void moneyToCollectIsTheSharedBudgetPlusExtrasPlusWhatLodgingCharges() {
         final TripBudget budget = sheet();
         final LodgingFigures figures = BudgetMath.lodging(oracleLine(), seededShape());
         assertEquals(BudgetMath.moneyToCollect(budget, figures.revenue()), 48_000_00L,
                 "$400 × 46 + 29,600.00 (46 × 10 × $60 + 10 singles × 10 × $20)");
         assertEquals(BudgetMath.moneyToCollect(budget, 0L), 18_400_00L, "no lodging: the shared budget alone");
+        budget.getLines().add(BudgetLine.builder().kind(BudgetLineKind.INDIVIDUAL).name("Snacks").amountCents(5_00)
+                .perNight(true).build());
+        budget.getLines().add(BudgetLine.builder().kind(BudgetLineKind.INDIVIDUAL).name("Insurance")
+                .amountCents(80_00).offSite(true).build());
+        assertEquals(BudgetMath.moneyToCollect(budget, figures.revenue()), 53_980_00L,
+                "+ ($5 × 10 nights + $80) × 46: extras paid during the trip or before it");
     }
 
     @Test

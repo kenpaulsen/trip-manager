@@ -257,7 +257,7 @@ public final class BudgetViews {
         private String otherTotal;
         /** Payments During Trip plus Other Payments: the estimated cost of the whole trip. */
         private String tripTotal;
-        /** Per-person shared budget × people + the lodging revenue: what the participants are asked to pay. */
+        /** (Per-person shared budget + extras) × people + lodging revenue: what the participants are asked to pay. */
         private String moneyToCollect;
         /** The roster's head count and the trip dates' nights, beside the typed inputs. */
         private int tripPeople;
