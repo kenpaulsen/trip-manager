@@ -42,6 +42,8 @@ public final class HotelViews {
         private String boardUrl;
         /** The trip's Room Invoice (the operator sees their hotel's section only). */
         private String invoiceUrl;
+        /** Whether every active-stay option of the trip at THIS hotel has a cost, so that invoice renders. */
+        private boolean invoiceReady;
         private List<HotelOptionRow> options = new ArrayList<>();
         private List<HotelStayRow> stays = new ArrayList<>();
     }

@@ -106,13 +106,18 @@ final class LodgingConcessions {
         return true;
     }
 
+    /** What the COST preview says when the option has no stated cost (nothing to discount from). */
+    static final String NO_COST = "Hotel cost is not set for this option.";
+
     /**
-     * The stay's new PRICE total with the form's concession applied, as "$300.00"; "" on the cost side, for an
-     * unknown stay, or for a form that would be refused (whose reason lands on {@code problem}). Priced on a
-     * COPY: the DAO hands out copies, so setting the proposed concession on it changes nothing stored.
+     * What the form's concession would do, on its side: the stay's new PRICE total as "$300.00", or the hotel's
+     * charge for the stay before and after as "Hotel cost for this stay: $240.00 -> $216.00" ({@link #NO_COST}
+     * when the option has no cost). "" for an unknown stay or a form that would be refused (whose reason lands
+     * on {@code problem}). Priced on a COPY: the DAO hands out copies, so setting the proposed concession on it
+     * changes nothing stored.
      */
     String preview(final ConcessionForm form) {
-        if (form == null || !form.isPriceSide()) {
+        if (form == null) {
             return "";
         }
         final Reservation copy = lodging.findReservation(form.getTripId(), form.getReservationId());
@@ -126,14 +131,27 @@ final class LodgingConcessions {
             form.setProblem(problem);
             return "";
         }
-        copy.setPriceConcession(build(form));
         final Accommodation acc = lodging.findAccommodation(LodgingCommands.idValue(copy.getAccommodationId()));
         final List<Reservation> onRoom = lodging.activeOnRoom(form.getTripId(), copy.getRoomId());
+        if (form.isPriceSide()) {
+            copy.setPriceConcession(build(form));
+            return MoneyMath.formatCents(total(LodgingPricing.price(copy, offer, acc, onRoom, lodging.nameResolver())));
+        }
+        if (offer.getCost() == null) {
+            return NO_COST;
+        }
+        final long before = total(LodgingPricing.cost(copy, offer, acc, onRoom, lodging.nameResolver()));
+        copy.setCostConcession(build(form));
+        final long after = total(LodgingPricing.cost(copy, offer, acc, onRoom, lodging.nameResolver()));
+        return "Hotel cost for this stay: " + MoneyMath.formatCents(before) + " -> " + MoneyMath.formatCents(after);
+    }
+
+    private static long total(final List<LodgingPricing.Line> lines) {
         long total = 0L;
-        for (final LodgingPricing.Line line : LodgingPricing.price(copy, offer, acc, onRoom, lodging.nameResolver())) {
+        for (final LodgingPricing.Line line : lines) {
             total += line.amountCents();
         }
-        return MoneyMath.formatCents(total);
+        return total;
     }
 
     /** The concession the form describes, stamped with who and when; null for "none". */

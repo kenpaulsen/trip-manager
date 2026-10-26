@@ -217,6 +217,11 @@ public final class FakeData {
         offer.setTripEventId(FAKE_TRIP_LODGING_EVENT_ID);
         offer.setPricingModel("PER_ROOM");
         offer.setNightlyPrice(60.0);
+        // The hotel's cost equals the price (no extras): the demo trip's Room Invoice renders, and the browser
+        // tests' $720 (12 nights x $60) holds on either side.
+        offer.setCostKnown(true);
+        offer.setCostPricingModel("PER_ROOM");
+        offer.setCostNightlyPrice(60.0);
         offer.setValidFrom(fakeStayStart().toLocalDate().atStartOfDay());
         offer.setValidUntil(fakeStayEnd().toLocalDate().atTime(23, 59));
         offer.setDefaultStart(fakeStayStart());
@@ -231,8 +236,8 @@ public final class FakeData {
 
     /**
      * The Pansion's rate plan, straight through the DAO (the command path mints a random id; the webtests need
-     * this one fixed). Cost only: a plan whose participant price an internal admin has yet to set is the case
-     * the "Needs participant pricing" badge exists for.
+     * this one fixed). Cost $50 per room plus a fixed "City tax" over calendar 2027 -- a plan carries the
+     * hotel's side only.
      */
     private static void seedRatePlan(final org.paulsens.trip.model.Accommodation pansion, final Person admin) {
         final List<String> typeIds = new ArrayList<>();
@@ -244,6 +249,10 @@ public final class FakeData {
                 .accommodationId(pansion.getId())
                 .name("Hotel rate 2027")
                 .roomTypeIds(typeIds)
+                // Dated, not open: a plan that covers every trip would leave "no plan covers this trip's dates"
+                // untestable in the browser suite.
+                .validFrom(java.time.LocalDate.of(2027, 1, 1))
+                .validUntil(java.time.LocalDate.of(2027, 12, 31))
                 .cost(new org.paulsens.trip.model.RateSchedule(org.paulsens.trip.model.PricingModel.PER_ROOM, 5000L,
                         null, 0L))
                 .costExtras(List.of(new org.paulsens.trip.model.CostExtra("City tax",
@@ -474,10 +483,10 @@ public final class FakeData {
     public static final String CFPW_ACCOMMODATION_ID = "e7a3c9d1-52b4-4f6e-8a1d-3c5b7e9f0a2d";
 
     /**
-     * The Pansion's one seeded rate plan ("Hotel rate 2027": every room type, open dates, cost PER_ROOM $50
-     * plus a FIXED "City tax" $12, NO participant price yet). Deliberately NOT linked to the seeded offer:
-     * the browser tests assert the offer's own $60 x 12 nights, and a linked offer would copy the plan's
-     * unset price. Mirrored in the webtests' {@code SeededIds}.
+     * The Pansion's one seeded rate plan ("Hotel rate 2027": every room type, dated 2027-01-01..2027-12-31,
+     * cost PER_ROOM $50 plus a FIXED "City tax" $12; a plan carries no participant price). NOT linked to the seeded
+     * offer: the browser tests assert the offer's own $60 x 12 nights on both sides, and a linked offer would
+     * follow the plan's $50 cost instead. Mirrored in the webtests' {@code SeededIds}.
      */
     public static final String CFPW_RATE_PLAN_ID = "a4c7e2f9-1b3d-4e8a-9f06-7d2c5b8e1a43";
 

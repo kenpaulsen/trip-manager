@@ -53,7 +53,6 @@ import org.paulsens.trip.action.LodgingViews.StayWindowForm;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
-import org.paulsens.trip.content.HtmlFragmentValidator;
 import org.paulsens.trip.content.RichTextRules;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Accommodation;
@@ -1004,11 +1003,13 @@ public class LodgingCommands {
             final TripEvent event = trip.getTripEvent(offer.getTripEventId());
             final int count = (int) reservations.stream()
                     .filter(res -> res.isActive() && offer.getId().equals(res.getOfferId())).count();
+            final int referencing = (int) reservations.stream()
+                    .filter(res -> offer.getId().equals(res.getOfferId())).count();
             final OfferSchedules.PlanLink link = OfferSchedules.linkOf(offer, RatePlanCommands.planOf(offer));
             rows.add(new OfferRow(offer.getId().getValue(), offer.getName(), acc == null ? "?" : acc.getName(),
                     roomTypeNames(acc, offer), event == null ? "" : event.getTitle(),
                     OfferSchedules.pricingLabel(offer), range(offer.getValidFrom(), offer.getValidUntil()),
-                    range(offer.getDefaultStart(), offer.getDefaultEnd()), count, offer.isEnabled(),
+                    range(offer.getDefaultStart(), offer.getDefaultEnd()), count, referencing, offer.isEnabled(),
                     OfferSchedules.costLabel(offer), !offer.isPriced(), link.planName(), link.drift(),
                     offer.isLinked()));
         }
@@ -1053,6 +1054,7 @@ public class LodgingCommands {
         form.setRoomTypeIds(new ArrayList<>(offer.getRoomTypeIds()));
         form.setTripEventId(offer.getTripEventId());
         form.setRatePlanId(offer.getRatePlanId());
+        form.setRatePlanName(OfferSchedules.linkOf(offer, RatePlanCommands.planOf(offer)).planName());
         OfferSchedules.fill(form, offer);
         form.setMinNights(offer.getMinNights());
         form.setValidFrom(offer.getValidFrom());
@@ -1120,8 +1122,9 @@ public class LodgingCommands {
      * the org is recorded on it and the hotel's contact joins the org. {@code tripEventId == "NEW"} creates a
      * LODGING event on the trip from the default stay; an existing id must be one of the trip's events. Bills
      * recompute only when the PRICE side changed: a cost edit never touches a participant's ledger. An option
-     * that follows a hotel rate plan ({@code form.ratePlanId}) COPIES its schedules from the plan and ignores
-     * the form's money fields, on create and on every later edit alike ({@code RatePlanCommands}).
+     * that follows a hotel rate plan ({@code form.ratePlanId}) takes its PRICE from the form like any option and
+     * its COST from the plan, on create and on every later edit alike ({@code RatePlanCommands}), and may not
+     * move to another hotel while linked.
      */
     public boolean saveOffer(final String tripId, final OfferForm form) {
         if (!canManageTripLodging(tripId)) {
@@ -1161,7 +1164,7 @@ public class LodgingCommands {
         if (offer == null) {
             return refuseInto(form::setProblem, "This lodging option no longer exists.");
         }
-        final String problem = offerProblem(tripId, offer, form);
+        final String problem = OfferRules.problem(tripId, offer, form);
         if (problem != null) {
             return refuseInto(form::setProblem, problem);
         }
@@ -1237,43 +1240,6 @@ public class LodgingCommands {
         }
     }
 
-    /** Why the option cannot be saved as the form says; null when it can. */
-    private String offerProblem(final String tripId, final ReservationOffer offer, final OfferForm form) {
-        if (offer.isPriced() && !form.isPriceKnown()) {
-            final long stays = DAO.getInstance().getReservations(tripId, Cached.NO).stream()
-                    .filter(res -> res.isActive() && offer.getId().equals(res.getOfferId())).count();
-            if (stays > 0) {
-                return "'" + offer.getName() + "' has " + stays + (stays == 1 ? " active stay" : " active stays")
-                        + "; it cannot lose its participant price.";
-            }
-        }
-        if (form.getValidFrom() != null && form.getValidUntil() != null
-                && !form.getValidUntil().isAfter(form.getValidFrom())) {
-            return "The option's last date must be after its first.";
-        }
-        if (form.getDefaultStart() == null || form.getDefaultEnd() == null
-                || !form.getDefaultEnd().isAfter(form.getDefaultStart())) {
-            return "The default departure must be after the default arrival.";
-        }
-        if ((form.getValidFrom() != null && form.getDefaultStart().isBefore(form.getValidFrom()))
-                || (form.getValidUntil() != null && form.getDefaultEnd().isAfter(form.getValidUntil()))) {
-            return "The default stay must lie within the option's date range.";
-        }
-        if (form.getCancelFeeAmount() != null && form.getCancelFeeAmount() < 0) {
-            return "The cancellation fee cannot be negative.";
-        }
-        if ("PERCENT".equals(form.getCancelFeeKind()) && form.getCancelFeeAmount() != null
-                && form.getCancelFeeAmount() > 100) {
-            return "A percentage fee cannot exceed 100%.";
-        }
-        final String money = OfferSchedules.problem(form);
-        if (money != null) {
-            return money;
-        }
-        final String policy = HtmlFragmentValidator.validate(nullSafe(form.getPolicyHtml()));
-        return (policy == null) ? null : "Policy: " + policy;
-    }
-
     /**
      * The LODGING event the offer tracks people on: one of the trip's own, or a new one from the form; a lodging
      * event with the same title and start is REUSED (a hotel's single and double rooms share one event).
@@ -1314,10 +1280,9 @@ public class LodgingCommands {
         offer.setAccommodationId(acc.getId());
         offer.setRoomTypeIds(new ArrayList<>(form.getRoomTypeIds()));
         offer.setTripEventId(eventId);
-        if (plan == null) {
-            OfferSchedules.apply(offer, form);
-        } else {
-            OfferSchedules.copyFromPlan(offer, plan);
+        OfferSchedules.apply(offer, form);
+        if (plan != null) {
+            OfferSchedules.copyFromPlan(offer, plan); // The cost side is the plan's; the price stays the form's.
         }
         offer.setMinNights(Math.max(1, form.getMinNights()));
         offer.setValidFrom(form.getValidFrom());
@@ -1449,6 +1414,18 @@ public class LodgingCommands {
         return new LodgingConcessions(this, tripSource.get(), auditSource.get());
     }
 
+    // ------------------------------------------------------------------ the Room Invoice's readiness (ReportCommands)
+
+    /** Whether every active-stay option in THIS caller's view of the trip has a hotel cost (the invoice renders). */
+    public boolean invoiceReady(final String tripId) {
+        return new ReportCommands(tripSource, () -> this).invoiceReady(tripId, access.forTrip(tripId));
+    }
+
+    /** Why the Room Invoice is refused, naming the options without a cost; "" when it is ready. */
+    public String invoiceBlockedMessage(final String tripId) {
+        return new ReportCommands(tripSource, () -> this).invoiceBlockedMessage(tripId, access.forTrip(tripId));
+    }
+
     /** The trip's LODGING events as id -> title, for the offer dialog's event menu. */
     public Map<String, String> lodgingEventChoices(final String tripId) {
         final Map<String, String> choices = new LinkedHashMap<>();
@@ -1560,7 +1537,7 @@ public class LodgingCommands {
                     acc == null ? "" : nullSafe(acc.roomLabel(res.getRoomId())), res.getStart(), res.getEnd(),
                     res.nights(), res.getStatus().name(), MoneyMath.formatCents(billed), res.isActive(),
                     res.isSupplementWaived(), res.getNotes(), LodgingConcessions.label(res.getPriceConcession()),
-                    LodgingConcessions.label(res.getCostConcession())));
+                    LodgingConcessions.label(res.getCostConcession()), names(res.sortedOccupants())));
         }
         rows.sort((a, b) -> nullSafe(a.getOccupants()).compareToIgnoreCase(nullSafe(b.getOccupants())));
         return rows;

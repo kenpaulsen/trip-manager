@@ -25,7 +25,8 @@ import lombok.Value;
  * <p><b>Price vs cost.</b> {@code price} is what a participant PAYS (the bills); {@code cost} is what the hotel
  * CHARGES us (the Room Invoice), plus {@code costExtras} (taxes, fees, coupons). Either may be null: a null
  * {@code price} means "needs participant pricing" (no reservation may be taken on it); a null {@code cost}
- * means the cost is ASSUMED to equal the price ({@link #effectiveCost()}, {@link #isCostAssumed()}). When the
+ * means the cost is NOT SET: the Room Invoice refuses the trip until it is ({@link #isCostAssumed()} is that
+ * flag; {@link #effectiveCost()} is a leftover no pricing path reads). When the
  * offer was copied from a hotel {@link RatePlan}, {@code ratePlanId}/{@code ratePlanVersion} say which and
  * at what version; the schedules are still the offer's own copy.
  *
@@ -63,7 +64,7 @@ public final class ReservationOffer implements Serializable {
     private String tripEventId;
     /** What a participant pays; null = needs participant pricing. */
     private RateSchedule price;
-    /** What the hotel charges; null = assumed equal to the price. */
+    /** What the hotel charges; null = not set (the invoice refuses, nothing prices a cost-less option). */
     private RateSchedule cost;
     /** Hotel-side extras (taxes, fees, coupons); never null, never on a bill. */
     private List<CostExtra> costExtras;

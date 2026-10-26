@@ -20,6 +20,7 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.action.Caller;
 import org.paulsens.trip.action.LodgingCommands;
+import org.paulsens.trip.action.LodgingViews;
 import org.paulsens.trip.action.LodgingViews.AccommodationForm;
 import org.paulsens.trip.action.LodgingViews.OfferForm;
 import org.paulsens.trip.action.LodgingViews.ReservationForm;
@@ -46,7 +47,7 @@ import org.testng.annotations.Test;
 /**
  * The Room Invoice PDF download: who gets the file, who is sent to login, who is refused, and the headers that
  * make it a download with the trip's name on it. A Hotel Operator of a hotel in play is admitted to THEIR
- * hotel's part; a finance viewer gets every hotel and the internal cost-assumed note.
+ * hotel's part; a finance viewer gets every hotel; an invoice refused for want of a hotel cost is a 409.
  */
 public class RoomInvoicePdfServletTest {
 
@@ -134,8 +135,9 @@ public class RoomInvoicePdfServletTest {
 
     /**
      * Two hotels on one trip, an operator of hotel A: the servlet admits them on their lodging access alone,
-     * builds the invoice through the real {@code roomInvoiceFor}, and the PDF names A and not B, with no
-     * cost-assumed note even though neither option states a cost. The finance viewer's PDF has both and the note.
+     * builds the invoice through the real {@code roomInvoiceFor}, and the PDF names A and not B, addressed to
+     * the trip's organization. The finance viewer's PDF has both. While hotel B's option has no cost the
+     * finance viewer (whose view is the whole trip) gets a 409 naming it, and the operator of A still gets A.
      */
     @Test
     public void anOperatorGetsTheirHotelsPartAndAFinanceViewerGetsEveryHotel() throws IOException {
@@ -152,8 +154,9 @@ public class RoomInvoicePdfServletTest {
         Assert.assertTrue(DAO.getInstance().saveTrip(trip));
         final String hotelA = hotel(admin, org.getId().getValue(), "Alpha House");
         final String hotelB = hotel(admin, org.getId().getValue(), "Bravo Inn");
-        reserve(admin, trip.getId(), offerAt(admin, trip.getId(), hotelA), guestA);
-        reserve(admin, trip.getId(), offerAt(admin, trip.getId(), hotelB), guestB);
+        reserve(admin, trip.getId(), offerAt(admin, trip.getId(), hotelA, true), guestA);
+        final String offerB = offerAt(admin, trip.getId(), hotelB, false);
+        reserve(admin, trip.getId(), offerB, guestB);
         final Person operator = savedPerson("Keeper");
         final PrivilegeCommands priv = new PrivilegeCommands();
         Assert.assertTrue(priv.savePrivilege(priv.getOrCreate(PrivilegeCommands.ACCOMMODATION_ADMIN, hotelA,
@@ -169,20 +172,34 @@ public class RoomInvoicePdfServletTest {
         Assert.assertTrue(theirs.contains("Alpha House"), theirs);
         Assert.assertFalse(theirs.contains("Bravo Inn"), "the other hotel is not theirs: " + theirs);
         Assert.assertTrue(theirs.contains("Ava"), "guest names at their hotel are theirs to see");
-        Assert.assertFalse(theirs.contains("Cost assumed"), "the flag never reaches the hotel: " + theirs);
-        Assert.assertFalse(theirs.contains("Finances pages"), theirs);
+        Assert.assertTrue(theirs.contains("Invoice to " + org.getName() + " for Two Hotels room charges at Alpha"),
+                "addressed to the trip's organization: " + theirs);
 
+        // The finance viewer's view is the whole trip, and hotel B has no cost yet: refused, in their words.
         out.reset();
         final Person viewer = savedPerson("Fin");
         DAO.getInstance().savePrivilege(new Privilege(Privilege.idFor(PrivilegeCommands.TRIP_FIN_VIEW, trip.getId()),
                 "test", List.of(viewer.getId())));
         signedIn(viewer.getId().getValue(), "user", trip.getId());
         servlet.doGet(req, resp);
+        Mockito.verify(resp).setStatus(HttpServletResponse.SC_CONFLICT);
+        Mockito.verify(resp).setContentType("text/plain;charset=UTF-8");
+        final String refusal = new String(out.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+        Assert.assertTrue(refusal.startsWith("No hotel cost is set for Room at "), refusal);
+        Assert.assertTrue(refusal.contains("Offers tab"), "the internal wording: " + refusal);
+        Assert.assertFalse(refusal.contains("%PDF"), "no PDF with a hole in it");
+
+        // Once B states its cost, every hotel is theirs.
+        final LodgingViews.OfferCostForm costB = admin.offerCostFormFor(trip.getId(), offerB);
+        costB.setCostKnown(true);
+        costB.setCostNightlyPrice(80.0);
+        Assert.assertTrue(admin.setOfferCost(costB));
+        out.reset();
+        servlet.doGet(req, resp);
         Assert.assertEquals(status.get(), 200);
         final String everything = text(out.toByteArray());
         Assert.assertTrue(everything.contains("Alpha House") && everything.contains("Bravo Inn"), everything);
-        Assert.assertTrue(everything.contains("* Cost assumed from the participant price"),
-                "no option states a cost, and a finance viewer is internal: " + everything);
+        Assert.assertFalse(everything.contains("Cost assumed"), everything);
 
         out.reset();
         final Person stranger = savedPerson("Nobody");
@@ -277,7 +294,8 @@ public class RoomInvoicePdfServletTest {
         return accId;
     }
 
-    private static String offerAt(final LodgingCommands admin, final String tripId, final String accId) {
+    private static String offerAt(final LodgingCommands admin, final String tripId, final String accId,
+            final boolean costed) {
         final OfferForm form = new OfferForm();
         form.setName("Room at " + RandomData.genAlpha(4));
         form.setAccommodationId(accId);
@@ -285,6 +303,8 @@ public class RoomInvoicePdfServletTest {
         form.setTripEventId(OfferForm.NEW_EVENT);
         form.setPricingModel("PER_ROOM");
         form.setNightlyPrice(100.0);
+        form.setCostKnown(costed);
+        form.setCostNightlyPrice(90.0);
         form.setDefaultStart(CHECK_IN);
         form.setDefaultEnd(CHECK_OUT);
         Assert.assertTrue(admin.saveOffer(tripId, form));

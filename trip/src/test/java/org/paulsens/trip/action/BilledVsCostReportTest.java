@@ -21,7 +21,8 @@ import org.testng.annotations.Test;
 /**
  * Billed vs Cost: the PRICE build and the COST build of the same stays zipped per hotel, per option and per
  * person, with billed - cost as the difference. Extras and cost concessions move the cost column only; a price
- * concession moves the billed column only; a row on one side alone shows zero on the other.
+ * concession moves the billed column only; a row on one side alone shows zero on the other. Unlike the
+ * invoice, an option without a cost does not block the report: its cost reads "not set" at zero.
  */
 public class BilledVsCostReportTest {
 
@@ -133,12 +134,14 @@ public class BilledVsCostReportTest {
         Assert.assertEquals(report.getBilled(), "$1,920.00");
         Assert.assertEquals(report.getCost(), "$1,680.00");
         Assert.assertEquals(report.getDifference(), "$240.00");
-        Assert.assertFalse(report.isAnyCostAssumed());
+        Assert.assertEquals(report.getMissingCost(), 0);
+        Assert.assertTrue(report.getMissingCostNames().isEmpty());
     }
 
     @Test
     public void extrasLandInTheCostColumnOnly() {
         final ReservationOffer option = perRoom(hotel, 6_000L);
+        option.setCost(RateSchedule.builder().nightlyCents(6_000L).build());
         option.setCostExtras(List.of(CostExtra.builder().label("Booking fee").basis(CostExtra.Basis.FIXED)
                 .amountCents(1_500L).build()));
         final ReportCommands.BilledVsCost report = compare(List.of(option), stay(option, "003", "a", "b"));
@@ -146,11 +149,29 @@ public class BilledVsCostReportTest {
         Assert.assertEquals(row.getBilledCents(), 72_000L);
         Assert.assertEquals(row.getCostCents(), 73_500L);
         Assert.assertEquals(row.getDifference(), "-$15.00");
-        Assert.assertTrue(row.isCostAssumed(), "the nightly cost is still the price; only the extra is stated");
-        Assert.assertTrue(report.isAnyCostAssumed());
+        Assert.assertFalse(row.isCostAssumed());
+        Assert.assertEquals(report.getMissingCost(), 0);
         final ReportCommands.BilledVsCostPerson a = person(report.getSections().get(0), "a");
         Assert.assertEquals(a.getBilledCents(), a.getCostCents(), "an extra is never attributed to a person");
         Assert.assertEquals(a.getDifference(), "$0.00");
+    }
+
+    /** An option without a cost is not a guess here: it reads "not set", counts 0 and is named on the report. */
+    @Test
+    public void anOptionWithoutACostReadsNotSetAndCountsNothing() {
+        final ReservationOffer unstated = perRoom(hotel, 6_000L);
+        final ReportCommands.BilledVsCost report = compare(List.of(unstated), stay(unstated, "003", "a", "b"));
+        final ReportCommands.BilledVsCostOption row = report.getSections().get(0).getOptions().get(0);
+        Assert.assertEquals(row.getBilledCents(), 72_000L, "the participants are billed as usual");
+        Assert.assertEquals(row.getCostCents(), 0L, "nothing is assumed from the price");
+        Assert.assertEquals(row.getCost(), "not set");
+        Assert.assertTrue(row.isCostAssumed());
+        Assert.assertEquals(row.getDifference(), "$720.00");
+        Assert.assertEquals(report.getMissingCost(), 1);
+        Assert.assertEquals(report.getMissingCostNames(), List.of("Double room, shared (Pansion Ana)"));
+        final ReportCommands.BilledVsCostPerson a = person(report.getSections().get(0), "a");
+        Assert.assertEquals(a.getBilledCents(), 36_000L);
+        Assert.assertEquals(a.getCostCents(), 0L);
     }
 
     @Test
@@ -189,6 +210,8 @@ public class BilledVsCostReportTest {
         Assert.assertEquals(row.getCostCents(), 48_000L);
         Assert.assertEquals(row.getDifference(), "-$480.00");
         Assert.assertFalse(row.isCostAssumed());
+        Assert.assertEquals(report.getMissingCost(), 1, "the unpriced, uncosted option is still named...");
+        Assert.assertEquals(report.getMissingCostNames(), List.of("Needs pricing (Hotel Split)"), "...with no row");
         Assert.assertEquals(person(report.getSections().get(0), "a").getBilledCents(), 0L);
         Assert.assertEquals(person(report.getSections().get(0), "a").getCostCents(), 48_000L);
     }
@@ -203,10 +226,10 @@ public class BilledVsCostReportTest {
         Assert.assertEquals(report.getSections().stream().map(ReportCommands.BilledVsCostSection::getAccommodation)
                 .toList(), List.of("Hotel Split", "Pansion Ana"), "the invoice's order: same arrival, by name");
         Assert.assertEquals(report.getSections().get(0).getDifferenceCents(), 12 * 3_000L);
-        Assert.assertEquals(report.getSections().get(1).getDifferenceCents(), 0L);
+        Assert.assertEquals(report.getSections().get(1).getDifferenceCents(), 12 * 6_000L, "no cost: billed - 0");
         Assert.assertEquals(report.getBilledCents(), 12 * 6_000L + 12 * 8_000L);
-        Assert.assertEquals(report.getCostCents(), 12 * 6_000L + 12 * 5_000L);
-        Assert.assertTrue(report.isAnyCostAssumed(), "Pansion Ana's cost is the price");
+        Assert.assertEquals(report.getCostCents(), 12 * 5_000L, "Pansion Ana's cost is not set, so it counts 0");
+        Assert.assertEquals(report.getMissingCost(), 1);
         Assert.assertTrue(report.getSections().get(1).getOptions().get(0).isCostAssumed());
         Assert.assertFalse(report.getSections().get(0).getOptions().get(0).isCostAssumed());
     }

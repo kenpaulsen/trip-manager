@@ -16,16 +16,20 @@ import lombok.Data;
 import lombok.Value;
 
 /**
- * A hotel-owned pricing template: what the hotel charges ({@code cost}, plus {@code costExtras}) and, when an
- * internal admin has set it, what a participant pays ({@code price}) for some of its room types over a date
- * range. A row in {@code lodging_rate_plans} (PK accommodationId, SK id), so it is the HOTEL's, not a trip's,
- * and it may span trips of several organizations.
+ * A hotel-owned rate template: what the hotel charges ({@code cost}, plus {@code costExtras}) for some of its
+ * room types over a date range. A row in {@code lodging_rate_plans} (PK accommodationId, SK id), so it is the
+ * HOTEL's, not a trip's, and it may span trips of several organizations.
  *
- * <p>A trip takes a plan by copying its schedules onto a {@link ReservationOffer} that remembers
- * {@code ratePlanId}/{@code ratePlanVersion}; {@code linkedTripIds} is the reverse index that lets a plan edit
- * fan out to every linked offer (write-through, never a read-time join). A plan carries PRICING only: minimum
- * nights, default stay, policy and cancellation fee stay on the trip's option, because those are the trip's
- * terms. {@code retired} is a Boolean so a builder that never mentions it produces a live plan.
+ * <p>A plan carries the HOTEL side only (owner decision 2026-10-26): there is NO participant price on it. The
+ * price differs per trip and is the organization's business, so it lives on the trip's {@link ReservationOffer}
+ * alone, and a Hotel Operator never sees one. A trip takes a plan by copying its cost schedule and extras onto
+ * an offer that remembers {@code ratePlanId}/{@code ratePlanVersion}; {@code linkedTripIds} is the reverse index
+ * that lets a plan edit fan out to every linked offer (write-through, never a read-time join). Minimum nights,
+ * default stay, policy and cancellation fee stay on the trip's option, because those are the trip's terms.
+ * {@code retired} is a Boolean so a builder that never mentions it produces a live plan.
+ *
+ * <p>Rows written before 2026-10-26 may still carry a {@code price} object; the DAO's mapper ignores unknown
+ * properties, so they read as plain plans and the key drops off on the next save.
  */
 @Data
 public final class RatePlan implements Serializable {
@@ -40,8 +44,6 @@ public final class RatePlan implements Serializable {
     private LocalDate validUntil;
     /** What the hotel charges; null = not stated yet. */
     private RateSchedule cost;
-    /** What a participant pays; null = needs participant pricing (internal admins set it). */
-    private RateSchedule price;
     private List<CostExtra> costExtras;
     private String notes;
     private List<String> linkedTripIds;
@@ -60,7 +62,6 @@ public final class RatePlan implements Serializable {
             @JsonProperty("validFrom") final LocalDate validFrom,
             @JsonProperty("validUntil") final LocalDate validUntil,
             @JsonProperty("cost") final RateSchedule cost,
-            @JsonProperty("price") final RateSchedule price,
             @JsonProperty("costExtras") final List<CostExtra> costExtras,
             @JsonProperty("notes") final String notes,
             @JsonProperty("linkedTripIds") final List<String> linkedTripIds,
@@ -75,7 +76,6 @@ public final class RatePlan implements Serializable {
         this.validFrom = validFrom;
         this.validUntil = validUntil;
         this.cost = cost;
-        this.price = price;
         this.costExtras = (costExtras == null) ? new ArrayList<>() : new ArrayList<>(costExtras);
         this.notes = notes;
         this.linkedTripIds = new ArrayList<>();
@@ -91,13 +91,7 @@ public final class RatePlan implements Serializable {
     }
 
     public RatePlan() {
-        this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0L);
-    }
-
-    /** Whether a participant price has been set (an offer taken from an unpriced plan is itself unpriced). */
-    @JsonIgnore
-    public boolean isPriced() {
-        return price != null;
+        this(null, null, null, null, null, null, null, null, null, null, null, null, null, 0L);
     }
 
     /**

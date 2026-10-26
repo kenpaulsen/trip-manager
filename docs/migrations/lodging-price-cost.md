@@ -117,5 +117,24 @@ alone. Check it on a seeded trip after each of the two deploys (the split, and t
    is in the DATA (an offer whose legacy keys folded unexpectedly), not the code.
 
 Pre-split baseline for the seeded trip in local mode: the Pansion offer prices Dave's and Matt's stays into
-two Bill rows; `AdminReportsPwIT` asserts the Room Invoice total ($720) that those rows sum to, which is why
-the seeded offer is NOT linked to the seeded rate plan until the webtests move.
+two Bill rows; `AdminReportsPwIT.theRoomInvoiceRendersAtTheSeededCost` asserts the Room Invoice total ($720)
+that those rows also sum to. Since 2026-10-26 the invoice no longer assumes a cost from the price, so the
+seeded offer states its own cost of $60 (equal to its price) to keep that total and the demo invoice
+rendering; it is NOT linked to the seeded rate plan, whose cost is $50 and would change the figure.
+
+## 6. 2026-10-26: `RatePlan.price` removed, and a missing cost now blocks the invoice (no migration)
+
+A day after the table shipped, the owner removed the participant price from rate plans (a plan is the hotel's
+side only; the price lives on each trip's option -- `docs/lodging.md` "Rate plans"). No script: the field is
+simply gone from `RatePlan`, and `DAO.createObjectMapper` ignores unknown properties, so a row written with a
+`price` key reads as a plain plan and the key drops off on its next save
+(`RatePlanTest.aRowWithTheRetiredPriceKeyStillReads`). Rolling-deploy hazard: none worth guarding -- a plan's
+price was never read by a bill (an attach copied it onto the OFFER's price, which is the offer's own and is
+now entered on the attach instead), and `lodging_rate_plans` had been live for a day. Offers attached on
+2026-10-25 keep whatever price the plan copied onto them; a later plan save rewrites only their cost side.
+
+The same day the Room Invoice stopped assuming a cost from the price. That IS a visible change in production
+without any row changing: an option that never stated a hotel cost, whose invoice used to render at the
+participant price with a warning, now blocks its trip's invoice (and the PDF answers 409) until a cost is set
+on the trip's Offers tab or by the hotel's operator on the hotel's Trips tab. That is the decision, not a
+regression; the refusal names the options. The seeded offer gained its $60 cost for exactly this reason.

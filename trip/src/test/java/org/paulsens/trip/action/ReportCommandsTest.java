@@ -1,12 +1,26 @@
 package org.paulsens.trip.action;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.UUID;
+import org.paulsens.trip.action.LodgingViews.AccommodationForm;
+import org.paulsens.trip.action.LodgingViews.OfferCostForm;
+import org.paulsens.trip.action.LodgingViews.OfferForm;
+import org.paulsens.trip.action.LodgingViews.ReservationForm;
+import org.paulsens.trip.action.LodgingViews.RoomTypeForm;
+import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
+import org.paulsens.trip.util.RandomData;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -14,7 +28,8 @@ import org.testng.annotations.Test;
 /**
  * The Ground Transportation report's rows: which events it takes, the order it puts them in, what a leg written
  * by the bespoke editor carries, and how a leg that predates the editor degrades. The names are the report's
- * whole point, so their format and their order are pinned here rather than in the page.
+ * whole point, so their format and their order are pinned here rather than in the page. Also the Room
+ * Invoice's readiness question ({@code invoiceReady} / {@code invoiceBlockedMessage}) over each caller's view.
  */
 public class ReportCommandsTest {
 
@@ -265,6 +280,127 @@ public class ReportCommandsTest {
     @Test
     public void aTripWithNoLodgingHasNoPages() {
         Assert.assertTrue(reports.roomingPages(List.<LodgingViews.RoomingRow>of()).isEmpty());
+    }
+
+    /**
+     * A trip with two hotels, one option without a cost: the whole-trip view (internal, finance, nobody) is
+     * refused in the internal wording; the operator of the costed hotel is ready while the operator of the
+     * other is refused in the operator's wording and for their hotel alone; stating the cost readies everyone,
+     * and the message is "" once ready. The same answers reach a page through {@code lodging.invoiceReady}.
+     */
+    @Test
+    public void invoiceReadinessFollowsTheCallersViewOfTheTrip() throws IOException {
+        final LodgingCommands admin = new LodgingCommands(TestCallers::siteAdmin);
+        final Organization org = new OrgCommands(TestCallers::siteAdmin)
+                .createOrganization("Ready " + RandomData.genAlpha(8), "RDY", null);
+        Assert.assertNotNull(org);
+        final Person guestA = savedPerson("Ana");
+        final Person guestB = savedPerson("Bo");
+        final Trip trip = Trip.builder().id(UUID.randomUUID().toString()).title("Readiness trip")
+                .startDate(CHECK_IN).endDate(CHECK_OUT.plusDays(2))
+                .people(new ArrayList<>(List.of(guestA.getId(), guestB.getId()))).build();
+        trip.setOrgId(org.getId().getValue());
+        Assert.assertTrue(DAO.getInstance().saveTrip(trip));
+        final String hotelA = hotel(admin, org.getId().getValue(), "Costed House");
+        final String hotelB = hotel(admin, org.getId().getValue(), "Quiet Inn");
+        reserve(admin, trip.getId(), offerAt(admin, trip.getId(), hotelA, "Double at A", true), guestA);
+        final String offerB = offerAt(admin, trip.getId(), hotelB, "Single at B", false);
+        reserve(admin, trip.getId(), offerB, guestB);
+        final String nameOfB = "Single at B (" + admin.findAccommodation(hotelB).getName() + ")";
+
+        final LodgingAccess internal = new LodgingAccess(trip.getId(), true, Set.of(), Set.of(hotelA, hotelB));
+        final LodgingAccess operatorA = new LodgingAccess(trip.getId(), false, Set.of(hotelA), Set.of());
+        final LodgingAccess operatorB = new LodgingAccess(trip.getId(), false, Set.of(hotelB), Set.of());
+        final LodgingAccess both = new LodgingAccess(trip.getId(), false, Set.of(hotelA, hotelB), Set.of());
+        Assert.assertFalse(reports.invoiceReady(trip.getId(), internal));
+        Assert.assertEquals(reports.invoiceBlockedMessage(trip.getId(), internal),
+                "No hotel cost is set for " + nameOfB + ". Set the cost on the trip's Offers tab (Edit the option, "
+                        + "tick 'Hotel cost is known') or ask the hotel's operator to set it on the hotel's Trips "
+                        + "tab.");
+        Assert.assertFalse(reports.invoiceReady(trip.getId(), null), "no access object: the whole trip");
+        Assert.assertFalse(reports.invoiceReady(trip.getId(), LodgingAccess.none(trip.getId())));
+        Assert.assertTrue(reports.invoiceReady(trip.getId(), operatorA), "A's options all have a cost");
+        Assert.assertEquals(reports.invoiceBlockedMessage(trip.getId(), operatorA), "");
+        Assert.assertFalse(reports.invoiceReady(trip.getId(), operatorB));
+        Assert.assertEquals(reports.invoiceBlockedMessage(trip.getId(), operatorB),
+                "No hotel cost is set for " + nameOfB + ". Set the cost on this trip's options on your hotel's "
+                        + "Trips tab.");
+        Assert.assertFalse(reports.invoiceReady(trip.getId(), both));
+        Assert.assertTrue(reports.invoiceReady("no-such-trip", internal), "nothing to refuse");
+        Assert.assertEquals(reports.invoiceBlockedMessage("no-such-trip", internal), "");
+        Assert.assertFalse(admin.invoiceReady(trip.getId()), "the bean's one-liner: a site admin is internal");
+        Assert.assertTrue(admin.invoiceBlockedMessage(trip.getId()).contains("Offers tab"));
+
+        final OfferCostForm cost = admin.offerCostFormFor(trip.getId(), offerB);
+        cost.setCostKnown(true);
+        cost.setCostNightlyPrice(70.0);
+        Assert.assertTrue(admin.setOfferCost(cost));
+        Assert.assertTrue(reports.invoiceReady(trip.getId(), internal));
+        Assert.assertTrue(reports.invoiceReady(trip.getId(), operatorB));
+        Assert.assertEquals(reports.invoiceBlockedMessage(trip.getId(), operatorB), "");
+        Assert.assertTrue(admin.invoiceReady(trip.getId()));
+        Assert.assertEquals(admin.invoiceBlockedMessage(trip.getId()), "");
+        Assert.assertEquals(reports.roomInvoice(trip.getId()).getSections().size(), 2);
+    }
+
+    // ------------------------------------------------------------------ lodging fixtures
+
+    private static final LocalDateTime CHECK_IN = LocalDateTime.of(2027, 11, 2, 15, 0);
+    private static final LocalDateTime CHECK_OUT = LocalDateTime.of(2027, 11, 5, 10, 0);
+
+    private static Person savedPerson(final String first) throws IOException {
+        final Person person = Person.builder().first(first).last(RandomData.genAlpha(8))
+                .email(first.toLowerCase(Locale.ROOT) + "." + RandomData.genAlpha(8).toLowerCase(Locale.ROOT)
+                        + "@example.com").build();
+        Assert.assertTrue(DAO.getInstance().savePerson(person));
+        return person;
+    }
+
+    private static String hotel(final LodgingCommands admin, final String orgId, final String name) {
+        final AccommodationForm form = new AccommodationForm();
+        final String tag = RandomData.genAlpha(8);
+        form.setName(name + " " + tag);
+        form.setEmail(tag.toLowerCase(Locale.ROOT) + "@ready.example");
+        // Discovery compares phone DIGITS only, so the random part must be digits.
+        form.setPhone("+1 503 " + (1_000_000 + java.util.concurrent.ThreadLocalRandom.current().nextInt(9_000_000)));
+        form.setStreet(tag + " Way");
+        form.setCity("Portland");
+        final String accId = admin.saveAccommodation(form, orgId);
+        Assert.assertTrue(accId != null && !accId.isBlank(), "the hotel fixture was refused");
+        final RoomTypeForm type = new RoomTypeForm();
+        type.setName("Double");
+        type.setMinPeople(1);
+        type.setMaxPeople(2);
+        Assert.assertTrue(admin.saveRoomType(accId, type));
+        return accId;
+    }
+
+    private static String offerAt(final LodgingCommands admin, final String tripId, final String accId,
+            final String name, final boolean costed) {
+        final OfferForm form = new OfferForm();
+        form.setName(name);
+        form.setAccommodationId(accId);
+        form.setRoomTypeIds(new ArrayList<>(List.of(admin.roomTypeRows(accId).get(0).getId())));
+        form.setTripEventId(OfferForm.NEW_EVENT);
+        form.setPricingModel("PER_ROOM");
+        form.setNightlyPrice(100.0);
+        form.setCostKnown(costed);
+        form.setCostNightlyPrice(90.0);
+        form.setDefaultStart(CHECK_IN);
+        form.setDefaultEnd(CHECK_OUT);
+        Assert.assertTrue(admin.saveOffer(tripId, form), form.getProblem());
+        return DAO.getInstance().getReservationOffers(tripId, Cached.NO).stream()
+                .filter(offer -> name.equals(offer.getName())).findFirst().orElseThrow().getId().getValue();
+    }
+
+    private static void reserve(final LodgingCommands admin, final String tripId, final String offerId,
+            final Person who) {
+        final ReservationForm form = new ReservationForm();
+        form.setOfferId(offerId);
+        form.setPersonIds(List.of(who.getId().getValue()));
+        form.setStart(CHECK_IN);
+        form.setEnd(CHECK_OUT);
+        Assert.assertEquals(admin.createReservations(tripId, form), 1, "the stay fixture was refused");
     }
 
     @Test

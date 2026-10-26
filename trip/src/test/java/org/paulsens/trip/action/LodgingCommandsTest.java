@@ -1916,7 +1916,7 @@ public class LodgingCommandsTest {
         final LodgingViews.OfferRow row = admin.offerRows(own.getId()).get(0);
         assertTrue(row.isNeedsPricing());
         assertEquals(row.getPricing(), "needs participant pricing");
-        assertEquals(row.getCost(), "not set (assumed = price)");
+        assertEquals(row.getCost(), "not set");
         assertTrue(admin.pricedOffers(own.getId()).isEmpty(), "the stay menus leave it out");
         assertEquals(admin.getOffers(own.getId()).size(), 1, "...while the Offers tab lists it");
         assertTrue(admin.optionChoices(own.getId(), hotel.accId()).isEmpty());
@@ -2046,7 +2046,6 @@ public class LodgingCommandsTest {
         assertEquals(costed.getCostExtras().size(), 2, "the blank spare row is dropped");
         assertEquals(costed.getCostExtras().get(1).getAmountCents(), -2000L, "a coupon keeps its sign");
         assertEquals(costed.getNightlyPriceCents(), 12000L, "the price did not move");
-        assertFalse(costed.isCostAssumed());
         assertEquals(biller.billedByPerson(res), Map.of(guest.getId(), 3 * 12000L), "the ledger did not move");
         final Transaction after = DAO.getInstance()
                 .getTransaction(guest.getId(), LodgingBiller.billTxId(res.getId(), guest.getId()), Cached.NO)
@@ -2089,7 +2088,6 @@ public class LodgingCommandsTest {
         back.setCostKnown(false);
         assertTrue(admin.saveOffer(own.getId(), back));
         assertNull(admin.findOffer(own.getId(), stay.offer().getId().getValue()).getCost(), "costKnown off clears it");
-        assertTrue(admin.findOffer(own.getId(), stay.offer().getId().getValue()).isCostAssumed());
     }
 
     /**
@@ -2177,19 +2175,33 @@ public class LodgingCommandsTest {
         assertEquals(cost.getSide(), "COST");
         assertEquals(cost.getKind(), "");
         assertEquals(cost.getCurrent(), "");
-        assertEquals(cost.getPreview(), "", "no bill preview on the cost side");
+        assertEquals(cost.getPreview(), "Hotel cost is not set for this option.", "nothing to discount from yet");
         assertTrue(cost.getOccupants().startsWith("Yul"), cost.getOccupants());
         cost.setKind("TOTAL");
         cost.setAmount(30.0);
         cost.setReason("comped by the manager");
+        assertEquals(admin.concessionPreview(cost), "Hotel cost is not set for this option.");
+        final LodgingViews.OfferCostForm hotelCost = admin.offerCostFormFor(own.getId(),
+                stay.offer().getId().getValue());
+        hotelCost.setCostKnown(true);
+        hotelCost.setCostNightlyPrice(100.0);
+        assertTrue(admin.setOfferCost(hotelCost));
+        assertEquals(admin.concessionPreview(cost), "Hotel cost for this stay: $300.00 -> $270.00",
+                "before and after, on the hotel's side");
+        assertEquals(cost.getPreview(), "Hotel cost for this stay: $300.00 -> $270.00");
         assertTrue(admin.setConcession(cost));
         assertEquals(cost.getCurrent(), "$30.00 discount");
+        assertEquals(cost.getPreview(), "Hotel cost for this stay: $270.00 -> $270.00", "granted: before = after");
+        assertEquals(admin.concessionFormFor(own.getId(), resId, "COST").getPreview(),
+                "Hotel cost for this stay: $270.00 -> $270.00");
         assertEquals(admin.findReservation(own.getId(), resId).getCostConcession().getAmountCents(), 3000L);
         assertEquals(admin.findReservation(own.getId(), resId).getCostConcession().getBy(), TestCallers.SITE_ADMIN_ID);
         assertEquals(biller.billedByPerson(res), Map.of(guest.getId(), 36000L), "a cost concession is not a bill");
         assertEquals(noteOf(guest, txId), plainNote);
         assertEquals(admin.reservationRows(own.getId(), false).get(0).getCostConcession(), "$30.00 discount");
         assertNull(admin.reservationRows(own.getId(), false).get(0).getPriceConcession());
+        assertEquals(admin.reservationRows(own.getId(), false).get(0).getOccupantNames(),
+                guest.getPreferredName() + " " + guest.getLast(), "the Reservations tab's names column");
 
         // The price side: 10% off is previewed, then written into the bill row with its label.
         final ConcessionForm price = admin.concessionFormFor(own.getId(), resId, "PRICE");

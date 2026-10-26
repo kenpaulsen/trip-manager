@@ -83,7 +83,8 @@ public final class LodgingViews {
      * {@code perNightPricing}/{@code perNight}, {@code singleSupplement}) and the HOTEL COST ({@code costKnown},
      * {@code costPricingModel}, {@code costNightlyPrice}, {@code costPerNight}/{@code costPerNightRates},
      * {@code costSupplement}, {@code costExtras}). {@code priceKnown} off saves the option as "needs participant
-     * pricing" (no stay may be reserved on it); {@code costKnown} off leaves the cost assumed equal to the price.
+     * pricing" (no stay may be reserved on it); {@code costKnown} off leaves the hotel cost "not set", which
+     * blocks the Room Invoice.
      */
     @Data
     @NoArgsConstructor
@@ -103,10 +104,13 @@ public final class LodgingViews {
         private String newEventTitle;
         /**
          * The hotel {@code RatePlan} this option follows, or null for a standalone option. When set, the save
-         * COPIES both schedules and the extras from the plan and ignores the money fields below: the trip's
-         * terms (name, event, minimum nights, policy, fee, defaults) stay editable, the pricing is the plan's.
+         * COPIES the cost schedule and the extras from the plan and ignores the cost fields below; the
+         * participant price and the trip's terms (name, event, minimum nights, policy, fee, defaults) stay the
+         * option's own, and the hotel may not change while linked.
          */
         private String ratePlanId;
+        /** The plan's name for the dialog's note ("(deleted plan)" when it is gone); null for a standalone option. */
+        private String ratePlanName;
         /** Off = "needs participant pricing": the price fieldset is ignored and the option takes no stays. */
         private boolean priceKnown = true;
         private String pricingModel = "PER_ROOM";
@@ -119,7 +123,7 @@ public final class LodgingViews {
          */
         private Map<String, String> perNight = new LinkedHashMap<>();
         private Double singleSupplement;
-        /** Off = the hotel's cost is not stated and is ASSUMED equal to the price (the Room Invoice says so). */
+        /** Off = the hotel's cost is not stated ("not set"); the Room Invoice is refused until it is. */
         private boolean costKnown;
         private String costPricingModel = "PER_ROOM";
         private Double costNightlyPrice;
@@ -252,7 +256,7 @@ public final class LodgingViews {
     /**
      * The operator's "Set cost" dialog on the hotel page's Trips tab: the COST side of one trip option and
      * nothing else -- no price field exists here, so a Hotel Operator can never reach the participant's price.
-     * {@code costKnown} off clears the stated cost (back to "assumed = price").
+     * {@code costKnown} off clears the stated cost (back to "not set", which blocks the Room Invoice).
      */
     @Data
     @NoArgsConstructor
@@ -279,7 +283,8 @@ public final class LodgingViews {
      * The concession dialogs' inputs: ONE side of one stay. {@code side} is "PRICE" (the participants' bills
      * shrink in place; internal callers) or "COST" (the hotel forgave us; the hotel's operator too). {@code kind}
      * is a {@code Concession.Kind} name or "" for none (clears); {@code amount} is dollars, or the percent for
-     * PERCENT (10 or 12.5). {@code preview} is the stay's new total on the PRICE side, read-only.
+     * PERCENT (10 or 12.5). {@code preview} is read-only: the stay's new bill total on the PRICE side ("$300.00"),
+     * the hotel's charge before and after on the COST side ("Hotel cost for this stay: $240.00 -> $216.00").
      */
     @Data
     @NoArgsConstructor
@@ -728,8 +733,10 @@ public final class LodgingViews {
         private String validity;
         private String defaultStay;
         private int reservationCount;
+        /** Every reservation naming the option, cancelled ones included: what {@code deleteOffer} refuses on. */
+        private int referencingCount;
         private boolean enabled;
-        /** The hotel's cost, or "not set (assumed = price)". */
+        /** The hotel's cost ("$60.00/night per room, +1 extra"), or "not set". */
         private String cost;
         /** True while the option has no participant price: no stay may be reserved on it. */
         private boolean needsPricing;
@@ -763,6 +770,8 @@ public final class LodgingViews {
         private String priceConcession;
         /** The cost-side concession's label, null when none. */
         private String costConcession;
+        /** "Dave Robinson, Matt Smith": preferred-or-first and last name of each occupant, in id order. */
+        private String occupantNames;
     }
 
     /** One occupant on the rooming list and the reports; people with no reservation come last. */

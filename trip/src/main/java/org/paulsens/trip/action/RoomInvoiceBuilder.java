@@ -43,10 +43,18 @@ import org.paulsens.trip.pay.MoneyMath;
 
 /**
  * The arithmetic behind the Room Invoice, on either {@link Side} of a lodging option: the COST build is what
- * the hotels charge (the invoice the page and the PDF show, {@code offer.effectiveCost()}), the PRICE build is
- * what the participants are billed ({@code offer.getPrice()}), and {@link #compare} zips the two into the
- * Billed vs Cost report. Everything a line says is derived from {@link LodgingPricing}'s rules on the chosen
- * side, so the per-person table equals the ledger (PRICE) or the hotel's own bill (COST) to the cent.
+ * the hotels charge (the invoice the page and the PDF show, {@code offer.getCost()} STRICTLY -- never the price
+ * in its place), the PRICE build is what the participants are billed ({@code offer.getPrice()}), and
+ * {@link #compare} zips the two into the Billed vs Cost report. Everything a line says is derived from
+ * {@link LodgingPricing}'s rules on the chosen side, so the per-person table equals the ledger (PRICE) or the
+ * hotel's own bill (COST) to the cent.
+ *
+ * <p>An active-stay option with NO cost has two readings (owner decision 2026-10-26). The invoice is STRICT:
+ * one such option refuses the whole build ({@code RoomInvoice.blocked}, {@code missingCost} naming the options
+ * hotel-qualified, empty sections, zero totals), because an invoice with a hole in it would be sent to a
+ * hotel as if complete. The Billed vs Cost comparison is LENIENT ({@code strict = false}): the option is left
+ * out of the cost side (0 cost, its row reads "not set") and still named in {@code missingCost}, because that
+ * report exists to show exactly such gaps.
  *
  * <p>One section per accommodation, one GROUP per lodging option, and lines whose arithmetic a reader can
  * check: {@code quantity x nights x rate == amount}. A per-person option bills GUESTS, and the single
@@ -83,25 +91,41 @@ final class RoomInvoiceBuilder {
     private RoomInvoiceBuilder() {
     }
 
+    /** The STRICT invoice on one side: {@link #build(Side, List, Function, Function, Function, boolean)}. */
+    static RoomInvoice build(final Side side, final List<Reservation> reservations,
+            final Function<String, ReservationOffer> offers, final Function<String, Accommodation> accommodations,
+            final Function<Person.Id, String> names) {
+        return build(side, reservations, offers, accommodations, names, true);
+    }
+
     /**
-     * The invoice on one side. A stay whose option is missing, or whose option has NO schedule on this side
-     * (unpriced on PRICE; neither cost nor price on COST), is counted as {@code unpriced} and otherwise left
-     * out, exactly as a missing option always was. Cancelled stays are left out entirely.
+     * The invoice on one side. A stay whose option is missing, or (on PRICE) whose option is unpriced, is
+     * counted as {@code unpriced} and otherwise left out, exactly as a missing option always was. On COST an
+     * option with no cost is named in {@code missingCost}; {@code strict} then REFUSES the whole invoice
+     * ({@code blocked}, nothing else filled), lenient leaves that option out and builds the rest. Cancelled
+     * stays are left out entirely.
      *
      * @param offers         lodging option by id string; null for a deleted one.
      * @param accommodations accommodation by id string; null for a deleted one.
      * @param names          person id to display name; a blank answer falls back to the id.
+     * @param strict         COST side: refuse the invoice when any active-stay option lacks a cost.
      */
     static RoomInvoice build(final Side side, final List<Reservation> reservations,
             final Function<String, ReservationOffer> offers, final Function<String, Accommodation> accommodations,
-            final Function<Person.Id, String> names) {
+            final Function<Person.Id, String> names, final boolean strict) {
         final List<Reservation> active = reservations.stream().filter(Reservation::isActive).toList();
         final Map<String, List<Reservation>> byRoom = active.stream().filter(Reservation::isAssigned)
                 .collect(Collectors.groupingBy(Reservation::getRoomId, LinkedHashMap::new, Collectors.toList()));
         final Map<String, OfferTally> tallies = new LinkedHashMap<>();
+        final Map<String, String> missing = new LinkedHashMap<>();
         final RoomInvoice invoice = new RoomInvoice();
         for (final Reservation res : active) {
             final ReservationOffer offer = offers.apply(LodgingCommands.idValue(res.getOfferId()));
+            if (offer != null && side == Side.COST && offer.getCost() == null) {
+                final Accommodation acc = accommodations.apply(accommodationIdOf(res, offer));
+                missing.put(offer.getId().getValue(), qualifiedName(offer, acc));
+                continue;
+            }
             final RateSchedule schedule = (offer == null) ? null : scheduleOf(side, offer);
             if (schedule == null) {
                 invoice.setUnpriced(invoice.getUnpriced() + 1);
@@ -111,34 +135,28 @@ final class RoomInvoiceBuilder {
             tallies.computeIfAbsent(offer.getId().getValue(), k -> new OfferTally(side, offer, schedule, acc, names))
                     .add(res, byRoom.getOrDefault(res.getRoomId(), List.of(res)));
         }
+        invoice.getMissingCost().addAll(missing.values().stream().sorted(String.CASE_INSENSITIVE_ORDER).toList());
+        if (strict && !missing.isEmpty()) {
+            invoice.setBlocked(true);
+            return invoice; // Refused whole: an invoice with a hole in it reads as complete to the hotel.
+        }
         return invoiceOf(invoice, tallies.values());
     }
 
-    /** The schedule a side reads: the participant price, or what the hotel charges (the price when unstated). */
+    /** The schedule a side reads: the participant price, or what the hotel charges -- never one for the other. */
     static RateSchedule scheduleOf(final Side side, final ReservationOffer offer) {
-        return (side == Side.PRICE) ? offer.getPrice() : offer.effectiveCost();
+        return (side == Side.PRICE) ? offer.getPrice() : offer.getCost();
+    }
+
+    /** {@code "Double room (Pansion)"}: how the refusal names an option, since two hotels may share a name. */
+    static String qualifiedName(final ReservationOffer offer, final Accommodation acc) {
+        return trimmed(offer.getName()) + " (" + (acc == null ? UNKNOWN_HOTEL : trimmed(acc.getName())) + ")";
     }
 
     /** The stay's own hotel, else its option's; the key an operator's filter and a section both use. */
     static String accommodationIdOf(final Reservation res, final ReservationOffer offer) {
         return LodgingCommands.idValue(res.getAccommodationId() != null ? res.getAccommodationId()
                 : offer.getAccommodationId());
-    }
-
-    /**
-     * The "cost assumed" flag taken off every option and the invoice itself: what a Hotel Operator receives.
-     * The flag says we have no better number than the participant price, which is a fact about OUR books,
-     * not the hotel's bill, and the price side is never shown outside the organization.
-     */
-    static RoomInvoice withoutAssumedFlags(final RoomInvoice invoice) {
-        invoice.setAnyCostAssumed(false);
-        invoice.setAssumedOptions(0);
-        for (final InvoiceSection section : invoice.getSections()) {
-            for (final InvoiceOffer group : section.getOffers()) {
-                group.setCostAssumed(false);
-            }
-        }
-        return invoice;
     }
 
     /** Offers gather under their hotel; each hotel and the whole invoice total their lines. */
@@ -156,10 +174,6 @@ final class RoomInvoiceBuilder {
             section.getPeople().addAll(tally.people);
             guests.addAll(tally.guests);
             rooms.addAll(tally.rooms.keySet());
-            if (group.isCostAssumed()) {
-                invoice.setAnyCostAssumed(true);
-                invoice.setAssumedOptions(invoice.getAssumedOptions() + 1);
-            }
         }
         for (final InvoiceSection section : sections.values()) {
             total(section);
@@ -326,13 +340,18 @@ final class RoomInvoiceBuilder {
     // ================================================================== billed vs cost
 
     /**
-     * The PRICE build and the COST build of the same stays, zipped: sections by accommodation id, options by
-     * offer id, people by (reservation, person). A row present on one side only shows zero on the other (an
-     * unpriced option has no billed row; an option with neither schedule has no row at all). The option
-     * rows carry the extras and the cost concessions in their cost column and the price concessions in their
-     * billed column, because each side's group total already includes them; the people rows are net amounts.
+     * The PRICE build and the LENIENT COST build of the same stays, zipped: sections by accommodation id,
+     * options by offer id, people by (reservation, person). A row present on one side only shows zero on the
+     * other (an unpriced option has no billed row; an option with neither schedule has no row at all). An
+     * option whose offer has no cost reads "not set" in its cost column ({@code costAssumed}) at 0; the report
+     * counts and names those from the cost build's {@code missingCost}. The option rows carry the extras and
+     * the cost concessions in their cost column and the price concessions in their billed column, because each
+     * side's group total already includes them; the people rows are net amounts.
+     *
+     * @param offers lodging option by id string; null for a deleted one (which has no cost to miss).
      */
-    static BilledVsCost compare(final RoomInvoice billed, final RoomInvoice cost) {
+    static BilledVsCost compare(final RoomInvoice billed, final RoomInvoice cost,
+            final Function<String, ReservationOffer> offers) {
         final Map<String, BilledVsCostSection> sections = new LinkedHashMap<>();
         for (final InvoiceSection section : billed.getSections()) {
             fold(sections.computeIfAbsent(section.getAccommodationId(), k -> comparedSection(section)), section,
@@ -347,6 +366,11 @@ final class RoomInvoiceBuilder {
             for (final BilledVsCostOption option : section.getOptions()) {
                 settle(option.getBilledCents(), option.getCostCents(), option::setDifferenceCents, option::setBilled,
                         option::setCost, option::setDifference);
+                final ReservationOffer offer = offers.apply(option.getOfferId());
+                option.setCostAssumed(offer != null && offer.getCost() == null);
+                if (option.isCostAssumed()) {
+                    option.setCost(OfferSchedules.COST_NOT_SET);
+                }
             }
             section.getPeople().sort(COMPARED_PERSON_ORDER);
             for (final BilledVsCostPerson who : section.getPeople()) {
@@ -363,7 +387,8 @@ final class RoomInvoiceBuilder {
         report.setCostCents(report.getSections().stream().mapToLong(BilledVsCostSection::getCostCents).sum());
         settle(report.getBilledCents(), report.getCostCents(), report::setDifferenceCents, report::setBilled,
                 report::setCost, report::setDifference);
-        report.setAnyCostAssumed(cost.isAnyCostAssumed());
+        report.setMissingCost(cost.getMissingCost().size());
+        report.getMissingCostNames().addAll(cost.getMissingCost());
         return report;
     }
 
@@ -382,7 +407,6 @@ final class RoomInvoiceBuilder {
                 option.setBilledCents(option.getBilledCents() + group.getCents());
             } else {
                 option.setCostCents(option.getCostCents() + group.getCents());
-                option.setCostAssumed(group.isCostAssumed());
             }
         }
         for (final InvoicePersonLine line : section.getPeople()) {
@@ -595,7 +619,6 @@ final class RoomInvoiceBuilder {
             group.setOfferId(offer.getId().getValue());
             group.setName(trimmed(offer.getName()));
             group.setPricing(rateOf(schedule));
-            group.setCostAssumed(side == Side.COST && offer.isCostAssumed());
             group.setRoomMix(roomMixOf(roomsByType.entrySet().stream().collect(Collectors.toMap(
                     Map.Entry::getKey, e -> e.getValue().size())), unplaced()));
             for (final InvoiceLine line : lines.values()) {

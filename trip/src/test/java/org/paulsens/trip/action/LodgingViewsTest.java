@@ -262,7 +262,7 @@ public class LodgingViewsTest {
     public void theMoneyFormsDefaultSensiblyAndSerialize() throws Exception {
         final OfferForm offer = new OfferForm();
         assertTrue(offer.isPriceKnown(), "a new option is priced unless the dialog says otherwise");
-        assertFalse(offer.isCostKnown(), "...and its hotel cost is assumed until stated");
+        assertFalse(offer.isCostKnown(), "...and its hotel cost is not set until stated");
         assertEquals(offer.getCostPricingModel(), "PER_ROOM");
         assertFalse(offer.isCostPerNight());
         assertTrue(offer.getCostPerNightRates().isEmpty());
@@ -315,12 +315,18 @@ public class LodgingViewsTest {
 
         final OfferRow row = new OfferRow();
         row.setNeedsPricing(true);
-        row.setCost("not set (assumed = price)");
+        row.setCost("not set");
         assertTrue(roundTrip(row).isNeedsPricing());
         final ReservationRow stay = new ReservationRow();
         stay.setPriceConcession("10% discount");
+        stay.setOccupantNames("Dave Robinson, Matt Smith");
         assertEquals(roundTrip(stay).getPriceConcession(), "10% discount");
+        assertEquals(roundTrip(stay).getOccupantNames(), "Dave Robinson, Matt Smith");
         assertNull(roundTrip(stay).getCostConcession());
+        final OfferForm linked = new OfferForm();
+        linked.setRatePlanId("plan-1");
+        linked.setRatePlanName("Hotel rate 2027");
+        assertEquals(roundTrip(linked).getRatePlanName(), "Hotel rate 2027");
     }
 
     @SuppressWarnings("unchecked")

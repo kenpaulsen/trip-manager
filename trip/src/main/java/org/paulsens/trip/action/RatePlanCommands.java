@@ -13,6 +13,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.LodgingViews.OfferForm;
+import org.paulsens.trip.action.RatePlanViews.AttachForm;
 import org.paulsens.trip.action.RatePlanViews.PlanChoice;
 import org.paulsens.trip.action.RatePlanViews.RatePlanForm;
 import org.paulsens.trip.action.RatePlanViews.RatePlanRow;
@@ -23,7 +24,6 @@ import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.CostExtra;
 import org.paulsens.trip.model.RatePlan;
 import org.paulsens.trip.model.RateSchedule;
-import org.paulsens.trip.model.Reservation;
 import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.RoomType;
 import org.paulsens.trip.model.Trip;
@@ -37,21 +37,20 @@ import static org.paulsens.trip.action.PageFeedback.warn;
  * Hotel rate plans, exposed to pages as {@code #{ratePlans}}: the hotel page's Rate plans tab and the Offers
  * tab's "Add from hotel rate plan". Feature doc: {@code docs/lodging.md}, "Rate plans".
  *
- * <p>A {@link RatePlan} is the HOTEL's pricing template (its cost and extras, and -- when an internal admin has
- * set it -- the participant price) for some room types over a date range. A trip takes it by {@link #attach}:
- * a {@link ReservationOffer} is created whose schedules are a COPY of the plan's and which remembers the plan's
- * id and version, and the plan records the trip in {@code linkedTripIds}. The link is LIVE in one direction:
- * {@link #savePlan} fans the new numbers out to every linked offer ({@link #syncLinked}), recomputing bills
- * only where the PRICE side moved; {@link #detach} leaves the offer with its copy and forgets the trip.
+ * <p>A {@link RatePlan} is the HOTEL's rate template -- its cost and extras for some room types over a date
+ * range, and NOTHING of the participant price (owner decision 2026-10-26: the price differs per trip and an
+ * operator must never see one). A trip takes it by {@link #attach}: a {@link ReservationOffer} is created whose
+ * COST side is a COPY of the plan's and which remembers the plan's id and version, and the plan records the trip
+ * in {@code linkedTripIds}; the option's PRICE is the trip's own, entered on the attach ({@link AttachForm}) or
+ * on the Offers tab afterwards, and the same plan may be attached to a trip several times (two options at two
+ * prices). The link is LIVE in one direction: {@link #savePlan} fans the new cost out to every linked offer
+ * ({@link #syncLinked}) and NEVER recomputes a bill, since no bill reads the cost side; {@link #detach} leaves
+ * the offer with its copy and forgets the trip once no other option of the trip still follows the plan.
  * Write-through, never a read-time join: {@code LodgingPricing}, the reports, the PDF and REST never learn that
  * plans exist.
  *
- * <p>Two gates, two sides. The COST side is the hotel's: {@link #canEditCost} = anyone who may edit the hotel
- * (its Hotel Operators, global lodging admins). The PRICE side is internal: {@link #canEditPrice} = a global
- * lodging admin or a lodging admin of ANY organization, and the price fields of anyone else's form are
- * IGNORED on save, so an operator's dialog -- whatever it posts -- cannot move what a participant pays.
- * Reading the table ({@link #rows}) takes whoever may open the hotel page; the price column is null for a
- * reader who may not edit it.
+ * <p>One gate: {@link #canEditCost} = anyone who may edit the hotel (its Hotel Operators, global lodging
+ * admins) writes its plans. Reading the table ({@link #rows}) takes whoever may open the hotel page.
  */
 @Slf4j
 @Named("ratePlans")
@@ -90,15 +89,6 @@ public class RatePlanCommands {
         return lodging().canEditAccommodation(accId);
     }
 
-    /**
-     * May set the PARTICIPANT PRICE on a plan: internal only -- a global lodging admin or a lodging admin of
-     * any organization. A Hotel Operator never is, whichever hotel the plan belongs to.
-     */
-    public boolean canEditPrice(final String accId) {
-        final LodgingCommands lodging = lodging();
-        return lodging.isGlobalLodgingAdmin() || lodging.canCreateAccommodation();
-    }
-
     /** May read the plan table: whoever may open the hotel's page (its editors and the lodging admins). */
     boolean canRead(final String accId) {
         final LodgingCommands lodging = lodging();
@@ -107,25 +97,23 @@ public class RatePlanCommands {
 
     // ================================================================== the table
 
-    /** The hotel's plans by name, as rows; the price column only for a caller who may edit prices. */
+    /** The hotel's plans by name, as rows; the same rows for every reader (no price is on a plan). */
     public List<RatePlanRow> rows(final String accId) {
         final List<RatePlanRow> rows = new ArrayList<>();
         final Accommodation acc = lodging().findAccommodation(accId);
         if (acc == null || !canRead(accId)) {
             return rows;
         }
-        final boolean prices = canEditPrice(accId);
         for (final RatePlan plan : sortedPlans(accId, Cached.YES)) {
-            rows.add(rowOf(acc, plan, prices));
+            rows.add(rowOf(acc, plan));
         }
         return rows;
     }
 
-    private RatePlanRow rowOf(final Accommodation acc, final RatePlan plan, final boolean prices) {
+    private RatePlanRow rowOf(final Accommodation acc, final RatePlan plan) {
         return new RatePlanRow(plan.getId().getValue(), plan.getName(), roomTypeNames(acc, plan.getRoomTypeIds()),
-                datesLabel(plan), OfferSchedules.planCostLabel(plan),
-                prices ? OfferSchedules.planPriceLabel(plan) : null, !plan.isPriced(),
-                linkedTripsLabel(acc, plan), plan.getLinkedTripIds().size(), plan.isRetired(), plan.getNotes());
+                datesLabel(plan), OfferSchedules.planCostLabel(plan), linkedTripsLabel(acc, plan),
+                plan.getLinkedTripIds().size(), plan.isRetired(), plan.getNotes());
     }
 
     /** "Double, Triple": the plan's room types by name, in its order; a type no longer at the hotel reads "?". */
@@ -199,23 +187,16 @@ public class RatePlanCommands {
     }
 
     /**
-     * Creates or edits a plan, then pushes it to every linked offer. The cost side needs {@link #canEditCost};
-     * the price side is applied only for a caller who {@link #canEditPrice} (anyone else's price fields are
-     * ignored, and the plan keeps the price it had). Un-pricing a plan whose linked options have ACTIVE stays
-     * is refused: those stays would price to nothing. Refusals land on {@code form.problem} and in a growl; a
-     * fan-out that could not reach every trip is reported there too, but the plan itself is saved.
+     * Creates or edits a plan, then pushes its cost to every linked offer. Gate: {@link #canEditCost}. Refusals
+     * land on {@code form.problem} and in a growl; a fan-out that could not reach every trip is reported there
+     * too, but the plan itself is saved. No bill ever moves: a plan carries the hotel's side only.
      */
     public boolean savePlan(final RatePlanForm form) {
         if (form == null) {
             return refuse("Nothing to save.");
         }
         final String accId = form.getAccId();
-        // Two sides, two editors: the hotel's operators own the hotel side (name, room types, dates, cost,
-        // notes, retirement); an internal lodging admin owns the participant price at ANY hotel, which is why a
-        // price-only caller may save a plan they cannot otherwise touch -- with the hotel side re-read from the row.
-        final boolean costCounts = canEditCost(accId);
-        final boolean priceCounts = canEditPrice(accId);
-        if (!costCounts && !priceCounts) {
+        if (!canEditCost(accId)) {
             return refuseInto(form, "Not allowed: only this hotel's operators and lodging admins edit its rate plans.");
         }
         final Accommodation acc = lodging().findAccommodation(accId);
@@ -224,31 +205,18 @@ public class RatePlanCommands {
         }
         final boolean editing = form.getPlanId() != null && !form.getPlanId().isBlank();
         final RatePlan plan = editing ? findPlan(accId, form.getPlanId(), Cached.NO)
-                : costCounts ? RatePlan.builder().accommodationId(acc.getId()).createdBy(caller().personId())
-                        .created(LocalDateTime.now()).build() : null;
+                : RatePlan.builder().accommodationId(acc.getId()).createdBy(caller().personId())
+                        .created(LocalDateTime.now()).build();
         if (plan == null) {
-            return refuseInto(form, editing ? "This rate plan no longer exists."
-                    : "Only the hotel's operators create its rate plans; a lodging admin prices an existing one.");
+            return refuseInto(form, "This rate plan no longer exists.");
         }
-        if (!costCounts) {
-            keepHotelSide(form, plan);
-        }
-        final String problem = problem(acc, form, priceCounts);
+        final String problem = problem(acc, form);
         if (problem != null) {
             return refuseInto(form, problem);
         }
-        if (priceCounts && plan.isPriced() && !form.isPriceKnown()) {
-            final int stays = activeStaysFollowing(plan);
-            if (stays > 0) {
-                return refuseInto(form, "'" + plan.getName() + "' prices " + stays
-                        + (stays == 1 ? " active stay" : " active stays") + " on linked options; it cannot lose its"
-                        + " participant price.");
-            }
-        }
         final RateSchedule costBefore = plan.getCost();
         final List<CostExtra> extrasBefore = new ArrayList<>(plan.getCostExtras());
-        final RateSchedule priceBefore = plan.getPrice();
-        apply(plan, form, priceCounts);
+        apply(plan, form);
         if (!store(plan, form)) {
             return false;
         }
@@ -256,24 +224,13 @@ public class RatePlanCommands {
         form.setProblem(null);
         final boolean costChanged = !Objects.equals(costBefore, plan.getCost())
                 || !extrasBefore.equals(plan.getCostExtras());
-        final boolean priceChanged = !Objects.equals(priceBefore, plan.getPrice());
         audit(plan, null, (editing ? "Saved rate plan '" : "Created rate plan '") + plan.getName() + "' at '"
-                + acc.getName() + "'" + sides(costChanged, priceChanged));
+                + acc.getName() + "'" + (costChanged ? " (cost changed)" : ""));
         return report(plan, form, syncLinked(plan));
     }
 
-    private static String sides(final boolean cost, final boolean price) {
-        if (cost && price) {
-            return " (cost and price changed)";
-        }
-        if (cost) {
-            return " (cost changed)";
-        }
-        return price ? " (price changed)" : "";
-    }
-
     /** The plan dialog's refusals; null when the plan can be saved as the form says. */
-    private String problem(final Accommodation acc, final RatePlanForm form, final boolean priceCounts) {
+    private String problem(final Accommodation acc, final RatePlanForm form) {
         if (form.getName() == null || form.getName().isBlank()) {
             return "A rate plan needs a name.";
         }
@@ -293,59 +250,17 @@ public class RatePlanCommands {
                 && form.getValidUntil().isBefore(form.getValidFrom())) {
             return "The plan's last date cannot be before its first.";
         }
-        return OfferSchedules.planProblem(form, priceCounts);
+        return OfferSchedules.planProblem(form);
     }
 
-    /**
-     * A price-only editor may not move the hotel's side, whatever the browser sent: every hotel field of the form
-     * is re-read from the row and only the four participant-price fields survive from the submission.
-     */
-    private static void keepHotelSide(final RatePlanForm form, final RatePlan plan) {
-        final boolean priceKnown = form.isPriceKnown();
-        final String pricingModel = form.getPricingModel();
-        final Double nightlyPrice = form.getNightlyPrice();
-        final Double singleSupplement = form.getSingleSupplement();
-        form.setName(plan.getName());
-        form.setRoomTypeIds(new ArrayList<>(plan.getRoomTypeIds()));
-        form.setValidFrom(plan.getValidFrom());
-        form.setValidUntil(plan.getValidUntil());
-        OfferSchedules.fillPlanForm(form, plan);
-        form.setNotes(plan.getNotes());
-        form.setRetired(plan.isRetired());
-        form.setPriceKnown(priceKnown);
-        form.setPricingModel(pricingModel);
-        form.setNightlyPrice(nightlyPrice);
-        form.setSingleSupplement(singleSupplement);
-    }
-
-    private static void apply(final RatePlan plan, final RatePlanForm form, final boolean priceCounts) {
+    private static void apply(final RatePlan plan, final RatePlanForm form) {
         plan.setName(form.getName().trim());
         plan.setRoomTypeIds(new ArrayList<>(form.getRoomTypeIds()));
         plan.setValidFrom(form.getValidFrom());
         plan.setValidUntil(form.getValidUntil());
         OfferSchedules.applyPlanCost(plan, form);
-        if (priceCounts) {
-            OfferSchedules.applyPlanPrice(plan, form);
-        }
         plan.setNotes(LodgingCommands.blankToNull(form.getNotes()));
         plan.setRetired(form.isRetired() ? Boolean.TRUE : null);
-    }
-
-    /** How many ACTIVE stays sit on offers that follow this plan, over every linked trip. */
-    private int activeStaysFollowing(final RatePlan plan) {
-        int stays = 0;
-        for (final String tripId : plan.getLinkedTripIds()) {
-            final Set<ReservationOffer.Id> following = new LinkedHashSet<>();
-            for (final ReservationOffer offer : offersFollowing(tripId, plan)) {
-                following.add(offer.getId());
-            }
-            for (final Reservation res : DAO.getInstance().getReservations(tripId, Cached.NO)) {
-                if (res.isActive() && following.contains(res.getOfferId())) {
-                    stays++;
-                }
-            }
-        }
-        return stays;
     }
 
     /** Retires (or revives) a plan: it leaves the attach menu; linked offers keep following it. */
@@ -402,11 +317,12 @@ public class RatePlanCommands {
     }
 
     /**
-     * Pushes the plan to every linked trip: each offer following the plan re-copies it and is saved; its bills
-     * recompute only when the PRICE side moved. A trip with no offer following the plan any more (or no trip
-     * row) is PRUNED first and the plan saved once, so the offers then copy the plan's final version and read
-     * as current. A lost conditional put on one offer is reported, not retried: that offer keeps its old
-     * {@code ratePlanVersion}, which the Offers tab shows as drift for the admin to re-save or detach.
+     * Pushes the plan to every linked trip: each offer following the plan re-copies its COST side and is saved;
+     * no bill is recomputed, ever, because no bill reads the cost side and the offer's price is untouched. A
+     * trip with no offer following the plan any more (or no trip row) is PRUNED first and the plan saved once,
+     * so the offers then copy the plan's final version and read as current. A lost conditional put on one
+     * offer is reported, not retried: that offer keeps its old {@code ratePlanVersion}, which the Offers tab
+     * shows as drift for the admin to re-save or detach.
      */
     SyncOutcome syncLinked(final RatePlan plan) {
         final List<String> failures = new ArrayList<>();
@@ -435,27 +351,20 @@ public class RatePlanCommands {
         return new SyncOutcome(trips.size(), updated, failures);
     }
 
-    /** Re-copies the plan onto the trip's following offers; true when every one of them saved. */
+    /** Re-copies the plan's cost onto the trip's following offers; true when every one of them saved. */
     private boolean pushTo(final Trip trip, final RatePlan plan, final List<String> failures) {
         boolean all = true;
-        int recomputed = 0;
         final List<ReservationOffer> offers = offersFollowing(trip.getId(), plan);
         for (final ReservationOffer offer : offers) {
-            final RateSchedule priceBefore = offer.getPrice();
             OfferSchedules.copyFromPlan(offer, plan);
             if (!saveOfferQuietly(offer)) {
                 failures.add("trip '" + trip.getTitle() + "': saved by someone else");
                 all = false;
-                continue;
-            }
-            if (!Objects.equals(priceBefore, offer.getPrice())) {
-                lodging().recomputeAfterOfferEdit(trip, offer);
-                recomputed++;
             }
         }
         audit(plan, trip.getOrgId(), "Rate plan '" + plan.getName() + "' pushed to " + offers.size()
                 + (offers.size() == 1 ? " lodging option" : " lodging options") + " on '" + trip.getTitle() + "'"
-                + (recomputed > 0 ? " (price changed: bills recomputed)" : "") + (all ? "" : " (not all saved)"));
+                + (all ? "" : " (not all saved)"));
         return all;
     }
 
@@ -477,8 +386,9 @@ public class RatePlanCommands {
 
     /**
      * The "Add from hotel rate plan" menu for a trip: every live plan of every live hotel that covers the
-     * trip's dates and is not already on the trip, by hotel then plan. Empty for a caller who may not manage
-     * the trip's lodging, and for a trip without dates (nothing can be said to cover them).
+     * trip's dates, by hotel then plan -- a plan already on the trip included, since a trip may take the same
+     * plan twice at two participant prices. Empty for a caller who may not manage the trip's lodging, and for
+     * a trip without dates (nothing can be said to cover them).
      */
     public List<PlanChoice> attachable(final String tripId) {
         final List<PlanChoice> choices = new ArrayList<>();
@@ -489,10 +399,9 @@ public class RatePlanCommands {
         final Trip trip = tripSource.get().getTrip(tripId);
         final LocalDate from = dateOf(trip.getStartDate());
         final LocalDate to = dateOf(trip.getEndDate());
-        final Set<String> onTrip = planIdsOn(tripId, Cached.YES);
         for (final Accommodation acc : lodging.getAccommodations()) {
             for (final RatePlan plan : sortedPlans(acc.getId().getValue(), Cached.YES)) {
-                if (!plan.isRetired() && plan.covers(from, to) && !onTrip.contains(plan.getId().getValue())) {
+                if (!plan.isRetired() && plan.covers(from, to)) {
                     choices.add(new PlanChoice(plan.getId().getValue(), acc.getId().getValue(),
                             acc.getName() + ": " + plan.getName() + " (" + datesLabel(plan) + ")"));
                 }
@@ -501,67 +410,113 @@ public class RatePlanCommands {
         return choices;
     }
 
-    /** {@link #attach(String, String, String)} from a menu value ({@link PlanChoice#getValue()}). */
+    /** The attach dialog's blank form for a trip: no plan chosen yet, the price fieldset on. */
+    public AttachForm attachFormFor(final String tripId) {
+        final AttachForm form = new AttachForm();
+        form.setTripId(tripId);
+        return form;
+    }
+
+    /** {@link #attach(String, String, String)} from a menu value ({@link PlanChoice#getValue()}), unpriced. */
     public boolean attach(final String tripId, final String choice) {
-        final int at = (choice == null) ? -1 : choice.indexOf(PlanChoice.SEPARATOR);
-        if (at <= 0 || at == choice.length() - 1) {
-            return refuse("Choose a rate plan.");
-        }
-        return attach(tripId, choice.substring(0, at), choice.substring(at + 1));
+        final AttachForm form = attachFormFor(tripId);
+        form.setChoice(choice);
+        form.setPriceKnown(false);
+        return attach(form);
     }
 
     /**
-     * Puts a hotel's plan on the trip as a new lodging option: name, room types and dates from the plan, the
-     * default stay from the trip, a NEW lodging event, and the schedules COPIED from the plan
-     * ({@code OfferForm.ratePlanId} tells {@code saveOffer} to copy rather than read the form's money). The
-     * trip joins the plan's {@code linkedTripIds} FIRST: that write bumps the plan's version, and the offer
-     * must copy the version it will then be compared against, or it would read as drifted from birth. A
-     * refused offer save unlinks again. Gate: {@code canManageTripLodging}.
+     * The attach dialog: the trip, the chosen plan ({@code form.choice}) and, when {@code form.priceKnown}, the
+     * new option's participant price. A refusal lands on {@code form.problem} as well as in a growl, so the
+     * dialog can show it under a modal.
      */
+    public boolean attach(final AttachForm form) {
+        if (form == null) {
+            return refuse("Choose a rate plan.");
+        }
+        final String choice = form.getChoice();
+        final int at = (choice == null) ? -1 : choice.indexOf(PlanChoice.SEPARATOR);
+        if (at <= 0 || at == choice.length() - 1) {
+            return refuseInto(form, "Choose a rate plan.");
+        }
+        return attach(form.getTripId(), choice.substring(0, at), choice.substring(at + 1), form);
+    }
+
+    /** Puts a plan on the trip as a new, UNPRICED option ("needs participant pricing" until the tab sets one). */
     public boolean attach(final String tripId, final String accId, final String planId) {
+        final AttachForm unpriced = attachFormFor(tripId);
+        unpriced.setPriceKnown(false);
+        return attach(tripId, accId, planId, unpriced);
+    }
+
+    /**
+     * Puts a hotel's plan on the trip as a new lodging option: named after the plan, its room types the plan's,
+     * its DATE RANGE the plan's dates where set (each open end falling back to the trip's dates), its DEFAULT
+     * STAY the trip's dates, a NEW lodging event, the COST side COPIED from the plan ({@code OfferForm.ratePlanId}
+     * tells {@code saveOffer} to copy it) and the PRICE side from {@code priceFields} -- unpriced unless
+     * {@code priceKnown}. The same plan may be attached to a trip again (another option, another price). The
+     * trip joins the plan's {@code linkedTripIds} FIRST when it is not on it yet: that write bumps the plan's
+     * version, and the offer must copy the version it will then be compared against, or it would read as
+     * drifted from birth. A refused offer save undoes a link made here. Gate: {@code canManageTripLodging}.
+     */
+    public boolean attach(final String tripId, final String accId, final String planId,
+            final AttachForm priceFields) {
         final LodgingCommands lodging = lodging();
+        if (tripId == null || tripId.isBlank()) {
+            return refuseInto(priceFields, "Unknown trip.");
+        }
         if (!lodging.canManageTripLodging(tripId)) {
-            return refuse("Not allowed: only the trip's managers and lodging admins add lodging options.");
+            return refuseInto(priceFields,
+                    "Not allowed: only the trip's managers and lodging admins add lodging options.");
         }
         final Trip trip = tripSource.get().getTripForEdit(tripId);
         if (!tripId.equals(trip.getId())) {
-            return refuse("Unknown trip.");
+            return refuseInto(priceFields, "Unknown trip.");
         }
         final Accommodation acc = lodging.findAccommodation(accId);
         final RatePlan plan = findPlan(accId, planId, Cached.NO);
         if (acc == null || acc.isRetired() || plan == null) {
-            return refuse("That rate plan no longer exists.");
+            return refuseInto(priceFields, "That rate plan no longer exists.");
         }
         if (plan.isRetired()) {
-            return refuse("'" + plan.getName() + "' is retired.");
+            return refuseInto(priceFields, "'" + plan.getName() + "' is retired.");
         }
         if (!plan.covers(dateOf(trip.getStartDate()), dateOf(trip.getEndDate()))) {
-            return refuse("'" + plan.getName() + "' (" + datesLabel(plan) + ") does not cover the trip's dates.");
+            return refuseInto(priceFields,
+                    "'" + plan.getName() + "' (" + datesLabel(plan) + ") does not cover the trip's dates.");
         }
-        if (planIdsOn(tripId, Cached.NO).contains(plan.getId().getValue())) {
-            return refuse("'" + plan.getName() + "' is already on this trip.");
+        final String money = OfferSchedules.attachProblem(priceFields);
+        if (money != null) {
+            return refuseInto(priceFields, money);
         }
+        // The blank form carries the trip's dates as range AND default stay; the plan's dates replace the range.
         final OfferForm form = lodging.offerFormFor(tripId, null);
         form.setName(plan.getName());
         form.setAccommodationId(accId);
         form.setRoomTypeIds(new ArrayList<>(plan.getRoomTypeIds()));
         form.setTripEventId(OfferForm.NEW_EVENT);
         form.setRatePlanId(plan.getId().getValue());
+        OfferSchedules.applyAttachPrice(form, priceFields);
         if (plan.getValidFrom() != null) {
             form.setValidFrom(plan.getValidFrom().atStartOfDay());
         }
         if (plan.getValidUntil() != null) {
             form.setValidUntil(plan.getValidUntil().atTime(23, 59));
         }
-        plan.link(tripId);
-        if (!storeQuietly(plan)) {
-            return refuse("Saved by someone else: reload the page and try again.");
+        final boolean newlyLinked = plan.link(tripId);
+        if (newlyLinked && !storeQuietly(plan)) {
+            return refuseInto(priceFields, "Saved by someone else: reload the page and try again.");
         }
         if (!lodging.saveOffer(tripId, form)) {
-            plan.unlink(tripId);
-            storeQuietly(plan);
+            if (newlyLinked) {
+                // Only the link THIS attach made: another option of the trip may still follow the plan.
+                plan.unlink(tripId);
+                storeQuietly(plan);
+            }
+            priceFields.setProblem(form.getProblem());
             return false;
         }
+        priceFields.setProblem(null);
         audit(plan, trip.getOrgId(), "Attached rate plan '" + plan.getName() + "' (" + acc.getName() + ") to '"
                 + trip.getTitle() + "' as lodging option '" + form.getName() + "'");
         info("Added '" + plan.getName() + "' from " + acc.getName() + " as a lodging option.");
@@ -689,16 +644,6 @@ public class RatePlanCommands {
         return mine;
     }
 
-    private static Set<String> planIdsOn(final String tripId, final Cached cached) {
-        final Set<String> ids = new LinkedHashSet<>();
-        for (final ReservationOffer offer : DAO.getInstance().getReservationOffers(tripId, cached)) {
-            if (offer.isLinked()) {
-                ids.add(offer.getRatePlanId());
-            }
-        }
-        return ids;
-    }
-
     private static LocalDate dateOf(final LocalDateTime when) {
         return (when == null) ? null : when.toLocalDate();
     }
@@ -746,6 +691,11 @@ public class RatePlanCommands {
         if (form != null) {
             form.setProblem(message);
         }
+        return refuse(message);
+    }
+
+    private static boolean refuseInto(final AttachForm form, final String message) {
+        form.setProblem(message);
         return refuse(message);
     }
 

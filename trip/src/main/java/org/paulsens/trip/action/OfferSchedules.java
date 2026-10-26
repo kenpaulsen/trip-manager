@@ -10,6 +10,7 @@ import java.util.Map;
 import org.paulsens.trip.action.LodgingViews.CostExtraForm;
 import org.paulsens.trip.action.LodgingViews.OfferCostForm;
 import org.paulsens.trip.action.LodgingViews.OfferForm;
+import org.paulsens.trip.action.RatePlanViews.AttachForm;
 import org.paulsens.trip.action.RatePlanViews.RatePlanForm;
 import org.paulsens.trip.model.CostExtra;
 import org.paulsens.trip.model.PricingModel;
@@ -26,21 +27,23 @@ import org.paulsens.trip.pay.MoneyMath;
  *
  * <p>Two absences mean two different things, and the forms spell them out as flags rather than blank fields:
  * {@code priceKnown == false} saves a null price, "needs participant pricing" (no stay may be reserved on
- * the option until an internal admin sets one); {@code costKnown == false} saves a null cost, which the Room
- * Invoice ASSUMES equal to the price. The operator's {@link OfferCostForm} has no price fields at all, so the
- * cost path can never touch what a participant pays.
+ * the option until an internal admin sets one); {@code costKnown == false} saves a null cost, "not set", which
+ * the Room Invoice REFUSES to invoice (no cost is ever assumed from a price, owner decision 2026-10-26). The
+ * operator's {@link OfferCostForm} has no price fields at all, so the cost path can never touch what a
+ * participant pays.
  *
- * <p>A hotel {@link RatePlan} carries the same two schedules as a template; {@link #copyFromPlan} is the one
- * place an offer takes them (the live link is write-through: the offer keeps its own COPY and remembers the
- * plan's id and version), and the {@code plan*} methods are the same form bridge for the plan dialog.
+ * <p>A hotel {@link RatePlan} carries the COST side only as a template; {@link #copyFromPlan} is the one place
+ * an offer takes it (the live link is write-through: the offer keeps its own COPY and remembers the plan's id
+ * and version) and leaves the offer's PRICE alone -- a linked option owns its participant price. The
+ * {@code plan*} methods are the same form bridge for the plan dialog.
  */
 final class OfferSchedules {
     /** What the Offers tab shows for an unpriced option. */
     static final String NEEDS_PRICING = "needs participant pricing";
-    /** What the Offers tab shows for an option whose hotel cost is not stated (internal readers only). */
-    static final String COST_UNSET = "not set (assumed = price)";
-    /** What a Hotel Operator reads for the same case: never the price, never the word "assumed". */
+    /** What every reader sees for an option whose hotel cost is not stated: never the price. */
     static final String COST_NOT_SET = "not set";
+    /** The Offers tab's spelling of the same case (one constant per reader, so a page diff stays readable). */
+    static final String COST_UNSET = COST_NOT_SET;
 
     private OfferSchedules() {
     }
@@ -69,12 +72,12 @@ final class OfferSchedules {
     }
 
     /**
-     * Makes the offer a copy of the plan's pricing: both schedules (or their absence), the extras, and the link
-     * ({@code ratePlanId}, {@code ratePlanVersion}). Every other field is the trip's and is left alone. Copies,
-     * never the plan's own objects: the plan is a DAO row the caller may go on editing.
+     * Makes the offer's COST side a copy of the plan's: the cost schedule (or its absence), the extras, and the
+     * link ({@code ratePlanId}, {@code ratePlanVersion}). The offer's PRICE and every other field are the trip's
+     * and are left alone. Copies, never the plan's own objects: the plan is a DAO row the caller may go on
+     * editing.
      */
     static void copyFromPlan(final ReservationOffer offer, final RatePlan plan) {
-        offer.setPrice(copyOf(plan.getPrice()));
         offer.setCost(copyOf(plan.getCost()));
         offer.setCostExtras(copyExtras(plan.getCostExtras()));
         offer.setRatePlanId(plan.getId().getValue());
@@ -94,23 +97,23 @@ final class OfferSchedules {
         return copies;
     }
 
-    /** The plan dialog's HOTEL COST block onto the plan (the price block is {@link #applyPlanPrice}'s). */
+    /** The plan dialog's HOTEL COST block (the plan's only money) onto the plan. */
     static void applyPlanCost(final RatePlan plan, final RatePlanForm form) {
         plan.setCost(form.isCostKnown() ? schedule(form.getCostPricingModel(), form.getCostNightlyPrice(), false,
                 null, form.getCostSupplement()) : null);
         plan.setCostExtras(extrasOf(form.getCostExtras()));
     }
 
-    /** The plan dialog's PARTICIPANT PRICE block onto the plan; the caller has checked who may. */
-    static void applyPlanPrice(final RatePlan plan, final RatePlanForm form) {
-        plan.setPrice(form.isPriceKnown() ? schedule(form.getPricingModel(), form.getNightlyPrice(), false, null,
-                form.getSingleSupplement()) : null);
-    }
-
-    /** The price the plan form WOULD save, for the un-pricing check before anything is written. */
-    static RateSchedule plannedPrice(final RatePlanForm form) {
-        return form.isPriceKnown() ? schedule(form.getPricingModel(), form.getNightlyPrice(), false, null,
-                form.getSingleSupplement()) : null;
+    /**
+     * The attach dialog's PARTICIPANT PRICE onto the new option's form: the four price fields, no per-night
+     * table (an attach has none). {@code priceKnown} off leaves the option "needs participant pricing".
+     */
+    static void applyAttachPrice(final OfferForm form, final AttachForm attach) {
+        form.setPriceKnown(attach.isPriceKnown());
+        form.setPricingModel(attach.getPricingModel() == null ? "PER_ROOM" : attach.getPricingModel());
+        form.setNightlyPrice(attach.getNightlyPrice());
+        form.setPerNightPricing(false);
+        form.setSingleSupplement(attach.getSingleSupplement());
     }
 
     static RateSchedule schedule(final String model, final Double nightly, final boolean perNightOn,
@@ -189,7 +192,7 @@ final class OfferSchedules {
         form.setCostExtras(extraForms(offer.getCostExtras()));
     }
 
-    /** Fills the plan dialog's two money blocks from the plan (every block; the page hides what it must). */
+    /** Fills the plan dialog's cost block from the plan. */
     static void fillPlanForm(final RatePlanForm form, final RatePlan plan) {
         final RateSchedule cost = plan.getCost();
         form.setCostKnown(cost != null);
@@ -199,13 +202,6 @@ final class OfferSchedules {
             form.setCostSupplement(LodgingCommands.dollars(cost.getSingleSupplementCents()));
         }
         form.setCostExtras(extraForms(plan.getCostExtras()));
-        final RateSchedule price = plan.getPrice();
-        form.setPriceKnown(price != null);
-        if (price != null) {
-            form.setPricingModel(price.getPricingModel().name());
-            form.setNightlyPrice(LodgingCommands.dollars(price.getNightlyCents()));
-            form.setSingleSupplement(LodgingCommands.dollars(price.getSingleSupplementCents()));
-        }
     }
 
     /** The operator's cost dialog for one option. */
@@ -275,18 +271,14 @@ final class OfferSchedules {
         return extrasProblem(form.getCostExtras());
     }
 
-    /**
-     * The plan dialog's money refusals: the cost block always, the price block only when the caller's price
-     * fields count ({@code priceCounts}); null when fine.
-     */
-    static String planProblem(final RatePlanForm form, final boolean priceCounts) {
-        if (priceCounts && form.isPriceKnown()) {
-            final String price = scheduleProblem("price", form.getNightlyPrice(), form.getSingleSupplement(), false,
-                    Map.of());
-            if (price != null) {
-                return price;
-            }
-        }
+    /** The attach dialog's price refusals; null when fine (or when no price is being set). */
+    static String attachProblem(final AttachForm form) {
+        return form.isPriceKnown() ? scheduleProblem("price", form.getNightlyPrice(), form.getSingleSupplement(),
+                false, Map.of()) : null;
+    }
+
+    /** The plan dialog's money refusals: the cost block and the extras; null when fine. */
+    static String planProblem(final RatePlanForm form) {
         if (form.isCostKnown()) {
             final String cost = scheduleProblem("cost", form.getCostNightlyPrice(), form.getCostSupplement(), false,
                     Map.of());
@@ -349,7 +341,7 @@ final class OfferSchedules {
         return offer.isPriced() ? scheduleLabel(offer.getPrice()) : NEEDS_PRICING;
     }
 
-    /** The cost column for internal readers: the stated cost (extras counted), else {@link #COST_UNSET}. */
+    /** The Offers tab's cost column: the stated cost (extras counted), else {@link #COST_UNSET}. */
     static String costLabel(final ReservationOffer offer) {
         return (offer.getCost() == null) ? COST_UNSET : scheduleLabel(offer.getCost()) + extrasSuffix(offer);
     }
@@ -380,11 +372,6 @@ final class OfferSchedules {
     static String planCostLabel(final RatePlan plan) {
         return (plan.getCost() == null) ? COST_NOT_SET
                 : scheduleLabel(plan.getCost()) + extrasSuffix(plan.getCostExtras().size());
-    }
-
-    /** The plan's price for an INTERNAL reader: the label, or {@link #NEEDS_PRICING}. */
-    static String planPriceLabel(final RatePlan plan) {
-        return plan.isPriced() ? scheduleLabel(plan.getPrice()) : NEEDS_PRICING;
     }
 
     // ================================================================== the link, as the Offers tab reads it

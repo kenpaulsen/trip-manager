@@ -16,9 +16,10 @@ import org.paulsens.trip.action.LodgingViews.HasCostExtras;
  * ({@link RatePlanCommands}). Same rules as {@link LodgingViews}: no domain objects, no-arg constructors,
  * pinned {@code serialVersionUID}s, and the money as dollars the dialog's number widgets hold.
  *
- * <p>Who sees what is decided in the bean, not here: a {@link RatePlanRow} handed to a Hotel Operator carries
- * a null {@code priceSummary}, and a {@link RatePlanForm} an operator submits has its price fields IGNORED
- * on save ({@code RatePlanCommands.canEditPrice}), so the shapes can be shared by both readers.
+ * <p>A rate plan is the HOTEL's side only (owner decision 2026-10-26): no shape here carries a participant
+ * price, so a Hotel Operator's table and dialog can be the same as an internal admin's. The participant price
+ * of an option taken from a plan is the trip's, entered on the attach ({@link AttachForm}) or on the option
+ * afterwards.
  */
 public final class RatePlanViews {
 
@@ -40,13 +41,6 @@ public final class RatePlanViews {
         private String dates;
         /** The hotel's cost ("$50.00/night per room, +1 extra"), or "not set". */
         private String costSummary;
-        /**
-         * The participant price label, "needs participant pricing" while unset -- or NULL when the caller may
-         * not see prices (a Hotel Operator), which is how the page knows to leave the column out.
-         */
-        private String priceSummary;
-        /** True while the plan has no participant price (the "Needs participant pricing" badge). */
-        private boolean needsPricing;
         /** The linked trips the caller may name, joined with ", "; unnamed ones counted ("2 other trips"). */
         private String linkedTrips;
         private int linkedCount;
@@ -55,12 +49,10 @@ public final class RatePlanViews {
     }
 
     /**
-     * The rate plan dialog's inputs. {@code planId} null = a new plan. Two money blocks: the HOTEL COST
+     * The rate plan dialog's inputs. {@code planId} null = a new plan. One money block, the HOTEL COST
      * ({@code costKnown}, {@code costPricingModel}, {@code costNightlyPrice}, {@code costSupplement},
-     * {@code costExtras}) every editor of the hotel may state, and the PARTICIPANT PRICE ({@code priceKnown},
-     * {@code pricingModel}, {@code nightlyPrice}, {@code singleSupplement}) only an internal admin may set --
-     * the bean strips it from anyone else's save, so an operator's form cannot move a participant's price.
-     * {@code priceKnown} starts OFF: a new plan needs participant pricing until an admin says otherwise.
+     * {@code costExtras}), which every editor of the hotel may state; {@code costKnown} starts ON, since stating
+     * the cost is what the dialog is for.
      */
     @Data
     @NoArgsConstructor
@@ -80,11 +72,6 @@ public final class RatePlanViews {
         private Double costNightlyPrice;
         private Double costSupplement;
         private List<CostExtraForm> costExtras = new ArrayList<>();
-        /** Off = needs participant pricing. Internal admins only; ignored on anyone else's save. */
-        private boolean priceKnown;
-        private String pricingModel = "PER_ROOM";
-        private Double nightlyPrice;
-        private Double singleSupplement;
         private String notes;
         private boolean retired;
         /** Why the last save was refused, or what the fan-out could not finish; shown IN the dialog. */
@@ -100,9 +87,11 @@ public final class RatePlanViews {
     }
 
     /**
-     * One entry of the "Add from hotel rate plan" menu: a plan of a live hotel that covers the trip's dates
-     * and is not yet on the trip. {@link #getValue()} is what the menu item carries and what
-     * {@code RatePlanCommands.attach(tripId, choice)} takes back, so the page never splits ids itself.
+     * One entry of the "Add from hotel rate plan" menu: a plan of a live hotel that covers the trip's dates.
+     * {@link #getValue()} is what the menu item carries and what {@code RatePlanCommands.attach(tripId, choice)}
+     * and {@link AttachForm#getChoice()} take back, so the page never splits ids itself. The same plan may be
+     * added to a trip several times (two options at different participant prices), so a plan already on the
+     * trip stays in the menu.
      */
     @Data
     @NoArgsConstructor
@@ -121,5 +110,29 @@ public final class RatePlanViews {
         public String getValue() {
             return accId + SEPARATOR + planId;
         }
+    }
+
+    /**
+     * The "Add from hotel rate plan" dialog's inputs ({@code RatePlanCommands.attachFormFor(tripId)} /
+     * {@code attach(form)}): the trip, WHICH plan ({@code choice}, a {@link PlanChoice#getValue()}) and the new
+     * option's PARTICIPANT PRICE ({@code priceKnown}, {@code pricingModel}, {@code nightlyPrice},
+     * {@code singleSupplement}, dollars). {@code priceKnown} starts ON for the dialog; unticked, the option is
+     * created "needs participant pricing" and takes no stays until the Offers tab prices it. The cost side is
+     * never here -- it is the plan's, copied.
+     */
+    @Data
+    @NoArgsConstructor
+    public static final class AttachForm implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String tripId;
+        /** {@code accId|planId}, the menu value of the chosen plan. */
+        private String choice;
+        private boolean priceKnown = true;
+        private String pricingModel = "PER_ROOM";
+        private Double nightlyPrice;
+        private Double singleSupplement;
+        /** Why the last attach was refused; shown IN the dialog. */
+        private String problem;
     }
 }

@@ -234,13 +234,15 @@ public class LodgingPricingTest {
     }
 
     @Test
-    public void costIsAssumedFromThePriceWhenNoneIsStated() {
+    public void noCostScheduleMeansNoCostLinesNeverThePrice() {
         final ReservationOffer offer = perRoom(12000);
+        offer.setCost(null);
         final Reservation pair = reservation(List.of(ADA, BOB), 0, 5, "r-114");
         final Reservation cy = reservation(List.of(CY), 2, 5, "r-114");
-        assertEquals(LodgingPricing.cost(pair, offer, PANSION, List.of(pair, cy), NAMES::get),
-                LodgingPricing.price(pair, offer, PANSION, List.of(pair, cy), NAMES::get),
-                "No cost schedule: the invoice side is the bill side, line for line");
+        assertTrue(LodgingPricing.cost(pair, offer, PANSION, List.of(pair, cy), NAMES::get).isEmpty(),
+                "No cost schedule: nothing prices the hotel side; the invoice refuses the trip instead");
+        assertEquals(LodgingPricing.price(pair, offer, PANSION, List.of(pair, cy), NAMES::get).size(), 2,
+                "the bills are untouched by a missing cost");
     }
 
     @Test
@@ -378,14 +380,20 @@ public class LodgingPricingTest {
         assertFalse(note.contains("discount") || note.contains("complimentary"));
     }
 
+    /** Priced AND costed at the same numbers: the cost-side cases read a stated cost, never a fallback. */
     private static ReservationOffer perPerson(final long nightly, final long supplement) {
-        return ReservationOffer.builder().name("Double room").roomTypeId("rt-d").pricingModel(PricingModel.PER_PERSON)
-                .nightlyPriceCents(nightly).singleSupplementCents(supplement).build();
+        final ReservationOffer offer = ReservationOffer.builder().name("Double room").roomTypeId("rt-d")
+                .pricingModel(PricingModel.PER_PERSON).nightlyPriceCents(nightly).singleSupplementCents(supplement)
+                .build();
+        offer.setCost(new RateSchedule(PricingModel.PER_PERSON, nightly, null, supplement));
+        return offer;
     }
 
     private static ReservationOffer perRoom(final long nightly) {
-        return ReservationOffer.builder().name("Double room").roomTypeId("rt-d").pricingModel(PricingModel.PER_ROOM)
-                .nightlyPriceCents(nightly).build();
+        final ReservationOffer offer = ReservationOffer.builder().name("Double room").roomTypeId("rt-d")
+                .pricingModel(PricingModel.PER_ROOM).nightlyPriceCents(nightly).build();
+        offer.setCost(new RateSchedule(PricingModel.PER_ROOM, nightly, null, 0L));
+        return offer;
     }
 
     private static Reservation reservation(final List<Person.Id> who, final int fromNight, final int toNight,

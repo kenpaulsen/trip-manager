@@ -28,8 +28,8 @@ import org.paulsens.trip.model.RoomType;
  *
  * <p><b>Two sides.</b> The same rules run on either {@link Side}: {@link #price} reads the offer's
  * participant schedule ({@code offer.getPrice()}) and the reservation's {@code priceConcession}, and feeds the
- * bills; {@link #cost} reads {@code offer.effectiveCost()} (the hotel's schedule, or the price when none is
- * stated) and {@code costConcession}, and feeds the Room Invoice. A side with no schedule prices to nothing
+ * bills; {@link #cost} reads {@code offer.getCost()} (the hotel's schedule; none means NO cost lines, never the
+ * price) and {@code costConcession}, and feeds the Room Invoice. A side with no schedule prices to nothing
  * (an empty list, the same contract as a null offer). The single-supplement WAIVER is a price-side concession:
  * the hotel still charges it.
  *
@@ -67,7 +67,7 @@ public final class LodgingPricing {
     public enum Side {
         /** What the participant pays: {@code offer.price}, {@code reservation.priceConcession}, the bills. */
         PRICE,
-        /** What the hotel charges: {@code offer.effectiveCost()}, {@code reservation.costConcession}, the invoice. */
+        /** What the hotel charges: {@code offer.getCost()}, {@code reservation.costConcession}, the invoice. */
         COST
     }
 
@@ -147,7 +147,8 @@ public final class LodgingPricing {
         if (reservation == null || offer == null || !reservation.isActive()) {
             return lines;
         }
-        final RateSchedule schedule = (side == Side.PRICE) ? offer.getPrice() : offer.effectiveCost();
+        // Strict on both sides: a cost-less option prices NO cost lines (the invoice refuses it first).
+        final RateSchedule schedule = (side == Side.PRICE) ? offer.getPrice() : offer.getCost();
         if (schedule == null) {
             return lines;
         }

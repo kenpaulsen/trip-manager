@@ -256,6 +256,7 @@ public class HotelCommandsTest {
         assertEquals(row.getOptions().get(0).getDates(), "Sep 21 - Sep 24, 2027");
         assertEquals(row.getOptions().get(0).getCostSummary(), "not set",
                 "an unstated cost is 'not set' to the operator: never the price, never 'assumed'");
+        assertFalse(row.isInvoiceReady(), "a stay on an option without a cost: the hotel's invoice is refused");
         assertEquals(row.getStays().size(), 1);
         final HotelViews.HotelStayRow stay = row.getStays().get(0);
         assertTrue(stay.getGuests().startsWith("Olga "), stay.getGuests());
@@ -289,6 +290,7 @@ public class HotelCommandsTest {
         final HotelViews.HotelTripRow priced = staff.tripRows(accId).stream()
                 .filter(r -> r.getTripId().equals(mine.getId())).findFirst().orElseThrow();
         assertEquals(priced.getOptions().get(0).getCostSummary(), "$55.00/night per room");
+        assertTrue(priced.isInvoiceReady(), "every option with a stay here now has a cost");
         assertEquals(priced.getStays().get(0).getCostConcession(), "10% discount");
         assertFalse(priced.toString().contains("100.00"), "the participant price never reaches the operator");
     }
@@ -544,6 +546,7 @@ public class HotelCommandsTest {
         assertEquals(rows.get(0).getOptions().get(0).getName(), "Early option");
         assertEquals(rows.get(0).getOptions().get(0).getCostSummary(), "not set", "never the price");
         assertTrue(rows.get(0).getStays().isEmpty(), "nobody is booked yet");
+        assertTrue(rows.get(0).isInvoiceReady(), "no stay yet, so nothing is missing a cost");
 
         // A stay arrives: still ONE row for the trip, now with the stay.
         reserveInto(planned, accId, nobody, roomId(accId, 0));

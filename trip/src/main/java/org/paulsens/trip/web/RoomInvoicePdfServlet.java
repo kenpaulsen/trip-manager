@@ -12,9 +12,11 @@ import org.paulsens.trip.action.LodgingAccess;
 import org.paulsens.trip.action.LodgingAccessCommands;
 import org.paulsens.trip.action.PrivilegeCommands;
 import org.paulsens.trip.action.ReportCommands;
+import org.paulsens.trip.action.RoomInvoiceHeading;
 import org.paulsens.trip.action.RoomInvoicePdf;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.api.Beans;
+import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Trip;
 
 /**
@@ -28,9 +30,11 @@ import org.paulsens.trip.model.Trip;
  * <p>Gated like the page: a FINANCE viewer (site administrator, the global {@code viewFinances}, or
  * {@code tripFinView} on this trip) gets the whole invoice, and a Hotel Operator of a hotel in play on the trip
  * ({@link LodgingAccess#isOperatorHere()}) gets their hotel's part, built by
- * {@link ReportCommands#roomInvoiceFor} and drawn without the internal cost-assumed note. A visitor who is not
- * signed in goes to login and comes back here; a signed-in refusal is a plain 403, since there is no page to
- * put a growl on.
+ * {@link ReportCommands#roomInvoiceFor}. An invoice REFUSED for want of a hotel cost
+ * ({@code RoomInvoice.blocked}) is answered {@code 409 Conflict} as {@code text/plain} with
+ * {@link ReportCommands#blockedMessage} in the reader's words, never as a PDF with a hole in it. A visitor who
+ * is not signed in goes to login and comes back here; a signed-in refusal is a plain 403, since there is no
+ * page to put a growl on.
  *
  * <p>The access object is computed by a {@link LodgingAccessCommands} built on THIS request's
  * {@link Caller}: the CDI bean's default caller source is {@code Caller.current()}, which reads the
@@ -79,14 +83,25 @@ public class RoomInvoicePdfServlet extends HttpServlet {
         }
         final LodgingAccess access = new LodgingAccessCommands(() -> caller).forTrip(tripId);
         // Internal = a finance viewer or the trip's own lodging admin (the bill is the hotel's cost side, which
-        // is exactly what they reconcile), as on the page: an operator never sees whether a cost was assumed.
+        // is exactly what they reconcile), as on the page: the flag picks the wording of a 409 refusal.
         final boolean internal = caller.has(VIEW_FINANCES) || caller.has(PrivilegeCommands.TRIP_FIN_VIEW, tripId)
                 || access.isInternal();
         if (!internal && !access.isOperatorHere()) {
             resp.sendError(HttpServletResponse.SC_FORBIDDEN);
             return;
         }
-        final byte[] pdf = RoomInvoicePdf.render(trip.getTitle(), invoices().invoice(tripId, access, internal),
+        final ReportCommands.RoomInvoice invoice = invoices().invoice(tripId, access, internal);
+        if (invoice.isBlocked()) {
+            final byte[] why = ReportCommands.blockedMessage(invoice.getMissingCost(), !internal)
+                    .getBytes(StandardCharsets.UTF_8);
+            resp.setStatus(HttpServletResponse.SC_CONFLICT);
+            resp.setContentType("text/plain;charset=UTF-8");
+            resp.setContentLength(why.length);
+            resp.setHeader("Cache-Control", "private, no-store");
+            resp.getOutputStream().write(why);
+            return;
+        }
+        final byte[] pdf = RoomInvoicePdf.render(new RoomInvoiceHeading(trip.getTitle(), orgNameOf(trip)), invoice,
                 internal);
         resp.setContentType("application/pdf");
         resp.setContentLength(pdf.length);
@@ -94,6 +109,12 @@ public class RoomInvoicePdfServlet extends HttpServlet {
         // Money: never cached by a browser or anything between.
         resp.setHeader("Cache-Control", "private, no-store");
         resp.getOutputStream().write(pdf);
+    }
+
+    /** The organization the hotel invoices, as the page prints it ({@code theTrip.organization.name}); "" if gone. */
+    static String orgNameOf(final Trip trip) {
+        final Organization org = trip.getOrganization();
+        return (org == null || org.getName() == null) ? "" : org.getName();
     }
 
     /** RFC 6266: an ASCII fallback name, plus the real one percent-encoded for every current browser. */

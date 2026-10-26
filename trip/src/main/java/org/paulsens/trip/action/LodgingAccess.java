@@ -60,7 +60,7 @@ public final class LodgingAccess implements Serializable {
         return !operatorAccIds.isEmpty();
     }
 
-    /** Prices, bills, concessions on the price side and the "cost assumed" flag are internal-only. */
+    /** Prices, bills and concessions on the price side are internal-only. */
     public boolean isSeesPrices() {
         return internal;
     }

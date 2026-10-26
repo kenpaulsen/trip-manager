@@ -31,8 +31,6 @@ public class RatePlanTest {
         assertTrue(fresh.getCostExtras().isEmpty(), "Never null");
         assertTrue(fresh.getLinkedTripIds().isEmpty(), "Never null");
         assertNull(fresh.getCost());
-        assertNull(fresh.getPrice());
-        assertFalse(fresh.isPriced(), "No price yet: offers taken from it need participant pricing");
         assertFalse(fresh.isRetired(), "A builder that never mentions it produces a live plan");
         assertEquals(fresh.getVersion(), 0L);
     }
@@ -72,14 +70,13 @@ public class RatePlanTest {
         final List<String> types = new ArrayList<>(List.of("rt-d"));
         final List<CostExtra> extras = new ArrayList<>(List.of(CostExtra.builder().label("Tax").build()));
         final RatePlan plan = RatePlan.builder().name("  Autumn rate  ").roomTypeIds(types).costExtras(extras)
-                .retired(true).price(RateSchedule.builder().nightlyCents(6000).build()).build();
+                .retired(true).build();
         types.add("rt-s");
         extras.clear();
         assertEquals(plan.getName(), "Autumn rate");
         assertEquals(plan.getRoomTypeIds(), List.of("rt-d"), "Copied, not aliased");
         assertEquals(plan.getCostExtras().size(), 1, "Copied, not aliased");
         assertTrue(plan.isRetired());
-        assertTrue(plan.isPriced());
         assertEquals(RatePlan.Id.from("p-1").compareTo(RatePlan.Id.from("p-2")), -1);
         assertEquals(RatePlan.Id.from("p-1"), RatePlan.Id.from("p-1"));
         assertNotNull(RatePlan.Id.newInstance().getValue());
@@ -92,22 +89,33 @@ public class RatePlanTest {
                 .accommodationId(Accommodation.Id.from("acc-1")).name("Autumn rate").roomTypeIds(List.of("rt-d"))
                 .validFrom(SEP1).validUntil(SEP30)
                 .cost(RateSchedule.builder().nightlyCents(5000).build())
-                .price(RateSchedule.builder().pricingModel(PricingModel.PER_PERSON).nightlyCents(3500)
-                        .singleSupplementCents(1500).build())
                 .costExtras(List.of(CostExtra.builder().label("City tax").basis(CostExtra.Basis.PER_PERSON_NIGHT)
                         .amountCents(250).build()))
                 .notes("Breakfast included").linkedTripIds(List.of("trip-a")).retired(false).createdBy(ADA)
                 .created(AT).version(3L).build();
         final String json = mapper.writeValueAsString(plan);
         assertTrue(json.contains("\"cost\":{"), json);
-        assertTrue(json.contains("\"price\":{"), json);
+        assertFalse(json.contains("\"price\""), "A plan carries the hotel's side only: " + json);
         assertTrue(json.contains("\"linkedTripIds\":[\"trip-a\"]"), json);
         assertTrue(json.contains("\"retired\":false"), "The stored Boolean persists, not the derived flag: " + json);
-        assertFalse(json.contains("\"priced\""), "Derived flags are not persisted: " + json);
         assertEquals(mapper.readValue(json, RatePlan.class), plan);
         final RatePlan bare = mapper.readValue("{\"id\":\"plan-2\",\"name\":\"Bare\"}", RatePlan.class);
-        assertFalse(bare.isPriced());
         assertFalse(bare.isRetired());
         assertTrue(bare.getLinkedTripIds().isEmpty());
+    }
+
+    /** A row written while plans still carried a participant price reads as a plain plan: the key is dropped. */
+    @Test
+    public void aRowWithTheRetiredPriceKeyStillReads() throws Exception {
+        final ObjectMapper mapper = DAO.getInstance().getMapper();
+        final RatePlan legacy = mapper.readValue("{\"id\":\"plan-3\",\"name\":\"Priced once\","
+                + "\"cost\":{\"pricingModel\":\"PER_ROOM\",\"nightlyCents\":5000,\"overrides\":{},"
+                + "\"singleSupplementCents\":0},"
+                + "\"price\":{\"pricingModel\":\"PER_PERSON\",\"nightlyCents\":7000,\"overrides\":{},"
+                + "\"singleSupplementCents\":1000},\"version\":4}", RatePlan.class);
+        assertEquals(legacy.getName(), "Priced once");
+        assertEquals(legacy.getCost().getNightlyCents(), 5000L);
+        assertEquals(legacy.getVersion(), 4L);
+        assertFalse(mapper.writeValueAsString(legacy).contains("\"price\""), "gone on the next save");
     }
 }

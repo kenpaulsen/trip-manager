@@ -149,9 +149,10 @@ Lombok-annotated, Jackson-serialized to/from DynamoDB. Core types: `Person` (nes
 `PersonDataValue`, `Privilege`, `BindingType`, `Config`/`SettingDef`/`SettingSection`, `MediaItem`,
 `AuditEvent`/`AuditQuery`/`AuditPage`, lodging (`Accommodation` with inline `RoomType`/`Room`/`FloorMap`,
 `RoomBlock`, `ReservationOffer` carrying TWO `RateSchedule`s -- `price` = what a participant pays, the bills;
-`cost` = what the hotel charges, the Room Invoice, null = assumed from the price -- plus `CostExtra`s and an
-optional `RatePlan` link; `Reservation` with a `priceConcession` and a `costConcession` (`Concession`, no
-side field: the field IS the side); the hotel-owned `RatePlan`; `PricingModel`, `OfferType` —
+`cost` = what the hotel charges, the Room Invoice, null = "not set", which REFUSES the invoice (never assumed
+from the price since 2026-10-26) -- plus `CostExtra`s and an optional `RatePlan` link; `Reservation` with a
+`priceConcession` and a `costConcession` (`Concession`, no side field: the field IS the side); the hotel-owned `RatePlan` (the hotel's cost side only -- no participant
+price on a plan); `PricingModel`, `OfferType` —
 `docs/lodging.md` "Price vs cost" before touching any money field; the four legacy flat price keys still
 fold on read and mirror on write for one release, `docs/migrations/lodging-price-cost.md`), plus
 `model/chat/*` (15 chat types) and `model/deploy/*`. **Accommodations are GLOBAL, not org-owned** — the one
@@ -205,9 +206,10 @@ tab's rows for the hotel's OPERATORS alone, which DO name the guests at their ho
 documented tenancy extension; same doc) and `lodgingUpload`
 (LodgingUploadCommands — hotel photos, room-type photos and floor plans
 through the shared crop dialog into slot `lodging-{accId}`), `ratePlans` (RatePlanCommands -- hotel rate
-plans and their write-through link to offers: `savePlan` fans out to every linked option, `attach` /
-`detach` on the trip side, cost side for operators and price side internal-only; see `docs/lodging.md`
-"Rate plans"), `deploy`, `json`, `tripUtil`.
+plans and their write-through link to offers: a plan is the hotel's COST side only (`canEditCost` is its one
+gate), `savePlan` fans the cost out to every linked option and never recomputes a bill, `attach(AttachForm)`
+on the trip side creates the option WITH its own participant price, `detach` cuts it loose; see
+`docs/lodging.md` "Rate plans"), `deploy`, `json`, `tripUtil`.
 
 - A `Person` comes into being through exactly four paths: sign-up, a family manager's add-member flow, the
   REST people API, and a lodging contact auto-created by `LodgingCommands.findOrCreateContact` (no

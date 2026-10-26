@@ -28,14 +28,16 @@ import org.apache.pdfbox.pdmodel.font.PDType0Font;
  * between a laptop and the container. The files come from OpenPDF's font jar (see the pom).
  *
  * <p>Since the 2026-10-25 price/cost split the invoice is the HOTEL'S bill ({@code ReportCommands.roomInvoice}
- * at cost), and a Hotel Operator may download their hotel's part. {@code internal} says whether the reader is
- * one of the trip's own people: only then is the "cost assumed from the participant price" note drawn, with an
- * asterisk on each option it applies to, because whether we have a hotel's cost on file is a fact about our
- * books and never leaves the organization. A caller that does not say is treated as EXTERNAL (the old two-arg
- * {@link #render(String, ReportCommands.RoomInvoice)} delegates with {@code false}): a leak needs an explicit
- * {@code true}, never a forgotten argument.
+ * at cost), and a Hotel Operator may download their hotel's part. Under each hotel's name the sheet says whose
+ * invoice it is -- "Invoice to {@code org} for {@code trip} room charges at {@code hotel}."
+ * ({@link RoomInvoiceHeading}) -- so a page handed to the hotel stands on its own. A BLOCKED invoice (an
+ * option without a cost; the servlet answers 409 before drawing one) prints its refusal instead of sections.
+ * {@code internal} says whether the reader is one of the trip's own people; since the cost-assumed note went
+ * (no cost is assumed any more, owner decision 2026-10-26) nothing is drawn differently for them, but the flag
+ * stays on the signature so any future internal-only note needs an explicit {@code true}, never a forgotten
+ * argument.
  *
- * <p>Pure: an invoice and a title in, bytes out. {@code RoomInvoicePdfTest} reads the text back out.
+ * <p>Pure: an invoice and a heading in, bytes out. {@code RoomInvoicePdfTest} reads the text back out.
  */
 public final class RoomInvoicePdf {
 
@@ -74,24 +76,27 @@ public final class RoomInvoicePdf {
     private RoomInvoicePdf() {
     }
 
-    /** The whole document, printed today, for an EXTERNAL reader (no cost-assumed note). */
-    public static byte[] render(final String tripTitle, final ReportCommands.RoomInvoice invoice) {
-        return render(tripTitle, invoice, false);
-    }
-
-    /** The whole document, printed today; {@code internal} readers also get the cost-assumed note. */
-    public static byte[] render(final String tripTitle, final ReportCommands.RoomInvoice invoice,
+    /** The whole document, printed today; {@code internal} = one of the trip's own people (see the class note). */
+    public static byte[] render(final RoomInvoiceHeading heading, final ReportCommands.RoomInvoice invoice,
             final boolean internal) {
-        return render(tripTitle, invoice, internal, LocalDate.now());
+        return render(heading, invoice, internal, LocalDate.now());
     }
 
     /** The whole document; {@code printed} is named in each page's footer. */
-    static byte[] render(final String tripTitle, final ReportCommands.RoomInvoice invoice, final boolean internal,
-            final LocalDate printed) {
+    static byte[] render(final RoomInvoiceHeading heading, final ReportCommands.RoomInvoice invoice,
+            final boolean internal, final LocalDate printed) {
         try (PDDocument doc = new PDDocument()) {
-            final Writer out = new Writer(doc, load(doc, REGULAR), load(doc, BOLD), tripTitle, internal);
-            if (invoice.getSections().isEmpty()) {
-                out.newPage(null);
+            final Writer out = new Writer(doc, load(doc, REGULAR), load(doc, BOLD),
+                    heading == null ? new RoomInvoiceHeading(null, null) : heading);
+            if (invoice.isBlocked()) {
+                out.newPage(null, null);
+                for (final String line : wrap(out.regular, BODY,
+                        ReportCommands.blockedMessage(invoice.getMissingCost(), !internal), WIDTH)) {
+                    out.text(out.regular, BODY, INK, line, MARGIN);
+                    out.y -= ROW - 2;
+                }
+            } else if (invoice.getSections().isEmpty()) {
+                out.newPage(null, null);
                 out.text(out.regular, BODY, INK, "No rooms are reserved on this trip yet, so there is nothing "
                         + "to invoice.", MARGIN);
             }
@@ -176,26 +181,25 @@ public final class RoomInvoicePdf {
         private final PDDocument doc;
         private final PDFont regular;
         private final PDFont bold;
+        private final RoomInvoiceHeading heading;
         private final String tripTitle;
-        /** One of the trip's own people: may read the cost-assumed note. */
-        private final boolean internal;
         private PDPageContentStream page;
         private float y;
         /** The table being drawn, whose headings a continuation sheet repeats. */
         private Table table = OPTIONS;
 
-        private Writer(final PDDocument doc, final PDFont regular, final PDFont bold, final String tripTitle,
-                final boolean internal) {
+        private Writer(final PDDocument doc, final PDFont regular, final PDFont bold,
+                final RoomInvoiceHeading heading) {
             this.doc = doc;
             this.regular = regular;
             this.bold = bold;
-            this.tripTitle = (tripTitle == null) ? "" : tripTitle;
-            this.internal = internal;
+            this.heading = heading;
+            this.tripTitle = heading.tripTitle();
         }
 
         /** One accommodation, from a fresh page: every hotel starts its own sheet. */
         private void section(final ReportCommands.InvoiceSection section) throws IOException {
-            newPage(section.getAccommodation());
+            newPage(section.getAccommodation(), section.getAccommodation());
             table = OPTIONS;
             columnHeads();
             for (final ReportCommands.InvoiceOffer group : section.getOffers()) {
@@ -241,14 +245,10 @@ public final class RoomInvoicePdf {
             }
         }
 
-        /**
-         * An option's heading (name, pricing, room mix) kept on the same sheet as at least its first line. An
-         * internal reader sees an asterisk on an option priced at the participant price for want of a cost.
-         */
+        /** An option's heading (name, pricing, room mix) kept on the same sheet as at least its first line. */
         private void group(final ReportCommands.InvoiceSection section, final ReportCommands.InvoiceOffer group)
                 throws IOException {
-            final String heading = group.getName() + (internal && group.isCostAssumed() ? " *" : "");
-            final List<String> names = wrap(bold, BODY, heading, WIDTH - 8);
+            final List<String> names = wrap(bold, BODY, group.getName(), WIDTH - 8);
             final List<String> notes = new ArrayList<>(wrap(regular, SMALL, group.getPricing(), WIDTH - 8));
             if (group.getRoomMix() != null && !group.getRoomMix().isEmpty()) {
                 notes.addAll(wrap(regular, SMALL, group.getRoomMix(), WIDTH - 8));
@@ -318,27 +318,24 @@ public final class RoomInvoicePdf {
                         ? " reservation has" : " reservations have")
                         + " no lodging option any more and could not be priced.", MARGIN);
             }
-            if (internal && invoice.isAnyCostAssumed()) {
-                y -= SUB_ROW;
-                text(regular, SMALL, MUTED, "* Cost assumed from the participant price: no hotel cost has been "
-                        + "entered for this lodging option.", MARGIN);
-            }
         }
 
-        /** A new sheet with the trip's heading and, for a hotel, its name. */
-        private void newPage(final String accommodation) throws IOException {
+        /**
+         * A new sheet with the trip's heading and, for a hotel, its name ({@code title}, "(continued)" on a
+         * continuation sheet) and whose invoice it is, naming the hotel plainly ({@code accommodation}).
+         */
+        private void newPage(final String title, final String accommodation) throws IOException {
             close();
             final PDPage sheet = new PDPage(SHEET);
             doc.addPage(sheet);
             page = new PDPageContentStream(doc, sheet);
             y = TOP - 14;
             text(bold, 14f, INK, tripTitle + ": Room Invoice", MARGIN);
-            y -= 12;
-            text(regular, SMALL, MUTED, "Hotel cost: what the hotels charge for the trip's rooms."
-                    + (internal ? " Participant billing is on the Finances pages." : ""), MARGIN);
-            if (accommodation != null) {
-                y -= 22;
-                text(bold, 16f, INK, accommodation, MARGIN);
+            if (title != null) {
+                y -= 24;
+                text(bold, 16f, INK, title, MARGIN);
+                y -= 12;
+                text(regular, SMALL, MUTED, heading.invoiceLine(accommodation), MARGIN);
             }
             y -= 14;
         }
@@ -349,7 +346,7 @@ public final class RoomInvoicePdf {
             if (y - needed >= BOTTOM) {
                 return;
             }
-            newPage(accommodation == null ? null : accommodation + " (continued)");
+            newPage(accommodation == null ? null : accommodation + " (continued)", accommodation);
             if (heads) {
                 columnHeads();
             }

@@ -14,7 +14,6 @@ import org.paulsens.trip.action.LodgingCommands;
 import org.paulsens.trip.action.LodgingViews;
 import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.PersonCommands;
-import org.paulsens.trip.action.RatePlanCommands;
 import org.paulsens.trip.action.RatePlanViews;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
@@ -203,9 +202,10 @@ public class LodgingResourceTest extends ResourceTestSupport {
     }
 
     /**
-     * Rate plans over the API: an operator creates one at THEIR hotel (its price fields ignored, so the plan
-     * needs participant pricing and the operator's rows carry no price column), the admin prices it, the trip
-     * takes it as a linked option through the {@code createdOffer} diff, and detaches it again.
+     * Rate plans over the API: an operator creates one at THEIR hotel (the body has no price keys -- a plan is
+     * the hotel's side only, and stray price keys are ignored), the trip takes it as a linked option through the
+     * {@code createdOffer} diff -- unpriced without price keys, priced with them, and the same plan twice --
+     * and detaches it again.
      */
     @Test
     public void ratePlansAreCreatedListedAttachedAndDetachedOverTheApi() throws IOException {
@@ -230,7 +230,7 @@ public class LodgingResourceTest extends ResourceTestSupport {
         body.put("validUntil", "2027-10-31");
         body.put("costNightlyPrice", 50);
         body.put("costExtras", List.of(Map.of("label", "City tax", "basis", "FIXED", "amount", 12)));
-        body.put("priceKnown", true);
+        body.put("priceKnown", true); // Stray keys from the old shape: ignored, a plan has no price.
         body.put("nightlyPrice", 999);
         final Response created = asKeeper.createRatePlan(a[0], CSRF_OK, body);
         assertOk(created);
@@ -245,22 +245,17 @@ public class LodgingResourceTest extends ResourceTestSupport {
         assertEquals(rows.size(), 1);
         final RatePlanViews.RatePlanRow row = (RatePlanViews.RatePlanRow) rows.get(0);
         assertEquals(row.getCostSummary(), "$50.00/night per room, +1 extra");
-        assertNull(row.getPriceSummary(), "an operator is shown no price column");
-        assertTrue(row.isNeedsPricing(), "the operator's $999 was ignored");
+        assertEquals(row.getLinkedCount(), 0);
         assertError(asKeeper.createOfferFromPlan(own.getId(), CSRF_OK, Map.of("accId", a[0], "planId", planId)),
                 403, ApiErrors.FORBIDDEN, "attaching is the trip's business");
 
         signedInAsSiteAdmin(admin.getId());
         final Response adminRows = resource.ratePlans(a[0]);
         assertOk(adminRows);
-        assertEquals(((RatePlanViews.RatePlanRow) ((List<?>) adminRows.getEntity()).get(0)).getPriceSummary(),
-                "needs participant pricing");
-        final RatePlanCommands ratePlans = new RatePlanCommands(LodgingResourceTest::siteAdmin);
-        final RatePlanViews.RatePlanForm price = ratePlans.planFormFor(a[0], planId);
-        price.setPriceKnown(true);
-        price.setNightlyPrice(70.0);
-        assertTrue(ratePlans.savePlan(price));
+        assertEquals(((RatePlanViews.RatePlanRow) ((List<?>) adminRows.getEntity()).get(0)).getCostSummary(),
+                "$50.00/night per room, +1 extra", "the same row for every reader");
 
+        // Without price keys: the option follows the plan's cost and needs participant pricing.
         final Set<String> before = new HashSet<>();
         for (final ReservationOffer offer : lodging.getOffers(own.getId())) {
             before.add(offer.getId().getValue());
@@ -274,20 +269,42 @@ public class LodgingResourceTest extends ResourceTestSupport {
         assertNotNull(attachedEntity.get("tripEventId"), "with its LODGING event");
         final ReservationOffer linked = lodging.findOffer(own.getId(), offerId);
         assertEquals(linked.getRatePlanId(), planId);
-        assertEquals(linked.getNightlyPriceCents(), 7000L, "the plan's price, copied");
-        assertEquals(linked.getCost().getNightlyCents(), 5000L);
-        assertError(resource.createOfferFromPlan(own.getId(), CSRF_OK, Map.of("accId", a[0], "planId", planId)),
-                400, ApiErrors.VALIDATION_FAILED, "already on the trip");
+        assertFalse(linked.isPriced(), "no price keys: needs participant pricing");
+        assertEquals(linked.getCost().getNightlyCents(), 5000L, "the plan's cost, copied");
+        assertEquals(linked.getCostExtras().size(), 1);
+
+        // With price keys: the same plan again, this time priced -- two options following one plan.
+        final Response priced = resource.createOfferFromPlan(own.getId(), CSRF_OK, Map.of("accId", a[0],
+                "planId", planId, "pricingModel", "PER_PERSON", "nightlyPrice", 70, "singleSupplement", 20));
+        assertOk(priced);
+        final String pricedId = (String) ((Map<?, ?>) priced.getEntity()).get("id");
+        assertNotEquals(pricedId, offerId);
+        final ReservationOffer second = lodging.findOffer(own.getId(), pricedId);
+        assertTrue(second.isPriced(), "a price key present with no priceKnown: priced");
+        assertTrue(second.getPrice().isPerPerson());
+        assertEquals(second.getNightlyPriceCents(), 7000L);
+        assertEquals(second.getSingleSupplementCents(), 2000L);
+        assertEquals(second.getCost().getNightlyCents(), 5000L);
+        assertEquals(second.getRatePlanId(), planId);
+        final Response declined = resource.createOfferFromPlan(own.getId(), CSRF_OK, Map.of("accId", a[0],
+                "planId", planId, "priceKnown", false, "nightlyPrice", 70));
+        assertOk(declined);
+        assertFalse(lodging.findOffer(own.getId(), (String) ((Map<?, ?>) declined.getEntity()).get("id")).isPriced(),
+                "an explicit priceKnown:false wins over a stray price key");
+        assertError(resource.createOfferFromPlan(own.getId(), CSRF_OK, Map.of("accId", a[0], "planId", planId,
+                "nightlyPrice", -5)), 400, ApiErrors.VALIDATION_FAILED, "The nightly price cannot be negative.");
         assertError(resource.createOfferFromPlan(own.getId(), CSRF_OK, Map.of("accId", a[0], "planId", "nope")),
                 400, ApiErrors.VALIDATION_FAILED);
 
         assertError(resource.detachOffer(own.getId(), "nope", CSRF_OK), 404, ApiErrors.NOT_FOUND);
         assertError(resource.detachOffer(own.getId(), a[1], CSRF_OK), 400, ApiErrors.VALIDATION_FAILED,
                 "a standalone option has nothing to detach from");
-        assertOk(resource.detachOffer(own.getId(), offerId, CSRF_OK));
-        final ReservationOffer loose = lodging.findOffer(own.getId(), offerId);
+        assertOk(resource.detachOffer(own.getId(), pricedId, CSRF_OK));
+        final ReservationOffer loose = lodging.findOffer(own.getId(), pricedId);
         assertFalse(loose.isLinked());
         assertEquals(loose.getNightlyPriceCents(), 7000L, "the numbers stay");
+        assertEquals(((RatePlanViews.RatePlanRow) ((List<?>) resource.ratePlans(a[0]).getEntity()).get(0))
+                .getLinkedCount(), 1, "two options still follow the plan, so the trip stays linked");
     }
 
     /**

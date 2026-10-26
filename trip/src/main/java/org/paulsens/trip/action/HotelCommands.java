@@ -530,6 +530,9 @@ public class HotelCommands {
         row.setDates(dateSpan(row.getStart(), row.getEnd()));
         row.setBoardUrl("/trip/lodging.jsf?trip=" + trip.getId() + "&acc=" + acc.getId().getValue());
         row.setInvoiceUrl("/admin/reports/roomInvoice.jsf?trip=" + trip.getId());
+        // The operator's view of the invoice: this hotel alone, whoever is reading the tab.
+        row.setInvoiceReady(reports().invoiceReady(trip.getId(),
+                new LodgingAccess(trip.getId(), false, Set.of(acc.getId().getValue()), Set.of())));
         final Map<ReservationOffer.Id, ReservationOffer> offers = new LinkedHashMap<>();
         for (final ReservationOffer offer : DAO.getInstance().getReservationOffers(trip.getId(), Cached.YES)) {
             offers.put(offer.getId(), offer);
@@ -561,6 +564,10 @@ public class HotelCommands {
         return new HotelStayRow(res.getId().getValue(), guests, dateSpan(dateOf(res.getStart()),
                 dateOf(res.getEnd())), res.nights(), label == null ? "not assigned" : "Room " + label,
                 LodgingConcessions.label(res.getCostConcession()), offer == null ? "?" : offer.getName());
+    }
+
+    private ReportCommands reports() {
+        return new ReportCommands(() -> new TripCommands(() -> new OrgCommands(callerSource)), lodgingSource);
     }
 
     private static String guestsOf(final LodgingCommands lodging, final Reservation res) {

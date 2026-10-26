@@ -329,10 +329,12 @@ public class ReportCommands {
      * The trip's ROOM INVOICE: what the hotels CHARGE, one section per accommodation, one group per lodging
      * option, and lines whose arithmetic a reader can check: {@code quantity x nights x rate == amount}
      * ({@link RoomInvoiceBuilder}, on the COST side). Since the 2026-10-25 price/cost split this is the
-     * hotel's bill, not the participants': an option with no stated cost is priced at the participant price
-     * and flagged ({@code costAssumed}, {@code anyCostAssumed}), its cost extras (taxes, fees, coupons) are
-     * lines of their own, and a cost concession on a stay is a negative line. The participants' side is the
-     * {@link #billedVsCost Billed vs Cost} report.
+     * hotel's bill, not the participants': the COST side is read strictly ({@code offer.getCost()}, never the
+     * price), its cost extras (taxes, fees, coupons) are lines of their own, and a cost concession on a stay is
+     * a negative line. When ANY active-stay option in scope has no cost, the invoice is REFUSED ENTIRELY
+     * ({@code blocked}, {@code missingCost} naming the options; empty sections, zero totals) rather than drawn
+     * with a guess -- owner decision 2026-10-26. The participants' side is the {@link #billedVsCost Billed vs
+     * Cost} report.
      */
     public ReportCommands.RoomInvoice roomInvoice(final String tripId) {
         if (!knownTrip(tripId)) {
@@ -347,9 +349,8 @@ public class ReportCommands {
      * The invoice as ONE caller may see it. Finance viewers ({@code finance}: site admin, the global
      * {@code viewFinances}, {@code tripFinView@trip}) and anyone internal on the trip's lodging get every
      * section. A Hotel Operator gets the invoice REBUILT over the stays at the hotels they operate on this
-     * trip, so its counts and totals are theirs alone, with the "cost assumed" flag stripped: whether we have
-     * a hotel's cost on file is a fact about our books, never shown outside the organization. Anyone else gets
-     * an empty invoice.
+     * trip, so its counts, its totals and its {@code missingCost} refusal are theirs alone. Anyone else gets an
+     * empty invoice.
      *
      * <p>The caller passes {@code finance} rather than this method deciding it: the finance privileges are
      * not lodging privileges, and {@link LodgingAccess} deliberately knows nothing about them. The page
@@ -370,8 +371,54 @@ public class ReportCommands {
         final Function<String, ReservationOffer> offers = offerId -> lodging.findOffer(tripId, offerId);
         final List<Reservation> theirs = staysAt(DAO.getInstance().getReservations(tripId, Cached.NO),
                 access.getOperatorAccIds(), offers);
-        return RoomInvoiceBuilder.withoutAssumedFlags(roomInvoice(LodgingPricing.Side.COST, theirs, offers,
-                lodging::findAccommodation, lodging::displayName));
+        return roomInvoice(LodgingPricing.Side.COST, theirs, offers, lodging::findAccommodation, lodging::displayName);
+    }
+
+    /**
+     * Whether the Room Invoice renders for this caller's view of the trip: every active-stay option in scope
+     * has a hotel cost. Scope: a Hotel Operator who is not internal on the trip sees their hotels' options; every
+     * other caller (internal, finance) the whole trip. A trip with no stays is ready (nothing to refuse).
+     */
+    public boolean invoiceReady(final String tripId, final LodgingAccess access) {
+        return !invoiceInView(tripId, access).isBlocked();
+    }
+
+    /**
+     * Why the Room Invoice is refused, for this caller's view and in their words ({@link #blockedMessage}); ""
+     * when it is ready. The page shows it in place of the invoice, the PDF servlet answers it as a 409.
+     */
+    public String invoiceBlockedMessage(final String tripId, final LodgingAccess access) {
+        final ReportCommands.RoomInvoice invoice = invoiceInView(tripId, access);
+        return invoice.isBlocked() ? blockedMessage(invoice.getMissingCost(), operatorOnly(access)) : "";
+    }
+
+    /** The invoice over the caller's scope: an operator's hotels, else the whole trip. */
+    private ReportCommands.RoomInvoice invoiceInView(final String tripId, final LodgingAccess access) {
+        return operatorOnly(access) ? roomInvoiceFor(tripId, access, false) : roomInvoice(tripId);
+    }
+
+    /** A Hotel Operator on the trip who is NOT one of its internal people: their view is their hotels. */
+    private static boolean operatorOnly(final LodgingAccess access) {
+        return access != null && !access.isInternal() && access.isOperatorHere();
+    }
+
+    /**
+     * The refusal, naming the options without a cost ("Double room (Pansion) and Single room (Berulia)") and
+     * where to fix it: the trip's Offers tab for an internal reader, the hotel's Trips tab for its operator.
+     */
+    public static String blockedMessage(final List<String> missingCost, final boolean operator) {
+        final String where = operator ? "Set the cost on this trip's options on your hotel's Trips tab."
+                : "Set the cost on the trip's Offers tab (Edit the option, tick 'Hotel cost is known') or ask the"
+                        + " hotel's operator to set it on the hotel's Trips tab.";
+        return "No hotel cost is set for " + joinNames(missingCost) + ". " + where;
+    }
+
+    /** "A", "A and B", "A, B and C". */
+    static String joinNames(final List<String> names) {
+        if (names.size() <= 1) {
+            return names.isEmpty() ? "" : names.get(0);
+        }
+        return String.join(", ", names.subList(0, names.size() - 1)) + " and " + names.get(names.size() - 1);
     }
 
     /** The stays at the given hotels: the stay's own hotel, else its option's; a stay with neither is nobody's. */
@@ -413,7 +460,10 @@ public class ReportCommands {
      * BILLED VS COST: the participants' lodging bills (the PRICE build) beside what the hotels charge (the
      * COST build) for the same stays, per hotel, per lodging option and per person, with the difference. The
      * option rows carry the cost extras and cost concessions in their cost column and price concessions in
-     * their billed column; the person rows are net on both sides. Internal only (money on both sides).
+     * their billed column; the person rows are net on both sides. Unlike the invoice, an option WITHOUT a cost
+     * does not block the report: its row shows cost "not set" ({@code costAssumed}) and contributes 0, and the
+     * report counts and names them ({@code missingCost}, {@code missingCostNames}). Internal only (money on
+     * both sides).
      */
     public ReportCommands.BilledVsCost billedVsCost(final String tripId) {
         if (!knownTrip(tripId)) {
@@ -430,7 +480,8 @@ public class ReportCommands {
             final Function<Person.Id, String> names) {
         return RoomInvoiceBuilder.compare(
                 RoomInvoiceBuilder.build(LodgingPricing.Side.PRICE, reservations, offers, accommodations, names),
-                RoomInvoiceBuilder.build(LodgingPricing.Side.COST, reservations, offers, accommodations, names));
+                RoomInvoiceBuilder.build(LodgingPricing.Side.COST, reservations, offers, accommodations, names,
+                        false), offers);
     }
 
     /** getTrip answers a blank trip for an unknown id or one this site does not serve. */
@@ -481,10 +532,13 @@ public class ReportCommands {
         private String amount = MoneyMath.formatCents(0L);
         /** Active reservations whose lodging option no longer exists (or has no schedule on this side). */
         private int unpriced;
-        /** COST build: at least one option is priced at the participant price for want of a stated cost. */
-        private boolean anyCostAssumed;
-        /** How many options that is; what the page's warning counts. */
-        private int assumedOptions;
+        /**
+         * COST build: REFUSED, because an active-stay option in scope has no hotel cost. Sections are empty and
+         * the totals zero; {@link #missingCost} says which options, the page and the PDF servlet say so.
+         */
+        private boolean blocked;
+        /** The options without a cost, hotel-qualified ("Double room (Pansion)"), by name. */
+        private List<String> missingCost = new ArrayList<>();
     }
 
     /** One hotel's part of the invoice, with its own subtotal. */
@@ -519,8 +573,6 @@ public class ReportCommands {
         private static final long serialVersionUID = 1L;
         private String offerId;
         private String name;
-        /** COST build: no hotel cost is on file, so the group is priced at the participant price. */
-        private boolean costAssumed;
         /** {@code "$50.00 per person per night, single supplement $10.00 per night"}. */
         private String pricing;
         /** {@code "3 Double rooms, 1 Single room"}. */
@@ -601,7 +653,10 @@ public class ReportCommands {
         private String billed = MoneyMath.formatCents(0L);
         private String cost = MoneyMath.formatCents(0L);
         private String difference = MoneyMath.formatCents(0L);
-        private boolean anyCostAssumed;
+        /** How many options with active stays have no hotel cost (their rows read "not set" and count 0). */
+        private int missingCost;
+        /** Those options, hotel-qualified ("Double room (Pansion)"), by name. */
+        private List<String> missingCostNames = new ArrayList<>();
     }
 
     /** One hotel's part of Billed vs Cost: its options, its people, and its own three totals. */
@@ -636,6 +691,7 @@ public class ReportCommands {
         private String billed;
         private String cost;
         private String difference;
+        /** No hotel cost is on file for the option: {@link #cost} reads "not set" and {@link #costCents} is 0. */
         private boolean costAssumed;
     }
 

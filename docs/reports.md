@@ -90,8 +90,9 @@ could not be multiplied back to the money once a per-person option and its singl
 Until 2026-10-25 one schedule on the option drove both the participants' bills and this invoice, and "the
 invoice equals the bills" was a tested invariant. The price/cost split (`docs/lodging.md`, "Price vs cost")
 retired it on purpose: `ReservationOffer.price` is what a participant pays, `ReservationOffer.cost` is what
-the hotel charges, and the invoice reads the cost side (`offer.effectiveCost()`, which is the price when no
-cost has been entered). The participants' side now lives in **Billed vs Cost** below.
+the hotel charges, and the invoice reads the cost side STRICTLY (`RoomInvoiceBuilder.scheduleOf(COST, offer)`
+is `offer.getCost()`; since 2026-10-26 nothing is ever assumed from the price). The participants' side lives
+in **Billed vs Cost** below.
 
 - **A per-person option bills GUESTS.** Its lodging lines count guests; the **single supplement is a line of
   its own** (the guests who were alone, for the nights they were alone, at the supplement's rate). The
@@ -115,11 +116,21 @@ cost has been entered). The participants' side now lives in **Billed vs Cost** b
   stay's lines, and a note "Ada, Bob: 10% discount -- reason". The per-person rows for that stay are NET,
   their rate suffixed "(10% discount)". A PRICE concession is invisible here: it changes the bills, not the
   hotel's charge.
-- **Cost assumed.** An option with no `cost` is invoiced at its participant price and flagged
-  (`InvoiceOffer.costAssumed`, `RoomInvoice.anyCostAssumed`, `assumedOptions`). The page shows a warning
-  block (`.riAssumed`) and an asterisk after each flagged option heading **for internal readers only**; the
-  PDF does the same when rendered with `internal = true`. Whether we hold a hotel's cost is a fact about our
-  books and never reaches the hotel.
+- **No cost, no invoice.** An option with active stays and no `cost` REFUSES the whole invoice
+  (`RoomInvoice.blocked`; `missingCost` names the options hotel-qualified, "Double room (Pansion)"; sections
+  empty, totals zero) -- owner decision 2026-10-26, replacing the day-older "invoice at the participant price
+  and flag it": a line nobody agreed with the hotel must not reach the hotel looking agreed.
+  `ReportCommands.invoiceReady(tripId, access)` / `invoiceBlockedMessage(tripId, access)` answer the question
+  for ONE caller's scope -- an operator who is not internal on the trip is judged on their hotels' options
+  alone, everyone else on the whole trip -- and `ReportCommands.blockedMessage(missing, operator)` words it
+  for the reader: "No hotel cost is set for X and Y. Set the cost on the trip's Offers tab (Edit the option,
+  tick 'Hotel cost is known') or ask the hotel's operator to set it on the hotel's Trips tab." for internal
+  readers, "Set the cost on this trip's options on your hotel's Trips tab." for an operator. The page shows
+  `riBlocked` with that text and renders no table, no total and no Download PDF; the servlet answers
+  `409 Conflict` as `text/plain`; the trip's Lodging page and the hotel's Trips tab swap their "Hotel
+  invoice" link for a `hotelInvoiceBlocked` button opening `invoiceBlockedDlg`
+  (`LodgingCommands.invoiceReady/invoiceBlockedMessage` delegate to the report bean). A trip with no stays
+  is ready: there is nothing to refuse.
 - **The money is the pricing engine's.** The rules are `LodgingPricing.lines(Side.COST, ...)`'s (occupancy
   per room per night across every stay on it, the overrides, the concession), so the total equals what that
   engine says the hotel charges. Cancelled stays and their fees are left out; a stay whose option was
@@ -134,16 +145,27 @@ since the bill is the hotel's COST side, which is exactly what they reconcile wi
 `requestScope.invoiceInternal = seeFinances || access.internal` and asks
 `reports.roomInvoiceFor(tripId, lodgingAccess.forTrip(tripId), invoiceInternal)`:
 
-- `finance` or `access.internal` (the trip's own lodging people): every section, flags included.
+- `finance` or `access.internal` (the trip's own lodging people): every section.
 - an operator: the invoice is REBUILT over the stays at the hotels they operate on this trip
-  (`ReportCommands.staysAt`), so its counts, its people table and its total are theirs alone, and the
-  cost-assumed flags are stripped (`RoomInvoiceBuilder.withoutAssumedFlags`). They see trip title, dates and
-  guest names at their hotel (the documented tenancy extension) and never a participant price.
+  (`ReportCommands.staysAt`), so its counts, its people table, its total AND its `missingCost` refusal are
+  theirs alone -- an uncosted option at the trip's OTHER hotel never blocks their part. They see trip title,
+  dates and guest names at their hotel (the documented tenancy extension) and never a participant price.
 - anyone else: an empty invoice (the page has already redirected them).
 
 The caller passes `finance` rather than the bean deciding it, because the finance privileges are not lodging
 privileges and `LodgingAccess` deliberately knows nothing about them. The operator reaches the page from the
 hotel's Trips tab and the trip's Lodging page ("Hotel invoice"), not from the Reports dashboard.
+
+### Whose invoice it is
+
+Under each hotel's name the page prints `.riInvoiceTo` and the PDF the same sentence: "Invoice to <org> for
+<trip> room charges at <hotel>." (`RoomInvoiceHeading.invoiceLine`; the record trims nulls to "" and drops the
+"to <org>" for a trip that has lost its organization, so nothing ever prints "null"). The trip's organization
+is the hotel's customer, and a sheet handed to a hotel has to say so on the sheet. The page reads
+`theTrip.organization.name`; the servlet resolves the same through `trip.getOrganization()`
+(`RoomInvoicePdfServlet.orgNameOf`). This line replaced (2026-10-26) the heading "Hotel cost: what the hotels
+charge for the trip's rooms. Participant billing is on the Finances pages.", which talked to the trip's own
+people about their books on a document whose reader is the hotel.
 
 ### Charges per person
 
@@ -184,9 +206,11 @@ The report page's **Download PDF** button is a plain GET to `/reports/room-invoi
 (`web/RoomInvoicePdfServlet`, mapped in the live `web.xml`), which answers the same `RoomInvoice` drawn by
 `action/RoomInvoicePdf` with **each accommodation starting a page of its own**, so one hotel's part can be sent
 to that hotel alone. A hotel that outruns a sheet continues with "(continued)" and its column headings
-repeated; the trip total closes the last page, and every page carries "Page n of m". Every page says "Hotel
-cost: what the hotels charge for the trip's rooms"; extra rows read like any other line, a concession row has
-a blank nights and rate, a negative amount and its note in prose beneath.
+repeated, the invoice line under the plain hotel name; the trip total closes the last page, and every page
+carries "Page n of m". Extra rows read like any other line, a concession row has a blank nights and rate, a
+negative amount and its note in prose beneath. A BLOCKED invoice never becomes a PDF: the servlet answers 409
+first, and the renderer, handed one anyway, prints the refusal instead of sections
+(`RoomInvoicePdfTest.aBlockedInvoicePrintsItsRefusalInsteadOfSections`).
 
 - **The URL must not end in `.pdf`.** `PdfRedirectFilter` (mapped to `/*`) answers every such request in
   production with a 301 to the media CDN, and stands aside locally, so a `.pdf` URL passes every local test and
@@ -196,11 +220,15 @@ a blank nights and rate, a negative amount and its note in prose beneath.
   `Caller.of(session)`) or the trip's own lodging admin (`access.isInternal()`); otherwise an operator of a
   hotel in play (`new LodgingAccessCommands(() -> caller).forTrip(tripId).isOperatorHere()`; built on the
   servlet's own caller because the CDI bean's default caller source reads the FacesContext a servlet does not
-  have). The servlet passes `roomInvoiceFor(tripId, access, internal)` and the same flag to the renderer, so an
-  operator's PDF is their hotel's part without the cost-assumed note. A visitor goes to login and back, a signed-in refusal is a 403.
-  `Cache-Control: private, no-store`.
-- **`RoomInvoicePdf.render(title, invoice, internal)`** is the entry point; the older two-arg overload
-  delegates with `internal = false`, so a caller that forgets the flag can only UNDER-share.
+  have). The servlet passes `roomInvoiceFor(tripId, access, internal)`, answers a blocked invoice with
+  `409 Conflict` (`text/plain`, `ReportCommands.blockedMessage(missing, !internal)`, so an operator reads
+  their own wording) and otherwise renders with the same flag, so an operator's PDF is their hotel's part
+  alone. A visitor goes to login and back, a signed-in refusal is a 403. `Cache-Control: private, no-store`.
+- **`RoomInvoicePdf.render(RoomInvoiceHeading, invoice, internal)`** is the entry point
+  (`RoomInvoiceHeading(tripTitle, orgName)`; a null heading renders as blanks). The two-arg overload is gone;
+  `internal` stays on the signature although nothing is drawn differently for an internal reader since the
+  cost-assumed note went, so any future internal-only note needs an explicit `true`, never a forgotten
+  argument.
 - **Font:** Liberation Sans is embedded (subset), from OpenPDF's `openpdf-fonts-extra` jar (SIL OFL; OpenPDF
   itself is excluded). The PDF standard fonts are WinAnsi-only and cannot draw hotel and guest names such as
   Dragi&#263;evi&#263;. Drawing is PDFBox 3, pure Java.
@@ -218,9 +246,12 @@ Rows come from `ReportCommands.billedVsCost(tripId)`: the PRICE build and the CO
 (`RoomInvoiceBuilder.compare`). What lands where:
 
 - an option row's **Billed** is its PRICE group total (price concessions already taken off); its **Cost** is
-  its COST group total, extras and cost concessions included. `costAssumed` marks an option whose cost is the
-  price, with an asterisk and the same warning block as the invoice (`#bvcAssumed`); such a row's difference
-  is zero by construction.
+    its COST group total, extras and cost concessions included. Unlike the invoice, an option WITHOUT a cost
+  does not block this report -- showing exactly such gaps is what it is for: the COST build runs LENIENT
+  (`RoomInvoiceBuilder.build(..., strict = false)`), the option is left out of the cost side, its row's
+  `costAssumed` flag (the name survives; it now means "no cost on file") makes the Cost cell read "not set"
+  and the Difference "--", and `#bvcMissing` counts them ("2 lodging options have no hotel cost yet. Set it
+  on the trip's Offers tab or ask the hotel operator.", from `missingCost` / `missingCostNames`).
 - a person row is NET on both sides. Extras belong to no person, so the people table need not add up to the
   option table; the option table is the one that carries them.
 - a row present on one side only shows `$0.00` on the other (an option with a cost and no price bills
@@ -266,20 +297,28 @@ Two behaviors worth knowing:
 - `ReportCommandsTest` (unit): ordering, the legacy fallback, the name format and its order, the head count,
   the overnight flag, the derived duration, non-GROUND exclusion, the seeded legs, and the rooming pages.
 - `RoomInvoicePdfTest` / `RoomInvoicePdfServletTest` (unit): a page per hotel, continuation sheets, the
-  totals and footers read back out of the PDF, extra and concession rows, the cost-assumed note drawn only for
-  an internal reader; the servlet's gate (finance viewer sees every hotel with the note, an operator is
-  admitted to their hotel's part without it, a stranger gets 403), login bounce, 404s and headers.
+  totals and footers read back out of the PDF, extra and concession rows, every hotel's page saying whose
+  invoice it is (and the continuation sheet repeating it under the plain hotel name), a blocked invoice
+  printing its refusal instead of sections; the servlet's gate (a finance viewer sees every hotel, an operator
+  is admitted to their hotel's part, a stranger gets 403), login bounce, 404s and headers.
 - `RoomInvoiceReportTest` (unit): per-option groups, the separate supplement line, lines split by stay and by
   nightly price, per-room guest notes, unplaced/cancelled/unpriced stays, the waiver on the price side only,
-  an option invoiced at its own cost, the cost-assumed flags, every extra basis multiplying out, a cost
-  concession as a negative line and a net person row, a price concession invisible at cost, the operator
-  filter (`staysAt`, `roomInvoiceFor`), that `peopleCents + extrasCents == cents` everywhere, and the seeded
-  trip: its invoice is at the assumed cost, and its billed column equals the ledger's `Lodging` Bill rows.
+  an option invoiced at its own cost and never its price, an option without a cost blocking the whole
+  invoice (`anOptionWithoutACostBlocksTheWholeInvoice`, `anOptionWithNoScheduleOnThisSideIsUnpricedOrBlocking`),
+  every extra basis multiplying out, a cost concession as a negative line and a net person row, a price
+  concession invisible at cost, the operator filter (`staysAt`, `roomInvoiceFor`), that
+  `peopleCents + extrasCents == cents` everywhere, and the seeded trip: its invoice renders at the seeded
+  cost, and its billed column equals the ledger's `Lodging` Bill rows.
 - `BilledVsCostReportTest` (unit): the difference per option and per person, extras in the cost column only,
-  each concession on its own side, a one-sided row showing zero, hotels as sections, the empty and unknown
-  trip.
-- `AdminReportsPwIT`: the dashboard's cards and their hrefs, the room invoice over the fixture ($720.00), the ground report's rendered rows, and the
-  one-way-back rule on every report.
+  an option without a cost reading "not set" and counting nothing, each concession on its own side, a
+  one-sided row showing zero, hotels as sections, the empty and unknown trip.
+- `AdminReportsPwIT`: the dashboard's cards and their hrefs, the room invoice over the fixture
+  (`theRoomInvoiceRendersAtTheSeededCost`, $720.00 at the seeded $60 cost), Billed vs Cost beside the bill,
+  the PDF download, the ground report's rendered rows, and the one-way-back rule on every report.
+  `LodgingCostPwIT.anOptionWithoutAHotelCostBlocksTheInvoice` and
+  `OperatorTripsPwIT.anOperatorIsToldTheInvoiceWaitsOnTheirCost` cover the refusal end to end: the trip
+  page's button and dialog, the report page with no total and no PDF link, the servlet's 409, and the
+  internal vs operator wording.
 - `ReportsDashboardPwIT`: the per-privilege card sets (admin, finance viewer, trip viewer), the bounce for
   someone holding nothing, the active tab, the back link, and the empty state.
 - `TripContactsPagePwIT`: the Contacts header carries Photos and Edit only, and the Reports tab reaches the

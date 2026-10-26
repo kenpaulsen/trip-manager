@@ -237,10 +237,9 @@ public class LodgingResource extends BaseResource {
     /**
      * Creates a rate plan on a hotel. Body (dollars, ISO dates): {@code {name, roomTypeIds:[...], validFrom,
      * validUntil, costKnown, costPricingModel, costNightlyPrice, costSupplement, costExtras:[{label, basis,
-     * amount}], priceKnown, pricingModel, nightlyPrice, singleSupplement, notes}}. {@code costKnown} defaults
-     * to true; the price fields are silently IGNORED unless the caller may set participant prices (an
-     * internal lodging admin) -- a Hotel Operator's plan is saved as "needs participant pricing". Gate: an
-     * operator or global lodging admin of the hotel. Answers {@code {id}}.
+     * amount}], notes}}. {@code costKnown} defaults to true. A plan carries the HOTEL side only: there are no
+     * price keys (a participant price belongs to the trip's option, see {@code from-plan}). Gate: an operator
+     * or global lodging admin of the hotel. Answers {@code {id}}.
      */
     @POST
     @Path("accommodations/{accId}/rate-plans")
@@ -271,10 +270,6 @@ public class LodgingResource extends BaseResource {
         form.setCostNightlyPrice(dbl(body, "costNightlyPrice"));
         form.setCostSupplement(dbl(body, "costSupplement"));
         form.setCostExtras(extraForms(list(body, "costExtras")));
-        form.setPriceKnown(Boolean.TRUE.equals(body.get("priceKnown")));
-        form.setPricingModel(body.containsKey("pricingModel") ? str(body, "pricingModel") : "PER_ROOM");
-        form.setNightlyPrice(dbl(body, "nightlyPrice"));
-        form.setSingleSupplement(dbl(body, "singleSupplement"));
         form.setNotes(str(body, "notes"));
         if (!ratePlans.savePlan(form)) {
             return error(400, ApiErrors.VALIDATION_FAILED,
@@ -284,7 +279,7 @@ public class LodgingResource extends BaseResource {
         return ok(Map.of("id", form.getPlanId() == null ? "" : form.getPlanId()));
     }
 
-    /** The hotel's rate plans as rows; the price column is null for a caller who may not see prices. */
+    /** The hotel's rate plans as rows (the hotel's side only, so the same rows for every reader). */
     @GET
     @Path("accommodations/{accId}/rate-plans")
     @Produces({V1, MediaType.APPLICATION_JSON})
@@ -374,9 +369,12 @@ public class LodgingResource extends BaseResource {
     }
 
     /**
-     * Puts a hotel's rate plan on the trip as a new lodging option that FOLLOWS the plan (its schedules are
-     * copied from the plan now and on every plan save). Body: {@code {accId, planId}}. Gate: trip lodging
-     * manager. Answers {@code {id, tripEventId}} like a plain offer create.
+     * Puts a hotel's rate plan on the trip as a new lodging option that FOLLOWS the plan (its COST side is
+     * copied from the plan now and on every plan save). Body: {@code {accId, planId}} plus the option's
+     * optional PARTICIPANT PRICE, {@code priceKnown, pricingModel, nightlyPrice, singleSupplement} (dollars):
+     * the option is priced when {@code priceKnown} is true, or when it is absent and any price key is present;
+     * otherwise it is created "needs participant pricing". The same plan may be attached again. Gate: trip
+     * lodging manager. Answers {@code {id, tripEventId}} like a plain offer create.
      */
     @POST
     @Path("trips/{tripId}/offers/from-plan")
@@ -394,8 +392,10 @@ public class LodgingResource extends BaseResource {
         final String accId = str(body, "accId");
         final String planId = str(body, "planId");
         final Set<String> before = offerIds(lodging.getOffers(tripId));
-        if (!ratePlans().attach(tripId, accId, planId)) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "The rate plan was not attached.");
+        final RatePlanViews.AttachForm price = attachPrice(tripId, body);
+        if (!ratePlans().attach(tripId, accId, planId, price)) {
+            return error(400, ApiErrors.VALIDATION_FAILED,
+                    problemOr(price.getProblem(), "The rate plan was not attached."));
         }
         ReservationOffer created = null;
         for (final ReservationOffer offer : lodging.getOffers(tripId)) {
@@ -429,6 +429,19 @@ public class LodgingResource extends BaseResource {
         }
         return ratePlans().detach(tripId, offerId) ? ok(Map.of("ok", true))
                 : error(400, ApiErrors.VALIDATION_FAILED, "The option was not detached.");
+    }
+
+    /** The optional price side of a from-plan body: priced on {@code priceKnown}, or when any price key is present. */
+    private static RatePlanViews.AttachForm attachPrice(final String tripId, final Map<String, Object> body) {
+        final RatePlanViews.AttachForm price = new RatePlanViews.AttachForm();
+        price.setTripId(tripId);
+        final boolean anyKey = body.containsKey("pricingModel") || body.containsKey("nightlyPrice")
+                || body.containsKey("singleSupplement");
+        price.setPriceKnown(body.containsKey("priceKnown") ? Boolean.TRUE.equals(body.get("priceKnown")) : anyKey);
+        price.setPricingModel(body.containsKey("pricingModel") ? str(body, "pricingModel") : "PER_ROOM");
+        price.setNightlyPrice(dbl(body, "nightlyPrice"));
+        price.setSingleSupplement(dbl(body, "singleSupplement"));
+        return price;
     }
 
     /** The optional cost side of a create body: stated as soon as any cost key is present. */
@@ -585,8 +598,8 @@ public class LodgingResource extends BaseResource {
      * Sets the HOTEL COST side of one lodging option -- the operator's path, which can never touch the price.
      * Body (dollars): {@code {costKnown, costPricingModel, costNightlyPrice, costSupplement,
      * costExtras:[{label, basis, amount}]}}; {@code costKnown} defaults to true, false clears the stated cost
-     * (back to "assumed from the price"). Gate: trip lodging manager or an operator of the option's hotel.
-     * Answers {@code {ok:true, cost}} with the cost label.
+     * (back to "not set", which blocks the Room Invoice). Gate: trip lodging manager or an operator of the
+     * option's hotel. Answers {@code {ok:true, cost}} with the cost label.
      */
     @PUT
     @Path("trips/{tripId}/offers/{offerId}/cost")

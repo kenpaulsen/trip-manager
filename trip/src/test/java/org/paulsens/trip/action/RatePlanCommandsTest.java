@@ -14,6 +14,7 @@ import org.paulsens.trip.action.LodgingViews.OfferForm;
 import org.paulsens.trip.action.LodgingViews.OfferRow;
 import org.paulsens.trip.action.LodgingViews.ReservationForm;
 import org.paulsens.trip.action.LodgingViews.RoomTypeForm;
+import org.paulsens.trip.action.RatePlanViews.AttachForm;
 import org.paulsens.trip.action.RatePlanViews.PlanChoice;
 import org.paulsens.trip.action.RatePlanViews.RatePlanForm;
 import org.paulsens.trip.action.RatePlanViews.RatePlanRow;
@@ -43,9 +44,10 @@ import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
 /**
- * Hotel rate plans end to end against the in-memory store: who sees and sets which side, the attach that
- * creates a linked option, the write-through fan-out (cost moves without touching a bill, a price moves the
- * bills), the pruning of stale links, detach, the un-pricing refusal, and the delete rules.
+ * Hotel rate plans end to end against the in-memory store: who edits a plan (the hotel's side, its only side),
+ * the attach that creates a linked option -- unpriced, or priced by the attach dialog, and the same plan twice
+ * -- the linked option owning its participant price while the cost follows the plan, the write-through fan-out
+ * that never recomputes a bill, the pruning of stale links, detach, and the delete rules.
  */
 public class RatePlanCommandsTest {
     private static final LocalDateTime CHECK_IN = LocalDateTime.of(2027, 9, 21, 15, 0);
@@ -70,35 +72,31 @@ public class RatePlanCommandsTest {
 
     // ------------------------------------------------------------------ who sees and sets what
 
-    /** The price column is internal: an operator reads cost only, and their price fields are ignored on save. */
+    /** A plan is the hotel's side only: its operator states the cost, and every reader sees the same row. */
     @Test
-    public void anOperatorSeesNoPriceAndCannotSetOne() throws IOException {
+    public void anOperatorStatesTheCostAndEveryReaderSeesTheSameRow() throws IOException {
         final String accId = hotel();
         final Person keeper = savedPerson("Kep");
         makeOperator(keeper, accId);
         final RatePlanCommands asKeeper = new RatePlanCommands(() -> TestCallers.person(keeper.getId()));
         assertTrue(asKeeper.canEditCost(accId));
-        assertFalse(asKeeper.canEditPrice(accId), "an operator is never internal");
-        assertTrue(plans.canEditPrice(accId));
 
         final RatePlanForm form = asKeeper.planFormFor(accId, null);
         assertNull(form.getPlanId(), "a new plan");
         assertEquals(form.getAccId(), accId);
+        assertTrue(form.isCostKnown(), "stating the cost is what the dialog is for");
         form.setName("Hotel rate");
         form.setRoomTypeIds(List.of(typeId(accId, 0)));
         form.setValidFrom(SEASON_START);
         form.setValidUntil(SEASON_END);
         form.setCostNightlyPrice(50.0);
         form.setCostExtras(List.of(new CostExtraForm("City tax", "FIXED", 12.0)));
-        form.setPriceKnown(true);
-        form.setNightlyPrice(999.0);
         assertTrue(asKeeper.savePlan(form));
         assertNotNull(form.getPlanId(), "the minted id is written back");
         assertNull(form.getProblem());
         final RatePlan saved = plan(accId, form.getPlanId());
         assertEquals(saved.getCost().getNightlyCents(), 5000L);
         assertEquals(saved.getCostExtras().get(0).getAmountCents(), 1200L);
-        assertFalse(saved.isPriced(), "the operator's $999 never reached the plan");
         assertEquals(saved.getVersion(), 1L);
 
         final List<RatePlanRow> keeperRows = asKeeper.rows(accId);
@@ -107,38 +105,27 @@ public class RatePlanCommandsTest {
         assertEquals(keeperRows.get(0).getRoomTypes(), "Double");
         assertEquals(keeperRows.get(0).getDates(), "Sep 1 - Oct 31, 2027");
         assertEquals(keeperRows.get(0).getCostSummary(), "$50.00/night per room, +1 extra");
-        assertNull(keeperRows.get(0).getPriceSummary(), "no price column for an operator");
-        assertTrue(keeperRows.get(0).isNeedsPricing());
         assertEquals(keeperRows.get(0).getLinkedCount(), 0);
         assertEquals(keeperRows.get(0).getLinkedTrips(), "");
+        assertEquals(plans.rows(accId), keeperRows, "a site admin reads exactly the operator's rows: no price");
 
-        final List<RatePlanRow> adminRows = plans.rows(accId);
-        assertEquals(adminRows.get(0).getPriceSummary(), "needs participant pricing", "internal: the badge");
-
-        // The admin prices it; the operator's later cost edit leaves that price alone.
-        final RatePlanForm price = plans.planFormFor(accId, form.getPlanId());
-        assertEquals(price.getCostNightlyPrice(), 50.0);
-        assertEquals(price.getCostExtras().size(), 1);
-        assertFalse(price.isPriceKnown());
-        price.setPriceKnown(true);
-        price.setPricingModel("PER_PERSON");
-        price.setNightlyPrice(70.0);
-        price.setSingleSupplement(20.0);
-        assertTrue(plans.savePlan(price));
-        assertEquals(plans.rows(accId).get(0).getPriceSummary(), "$70.00/night per person, +$20.00 single");
-        assertFalse(plans.rows(accId).get(0).isNeedsPricing());
         final RatePlanForm costEdit = asKeeper.planFormFor(accId, form.getPlanId());
+        assertEquals(costEdit.getCostNightlyPrice(), 50.0);
+        assertEquals(costEdit.getCostExtras().size(), 1);
         costEdit.setCostNightlyPrice(55.0);
-        costEdit.setPriceKnown(false);
-        costEdit.setNightlyPrice(1.0);
+        costEdit.setCostKnown(true);
         assertTrue(asKeeper.savePlan(costEdit));
         final RatePlan after = plan(accId, form.getPlanId());
         assertEquals(after.getCost().getNightlyCents(), 5500L, "the cost moved");
-        assertEquals(after.getPrice().getNightlyCents(), 7000L, "the price did not: not the operator's to touch");
-        assertTrue(after.getPrice().isPerPerson());
+        final RatePlanForm unstated = asKeeper.planFormFor(accId, form.getPlanId());
+        unstated.setCostKnown(false);
+        assertTrue(asKeeper.savePlan(unstated));
+        assertNull(plan(accId, form.getPlanId()).getCost(), "costKnown off clears the plan's cost");
+        assertEquals(plans.rows(accId).get(0).getCostSummary(), "not set");
+        assertTrue(asKeeper.savePlan(costEdit), "and states it again");
 
         // A stranger reads nothing and writes nothing; an operator of ANOTHER hotel reads the table (they may
-        // open the lodging page) but neither prices nor the trips' names.
+        // open the lodging page) but not the trips' names.
         final Person nobody = savedPerson("Nob");
         final RatePlanCommands stranger = new RatePlanCommands(() -> TestCallers.person(nobody.getId()));
         assertTrue(stranger.rows(accId).isEmpty());
@@ -151,12 +138,11 @@ public class RatePlanCommandsTest {
     }
 
     /**
-     * An internal lodging admin who does not operate the hotel prices an EXISTING plan: only the four price fields
-     * are taken from their form, the hotel side is re-read from the row whatever the form says, and they may not
-     * create a plan at all.
+     * An internal lodging admin who does not operate the hotel reads its plans (they may open the lodging page)
+     * but edits nothing: a plan is the hotel's quote, and there is no longer a price side for them to own.
      */
     @Test
-    public void aLodgingAdminPricesAnOperatorsPlanButCannotCreateOne() throws IOException {
+    public void aLodgingAdminWhoDoesNotOperateTheHotelReadsItsPlansButEditsNothing() throws IOException {
         final String accId = hotel();
         final Person keeper = savedPerson("Opr");
         makeOperator(keeper, accId);
@@ -170,54 +156,33 @@ public class RatePlanCommandsTest {
         costOnly.setNotes("Breakfast included");
         assertTrue(asKeeper.savePlan(costOnly), costOnly.getProblem());
         final String planId = costOnly.getPlanId();
-        assertFalse(plan(accId, planId).isPriced());
 
-        final Person pricer = savedPerson("Prc");
+        final Person reader = savedPerson("Rdr");
         final OrgCommands orgs = new OrgCommands(TestCallers::siteAdmin);
-        assertTrue(orgs.addMember(orgId, pricer.getId()));
-        assertTrue(orgs.grantOrgPrivilege(orgId, pricer.getId(), PrivilegeCommands.LODGING_ADMIN));
-        final RatePlanCommands asPricer = new RatePlanCommands(() -> TestCallers.person(pricer.getId()));
-        assertTrue(asPricer.canEditPrice(accId), "internal: a lodging admin of some organization");
-        assertFalse(asPricer.canEditCost(accId), "...who does not operate this hotel");
+        assertTrue(orgs.addMember(orgId, reader.getId()));
+        assertTrue(orgs.grantOrgPrivilege(orgId, reader.getId(), PrivilegeCommands.LODGING_ADMIN));
+        final RatePlanCommands asReader = new RatePlanCommands(() -> TestCallers.person(reader.getId()));
+        assertFalse(asReader.canEditCost(accId), "a lodging admin of some organization does not operate this hotel");
+        assertEquals(asReader.rows(accId).size(), 1, "...but may read the table");
+        assertEquals(asReader.rows(accId).get(0).getNotes(), "Breakfast included");
 
-        final RatePlanForm price = asPricer.planFormFor(accId, planId);
-        price.setName("Renamed by the pricer");
-        price.setRoomTypeIds(List.of(typeId(accId, 0), typeId(accId, 1)));
-        price.setValidUntil(null);
-        price.setCostNightlyPrice(1.0);
-        price.setCostExtras(List.of(new CostExtraForm("Pricer's tax", "FIXED", 9.0)));
-        price.setNotes("Pricer's notes");
-        price.setRetired(true);
-        price.setPriceKnown(true);
-        price.setPricingModel("PER_PERSON");
-        price.setNightlyPrice(65.0);
-        price.setSingleSupplement(15.0);
-        assertTrue(asPricer.savePlan(price), price.getProblem());
-        assertNull(price.getProblem());
-        assertEquals(price.getName(), "Operator rate", "the form reflects the row's hotel side");
-        final RatePlan priced = plan(accId, planId);
-        assertTrue(priced.isPriced());
-        assertEquals(priced.getPrice().getNightlyCents(), 6500L);
-        assertEquals(priced.getPrice().getSingleSupplementCents(), 1500L);
-        assertTrue(priced.getPrice().isPerPerson());
-        assertEquals(priced.getName(), "Operator rate", "the name is the hotel's");
-        assertEquals(priced.getRoomTypeIds(), List.of(typeId(accId, 0)));
-        assertEquals(priced.getValidUntil(), SEASON_END);
-        assertEquals(priced.getCost().getNightlyCents(), 5000L, "so is the cost");
-        assertTrue(priced.getCostExtras().isEmpty());
-        assertEquals(priced.getNotes(), "Breakfast included");
-        assertFalse(priced.isRetired());
-
-        final RatePlanForm fresh = asPricer.planFormFor(accId, null);
-        fresh.setName("Pricer's own plan");
+        final RatePlanForm edit = asReader.planFormFor(accId, planId);
+        edit.setName("Renamed by the reader");
+        edit.setCostNightlyPrice(1.0);
+        assertFalse(asReader.savePlan(edit));
+        assertEquals(edit.getProblem(),
+                "Not allowed: only this hotel's operators and lodging admins edit its rate plans.");
+        final RatePlan untouched = plan(accId, planId);
+        assertEquals(untouched.getName(), "Operator rate");
+        assertEquals(untouched.getCost().getNightlyCents(), 5000L);
+        final RatePlanForm fresh = asReader.planFormFor(accId, null);
+        fresh.setName("Reader's own plan");
         fresh.setRoomTypeIds(List.of(typeId(accId, 0)));
         fresh.setCostNightlyPrice(40.0);
-        fresh.setPriceKnown(true);
-        fresh.setNightlyPrice(60.0);
-        assertFalse(asPricer.savePlan(fresh));
-        assertEquals(fresh.getProblem(),
-                "Only the hotel's operators create its rate plans; a lodging admin prices an existing one.");
-        assertEquals(plans.rows(accId).size(), 1, "nothing was created");
+        assertFalse(asReader.savePlan(fresh));
+        assertFalse(asReader.retirePlan(accId, planId, true));
+        assertFalse(asReader.deletePlan(accId, planId));
+        assertEquals(plans.rows(accId).size(), 1, "nothing was created or changed");
     }
 
     /** The dialog's refusals land on the form, and nothing is written. */
@@ -244,11 +209,10 @@ public class RatePlanCommandsTest {
         assertFalse(plans.savePlan(form));
         assertEquals(form.getProblem(), "The nightly cost cannot be negative.");
         form.setCostNightlyPrice(50.0);
-        form.setPriceKnown(true);
-        form.setNightlyPrice(-5.0);
+        form.setCostSupplement(-1.0);
         assertFalse(plans.savePlan(form));
-        assertEquals(form.getProblem(), "The nightly price cannot be negative.");
-        form.setNightlyPrice(60.0);
+        assertEquals(form.getProblem(), "The cost single supplement cannot be negative.");
+        form.setCostSupplement(null);
         form.setCostExtras(List.of(new CostExtraForm("", "FIXED", 3.0)));
         assertFalse(plans.savePlan(form));
         assertEquals(form.getProblem(), "Each cost extra needs a label.");
@@ -270,36 +234,38 @@ public class RatePlanCommandsTest {
     // ------------------------------------------------------------------ attach and the fan-out
 
     /**
-     * Attaching creates a linked option with a LODGING event, copies the plan's schedules, and records the trip
-     * on the plan; a plan save then fans out -- a cost change leaves the bills alone, a price change moves them.
+     * Attaching creates a linked option with a LODGING event, copies the plan's COST and records the trip on
+     * the plan; the option's PRICE is its own -- unpriced from the menu, set on the Offers tab -- a plan save
+     * then fans the cost out and never touches a bill, while the option's own price edit recomputes its bills.
      */
     @Test
-    public void attachCopiesThePlanAndASaveFansOutToTheLinkedOption() throws IOException {
+    public void attachCopiesThePlansCostAndTheLinkedOptionOwnsItsPrice() throws IOException {
         final String accId = hotel();
         final Person guest = savedPerson("Gue");
         final Trip trip = trip("Fan-out trip", guest);
-        final String planId = pricedPlan(accId, "Season rate", 70.0, 50.0);
+        final String planId = costedPlan(accId, "Season rate", 50.0);
 
-        // The store is shared with every other test's hotels (and the seeded Pansion's open-dated plan), so
-        // the menu is read for THIS hotel only.
+        // The store is shared with every other test's hotels, so the menu is read for THIS hotel only.
         final List<PlanChoice> menu = menuFor(trip, accId);
         assertEquals(menu.size(), 1);
         assertEquals(menu.get(0).getPlanId(), planId);
         assertEquals(menu.get(0).getAccId(), accId);
         assertTrue(menu.get(0).getLabel().endsWith(": Season rate (Sep 1 - Oct 31, 2027)"), menu.get(0).getLabel());
         assertTrue(plans.attach(trip.getId(), menu.get(0).getValue()));
-        assertTrue(menuFor(trip, accId).isEmpty(), "already on the trip");
+        assertEquals(menuFor(trip, accId).size(), 1, "an attached plan stays in the menu: it may be taken twice");
 
         final ReservationOffer offer = linkedOffer(trip, planId);
         assertEquals(offer.getName(), "Season rate");
         assertEquals(offer.getRoomTypeIds(), List.of(typeId(accId, 0), typeId(accId, 1)));
-        assertEquals(offer.getNightlyPriceCents(), 7000L, "the plan's price, copied");
+        assertFalse(offer.isPriced(), "from the menu: needs participant pricing");
         assertEquals(offer.getCost().getNightlyCents(), 5000L, "the plan's cost, copied");
         assertEquals(offer.getCostExtras().size(), 1);
         assertEquals(offer.getRatePlanVersion(), plan(accId, planId).getVersion());
-        assertEquals(offer.getValidFrom(), SEASON_START.atStartOfDay());
+        assertEquals(offer.getValidFrom(), SEASON_START.atStartOfDay(), "the plan's dates are the option's range");
         assertEquals(offer.getValidUntil(), SEASON_END.atTime(23, 59));
-        assertEquals(offer.getDefaultStart(), trip.getStartDate().toLocalDate().atTime(OfferForm.DEFAULT_ARRIVAL));
+        assertEquals(offer.getDefaultStart(), trip.getStartDate().toLocalDate().atTime(OfferForm.DEFAULT_ARRIVAL),
+                "the default stay is the trip's");
+        assertEquals(offer.getDefaultEnd(), trip.getEndDate().toLocalDate().atTime(OfferForm.DEFAULT_DEPARTURE));
         final TripEvent event = DAO.getInstance().getTrip(trip.getId(), Cached.NO).orElseThrow()
                 .getTripEvent(offer.getTripEventId());
         assertNotNull(event, "a LODGING event was created");
@@ -310,56 +276,79 @@ public class RatePlanCommandsTest {
 
         final OfferRow row = offerRow(trip, offer);
         assertTrue(row.isLinked());
+        assertTrue(row.isNeedsPricing());
         assertEquals(row.getRatePlanName(), "Season rate");
         assertFalse(row.isPlanDrift());
+        assertEquals(row.getCost(), "$50.00/night per room, +1 extra");
+        assertTrue(admin.pricedOffers(trip.getId()).isEmpty(), "no stay may be taken on it yet");
+
+        // The Offers tab prices the linked option: ITS price, the cost still the plan's whatever the form says.
+        final OfferForm pricing = admin.offerFormFor(trip.getId(), offer.getId().getValue());
+        assertEquals(pricing.getRatePlanId(), planId);
+        assertEquals(pricing.getRatePlanName(), "Season rate", "the dialog's note");
+        assertFalse(pricing.isPriceKnown());
+        assertTrue(pricing.isCostKnown());
+        pricing.setPriceKnown(true);
+        pricing.setPricingModel("PER_ROOM");
+        pricing.setNightlyPrice(70.0);
+        pricing.setCostNightlyPrice(1.0);
+        pricing.setCostExtras(List.of());
+        assertTrue(admin.saveOffer(trip.getId(), pricing), pricing.getProblem());
+        final ReservationOffer priced = admin.findOffer(trip.getId(), offer.getId().getValue());
+        assertEquals(priced.getNightlyPriceCents(), 7000L, "the option's own price");
+        assertEquals(priced.getCost().getNightlyCents(), 5000L, "the cost is the plan's, not the form's");
+        assertEquals(priced.getCostExtras().size(), 1);
+        assertTrue(priced.isLinked());
 
         // A stay on the linked option: 3 nights at $70 per room.
-        final Reservation stay = reserve(trip, offer, guest);
+        final Reservation stay = reserve(trip, priced, guest);
         final LodgingBiller biller = new LodgingBiller(new TransactionsCommands());
         assertEquals(biller.billedByPerson(stay), Map.of(guest.getId(), 3 * 7000L));
 
-        // Cost edit on the plan: the option follows, the bill does not move.
+        // Cost edit on the plan: the option follows, the bill does not move, nothing recomputes.
+        final RecordingAudit audit = new RecordingAudit();
         final RatePlanForm cost = plans.planFormFor(accId, planId);
         cost.setCostNightlyPrice(45.0);
         cost.setCostExtras(List.of());
-        assertTrue(plans.savePlan(cost));
+        assertTrue(auditedPlans(audit).savePlan(cost));
         assertNull(cost.getProblem(), "every linked trip was reached");
         final ReservationOffer afterCost = admin.findOffer(trip.getId(), offer.getId().getValue());
         assertEquals(afterCost.getCost().getNightlyCents(), 4500L);
         assertTrue(afterCost.getCostExtras().isEmpty());
-        assertEquals(afterCost.getNightlyPriceCents(), 7000L);
+        assertEquals(afterCost.getNightlyPriceCents(), 7000L, "the plan never carries a price to push");
         assertEquals(afterCost.getRatePlanVersion(), plan(accId, planId).getVersion(), "current, no drift");
-        assertEquals(biller.billedByPerson(stay), Map.of(guest.getId(), 3 * 7000L), "a cost edit bills nobody");
+        assertEquals(biller.billedByPerson(stay), Map.of(guest.getId(), 3 * 7000L), "a plan save bills nobody");
+        assertFalse(audit.recomputed(), "a plan save never recomputes: no bill reads the cost side: " + audit.lines);
+        assertTrue(audit.lines.stream().anyMatch(line -> line.startsWith("Rate plan 'Season rate' pushed to 1")),
+                audit.lines.toString());
 
-        // Price edit on the plan: the option follows AND the bill is recomputed.
-        final RatePlanForm price = plans.planFormFor(accId, planId);
-        price.setNightlyPrice(100.0);
-        assertTrue(plans.savePlan(price));
-        assertEquals(admin.findOffer(trip.getId(), offer.getId().getValue()).getNightlyPriceCents(), 10000L);
-        assertEquals(biller.billedByPerson(stay), Map.of(guest.getId(), 3 * 10000L), "the bill follows the plan");
+        // Price edit on the OPTION: its bill is recomputed; the cost stays the plan's.
+        audit.lines.clear();
+        final OfferForm raise = admin.offerFormFor(trip.getId(), offer.getId().getValue());
+        raise.setNightlyPrice(100.0);
+        raise.setMinNights(2);
+        assertTrue(auditedLodging(audit).saveOffer(trip.getId(), raise));
+        assertTrue(audit.recomputed(), "the option's own price edit recomputes: " + audit.lines);
+        final ReservationOffer raised = admin.findOffer(trip.getId(), offer.getId().getValue());
+        assertEquals(raised.getNightlyPriceCents(), 10000L);
+        assertEquals(raised.getMinNights(), 2);
+        assertEquals(raised.getCost().getNightlyCents(), 4500L);
+        assertEquals(biller.billedByPerson(stay), Map.of(guest.getId(), 3 * 10000L), "the bill follows the option");
 
-        // Un-pricing is refused while the stay is active...
-        final RatePlanForm unprice = plans.planFormFor(accId, planId);
+        // A linked option stays at its hotel; un-pricing it with a stay is refused; deleting a linked plan too.
+        final OfferForm move = admin.offerFormFor(trip.getId(), offer.getId().getValue());
+        final String elsewhere = hotel();
+        move.setAccommodationId(elsewhere);
+        move.setRoomTypeIds(List.of(typeId(elsewhere, 0)));
+        assertFalse(admin.saveOffer(trip.getId(), move));
+        assertEquals(move.getProblem(), "An option added from a rate plan stays at that hotel; detach it to move it.");
+        assertEquals(admin.findOffer(trip.getId(), offer.getId().getValue()).getAccommodationId().getValue(), accId);
+        final OfferForm unprice = admin.offerFormFor(trip.getId(), offer.getId().getValue());
         unprice.setPriceKnown(false);
-        assertFalse(plans.savePlan(unprice));
+        assertFalse(admin.saveOffer(trip.getId(), unprice));
         assertTrue(unprice.getProblem().contains("cannot lose its participant price"), unprice.getProblem());
-        assertTrue(plan(accId, planId).isPriced());
-        // ...and so is deleting a linked plan.
         assertFalse(plans.deletePlan(accId, planId));
         assertNotNull(plan(accId, planId));
-
-        // Editing the linked option on the Offers tab keeps the trip's terms editable and the money the plan's.
-        final OfferForm edit = admin.offerFormFor(trip.getId(), offer.getId().getValue());
-        assertEquals(edit.getRatePlanId(), planId);
-        edit.setMinNights(2);
-        edit.setNightlyPrice(1.0);
-        edit.setCostNightlyPrice(1.0);
-        assertTrue(admin.saveOffer(trip.getId(), edit));
-        final ReservationOffer edited = admin.findOffer(trip.getId(), offer.getId().getValue());
-        assertEquals(edited.getMinNights(), 2);
-        assertEquals(edited.getNightlyPriceCents(), 10000L, "the form's money is ignored for a linked option");
-        assertEquals(edited.getCost().getNightlyCents(), 4500L);
-        assertTrue(edited.isLinked());
 
         // A copy left behind on purpose reads as drift on the Offers tab.
         final ReservationOffer stale = DAO.getInstance().getReservationOffer(trip.getId(), offer.getId(), Cached.NO)
@@ -368,7 +357,8 @@ public class RatePlanCommandsTest {
         assertTrue(DAO.getInstance().saveReservationOffer(stale));
         assertTrue(offerRow(trip, offer).isPlanDrift());
 
-        // Detach: the numbers stay, the link goes, the plan forgets the trip, the bill does not move.
+        // Detach: the numbers stay, the link goes, the plan forgets the trip, the bill does not move. Once
+        // detached the option may move hotels (its cost is now its own copy).
         assertTrue(plans.detach(trip.getId(), offer.getId().getValue()));
         final ReservationOffer loose = admin.findOffer(trip.getId(), offer.getId().getValue());
         assertFalse(loose.isLinked());
@@ -379,20 +369,96 @@ public class RatePlanCommandsTest {
         assertTrue(plan(accId, planId).getLinkedTripIds().isEmpty());
         assertFalse(offerRow(trip, offer).isLinked());
         assertNull(offerRow(trip, offer).getRatePlanName());
+        assertNull(admin.offerFormFor(trip.getId(), offer.getId().getValue()).getRatePlanName());
         assertFalse(plans.detach(trip.getId(), offer.getId().getValue()), "nothing left to detach");
         assertFalse(plans.detach(trip.getId(), "no-such-offer"));
         assertFalse(plans.detach(trip.getId(), null));
 
-        // Now the plan may be deleted; a plan save with no price on the (detached) option is also fine.
-        final RatePlanForm unpriceNow = plans.planFormFor(accId, planId);
-        unpriceNow.setPriceKnown(false);
-        assertTrue(plans.savePlan(unpriceNow), "no linked stays any more");
-        assertFalse(plan(accId, planId).isPriced());
-        assertEquals(admin.findOffer(trip.getId(), offer.getId().getValue()).getNightlyPriceCents(), 10000L,
-                "the detached option kept its copy");
+        // Now the plan may be deleted; the detached option keeps its copy of the cost.
         assertTrue(plans.deletePlan(accId, planId));
         assertNull(plan(accId, planId));
+        assertEquals(admin.findOffer(trip.getId(), offer.getId().getValue()).getCost().getNightlyCents(), 4500L,
+                "the detached option kept its copy");
         assertFalse(plans.deletePlan(accId, planId), "already gone");
+    }
+
+    /**
+     * The attach dialog prices the new option itself, and the same plan goes on a trip SEVERAL times (two
+     * options at two prices): both follow the plan's cost, the trip is linked once, and it stays linked until
+     * the LAST option following the plan is detached.
+     */
+    @Test
+    public void attachWithPriceFieldsAndTheSamePlanTwice() throws IOException {
+        final String accId = hotel();
+        final Person guest = savedPerson("Twi");
+        final Trip trip = trip("Twice trip", guest);
+        final String planId = costedPlan(accId, "Twice rate", 50.0);
+
+        final AttachForm form = plans.attachFormFor(trip.getId());
+        assertEquals(form.getTripId(), trip.getId());
+        assertTrue(form.isPriceKnown(), "the dialog offers a price");
+        assertNull(form.getChoice());
+        assertFalse(plans.attach(form), "no plan chosen");
+        assertEquals(form.getProblem(), "Choose a rate plan.");
+        form.setChoice(accId + "|" + planId);
+        form.setPricingModel("PER_PERSON");
+        form.setNightlyPrice(-5.0);
+        assertFalse(plans.attach(form));
+        assertEquals(form.getProblem(), "The nightly price cannot be negative.");
+        assertTrue(admin.getOffers(trip.getId()).isEmpty(), "refused before anything was written");
+        assertTrue(plan(accId, planId).getLinkedTripIds().isEmpty());
+        form.setNightlyPrice(70.0);
+        form.setSingleSupplement(20.0);
+        assertTrue(plans.attach(form), form.getProblem());
+        assertNull(form.getProblem());
+        final ReservationOffer first = linkedOffer(trip, planId);
+        assertTrue(first.isPriced());
+        assertTrue(first.getPrice().isPerPerson());
+        assertEquals(first.getNightlyPriceCents(), 7000L);
+        assertEquals(first.getSingleSupplementCents(), 2000L);
+        assertEquals(first.getCost().getNightlyCents(), 5000L);
+        assertEquals(plan(accId, planId).getLinkedTripIds(), List.of(trip.getId()));
+
+        // The same plan again, at another price: a second option, the trip linked once, no drift on either.
+        final long version = plan(accId, planId).getVersion();
+        final AttachForm again = plans.attachFormFor(trip.getId());
+        again.setChoice(accId + "|" + planId);
+        again.setNightlyPrice(90.0);
+        assertTrue(plans.attach(again), again.getProblem());
+        final List<ReservationOffer> following = admin.getOffers(trip.getId()).stream()
+                .filter(o -> planId.equals(o.getRatePlanId())).toList();
+        assertEquals(following.size(), 2);
+        assertEquals(plan(accId, planId).getLinkedTripIds(), List.of(trip.getId()), "linked once");
+        assertEquals(plan(accId, planId).getVersion(), version, "an already-linked plan is not rewritten");
+        final ReservationOffer second = following.stream().filter(o -> o.getNightlyPriceCents() == 9000L)
+                .findFirst().orElseThrow();
+        assertFalse(second.getPrice().isPerPerson(), "PER_ROOM by default");
+        assertEquals(second.getCost().getNightlyCents(), 5000L);
+        assertEquals(second.getRatePlanVersion(), version);
+        assertFalse(offerRow(trip, second).isPlanDrift());
+        assertEquals(plans.rows(accId).get(0).getLinkedCount(), 1);
+        assertEquals(menuFor(trip, accId).size(), 1, "and it could be taken a third time");
+
+        // A plan save reaches both; detaching one leaves the trip linked, detaching the last unlinks it.
+        final RatePlanForm cost = plans.planFormFor(accId, planId);
+        cost.setCostNightlyPrice(55.0);
+        assertTrue(plans.savePlan(cost));
+        for (final ReservationOffer offer : following) {
+            assertEquals(admin.findOffer(trip.getId(), offer.getId().getValue()).getCost().getNightlyCents(), 5500L);
+        }
+        assertEquals(admin.findOffer(trip.getId(), first.getId().getValue()).getNightlyPriceCents(), 7000L);
+        assertEquals(admin.findOffer(trip.getId(), second.getId().getValue()).getNightlyPriceCents(), 9000L);
+        assertTrue(plans.detach(trip.getId(), first.getId().getValue()));
+        assertEquals(plan(accId, planId).getLinkedTripIds(), List.of(trip.getId()), "one option still follows");
+        assertFalse(plans.deletePlan(accId, planId));
+        assertTrue(plans.detach(trip.getId(), second.getId().getValue()));
+        assertTrue(plan(accId, planId).getLinkedTripIds().isEmpty());
+        assertTrue(plans.deletePlan(accId, planId));
+        assertFalse(plans.attach(null), "no form");
+        final AttachForm blankTrip = new AttachForm();
+        blankTrip.setChoice(accId + "|" + planId);
+        assertFalse(plans.attach(blankTrip));
+        assertEquals(blankTrip.getProblem(), "Unknown trip.");
     }
 
     /** Two linked trips, one of them with its option deleted behind the plan's back: the save prunes it. */
@@ -401,7 +467,7 @@ public class RatePlanCommandsTest {
         final String accId = hotel();
         final Trip kept = trip("Kept trip", savedPerson("Kpt"));
         final Trip stale = trip("Stale trip", savedPerson("Stl"));
-        final String planId = pricedPlan(accId, "Prune rate", 60.0, 40.0);
+        final String planId = costedPlan(accId, "Prune rate", 40.0);
         assertTrue(plans.attach(kept.getId(), accId, planId));
         assertTrue(plans.attach(stale.getId(), accId, planId));
         assertEquals(plan(accId, planId).getLinkedTripIds(), List.of(kept.getId(), stale.getId()));
@@ -440,7 +506,7 @@ public class RatePlanCommandsTest {
         final String accId = hotel();
         final Trip doomed = trip("Doomed trip", savedPerson("Dmd"));
         final Trip other = trip("Other trip", savedPerson("Oth"));
-        final String planId = pricedPlan(accId, "Shared rate", 60.0, 40.0);
+        final String planId = costedPlan(accId, "Shared rate", 40.0);
         assertTrue(plans.attach(doomed.getId(), accId, planId));
         assertTrue(plans.attach(other.getId(), accId, planId));
         final List<ReservationOffer> offers = new ArrayList<>(admin.getOffers(doomed.getId()));
@@ -454,17 +520,17 @@ public class RatePlanCommandsTest {
 
     // ------------------------------------------------------------------ the attach menu and its refusals
 
-    /** The menu offers live plans of live hotels that cover the trip's dates and are not yet on the trip. */
+    /** The menu offers live plans of live hotels that cover the trip's dates -- plans already on the trip too. */
     @Test
-    public void attachableExcludesRetiredNonCoveringAndAlreadyLinkedPlans() throws IOException {
+    public void attachableExcludesRetiredAndNonCoveringPlansButKeepsAttachedOnes() throws IOException {
         final String accId = hotel();
         final String otherHotel = hotel();
         final Trip trip = trip("Menu trip", savedPerson("Mnu"));
-        final String covering = pricedPlan(accId, "Covering", 60.0, 40.0);
+        final String covering = costedPlan(accId, "Covering", 40.0);
         final String open = planWithDates(accId, "Open dates", null, null);
         final String tooShort = planWithDates(accId, "Ends early", SEASON_START, LocalDate.of(2027, 9, 23));
-        final String elsewhere = pricedPlan(otherHotel, "Elsewhere", 60.0, 40.0);
-        final String retired = pricedPlan(accId, "Retired", 60.0, 40.0);
+        final String elsewhere = costedPlan(otherHotel, "Elsewhere", 40.0);
+        final String retired = costedPlan(accId, "Retired", 40.0);
         assertTrue(plans.retirePlan(accId, retired, true));
 
         List<PlanChoice> menu = menuFor(trip, accId, otherHotel);
@@ -472,11 +538,12 @@ public class RatePlanCommandsTest {
         assertTrue(menu.get(1).getLabel().endsWith(": Open dates (any dates)"), menu.get(1).getLabel());
         assertTrue(plans.attach(trip.getId(), accId, covering));
         menu = menuFor(trip, accId, otherHotel);
-        assertEquals(planIds(menu), List.of(open, elsewhere), "the attached plan left the menu");
+        assertEquals(planIds(menu), List.of(covering, open, elsewhere), "the attached plan stays in the menu");
 
         assertFalse(plans.attach(trip.getId(), accId, tooShort), "does not cover the trip");
         assertFalse(plans.attach(trip.getId(), accId, retired), "retired");
-        assertFalse(plans.attach(trip.getId(), accId, covering), "already on the trip");
+        assertTrue(plans.attach(trip.getId(), accId, covering), "the same plan again is another option");
+        assertEquals(admin.getOffers(trip.getId()).size(), 2);
         assertFalse(plans.attach(trip.getId(), accId, "no-such-plan"));
         assertFalse(plans.attach(trip.getId(), "no-such-hotel", covering));
         assertFalse(plans.attach(UUID.randomUUID().toString(), accId, open), "unknown trip");
@@ -486,7 +553,7 @@ public class RatePlanCommandsTest {
         final RatePlanCommands stranger = new RatePlanCommands(() -> TestCallers.person(Person.Id.newInstance()));
         assertFalse(stranger.attach(trip.getId(), accId, open));
         assertFalse(stranger.detach(trip.getId(), linkedOffer(trip, covering).getId().getValue()));
-        assertEquals(admin.getOffers(trip.getId()).size(), 1, "the refusals created nothing");
+        assertEquals(admin.getOffers(trip.getId()).size(), 2, "the refusals created nothing");
 
         // A trip outside every plan's dates is offered nothing from these hotels.
         final Trip later = Trip.builder().id(UUID.randomUUID().toString()).title("Later")
@@ -502,22 +569,22 @@ public class RatePlanCommandsTest {
         final RatePlanCommands asKeeper = new RatePlanCommands(() -> TestCallers.person(keeper.getId()));
         final RatePlanRow seen = asKeeper.rows(accId).stream().filter(r -> covering.equals(r.getId())).findFirst()
                 .orElseThrow();
-        assertNull(seen.getPriceSummary());
         assertEquals(seen.getLinkedTrips(), "1 trip", "another organization's trip is counted, not named");
         assertEquals(seen.getLinkedCount(), 1);
     }
 
     /** The copy is a copy: editing the plan's own objects afterwards changes nothing on the offer. */
     @Test
-    public void copyFromPlanNeverAliasesThePlansSchedules() {
+    public void copyFromPlanNeverAliasesThePlansSchedulesAndLeavesThePriceAlone() {
         final RatePlan plan = RatePlan.builder().name("Alias").cost(new RateSchedule(null, 5000L, Map.of("2027-09-22",
-                7000L), 0L)).price(new RateSchedule(null, 6000L, null, 1000L))
+                7000L), 0L))
                 .costExtras(List.of(new org.paulsens.trip.model.CostExtra("Tax", null, 100L))).version(4L).build();
-        final ReservationOffer offer = ReservationOffer.builder().name("Copy").build();
+        final RateSchedule own = new RateSchedule(null, 6000L, null, 1000L);
+        final ReservationOffer offer = ReservationOffer.builder().name("Copy").price(own).build();
         OfferSchedules.copyFromPlan(offer, plan);
         assertEquals(offer.getRatePlanId(), plan.getId().getValue());
         assertEquals(offer.getRatePlanVersion(), 4L);
-        assertEquals(offer.getPrice(), plan.getPrice());
+        assertEquals(offer.getPrice(), own, "the participant price is the option's own, never the plan's");
         assertEquals(offer.getCost(), plan.getCost());
         assertEquals(offer.getCostExtras(), plan.getCostExtras());
         plan.getCost().setNightlyCents(1L);
@@ -557,7 +624,7 @@ public class RatePlanCommandsTest {
         final String accId = hotel();
         final Trip trip = trip("Rollback trip", savedPerson("Rlb"));
         final String tripleType = typeId(accId, 1);
-        final String planId = pricedPlan(accId, "Triple rate", 60.0, 40.0);
+        final String planId = costedPlan(accId, "Triple rate", 40.0);
         assertTrue(admin.deleteRoomType(accId, tripleType), "no room is a Triple, so the type may go");
         assertEquals(plans.rows(accId).get(0).getRoomTypes(), "Double, ?", "a type no longer at the hotel");
         final long before = plan(accId, planId).getVersion();
@@ -574,7 +641,7 @@ public class RatePlanCommandsTest {
     @Test
     public void syncLinkedReportsATripListItCouldNotPrune() throws IOException {
         final String accId = hotel();
-        final String planId = pricedPlan(accId, "Stale rate", 60.0, 40.0);
+        final String planId = costedPlan(accId, "Stale rate", 40.0);
         final RatePlan stale = plan(accId, planId);
         assertTrue(DAO.getInstance().saveRatePlan(plan(accId, planId)), "another writer moved the row");
         assertTrue(stale.link("ghost-trip"));
@@ -595,7 +662,7 @@ public class RatePlanCommandsTest {
         final String accId = hotel();
         final Trip trip = trip("Linked trip", savedPerson("Lnk"));
         final Trip other = trip("Other trip", savedPerson("Otr"));
-        final String planId = pricedPlan(accId, "Contested rate", 60.0, 40.0);
+        final String planId = costedPlan(accId, "Contested rate", 40.0);
         assertTrue(plans.attach(trip.getId(), accId, planId));
         final RatePlan before = plan(accId, planId);
         final String key = CacheKeys.LODGING_PLAN_PREFIX + accId;
@@ -629,19 +696,19 @@ public class RatePlanCommandsTest {
     public void anOptionSaveLostDuringTheFanOutIsReportedNotRetried() throws IOException {
         final String accId = hotel();
         final Trip trip = trip("Raced trip", savedPerson("Rcd"));
-        final String planId = pricedPlan(accId, "Raced rate", 60.0, 40.0);
+        final String planId = costedPlan(accId, "Raced rate", 40.0);
         assertTrue(plans.attach(trip.getId(), accId, planId));
         final ReservationOffer offer = linkedOffer(trip, planId);
         final String key = CacheKeys.LODGING_OFFER_PREFIX + trip.getId();
         final String cached = ageInCache(key, offer.getId().getValue(), offer.getVersion());
 
         final RatePlanForm form = plans.planFormFor(accId, planId);
-        form.setNightlyPrice(75.0);
+        form.setCostNightlyPrice(75.0);
         assertTrue(plans.savePlan(form), "the plan itself is saved");
         assertEquals(form.getProblem(),
                 "Plan saved; 0 of 1 trips updated; trip 'Raced trip': saved by someone else");
-        assertEquals(plan(accId, planId).getPrice().getNightlyCents(), 7500L);
-        assertEquals(linkedOffer(trip, planId).getNightlyPriceCents(), 6000L, "the option kept its copy");
+        assertEquals(plan(accId, planId).getCost().getNightlyCents(), 7500L);
+        assertEquals(linkedOffer(trip, planId).getCost().getNightlyCents(), 4000L, "the option kept its copy");
         assertTrue(offerRow(trip, offer).isPlanDrift(), "...and reads as drifted");
         assertTrue(plans.retirePlan(accId, planId, true), "retiring reports the loss and still retires");
         assertTrue(plan(accId, planId).isRetired());
@@ -658,7 +725,7 @@ public class RatePlanCommandsTest {
     public void anOptionOutlivesItsDeletedPlan() throws IOException {
         final String accId = hotel();
         final Trip trip = trip("Orphan trip", savedPerson("Orp"));
-        final String planId = pricedPlan(accId, "Short-lived rate", 60.0, 40.0);
+        final String planId = costedPlan(accId, "Short-lived rate", 40.0);
         assertTrue(plans.attach(trip.getId(), accId, planId));
         final ReservationOffer offer = linkedOffer(trip, planId);
         assertTrue(DAO.getInstance().deleteRatePlan(accId, RatePlan.Id.from(planId)), "behind the link check");
@@ -727,8 +794,8 @@ public class RatePlanCommandsTest {
         return admin.roomTypeRows(accId).get(index).getId();
     }
 
-    /** A plan over the season on every room type, priced AND costed, through the admin's dialog. */
-    private String pricedPlan(final String accId, final String name, final double price, final double cost) {
+    /** A plan over the season on every room type, costed with a fixed extra, through the admin's dialog. */
+    private String costedPlan(final String accId, final String name, final double cost) {
         final RatePlanForm form = plans.planFormFor(accId, null);
         form.setName(name);
         form.setRoomTypeIds(List.of(typeId(accId, 0), typeId(accId, 1)));
@@ -736,8 +803,6 @@ public class RatePlanCommandsTest {
         form.setValidUntil(SEASON_END);
         form.setCostNightlyPrice(cost);
         form.setCostExtras(List.of(new CostExtraForm("City tax", "FIXED", 12.0)));
-        form.setPriceKnown(true);
-        form.setNightlyPrice(price);
         assertTrue(plans.savePlan(form), form.getProblem());
         return form.getPlanId();
     }
@@ -749,10 +814,38 @@ public class RatePlanCommandsTest {
         form.setValidFrom(from);
         form.setValidUntil(to);
         form.setCostNightlyPrice(40.0);
-        form.setPriceKnown(true);
-        form.setNightlyPrice(60.0);
         assertTrue(plans.savePlan(form), form.getProblem());
         return form.getPlanId();
+    }
+
+    /** Records every lodging audit line, so a test can say what was NOT audited (a recompute, say). */
+    private static final class RecordingAudit extends AuditCommands {
+        private final List<String> lines = new ArrayList<>();
+
+        @Override
+        public String lodging(final String targetType, final String targetId, final String orgId, final String msg,
+                final org.paulsens.trip.audit.AuditActor who) {
+            lines.add(msg);
+            return super.lodging(targetType, targetId, orgId, msg, who);
+        }
+
+        boolean recomputed() {
+            return lines.stream().anyMatch(line -> line.contains("recomputed"));
+        }
+    }
+
+    /** A site-admin lodging bean whose audit trail the test can read. */
+    private static LodgingCommands auditedLodging(final RecordingAudit audit) {
+        return new LodgingCommands(TestCallers::siteAdmin,
+                () -> new TripCommands(() -> new OrgCommands(TestCallers::siteAdmin)), TransactionsCommands::new,
+                () -> new OrgCommands(TestCallers::siteAdmin), PrivilegeCommands::new, () -> audit,
+                MediaCommands::new);
+    }
+
+    /** A site-admin plan bean whose fan-out (and whatever it makes the lodging bean do) the test can read. */
+    private static RatePlanCommands auditedPlans(final RecordingAudit audit) {
+        return new RatePlanCommands(TestCallers::siteAdmin, () -> auditedLodging(audit),
+                () -> new TripCommands(() -> new OrgCommands(TestCallers::siteAdmin)), () -> audit);
     }
 
     private static RatePlan plan(final String accId, final String planId) {

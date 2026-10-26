@@ -8,6 +8,7 @@ import java.io.Serializable;
 import java.time.LocalDate;
 import java.util.List;
 import org.paulsens.trip.action.LodgingViews.CostExtraForm;
+import org.paulsens.trip.action.RatePlanViews.AttachForm;
 import org.paulsens.trip.action.RatePlanViews.PlanChoice;
 import org.paulsens.trip.action.RatePlanViews.RatePlanForm;
 import org.paulsens.trip.action.RatePlanViews.RatePlanRow;
@@ -20,17 +21,16 @@ import static org.testng.Assert.assertTrue;
 
 /**
  * The rate plan page shapes: they park in viewScope, so they round-trip through Java serialization with their
- * defaults intact, and the menu value a {@link PlanChoice} carries is what the bean takes back.
+ * defaults intact, the menu value a {@link PlanChoice} carries is what the bean takes back, and no shape
+ * carries a participant price (a plan is the hotel's side only).
  */
 public class RatePlanViewsTest {
 
     @Test
-    public void aNewPlanFormNeedsPricingAndStatesACostByDefault() throws Exception {
+    public void aNewPlanFormStatesACostByDefault() throws Exception {
         final RatePlanForm form = new RatePlanForm();
-        assertFalse(form.isPriceKnown(), "a new plan needs participant pricing until an admin sets it");
         assertTrue(form.isCostKnown(), "stating the cost is what the dialog is for");
         assertEquals(form.getCostPricingModel(), "PER_ROOM");
-        assertEquals(form.getPricingModel(), "PER_ROOM");
         assertTrue(form.getRoomTypeIds().isEmpty());
         assertTrue(form.getCostExtras().isEmpty());
         assertNull(form.getPlanId(), "null = new");
@@ -43,15 +43,13 @@ public class RatePlanViewsTest {
         form.setValidUntil(LocalDate.of(2027, 10, 31));
         form.setCostNightlyPrice(50.0);
         form.setCostExtras(List.of(new CostExtraForm("City tax", "FIXED", 12.0)));
-        form.setPriceKnown(true);
-        form.setNightlyPrice(70.0);
         form.setProblem("nope");
         final RatePlanForm back = roundTrip(form);
         assertEquals(back.getAccId(), "acc-1");
         assertEquals(back.getRoomTypeIds(), List.of("rt-d", "rt-t"));
         assertEquals(back.getValidUntil(), LocalDate.of(2027, 10, 31));
         assertEquals(back.getCostExtras().get(0).getLabel(), "City tax");
-        assertEquals(back.getNightlyPrice(), 70.0);
+        assertEquals(back.getCostNightlyPrice(), 50.0);
         assertEquals(back.getProblem(), "nope");
         form.setRoomTypeIds(null);
         form.setCostExtras(null);
@@ -60,12 +58,11 @@ public class RatePlanViewsTest {
     }
 
     @Test
-    public void aRowCarriesANullPriceColumnForReadersWhoMayNotSeeIt() throws Exception {
+    public void aRowCarriesTheHotelsSideOnly() throws Exception {
         final RatePlanRow row = new RatePlanRow("p-1", "Autumn", "Double, Triple", "Sep 1 - Oct 31, 2027",
-                "$50.00/night per room, +1 extra", null, true, "Spring trip, 1 other trip", 2, false, "notes");
+                "$50.00/night per room, +1 extra", "Spring trip, 1 other trip", 2, false, "notes");
         final RatePlanRow back = roundTrip(row);
-        assertNull(back.getPriceSummary(), "an operator's row");
-        assertTrue(back.isNeedsPricing());
+        assertEquals(back.getCostSummary(), "$50.00/night per room, +1 extra");
         assertEquals(back.getLinkedCount(), 2);
         assertEquals(back.getLinkedTrips(), "Spring trip, 1 other trip");
         assertEquals(back.getDates(), "Sep 1 - Oct 31, 2027");
@@ -80,6 +77,27 @@ public class RatePlanViewsTest {
         assertEquals(roundTrip(choice).getValue(), "acc-1|plan-1");
         assertEquals(roundTrip(choice).getLabel(), "Pansion: Autumn (Sep 1 - Oct 31, 2027)");
         assertEquals(PlanChoice.SEPARATOR, "|", "a UUID never contains it, so the split is unambiguous");
+    }
+
+    @Test
+    public void anAttachFormStartsWithThePriceFieldsetOnAndNoPlanChosen() throws Exception {
+        final AttachForm form = new AttachForm();
+        assertTrue(form.isPriceKnown(), "the dialog offers a price by default; the bean's unpriced paths turn it off");
+        assertEquals(form.getPricingModel(), "PER_ROOM");
+        assertNull(form.getChoice());
+        assertNull(form.getTripId());
+        assertNull(form.getNightlyPrice());
+        form.setTripId("trip-1");
+        form.setChoice("acc-1|plan-1");
+        form.setNightlyPrice(70.0);
+        form.setSingleSupplement(20.0);
+        form.setProblem("nope");
+        final AttachForm back = roundTrip(form);
+        assertEquals(back.getTripId(), "trip-1");
+        assertEquals(back.getChoice(), "acc-1|plan-1");
+        assertEquals(back.getNightlyPrice(), 70.0);
+        assertEquals(back.getSingleSupplement(), 20.0);
+        assertEquals(back.getProblem(), "nope");
     }
 
     @SuppressWarnings("unchecked")
