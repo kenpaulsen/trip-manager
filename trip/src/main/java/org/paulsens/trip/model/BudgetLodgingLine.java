@@ -16,7 +16,7 @@ import lombok.Data;
  * name, captured at save) is only what the page shows once the option has been deleted.
  *
  * <p>Counts never go negative, and {@code singles} never exceeds {@code people}. {@code offSite} is stored
- * inverted, as on {@link BudgetLine}, so a line that never mentions it is an on-site payment.
+ * inverted, as on {@link BudgetLine}, so a line that never mentions it is paid during the trip.
  */
 @Data
 public final class BudgetLodgingLine implements Serializable {
@@ -32,7 +32,7 @@ public final class BudgetLodgingLine implements Serializable {
     private int singles;
     private String payee;
     private String note;
-    /** True when the hotel is NOT paid on site: the line is listed under Other trip items, not the Payees. */
+    /** True when the hotel is paid BEFORE the trip: the line is an Other Payment, not one of the Payees. */
     private boolean offSite;
 
     @Builder
@@ -64,7 +64,7 @@ public final class BudgetLodgingLine implements Serializable {
         this(null, null, null, 0, 0, 0, 0, null, null, false);
     }
 
-    /** Whether the hotel is paid on site (listed with the Payees); the inverse of the stored flag. */
+    /** Whether the hotel is paid during the trip (listed with the Payees); the inverse of the stored flag. */
     @JsonIgnore
     public boolean isOnSite() {
         return !offSite;

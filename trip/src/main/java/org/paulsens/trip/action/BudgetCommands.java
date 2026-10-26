@@ -205,6 +205,11 @@ public class BudgetCommands {
         for (final OtherItem item : others) {
             page.getOtherRows().add(otherRow(item));
         }
+        long revenue = 0L;
+        for (final BudgetLodgingLine line : budget.getLodging()) {
+            revenue += figures.apply(line).revenue();
+        }
+        page.setMoneyToCollect(money(BudgetMath.moneyToCollect(budget, revenue)));
         final long onSite = BudgetMath.grandTotal(payees);
         final long other = BudgetMath.otherTotal(others);
         page.setOnSiteTotal(money(onSite));
@@ -233,6 +238,7 @@ public class BudgetCommands {
     private static PayeeRow payeeRow(final PayeeTotal payee) {
         final PayeeRow row = new PayeeRow();
         row.setName(payee.name());
+        row.setCategory(payee.categories());
         row.setItems(payee.items());
         row.setAmount(money(payee.cents()));
         return row;
@@ -241,6 +247,7 @@ public class BudgetCommands {
     private static OtherRow otherRow(final OtherItem item) {
         final OtherRow row = new OtherRow();
         row.setName(item.name());
+        row.setCategory(item.category());
         row.setPayee(item.payee());
         row.setAmount(money(item.cents()));
         return row;

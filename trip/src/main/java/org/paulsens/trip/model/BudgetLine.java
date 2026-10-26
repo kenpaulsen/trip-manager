@@ -21,8 +21,9 @@ import lombok.Data;
  * recomputes it on every save, so the stored amount always matches the line it follows and every reader can
  * keep using {@code amountCents}.
  *
- * <p>{@code offSite} is stored inverted (on-site is the default) so a row written before the flag existed, a
- * builder that never mentions it, and a session-revived object all read as an on-site payment.
+ * <p>{@code offSite} ("paid before the trip") is stored inverted, paid during the trip being the default, so a
+ * row written before the flag existed, a builder that never mentions it, and a session-revived object all read
+ * as a payment during the trip.
  */
 @Data
 public final class BudgetLine implements Serializable {
@@ -44,7 +45,7 @@ public final class BudgetLine implements Serializable {
     private String percentOf;
     /** The percentage in basis points (1250 = 12.5%); 0 unless {@code percentOf} is set. */
     private int percentBps;
-    /** True when the line is NOT paid on site: it is listed under Other trip items, not the Payees. */
+    /** True when the line is paid BEFORE the trip: it is an Other Payment, not one of the Payees. */
     private boolean offSite;
 
     @Builder
@@ -100,7 +101,7 @@ public final class BudgetLine implements Serializable {
         return percentOf != null;
     }
 
-    /** Whether the line is paid on site (listed with the Payees); the inverse of the stored flag. */
+    /** Whether the line is paid during the trip (listed with the Payees); the inverse of the stored flag. */
     @JsonIgnore
     public boolean isOnSite() {
         return !offSite;

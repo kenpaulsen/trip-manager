@@ -35,10 +35,12 @@ and every reader keeps using `amountCents`. A save is refused when the base is m
 itself, or would close a cycle (`BudgetMath.percentProblem`); a line others follow cannot be deleted or switch
 kind until they change.
 
-**On site or not.** Every line, lodging lines included, is either paid on site (the default; it is listed with
-the Payees) or not (Other trip items: flights, insurance, a hotel paid ahead). The flag is stored INVERTED as
-`offSite`, the way an option stores `disabled`: a row written before it existed, a builder that never mentions
-it, and a form revived from a session all read as on site. The forms expose it as `onSite` for the checkbox.
+**Paid during the trip or before it.** Every line, lodging lines included, is either paid during the trip, on
+site (the default; the "Payments During Trip" checkbox; listed with the Payees) or before it (Other Payments:
+flights, insurance, a hotel paid ahead). Both kinds still count in the shared totals and the overall figure:
+paid before the trip is still a cost of the trip. The flag is stored INVERTED as `offSite`, the way an option
+stores `disabled`: a row written before it existed, a builder that never mentions it, and a form revived from a
+session all read as paid during the trip. The forms expose it as `onSite` for the checkbox.
 
 ### One row, one put
 
@@ -94,10 +96,11 @@ The whole budget:
 | lodgingRevenue / lodgingCost / lodgingMargin | Σ over the lodging lines | |
 | overall | budgetLeftOver + lodgingMargin | |
 | tripCents(line) | SHARED → amount; INDIVIDUAL → per-person total × people | |
-| payee totals | on-site lines only: lodging line → its hotelCost under its payee (default: the hotel's name); a typed line → tripCents under its payee, or under its own name in brackets ("[Badges]") when it has none; grouped case-insensitively on the trimmed payee, first spelling kept | |
-| On-site Payments | Σ payee totals | 29,914.19 with the lodging oracle |
-| other trip items | the lines NOT on site, one row each, the same amounts | |
-| estimated trip total | On-site Payments + Σ other trip items | |
+| payee totals | lines paid during the trip only: lodging line → its hotelCost under its payee (default: the hotel's name); a typed line → tripCents under its payee, or under its own name in brackets ("[Badges]") when it has none; grouped case-insensitively on the trimmed payee, first spelling kept; Category lists the lines' categories, distinct ("Guide, Tips"; lodging is "Lodging", a per-person line "Per-person extra") | |
+| Payments During Trip | Σ payee totals | 29,914.19 with the lodging oracle |
+| Other Payments | the lines paid before the trip, one row each with its category, the same amounts | |
+| estimated trip total | Payments During Trip + Σ Other Payments | |
+| estimated money to collect | perPersonBudget × people + lodgingRevenue (what participants are charged for lodging: per person, people × nights × nightly + singles × nights × supplement; per room, rooms × nights × nightly). Per-person extras are not included | 48,000.00 with the lodging oracle |
 | basic ground budget range | toBill, or toBill to toBill + max singleAddOn + individualExtras when either is positive | 1,000.00 to 1,200.00 |
 | estimatedGroundPerPerson | (sharedTotal + lodgingCost) / people | 650.31 |
 
@@ -146,7 +149,9 @@ surplus, or "No budget yet"); `reportsDone` back, `toLodging` to the trip's Lodg
 (`?print=true`) that edits nothing. Sections: Clone budget from... (empty budgets only), warnings
 (`bgMissing`), Inputs (people, trip nights, Per-person shared budget, Basic ground budget (shared + lodging)),
 Shared Expenses (one table with a Category column), Lodging, Individual extras, Per person by lodging option,
-Summary, Payees (totalled as "On-site Payments"), Other trip items, and the estimated trip total.
+Payees (with a Category column, totalled as "Payments During Trip"; a line paid before the trip wears a "paid
+before trip" chip), Other Payments (also with Category), the estimated trip total and the estimated money to
+collect, and the Summary last.
 
 The Summary has three cards and a fourth on its own line: **Per-person shared budget** (the typed figure, the
 estimated per-person shared cost under it), **Basic ground budget (shared + lodging)** (the typed figure, as a
@@ -169,7 +174,7 @@ pages' `keepOpen` idiom; Cancel clears the form.
 |---|---|---|
 | GET | `budget/trips/{tripId}` | `{inputs, lines, lodging, summary}` (summary = the page's `BudgetPage`) |
 | PUT | `budget/trips/{tripId}/inputs` | `{people, tripNights, perPersonBudget, toBill}` → `{ok:true}` |
-| POST / PUT / DELETE | `budget/trips/{tripId}/lines[/{lineId}]` | `{kind, category, name, amount, perNight, note, payee, onSite, percent, percentOf}` → `{id}` (`percentOf` makes it a percent line; `onSite` defaults to true) |
+| POST / PUT / DELETE | `budget/trips/{tripId}/lines[/{lineId}]` | `{kind, category, name, amount, perNight, note, payee, onSite, percent, percentOf}` → `{id}` (`percentOf` makes it a percent line; `onSite`, paid during the trip, defaults to true) |
 | POST / PUT / DELETE | `budget/trips/{tripId}/lodging[/{lineId}]` | `{offerId, nights, people, rooms, singles, payee, note, onSite}` → `{id}` |
 | POST | `budget/trips/{tripId}/clone` | `{fromTripId}` → `{ok:true}`; 400 unless this budget is empty and the source is one this trip may clone |
 
@@ -189,7 +194,7 @@ cases in `AuditCommandsTest`, `TripDeleteCommandsTest`, `ModelSerializationTest`
 `SerializationCompatibilityTest` and `ApiSurfaceTest`.
 
 Browser (`medjugorje/webtest`): `TripBudgetPwIT` (both oracles rendered in the new summary, the print view,
-a percent line set in the dialog and following its base, an off-site line under Other trip items, the clone
+a percent line set in the dialog and following its base, a line paid before the trip under Other Payments, the clone
 dialog, pre-fills and Use,
 the lodging dialog's fields per option, a plan-linked option, a cost-less option's warning, line dialog and
 row commands by identity, negative figures, the gate matrix), with the Budget card and page added to

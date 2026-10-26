@@ -38,13 +38,21 @@ public final class BudgetMath {
         static final LodgingFigures NONE = new LodgingFigures(0L, 0L, 0L, 0L, 0L, false, true, true);
     }
 
-    /** One payee's total: what is handed to them, from how many lines. {@code name} is the first spelling seen. */
-    public record PayeeTotal(String name, int items, long cents) {
+    /**
+     * One payee's total: what is handed to them during the trip, from how many lines. {@code name} is the first
+     * spelling seen; {@code categories} names the lines' categories, distinct and in first-seen order.
+     */
+    public record PayeeTotal(String name, int items, long cents, String categories) {
     }
 
-    /** One line that is NOT paid on site, with what it costs the trip; {@code payee} may be null. */
-    public record OtherItem(String name, String payee, long cents) {
+    /** One line paid BEFORE the trip (an Other Payment), with what it costs the trip; {@code payee} may be null. */
+    public record OtherItem(String name, String category, String payee, long cents) {
     }
+
+    /** The Category a lodging line shows in the payment tables. */
+    public static final String LODGING_CATEGORY = "Lodging";
+    /** The Category a per-person (INDIVIDUAL) line shows in the payment tables: it has no category of its own. */
+    public static final String PER_PERSON_CATEGORY = "Per-person extra";
 
     /** How deep a chain of percent lines may go before it is treated as broken (a cycle, in practice). */
     static final int MAX_PERCENT_DEPTH = 20;
@@ -234,11 +242,12 @@ public final class BudgetMath {
     }
 
     /**
-     * What is handed to whom on site: every line marked on-site. A lodging line contributes its HOTEL COST under
-     * its payee (default: the hotel's name, which {@code defaultPayee} supplies); a SHARED line its amount; an
-     * INDIVIDUAL line its per-person total times the head count ({@link #tripCents}). A line with no payee is
-     * listed under its own name in brackets ("[Badges]"), so nothing paid on site goes missing from the list.
-     * Grouped case-insensitively on the trimmed payee, in first-seen order (lodging first, then the lines).
+     * What is handed to whom during the trip: every line marked as paid during the trip (stored as NOT
+     * {@code offSite}). A lodging line contributes its HOTEL COST under its payee (default: the hotel's name,
+     * which {@code defaultPayee} supplies); a SHARED line its amount; an INDIVIDUAL line its per-person total
+     * times the head count ({@link #tripCents}). A line with no payee is listed under its own name in brackets
+     * ("[Badges]"), so nothing paid during the trip goes missing from the list. Grouped case-insensitively on the
+     * trimmed payee, in first-seen order (lodging first, then the lines).
      */
     public static List<PayeeTotal> payeeTotals(final TripBudget budget,
             final Function<BudgetLodgingLine, LodgingFigures> figures,
@@ -246,21 +255,21 @@ public final class BudgetMath {
         final Map<String, PayeeTotal> totals = new LinkedHashMap<>();
         for (final BudgetLodgingLine line : budget.getLodging()) {
             if (line.isOnSite()) {
-                add(totals, lodgingPayee(line, defaultPayee), figures.apply(line).hotelCost());
+                add(totals, lodgingPayee(line, defaultPayee), figures.apply(line).hotelCost(), LODGING_CATEGORY);
             }
         }
         for (final BudgetLine line : budget.getLines()) {
             if (line.isOnSite()) {
                 add(totals, (line.getPayee() != null) ? line.getPayee() : bracketed(line.getName()),
-                        tripCents(budget, line));
+                        tripCents(budget, line), categoryOf(line));
             }
         }
         return new ArrayList<>(totals.values());
     }
 
     /**
-     * Every line NOT paid on site, in budget order (lodging first), each with what it costs the trip: the other
-     * half of the estimated trip total.
+     * Every line paid BEFORE the trip (the Other Payments), in budget order (lodging first), each with what it
+     * costs the trip: the other half of the estimated trip total.
      */
     public static List<OtherItem> otherItems(final TripBudget budget,
             final Function<BudgetLodgingLine, LodgingFigures> figures,
@@ -269,16 +278,30 @@ public final class BudgetMath {
         final List<OtherItem> items = new ArrayList<>();
         for (final BudgetLodgingLine line : budget.getLodging()) {
             if (!line.isOnSite()) {
-                items.add(new OtherItem(labeler.apply(line), lodgingPayee(line, defaultPayee),
+                items.add(new OtherItem(labeler.apply(line), LODGING_CATEGORY, lodgingPayee(line, defaultPayee),
                         figures.apply(line).hotelCost()));
             }
         }
         for (final BudgetLine line : budget.getLines()) {
             if (!line.isOnSite()) {
-                items.add(new OtherItem(line.getName(), line.getPayee(), tripCents(budget, line)));
+                items.add(new OtherItem(line.getName(), categoryOf(line), line.getPayee(), tripCents(budget, line)));
             }
         }
         return items;
+    }
+
+    /** The Category a typed line shows: its category's label, or {@link #PER_PERSON_CATEGORY} for a per-person line. */
+    public static String categoryOf(final BudgetLine line) {
+        return line.isShared() ? line.getCategory().getLabel() : PER_PERSON_CATEGORY;
+    }
+
+    /**
+     * The money to collect from the participants: the per-person shared budget × people, plus what they are
+     * charged for lodging (the lodging REVENUE: per person, people × nights × the nightly price + singles × nights
+     * × the single supplement; per room, rooms × nights × the room price). Per-person extras are not included.
+     */
+    public static long moneyToCollect(final TripBudget budget, final long lodgingRevenue) {
+        return budget.getPerPersonBudgetCents() * budget.getPeople() + lodgingRevenue;
     }
 
     /** What a typed line costs the whole trip: a SHARED amount as is, an INDIVIDUAL per-person total × people. */
@@ -332,15 +355,27 @@ public final class BudgetMath {
         return sum;
     }
 
-    private static void add(final Map<String, PayeeTotal> totals, final String payee, final long cents) {
+    private static void add(final Map<String, PayeeTotal> totals, final String payee, final long cents,
+            final String category) {
         if (payee == null || payee.isBlank()) {
             return;
         }
         final String name = payee.trim();
         final String key = name.toLowerCase(Locale.ROOT);
         final PayeeTotal before = totals.get(key);
-        totals.put(key, (before == null) ? new PayeeTotal(name, 1, cents)
-                : new PayeeTotal(before.name(), before.items() + 1, before.cents() + cents));
+        totals.put(key, (before == null) ? new PayeeTotal(name, 1, cents, category)
+                : new PayeeTotal(before.name(), before.items() + 1, before.cents() + cents,
+                        withCategory(before.categories(), category)));
+    }
+
+    /** "Guide, Tips": the distinct categories of a payee's lines, in first-seen order. */
+    private static String withCategory(final String categories, final String category) {
+        for (final String seen : categories.split(", ")) {
+            if (seen.equals(category)) {
+                return categories;
+            }
+        }
+        return categories + ", " + category;
     }
 
     /** {@code cents / ways} HALF_UP to the cent; 0 when {@code ways} is not positive. */

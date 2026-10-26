@@ -340,6 +340,9 @@ public class BudgetCommandsTest {
         assertEquals(page.getOnSiteTotal(), "$29,914.19", "hotel cost + every shared line");
         assertTrue(page.getOtherRows().isEmpty());
         assertEquals(page.getTripTotal(), "$29,914.19");
+        assertEquals(page.getMoneyToCollect(), "$48,000.00", "$400 × 46 + the $29,600.00 lodging revenue");
+        assertEquals(page.getPayees().get(0).getCategory(), "Lodging");
+        assertEquals(page.getPayees().get(3).getCategory(), "Other", "the sheet fixture saves every line as Other");
         assertEquals(page.getToBillRange(), "$1,000.00 to $1,200.00", "plus the $200.00 single add-on");
         assertEquals(page.getEstimatedGroundPerPerson(), "$650.31", "(15,902.19 + 14,012.00) / 46");
         assertEquals(page.getOverallLabel(), "Overall surplus");
@@ -724,6 +727,9 @@ public class BudgetCommandsTest {
         assertEquals(page.getOtherRows().get(0).getName(), pansion.getName() + " · Per person");
         assertEquals(page.getOtherRows().get(0).getAmount(), "$600.00", "10 people × 2 nights × $30 hotel cost");
         assertEquals(page.getOtherRows().get(1).getPayee(), "Airline");
+        assertEquals(page.getOtherRows().get(1).getCategory(), "Transportation");
+        assertEquals(page.getOtherRows().get(0).getCategory(), "Lodging");
+        assertEquals(page.getPayees().get(0).getCategory(), "Guide");
         assertEquals(page.getOtherTotal(), "$9,600.00");
         assertEquals(page.getTripTotal(), "$10,100.00");
         assertFalse(page.getLodgingRows().get(0).isOnSite());

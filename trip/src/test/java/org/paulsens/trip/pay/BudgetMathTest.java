@@ -227,12 +227,12 @@ public class BudgetMathTest {
         final List<PayeeTotal> payees = BudgetMath.payeeTotals(budget,
                 line -> BudgetMath.lodging(line, seededShape()), line -> "Pansion Ivan");
         assertEquals(payees, List.of(
-                new PayeeTotal("Huanita", 1, 14_012_00L),
-                new PayeeTotal("Pansion Ivan", 1, 62_00L),
-                new PayeeTotal("Guide", 1, 1_440_00L),
-                new PayeeTotal("Tips", 2, 750_00L),
-                new PayeeTotal("[Badges]", 1, 300_00L),
-                new PayeeTotal("Market", 1, 460_00L)));
+                new PayeeTotal("Huanita", 1, 14_012_00L, "Lodging"),
+                new PayeeTotal("Pansion Ivan", 1, 62_00L, "Lodging"),
+                new PayeeTotal("Guide", 1, 1_440_00L, "Guide"),
+                new PayeeTotal("Tips", 2, 750_00L, "Tips"),
+                new PayeeTotal("[Badges]", 1, 300_00L, "Supplies"),
+                new PayeeTotal("Market", 1, 460_00L, "Per-person extra")));
         assertEquals(BudgetMath.grandTotal(payees), 17_024_00L);
         assertEquals(BudgetMath.grandTotal(List.of()), 0L);
         final List<PayeeTotal> unknownHotel = BudgetMath.payeeTotals(TripBudget.builder()
@@ -257,15 +257,35 @@ public class BudgetMathTest {
         budget.getLodging().add(hotel);
         final List<PayeeTotal> payees = BudgetMath.payeeTotals(budget,
                 line -> BudgetMath.lodging(line, seededShape()), line -> "Pansion");
-        assertEquals(payees, List.of(new PayeeTotal("Guide", 1, 500_00L)), "only the on-site line");
+        assertEquals(payees, List.of(new PayeeTotal("Guide", 1, 500_00L, "Guide")),
+                "only the line paid during the trip");
         final List<OtherItem> others = BudgetMath.otherItems(budget,
                 line -> BudgetMath.lodging(line, seededShape()), line -> "Pansion · Double", line -> "Pansion");
         assertEquals(others, List.of(
-                new OtherItem("Pansion · Double", "Pansion", 262_00L),
-                new OtherItem("Flights", "Airline", 9_000_00L),
-                new OtherItem("Insurance", null, 200_00L)));
+                new OtherItem("Pansion · Double", "Lodging", "Pansion", 262_00L),
+                new OtherItem("Flights", "Transportation", "Airline", 9_000_00L),
+                new OtherItem("Insurance", "Per-person extra", null, 200_00L)));
         assertEquals(BudgetMath.otherTotal(others), 9_462_00L);
         assertEquals(BudgetMath.otherTotal(List.of()), 0L);
+    }
+
+    @Test
+    public void aPayeeListsTheDistinctCategoriesOfItsLines() {
+        final TripBudget budget = TripBudget.builder().people(1).build();
+        budget.getLines().add(shared(BudgetCategory.GUIDE, "Guide", 100_00, "Ivan"));
+        budget.getLines().add(shared(BudgetCategory.TIPS, "Guide tip", 10_00, "Ivan"));
+        budget.getLines().add(shared(BudgetCategory.GUIDE, "Extra day", 50_00, "ivan"));
+        final List<PayeeTotal> payees = BudgetMath.payeeTotals(budget, line -> null, line -> null);
+        assertEquals(payees, List.of(new PayeeTotal("Ivan", 3, 160_00L, "Guide, Tips")));
+    }
+
+    @Test
+    public void moneyToCollectIsTheSharedBudgetPlusWhatLodgingCharges() {
+        final TripBudget budget = sheet();
+        final LodgingFigures figures = BudgetMath.lodging(oracleLine(), seededShape());
+        assertEquals(BudgetMath.moneyToCollect(budget, figures.revenue()), 48_000_00L,
+                "$400 × 46 + 29,600.00 (46 × 10 × $60 + 10 singles × 10 × $20)");
+        assertEquals(BudgetMath.moneyToCollect(budget, 0L), 18_400_00L, "no lodging: the shared budget alone");
     }
 
     @Test

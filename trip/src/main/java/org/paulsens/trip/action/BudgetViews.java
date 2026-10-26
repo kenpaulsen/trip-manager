@@ -53,12 +53,12 @@ public final class BudgetViews {
         private boolean percentMode;
         private Double percent;
         private String percentOf;
-        /** Stored inverted (see {@link #isOnSite}): a form revived without the field reads as on-site. */
+        /** Paid BEFORE the trip; stored inverted (see {@link #isOnSite}) so a revived form reads as during-trip. */
         private boolean offSite;
         /** Why the last save was refused, shown inside the dialog. */
         private String problem;
 
-        /** The dialog's "On-site Payments" checkbox. */
+        /** The dialog's "Payments During Trip" checkbox. */
         public boolean isOnSite() {
             return !offSite;
         }
@@ -88,10 +88,10 @@ public final class BudgetViews {
         private boolean needsSingles;
         /** The hotel's name, the payee a blank payee falls back to (the field's placeholder). */
         private String defaultPayee;
-        /** Stored inverted (see {@link #isOnSite}): a form revived without the field reads as on-site. */
+        /** Paid BEFORE the trip; stored inverted (see {@link #isOnSite}) so a revived form reads as during-trip. */
         private boolean offSite;
 
-        /** The dialog's "On-site Payments" checkbox. */
+        /** The dialog's "Payments During Trip" checkbox. */
         public boolean isOnSite() {
             return !offSite;
         }
@@ -150,13 +150,14 @@ public final class BudgetViews {
         private boolean last;
     }
 
-    /** One line NOT paid on site, for the Other trip items table. */
+    /** One line paid before the trip, for the Other Payments table. */
     @Data
     @NoArgsConstructor
     public static final class OtherRow implements Serializable {
         @Serial
         private static final long serialVersionUID = 1L;
         private String name;
+        private String category;
         private String payee;
         private String amount;
     }
@@ -193,13 +194,15 @@ public final class BudgetViews {
         private boolean deletedOption;
     }
 
-    /** One payee's total. */
+    /** One payee's total, paid during the trip. */
     @Data
     @NoArgsConstructor
     public static final class PayeeRow implements Serializable {
         @Serial
         private static final long serialVersionUID = 1L;
         private String name;
+        /** The categories of the payee's lines ("Guide, Tips"). */
+        private String category;
         private int items;
         private String amount;
     }
@@ -248,12 +251,14 @@ public final class BudgetViews {
         private String overallLabel;
         private String overallAmount;
         private List<PayeeRow> payees = new ArrayList<>();
-        /** The payees' total: what is paid on site. */
+        /** The payees' total: the Payments During Trip. */
         private String onSiteTotal;
         private List<OtherRow> otherRows = new ArrayList<>();
         private String otherTotal;
-        /** On-site payments plus other trip items: the estimated cost of the whole trip. */
+        /** Payments During Trip plus Other Payments: the estimated cost of the whole trip. */
         private String tripTotal;
+        /** Per-person shared budget × people + the lodging revenue: what the participants are asked to pay. */
+        private String moneyToCollect;
         /** The roster's head count and the trip dates' nights, beside the typed inputs. */
         private int tripPeople;
         private int tripNightsFromDates;
