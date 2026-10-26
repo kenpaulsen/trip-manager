@@ -79,6 +79,10 @@ public class ExpenseReportResourceTest extends ResourceTestSupport {
         assertError(stranger.pdf(id, false), 403, ApiErrors.FORBIDDEN);
         assertError(stranger.emailTreasurer(id, CSRF_OK), 403, ApiErrors.FORBIDDEN);
         assertError(stranger.emailTreasurer(id, null), 403, ApiErrors.CSRF);
+        assertError(stranger.createPayment(id, CSRF_OK, Map.of()), 403, ApiErrors.FORBIDDEN);
+        assertError(stranger.createPayment(id, null, Map.of()), 403, ApiErrors.CSRF);
+        assertError(stranger.updatePayment(id, "p", CSRF_OK, Map.of()), 403, ApiErrors.FORBIDDEN);
+        assertError(stranger.deletePayment(id, "p", CSRF_OK), 403, ApiErrors.FORBIDDEN);
         assertThrown(() -> stranger.get(UUID.randomUUID().toString()), 404, ApiErrors.NOT_FOUND);
     }
 
@@ -96,6 +100,21 @@ public class ExpenseReportResourceTest extends ResourceTestSupport {
     }
 
     @Test
+    public void aTripManagerEditsButRecordsNoPayment() {
+        final Person.Id manager = Person.Id.newInstance();
+        final PrivilegeCommands priv = new PrivilegeCommands();
+        assertTrue(priv.savePrivilege(priv.getOrCreate(PrivilegeCommands.TRIP_MGR, trip.getId(), "m")
+                .withNewPerson(manager)));
+        signedInAs(manager);
+        final ExpenseReportResource resource = resource(new ExpenseReportResource());
+        assertOk(resource.createLine(trip.getId(), CSRF_OK, Map.of("description", "Stamps", "amount", 5)));
+        final Response refused = resource.createPayment(trip.getId(), CSRF_OK, Map.of("date", "2026-10-20",
+                "amount", 5, "method", "Zelle"));
+        assertError(refused, 403, ApiErrors.FORBIDDEN);
+        assertTrue(String.valueOf(refused.getEntity()).contains("Finance admin required."));
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     public void anAdminBuildsAReportOverTheWire() throws IOException {
         signedInAsSiteAdmin(Person.Id.newInstance());
@@ -107,8 +126,7 @@ public class ExpenseReportResourceTest extends ResourceTestSupport {
 
         assertError(api.submit(id, CSRF_OK), 400, ApiErrors.VALIDATION_FAILED);
         assertOk(api.saveHeader(id, CSRF_OK, Map.of("submittedBy", "Ken", "cashAdvance", 45765,
-                "paymentInstructions", "Zelle", "paidOn", "2026-10-20")));
-        assertError(api.saveHeader(id, CSRF_OK, Map.of("paidOn", "Oct 20")), 400, ApiErrors.VALIDATION_FAILED);
+                "paymentInstructions", "Zelle")));
         assertError(api.saveHeader(id, CSRF_OK, Map.of("cashAdvance", -1)), 400, ApiErrors.VALIDATION_FAILED);
 
         final Response eur = api.createCurrency(id, CSRF_OK, Map.of("code", "eur", "rate", 0.83));
@@ -124,7 +142,12 @@ public class ExpenseReportResourceTest extends ResourceTestSupport {
         final String lineId = (String) ((Map<?, ?>) created.getEntity()).get("id");
         assertOk(api.createLine(id, CSRF_OK, Map.of("description", "Van", "currency", "BAM", "rate", 1.66,
                 "amount", 800)));
-        assertOk(api.createLine(id, CSRF_OK, Map.of("description", "Guide", "amount", 1440)));
+        final Response guide = api.createLine(id, CSRF_OK, Map.of("description", "Guide", "amount", 1440,
+                "paidStatus", "ORG"));
+        assertOk(guide);
+        final String guideId = (String) ((Map<?, ?>) guide.getEntity()).get("id");
+        assertError(api.createLine(id, CSRF_OK, Map.of("description", "x", "amount", 1, "paidStatus", "x")), 400,
+                ApiErrors.VALIDATION_FAILED);
         assertError(api.createLine(id, CSRF_OK, Map.of("description", " ")), 400, ApiErrors.VALIDATION_FAILED);
         assertError(api.createLine(id, CSRF_OK, Map.of("description", "x", "amount", 1, "date", "soon")), 400,
                 ApiErrors.VALIDATION_FAILED);
@@ -149,14 +172,37 @@ public class ExpenseReportResourceTest extends ResourceTestSupport {
         final Map<String, Object> got = (Map<String, Object>) api.get(id).getEntity();
         assertEquals(((ExpenseViews.HeaderForm) got.get("header")).getSubmittedBy(), "Ken");
         assertEquals(((List<?>) got.get("currencies")).size(), 2, "EUR, and BAM added with its line");
-        assertEquals(((List<?>) got.get("lines")).size(), 3);
+        final List<ExpenseViews.ExpenseForm> lines = (List<ExpenseViews.ExpenseForm>) got.get("lines");
+        assertEquals(lines.size(), 3);
+        assertEquals(lines.get(2).getPaidStatus(), "ORG");
+        assertEquals(guideId, lines.get(2).getId());
         final List<Map<String, Object>> receipts = (List<Map<String, Object>>) got.get("receipts");
         assertEquals(receipts.size(), 2);
         assertNull(receipts.get(0).get("lineId"), "Report level first");
         assertEquals(receipts.get(1).get("lineId"), lineId);
         final ExpenseViews.ExpensePage summary = (ExpenseViews.ExpensePage) got.get("summary");
-        assertEquals(summary.getStatus(), "Paid", "paidOn was set");
+        assertEquals(summary.getStatus(), "Submitted");
         assertEquals(summary.getTotal(), "$1,951.34", "25 / 0.85 + 800 / 1.66 + 1,440");
+        assertEquals(summary.getOutOfPocket(), "$511.34", "The org-paid guide is not out of pocket");
+
+        // Payments: the candles in one, the rest of the balance in another.
+        final Response paid = api.createPayment(id, CSRF_OK, Map.of("date", "2026-10-20", "amount", 29.41,
+                "method", "Zelle", "note", "Candles", "lineIds", List.of(lineId)));
+        assertOk(paid);
+        final String paymentId = (String) ((Map<?, ?>) paid.getEntity()).get("id");
+        assertError(api.createPayment(id, CSRF_OK, Map.of("date", "someday", "amount", 1, "method", "x")), 400,
+                ApiErrors.VALIDATION_FAILED);
+        assertError(api.createPayment(id, CSRF_OK, Map.of("date", "2026-10-20", "amount", 1)), 400,
+                ApiErrors.VALIDATION_FAILED);
+        assertOk(api.updatePayment(id, paymentId, CSRF_OK, Map.of("date", "2026-10-21", "amount", 29.41,
+                "method", "Zelle", "lineIds", List.of(lineId))));
+        final Map<String, Object> after = (Map<String, Object>) api.get(id).getEntity();
+        final List<ExpenseViews.PaymentForm> payments = (List<ExpenseViews.PaymentForm>) after.get("payments");
+        assertEquals(payments.size(), 1);
+        assertEquals(payments.get(0).getLineIds(), List.of(lineId));
+        assertEquals(((ExpenseViews.ExpensePage) after.get("summary")).getStatus(), "Partly paid");
+        assertError(api.deleteLine(id, lineId, CSRF_OK), 400, ApiErrors.VALIDATION_FAILED);
+        assertOk(api.deletePayment(id, paymentId, CSRF_OK));
 
         final Response pdf = api.pdf(id, true);
         assertEquals(pdf.getStatus(), 200);

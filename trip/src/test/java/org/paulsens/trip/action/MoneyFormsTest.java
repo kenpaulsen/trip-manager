@@ -36,6 +36,18 @@ public class MoneyFormsTest {
     }
 
     @Test
+    public void signedAmountsRunEitherWayButMustBeThere() {
+        assertNull(MoneyForms.signedDollarsProblem("The amount", -500.0));
+        assertNull(MoneyForms.signedDollarsProblem("The amount", 0.0));
+        assertNull(MoneyForms.signedDollarsProblem("The amount", 10_000_000.0));
+        final String message = "The amount must be between -$10,000,000.00 and $10,000,000.00.";
+        assertEquals(MoneyForms.signedDollarsProblem("The amount", null), message);
+        assertEquals(MoneyForms.signedDollarsProblem("The amount", Double.NaN), message);
+        assertEquals(MoneyForms.signedDollarsProblem("The amount", Double.NEGATIVE_INFINITY), message);
+        assertEquals(MoneyForms.signedDollarsProblem("The amount", -10_000_000.01), message);
+    }
+
+    @Test
     public void enumsParseLeniently() {
         assertEquals(MoneyForms.parse(ExpenseCategory.class, " MEALS "), ExpenseCategory.MEALS);
         assertNull(MoneyForms.parse(ExpenseCategory.class, "nope"));

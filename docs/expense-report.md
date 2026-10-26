@@ -22,7 +22,13 @@ budget it was spending against, or keep the receipts.
 - The expense categories are their own list: Transportation, Guide, Supplies, Tips, Scholarships, Leader
   expenses, Lodging, Postage, Meals, Other.
 - The budget table lists EVERY budget line (shared, per person, lodging) and an expense may match any of them.
-- A Submit stamp (who, when) and a Draft / Submitted / Paid status; Paid once a paid-on date is set.
+- A Submit stamp (who, when) and a Draft / Submitted / Partly paid / Paid status, the last two from payments.
+- Paid status per expense (asked 2026-10-26): Not paid, Paid by organization, Already reimbursed. The last two
+  still count as spent (total, budget vs actual) but are left out of what is due.
+- Payments (asked 2026-10-26): a finance admin records each payment against the expenses it settles, with the
+  amount, how, the date and a note. The amount is free and signed (the advance can make it less, zero or
+  negative). They REPLACE the report's old "Paid on" / "How it was paid" fields. Only site admins and
+  `tripFinAdmin` holders record them: a trip manager is usually the one being paid.
 - Receipts belong to an expense or to the report itself (a cash-advance slip, a statement).
 - Receipts are stored in the media bucket but served ONLY through the app, behind the report's view gate.
 - A read-only print view now; a PDF later.
@@ -31,11 +37,13 @@ budget it was spending against, or keep the receipts.
 
 | Type | What it is |
 |------|------------|
-| `model/TripExpenseReport` | ONE row per trip: `submittedBy` (free text, pre-filled with whoever started it), `submittedById` + `submittedOn` (the submit stamp), `cashAdvanceCents`, `cashAdvanceDetails`, `paymentInstructions`, `paidOn`, `paidHow`, `currencies`, `lines`, `receiptIds` (report level), `orgId`, `createdBy`, `created`, `version`. `getStatus()` is derived, never stored |
+| `model/TripExpenseReport` | ONE row per trip: `submittedBy` (free text, pre-filled with whoever started it), `submittedById` + `submittedOn` (the submit stamp), `cashAdvanceCents`, `cashAdvanceDetails`, `paymentInstructions`, `currencies`, `lines`, `payments`, `receiptIds` (report level), `orgId`, `createdBy`, `created`, `version`. `getStatus()` is derived, never stored |
 | `model/CurrencyRate` | `code` (three letters, upper-cased), `perUsdMicros` (foreign units per ONE dollar, in millionths: 0.83 EUR is 830,000), `note`. USD never has a row |
-| `model/ExpenseLine` | `id`, `date` (null reads "Various"), `category` (`ExpenseCategory`), `description`, `currency` (USD by default), `amountMinor` (hundredths of the line's own currency), `budgetLineId` (a `BudgetLine` or `BudgetLodgingLine` id, or null), `note`, `receiptIds` |
+| `model/ExpenseLine` | `id`, `date` (null reads "Various"), `category` (`ExpenseCategory`), `description`, `currency` (USD by default), `amountMinor` (hundredths of the line's own currency), `budgetLineId` (a `BudgetLine` or `BudgetLodgingLine` id, or null), `note`, `receiptIds`, `paidStatus` (`ExpensePaidStatus`, NOT_PAID by default) |
+| `model/ExpensePayment` | `id`, `date`, `amountCents` (SIGNED: positive paid to the submitter, negative paid back to the organization), `method`, `note`, `lineIds` (the expenses it settles; may be empty, a pure settlement of the balance), `recordedById`, `recordedBy`, `recordedOn` |
+| `ExpensePaidStatus` | NOT_PAID, ORG ("Paid by organization", chip "Org paid"), REIMBURSED ("Already reimbursed", chip "Reimbursed") |
 | `ExpenseCategory` | The menu above; `ofBudget(BudgetCategory)` maps by name |
-| `ExpenseStatus` | DRAFT, SUBMITTED, PAID |
+| `ExpenseStatus` | DRAFT, SUBMITTED, PARTLY_PAID, PAID: with no payment, Submitted once stamped else Draft; with any, Paid when every Not-paid expense is in a payment, else Partly paid |
 
 The rate runs the way the sheet wrote it ("USD / EUR 0.83"), with the inverse ("1 EUR = $1.2048") shown
 beside it. Every dollar figure is DERIVED on read and never stored, so fine-tuning a rate later re-prices every
@@ -45,7 +53,7 @@ normalize like the budget's.
 `trip_expense_reports` (PK `tripId`, no index) is `dynamo/ExpenseReportDAO`, the `BudgetDAO` shape exactly: a
 `PointCache` (`CacheKeys.EXPENSE_PREFIX`, `DAO.CacheScope.EXPENSE`), a versioned conditional put (version 0 may
 only create), "Saved by someone else: reload the page and try again." on a lost race, a 350 KB guard. Caps: 300
-expenses, 20 currencies, 40 receipts per expense, 60 at report level.
+expenses, 20 currencies, 40 receipts per expense, 60 at report level, 100 payments.
 
 ## Formulas (`pay/ExpenseMath`, HALF_UP to the cent)
 
@@ -53,7 +61,9 @@ expenses, 20 currencies, 40 receipts per expense, 60 at report level.
 |---|---|---|
 | usd(line) | USD: the amount; else amount × 1,000,000 / perUsdMicros; a currency with no rate counts $0 and the page warns | 23 EUR → 27.71; 220 EUR → 265.06; 800 KM → 481.93; 200 KM → 120.48 |
 | total | Σ usd | 55,560.95 |
-| due | cash advance − total; positive is "Due to {organization}", negative "Due to {submitter}", shown unsigned | −9,795.95 on 45,765.00 |
+| settled / out of pocket | Σ usd of the ORG (or REIMBURSED) expenses / Σ usd of the NOT_PAID ones | with 220 EUR org-paid and 200 KM reimbursed: 265.06, 120.48, 55,175.41 |
+| due | cash advance − out of pocket; positive is "Due to {organization}", negative "Due to {submitter}", shown unsigned | −9,795.95 on 45,765.00 (nothing settled); −9,410.41 with the two above |
+| payments / still due | Σ signed payment amounts / due + payments; 0 reads "Settled" | −9,410.41 + 9,000.00 → "Still due to Ken Paulsen" 410.41 |
 | budgeted(line) | a typed line: `BudgetMath.tripCents` (a per-person line × people); a lodging line: its hotel COST | |
 | spent(line) / remaining | Σ usd of the expenses matched to it / budgeted − spent (red when negative) | |
 | Not in budget | Σ usd of unmatched expenses AND of expenses whose budget line was deleted, so the Spent column always adds up to the total | |
@@ -95,8 +105,8 @@ expenses, 20 currencies, 40 receipts per expense, 60 at report level.
 ## PDF and email
 
 - **PDF** (`action/ExpenseReportPdf`, drawn with the shared `action/PdfSheet`): the page's own `ExpensePage`,
-  section for section (details, currencies, budget, expenses with a Receipts column naming R1, R2..., totals, a
-  signature line). "Download PDF" is the report alone; "PDF with receipts" appends them: an index (number, what
+  section for section (details, currencies, budget, expenses with a Paid column (the row's chip) and a Receipts
+  column naming R1, R2..., the payments, totals with the settled split and what is still due, a signature line). "Download PDF" is the report alone; "PDF with receipts" appends them: an index (number, what
   it is for, file, "image" / "PDF, n pages" / "missing"), then each image on a page of its own under its number
   and each receipt PDF's own pages with its number stamped across the top of the first. An unreadable or
   missing receipt is listed, never fatal; a character the font lacks prints as "?".
@@ -112,7 +122,8 @@ expenses, 20 currencies, 40 receipts per expense, 60 at report level.
   (`ExpenseCommands.emailTreasurer`) carries ONE PDF, the report with its receipts; when that is over
   `MailCommands.MAX_ATTACHMENT_BYTES` (7 MB, under SES's 10 MB raw limit after base64) it carries the report
   alone and says the receipts are online. From is the site address, Reply-To the submitter, and the report
-  records who it went to and when ("Emailed to ... on ..."). A refused email never undoes the submit.
+  records who it went to and when ("Emailed to ... on ..."). A refused email never undoes the submit. The body
+  repeats the totals, with the settled split and the payments and what is still due once there are any.
   `MailCommands.sendWithAttachment` is the first attachment-capable send: raw MIME (`action/RawMime`) over SES
   `SendRawEmail`, with `send`'s local-mode guard, recipient filtering and `EMAIL` audit.
 
@@ -120,8 +131,10 @@ expenses, 20 currencies, 40 receipts per expense, 60 at report level.
 
 No new privilege, and no second spelling of one: `action/TripFinanceGate` is THE rule for the trip's money
 pages, used by both `BudgetCommands` and `ExpenseCommands`. Edit: site admin, `tripMgr@trip`,
-`tripFinAdmin@trip`. View: an editor, `tripFinView@trip`, or the global `viewFinances`. The Reports dashboard's
-**Expense Report** card shows for the same people (`seeExpenses`).
+`tripFinAdmin@trip`. View: an editor, `tripFinView@trip`, or the global `viewFinances`. Settle (record, edit or
+delete a payment; `canSettle`, `ExpenseCommands.canRecordPayments`): site admin or `tripFinAdmin@trip` ONLY, so a
+trip manager, usually the one being reimbursed, cannot mark their own report paid. The Reports dashboard's
+**Expense Report** card shows for the same people as View (`seeExpenses`).
 
 ## The page (`admin/reports/expenses.xhtml`, private repo)
 
@@ -131,28 +144,37 @@ yet") and from the Budget page (`toExpenses`); back with `reportsDone`, across w
 chip, trip dates, the submit line, then the fields for an editor or their values for anyone else; Save details,
 Submit / Submit again, Withdraw submission); Currencies; Budget (budget vs actual, with Not in budget and
 totals); Expenses (Edit / Up / Down / Delete in `WEB-INF/expenseLineActions.xhtml`, and a Receipts button per
-expense); Report receipts; the totals card (total spent, cash advance, the due line, the payment instructions).
+expense, and a Paid column with the row's chip: "Org paid", "Reimbursed" or "Paid Oct 20"); Payments (the
+table, Record payment / Edit / Delete for a finance admin); Report receipts; the totals card (total spent; paid by
+organization, already reimbursed and out of pocket when any expense was settled outside; cash advance; the due
+line; payments recorded and the Still due / Settled line once there are payments; the payment instructions).
+
+The payment dialog (`paymentDlg`) lists every expense still to be paid as a checklist (plus the payment's own
+when editing); ticking one refills the amount with the ticked expenses' dollars (`prefillAmount`), which stays
+editable and may be negative. A ticked expense must be Not paid and in no other payment. An expense in a payment
+cannot be deleted or switched to a settled status until the payment goes (its text and amount stay editable).
 
 The expense dialog asks for the description first (a date picker first would pop its calendar over the menus
 when the dialog focuses it), then the date, the budget line (choosing one sets the category to match, still
 editable), the category, the currency (choosing "Add a currency..." asks for its code and rate and adds it with
-the expense), the amount and a note. Refusals show inside the dialog, which stays open (`keepOpen`).
+the expense), the amount, the paid status and a note. Refusals show inside the dialog, which stays open (`keepOpen`).
 
 State follows `docs/page-state-and-identity.md`: `requestScope.ep = expenses.reportPage(tripId)` every request
 and after every write (`SessionScopePolicyIT` lists it as domain-valued); only the scalar forms (`headerForm`,
-`expenseForm`, `currencyForm`) and the receipt dialog's `receiptLineId` live in viewScope.
+`expenseForm`, `currencyForm`, `paymentForm`) and the receipt dialog's `receiptLineId` live in viewScope.
 
 ## REST (`api/ExpenseReportResource`, `application/vnd.trip.expense-report.v1+json`)
 
 | Method | Path | Body / answer |
 |---|---|---|
-| GET | `expenses/trips/{tripId}` | `{header, currencies, lines, receipts, summary}`; `receipts` carry their `lineId` (null = the report) and absolute app URLs |
-| PUT | `expenses/trips/{tripId}/header` | `{submittedBy, cashAdvance, cashAdvanceDetails, paymentInstructions, paidOn, paidHow}` (`paidOn` an ISO date) |
+| GET | `expenses/trips/{tripId}` | `{header, currencies, lines, payments, receipts, summary}`; `receipts` carry their `lineId` (null = the report) and absolute app URLs |
+| PUT | `expenses/trips/{tripId}/header` | `{submittedBy, cashAdvance, cashAdvanceDetails, paymentInstructions}` |
 | POST | `expenses/trips/{tripId}/submit` · `.../unsubmit` | stamps / withdraws; submit is 400 while there are no expenses |
 | POST | `expenses/trips/{tripId}/email` | emails the treasurer the PDF with receipts; 400 when none is set or the send fails |
 | GET | `expenses/trips/{tripId}/pdf[?receipts=true]` | `application/pdf` |
 | POST / PUT / DELETE | `expenses/trips/{tripId}/currencies[/{code}]` | `{code, rate, note}`; a currency in use cannot be deleted |
-| POST / PUT / DELETE | `expenses/trips/{tripId}/lines[/{lineId}]` | `{date, category, description, currency, amount, budgetLineId, note}`; a new code with `rate` adds the currency in the same save |
+| POST / PUT / DELETE | `expenses/trips/{tripId}/lines[/{lineId}]` | `{date, category, description, currency, amount, budgetLineId, note, paidStatus}`; a new code with `rate` adds the currency in the same save; `paidStatus` NOT_PAID (default), ORG or REIMBURSED |
+| POST / PUT / DELETE | `expenses/trips/{tripId}/payments[/{paymentId}]` | `{date, amount, method, note, lineIds}` → `{id}`; the settle gate (403 "Finance admin required." for a trip manager) |
 | POST | `expenses/trips/{tripId}/receipts?lineId=&name=` | a RAW body (image or PDF), 413 over 16 MB → `{id, url, thumbUrl}` |
 | DELETE | `expenses/trips/{tripId}/receipts/{receiptId}` | |
 
@@ -163,15 +185,18 @@ reason; an unknown trip is 404.
 
 Unit (`trip/`): `TripExpenseReportTest`, `ExpenseLineTest`, `CurrencyRateTest`, `ExpenseMathTest` (the oracle in
 `pay/ExpenseOracle`), `ExpenseReportDAOTest`, `ExpenseCommandsTest` (gates, the oracle on the page rows, every
-refusal, a currency from the dialog, budget vs actual for all three kinds of budget line, submit),
+refusal, a currency from the dialog, budget vs actual for all three kinds of budget line, submit, paid statuses,
+payments either way and with no expense, the settle gate),
 `ExpenseReceiptsTest` (both renditions, PDFs, refusals, rollbacks, the S3 branch), `ExpenseReceiptServletTest`,
-`ExpenseReportResourceTest`, `MoneyFormsTest`, plus cases in `AuditCommandsTest`, `MediaTenancyTest`,
+`ExpenseReportResourceTest`, `MoneyFormsTest`, `ExpensePaymentTest`, `ExpenseReportPdfTest`, plus cases in `AuditCommandsTest`, `MediaTenancyTest`,
 `MediaCommandsPresignTest`, `MediaResourceTest`, `ModelSerializationTest`, `SerializationCompatibilityTest`,
 `ApiSurfaceTest`.
 
 Browser (`medjugorje/webtest`): `ExpenseReportPwIT` (the oracle and the print view, a currency from the dialog
 then fine-tuned, a matched expense moving its budget line, row commands by identity, receipts uploaded on an
-expense and on the report and served only to the report's readers, submitting, the gate matrix), with the card
+expense and on the report and served only to the report's readers, submitting, an org-paid expense leaving the
+due, payments recorded against ticked expenses then edited and deleted by identity, the gate matrix including a
+trip manager who may not record a payment), with the card
 and page added to `ReportsDashboardPwIT`, `AdminReportsPwIT` and `AuthGatePwIT`.
 
 ## Out of scope (for now)

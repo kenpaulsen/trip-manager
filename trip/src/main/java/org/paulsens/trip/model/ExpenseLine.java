@@ -20,7 +20,8 @@ import lombok.Data;
  * fine-tuning a rate re-prices every line that uses it.
  *
  * <p>The constructor normalizes: a fresh id when none is given, Other when no category, USD when no currency,
- * a non-negative amount, blank text as null, and never a null receipt list. A null date reads "Various".
+ * a non-negative amount, blank text as null, never a null receipt list, and Not paid when no paid status. A
+ * null date reads "Various".
  */
 @Data
 public final class ExpenseLine implements Serializable {
@@ -40,6 +41,8 @@ public final class ExpenseLine implements Serializable {
     private String note;
     /** The {@link MediaItem} ids of this line's receipts, in upload order. */
     private List<String> receiptIds;
+    /** Whether it was settled outside the report (the organization paid it, or it was reimbursed already). */
+    private ExpensePaidStatus paidStatus;
 
     @Builder
     @JsonCreator
@@ -52,7 +55,8 @@ public final class ExpenseLine implements Serializable {
             @JsonProperty("amountMinor") final long amountMinor,
             @JsonProperty("budgetLineId") final String budgetLineId,
             @JsonProperty("note") final String note,
-            @JsonProperty("receiptIds") final List<String> receiptIds) {
+            @JsonProperty("receiptIds") final List<String> receiptIds,
+            @JsonProperty("paidStatus") final ExpensePaidStatus paidStatus) {
         this.id = (id == null || id.isBlank()) ? UUID.randomUUID().toString() : id;
         this.date = date;
         this.category = (category == null) ? ExpenseCategory.GENERAL : category;
@@ -63,15 +67,22 @@ public final class ExpenseLine implements Serializable {
         this.budgetLineId = BudgetLine.trimToNull(budgetLineId);
         this.note = BudgetLine.trimToNull(note);
         this.receiptIds = (receiptIds == null) ? new ArrayList<>() : new ArrayList<>(receiptIds);
+        this.paidStatus = (paidStatus == null) ? ExpensePaidStatus.NOT_PAID : paidStatus;
     }
 
     public ExpenseLine() {
-        this(null, null, null, null, null, 0L, null, null, null);
+        this(null, null, null, null, null, 0L, null, null, null, null);
     }
 
     /** Whether the amount is already in dollars and needs no rate. */
     @JsonIgnore
     public boolean isUsd() {
         return USD.equals(currency);
+    }
+
+    /** Whether the submitter is still out of pocket for it: not paid by the organization, nor reimbursed. */
+    @JsonIgnore
+    public boolean isOutOfPocket() {
+        return !paidStatus.isSettled();
     }
 }

@@ -26,6 +26,8 @@ public class ExpenseLineTest {
         assertTrue(built.isUsd());
         assertTrue(built.getReceiptIds().isEmpty());
         assertNull(built.getDate(), "No date reads Various");
+        assertEquals(built.getPaidStatus(), ExpensePaidStatus.NOT_PAID);
+        assertTrue(built.isOutOfPocket());
     }
 
     @Test
@@ -51,9 +53,12 @@ public class ExpenseLineTest {
         final ObjectMapper mapper = DAO.getInstance().getMapper();
         final ExpenseLine line = ExpenseLine.builder().id("x1").date(LocalDate.of(2026, 10, 4))
                 .category(ExpenseCategory.TRANSPORTATION).description("Rental van").currency("BAM")
-                .amountMinor(80_000L).budgetLineId("b1").note("Dragan").receiptIds(List.of("r1", "r2")).build();
+                .amountMinor(80_000L).budgetLineId("b1").note("Dragan").receiptIds(List.of("r1", "r2"))
+                .paidStatus(ExpensePaidStatus.REIMBURSED).build();
+        assertFalse(line.isOutOfPocket());
         final String json = mapper.writeValueAsString(line);
         assertFalse(json.contains("\"usd\""), "Derived flags are not stored");
+        assertFalse(json.contains("outOfPocket"), "Derived flags are not stored");
         assertEquals(mapper.readValue(json, ExpenseLine.class), line);
     }
 
@@ -66,5 +71,15 @@ public class ExpenseLineTest {
         assertEquals(ExpenseCategory.ofBudget(null), ExpenseCategory.GENERAL);
         assertEquals(ExpenseCategory.POSTAGE.getLabel(), "Postage");
         assertEquals(ExpenseStatus.SUBMITTED.getLabel(), "Submitted");
+    }
+
+    @Test
+    public void paidStatusesNameTheirChips() {
+        assertNull(ExpensePaidStatus.NOT_PAID.getChip());
+        assertFalse(ExpensePaidStatus.NOT_PAID.isSettled());
+        assertEquals(ExpensePaidStatus.ORG.getLabel(), "Paid by organization");
+        assertEquals(ExpensePaidStatus.ORG.getChip(), "Org paid");
+        assertEquals(ExpensePaidStatus.REIMBURSED.getChip(), "Reimbursed");
+        assertTrue(ExpensePaidStatus.REIMBURSED.isSettled());
     }
 }

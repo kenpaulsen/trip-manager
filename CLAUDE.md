@@ -159,8 +159,10 @@ from the price since 2026-10-26) -- plus `CostExtra`s and an optional `RatePlan`
 price on a plan); `PricingModel`, `OfferType`; the trip's planning budget `TripBudget` with inline
 `BudgetLine`s (`BudgetLineKind` SHARED/INDIVIDUAL, `BudgetCategory`) and `BudgetLodgingLine`s that read one of
 the trip's options LIVE, `docs/budget.md`; the trip's expense report `TripExpenseReport` with inline
-`CurrencyRate`s (foreign units per dollar, in millionths) and `ExpenseLine`s (one currency each, optionally
-matched to a budget line; dollar figures derived on read, never stored), `docs/expense-report.md` --
+`CurrencyRate`s (foreign units per dollar, in millionths), `ExpenseLine`s (one currency each, optionally
+matched to a budget line, with a paid status: Not paid / Paid by organization / Already reimbursed; dollar
+figures derived on read, never stored) and `ExpensePayment`s (signed, recorded by a finance admin against the
+expenses they settle), `docs/expense-report.md` --
 `docs/lodging.md` "Price vs cost" before touching any money field; the four legacy flat price keys still
 fold on read and mirror on write for one release, `docs/migrations/lodging-price-cost.md`), plus
 `model/chat/*` (15 chat types) and `model/deploy/*`. **Accommodations are GLOBAL, not org-owned** — the one
@@ -209,7 +211,8 @@ lines, lodging lines reading the trip's options live, the page's rows and the da
 tripMgr/tripFinAdmin, view adds tripFinView and the global viewFinances; arithmetic in `pay/BudgetMath`; see
 `docs/budget.md`; both gates live in `TripFinanceGate`, shared with the expense report), `expenses`
 (ExpenseCommands -- the trip's shared expense report: details, currencies, expenses matched to budget lines,
-the submit stamp, budget vs actual; arithmetic in `pay/ExpenseMath`; the PDF (`ExpenseReportPdf`, receipts
+the submit stamp, budget vs actual, payments recorded behind the narrower settle gate (site admin or
+`tripFinAdmin` only, `TripFinanceGate.canSettle`); arithmetic in `pay/ExpenseMath`; the PDF (`ExpenseReportPdf`, receipts
 appended) and the email to the org's treasurer (`finance.treasurer.email`) through
 `MailCommands.sendWithAttachment`, the ONE send that carries a file (raw MIME over SES `SendRawEmail`); both money
 PDFs draw with `action/PdfSheet` and download from `web/TripMoneyPdfServlet`; see `docs/expense-report.md`),

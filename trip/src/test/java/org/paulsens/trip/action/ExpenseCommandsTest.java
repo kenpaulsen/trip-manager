@@ -14,6 +14,8 @@ import org.paulsens.trip.action.ExpenseViews.ExpensePage;
 import org.paulsens.trip.action.ExpenseViews.HeaderForm;
 import org.paulsens.trip.action.ExpenseViews.ExpenseForm;
 import org.paulsens.trip.action.ExpenseViews.ExpenseRow;
+import org.paulsens.trip.action.ExpenseViews.PaymentForm;
+import org.paulsens.trip.action.ExpenseViews.PaymentRow;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
@@ -29,6 +31,8 @@ import org.paulsens.trip.model.BudgetLineKind;
 import org.paulsens.trip.model.BudgetLodgingLine;
 import org.paulsens.trip.model.ExpenseCategory;
 import org.paulsens.trip.model.ExpenseLine;
+import org.paulsens.trip.model.ExpensePaidStatus;
+import org.paulsens.trip.model.ExpensePayment;
 import org.paulsens.trip.model.ExpenseStatus;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
@@ -177,6 +181,259 @@ public class ExpenseCommandsTest {
         assertEquals(stranger.receiptHeading(id, "x"), "Receipts");
         assertNull(stranger.currencyFormFor(id, "EUR").getCode());
         assertNull(stranger.lineFormFor(id, "x").getId());
+        assertTrue(stranger.paymentFormsFor(id).isEmpty());
+        assertTrue(stranger.unpaidLineChoices(id, null).isEmpty());
+        assertNull(stranger.paymentFormFor(id, "x").getId());
+    }
+
+    @Test
+    public void onlyFinanceAdminsRecordPayments() throws IOException {
+        final String id = newTrip().getId();
+        assertTrue(admin.canRecordPayments(id), "Site admin");
+        assertTrue(as(grant(PrivilegeCommands.TRIP_FIN_ADMIN, id)).canRecordPayments(id));
+        final ExpenseCommands manager = as(grant(PrivilegeCommands.TRIP_MGR, id));
+        assertTrue(manager.canEditExpenses(id));
+        assertFalse(manager.canRecordPayments(id), "A trip manager, usually the one paid, records no payment");
+        assertFalse(manager.recordPayment(id, payment(null, 10.0, "Zelle")));
+        assertFalse(manager.deletePayment(id, "x"));
+        assertFalse(manager.reportPage(id).isCanRecordPayments());
+        assertTrue(admin.reportPage(id).isCanRecordPayments());
+        assertFalse(as(grant(PrivilegeCommands.TRIP_FIN_VIEW, id)).canRecordPayments(id));
+        assertFalse(as(grant(PrivilegeCommands.VIEW_FINANCES, null)).canRecordPayments(id));
+        assertFalse(new ExpenseCommands(() -> new Caller(null, false, AuditActor.system(), new PrivilegeCommands()))
+                .canRecordPayments(id));
+        assertFalse(admin.canRecordPayments(UUID.randomUUID().toString()), "Unknown trip");
+        assertFalse(admin.recordPayment(id, null), "Nothing to save");
+    }
+
+    // ------------------------------------------------------------------ paid status and payments
+
+    private static PaymentForm payment(final LocalDate date, final Double amount, final String method,
+            final String... lineIds) {
+        final PaymentForm form = new PaymentForm();
+        form.setDate(date);
+        form.setAmount(amount);
+        form.setMethod(method);
+        form.setLineIds(new ArrayList<>(List.of(lineIds)));
+        return form;
+    }
+
+    private String lineId(final String tripId, final String description) {
+        return row(admin.reportPage(tripId), description).getId();
+    }
+
+    @Test
+    public void linesSettledOutsideTheReportLeaveTheDue() throws IOException {
+        final String id = newTrip().getId();
+        saveSheet(id);
+        final ExpenseForm gradnici = admin.lineFormFor(id, lineId(id, "Gradnici donation"));
+        assertEquals(gradnici.getPaidStatus(), "NOT_PAID");
+        gradnici.setPaidStatus("ORG");
+        assertTrue(admin.saveLine(id, gradnici), gradnici.getProblem());
+        final ExpenseForm tips = admin.lineFormFor(id, stored(id).getLines().get(3).getId());
+        tips.setPaidStatus("REIMBURSED");
+        assertTrue(admin.saveLine(id, tips));
+        final ExpenseForm unknown = admin.lineFormFor(id, lineId(id, "Guide"));
+        unknown.setPaidStatus("SOMETIMES");
+        assertFalse(admin.saveLine(id, unknown));
+        assertEquals(unknown.getProblem(), "Choose a paid status.");
+
+        final ExpensePage page = admin.reportPage(id);
+        assertEquals(page.getTotal(), "$55,560.95", "Still spent");
+        assertTrue(page.isHasSettled());
+        assertEquals(page.getPaidByOrg(), "$265.06");
+        assertEquals(page.getReimbursed(), "$120.48");
+        assertEquals(page.getOutOfPocket(), "$55,175.41");
+        assertEquals(page.getDue(), "$9,410.41");
+        assertTrue(page.isDueToSubmitter());
+        final ExpenseRow row = row(page, "Gradnici donation");
+        assertEquals(row.getPaidChip(), "Org paid");
+        assertEquals(row.getPaidKey(), "org");
+        assertNull(row(page, "Guide").getPaidChip());
+        assertEquals(row(page, "Guide").getPaidKey(), "not_paid");
+        assertEquals(page.getUnpaidCount(), 16);
+        assertEquals(page.getStillDueLabel(), "Still due to Ken Paulsen");
+        assertEquals(admin.paidStatuses().get(1).getLabel(), "Paid by organization");
+        assertEquals(stored(id).line(row.getId()).getPaidStatus(), ExpensePaidStatus.ORG);
+
+        // An edit keeps the status (saveLine rebuilds the line from the form).
+        final ExpenseForm again = admin.lineFormFor(id, row.getId());
+        again.setNote("Paid by the office");
+        assertTrue(admin.saveLine(id, again));
+        assertEquals(stored(id).line(row.getId()).getPaidStatus(), ExpensePaidStatus.ORG);
+        final ExpenseForm blank = line(null, null, "Blank status", "USD", 1.0);
+        blank.setPaidStatus(null);
+        assertTrue(admin.saveLine(id, blank));
+        assertEquals(stored(id).line(blank.getId()).getPaidStatus(), ExpensePaidStatus.NOT_PAID);
+    }
+
+    @Test
+    public void paymentsSettleLinesAndTheBalance() throws IOException {
+        final String id = newTrip().getId();
+        saveSheet(id);
+        final String guide = lineId(id, "Guide");
+        final String tolls = lineId(id, "Tolls");
+        final List<Choice> unpaid = admin.unpaidLineChoices(id, null);
+        assertEquals(unpaid.size(), 18);
+        assertEquals(unpaid.get(8).getLabel(), "Sep 29, 2026, Guide, $1,440.00");
+        assertEquals(unpaid.get(11).getLabel(), "Various, Tolls, $30.00");
+
+        final PaymentForm first = admin.newPaymentForm();
+        assertEquals(first.getDate(), LocalDate.now());
+        first.setLineIds(new ArrayList<>(List.of(guide, tolls)));
+        admin.prefillAmount(id, first);
+        assertEquals(first.getAmount(), 1_470.0, "The ticked lines' dollars");
+        first.setAmount(1_000.0);
+        first.setDate(LocalDate.of(2026, 10, 20));
+        first.setMethod(" Zelle ");
+        first.setNote("Less part of the advance");
+        assertTrue(admin.recordPayment(id, first), first.getProblem());
+        assertNotNull(first.getId());
+
+        ExpensePage page = admin.reportPage(id);
+        assertEquals(page.getStatus(), "Partly paid");
+        assertEquals(page.getStatusKey(), "partly_paid");
+        assertEquals(row(page, "Guide").getPaidChip(), "Paid Oct 20");
+        assertEquals(row(page, "Guide").getPaidKey(), "paid");
+        assertEquals(row(page, "Guide").getPaymentId(), first.getId());
+        final PaymentRow paid = page.getPaymentRows().get(0);
+        assertEquals(paid.getAmount(), "$1,000.00");
+        assertEquals(paid.getMethod(), "Zelle");
+        assertEquals(paid.getLines(), "Guide, Tolls");
+        assertEquals(paid.getLineCount(), 2);
+        assertEquals(paid.getDateText(), "Oct 20, 2026");
+        assertTrue(paid.getRecordedLine().startsWith("Recorded by "), paid.getRecordedLine());
+        assertEquals(page.getPaymentsTotal(), "$1,000.00");
+        assertEquals(page.getStillDue(), "$8,795.95", "$9,795.95 owed, $1,000.00 paid");
+        assertTrue(page.isStillDueToSubmitter());
+        assertEquals(page.getUnpaidCount(), 16);
+        assertEquals(admin.unpaidLineChoices(id, null).size(), 16, "Paid lines leave the checklist");
+        assertEquals(admin.unpaidLineChoices(id, first.getId()).size(), 18, "...except for their own payment");
+
+        // A paid line is guarded until its payment goes.
+        assertFalse(admin.deleteLine(id, guide));
+        final ExpenseForm settle = admin.lineFormFor(id, guide);
+        settle.setPaidStatus("ORG");
+        assertFalse(admin.saveLine(id, settle));
+        assertEquals(settle.getProblem(), ExpenseCommands.PAID_LINE);
+        final ExpenseForm text = admin.lineFormFor(id, guide);
+        text.setNote("Fr. Leon");
+        assertTrue(admin.saveLine(id, text), "Its text and amount stay editable");
+
+        // A line can be in one payment only, and a settled line in none.
+        final PaymentForm twice = payment(LocalDate.of(2026, 10, 21), 5.0, "Cash", guide);
+        assertFalse(admin.recordPayment(id, twice));
+        assertEquals(twice.getProblem(), "'Guide' is already in a payment: reload the page.");
+        final ExpenseForm org = admin.lineFormFor(id, lineId(id, "Party supplies"));
+        org.setPaidStatus("ORG");
+        assertTrue(admin.saveLine(id, org));
+        final PaymentForm settled = payment(LocalDate.of(2026, 10, 21), 5.0, "Cash", org.getId());
+        assertFalse(admin.recordPayment(id, settled));
+        assertEquals(settled.getProblem(), "'Party supplies' was paid by organization: it needs no payment.");
+        final PaymentForm gone = payment(LocalDate.of(2026, 10, 21), 5.0, "Cash", "no-such-line");
+        assertFalse(admin.recordPayment(id, gone));
+        assertEquals(gone.getProblem(), "An expense you ticked no longer exists: reload the page.");
+
+        // Edit the first payment: its stamp stays, its lines change.
+        final PaymentForm edit = admin.paymentFormFor(id, first.getId());
+        assertEquals(edit.getLineIds(), List.of(guide, tolls));
+        assertEquals(edit.getAmount(), 1_000.0);
+        edit.setLineIds(new ArrayList<>(List.of(guide, guide, "")));
+        final ExpensePayment before = stored(id).payment(first.getId());
+        assertTrue(admin.recordPayment(id, edit), edit.getProblem());
+        final ExpensePayment after = stored(id).payment(first.getId());
+        assertEquals(after.getLineIds(), List.of(guide), "Duplicates and blanks dropped");
+        assertEquals(after.getRecordedOn(), before.getRecordedOn());
+        assertEquals(after.getRecordedById(), TestCallers.SITE_ADMIN_ID);
+        assertEquals(admin.paymentFormsFor(id).size(), 1);
+
+        // The rest of the expenses and the balance in a second payment: Paid, Settled.
+        final List<String> rest = new ArrayList<>();
+        for (final Choice choice : admin.unpaidLineChoices(id, null)) {
+            rest.add(choice.getId());
+        }
+        final PaymentForm second = payment(LocalDate.of(2026, 10, 22), null, "Check 2002");
+        second.setLineIds(rest);
+        page = admin.reportPage(id);
+        second.setAmount(Double.parseDouble(page.getStillDue().replace("$", "").replace(",", "")));
+        assertTrue(admin.recordPayment(id, second), second.getProblem());
+        page = admin.reportPage(id);
+        assertEquals(page.getStatus(), "Paid");
+        assertTrue(page.isSettled());
+        assertEquals(page.getStillDueLabel(), "Settled");
+        assertEquals(page.getStillDue(), "$0.00");
+        assertEquals(page.getUnpaidCount(), 0);
+
+        // Deleting a payment unpays its lines.
+        assertTrue(admin.deletePayment(id, second.getId()));
+        assertTrue(admin.deletePayment(id, second.getId()), "Already gone");
+        assertEquals(admin.reportPage(id).getStatus(), "Partly paid");
+        assertFalse(admin.deleteLine(id, guide), "Still in the first payment");
+        assertTrue(admin.deletePayment(id, first.getId()));
+        assertTrue(admin.deleteLine(id, guide), "Unpaid again, so deletable");
+        assertEquals(admin.paymentFormFor(id, first.getId()).getId(), null, "A gone payment: a fresh form");
+    }
+
+    @Test
+    public void aPaymentMayRunEitherWayAndCoverNoLine() throws IOException {
+        final String id = newTrip().getId();
+        assertTrue(admin.saveHeader(id, header("Ken", 2_000.0)));
+        assertTrue(admin.saveLine(id, line(null, null, "Hotel", "USD", 1_500.0)));
+        final ExpensePage due = admin.reportPage(id);
+        assertEquals(due.getDue(), "$500.00");
+        assertFalse(due.isDueToSubmitter(), "The advance was larger: the submitter owes the organization");
+        final PaymentForm back = payment(LocalDate.of(2026, 10, 20), -500.0, "Zelle to the office");
+        back.setNote("Unused advance returned");
+        assertTrue(admin.recordPayment(id, back), back.getProblem());
+        final ExpensePage page = admin.reportPage(id);
+        assertTrue(page.getPaymentRows().get(0).isNegative());
+        assertEquals(page.getPaymentRows().get(0).getAmount(), "-$500.00");
+        assertEquals(page.getPaymentRows().get(0).getLines(), ExpenseCommands.NO_LINES);
+        assertEquals(page.getStillDueLabel(), "Settled");
+        assertEquals(page.getStatus(), "Partly paid", "The hotel is still an unpaid expense");
+        final PaymentForm zero = payment(LocalDate.of(2026, 10, 20), 0.0, "Netted against the advance",
+                stored(id).getLines().get(0).getId());
+        assertTrue(admin.recordPayment(id, zero), zero.getProblem());
+        assertEquals(admin.reportPage(id).getStatus(), "Paid");
+    }
+
+    @Test
+    public void paymentsAreChecked() throws IOException {
+        final String id = newTrip().getId();
+        final PaymentForm noDate = payment(null, 1.0, "Zelle");
+        assertFalse(admin.recordPayment(id, noDate));
+        assertEquals(noDate.getProblem(), "Enter the date it was paid.");
+        final PaymentForm noAmount = payment(LocalDate.of(2026, 10, 20), null, "Zelle");
+        assertFalse(admin.recordPayment(id, noAmount));
+        assertEquals(noAmount.getProblem(), "The amount must be between -$10,000,000.00 and $10,000,000.00.");
+        assertFalse(admin.recordPayment(id, payment(LocalDate.of(2026, 10, 20), -10_000_001.0, "Zelle")));
+        assertFalse(admin.recordPayment(id, payment(LocalDate.of(2026, 10, 20), Double.NaN, "Zelle")));
+        final PaymentForm noMethod = payment(LocalDate.of(2026, 10, 20), 1.0, " ");
+        assertFalse(admin.recordPayment(id, noMethod));
+        assertEquals(noMethod.getProblem(), "Enter how it was paid (Zelle, check 1042, cash...).");
+        assertFalse(admin.recordPayment(id, payment(LocalDate.of(2026, 10, 20), 1.0,
+                "m".repeat(ExpenseCommands.MAX_NAME + 1))));
+        final PaymentForm longNote = payment(LocalDate.of(2026, 10, 20), 1.0, "Zelle");
+        longNote.setNote("n".repeat(ExpenseCommands.MAX_NOTE + 1));
+        assertFalse(admin.recordPayment(id, longNote));
+        assertEquals(longNote.getProblem(), "A note is at most 500 characters.");
+        final PaymentForm stale = payment(LocalDate.of(2026, 10, 20), 1.0, "Zelle");
+        stale.setId("gone");
+        assertFalse(admin.recordPayment(id, stale));
+        assertEquals(stale.getProblem(), "This payment no longer exists: reload the page.");
+
+        final TripExpenseReport report = TripExpenseReport.builder().tripId(id).orgId(orgId).build();
+        for (int i = 0; i < ExpenseCommands.MAX_PAYMENTS; i++) {
+            report.getPayments().add(ExpensePayment.builder().amountCents(1L).method("x").build());
+        }
+        assertTrue(DAO.getInstance().saveTripExpenseReport(report));
+        final PaymentForm tooMany = payment(LocalDate.of(2026, 10, 20), 1.0, "Zelle");
+        assertFalse(admin.recordPayment(id, tooMany));
+        assertEquals(tooMany.getProblem(), "A report holds at most 100 payments.");
+        admin.prefillAmount(id, null);
+        final PaymentForm stranger = payment(null, null, null, "x");
+        as(Person.Id.newInstance()).prefillAmount(id, stranger);
+        assertNull(stranger.getAmount(), "A stranger gets no figure");
     }
 
     // ------------------------------------------------------------------ the sheet
@@ -256,18 +513,13 @@ public class ExpenseCommandsTest {
         form.setCashAdvance(45_765.0);
         form.setCashAdvanceDetails("Check 1001 from CFPW");
         form.setPaymentInstructions("Zelle the balance");
-        form.setPaidOn(LocalDate.of(2026, 10, 20));
-        form.setPaidHow("Check 2002");
         assertTrue(admin.saveHeader(id, form));
         final TripExpenseReport report = stored(id);
         assertEquals(report.getSubmittedBy(), "Ken");
         assertEquals(report.getCashAdvanceCents(), 4_576_500L);
         assertEquals(report.getOrgId(), orgId);
         assertNotNull(report.getCreated());
-        assertEquals(report.getStatus(), ExpenseStatus.PAID);
-        final ExpensePage page = admin.reportPage(id);
-        assertEquals(page.getPaidOnText(), "Oct 20, 2026");
-        assertEquals(page.getStatus(), "Paid");
+        assertEquals(report.getStatus(), ExpenseStatus.DRAFT);
         assertEquals(admin.headerFormFor(id).getPaymentInstructions(), "Zelle the balance");
 
         final HeaderForm bad = header("x", -5.0);
@@ -280,10 +532,7 @@ public class ExpenseCommandsTest {
         final HeaderForm longInstructions = header("x", 1.0);
         longInstructions.setPaymentInstructions("i".repeat(ExpenseCommands.MAX_TEXT + 1));
         assertFalse(admin.saveHeader(id, longInstructions));
-        final HeaderForm longHow = header("x", 1.0);
-        longHow.setPaidHow("h".repeat(ExpenseCommands.MAX_NOTE + 1));
-        assertFalse(admin.saveHeader(id, longHow));
-        assertEquals(longHow.getProblem(), "How it was paid is at most 500 characters.");
+        assertEquals(longInstructions.getProblem(), "The payment instructions is at most 2000 characters.");
         assertFalse(admin.saveHeader(id, null));
     }
 
@@ -662,6 +911,7 @@ public class ExpenseCommandsTest {
             assertTrue(body.getValue().contains("<b>Holy Angels</b>") && body.getValue().contains("$1,440.00"),
                     body.getValue());
             assertTrue(body.getValue().contains("with its receipts after it"), body.getValue());
+            assertFalse(body.getValue().contains("Payments recorded"), "No payments yet");
             assertEquals(stored(id).getEmailedTo(), "treasurer@example.org");
             assertTrue(bean.reportPage(id).getEmailedLine().startsWith("Emailed to treasurer@example.org on "));
 
@@ -669,6 +919,18 @@ public class ExpenseCommandsTest {
                     ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                     ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(false);
             assertFalse(bean.emailTreasurer(id), "a failed send says so");
+            final ExpenseForm hotel = line(null, null, "Hotel", "USD", 100.0);
+            hotel.setPaidStatus("ORG");
+            assertTrue(admin.saveLine(id, hotel));
+            assertTrue(admin.recordPayment(id, payment(LocalDate.of(2026, 10, 20), 1_440.0, "Zelle")));
+            final ArgumentCaptor<String> paidBody = ArgumentCaptor.forClass(String.class);
+            Mockito.when(mail.sendWithAttachment(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                    ArgumentMatchers.any(), ArgumentMatchers.any(), paidBody.capture(), ArgumentMatchers.any(),
+                    ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+            assertTrue(bean.emailTreasurer(id));
+            assertTrue(paidBody.getValue().contains("Paid by organization: $100.00"), paidBody.getValue());
+            assertTrue(paidBody.getValue().contains("Payments recorded: $1,440.00<br/><b>Settled</b>"),
+                    paidBody.getValue());
             assertFalse(as(Person.Id.newInstance()).emailTreasurer(id), "a stranger emails nothing");
         } finally {
             treasurer(null);

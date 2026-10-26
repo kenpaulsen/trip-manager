@@ -7,6 +7,8 @@ import org.paulsens.trip.model.BudgetLine;
 import org.paulsens.trip.model.BudgetLineKind;
 import org.paulsens.trip.model.BudgetLodgingLine;
 import org.paulsens.trip.model.ExpenseLine;
+import org.paulsens.trip.model.ExpensePaidStatus;
+import org.paulsens.trip.model.ExpensePayment;
 import org.paulsens.trip.model.TripBudget;
 import org.paulsens.trip.model.TripExpenseReport;
 import org.testng.annotations.Test;
@@ -37,6 +39,47 @@ public class ExpenseMathTest {
         final TripExpenseReport report = ExpenseOracle.report();
         assertEquals(ExpenseMath.total(report), ExpenseOracle.TOTAL);
         assertEquals(ExpenseMath.due(report), ExpenseOracle.DUE, "Negative: owed to the submitter");
+        assertEquals(ExpenseMath.outOfPocket(report), ExpenseOracle.TOTAL, "Nothing was settled outside");
+        assertEquals(ExpenseMath.paymentsTotal(report), 0L);
+        assertEquals(ExpenseMath.stillDue(report), ExpenseOracle.DUE);
+    }
+
+    @Test
+    public void linesSettledOutsideStaySpentButLeaveTheDue() {
+        final TripExpenseReport report = ExpenseOracle.report();
+        report.line("gradnici").setPaidStatus(ExpensePaidStatus.ORG);
+        report.line("tips-bam").setPaidStatus(ExpensePaidStatus.REIMBURSED);
+        assertEquals(ExpenseMath.total(report), ExpenseOracle.TOTAL, "Still spent");
+        assertEquals(ExpenseMath.settledBy(report, ExpensePaidStatus.ORG), 26_506L);
+        assertEquals(ExpenseMath.settledBy(report, ExpensePaidStatus.REIMBURSED), 12_048L);
+        assertEquals(ExpenseMath.outOfPocket(report), 5_517_541L);
+        assertEquals(ExpenseMath.due(report), -941_041L, "$45,765.00 - $55,175.41");
+    }
+
+    @Test
+    public void paymentsSettleTheBalanceEitherWay() {
+        final TripExpenseReport report = ExpenseOracle.report();
+        report.line("gradnici").setPaidStatus(ExpensePaidStatus.ORG);
+        report.line("tips-bam").setPaidStatus(ExpensePaidStatus.REIMBURSED);
+        report.getPayments().add(ExpensePayment.builder().amountCents(900_000L).build());
+        assertEquals(ExpenseMath.paymentsTotal(report), 900_000L);
+        assertEquals(ExpenseMath.stillDue(report), -41_041L, "Still owed to the submitter");
+        report.getPayments().add(ExpensePayment.builder().amountCents(41_041L).build());
+        assertEquals(ExpenseMath.stillDue(report), 0L, "Settled");
+
+        final TripExpenseReport surplus = TripExpenseReport.builder().cashAdvanceCents(200_000L)
+                .lines(List.of(ExpenseLine.builder().id("a").amountMinor(150_000L).build())).build();
+        assertEquals(ExpenseMath.due(surplus), 50_000L, "The submitter owes the organization");
+        surplus.getPayments().add(ExpensePayment.builder().amountCents(-50_000L).build());
+        assertEquals(ExpenseMath.stillDue(surplus), 0L, "A negative payment: the submitter paid it back");
+    }
+
+    @Test
+    public void theTickedLinesAddUpInDollars() {
+        final TripExpenseReport report = ExpenseOracle.report();
+        assertEquals(ExpenseMath.linesUsd(report, List.of("candles", "guide", "nope")), 2_771L + 144_000L);
+        assertEquals(ExpenseMath.linesUsd(report, List.of()), 0L);
+        assertEquals(ExpenseMath.linesUsd(report, null), 0L);
     }
 
     @Test

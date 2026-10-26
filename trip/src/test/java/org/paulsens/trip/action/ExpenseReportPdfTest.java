@@ -81,6 +81,37 @@ public class ExpenseReportPdfTest {
     }
 
     @Test
+    public void paidStatusesAndPaymentsPrint() throws IOException {
+        final String tripId = newTrip();
+        final ExpenseViews.HeaderForm header = new ExpenseViews.HeaderForm();
+        header.setSubmittedBy("Ken Paulsen");
+        header.setCashAdvance(100.0);
+        assertTrue(admin.saveHeader(tripId, header));
+        final ExpenseViews.ExpenseForm hotel = ExpenseCommandsTest.line(null, null, "Hotel", "USD", 500.0);
+        hotel.setPaidStatus("ORG");
+        assertTrue(admin.saveLine(tripId, hotel));
+        final ExpenseViews.ExpenseForm taxi = ExpenseCommandsTest.line(null, null, "Taxi", "USD", 60.0);
+        assertTrue(admin.saveLine(tripId, taxi));
+        final String before = String.join("\n", PdfText.pages(admin.reportPdf(tripId, false)));
+        assertTrue(before.contains("Org paid") && before.contains("Out of pocket"), before);
+        assertTrue(!before.contains("Payments recorded"), "No payments section yet");
+
+        final ExpenseViews.PaymentForm payment = admin.newPaymentForm();
+        payment.setDate(LocalDate.of(2026, 10, 20));
+        payment.setAmount(-40.0);
+        payment.setMethod("Zelle");
+        payment.setNote("Advance left over");
+        payment.setLineIds(new ArrayList<>(List.of(taxi.getId())));
+        assertTrue(admin.recordPayment(tripId, payment), payment.getProblem());
+        final String text = String.join("\n", PdfText.pages(admin.reportPdf(tripId, false)));
+        for (final String expected : List.of("Status: Paid", "Org paid", "Paid Oct 20", "Paid by organization",
+                "$500.00", "Out of pocket", "$60.00", "Due to", "$40.00", "Payments", "-$40.00", "Zelle", "Taxi",
+                "Advance left over", "Payments recorded", "Settled")) {
+            assertTrue(text.contains(expected), "missing '" + expected + "' in:\n" + text);
+        }
+    }
+
+    @Test
     public void anUnusableReceiptIsListedNotFatal() throws IOException {
         final ExpensePage page = new ExpensePage();
         page.setTripTitle("Rome");

@@ -5,6 +5,7 @@ import jakarta.inject.Named;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -26,6 +27,8 @@ import org.paulsens.trip.action.ExpenseViews.ExpensePage;
 import org.paulsens.trip.action.ExpenseViews.HeaderForm;
 import org.paulsens.trip.action.ExpenseViews.ExpenseForm;
 import org.paulsens.trip.action.ExpenseViews.ExpenseRow;
+import org.paulsens.trip.action.ExpenseViews.PaymentForm;
+import org.paulsens.trip.action.ExpenseViews.PaymentRow;
 import org.paulsens.trip.action.ExpenseViews.ReceiptRow;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
@@ -35,6 +38,8 @@ import org.paulsens.trip.model.BudgetLodgingLine;
 import org.paulsens.trip.model.CurrencyRate;
 import org.paulsens.trip.model.ExpenseCategory;
 import org.paulsens.trip.model.ExpenseLine;
+import org.paulsens.trip.model.ExpensePaidStatus;
+import org.paulsens.trip.model.ExpensePayment;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
@@ -53,6 +58,7 @@ import static org.paulsens.trip.action.MoneyForms.dollarsProblem;
 import static org.paulsens.trip.action.MoneyForms.money;
 import static org.paulsens.trip.action.MoneyForms.parse;
 import static org.paulsens.trip.action.MoneyForms.refused;
+import static org.paulsens.trip.action.MoneyForms.signedDollarsProblem;
 import static org.paulsens.trip.action.MoneyForms.tooLong;
 import static org.paulsens.trip.action.PageFeedback.info;
 import static org.paulsens.trip.action.PageFeedback.refuse;
@@ -65,7 +71,8 @@ import static org.paulsens.trip.action.PageFeedback.refuse;
  * {@link TripExpenseReport} row, saves it with one versioned put, audits, and renders {@link ExpenseViews} rows.
  *
  * <p>Receipts are stored by {@link ExpenseReceipts}; this bean only links their ids to the report or a line,
- * and asks it to purge the files of a line it deletes.
+ * and asks it to purge the files of a line it deletes. Payments against the report are recorded here too,
+ * behind the narrower settle gate (site admin or the trip's finance admins, never a trip manager as such).
  */
 @Slf4j
 @Named("expenses")
@@ -79,6 +86,7 @@ public class ExpenseCommands {
     static final int MAX_DESCRIPTION = 200;
     static final int MAX_NOTE = 500;
     static final int MAX_TEXT = 2000;
+    static final int MAX_PAYMENTS = 100;
     /** Foreign units per dollar: a sanity cap well above any real currency (the dong is about 26,000). */
     static final long MAX_RATE_MICROS = 1_000_000L * CurrencyRate.MICROS;
     /** The largest foreign amount a line takes, in hundredths: a billion units covers any currency. */
@@ -89,9 +97,14 @@ public class ExpenseCommands {
     static final String SHARED = "Shared";
     static final String PER_PERSON = "Per person";
     static final String LODGING = "Lodging";
+    static final String NO_LINES = "No specific expenses";
+    static final String PAID_LINE = "This expense is in a recorded payment: remove it from the payment first.";
     private static final String NOT_ALLOWED =
             "Not allowed: only the trip's managers and finance admins can edit its expense report.";
+    private static final String NOT_SETTLER =
+            "Not allowed: only the trip's finance admins can record payments on its expense report.";
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US);
+    private static final DateTimeFormatter SHORT_DAY = DateTimeFormatter.ofPattern("MMM d", Locale.US);
 
     private final Supplier<Caller> callerSource;
     private final Supplier<AuditCommands> auditSource;
@@ -129,6 +142,11 @@ public class ExpenseCommands {
     /** May read the report: an editor, the trip's finance viewers, or a global finance viewer. */
     public boolean canViewExpenses(final String tripId) {
         return gate.canView(tripId);
+    }
+
+    /** May record payments against the report: site admin or the trip's finance admins (not its managers). */
+    public boolean canRecordPayments(final String tripId) {
+        return gate.canSettle(tripId);
     }
 
     // ================================================================== reads
@@ -172,8 +190,6 @@ public class ExpenseCommands {
         page.setCashAdvance(money(report.getCashAdvanceCents()));
         page.setCashAdvanceDetails(report.getCashAdvanceDetails());
         page.setPaymentInstructions(report.getPaymentInstructions());
-        page.setPaidOnText((report.getPaidOn() == null) ? null : DAY.format(report.getPaidOn()));
-        page.setPaidHow(report.getPaidHow());
         for (final CurrencyRate rate : report.getCurrencies()) {
             page.getCurrencyRows().add(currencyRow(report, rate));
         }
@@ -181,13 +197,9 @@ public class ExpenseCommands {
         fillBudget(page, report, budget, BudgetCommands.offersById(tripId));
         fillLines(page, report, budget);
         page.setReportReceipts(receiptRows(report.getReceiptIds()));
-        final long total = ExpenseMath.total(report);
-        final long due = ExpenseMath.due(report);
-        page.setTotal(money(total));
-        page.setDueToSubmitter(due < 0);
-        page.setDueLabel("Due to " + ((due < 0) ? nameOr(report.getSubmittedBy(), "the submitter")
-                : nameOr(page.getOrgName(), "the organization")));
-        page.setDue(money(Math.abs(due)));
+        fillTotals(page, report);
+        fillPayments(page, report);
+        page.setCanRecordPayments(canRecordPayments(tripId));
         page.setLinesWithoutReceipt(ExpenseMath.linesWithoutReceipt(report));
         page.setTreasurerEmail(treasurerEmail(trip));
         if (report.getEmailedOn() != null) {
@@ -195,6 +207,68 @@ public class ExpenseCommands {
         }
         warnMissingRates(page, report);
         return page;
+    }
+
+    /**
+     * Total spent, the part settled outside the report, and what is due: the advance less what the submitter is
+     * still out of pocket for.
+     */
+    private static void fillTotals(final ExpensePage page, final TripExpenseReport report) {
+        final long byOrg = ExpenseMath.settledBy(report, ExpensePaidStatus.ORG);
+        final long reimbursed = ExpenseMath.settledBy(report, ExpensePaidStatus.REIMBURSED);
+        final long due = ExpenseMath.due(report);
+        page.setTotal(money(ExpenseMath.total(report)));
+        page.setHasSettled(report.getLines().stream().anyMatch(line -> !line.isOutOfPocket()));
+        page.setPaidByOrg(money(byOrg));
+        page.setReimbursed(money(reimbursed));
+        page.setOutOfPocket(money(ExpenseMath.outOfPocket(report)));
+        page.setDueToSubmitter(due < 0);
+        page.setDueLabel("Due to " + dueTo(page, report, due));
+        page.setDue(money(Math.abs(due)));
+    }
+
+    /** Who a signed balance is owed to: the submitter when negative, else the organization. */
+    private static String dueTo(final ExpensePage page, final TripExpenseReport report, final long balance) {
+        return (balance < 0) ? nameOr(report.getSubmittedBy(), "the submitter")
+                : nameOr(page.getOrgName(), "the organization");
+    }
+
+    /** The payments table and what is still due after them. */
+    private static void fillPayments(final ExpensePage page, final TripExpenseReport report) {
+        for (final ExpensePayment payment : report.getPayments()) {
+            page.getPaymentRows().add(paymentRow(report, payment));
+        }
+        final long stillDue = ExpenseMath.stillDue(report);
+        page.setPaymentsTotal(money(ExpenseMath.paymentsTotal(report)));
+        page.setSettled(stillDue == 0L);
+        page.setStillDueToSubmitter(stillDue < 0);
+        page.setStillDueLabel((stillDue == 0L) ? "Settled" : "Still due to " + dueTo(page, report, stillDue));
+        page.setStillDue(money(Math.abs(stillDue)));
+        page.setUnpaidCount(report.unpaidLines().size());
+    }
+
+    private static PaymentRow paymentRow(final TripExpenseReport report, final ExpensePayment payment) {
+        final PaymentRow row = new PaymentRow();
+        row.setId(payment.getId());
+        row.setDateText((payment.getDate() == null) ? "" : DAY.format(payment.getDate()));
+        row.setAmount(money(payment.getAmountCents()));
+        row.setNegative(payment.getAmountCents() < 0);
+        row.setMethod(payment.getMethod());
+        row.setNote(payment.getNote());
+        final List<String> names = new ArrayList<>();
+        for (final String lineId : payment.getLineIds()) {
+            final ExpenseLine line = report.line(lineId);
+            if (line != null) {
+                names.add(nameOr(line.getDescription(), "expense"));
+            }
+        }
+        row.setLines(names.isEmpty() ? NO_LINES : String.join(", ", names));
+        row.setLineCount(names.size());
+        if (payment.getRecordedOn() != null) {
+            row.setRecordedLine("Recorded by " + nameOr(payment.getRecordedBy(), "(no name)") + " on "
+                    + DAY.format(payment.getRecordedOn()));
+        }
+        return row;
     }
 
     private static CurrencyRow currencyRow(final TripExpenseReport report, final CurrencyRate rate) {
@@ -285,10 +359,24 @@ public class ExpenseCommands {
             row.setBudgetLabel(budgetLabel(budget, line.getBudgetLineId()));
             row.setReceiptCount(line.getReceiptIds().size());
             row.setNote(line.getNote());
+            paidChip(row, report, line);
             row.setFirst(i == 0);
             row.setLast(i == lines.size() - 1);
             page.getLineRows().add(row);
         }
+    }
+
+    /** The line's chip: "Paid Oct 7" once a payment settles it, else its own paid status (none for Not paid). */
+    private static void paidChip(final ExpenseRow row, final TripExpenseReport report, final ExpenseLine line) {
+        final ExpensePayment payment = report.paymentFor(line.getId());
+        if (payment != null) {
+            row.setPaidKey("paid");
+            row.setPaymentId(payment.getId());
+            row.setPaidChip("Paid" + ((payment.getDate() == null) ? "" : " " + SHORT_DAY.format(payment.getDate())));
+            return;
+        }
+        row.setPaidKey(line.getPaidStatus().name().toLowerCase(Locale.ROOT));
+        row.setPaidChip(line.getPaidStatus().getChip());
     }
 
     /** The matched budget line's name; null when unmatched, {@link #DELETED_LINE} when it is gone. */
@@ -378,8 +466,6 @@ public class ExpenseCommands {
         form.setCashAdvance(dollars(report.getCashAdvanceCents()));
         form.setCashAdvanceDetails(report.getCashAdvanceDetails());
         form.setPaymentInstructions(report.getPaymentInstructions());
-        form.setPaidOn(report.getPaidOn());
-        form.setPaidHow(report.getPaidHow());
         return form;
     }
 
@@ -406,6 +492,7 @@ public class ExpenseCommands {
         form.setAmount(dollars(line.getAmountMinor()));
         form.setBudgetLineId(line.getBudgetLineId());
         form.setNote(line.getNote());
+        form.setPaidStatus(line.getPaidStatus().name());
         return form;
     }
 
@@ -506,6 +593,15 @@ public class ExpenseCommands {
         return choices;
     }
 
+    /** The Paid status menu: Not paid, Paid by organization, Already reimbursed; value = the enum name. */
+    public List<Choice> paidStatuses() {
+        final List<Choice> choices = new ArrayList<>();
+        for (final ExpensePaidStatus status : ExpensePaidStatus.values()) {
+            choices.add(choice(status.name(), status.getLabel()));
+        }
+        return choices;
+    }
+
     /** The budget line just chosen in the dialog sets the category to match it (still editable after). */
     public void pickBudgetLine(final String tripId, final ExpenseForm form) {
         final ExpenseCategory category = (form == null) ? null : categoryOf(budgetOf(tripId), form.getBudgetLineId());
@@ -556,8 +652,6 @@ public class ExpenseCommands {
         report.setCashAdvanceCents(cents(form.getCashAdvance()));
         report.setCashAdvanceDetails(trimToNull(form.getCashAdvanceDetails()));
         report.setPaymentInstructions(trimToNull(form.getPaymentInstructions()));
-        report.setPaidOn(form.getPaidOn());
-        report.setPaidHow(trimToNull(form.getPaidHow()));
         if (!persist(trip, report, refusal, "saved the details", "Expense report saved.")) {
             return false;
         }
@@ -588,8 +682,7 @@ public class ExpenseCommands {
         if (details != null) {
             return details;
         }
-        final String instructions = tooLong("The payment instructions", form.getPaymentInstructions(), MAX_TEXT);
-        return (instructions != null) ? instructions : tooLong("How it was paid", form.getPaidHow(), MAX_NOTE);
+        return tooLong("The payment instructions", form.getPaymentInstructions(), MAX_TEXT);
     }
 
     /** Stamps the report submitted, by the caller, now; refusals growl. Submitting again re-stamps it. */
@@ -745,10 +838,14 @@ public class ExpenseCommands {
         if (adding && report.getLines().size() >= MAX_LINES) {
             return refused(refusal, "A report holds at most " + MAX_LINES + " expenses.");
         }
+        final ExpensePaidStatus paidStatus = paidStatusOf(form);
+        if (!adding && paidStatus.isSettled() && report.isPaid(existing.getId())) {
+            return refused(refusal, PAID_LINE);
+        }
         final ExpenseLine line = ExpenseLine.builder().id(adding ? null : existing.getId()).date(form.getDate())
                 .category(category).description(form.getDescription()).currency(currency)
                 .amountMinor(cents(form.getAmount())).budgetLineId(budgetLineId).note(form.getNote())
-                .receiptIds(adding ? null : existing.getReceiptIds()).build();
+                .receiptIds(adding ? null : existing.getReceiptIds()).paidStatus(paidStatus).build();
         if (adding) {
             report.getLines().add(line);
         } else {
@@ -761,15 +858,25 @@ public class ExpenseCommands {
         form.setId(line.getId());
         form.setCurrency(currency);
         form.setCategory(category.name());
+        form.setPaidStatus(paidStatus.name());
         form.setNewCode(null);
         form.setNewRate(null);
         form.setProblem(null);
         return true;
     }
 
+    /** The form's paid status; Not paid when it names none. */
+    private static ExpensePaidStatus paidStatusOf(final ExpenseForm form) {
+        final ExpensePaidStatus status = parse(ExpensePaidStatus.class, form.getPaidStatus());
+        return (status == null) ? ExpensePaidStatus.NOT_PAID : status;
+    }
+
     private static String lineProblem(final ExpenseForm form) {
         if (trimToNull(form.getCategory()) != null && parse(ExpenseCategory.class, form.getCategory()) == null) {
             return "Choose a category.";
+        }
+        if (trimToNull(form.getPaidStatus()) != null && parse(ExpensePaidStatus.class, form.getPaidStatus()) == null) {
+            return "Choose a paid status.";
         }
         if (trimToNull(form.getDescription()) == null) {
             return "An expense needs a description.";
@@ -828,6 +935,9 @@ public class ExpenseCommands {
         if (line == null) {
             return true;
         }
+        if (report.isPaid(lineId)) {
+            return refuse(PAID_LINE);
+        }
         report.getLines().remove(line);
         if (!persist(trip, report, PageFeedback::refuse, "deleted expense '" + line.getDescription() + "'",
                 "Expense deleted.")) {
@@ -868,6 +978,193 @@ public class ExpenseCommands {
             return false;
         }
         return !Boolean.TRUE.equals(emailTreasurer) || emailTreasurer(tripId);
+    }
+
+    // ================================================================== payments
+
+    /** A fresh payment form, dated today. */
+    public PaymentForm newPaymentForm() {
+        final PaymentForm form = new PaymentForm();
+        form.setDate(LocalDate.now());
+        return form;
+    }
+
+    /** The payment dialog's form for a recorded payment; a fresh form when it is gone. */
+    public PaymentForm paymentFormFor(final String tripId, final String paymentId) {
+        final Trip trip = gate.knownTrip(tripId);
+        final ExpensePayment payment = (trip == null || !canViewExpenses(tripId)) ? null
+                : reportOrDefault(trip, Cached.YES).payment(paymentId);
+        return (payment == null) ? newPaymentForm() : paymentForm(payment);
+    }
+
+    private static PaymentForm paymentForm(final ExpensePayment payment) {
+        final PaymentForm form = new PaymentForm();
+        form.setId(payment.getId());
+        form.setDate(payment.getDate());
+        form.setAmount(dollars(payment.getAmountCents()));
+        form.setMethod(payment.getMethod());
+        form.setNote(payment.getNote());
+        form.setLineIds(new ArrayList<>(payment.getLineIds()));
+        return form;
+    }
+
+    /** Every payment as a form (the REST GET). */
+    public List<PaymentForm> paymentFormsFor(final String tripId) {
+        final List<PaymentForm> forms = new ArrayList<>();
+        final Trip trip = gate.knownTrip(tripId);
+        if (trip == null || !canViewExpenses(tripId)) {
+            return forms;
+        }
+        for (final ExpensePayment payment : reportOrDefault(trip, Cached.YES).getPayments()) {
+            forms.add(paymentForm(payment));
+        }
+        return forms;
+    }
+
+    /**
+     * The payment dialog's checklist: every expense still to be paid, plus those of the payment being edited
+     * ({@code paymentId}, blank for a new one), labeled "Oct 3, Taxi, $27.71".
+     */
+    public List<Choice> unpaidLineChoices(final String tripId, final String paymentId) {
+        final List<Choice> choices = new ArrayList<>();
+        final Trip trip = gate.knownTrip(tripId);
+        if (trip == null || !canViewExpenses(tripId)) {
+            return choices;
+        }
+        final TripExpenseReport report = reportOrDefault(trip, Cached.YES);
+        final ExpensePayment editing = report.payment(paymentId);
+        for (final ExpenseLine line : report.getLines()) {
+            final boolean mine = editing != null && editing.getLineIds().contains(line.getId());
+            if (mine || (line.isOutOfPocket() && !report.isPaid(line.getId()))) {
+                choices.add(choice(line.getId(), ((line.getDate() == null) ? VARIOUS : DAY.format(line.getDate()))
+                        + ", " + nameOr(line.getDescription(), "expense") + ", "
+                        + money(ExpenseMath.lineUsd(report, line))));
+            }
+        }
+        return choices;
+    }
+
+    /** The checklist just changed: the amount becomes what the ticked expenses add up to (still editable). */
+    public void prefillAmount(final String tripId, final PaymentForm form) {
+        final Trip trip = (form == null || !canViewExpenses(tripId)) ? null : gate.knownTrip(tripId);
+        if (trip != null) {
+            form.setAmount(dollars(ExpenseMath.linesUsd(reportOrDefault(trip, Cached.YES), form.getLineIds())));
+        }
+    }
+
+    /**
+     * Records a payment (blank {@code form.id}) or edits one; refusals land on {@code form.problem}, a new
+     * payment's id on {@code form.id}. Finance admins only. The amount is signed and free: the note says why it
+     * differs from the expenses it settles.
+     */
+    public boolean recordPayment(final String tripId, final PaymentForm form) {
+        final Consumer<String> refusal = (form == null) ? PageFeedback::refuse : form::setProblem;
+        final Trip trip = gate.settleableTrip(tripId, form, refusal, NOT_SETTLER);
+        if (trip == null) {
+            return false;
+        }
+        final String problem = paymentProblem(form);
+        if (problem != null) {
+            return refused(refusal, problem);
+        }
+        final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
+        final boolean adding = form.getId() == null || form.getId().isBlank();
+        final ExpensePayment existing = adding ? null : report.payment(form.getId());
+        if (!adding && existing == null) {
+            return refused(refusal, "This payment no longer exists: reload the page.");
+        }
+        if (adding && report.getPayments().size() >= MAX_PAYMENTS) {
+            return refused(refusal, "A report holds at most " + MAX_PAYMENTS + " payments.");
+        }
+        final List<String> lineIds = distinct(form.getLineIds());
+        final String lineProblem = paymentLinesProblem(report, existing, lineIds);
+        if (lineProblem != null) {
+            return refused(refusal, lineProblem);
+        }
+        final ExpensePayment payment = ExpensePayment.builder().id(adding ? null : existing.getId())
+                .date(form.getDate()).amountCents(cents(form.getAmount())).method(form.getMethod())
+                .note(form.getNote()).lineIds(lineIds)
+                .recordedById(adding ? caller().personId() : existing.getRecordedById())
+                .recordedBy(adding ? callerName() : existing.getRecordedBy())
+                .recordedOn(adding ? LocalDateTime.now() : existing.getRecordedOn()).build();
+        if (adding) {
+            report.getPayments().add(payment);
+        } else {
+            report.getPayments().set(report.getPayments().indexOf(existing), payment);
+        }
+        final String what = (adding ? "recorded" : "edited") + " a payment of " + money(payment.getAmountCents())
+                + " by " + payment.getMethod() + " for " + lineIds.size()
+                + ((lineIds.size() == 1) ? " expense" : " expenses");
+        if (!persist(trip, report, refusal, what, adding ? "Payment recorded." : "Payment saved.")) {
+            return false;
+        }
+        form.setId(payment.getId());
+        form.setLineIds(new ArrayList<>(lineIds));
+        form.setProblem(null);
+        return true;
+    }
+
+    private static String paymentProblem(final PaymentForm form) {
+        if (form.getDate() == null) {
+            return "Enter the date it was paid.";
+        }
+        final String amount = signedDollarsProblem("The amount", form.getAmount());
+        if (amount != null) {
+            return amount;
+        }
+        if (trimToNull(form.getMethod()) == null) {
+            return "Enter how it was paid (Zelle, check 1042, cash...).";
+        }
+        final String method = tooLong("How it was paid", form.getMethod(), MAX_NAME);
+        return (method != null) ? method : tooLong("A note", form.getNote(), MAX_NOTE);
+    }
+
+    /** Why these lines cannot be in this payment, or null: each must be still to be paid, or already in it. */
+    private static String paymentLinesProblem(final TripExpenseReport report, final ExpensePayment editing,
+            final List<String> lineIds) {
+        for (final String lineId : lineIds) {
+            final ExpenseLine line = report.line(lineId);
+            if (line == null) {
+                return "An expense you ticked no longer exists: reload the page.";
+            }
+            if (!line.isOutOfPocket()) {
+                return "'" + nameOr(line.getDescription(), "expense") + "' was "
+                        + line.getPaidStatus().getLabel().toLowerCase(Locale.ROOT) + ": it needs no payment.";
+            }
+            final ExpensePayment holder = report.paymentFor(lineId);
+            if (holder != null && holder != editing) {
+                return "'" + nameOr(line.getDescription(), "expense") + "' is already in a payment: reload the page.";
+            }
+        }
+        return null;
+    }
+
+    private static List<String> distinct(final List<String> ids) {
+        final List<String> out = new ArrayList<>();
+        if (ids != null) {
+            for (final String id : ids) {
+                if (id != null && !id.isBlank() && !out.contains(id)) {
+                    out.add(id);
+                }
+            }
+        }
+        return out;
+    }
+
+    /** Deletes a payment (its expenses are unpaid again); refusals growl. Deleting one already gone succeeds. */
+    public boolean deletePayment(final String tripId, final String paymentId) {
+        final Trip trip = gate.settleableTrip(tripId, paymentId, PageFeedback::refuse, NOT_SETTLER);
+        if (trip == null) {
+            return false;
+        }
+        final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
+        final ExpensePayment payment = report.payment(paymentId);
+        if (payment == null) {
+            return true;
+        }
+        report.getPayments().remove(payment);
+        return persist(trip, report, PageFeedback::refuse, "deleted the payment of "
+                + money(payment.getAmountCents()) + " by " + payment.getMethod(), "Payment deleted.");
     }
 
     // ================================================================== PDF and the treasurer
@@ -982,9 +1279,19 @@ public class ExpenseCommands {
         html.append("<p>").append(esc(nameOr(report.getSubmittedBy(), "Someone"))).append(" submitted the expense ")
                 .append("report for <b>").append(esc(trip.getTitle())).append("</b>")
                 .append((page.getTripDates() == null) ? "" : " (" + esc(page.getTripDates()) + ")").append(".</p>");
-        html.append("<p>Total spent: ").append(esc(page.getTotal())).append("<br/>Cash advance: ")
-                .append(esc(page.getCashAdvance())).append("<br/><b>").append(esc(page.getDueLabel())).append(": ")
-                .append(esc(page.getDue())).append("</b></p>");
+        html.append("<p>Total spent: ").append(esc(page.getTotal()));
+        if (page.isHasSettled()) {
+            html.append("<br/>Paid by organization: ").append(esc(page.getPaidByOrg()))
+                    .append("<br/>Already reimbursed: ").append(esc(page.getReimbursed()));
+        }
+        html.append("<br/>Cash advance: ").append(esc(page.getCashAdvance())).append("<br/><b>")
+                .append(esc(page.getDueLabel())).append(": ").append(esc(page.getDue())).append("</b>");
+        if (!page.getPaymentRows().isEmpty()) {
+            html.append("<br/>Payments recorded: ").append(esc(page.getPaymentsTotal())).append("<br/><b>")
+                    .append(esc(page.getStillDueLabel())).append(page.isSettled() ? "" : ": " + esc(page.getStillDue()))
+                    .append("</b>");
+        }
+        html.append("</p>");
         if (report.getPaymentInstructions() != null) {
             html.append("<p>Payment instructions: ").append(esc(report.getPaymentInstructions())).append("</p>");
         }

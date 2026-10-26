@@ -2,11 +2,14 @@ package org.paulsens.trip.pay;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Collection;
 import java.util.Set;
 import org.paulsens.trip.model.BudgetLine;
 import org.paulsens.trip.model.BudgetLodgingLine;
 import org.paulsens.trip.model.CurrencyRate;
 import org.paulsens.trip.model.ExpenseLine;
+import org.paulsens.trip.model.ExpensePaidStatus;
+import org.paulsens.trip.model.ExpensePayment;
 import org.paulsens.trip.model.ReservationOffer;
 import org.paulsens.trip.model.TripBudget;
 import org.paulsens.trip.model.TripExpenseReport;
@@ -58,9 +61,53 @@ public final class ExpenseMath {
         return sum;
     }
 
-    /** The cash advance less everything spent: positive is owed back to the organization, negative to the submitter. */
+    /** What the lines with this paid status spent, in US cents (e.g. what the organization paid directly). */
+    public static long settledBy(final TripExpenseReport report, final ExpensePaidStatus status) {
+        long sum = 0L;
+        for (final ExpenseLine line : report.getLines()) {
+            if (line.getPaidStatus() == status) {
+                sum += lineUsd(report, line);
+            }
+        }
+        return sum;
+    }
+
+    /** What the submitter is still out of pocket for: every line neither paid by the organization nor reimbursed. */
+    public static long outOfPocket(final TripExpenseReport report) {
+        return settledBy(report, ExpensePaidStatus.NOT_PAID);
+    }
+
+    /**
+     * The cash advance less what the submitter is out of pocket for: positive is owed back to the organization,
+     * negative to the submitter. Lines settled outside the report count as spent but not here.
+     */
     public static long due(final TripExpenseReport report) {
-        return report.getCashAdvanceCents() - total(report);
+        return report.getCashAdvanceCents() - outOfPocket(report);
+    }
+
+    /** Every recorded payment, signed: positive paid to the submitter, negative paid back to the organization. */
+    public static long paymentsTotal(final TripExpenseReport report) {
+        long sum = 0L;
+        for (final ExpensePayment payment : report.getPayments()) {
+            sum += payment.getAmountCents();
+        }
+        return sum;
+    }
+
+    /** What is left after the payments, signed like {@link #due}: 0 is settled. */
+    public static long stillDue(final TripExpenseReport report) {
+        return due(report) + paymentsTotal(report);
+    }
+
+    /** These lines in US cents (unknown ids count nothing): the payment dialog's suggested amount. */
+    public static long linesUsd(final TripExpenseReport report, final Collection<String> lineIds) {
+        long sum = 0L;
+        for (final ExpenseLine line : report.getLines()) {
+            if (lineIds != null && lineIds.contains(line.getId())) {
+                sum += lineUsd(report, line);
+            }
+        }
+        return sum;
     }
 
     /** What the lines matched to one budget line spent, in US cents. */

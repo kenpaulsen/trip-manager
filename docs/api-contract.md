@@ -255,22 +255,29 @@ versioned put, so two simultaneous writes can refuse one as "Saved by someone el
 
 ### Expense report (`/api/expenses`, Accept `application/vnd.trip.expense-report.v1+json`)
 
-- `GET /api/expenses/trips/{tripId}` → `{header, currencies:[CurrencyForm], lines:[ExpenseForm], receipts:[...],
-  summary:ExpensePage}`. `header` = `{submittedBy, cashAdvance, cashAdvanceDetails, paymentInstructions, paidOn,
-  paidHow}`; `CurrencyForm` = `{code, rate, note, existing}` where `rate` is foreign units per ONE US dollar
+- `GET /api/expenses/trips/{tripId}` → `{header, currencies:[CurrencyForm], lines:[ExpenseForm],
+  payments:[PaymentForm], receipts:[...], summary:ExpensePage}`. `header` = `{submittedBy, cashAdvance,
+  cashAdvanceDetails, paymentInstructions}`; `CurrencyForm` = `{code, rate, note, existing}` where `rate` is foreign units per ONE US dollar
   (`0.83` = "1 USD = 0.83 EUR"); `ExpenseForm` = `{id, date, category, description, currency, amount, budgetLineId,
-  note}` with `date` a LocalDate or null ("Various"), `amount` in the line's OWN currency, `category` one of
+  note, paidStatus}` with `paidStatus` one of `NOT_PAID|ORG|REIMBURSED` (paid by the organization or already
+  reimbursed: still spent, but not part of what is due), `date` a LocalDate or null ("Various"), `amount` in the line's OWN currency, `category` one of
   `TRANSPORTATION|GUIDE|SUPPLIES|TIPS|SCHOLARSHIP|LEADER|LODGING|POSTAGE|MEALS|GENERAL`, and `budgetLineId` a
-  budget line or lodging line id (null = not in budget). `receipts` = `[{id, lineId, title, pdf, url, thumbUrl}]`,
-  `lineId` null for a report-level receipt. `ExpensePage` = `{exists, status (Draft|Submitted|Paid), statusKey,
-  tripTitle, tripDates, orgName, submittedBy, submittedLine, submitted, cashAdvance, total, dueLabel, due,
-  dueToSubmitter, linesWithoutReceipt, currencyRows:[{code, rateText, inverseText, note, lines, foreignTotal,
+  budget line or lodging line id (null = not in budget). `PaymentForm` = `{id, date, amount, method, note,
+  lineIds}` with `amount` SIGNED dollars (negative = the submitter paid the organization back) and `lineIds` the
+  expenses it settles (may be empty). `receipts` = `[{id, lineId, title, pdf, url, thumbUrl}]`,
+  `lineId` null for a report-level receipt. `ExpensePage` = `{exists, status (Draft|Submitted|Partly paid|Paid), statusKey,
+  tripTitle, tripDates, orgName, submittedBy, submittedLine, submitted, cashAdvance, total, hasSettled, paidByOrg, reimbursed,
+  outOfPocket, dueLabel, due, dueToSubmitter, paymentRows:[{id, dateText, amount, negative, method, note, lines,
+  lineCount, recordedLine}], paymentsTotal, stillDueLabel, stillDue, stillDueToSubmitter, settled,
+  canRecordPayments, unpaidCount, linesWithoutReceipt, currencyRows:[{code, rateText, inverseText, note, lines, foreignTotal,
   usdTotal, rateMissing}], budgetRows:[{id, section, label, category, budget, spent, remaining, remainingNegative,
   notInBudget}], budgetTotal, spentTotal, remainingTotal, lineRows:[{id, dateText, category, description,
-  amountText, usd, foreign, rateMissing, budgetLabel, receiptCount, note}], reportReceipts, warnings[]}`. Dollar
-  figures are computed on every read at the CURRENT rate; `due` is unsigned and `dueLabel` says who is owed.
-- `PUT /api/expenses/trips/{tripId}/header` `{submittedBy, cashAdvance, cashAdvanceDetails, paymentInstructions,
-  paidOn, paidHow}` → `{ok:true}`; `paidOn` an ISO date or null (setting it makes the status Paid).
+  amountText, usd, foreign, rateMissing, budgetLabel, receiptCount, note, paidKey, paidChip, paymentId}],
+  reportReceipts, warnings[]}`. Dollar figures are computed on every read at the CURRENT rate; `due` (the cash
+  advance less the NOT_PAID expenses) is unsigned and `dueLabel` says who is owed; `stillDue` is `due` after the
+  payments ("Settled" at zero).
+- `PUT /api/expenses/trips/{tripId}/header` `{submittedBy, cashAdvance, cashAdvanceDetails, paymentInstructions}`
+  → `{ok:true}`.
 - `POST /api/expenses/trips/{tripId}/submit` → `{ok:true}` (stamps the caller and now; 400 while there are no
   expenses); `POST .../unsubmit` → `{ok:true}`.
 - `POST /api/expenses/trips/{tripId}/email` → `{ok:true}`: emails the report to the organization's treasurer (the
@@ -282,9 +289,15 @@ versioned put, so two simultaneous writes can refuse one as "Saved by someone el
 - `POST /api/expenses/trips/{tripId}/currencies` `{code, rate, note}` → `{code}`; `PUT .../currencies/{code}`
   `{rate, note}`; `DELETE .../currencies/{code}` (400 while an expense uses it). USD never has a row.
 - `POST /api/expenses/trips/{tripId}/lines` / `PUT .../lines/{lineId}` `{date, category, description, currency,
-  amount, budgetLineId, note}` → `{id}`. A blank `category` takes the matched budget line's. `currency` must be
+  amount, budgetLineId, note, paidStatus}` → `{id}`. A blank `category` takes the matched budget line's. `currency` must be
   `USD` or one the report has, unless `rate` is sent too, which adds that currency in the same save. An edit keeps
-  the line's receipts. `DELETE .../lines/{lineId}` → `{ok:true}` and deletes its receipts.
+  the line's receipts. `DELETE .../lines/{lineId}` → `{ok:true}` and deletes its receipts. An expense in a recorded
+  payment cannot be deleted or given a settled `paidStatus` (400) until the payment goes.
+- `POST /api/expenses/trips/{tripId}/payments` / `PUT .../payments/{paymentId}` `{date, amount, method, note,
+  lineIds}` → `{id}`; `DELETE .../payments/{paymentId}` → `{ok:true}`. FINANCE ADMINS ONLY (site admin or
+  `tripFinAdmin`): a trip manager gets 403 "Finance admin required.". Each `lineIds` entry must be a NOT_PAID
+  expense in no other payment. With any payment the status is Paid once every NOT_PAID expense is in one, else
+  Partly paid.
 - `POST /api/expenses/trips/{tripId}/receipts[?lineId=&name=]` with a RAW body (`image/*`, `application/pdf` or
   `application/octet-stream`; the bytes decide, not the header) → `{id, url, thumbUrl}`. No `lineId` = a
   report-level receipt; `name` is the file name shown. 413 `PAYLOAD_TOO_LARGE` over 16 MB; images are stored at

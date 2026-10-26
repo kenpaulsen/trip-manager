@@ -5,7 +5,6 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serial;
 import java.io.Serializable;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,13 +36,13 @@ public final class TripExpenseReport implements Serializable {
     private long cashAdvanceCents;
     private String cashAdvanceDetails;
     private String paymentInstructions;
-    private LocalDate paidOn;
-    private String paidHow;
     /** Who the report was last emailed to (the treasurer), and when; null until it is. */
     private String emailedTo;
     private LocalDateTime emailedOn;
     private List<CurrencyRate> currencies;
     private List<ExpenseLine> lines;
+    /** What the treasurer paid against the report, in the order recorded. */
+    private List<ExpensePayment> payments;
     /** Receipts that belong to no single line (a cash-advance slip, a statement). */
     private List<String> receiptIds;
     private Person.Id createdBy;
@@ -61,12 +60,11 @@ public final class TripExpenseReport implements Serializable {
             @JsonProperty("cashAdvanceCents") final long cashAdvanceCents,
             @JsonProperty("cashAdvanceDetails") final String cashAdvanceDetails,
             @JsonProperty("paymentInstructions") final String paymentInstructions,
-            @JsonProperty("paidOn") final LocalDate paidOn,
-            @JsonProperty("paidHow") final String paidHow,
             @JsonProperty("emailedTo") final String emailedTo,
             @JsonProperty("emailedOn") final LocalDateTime emailedOn,
             @JsonProperty("currencies") final List<CurrencyRate> currencies,
             @JsonProperty("lines") final List<ExpenseLine> lines,
+            @JsonProperty("payments") final List<ExpensePayment> payments,
             @JsonProperty("receiptIds") final List<String> receiptIds,
             @JsonProperty("createdBy") final Person.Id createdBy,
             @JsonProperty("created") final LocalDateTime created,
@@ -79,12 +77,11 @@ public final class TripExpenseReport implements Serializable {
         this.cashAdvanceCents = Math.max(0L, cashAdvanceCents);
         this.cashAdvanceDetails = BudgetLine.trimToNull(cashAdvanceDetails);
         this.paymentInstructions = BudgetLine.trimToNull(paymentInstructions);
-        this.paidOn = paidOn;
-        this.paidHow = BudgetLine.trimToNull(paidHow);
         this.emailedTo = BudgetLine.trimToNull(emailedTo);
         this.emailedOn = emailedOn;
         this.currencies = (currencies == null) ? new ArrayList<>() : new ArrayList<>(currencies);
         this.lines = (lines == null) ? new ArrayList<>() : new ArrayList<>(lines);
+        this.payments = (payments == null) ? new ArrayList<>() : new ArrayList<>(payments);
         this.receiptIds = (receiptIds == null) ? new ArrayList<>() : new ArrayList<>(receiptIds);
         this.createdBy = createdBy;
         this.created = created;
@@ -92,8 +89,7 @@ public final class TripExpenseReport implements Serializable {
     }
 
     public TripExpenseReport() {
-        this(null, null, null, null, null, 0L, null, null, null, null, null, null, null, null, null, null, null,
-                0L);
+        this(null, null, null, null, null, 0L, null, null, null, null, null, null, null, null, null, null, 0L);
     }
 
     /** The line with this id; null when there is none. */
@@ -152,11 +148,51 @@ public final class TripExpenseReport implements Serializable {
         return out;
     }
 
-    /** Paid once paid-on is set, else Submitted once stamped, else Draft. */
+    /** The payment with this id; null when there is none. */
+    public ExpensePayment payment(final String id) {
+        for (final ExpensePayment payment : payments) {
+            if (payment.getId().equals(id)) {
+                return payment;
+            }
+        }
+        return null;
+    }
+
+    /** The payment that settles this line; null while none does. */
+    public ExpensePayment paymentFor(final String lineId) {
+        for (final ExpensePayment payment : payments) {
+            if (payment.getLineIds().contains(lineId)) {
+                return payment;
+            }
+        }
+        return null;
+    }
+
+    /** Whether a recorded payment settles this line. */
+    public boolean isPaid(final String lineId) {
+        return paymentFor(lineId) != null;
+    }
+
+    /** The lines still to be paid: out of pocket and in no payment. */
+    @JsonIgnore
+    public List<ExpenseLine> unpaidLines() {
+        final List<ExpenseLine> out = new ArrayList<>();
+        for (final ExpenseLine line : lines) {
+            if (line.isOutOfPocket() && !isPaid(line.getId())) {
+                out.add(line);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Once a payment is recorded: Paid when no line is left unpaid, else Partly paid. Before that Submitted
+     * once stamped, else Draft.
+     */
     @JsonIgnore
     public ExpenseStatus getStatus() {
-        if (paidOn != null) {
-            return ExpenseStatus.PAID;
+        if (!payments.isEmpty()) {
+            return unpaidLines().isEmpty() ? ExpenseStatus.PAID : ExpenseStatus.PARTLY_PAID;
         }
         return (submittedOn == null) ? ExpenseStatus.DRAFT : ExpenseStatus.SUBMITTED;
     }

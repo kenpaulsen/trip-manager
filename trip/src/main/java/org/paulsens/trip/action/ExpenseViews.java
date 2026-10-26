@@ -26,7 +26,7 @@ public final class ExpenseViews {
 
     // ================================================================== forms (viewScope)
 
-    /** The report's own fields: who it is from, the cash advance, how to pay it, and when it was paid. */
+    /** The report's own fields: who it is from, the cash advance, and how to pay it. */
     @Data
     @NoArgsConstructor
     public static final class HeaderForm implements Serializable {
@@ -36,8 +36,6 @@ public final class ExpenseViews {
         private Double cashAdvance;
         private String cashAdvanceDetails;
         private String paymentInstructions;
-        private LocalDate paidOn;
-        private String paidHow;
         /** Why the last save was refused. */
         private String problem;
     }
@@ -76,6 +74,8 @@ public final class ExpenseViews {
         private String note;
         private String newCode;
         private Double newRate;
+        /** An {@code ExpensePaidStatus} name: Not paid, or settled outside the report. */
+        private String paidStatus = "NOT_PAID";
         /** Why the last save was refused, shown inside the dialog. */
         private String problem;
 
@@ -83,6 +83,25 @@ public final class ExpenseViews {
         public boolean isAddingCurrency() {
             return NEW_CURRENCY.equals(currency);
         }
+    }
+
+    /**
+     * The payment dialog: the lines it settles (ticked from the unpaid ones), the amount (signed, prefilled
+     * from the ticked lines), how and when it was paid, and a note saying why the amount differs from the lines.
+     */
+    @Data
+    @NoArgsConstructor
+    public static final class PaymentForm implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String id;
+        private LocalDate date;
+        private Double amount;
+        private String method;
+        private String note;
+        private List<String> lineIds = new ArrayList<>();
+        /** Why the last save was refused, shown inside the dialog. */
+        private String problem;
     }
 
     // ================================================================== rows (requestScope)
@@ -128,7 +147,7 @@ public final class ExpenseViews {
         private boolean notInBudget;
     }
 
-    /** One expense. {@code first}/{@code last} drive the move buttons. */
+    /** One expense. {@code first}/{@code last} drive the move buttons; the paid fields drive its chip. */
     @Data
     @NoArgsConstructor
     public static final class ExpenseRow implements Serializable {
@@ -148,8 +167,34 @@ public final class ExpenseViews {
         private String budgetLabel;
         private int receiptCount;
         private String note;
+        /** "org", "reimbursed" or "paid" for the chip's style; "not_paid" when there is no chip. */
+        private String paidKey;
+        /** "Org paid", "Reimbursed" or "Paid Oct 7"; null for an expense still to be paid. */
+        private String paidChip;
+        /** The payment that settles it; null while none does. */
+        private String paymentId;
         private boolean first;
         private boolean last;
+    }
+
+    /** One recorded payment. */
+    @Data
+    @NoArgsConstructor
+    public static final class PaymentRow implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String id;
+        private String dateText;
+        /** Signed: "-$500.00" is the submitter paying the organization back. */
+        private String amount;
+        private boolean negative;
+        private String method;
+        private String note;
+        /** "Taxi, Stamps", or "No specific expenses". */
+        private String lines;
+        private int lineCount;
+        /** "Recorded by Ken Paulsen on Oct 7, 2026". */
+        private String recordedLine;
     }
 
     /** One receipt: what to call it and the two app URLs that serve it (never the media CDN). */
@@ -176,7 +221,7 @@ public final class ExpenseViews {
         private boolean exists;
         private long version;
         private String status;
-        /** "draft", "submitted" or "paid", for the chip's style. */
+        /** "draft", "submitted", "partly_paid" or "paid", for the chip's style. */
         private String statusKey;
         private String tripTitle;
         private String tripDates;
@@ -188,8 +233,6 @@ public final class ExpenseViews {
         private String cashAdvance;
         private String cashAdvanceDetails;
         private String paymentInstructions;
-        private String paidOnText;
-        private String paidHow;
         private List<CurrencyRow> currencyRows = new ArrayList<>();
         private boolean hasBudget;
         private List<BudgetRow> budgetRows = new ArrayList<>();
@@ -200,11 +243,30 @@ public final class ExpenseViews {
         private List<ExpenseRow> lineRows = new ArrayList<>();
         private List<ReceiptRow> reportReceipts = new ArrayList<>();
         private String total;
+        /** Whether any line was settled outside the report, so the totals show the split below. */
+        private boolean hasSettled;
+        private String paidByOrg;
+        private String reimbursed;
+        /** What the submitter is still out of pocket for: the total less the two above. */
+        private String outOfPocket;
         /** "Due to CFPW" or "Due to the submitter". */
         private String dueLabel;
         /** The amount due, unsigned. */
         private String due;
         private boolean dueToSubmitter;
+        private List<PaymentRow> paymentRows = new ArrayList<>();
+        /** The payments added up, signed. */
+        private String paymentsTotal;
+        /** "Still due to CFPW", "Still due to the submitter", or "Settled". */
+        private String stillDueLabel;
+        /** What is left after the payments, unsigned. */
+        private String stillDue;
+        private boolean stillDueToSubmitter;
+        private boolean settled;
+        /** Whether this caller may record payments (site admin or the trip's finance admins). */
+        private boolean canRecordPayments;
+        /** How many expenses are still to be paid: out of pocket and in no payment. */
+        private int unpaidCount;
         private int linesWithoutReceipt;
         /** The organization's treasurer address the report can be emailed to; null when none is set. */
         private String treasurerEmail;

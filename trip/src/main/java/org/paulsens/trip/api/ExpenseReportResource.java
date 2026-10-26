@@ -42,6 +42,7 @@ public class ExpenseReportResource extends BaseResource {
     private static final String V1 = ApiMediaTypes.EXPENSE_REPORT_V1;
     private static final String CSRF_MESSAGE = "Missing " + CSRF_HEADER + " header.";
     private static final String EDIT_REQUIRED = "Trip manager or finance admin required.";
+    private static final String SETTLE_REQUIRED = "Finance admin required.";
 
     @Override
     protected String versionedType() {
@@ -57,7 +58,7 @@ public class ExpenseReportResource extends BaseResource {
     }
 
     /**
-     * The whole report: {@code {header, currencies, lines, receipts, summary}}, summary being the page's
+     * The whole report: {@code {header, currencies, lines, payments, receipts, summary}}, summary being the page's
      * computed figures and {@code receipts} every receipt with the line it belongs to (null = the report).
      */
     @GET
@@ -74,6 +75,7 @@ public class ExpenseReportResource extends BaseResource {
         out.put("currencies", expenses.currencyFormsFor(tripId));
         final List<ExpenseViews.ExpenseForm> lines = expenses.lineFormsFor(tripId);
         out.put("lines", lines);
+        out.put("payments", expenses.paymentFormsFor(tripId));
         final List<Map<String, Object>> receipts = new ArrayList<>();
         addReceipts(receipts, expenses.receiptRowsFor(tripId, null), null);
         for (final ExpenseViews.ExpenseForm line : lines) {
@@ -97,10 +99,7 @@ public class ExpenseReportResource extends BaseResource {
         }
     }
 
-    /**
-     * Body: {@code {submittedBy, cashAdvance, cashAdvanceDetails, paymentInstructions, paidOn, paidHow}},
-     * {@code paidOn} an ISO date or null. Answers {@code {ok:true}}.
-     */
+    /** Body: {@code {submittedBy, cashAdvance, cashAdvanceDetails, paymentInstructions}}. Answers {@code {ok:true}}. */
     @PUT
     @Path("trips/{tripId}/header")
     @Consumes({V1, MediaType.APPLICATION_JSON})
@@ -116,12 +115,6 @@ public class ExpenseReportResource extends BaseResource {
         form.setCashAdvance(dbl(body, "cashAdvance"));
         form.setCashAdvanceDetails(str(body, "cashAdvanceDetails"));
         form.setPaymentInstructions(str(body, "paymentInstructions"));
-        form.setPaidHow(str(body, "paidHow"));
-        try {
-            form.setPaidOn(date(body, "paidOn"));
-        } catch (final DateTimeParseException ex) {
-            return error(400, ApiErrors.VALIDATION_FAILED, "paidOn must be a date like 2026-10-20.");
-        }
         return expenses().saveHeader(tripId, form) ? ok(Map.of("ok", true))
                 : error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(), "The report was not saved."));
     }
@@ -220,9 +213,10 @@ public class ExpenseReportResource extends BaseResource {
     }
 
     /**
-     * Body: {@code {date, category, description, currency, amount, budgetLineId, note}}: {@code date} an ISO
-     * date or null ("Various"), {@code amount} in the line's own currency, {@code currency} USD or one the
-     * report has, or a new code together with {@code rate} to add it in the same save. Answers {@code {id}}.
+     * Body: {@code {date, category, description, currency, amount, budgetLineId, note, paidStatus}}: {@code date}
+     * an ISO date or null ("Various"), {@code amount} in the line's own currency, {@code currency} USD or one the
+     * report has, or a new code together with {@code rate} to add it in the same save, {@code paidStatus}
+     * NOT_PAID (the default), ORG or REIMBURSED. Answers {@code {id}}.
      */
     @POST
     @Path("trips/{tripId}/lines")
@@ -312,7 +306,79 @@ public class ExpenseReportResource extends BaseResource {
         return (problem == null) ? ok(Map.of("ok", true)) : error(400, ApiErrors.VALIDATION_FAILED, problem);
     }
 
+    /**
+     * Records a payment against the report. Body: {@code {date, amount, method, note, lineIds}}: {@code date} an
+     * ISO date, {@code amount} SIGNED dollars (negative = the submitter paid the organization back),
+     * {@code lineIds} the expenses it settles (each still to be paid; may be empty). Finance admins only.
+     * Answers {@code {id}}.
+     */
+    @POST
+    @Path("trips/{tripId}/payments")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response createPayment(@PathParam("tripId") final String tripId,
+            @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
+        return savePayment(tripId, null, csrf, body);
+    }
+
+    /** Edits a payment; body as {@link #createPayment}. */
+    @PUT
+    @Path("trips/{tripId}/payments/{paymentId}")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response updatePayment(@PathParam("tripId") final String tripId,
+            @PathParam("paymentId") final String paymentId, @HeaderParam(CSRF_HEADER) final String csrf,
+            final Map<String, Object> body) {
+        return savePayment(tripId, paymentId, csrf, body);
+    }
+
+    /** Deletes a payment; its expenses are unpaid again. Deleting one that is already gone succeeds. */
+    @DELETE
+    @Path("trips/{tripId}/payments/{paymentId}")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response deletePayment(@PathParam("tripId") final String tripId,
+            @PathParam("paymentId") final String paymentId, @HeaderParam(CSRF_HEADER) final String csrf) {
+        final Response refused = refuseSettle(tripId, csrf);
+        if (refused != null) {
+            return refused;
+        }
+        return expenses().deletePayment(tripId, paymentId) ? ok(Map.of("ok", true))
+                : error(400, ApiErrors.VALIDATION_FAILED, "The payment was not deleted.");
+    }
+
     // ------------------------------------------------------------------ plumbing
+
+    private Response savePayment(final String tripId, final String paymentId, final String csrf,
+            final Map<String, Object> body) {
+        final Response refused = refuseSettle(tripId, csrf);
+        if (refused != null) {
+            return refused;
+        }
+        final ExpenseViews.PaymentForm form = new ExpenseViews.PaymentForm();
+        form.setId(paymentId);
+        form.setAmount(dbl(body, "amount"));
+        form.setMethod(str(body, "method"));
+        form.setNote(str(body, "note"));
+        form.setLineIds(strings(body, "lineIds"));
+        try {
+            form.setDate(date(body, "date"));
+        } catch (final DateTimeParseException ex) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "date must be a date like 2026-10-20.");
+        }
+        if (!expenses().recordPayment(tripId, form)) {
+            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(), "The payment was not saved."));
+        }
+        return ok(Map.of("id", form.getId()));
+    }
+
+    /** The payment preamble: 404 unknown trip, 403 without CSRF or the settle gate; null to proceed. */
+    private Response refuseSettle(final String tripId, final String csrf) {
+        requireTrip(tripId);
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, CSRF_MESSAGE);
+        }
+        return expenses().canRecordPayments(tripId) ? null : error(403, ApiErrors.FORBIDDEN, SETTLE_REQUIRED);
+    }
 
     private Response saveCurrency(final String tripId, final String code, final boolean existing,
             final String csrf, final Map<String, Object> body) {
@@ -345,6 +411,7 @@ public class ExpenseReportResource extends BaseResource {
         form.setAmount(dbl(body, "amount"));
         form.setBudgetLineId(str(body, "budgetLineId"));
         form.setNote(str(body, "note"));
+        form.setPaidStatus(str(body, "paidStatus"));
         final String currency = str(body, "currency");
         if (dbl(body, "rate") != null) {
             form.setCurrency(ExpenseViews.NEW_CURRENCY);
@@ -385,6 +452,20 @@ public class ExpenseReportResource extends BaseResource {
     private static Double dbl(final Map<String, Object> body, final String key) {
         final Object value = (body == null) ? null : body.get(key);
         return (value instanceof Number n) ? n.doubleValue() : null;
+    }
+
+    /** A JSON array as strings; empty when absent or not an array. */
+    private static List<String> strings(final Map<String, Object> body, final String key) {
+        final List<String> out = new ArrayList<>();
+        final Object value = (body == null) ? null : body.get(key);
+        if (value instanceof List<?> list) {
+            for (final Object item : list) {
+                if (item != null) {
+                    out.add(item.toString());
+                }
+            }
+        }
+        return out;
     }
 
     /** An ISO date ("2026-09-20"), or null when absent or blank. */
