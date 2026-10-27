@@ -86,6 +86,37 @@ are a 200. Only the trip's own `regOptions[].id` keys are taken from `options`; 
 the form's default (on). 400 for an empty party, a blank or duplicate `personId`; 404 unknown trip/person.
 The server sends the office note and the registrant's receipt itself.
 
+`GET /api/trips/{tripId}/registrations/{personId}` also answers `waiversSatisfied` (2026-10-27): false when the
+trip requires a document the traveler has not agreed to (or must sign again), so a status strip can flag it
+without a second call. The party POST's travelers may each carry `waivers:[{waiverId, version, agreed,
+authorityAttested}]` and the body a top-level `client` (`IOS|ANDROID`); every agreement with both flags true and
+the trip's pinned version is recorded first, then a traveler with any unsigned document is refused
+`WAIVERS_REQUIRED` (a per-traveler refusal like `CANNOT_JOIN`, never an HTTP error). Nobody already registered is
+ever un-registered by a document.
+
+## Waivers (trip documents, 2026-10-27; Accept `application/vnd.trip.waivers.v1+json`; backend `docs/waivers.md`)
+
+"Waiver" is loose: any document a trip requires each traveler to agree to. An organization owns its documents and
+every edit publishes the next VERSION (old texts are kept forever); a trip pins one version of each document it
+requires, and when its admin moves a pin they decide whether a signature of an earlier version still counts
+(`acceptOlder`, default true). A signature is the signed-in person ticking BOTH "I have read and agree to
+{title}" and "I attest that I am {name}, or that I am authorized to sign on {name}'s behalf" -- always both, for
+yourself too. The signer is always the caller (identity never changes); the traveler is the SUBJECT.
+
+| Route | Who | Answer |
+|---|---|---|
+| `GET /api/trips/{tripId}/waivers[?personId=]` | the subject, someone who manages them, the trip's registration admin or manager, a site admin (403 else) | `{personId, satisfied, waivers:[{waiverId, title, version, acceptOlder, bodyHtml, sha256, standing: SIGNED\|SIGNED_OLDER\|OUTDATED\|MISSING, agreeText, authorityText, acceptance?:{version, acceptedAt, signerId, signerName, onBehalf, pdfUrl}}]}` -- the ONE call a client needs before registering. `bodyHtml` is the PINNED version's text (rich HTML, scripts stripped at publish; render it like the trip description). `agreeText`/`authorityText` are the two checkbox sentences, already naming the document and the traveler |
+| `POST /api/trips/{tripId}/waivers/{waiverId}/accept` `{personId, version, agreed, authorityAttested, client?}` | the caller signs for themselves or someone they manage | `{acceptance, satisfied}`; signing the same version twice answers the first row. 422 `MISSING_ATTESTATION` unless both are true, 409 `NOT_PINNED` when `version` is not the trip's pin (reload and read), 403 `FORBIDDEN`, 404 |
+| `GET /api/trips/{tripId}/waivers/{waiverId}/pdf?personId=&version=` (Accept `application/pdf`) | as the list | the signed copy (the version's text, then who signed for whom, both statements, when in UTC, from where, the text's SHA-256); 404 when there is no such signature |
+| `PUT /api/trips/{tripId}/waivers` `{waivers:[{waiverId, version, acceptOlder}]}` | registration admin or trip manager | replaces the pins; `{waivers:[{waiverId, title, version, acceptOlder, latestVersion}]}`; 400 `VALIDATION_FAILED` for another org's document, an unknown version or a repeat |
+| `GET /api/orgs/{orgId}/waivers` | org admin | `[{id, title, retired, currentVersion, versions:[{number, title, publishedAt, publishedBy, note}]}]` (no bodies) |
+| `GET /api/orgs/{orgId}/waivers/{id}[?version=]` | org admin | the summary plus `version`, `bodyHtml`, `sha256` of that version (default the newest) |
+| `POST /api/orgs/{orgId}/waivers` `{title, bodyHtml, note?}` / `POST .../{id}/versions` `{bodyHtml, title?, note?}` / `PUT .../{id}` `{retired}` | org admin | the summary; 400 `VALIDATION_FAILED` (no title, no text, nothing changed), 409 `CONFLICT` on a lost race |
+
+Writes need the CSRF header unless the caller holds a bearer token. The apps sign ONLINE (a direct call, never
+the outbox: an agreement must not sit queued), then may also carry the same answers in the party POST so a
+registration that was queued offline still passes the gate when it runs.
+
 ## People
 
 `GET /api/people/{id}[?trip=]` → `PersonDto` (id, nickname, first, middle, last, preferredName, sex,
@@ -310,7 +341,7 @@ versioned put, so two simultaneous writes can refuse one as "Saved by someone el
 ## Errors
 
 `NOT_AUTHENTICATED`(401) `FORBIDDEN`(403) `NOT_FOUND`(404) `BAD_REQUEST`/`VALIDATION_FAILED`(400/422)
-`CONFLICT`(409) `RATE_LIMITED`(429 + Retry-After) `STORE_FAILED`/`INTERNAL`(500). Chat adds
+`CONFLICT`(409) `MISSING_ATTESTATION`(422) `NOT_PINNED`(409) `RATE_LIMITED`(429 + Retry-After) `STORE_FAILED`/`INTERNAL`(500). Chat adds
 `NOT_A_TRIP_MEMBER, LEFT_CHANNEL, REMOVED_FROM_CHANNEL, CHANNEL_ARCHIVED, CHAT_DISABLED, MUTED, SLOW_MODE,
 BAD_CHANNEL, MESSAGE_EMPTY, MESSAGE_TOO_LONG, BAD_ATTACHMENT, EDIT_WINDOW_CLOSED, EDIT_DISABLED,
 ON_BEHALF_NOT_ALLOWED`.
@@ -345,6 +376,11 @@ LUCY=$(curl -s -H "$H" http://localhost:8080/api/family | jq -r '.members[]|sele
 curl -s -H "$H" -X POST -H 'Content-Type: application/vnd.trip.chat.v1+json' \
   -d "{\"body\":\"Lucy will be late\",\"onBehalfOf\":\"$LUCY\"}" \
   http://localhost:8080/api/chat/channels/trip:$T/messages | jq '{authorId, onBehalfOfId}'
+# waivers: what Lucy must sign on a trip, then Ken signs for her (both boxes)
+curl -s -H "$H" "http://localhost:8080/api/trips/$T/waivers?personId=$LUCY" | jq '.waivers[] | {title, version, standing}'
+curl -s -H "$H" -X POST -H 'Content-Type: application/json' \
+  -d "{\"personId\":\"$LUCY\",\"version\":2,\"agreed\":true,\"authorityAttested\":true}" \
+  http://localhost:8080/api/trips/$T/waivers/<waiverId>/accept | jq '.satisfied'
 ```
 
 ## Moderation, blocking, account deletion (2026-09-13; backend `docs/moderation.md`)

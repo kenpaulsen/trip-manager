@@ -41,6 +41,8 @@ import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
+import org.paulsens.trip.model.WaiverDocument;
+import org.paulsens.trip.model.WaiverVersion;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
@@ -528,6 +530,7 @@ public final class FakeData {
         }
         seedFakeProcessor(CFPW_PROCESSOR_ID, CFPW_ORG_ID, "CFPW Test Processor", admin.getId());
         seedFakeProcessor(ACME_PROCESSOR_ID, ACME_ORG_ID, "Acme Test Processor", kevin.getId());
+        seedFakeWaiver(admin.getId());
         seedCfpwPaymentDefaults();
         seedBetaBranding();
         seedPlatformBranding();
@@ -747,6 +750,50 @@ public final class FakeData {
         } catch (final IOException ex) {
             throw new IllegalStateException("Fake org seed: could not save Beta Corp's branding", ex);
         }
+    }
+
+    /** CFPW's seeded document ("Participation Waiver", two versions). Pinned on NO seeded trip on purpose. */
+    public static final String CFPW_WAIVER_ID = "b7e3c9a1-4d2f-4e86-9a15-3c8f0d6e2b47";
+
+    /**
+     * One document in CFPW's library with two published versions, so the library page, the history and a
+     * trip's "Move to v2" all have something to show locally. Deliberately required by no seeded trip: the
+     * existing registration tests register on the seeded trips, and a required document would refuse them.
+     * Tests that need a requirement pin it on a trip they own.
+     */
+    private static void seedFakeWaiver(final Person.Id creator) {
+        try {
+            if (DAO.getInstance().getWaiverDocument(CFPW_ORG_ID, CFPW_WAIVER_ID, Cached.NO).isPresent()) {
+                return;
+            }
+            final LocalDateTime then = LocalDateTime.now().minusDays(30);
+            final String v1 = "<p>I understand that travel involves risks, and I accept them.</p>";
+            final String v2 = "<h2>Release of liability</h2><p>I understand that travel involves risks, including"
+                    + " illness, injury and delays, and I accept them.</p><ul><li>I will follow the group's"
+                    + " schedule.</li><li>I carry my own travel insurance.</li></ul>";
+            final boolean saved = DAO.getInstance().saveWaiverDocument(WaiverDocument.builder()
+                    .id(CFPW_WAIVER_ID)
+                    .orgId(CFPW_ORG_ID)
+                    .title("Participation Waiver")
+                    .createdBy(creator)
+                    .created(then)
+                    .versions(List.of(
+                            fakeWaiverVersion(1, v1, creator, then, null),
+                            fakeWaiverVersion(2, v2, creator, then.plusDays(20), "Added the two commitments.")))
+                    .build());
+            if (!saved) {
+                throw new IllegalStateException("Fake waiver seed failed");
+            }
+        } catch (final IOException ex) {
+            throw new IllegalStateException("Fake waiver seed failed", ex);
+        }
+    }
+
+    private static WaiverVersion fakeWaiverVersion(final int number, final String body, final Person.Id who,
+            final LocalDateTime when, final String note) {
+        return WaiverVersion.builder().number(number).title("Participation Waiver").bodyHtml(body)
+                .sha256(org.paulsens.trip.action.WaiverHtml.sha256(body)).publishedBy(who).publishedAt(when)
+                .note(note).build();
     }
 
     /** Fixed FAKE-processor config ids, so webtests and the payment flow agree across re-seeds. */

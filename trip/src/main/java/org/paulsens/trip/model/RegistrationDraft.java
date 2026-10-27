@@ -25,4 +25,17 @@ public class RegistrationDraft implements Serializable {
     private final Map<String, Object> sel = new HashMap<>();
     /** personId value -> Boolean daily-chat-digest answer. */
     private final Map<String, Object> digest = new HashMap<>();
+    /**
+     * The required-document checkboxes, one flat map keyed {@code personId|waiverId|version|agree} (or
+     * {@code |attest}) -> Boolean. Lazily created rather than initialized: a draft restored from a session
+     * written before this field existed comes back with it null (deserialization runs no initializer).
+     */
+    private Map<String, Object> waivers;
+
+    public Map<String, Object> getWaivers() {
+        if (waivers == null) {
+            waivers = new HashMap<>();
+        }
+        return waivers;
+    }
 }

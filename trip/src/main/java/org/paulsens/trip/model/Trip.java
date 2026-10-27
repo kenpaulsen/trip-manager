@@ -158,6 +158,14 @@ public final class Trip implements Serializable {
     @JsonProperty("paymentConfig")
     @Getter(AccessLevel.NONE)
     private TripPaymentConfig paymentConfig;
+    /**
+     * The documents every traveler must agree to before registering, each pinned to a version of the owning
+     * organization's {@link WaiverDocument} (see {@code docs/waivers.md}). Read through the lazy getter (the
+     * {@code getRegOptions} pattern); absent on every trip that predates the feature, which reads as none.
+     */
+    @JsonProperty("waivers")
+    @Getter(AccessLevel.NONE)
+    private List<TripWaiver> waivers;
 
     private Trip() {
     }
@@ -457,6 +465,27 @@ public final class Trip implements Serializable {
         this.regOptions = new ArrayList<>(options);
     }
 
+    public List<TripWaiver> getWaivers() {
+        if (waivers == null) {
+            waivers = new ArrayList<>();
+        }
+        return waivers;
+    }
+
+    public void setWaivers(final List<TripWaiver> waivers) {
+        this.waivers = (waivers == null) ? new ArrayList<>() : new ArrayList<>(waivers);
+    }
+
+    /** The pin for this document, or null when the trip does not require it. */
+    public TripWaiver waiver(final String waiverId) {
+        for (final TripWaiver pin : getWaivers()) {
+            if (pin.getWaiverId() != null && pin.getWaiverId().equals(waiverId)) {
+                return pin;
+            }
+        }
+        return null;
+    }
+
     public List<BadgeImage> getBadgeImages() {
         if (badgeImages == null) {
             badgeImages = new ArrayList<>();
@@ -644,6 +673,7 @@ public final class Trip implements Serializable {
         private List<TripEvent> resolvedEvents;
         private List<RegistrationOption> regOptions = new ArrayList<>();
         private List<BadgeImage> badgeImages = new ArrayList<>();
+        private List<TripWaiver> waivers = new ArrayList<>();
 
         public TripBuilder id(final String id) {
             this.id = (id == null) ? UUID.randomUUID().toString() : id;
@@ -685,6 +715,10 @@ public final class Trip implements Serializable {
         }
         public TripBuilder badgeImages(final List<BadgeImage> badgeImages) {
             this.badgeImages = (badgeImages == null) ? new ArrayList<>() : new ArrayList<>(badgeImages);
+            return this;
+        }
+        public TripBuilder waivers(final List<TripWaiver> waivers) {
+            this.waivers = (waivers == null) ? new ArrayList<>() : new ArrayList<>(waivers);
             return this;
         }
     }

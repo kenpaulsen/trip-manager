@@ -89,7 +89,10 @@ per-feature gates (e.g. `BackgroundRemover.GATE`).
   Trip budgets add `BudgetDAO` (`trip_budgets`, PK `tripId`: ONE `TripBudget` row per trip with its lines
   inline, one `PointCache`, one versioned conditional put per save) -- `docs/budget.md`. Trip expense reports
   add `ExpenseReportDAO` (`trip_expense_reports`, the same shape: ONE shared `TripExpenseReport` per trip,
-  currencies, expenses and receipt ids inline) -- `docs/expense-report.md`.
+  currencies, expenses and receipt ids inline) -- `docs/expense-report.md`. Trip documents ("waivers") add
+  `WaiverDAO`: `org_waivers` (PK orgId, SK id; every published version inline, versioned puts) and
+  `waiver_acceptances` (PK tripId, SK personId#waiverId#version; WRITE-ONCE, uncached, never deleted) --
+  `docs/waivers.md`.
 - **Caching** (`org.paulsens.trip.cache`) — full architecture doc: `docs/caching.md` (read it before
   touching any cache or DAO read path). All caching goes through the `CacheClient` abstraction —
   `ValkeyCacheClient` (production, shared across instances; TWO connections: foreground queue 5000,
@@ -233,7 +236,9 @@ through the shared crop dialog into slot `lodging-{accId}`), `ratePlans` (RatePl
 plans and their write-through link to offers: a plan is the hotel's COST side only (`canEditCost` is its one
 gate), `savePlan` fans the cost out to every linked option and never recomputes a bill, `attach(AttachForm)`
 on the trip side creates the option WITH its own participant price, `detach` cuts it loose; see
-`docs/lodging.md` "Rate plans"), `deploy`, `json`, `tripUtil`.
+`docs/lodging.md` "Rate plans"), `waiver` (WaiverCommands -- trip documents: an org's versioned library, a
+trip's pinned versions with the re-sign decision, the two-box signature, the `WAIVERS_REQUIRED` registration
+gate and the signed-copy PDF; see `docs/waivers.md`), `deploy`, `json`, `tripUtil`.
 
 - A `Person` comes into being through exactly four paths: sign-up, a family manager's add-member flow, the
   REST people API, and a lodging contact auto-created by `LodgingCommands.findOrCreateContact` (no

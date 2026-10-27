@@ -179,12 +179,12 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
 
         // Status in the body, no staff role: refused outright.
         assertError(resource.save(TRIP_ID, ME.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, "CONFIRMED", null)), 403, ApiErrors.FORBIDDEN);
+                new RegistrationDto(null, null, null, "CONFIRMED", null, null)), 403, ApiErrors.FORBIDDEN);
         Mockito.verify(registrations, Mockito.never()).saveRegistration(ArgumentMatchers.any());
 
         // Answers alone: accepted, and the stored status survives.
         assertOk(resource.save(TRIP_ID, ME.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, null, Map.of("diet", "vegan"))));
+                new RegistrationDto(null, null, null, null, Map.of("diet", "vegan"), null)));
         final ArgumentCaptor<Registration> saved = ArgumentCaptor.forClass(Registration.class);
         Mockito.verify(registrations).saveRegistration(saved.capture());
         Assert.assertEquals(saved.getValue().getStatus(), Registration.Status.PENDING);
@@ -204,9 +204,9 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         Mockito.when(bean(TripCommands.class).getTrip(TRIP_ID)).thenReturn(Trip.builder().id(TRIP_ID).build());
 
         assertOk(resource.save(TRIP_ID, ME.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, "CONFIRMED", null)));
+                new RegistrationDto(null, null, null, "CONFIRMED", null, null)));
         assertOk(resource.save(TRIP_ID, ME.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, "Confirmed", null)));
+                new RegistrationDto(null, null, null, "Confirmed", null, null)));
 
         final ArgumentCaptor<Registration> saved = ArgumentCaptor.forClass(Registration.class);
         Mockito.verify(registrations, Mockito.times(2)).saveRegistration(saved.capture());
@@ -224,11 +224,11 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         Mockito.when(bean(TripCommands.class).getTrip(TRIP_ID)).thenReturn(Trip.builder().id(TRIP_ID).build());
 
         resource.save(TRIP_ID, ME.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, null, Map.of("diet", "vegan")));
+                new RegistrationDto(null, null, null, null, Map.of("diet", "vegan"), null));
         Mockito.verifyNoInteractions(audit);
 
         resource.save(TRIP_ID, ME.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, "CONFIRMED", null));
+                new RegistrationDto(null, null, null, "CONFIRMED", null, null));
         Mockito.verify(audit).registered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
@@ -241,7 +241,7 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         Mockito.when(bean(TripCommands.class).getTrip(TRIP_ID)).thenReturn(Trip.builder().id(TRIP_ID).build());
 
         resource.save(TRIP_ID, ME.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, "NOT_REGISTERED", null));
+                new RegistrationDto(null, null, null, "NOT_REGISTERED", null, null));
 
         Mockito.verify(audit).registrationRemoved(ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any());
@@ -326,7 +326,7 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         tripIsMissing("gone");
 
         assertThrown(() -> resource.save("gone", ME.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, "CONFIRMED", null)), 404, ApiErrors.NOT_FOUND);
+                new RegistrationDto(null, null, null, "CONFIRMED", null, null)), 404, ApiErrors.NOT_FOUND);
         Mockito.verify(registrations, Mockito.never()).saveRegistration(ArgumentMatchers.any());
         Mockito.verifyNoInteractions(audit);
     }
@@ -357,7 +357,7 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
 
         assertThrown(() -> resource.get(TRIP_ID, nobody.getValue()), 404, ApiErrors.NOT_FOUND);
         assertThrown(() -> resource.save(TRIP_ID, nobody.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, "CONFIRMED", null)), 404, ApiErrors.NOT_FOUND);
+                new RegistrationDto(null, null, null, "CONFIRMED", null, null)), 404, ApiErrors.NOT_FOUND);
         assertThrown(() -> resource.room(TRIP_ID, nobody.getValue()), 404, ApiErrors.NOT_FOUND);
         assertThrown(() -> resource.saveRoom(TRIP_ID, nobody.getValue(), CSRF_OK, Map.of("room", "101")),
                 404, ApiErrors.NOT_FOUND);
@@ -406,7 +406,7 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         final Person me = new Person();
         me.setId(ME);
         Mockito.when(registrations.registerPartyOutcome(ArgumentMatchers.eq(trip), ArgumentMatchers.any(),
-                ArgumentMatchers.any(), ArgumentMatchers.any()))
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(new RegistrationCommands.PartyOutcome(List.of(me), List.of(), Map.of()));
 
         final Response response = partyResource().registerParty(TRIP_ID, CSRF_OK, party(traveler(ME, null, null)));
@@ -437,7 +437,7 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         final Map<String, String> refused = new java.util.LinkedHashMap<>();
         refused.put(THIRD.getValue(), RegistrationCommands.PartyOutcome.CANNOT_JOIN);
         Mockito.when(registrations.registerPartyOutcome(ArgumentMatchers.eq(trip), ArgumentMatchers.any(),
-                regsCaptor.capture(), digestCaptor.capture()))
+                regsCaptor.capture(), digestCaptor.capture(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(new RegistrationCommands.PartyOutcome(List.of(me), List.of(other), refused));
 
         final Response response = partyResource().registerParty(TRIP_ID, CSRF_OK, party(
@@ -491,6 +491,7 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         assertThrown(() -> party.registerParty(TRIP_ID, CSRF_OK, party(traveler(THIRD, null, null))), 404,
                 ApiErrors.NOT_FOUND);
         Mockito.verify(registrations, Mockito.never()).registerPartyOutcome(ArgumentMatchers.any(),
-                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any());
     }
 }

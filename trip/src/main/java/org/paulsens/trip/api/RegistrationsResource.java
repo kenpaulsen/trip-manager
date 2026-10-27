@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.AuditCommands;
 import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.RegistrationCommands;
+import org.paulsens.trip.action.WaiverCommands;
 import org.paulsens.trip.api.dto.RegisterPartyRequest;
 import org.paulsens.trip.api.dto.RegisterPartyResponse;
 import org.paulsens.trip.api.dto.RegistrationDto;
@@ -95,10 +96,11 @@ public class RegistrationsResource extends BaseResource {
         // The registration may be transient, but the TRIP and PERSON must be real: without these checks the
         // invented record makes a nonexistent trip -- or a mistyped person id -- look like someone who simply
         // hasn't registered yet.
-        requireTrip(tripId);
+        final Trip trip = requireTrip(tripId);
         requireSubject(subject);
         final Registration reg = Beans.get(RegistrationCommands.class).getRegistration(tripId, subject);
-        return ok(RegistrationMapper.INSTANCE.toDto(reg));
+        return ok(RegistrationMapper.INSTANCE.toDto(reg)
+                .withWaiversSatisfied(new WaiverCommands(this::caller).isSatisfied(trip, subject)));
     }
 
     /**
@@ -171,6 +173,7 @@ public class RegistrationsResource extends BaseResource {
         final Map<String, Registration> regs = new LinkedHashMap<>();
         final Map<String, Object> selected = new LinkedHashMap<>();
         final Map<String, Object> digests = new LinkedHashMap<>();
+        final Map<String, List<WaiverCommands.Agreement>> agreements = new LinkedHashMap<>();
         for (final RegisterPartyRequest.TravelerRequest traveler : body.travelers()) {
             if (traveler == null || traveler.personId() == null || traveler.personId().isBlank()) {
                 return error(400, ApiErrors.VALIDATION_FAILED, "Every traveler needs a personId.");
@@ -186,9 +189,11 @@ public class RegistrationsResource extends BaseResource {
             selected.put(key, Boolean.TRUE);
             digests.put(key, traveler.dailyDigest() != null ? traveler.dailyDigest()
                     : chat.digestChoiceOrDefault(existing));
+            agreements.put(key, agreementsOf(traveler));
         }
-        final RegistrationCommands.PartyOutcome outcome =
-                registrations.registerPartyOutcome(trip, selected, regs, digests);
+        final RegistrationCommands.PartyOutcome outcome = registrations.registerPartyOutcome(trip, selected, regs,
+                digests, agreements, WaiverCommands.ClientInfo.of(TripWaiversResource.clientOf(body.client()),
+                        request));
         final AuditCommands audit = Beans.get(AuditCommands.class);
         final List<RegistrationDto> registered = new ArrayList<>();
         for (final Person person : outcome.registered()) {
@@ -221,6 +226,17 @@ public class RegistrationsResource extends BaseResource {
         }
         return new Registration(existing.getTripId(), existing.getUserId(), existing.getCreated(),
                 existing.getStatus(), options);
+    }
+
+    /** A traveler's document answers as the bean takes them; none given is an empty list. */
+    private static List<WaiverCommands.Agreement> agreementsOf(final RegisterPartyRequest.TravelerRequest traveler) {
+        if (traveler.waivers() == null) {
+            return List.of();
+        }
+        return traveler.waivers().stream()
+                .filter(java.util.Objects::nonNull)
+                .map(w -> new WaiverCommands.Agreement(w.waiverId(), w.version(), w.agreed(), w.authorityAttested()))
+                .toList();
     }
 
     /** Seam: the bean bound to THIS caller (its per-traveler authorization needs one); tests substitute. */

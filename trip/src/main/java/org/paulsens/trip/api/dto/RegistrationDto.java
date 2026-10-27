@@ -17,10 +17,19 @@ public record RegistrationDto(
         String userId,
         LocalDateTime created,
         String status,
-        Map<String, String> options) {
+        Map<String, String> options,
+        Boolean waiversSatisfied) {
 
     /** This registration with the free-text answers removed. */
     public RegistrationDto withoutOptions() {
-        return new RegistrationDto(tripId, userId, created, status, null);
+        return new RegistrationDto(tripId, userId, created, status, null, waiversSatisfied);
+    }
+
+    /**
+     * This registration saying whether the traveler has agreed to every document the trip requires -- the
+     * apps' status strip flags a registered traveler whose trip moved a document since (absent = not asked).
+     */
+    public RegistrationDto withWaiversSatisfied(final boolean satisfied) {
+        return new RegistrationDto(tripId, userId, created, status, options, satisfied);
     }
 }

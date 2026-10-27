@@ -37,6 +37,7 @@ public class TripApiApplication extends Application {
                 MailResource.class,
                 MediaResource.class,
                 OrgsResource.class,
+                OrgWaiversResource.class,
                 PrivilegesResource.class,
                 PushResource.class,
                 PaymentsResource.class,
@@ -46,6 +47,7 @@ public class TripApiApplication extends Application {
                 TodosResource.class,
                 TransactionsResource.class,
                 TripsResource.class,
+                TripWaiversResource.class,
                 TripAuthFilter.class,
                 JsonExceptionMapper.class,
                 // Must accompany JacksonFeature: without it Jackson uses a default mapper with no JavaTimeModule

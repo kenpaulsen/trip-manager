@@ -20,6 +20,7 @@ in `initPage`, NOT via defaultAuth:
 | `orgPeople.jsf` | `canViewOrgPeople` — admin OR `peopleAdmin@org` | **org admins only** (all of them) |
 | `orgProcessors.jsf` | `canManageOrg` | `canManageOrg` |
 | `orgConfig.jsf` | `canManageOrg` | `saveOrgSettings` (see "Per-org settings") |
+| `orgWaivers.jsf` | `canManageOrg` | the org's trip documents ("waivers"): create, publish the next version, retire (`docs/waivers.md`) |
 
 The hub's cards are Profile, Trips, People, Payment Processors, Appearance
 (`orgAppearance.jsf` — the Branding settings), Settings (`orgConfig.jsf` — everything else), Content

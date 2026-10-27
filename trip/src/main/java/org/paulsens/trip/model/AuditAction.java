@@ -80,6 +80,12 @@ public enum AuditAction {
     /** A trip's expense report: its details, a currency or an expense saved, moved or deleted, or a submit. */
     EXPENSE_REPORT,
     /**
+     * Trip documents ("waivers"): an organization's document created, published as a new version, renamed or
+     * retired; a trip's required documents changed; or a traveler's document agreed to. The signature itself
+     * is recorded in {@code waiver_acceptances} -- this is the trail beside it, never the record.
+     */
+    WAIVER,
+    /**
      * A deployment was started from the admin UI.
      *
      * <p>Its own constant rather than {@code ADMIN}: a deployment replaces the running site, so "who released

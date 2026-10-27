@@ -34,6 +34,8 @@ public class RegistrationCommands {
     private final java.util.function.Supplier<OrgCommands> orgSource;
     /** The lodging reservations, consulted before the legacy free-text room (see {@link #getRoomPDV}). */
     private final java.util.function.Supplier<LodgingCommands> lodgingSource;
+    /** The required-documents gate ({@code WAIVERS_REQUIRED}), bound to this bean's caller. */
+    private final java.util.function.Supplier<WaiverCommands> waiverSource;
 
     public RegistrationCommands() {
         this(Caller::current);
@@ -70,6 +72,7 @@ public class RegistrationCommands {
         this.mailAddrSource = mailAddrSource;
         this.orgSource = orgSource;
         this.lodgingSource = () -> new LodgingCommands(callerSource);
+        this.waiverSource = () -> new WaiverCommands(callerSource);
     }
 
     public Registration createRegistration(final String tripId, final Person.Id userId) {
@@ -124,6 +127,8 @@ public class RegistrationCommands {
         public static final String ALREADY_REGISTERED = "ALREADY_REGISTERED";
         /** The trip has started (or the traveler is otherwise unjoinable) and they are not on the roster. */
         public static final String CANNOT_JOIN = "CANNOT_JOIN";
+        /** The trip requires documents this traveler has not agreed to (both boxes, each document). */
+        public static final String WAIVERS_REQUIRED = "WAIVERS_REQUIRED";
 
         static PartyOutcome empty() {
             return new PartyOutcome(new java.util.ArrayList<>(), new java.util.ArrayList<>(),
@@ -139,12 +144,25 @@ public class RegistrationCommands {
             final java.util.Map<String, Object> selected,
             final java.util.Map<String, Registration> regs,
             final java.util.Map<String, Object> digests) {
+        return registerParty(trip, selected, regs, digests, null);
+    }
+
+    /**
+     * @param waiverChecks the page's document checkboxes (the draft's flat map, keyed by
+     *                     {@code WaiverCommands.checkKey}); null when the trip requires none.
+     */
+    public List<Person> registerParty(final org.paulsens.trip.model.Trip trip,
+            final java.util.Map<String, Object> selected,
+            final java.util.Map<String, Registration> regs,
+            final java.util.Map<String, Object> digests,
+            final java.util.Map<String, Object> waiverChecks) {
         if (trip == null || currentPerson() == null || selected == null || regs == null) {
             PageFeedback.error("Nothing registered",
                     "Select at least one traveler.");
             return new java.util.ArrayList<>();
         }
-        final PartyOutcome outcome = registerPartyOutcome(trip, selected, regs, digests);
+        final PartyOutcome outcome = registerPartyOutcome(trip, selected, regs, digests,
+                WaiverCommands.agreementsFromChecks(waiverChecks), WaiverCommands.ClientInfo.web());
         final PersonCommands people = PersonCommands.getPersonCommands();
         for (final java.util.Map.Entry<String, String> refusal : outcome.refused().entrySet()) {
             final String name = people.getPerson(Person.Id.from(refusal.getKey())).getPreferredName();
@@ -152,6 +170,9 @@ public class RegistrationCommands {
                 PageFeedback.error("Not registered", "You cannot register " + name + ".");
             } else if (PartyOutcome.CANNOT_JOIN.equals(refusal.getValue())) {
                 PageFeedback.warn("Not registered", name + " cannot join this trip.");
+            } else if (PartyOutcome.WAIVERS_REQUIRED.equals(refusal.getValue())) {
+                PageFeedback.warn("Not registered", name + " must agree to every required document: tick both "
+                        + "boxes under each one.");
             }
         }
         if (outcome.registered().isEmpty() && outcome.updated().isEmpty()) {
@@ -187,6 +208,25 @@ public class RegistrationCommands {
             final java.util.Map<String, Object> selected,
             final java.util.Map<String, Registration> regs,
             final java.util.Map<String, Object> digests) {
+        return registerPartyOutcome(trip, selected, regs, digests, null, null);
+    }
+
+    /**
+     * The party submit with each traveler's document answers. A traveler's agreements are recorded as soon as
+     * they are allowed to be acted for -- an agreement stands even when the registration is refused for
+     * another reason, and an already-registered traveler re-signs a moved document this way -- and a NEW
+     * registration is then refused {@code WAIVERS_REQUIRED} while any required document is unsigned. Nobody
+     * already registered is ever un-registered by a document (owner decision 2026-10-27).
+     *
+     * @param agreements personId value -> that traveler's agreements; null or absent means none were given
+     * @param client     where the agreements came from, for the record
+     */
+    public PartyOutcome registerPartyOutcome(final org.paulsens.trip.model.Trip trip,
+            final java.util.Map<String, Object> selected,
+            final java.util.Map<String, Registration> regs,
+            final java.util.Map<String, Object> digests,
+            final java.util.Map<String, List<WaiverCommands.Agreement>> agreements,
+            final WaiverCommands.ClientInfo client) {
         final PartyOutcome outcome = PartyOutcome.empty();
         final Person me = currentPerson();
         if (trip == null || me == null || selected == null || regs == null) {
@@ -203,6 +243,10 @@ public class RegistrationCommands {
                 outcome.refused().put(entry.getKey(), PartyOutcome.NOT_ALLOWED);
                 continue;
             }
+            final WaiverCommands waivers = waiverSource.get();
+            if (agreements != null && agreements.containsKey(entry.getKey())) {
+                waivers.applyAgreements(trip, travelerId, agreements.get(entry.getKey()), client);
+            }
             final Registration reg = regs.get(entry.getKey());
             if (reg == null || reg.getStatus() != Registration.Status.NOT_REGISTERED) {
                 // Already pending/confirmed: nothing to file (their answers may still be edited below).
@@ -214,6 +258,10 @@ public class RegistrationCommands {
             // must keep working -- the pre-merge single-traveler page allowed exactly that.
             if (!trip.canJoin(travelerId) && !trip.getPeople().contains(travelerId)) {
                 outcome.refused().put(entry.getKey(), PartyOutcome.CANNOT_JOIN);
+                continue;
+            }
+            if (!waivers.isSatisfied(trip, travelerId)) {
+                outcome.refused().put(entry.getKey(), PartyOutcome.WAIVERS_REQUIRED);
                 continue;
             }
             reg.getOptions().put(Registration.OPT_REGISTERED_BY, me.getId().getValue());

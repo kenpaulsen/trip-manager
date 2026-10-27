@@ -248,6 +248,29 @@ public class AuditCommands {
         return msg;
     }
 
+    /**
+     * A waiver change: an organization's document created, published, renamed or retired
+     * ({@code targetType} {@code TARGET_WAIVER}), or a trip's required documents changed ({@code TARGET_TRIP}).
+     */
+    public String waiver(final String targetType, final String targetId, final String orgId, final String msg,
+            final AuditActor who) {
+        Audit.builder(AuditAction.WAIVER, AuditOutcome.SUCCESS)
+                .actor(who == null ? AuditActor.current() : who)
+                .target(targetType, targetId)
+                .org(orgId)
+                .message(msg)
+                .log();
+        return msg;
+    }
+
+    /** A traveler's document was agreed to; targets the traveler, the acceptance row being the record. */
+    public String waiverAccepted(final Person traveler, final Trip trip, final String title, final int version,
+            final boolean onBehalf, final AuditActor who) {
+        final String msg = actorEmail(who) + " agreed to '" + title + "' v" + version
+                + (onBehalf ? " on behalf of " + describe(traveler) : "") + " for '" + titleOf(trip) + "'.";
+        return record(AuditAction.WAIVER, AuditOutcome.SUCCESS, traveler, msg, who, orgOf(trip));
+    }
+
     /** An expense report change: its details, a currency or an expense saved, moved or deleted, or a submit. */
     public String expenseReport(final String tripId, final String orgId, final String msg, final AuditActor who) {
         Audit.builder(AuditAction.EXPENSE_REPORT, AuditOutcome.SUCCESS)

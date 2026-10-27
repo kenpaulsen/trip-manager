@@ -1,6 +1,7 @@
 package org.paulsens.trip.api.mapper;
 
 import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
 import org.mapstruct.factory.Mappers;
 import org.paulsens.trip.api.dto.RegistrationDto;
 import org.paulsens.trip.model.Registration;
@@ -17,5 +18,6 @@ public interface RegistrationMapper {
 
     RegistrationMapper INSTANCE = Mappers.getMapper(RegistrationMapper.class);
 
+    @Mapping(target = "waiversSatisfied", ignore = true)
     RegistrationDto toDto(Registration registration);
 }

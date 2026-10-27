@@ -25,10 +25,11 @@ public class ApiSurfaceTest {
             ChatAdminResource.class, ChatInviteResource.class, ChatResource.class,
             ConfigResource.class, DeployResource.class, ExpenseReportResource.class, FamilyResource.class,
             LodgingResource.class, MailResource.class,
-            MediaResource.class,
+            MediaResource.class, OrgWaiversResource.class,
             PasskeyResource.class, PaymentsResource.class, PeopleResource.class, PrivilegesResource.class,
             PushResource.class,
-            RegistrationsResource.class, TodosResource.class, TransactionsResource.class, TripsResource.class);
+            RegistrationsResource.class, TodosResource.class, TransactionsResource.class, TripsResource.class,
+            TripWaiversResource.class);
 
     @Test
     public void theAuditTrailIsReadOnlyAndMustStayThatWay() {

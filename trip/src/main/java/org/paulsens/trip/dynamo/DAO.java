@@ -58,6 +58,8 @@ import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripBudget;
 import org.paulsens.trip.model.TripExpenseReport;
+import org.paulsens.trip.model.WaiverAcceptance;
+import org.paulsens.trip.model.WaiverDocument;
 import org.paulsens.trip.model.TripEvent;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatDraft;
@@ -85,6 +87,7 @@ public final class DAO {
     private final LodgingDAO lodgingDao;
     private final BudgetDAO budgetDao;
     private final ExpenseReportDAO expenseDao;
+    private final WaiverDAO waiverDao;
     private final PaymentDAO paymentDao;
     private final TripEventDAO tripEventDao;
     private final TripDAO tripDao;
@@ -123,6 +126,7 @@ public final class DAO {
         this.lodgingDao = new LodgingDAO(mapper, persistence, cacheClient);
         this.budgetDao = new BudgetDAO(mapper, persistence, cacheClient);
         this.expenseDao = new ExpenseReportDAO(mapper, persistence, cacheClient);
+        this.waiverDao = new WaiverDAO(mapper, persistence, cacheClient);
         // No cacheClient: payment rows authorize captures and steer money; a stale read double-charges.
         this.paymentDao = new PaymentDAO(mapper, persistence);
         this.tripEventDao = new TripEventDAO(mapper, persistence, cacheClient);
@@ -421,6 +425,29 @@ public final class DAO {
     }
     public Boolean deleteTripExpenseReport(final String tripId) {
         return expenseDao.deleteReport(tripId);
+    }
+
+    // Waivers (see WaiverDAO): an org's documents (versioned conditional put, every published text inline;
+    // throws ConditionalCheckFailedException on a lost race and IllegalArgumentException over the item cap)
+    // and the write-once, uncached acceptances -- which is why those reads take no Cached flag.
+    public Boolean saveWaiverDocument(final WaiverDocument doc) throws IOException {
+        return waiverDao.saveDocument(doc);
+    }
+    public List<WaiverDocument> getWaiverDocuments(final String orgId, final Cached cached) {
+        return NearCacheContext.call(cached, () -> waiverDao.getDocuments(orgId));
+    }
+    public Optional<WaiverDocument> getWaiverDocument(final String orgId, final String id, final Cached cached) {
+        return NearCacheContext.call(cached, () -> waiverDao.getDocument(orgId, id));
+    }
+    /** True when this call wrote the row; false when that traveler, document and version were already signed. */
+    public boolean saveWaiverAcceptance(final WaiverAcceptance acceptance) throws IOException {
+        return waiverDao.saveAcceptance(acceptance);
+    }
+    public List<WaiverAcceptance> getWaiverAcceptances(final String tripId) {
+        return waiverDao.getAcceptances(tripId);
+    }
+    public List<WaiverAcceptance> getWaiverAcceptances(final String tripId, final Person.Id personId) {
+        return waiverDao.getAcceptances(tripId, personId);
     }
 
     // Payments (uncached state machine; see PaymentDAO). Transitions throw ConditionalCheckFailedException
@@ -919,7 +946,7 @@ public final class DAO {
      */
     public enum CacheScope {
         PERSON, FAMILY, TRIP, TRIP_EVENT, REG, TX, TODO, PDV, PRIV, CONFIG, MEDIA, TEMPLATE, CONTENT,
-        ORG, BINDING, LODGING, BUDGET, EXPENSE, ALL
+        ORG, BINDING, LODGING, BUDGET, EXPENSE, WAIVER, ALL
     }
 
     /**
@@ -954,6 +981,7 @@ public final class DAO {
             case LODGING -> clearLodgingScope();
             case BUDGET -> clearPrefix(CacheKeys.BUDGET_PREFIX);
             case EXPENSE -> clearPrefix(CacheKeys.EXPENSE_PREFIX);
+            case WAIVER -> clearPrefix(CacheKeys.WAIVER_PREFIX);
             case ALL -> clearPrefix(CacheKeys.FORMAT_VERSION);
         };
     }

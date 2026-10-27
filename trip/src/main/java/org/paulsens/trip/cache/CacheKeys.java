@@ -51,6 +51,10 @@ public final class CacheKeys {
     // Trip expense reports are point entries too: EXPENSE_PREFIX + {tripId} (one row per trip, lines inline).
     public static final String EXPENSE_PREFIX = FORMAT_VERSION + "expense:";
 
+    // An organization's waiver documents: one partition hash per org (WAIVER_PREFIX + {orgId}), field = the
+    // document id. The signatures (waiver_acceptances) are deliberately never cached.
+    public static final String WAIVER_PREFIX = FORMAT_VERSION + "waiver:";
+
     // Organizations: the whole (small) table in ONE hash, like config/media -- org lists render on ordinary
     // admin pages and pickers, so a read must be one HGETALL. Membership rows are a per-org partition hash
     // (append the orgId); the reverse edge is Person.orgIds, so there is no by-person partition.
