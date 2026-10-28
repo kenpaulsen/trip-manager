@@ -1781,6 +1781,22 @@ public class OrgCommands {
         return all;
     }
 
+    /**
+     * The hover text for one Grantable Privileges checkbox: the display name the org's admins will see, whether
+     * it is granted per trip or organization-wide, and what it lets the holder do -- so a site admin can decide
+     * what an org may hand out without knowing the base names. The description is the canonical one the
+     * privilege editors stamp on new rows, so the two never disagree. Blank for a name no allow-list may hold.
+     */
+    public String grantableDescription(final String base) {
+        if (base == null || !isGrantableBase(base)) {
+            return "";
+        }
+        final boolean perTrip = PrivilegeCommands.TRIP_SCOPED_BASES.contains(base);
+        final String name = perTrip ? tripRoleName(base) : ORG_PRIV_NAMES.get(base);
+        return (name == null ? base : name) + (perTrip ? " (per trip): " : " (organization-wide): ")
+                + PrivilegeCommands.canonicalDescription(base);
+    }
+
     private static boolean isGrantableBase(final String base) {
         return PrivilegeCommands.TRIP_SCOPED_BASES.contains(base)
                 || PrivilegeCommands.ORG_SCOPED_BASES.contains(base);

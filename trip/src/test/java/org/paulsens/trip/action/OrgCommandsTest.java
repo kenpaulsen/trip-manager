@@ -1100,6 +1100,24 @@ public class OrgCommandsTest {
         assertEquals(cmds.allTripRoleBases(), PrivilegeCommands.TRIP_SCOPED_BASES);
     }
 
+    /** Every allow-list checkbox gets hover text naming the privilege, its scope, and what it does. */
+    @Test
+    public void everyGrantableBaseHasADescriptionForTheAllowListEditor() {
+        final OrgCommands cmds = admin();
+        for (final String base : cmds.allGrantableBases()) {
+            final String text = cmds.grantableDescription(base);
+            assertTrue(text.endsWith(PrivilegeCommands.canonicalDescription(base))
+                    && !PrivilegeCommands.canonicalDescription(base).isEmpty(), base + " -> " + text);
+            assertFalse(text.startsWith(base + " "), base + " is shown by its display name, got: " + text);
+        }
+        assertEquals(cmds.grantableDescription(PrivilegeCommands.TRIP_MGR),
+                "Editor Admin (per trip): Edit the trip: details, itinerary, roster");
+        assertEquals(cmds.grantableDescription(PrivilegeCommands.PEOPLE_ADMIN),
+                "People Admin (organization-wide): Manage the organization's people");
+        assertEquals(cmds.grantableDescription(PrivilegeCommands.SITE_DEPLOYER), "", "not allow-listable");
+        assertEquals(cmds.grantableDescription(null), "");
+    }
+
     /** Retired 2026-10-25: the trip editor neither offers nor names the old hotel-staff role any more. */
     @Test
     @SuppressWarnings("deprecation")
