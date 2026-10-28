@@ -120,6 +120,48 @@ public class ActingForAndFamilyVisibilityTest {
                 "My Chats lists the kid's trip for the parent");
     }
 
+    /**
+     * The production case (2026-10-28): a family member whose own registration was cancelled, while the
+     * family's manager stays on the roster. The chat still counts them (anyone in a family with someone on
+     * the trip), but the member pages refuse them -- and the trip tab strip now asks seesMemberPages, the
+     * pages' own question, so it no longer offers Contacts and To do's that answer "not available to you".
+     */
+    @Test
+    public void aCancelledFamilyMemberKeepsTheChatButNotTheMemberPages() throws IOException {
+        final Person manager = savedPerson();
+        final Person member = savedPerson();
+        final Person stranger = savedPerson();
+        manager.getManagedUsers().add(member.getId());
+        assertTrue(dao.savePerson(manager));
+        final org.paulsens.trip.model.Family family = org.paulsens.trip.model.Family.builder()
+                .id(org.paulsens.trip.model.Family.Id.from("fam-" + RandomData.genAlpha(8)))
+                .memberIds(List.of(manager.getId(), member.getId()))
+                .managerIds(List.of(manager.getId())).createdBy(manager.getId()).build();
+        assertTrue(dao.saveFamily(family));
+        member.setFamilyId(family.getId());
+        assertTrue(dao.savePerson(member));
+        final Trip trip = Trip.builder().id("fam-tabs-" + RandomData.genAlpha(8)).title("Manager's Trip")
+                .startDate(LocalDateTime.now().minusDays(2)).endDate(LocalDateTime.now().plusDays(8))
+                .people(List.of(manager.getId())).build();
+        assertTrue(dao.saveTrip(trip));
+
+        assertTrue(new ChatCommands().isTripMember(trip.getId(), member.getId()),
+                "the chat's family rule still admits the member");
+        final TripCommands trips = new TripCommands();
+        assertFalse(trips.seesMemberPages(trip, member.getId()), "but not on the roster, managing nobody on it");
+        assertNull(trips.getTripForUser(null, member.getId(), false, trip.getId()),
+                "...which is exactly what the contacts page refuses by");
+        assertTrue(trips.seesMemberPages(trip, manager.getId()), "a roster member sees them");
+
+        final Trip kidsTrip = Trip.builder().id("fam-tabs-kid-" + RandomData.genAlpha(8)).title("Kid's Trip")
+                .startDate(LocalDateTime.now().minusDays(2)).endDate(LocalDateTime.now().plusDays(8))
+                .people(List.of(member.getId())).build();
+        assertTrue(trips.seesMemberPages(kidsTrip, manager.getId()), "a manager of someone on it sees them");
+        assertFalse(trips.seesMemberPages(trip, stranger.getId()));
+        assertFalse(trips.seesMemberPages(null, member.getId()));
+        assertFalse(trips.seesMemberPages(trip, null), "an anonymous build sees no member tabs");
+    }
+
     // ------------------------------------------------------------------ balances
 
     @Test

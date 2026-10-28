@@ -1221,6 +1221,18 @@ public class TripCommands {
     }
 
     /**
+     * Whether this person may open the trip's member pages (contacts, to-do's): on the roster, or managing
+     * someone who is. The SAME rule those pages refuse by ({@link #getTripForUser}), exposed so the trip tab
+     * strip offers exactly the tabs that will open. The strip used to ask the chat's wider question
+     * ({@code ChatCommands.isTripMember}: anyone in a family with someone on the trip), so a family member
+     * whose own registration was cancelled still saw Contacts and To do's, and both answered "That trip is
+     * not available to you" (2026-10-28). Privilege holders are the caller's to add, as the pages do.
+     */
+    public boolean seesMemberPages(final Trip trip, final Person.Id userId) {
+        return canSeeTrip(trip, userId, false);
+    }
+
+    /**
      * The family case the old FIXME declined: a parent whose kid is on the trip -- but not themselves -- may
      * see the trip. Resolved through {@code managedUsers} (kept in sync from the family row), so admin-granted
      * visibility rides along identically. Public because the REST trip reads apply the same rule
