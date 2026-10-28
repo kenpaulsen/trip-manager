@@ -16,7 +16,7 @@ public class ContentInstanceListValuesTest {
     @Test
     public void readsSplitAndWritesJoinIntoTheOneStoredValue() {
         final ContentInstance instance = instance(Map.of("includeOrgs", " a, b ,,c b ", "other", "x"));
-        final Map<String, List<String>> view = instance.getListValues();
+        final Map<String, Object> view = instance.getListValues();
         Assert.assertEquals(view.get("includeOrgs"), List.of("a", "b", "c"));
         Assert.assertEquals(view.get("missing"), List.of());
         Assert.assertEquals(view.get(null), List.of());
@@ -33,6 +33,30 @@ public class ContentInstanceListValuesTest {
         Assert.assertFalse(instance.getValues().containsKey("includeOrgs"));
         Assert.assertEquals(ContentInstance.joinList(null), "");
         Assert.assertEquals(ContentInstance.splitList(null), List.of());
+    }
+
+    /**
+     * What the checkbox menu really writes: EL types a map entry as Object, so the select-many component
+     * submits a String[] -- the shape that failed every production save with a box ticked (2026-10-28).
+     */
+    @Test
+    public void acceptsTheArrayASelectManySubmits() {
+        final ContentInstance instance = instance(Map.of("includeOrgs", "a"));
+        final Map<String, Object> view = instance.getListValues();
+        Assert.assertEquals(view.put("includeOrgs", new String[] {"x", " y ", "x"}), List.of("a"));
+        Assert.assertEquals(instance.getValues().get("includeOrgs"), "x,y");
+        Assert.assertEquals(view.get("includeOrgs"), List.of("x", "y"));
+        view.put("includeOrgs", new String[0]);
+        Assert.assertFalse(instance.getValues().containsKey("includeOrgs"), "an empty submission clears it");
+    }
+
+    @Test
+    public void normalizesEverySubmissionShape() {
+        Assert.assertEquals(ContentInstance.pickedItems(new Object[] {"a", null, 7}), List.of("a", "7"));
+        Assert.assertEquals(ContentInstance.pickedItems(java.util.Set.of("only")), List.of("only"));
+        Assert.assertEquals(ContentInstance.pickedItems("a, b"), List.of("a", "b"), "the stored form");
+        Assert.assertEquals(ContentInstance.pickedItems(null), List.of());
+        Assert.assertEquals(ContentInstance.pickedItems(42), List.of(), "an unexpected type picks nothing");
     }
 
     @Test

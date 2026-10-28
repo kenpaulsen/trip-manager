@@ -8,10 +8,12 @@ import java.time.LocalDateTime;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
@@ -109,10 +111,30 @@ public final class ContentInstance implements Serializable {
      * {@code listValues[name]}, and reads and writes go straight through to the single comma-separated
      * string in {@code values} -- no second field, nothing to keep in sync, and a row's JSON shape is
      * unchanged. Computed on each call (never a field), so nothing extra rides the serialized instance.
+     *
+     * <p>Values are typed {@code Object}, not {@code List<String>}, because of what the checkbox menu writes:
+     * EL reports a map entry's type as {@code Object}, so the select-many component cannot tell a list is
+     * wanted and hands back a {@code String[]}. A {@code List}-typed {@code put} then failed its generic cast
+     * on every save with a box ticked (2026-10-28, the "Organizations shown" picker); {@code put} now takes
+     * whatever arrives and {@link #pickedItems} normalizes it.
      */
     @JsonIgnore
-    public Map<String, List<String>> getListValues() {
+    public Map<String, Object> getListValues() {
         return new ListValuesView();
+    }
+
+    /** A select-many submission as a list: an array, a collection, or a stored-form string; anything else = none. */
+    static List<String> pickedItems(final Object picked) {
+        if (picked instanceof Object[] array) {
+            return pickedItems(Arrays.asList(array));
+        }
+        if (picked instanceof Collection<?> items) {
+            return items.stream().filter(Objects::nonNull).map(String::valueOf).toList();
+        }
+        if (picked instanceof String stored) {
+            return splitList(stored);
+        }
+        return List.of();
     }
 
     /** The stored form of a list value split back into its items; null/blank = empty. Tolerates whitespace. */
@@ -140,7 +162,7 @@ public final class ContentInstance implements Serializable {
      * The map view {@link #getListValues()} answers; {@code put} writes through into {@link #values}.
      * Serializable only to satisfy the model-package ratchet -- it is computed per call and never stored.
      */
-    private final class ListValuesView extends AbstractMap<String, List<String>> implements Serializable {
+    private final class ListValuesView extends AbstractMap<String, Object> implements Serializable {
         @Serial
         private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
 
@@ -150,9 +172,9 @@ public final class ContentInstance implements Serializable {
         }
 
         @Override
-        public List<String> put(final String key, final List<String> items) {
+        public List<String> put(final String key, final Object items) {
             final List<String> before = get(key);
-            final String joined = joinList(items);
+            final String joined = joinList(pickedItems(items));
             if (joined.isEmpty()) {
                 getValues().remove(key);
             } else {
@@ -167,8 +189,8 @@ public final class ContentInstance implements Serializable {
         }
 
         @Override
-        public Set<Entry<String, List<String>>> entrySet() {
-            final Set<Entry<String, List<String>>> entries = new LinkedHashSet<>();
+        public Set<Entry<String, Object>> entrySet() {
+            final Set<Entry<String, Object>> entries = new LinkedHashSet<>();
             for (final Map.Entry<String, String> entry : getValues().entrySet()) {
                 entries.add(Map.entry(entry.getKey(), splitList(entry.getValue())));
             }
