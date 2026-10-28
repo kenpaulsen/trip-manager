@@ -143,6 +143,21 @@ public final class KnownSettings {
             "A line of plain text under the footer title -- a tagline, a mailing address, a registration "
                     + "number. Blank shows nothing there.").withOrgOnly();
 
+    /**
+     * The two footer colors. Blank means the theme's own footer color, which is the near-white the classic
+     * layout draws over the page background and the palette's colors on a full-width page; a chosen color is
+     * honored on either layout. Hex only ({@link SettingDef#hexColor}), because it lands in a style attribute.
+     */
+    public static final SettingDef SITE_FOOTER_TITLE_COLOR = new SettingDef(
+            "site.footer.title.color", Config.Type.STRING, "", "Footer title color",
+            "The color of the footer title, as a hex value such as #ffffff. Blank uses the theme's own "
+                    + "footer color.").withOrgOnly().withHexColor();
+
+    public static final SettingDef SITE_FOOTER_TEXT_COLOR = new SettingDef(
+            "site.footer.text.color", Config.Type.STRING, "", "Footer text color",
+            "The color of the footer text line, as a hex value such as #ffffff. Blank uses the theme's own "
+                    + "footer color.").withOrgOnly().withHexColor();
+
     public static final SettingDef SITE_CONTACT_NAME = new SettingDef(
             "site.contact.name", Config.Type.STRING, "", "Contact name",
             "Who the \"Questions?\" card in the sidebar names. The card's email is the organization "
@@ -723,7 +738,8 @@ public final class KnownSettings {
                             + "the site Settings page applies to nothing.",
                     List.of(SITE_THEME_PALETTE, SITE_THEME_DARK, SITE_LAYOUT, SITE_LOGO_URL, SITE_FAVICON_URL,
                             SITE_OG_IMAGE_URL,
-                            SITE_BACKGROUND_URL, SITE_BACKGROUND_COLOR, SITE_FOOTER_TITLE, SITE_FOOTER_TEXT,
+                            SITE_BACKGROUND_URL, SITE_BACKGROUND_COLOR, SITE_FOOTER_TITLE, SITE_FOOTER_TITLE_COLOR,
+                            SITE_FOOTER_TEXT, SITE_FOOTER_TEXT_COLOR,
                             SITE_CONTACT_NAME, SITE_CONTACT_PHONE, SITE_DONATE_URL)),
             new SettingSection(EMAIL_ADDRESSES_SECTION,
                     "Every address the application sends with or to. From addresses must be on an "

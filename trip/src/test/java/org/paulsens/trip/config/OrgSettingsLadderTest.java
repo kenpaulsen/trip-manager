@@ -49,7 +49,8 @@ public class OrgSettingsLadderTest {
         Assert.assertEquals(names, List.of("site.org.name", "site.analytics.id",
                 "site.theme.palette", "site.theme.dark", "site.layout", "site.logo.url", "site.favicon.url",
                 "site.ogImage.url",
-                "site.background.url", "site.background.color", "site.footer.title", "site.footer.text",
+                "site.background.url", "site.background.color",
+                "site.footer.title", "site.footer.title.color", "site.footer.text", "site.footer.text.color",
                 "site.contact.name", "site.contact.phone", "site.donate.url",
                 "home.photos.windowDays", "home.photos.minCount", "home.countdown.soonDays",
                 "chat.reactions.palette", "chat.background.colors", "chat.background.image", "reg.allowEdits",
@@ -66,8 +67,8 @@ public class OrgSettingsLadderTest {
                     def.getName() + ": blank is the neutral default");
             Assert.assertEquals(def.isHttpUrl(), def.getName().endsWith(".url"),
                     def.getName() + ": every *.url branding value is validated as an http(s) URL");
-            Assert.assertEquals(def.isHexColor(), def == KnownSettings.SITE_BACKGROUND_COLOR,
-                    def.getName() + ": only the background color is validated as one");
+            Assert.assertEquals(def.isHexColor(), def.getName().endsWith(".color"),
+                    def.getName() + ": every *.color branding value is validated as a hex color");
         }
         Assert.assertEquals(KnownSettings.branding(), KnownSettings.sections().stream()
                 .filter(section -> section.getTitle().equals(KnownSettings.BRANDING_SECTION))

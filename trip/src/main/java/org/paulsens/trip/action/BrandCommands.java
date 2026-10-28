@@ -352,6 +352,26 @@ public class BrandCommands {
         return setting(KnownSettings.SITE_FOOTER_TEXT);
     }
 
+    /** The footer title's {@code style}: {@code color:} the org's chosen color, or null for the theme's own. */
+    public String getFooterTitleStyle() {
+        return colorStyle(KnownSettings.SITE_FOOTER_TITLE_COLOR);
+    }
+
+    /** The footer text line's {@code style}, the same rule as {@link #getFooterTitleStyle()}. */
+    public String getFooterTextStyle() {
+        return colorStyle(KnownSettings.SITE_FOOTER_TEXT_COLOR);
+    }
+
+    /**
+     * {@code color:#rrggbb} for a usable hex setting, else null. Re-screened as hex here even though the save
+     * path validates: the value is interpolated straight into a {@code style} attribute, and a row written by
+     * hand bypasses the page.
+     */
+    private String colorStyle(final SettingDef def) {
+        final String color = SettingDef.hexColor(setting(def));
+        return color == null ? null : "color:" + color;
+    }
+
     // --- the "Questions?" card ---
 
     public String getContactName() {
@@ -411,7 +431,7 @@ public class BrandCommands {
         final Map<String, String> edited = withColor(values, colorHex);
         final LinkedHashMap<String, String> stored = new LinkedHashMap<>();
         for (final SettingDef def : KnownSettings.branding()) {
-            stored.put(def.getName(), trimmed(edited.get(def.getName())));
+            stored.put(def.getName(), cleaned(def, edited.get(def.getName())));
         }
         stored.put(BG_MODE_KEY, backgroundMode(edited));
         session.setAttribute(Sessions.APPEARANCE_PREVIEW_ORG, orgId);
@@ -463,7 +483,7 @@ public class BrandCommands {
         final Map<String, String> edited = withColor(values, colorHex);
         final Map<String, String> out = new LinkedHashMap<>();
         for (final SettingDef def : KnownSettings.branding()) {
-            out.put(def.getName(), trimmed(edited.get(def.getName())));
+            out.put(def.getName(), cleaned(def, edited.get(def.getName())));
         }
         final String mode = backgroundMode(edited);
         out.put(KnownSettings.SITE_BACKGROUND_COLOR.getName(), BG_MODE_COLOR.equals(mode)
@@ -593,6 +613,21 @@ public class BrandCommands {
         // never hold one.
         return trimmed(values.get(KnownSettings.SITE_BACKGROUND_COLOR.getName())).isEmpty()
                 ? BG_MODE_PALETTE : BG_MODE_COLOR;
+    }
+
+    /**
+     * One submitted value as it is kept: trimmed, and a color normalized to {@code #rrggbb} whether the picker
+     * sent it with its '#' or without. Blank stays blank (the picker's Clear: the theme's default), and an
+     * unusable color is passed through as typed so the save refuses it with a message rather than silently
+     * dropping it.
+     */
+    private static String cleaned(final SettingDef def, final String raw) {
+        final String value = trimmed(raw);
+        if (!def.isHexColor() || value.isEmpty()) {
+            return value;
+        }
+        final String color = normalizeHex(value);
+        return color == null ? value : color;
     }
 
     private static String storedOverride(final Optional<Organization> org, final SettingDef def) {

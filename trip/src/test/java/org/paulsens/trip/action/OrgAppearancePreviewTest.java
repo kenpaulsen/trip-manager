@@ -321,6 +321,26 @@ public class OrgAppearancePreviewTest {
     }
 
     @Test
+    public void theFooterColorPickersSaveNormalizedHexOrBlank() {
+        final String title = KnownSettings.SITE_FOOTER_TITLE_COLOR.getName();
+        final String text = KnownSettings.SITE_FOOTER_TEXT_COLOR.getName();
+        final Map<String, String> vals = new LinkedHashMap<>();
+        vals.put(title, "AABBCC");
+        vals.put(text, " #FFF ");
+        Map<String, String> saved = brand.forSave(vals, null);
+        Assert.assertEquals(saved.get(title), "#aabbcc", "a picker value without its '#' gets one");
+        Assert.assertEquals(saved.get(text), "#fff");
+
+        vals.put(title, "");
+        vals.put(text, "nonsense");
+        saved = brand.forSave(vals, null);
+        Assert.assertEquals(saved.get(title), "", "the picker's Clear saves blank: the theme's own color");
+        Assert.assertEquals(saved.get(text), "nonsense",
+                "an unusable color reaches the save as typed, so the save refuses it with a message");
+        Assert.assertEquals(brand.forSave(Map.of(), null).get(title), "", "never touched: not set");
+    }
+
+    @Test
     public void thePagesSmallHelpersAnswerWhatTheControlsNeed() {
         Assert.assertEquals(brand.getPalettes(), KnownSettings.THEME_PALETTES);
         Assert.assertEquals(brand.appearanceUrl("abc"), "/admin/orgAppearance.jsf?orgId=abc",

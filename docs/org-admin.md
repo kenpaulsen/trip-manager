@@ -555,7 +555,9 @@ apart from the one `BOOLEAN`:
 | `site.background.url` | no image, so the background COLOR shows | http(s) URL |
 | `site.background.color` | **follow the palette**: `var(--site-bg-default, var(--surface-ground, #333333))` — a tint of the palette's own color | `#rgb`/`#rrggbb`, validated by `SettingDef.hexColor` |
 | `site.footer.title` | the org's name | plain text |
+| `site.footer.title.color` | the theme's own footer color (`#feeeee` on the classic layout, the palette's colors on a full-width page) | `#rgb`/`#rrggbb`, validated by `SettingDef.hexColor`; drawn as an inline `style="color:..."`, which outranks the theme on both layouts |
 | `site.footer.text` | nothing | plain text |
+| `site.footer.text.color` | the theme's own footer color | as `site.footer.title.color`, for the line of text |
 | `site.contact.name`, `site.contact.phone` | left off the "Questions?" card | the card's email is the org profile's `contactEmail`; the card is hidden when all three are blank |
 | `site.donate.url` | no Donate card / menu entry | http(s) URL |
 
@@ -624,7 +626,8 @@ no byte of a shared page. On an org host: `getTheme()`/`getLayoutCss()`/`isDark(
 `getWordmark()` (mutually exclusive), `getFaviconHref()` (`data:,` when unset), `getOgImage()`,
 `getRootStyle()` (`--site-bg:url(<url>)`, or `--site-bg:none;--site-bg-color:<hex or the palette var>`, for
 the root element's `style`), `getDetailFields()` (the branding settings the Appearance page repeats over),
-`getFooterTitle()`/`getFooterText()`, `getContactName()`/`getContactPhone()`/`getContactEmail()` +
+`getFooterTitle()`/`getFooterText()`, `getFooterTitleStyle()`/`getFooterTextStyle()` (`color:#hex` or null,
+re-screened as hex), `getContactName()`/`getContactPhone()`/`getContactEmail()` +
 `isShowContact()`, `getDonateUrl()` + `isShowDonate()`, `getAnalyticsId()`. An org whose row cannot be
 read gets the neutral look and its slug as the name — never a broken page. Every URL is re-screened in the
 bean even though the save paths validate (a hand-written row bypasses the page): anything with a quote,
@@ -666,8 +669,13 @@ is where an organization sets its look. Two fieldsets:
 - **Appearance** — the color palette as a menu, **Dark mode** as a radio right beneath it, the logo and
   favicon URLs, and the background chooser (Color palette / Color with a `p:colorPicker` / Image with a
   URL box).
-- **Site details** — every OTHER branding setting (`site.ogImage.url`, both footer settings, both contact
-  settings, `site.donate.url`), as labelled text boxes, in the same preview / Save / Cancel flow. The page
+- **Site details** — every OTHER branding setting (`site.ogImage.url`, the footer title and text, their two
+  colors, both contact settings, `site.donate.url`), as labelled text boxes, in the same preview / Save /
+  Cancel flow. A hex-color setting (`def.hexColor`) gets a `p:colorPicker` with `clearButton` instead of a
+  text box: Clear empties the field, and blank IS the theme's default, so unlike the page background it
+  needs no separate "default" choice. Coloris fires the field's `change` (the page's ajax) when its popup
+  CLOSES on a new value, not as the popup's own box is typed in. The bean normalizes either picker shape
+  (with or without its `#`) to `#rrggbb` on preview and save. The page
   repeats over **`brand.detailFields`** — `KnownSettings.branding()` minus `BrandCommands.DEDICATED_FIELDS`,
   the six with a control of their own — rather than hand-listing rows, because when this page was carved
   out of `orgConfig.jsf` (which excludes the Branding section whole) those six landed on NEITHER page and a

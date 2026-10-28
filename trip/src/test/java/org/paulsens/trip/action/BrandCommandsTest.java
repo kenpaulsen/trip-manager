@@ -76,6 +76,8 @@ public class BrandCommandsTest {
         Assert.assertNull(brand.getRootStyle(), where + ": the shared stylesheet keeps its own fallback");
         Assert.assertNull(brand.getFooterTitle(), where);
         Assert.assertNull(brand.getFooterText(), where);
+        Assert.assertNull(brand.getFooterTitleStyle(), where);
+        Assert.assertNull(brand.getFooterTextStyle(), where);
         Assert.assertNull(brand.getContactName(), where);
         Assert.assertNull(brand.getContactPhone(), where);
         Assert.assertNull(brand.getContactEmail(), where);
@@ -99,6 +101,8 @@ public class BrandCommandsTest {
                     "no image and no chosen color: a plain dark page, never the shared site's photograph");
             Assert.assertEquals(brand.getFooterTitle(), "Acme Inc");
             Assert.assertNull(brand.getFooterText());
+            Assert.assertNull(brand.getFooterTitleStyle(), "no color chosen: the theme's own footer color");
+            Assert.assertNull(brand.getFooterTextStyle());
             Assert.assertNull(brand.getContactName());
             Assert.assertNull(brand.getContactPhone());
             Assert.assertNull(brand.getContactEmail(), "Acme's profile has no contact email");
@@ -140,6 +144,24 @@ public class BrandCommandsTest {
             Assert.assertTrue(brand.isShowDonate());
         });
         // The same settings are NOT the shared site's: another host still sees nothing of them.
+        onSite(SiteContext.shared("www.visitqueenofpeace.com"), () -> assertNeutral("the shared site"));
+    }
+
+    @Test
+    public void theFooterColorsAreInlineStylesAndOnlyEverAHexValue() throws IOException {
+        setAcme(Map.of(KnownSettings.SITE_FOOTER_TITLE_COLOR.getName(), " #AABBCC ",
+                KnownSettings.SITE_FOOTER_TEXT_COLOR.getName(), "#fff"), null);
+        onSite(ACME_SITE, () -> {
+            Assert.assertEquals(brand.getFooterTitleStyle(), "color:#aabbcc");
+            Assert.assertEquals(brand.getFooterTextStyle(), "color:#fff");
+        });
+        // A row written by hand bypasses the save's validation; the style attribute must still be safe.
+        setAcme(Map.of(KnownSettings.SITE_FOOTER_TITLE_COLOR.getName(), "red;background:url(x)",
+                KnownSettings.SITE_FOOTER_TEXT_COLOR.getName(), "#fff"), null);
+        onSite(ACME_SITE, () -> {
+            Assert.assertNull(brand.getFooterTitleStyle(), "anything but hex is the theme's own color");
+            Assert.assertEquals(brand.getFooterTextStyle(), "color:#fff", "each color stands alone");
+        });
         onSite(SiteContext.shared("www.visitqueenofpeace.com"), () -> assertNeutral("the shared site"));
     }
 
