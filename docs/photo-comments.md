@@ -140,6 +140,13 @@ photo comments. No digest for photo threads.
   palette emoji, then a labelled `+ React` / `+ More` button opening the full picker. The label matters — as
   a bare 28px "+" this was read as decoration and people did not find that photos could be reacted to at all.
   The palette is fetched once per viewer open so the quick picks are there on first paint.
+- Reaction toggles on one photo are sent ONE AT A TIME, in click order (a per-photo queue in `photoViewer.js`),
+  and no reply that read the server before the latest toggle may replace that photo's reactions
+  (`reactionEpoch` / `settledEpoch`): not the thread read the viewer schedules 150ms after opening, not a meta
+  fetch, not an earlier toggle's own answer. Without that, a click landing before the open's thread read
+  answered lost its chip to the stale answer, and an add and its quick removal could reach the server reversed
+  and leave a reaction behind (the CI-only `TripPhotoCommentsPwIT` failure, 2026-10-28;
+  `aReactionClickedBeforeTheThreadAnswersSurvivesTheAnswer` stages that order).
 - Panel: comment list (server-resolved names; posting reloads the thread rather than echoing locally, or
   authors render as raw ids on a first comment), composer with the `@`-typeahead, delete for own comments.
   Hide toggle persists in localStorage (`tripPhotoComments`); layout is the flex-wrap idiom, so the panel
