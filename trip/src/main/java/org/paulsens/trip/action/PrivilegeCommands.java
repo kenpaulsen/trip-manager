@@ -122,11 +122,13 @@ public class PrivilegeCommands {
      * is content or media would otherwise have no route to their own work. Opening the hub grants nothing by
      * itself: every card on it is gated separately, so an editor arrives at a page showing only their own.
      */
-    public static final List<String> ORG_HUB_BASES =
-            List.of(PEOPLE_ADMIN, ADD_TRIP, EMAIL_ADMIN, PAYMENTS_ADMIN, CONTENT_ADMIN, MEDIA_ADMIN, AUDIT_ADMIN,
-                    LODGING_ADMIN);
+    public static final List<String> ORG_HUB_BASES = ORG_SCOPED_BASES;
+    /**
+     * The global grants the privilege editor offers by name. {@link #VIEW_FINANCES} was missing (2026-10-29),
+     * so the editor's dropdown never offered it and the only way to grant it was the "Other..." escape.
+     */
     public static final List<String> GLOBAL_BASES = List.of(PRIVILEGE_ADMIN, CONFIG_ADMIN, AUDIT_ADMIN,
-            SITE_DEPLOYER, CONTENT_ADMIN, MEDIA_ADMIN, EVENT_ADMIN, LODGING_ADMIN);
+            SITE_DEPLOYER, CONTENT_ADMIN, MEDIA_ADMIN, EVENT_ADMIN, LODGING_ADMIN, VIEW_FINANCES);
 
     /**
      * One-line description per canonical base, defaulted into a new row's description by the privilege
@@ -151,6 +153,7 @@ public class PrivilegeCommands {
             java.util.Map.entry(CONTENT_ADMIN, "Edit templates and template-driven page content"),
             java.util.Map.entry(MEDIA_ADMIN, "Manage the media library"),
             java.util.Map.entry(EVENT_ADMIN, "Edit the home page's Events section"),
+            java.util.Map.entry(VIEW_FINANCES, "View every trip's finances: reports and budgets (read-only)"),
             java.util.Map.entry(LODGING_ADMIN,
                     "Manage lodging: offers and reservations on the organization's trips (every accommodation "
                             + "too, when global)"),

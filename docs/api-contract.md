@@ -154,11 +154,13 @@ unparseable `sex` is 422 `VALIDATION_FAILED`.
 ## Orgs
 
 `GET /api/orgs/mine[?all=true]` → `[{id, name, abbreviation, slug, siteUrl, isMember, isAdmin,
-allowsSharedSites, contactEmail, branding{palette, dark, layout, themeName, logoUrl, faviconUrl,
-ogImageUrl, backgroundUrl, backgroundColor, footerTitle, footerText, contactName, contactPhone, donateUrl}}]`
+allowsSharedSites, registerTarget, contactEmail, branding{palette, dark, layout, themeName, logoUrl,
+faviconUrl, ogImageUrl, backgroundUrl, backgroundColor, footerTitle, footerText, contactName, contactPhone, donateUrl}}]`
 — the caller's memberships (`all=true` is site-admin only, 403 else). `siteUrl` is built from the host the
 request came in on (`http://acme.localhost:8080` locally, `https://acme.unitetrip.com` in production) and
-is null when the org has no slug; `branding.palette` is null when the org never chose a look.
+is null when the org has no slug; `branding.palette` is null when the org never chose a look. `registerTarget`
+(`DETAIL_PAGE`, `ORG_TRIP_PAGE` or `ORG_HOME`) is where a shared site's Register link sends a visitor for the
+org's trips (`docs/org-admin.md`, "Shared-site Register target").
 `POST /api/orgs/{orgId}/members/{personId}` adds an existing person (org admins); `DELETE` the same path removes
 one (2026-10-16), refused with 400 for an org admin, a person on one of the org's trips, their last organization,
 or a non-member -- the review seed uses it to take the reviewer accounts back out of any organization but acme.

@@ -34,6 +34,7 @@ import org.paulsens.trip.model.PaymentProcessorConfig;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.ProcessorType;
+import org.paulsens.trip.model.SharedSiteRegisterTarget;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPaymentConfig;
 import org.paulsens.trip.pay.ProcessorPing;
@@ -1098,6 +1099,36 @@ public class OrgCommands {
             PrivilegeCommands.AUDIT_ADMIN, "Audit Viewer",
             PrivilegeCommands.LODGING_ADMIN, "Lodging Admin");
 
+    /** One org-scoped privilege and who holds it here: a row of the settings page's Privileges tab. */
+    public record OrgPrivilegeRow(String base, String name, String description, List<String> holders) {
+    }
+
+    /**
+     * Every org-scoped privilege with the people holding it in this org, in {@code ORG_SCOPED_BASES} order --
+     * the read-only "who holds what" table on the settings page's Privileges tab. Grants and revokes stay on
+     * the People page, where the allow-list and membership are enforced; this only reports. Spans ALL org
+     * bases, like {@link #heldOrgPrivs}, so a grant outside the current allow-list still shows. Org admins
+     * and site admins only (the page's own gate), empty for everyone else.
+     */
+    public List<OrgPrivilegeRow> orgPrivilegeRows(final String orgId) {
+        if (orgId == null || orgId.isBlank() || !canManageOrg(orgId)) {
+            return List.of();
+        }
+        return PrivilegeCommands.ORG_SCOPED_BASES.stream()
+                .map(base -> orgPrivilegeRow(base, orgId))
+                .toList();
+    }
+
+    private OrgPrivilegeRow orgPrivilegeRow(final String base, final String orgId) {
+        final PersonCommands people = PersonCommands.getPersonCommands();
+        final List<String> holders = privCommands().getPeopleWithPriv(List.of(base), orgId).stream()
+                .map(people::getPerson)
+                .map(person -> person.getPreferredName() + " " + person.getLast())
+                .toList();
+        return new OrgPrivilegeRow(base, ORG_PRIV_NAMES.getOrDefault(base, base),
+                PrivilegeCommands.canonicalDescription(base), holders);
+    }
+
     /**
      * The org-scoped privileges this person holds here, each as a {@code name}/{@code desc}/{@code base}
      * map -- the People page's chip row. Spans ALL org bases (a grant outside the current allow-list must
@@ -1430,10 +1461,42 @@ public class OrgCommands {
         return saveOrgEdits(orgId, name, abbreviation, contactEmail, domains, defaultDomain, slug, null);
     }
 
+    /** The 8-arg save leaving the org's shared-site Register target alone. */
+    public boolean saveOrgEdits(final String orgId, final String name, final String abbreviation,
+            final String contactEmail, final List<String> domains, final String defaultDomain,
+            final String slug, final Boolean allowShared) {
+        return saveOrgEdits(orgId, name, abbreviation, contactEmail, domains, defaultDomain, slug, allowShared,
+                null);
+    }
+
+    /**
+     * The settings page's Email tab save: the sending-domain allow-list (site admins only, as on the profile)
+     * and the default domain, and nothing else. A tab of its own must not re-post the Profile tab's fields --
+     * after a refused profile save those are typed values that were never stored, and the Email Save would
+     * quietly store them.
+     */
+    public boolean saveOrgMailDomains(final String orgId, final List<String> domains, final String defaultDomain) {
+        final Organization fresh = freshOrg(orgId);
+        if (fresh == null) {
+            return fail("Unable to save", "Unknown organization.");
+        }
+        if (caller().isSiteAdmin()) {
+            fresh.setMailDomains(cleanDomains(domains));
+        }
+        fresh.setDefaultMailDomain(chosenDefault(fresh, defaultDomain));
+        return saveOrganization(fresh);
+    }
+
     /** Whether the org currently allows shared sites to show its content (the profile checkbox's seed). */
     public boolean storedAllowSharedSites(final String orgId) {
         final Organization org = findOrganization(orgId);
         return org == null || org.allowsSharedSites();
+    }
+
+    /** The org's shared-site Register target as its name (the profile radio's seed); the default when unset. */
+    public String storedRegisterTarget(final String orgId) {
+        final Organization org = findOrganization(orgId);
+        return (org == null ? SharedSiteRegisterTarget.DETAIL_PAGE : org.registerTarget()).name();
     }
 
     /**
@@ -1442,11 +1505,14 @@ public class OrgCommands {
      * admin's post carries the same fields, and silently ignoring them is what keeps the shared include
      * safe to render for both. {@code defaultDomain} is an org-admin choice, kept only while the
      * allow-list still permits it, and so is {@code allowShared} -- the org side of the shared-site gate
-     * ({@link Organization#getAllowSharedSites()}; null = leave it alone).
+     * ({@link Organization#getAllowSharedSites()}; null = leave it alone) -- and {@code registerTarget},
+     * where a shared site's Register link sends a visitor ({@link SharedSiteRegisterTarget} name; null =
+     * leave it alone, an unknown name = the default). The default is stored as null, like {@code allowShared},
+     * so every existing row already holds it.
      */
     public boolean saveOrgEdits(final String orgId, final String name, final String abbreviation,
             final String contactEmail, final List<String> domains, final String defaultDomain,
-            final String slug, final Boolean allowShared) {
+            final String slug, final Boolean allowShared, final String registerTarget) {
         final Organization fresh = freshOrg(orgId);
         if (fresh == null) {
             return fail("Unable to save", "Unknown organization.");
@@ -1463,6 +1529,10 @@ public class OrgCommands {
         if (allowShared != null) {
             // Stored as null when allowed (the default every existing row already has), false when not.
             fresh.setAllowSharedSites(allowShared ? null : Boolean.FALSE);
+        }
+        if (registerTarget != null) {
+            final SharedSiteRegisterTarget target = SharedSiteRegisterTarget.from(registerTarget);
+            fresh.setSharedSiteRegisterTarget(target == SharedSiteRegisterTarget.DETAIL_PAGE ? null : target.name());
         }
         fresh.setDefaultMailDomain(chosenDefault(fresh, defaultDomain));
         if (!saveOrganization(fresh)) {

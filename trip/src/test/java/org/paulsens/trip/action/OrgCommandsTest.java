@@ -901,6 +901,30 @@ public class OrgCommandsTest {
     // ------------------------------------------------------------------ org-scoped privileges
 
     @Test
+    public void thePrivilegesTabListsEveryOrgBaseWithItsHolders() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Person member = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+        assertTrue(admin().addMember(orgId, member.getId()));
+        assertTrue(realPrivs(orgAdmin).grantOrgPrivilege(orgId, member.getId(), PrivilegeCommands.PEOPLE_ADMIN));
+
+        final List<OrgCommands.OrgPrivilegeRow> rows = realPrivs(orgAdmin).orgPrivilegeRows(orgId);
+        assertEquals(rows.stream().map(OrgCommands.OrgPrivilegeRow::base).toList(),
+                PrivilegeCommands.ORG_SCOPED_BASES, "every org base, in order, held or not");
+        final OrgCommands.OrgPrivilegeRow peopleAdmin = rows.get(0);
+        assertEquals(peopleAdmin.name(), "People Admin");
+        assertFalse(peopleAdmin.description().isBlank());
+        final Person stored = dao.getPerson(member.getId(), Cached.NO).orElseThrow();
+        assertEquals(peopleAdmin.holders(), List.of(stored.getPreferredName() + " " + stored.getLast()));
+        assertTrue(rows.get(1).holders().isEmpty(), "nobody holds Create Trips here");
+        assertTrue(realPrivs(member).orgPrivilegeRows(orgId).isEmpty(),
+                "holding a privilege here is not managing the org");
+        assertTrue(admin().orgPrivilegeRows(null).isEmpty());
+        assertTrue(admin().orgPrivilegeRows(" ").isEmpty());
+    }
+
+    @Test
     public void orgAdminGrantsAnOrgScopedPrivilegeToAMember() throws IOException {
         final Person orgAdmin = savedPerson();
         final Person member = savedPerson();
@@ -1598,6 +1622,27 @@ public class OrgCommandsTest {
     }
 
     @Test
+    public void theEmailTabSavesTheDomainsAndNothingElse() throws IOException {
+        final Person orgAdmin = savedPerson();
+        final Organization acme = orgWithAdmin(orgAdmin);
+        final String orgId = acme.getId().getValue();
+
+        assertTrue(admin().saveOrgMailDomains(orgId, List.of(" EXAMPLE.com "), "example.com"));
+        final Organization stored = admin().findOrganization(orgId);
+        assertEquals(admin().storedMailDomains(orgId), List.of("example.com"));
+        assertEquals(admin().defaultMailDomain(orgId), "example.com");
+        assertEquals(stored.getName(), acme.getName(), "the profile is not re-posted, so it cannot change");
+
+        assertTrue(realPrivs(orgAdmin).saveOrgMailDomains(orgId, List.of("centerforpeacewest.com"), ""),
+                "an org admin's post carries the allow-list too; it is ignored, the default still saves");
+        assertEquals(admin().storedMailDomains(orgId), List.of("example.com"));
+        assertEquals(admin().defaultMailDomain(orgId), "", "the default is the org's own choice");
+        assertFalse(commandsFor(savedPerson()).saveOrgMailDomains(orgId, null, "example.com"),
+                "an outsider fails canManageOrg");
+        assertFalse(admin().saveOrgMailDomains("no-such-org", null, null));
+    }
+
+    @Test
     public void anOrgAdminPicksTheDefaultDomainWithinWhatIsAllowed() throws IOException {
         final Person orgAdmin = savedPerson();
         final Organization acme = orgWithAdmin(orgAdmin);
@@ -1703,18 +1748,18 @@ public class OrgCommandsTest {
         final Organization org = orgWithAdmin(orgAdmin);
         final String orgId = org.getId().getValue();
         final OrgCommands cmds = commandsFor(orgAdmin);
-        final SettingDef name = KnownSettings.SITE_ORG_NAME;
+        final SettingDef name = KnownSettings.FINANCE_TREASURER_EMAIL;
         final SettingDef days =
                 KnownSettings.HOME_COUNTDOWN_SOON_DAYS;
 
         final java.util.Map<String, String> edit = new java.util.HashMap<>();
-        edit.put(name.getName(), "  Acme Pilgrimages ");
+        edit.put(name.getName(), "  treasurer@acme.example ");
         edit.put(days.getName(), "14");
         assertTrue(cmds.saveOrgSettings(orgId, edit));
         final Organization stored = dao.getOrganization(org.getId(), Cached.NO).orElseThrow();
-        assertEquals(stored.settingOverride(name.getName()), "Acme Pilgrimages", "trimmed on save");
+        assertEquals(stored.settingOverride(name.getName()), "treasurer@acme.example", "trimmed on save");
         assertEquals(stored.settingOverride(days.getName()), "14");
-        assertEquals(cmds.effectiveSetting(name, orgId), "Acme Pilgrimages");
+        assertEquals(cmds.effectiveSetting(name, orgId), "treasurer@acme.example");
         assertEquals(cmds.effectiveSetting(days, "no-such-org"), days.getDefaultValue(),
                 "an unknown org is the site rung");
         assertEquals(cmds.orgSettingsEdit(orgId).get(days.getName()), "14", "the editor shows the override");
@@ -1731,7 +1776,7 @@ public class OrgCommandsTest {
         final Organization cleared = dao.getOrganization(org.getId(), Cached.NO).orElseThrow();
         assertNull(cleared.settingOverride(days.getName()));
         assertFalse(cleared.getSettingsOverrides().containsKey(days.getName()), "removed, not blanked");
-        assertEquals(cleared.settingOverride(name.getName()), "Acme Pilgrimages", "the other override stays");
+        assertEquals(cleared.settingOverride(name.getName()), "treasurer@acme.example", "the other override stays");
         assertEquals(cmds.effectiveSetting(days, orgId), days.getDefaultValue());
         assertTrue(cmds.saveOrgSettings(orgId, java.util.Map.of(days.getName(), "")),
                 "clearing an already-inherited setting is a quiet no-op");

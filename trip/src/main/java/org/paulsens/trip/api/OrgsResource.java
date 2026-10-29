@@ -121,7 +121,7 @@ public class OrgsResource extends BaseResource {
         final BrandCommands brand = Beans.get(BrandCommands.class);
         final BrandCommands.OrgLook look = brand.lookOf(org);
         return new OrgSummaryDto(org.getId().getValue(), org.getName(), org.getAbbreviation(), slug, siteUrl,
-                member, admin, org.allowsSharedSites(), org.getContactEmail(),
+                member, admin, org.allowsSharedSites(), org.registerTarget().name(), org.getContactEmail(),
                 OrgBrandingDto.of(look, brand.themeNameOf(look)));
     }
 

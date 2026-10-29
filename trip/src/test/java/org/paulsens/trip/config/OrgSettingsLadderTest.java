@@ -46,7 +46,7 @@ public class OrgSettingsLadderTest {
     @Test
     public void theRegistryMarksExactlyTheAgreedSet() {
         final List<String> names = KnownSettings.orgOverridable().stream().map(SettingDef::getName).toList();
-        Assert.assertEquals(names, List.of("site.org.name", "site.analytics.id",
+        Assert.assertEquals(names, List.of("site.analytics.id",
                 "site.theme.palette", "site.theme.dark", "site.layout", "site.logo.url", "site.favicon.url",
                 "site.ogImage.url",
                 "site.background.url", "site.background.color",
@@ -84,6 +84,9 @@ public class OrgSettingsLadderTest {
         Assert.assertFalse(KnownSettings.isBranding("reg.allowEdits"));
         Assert.assertFalse(KnownSettings.isBranding("no.such.setting"));
         Assert.assertFalse(KnownSettings.SITE_ORG_NAME.isOrgOnly());
+        // The org's name is its profile's Name (2026-10-29): an override here was a second place to edit it.
+        Assert.assertTrue(KnownSettings.findOrgOverridable(KnownSettings.SITE_ORG_NAME.getName()).isEmpty(),
+                "site.org.name is the SHARED site's name only");
         Assert.assertTrue(KnownSettings.findOrgOverridable("reg.allowEdits").isPresent());
         Assert.assertTrue(KnownSettings.findOrgOverridable("chat.mail.baseUrl").isEmpty(),
                 "a declared but site-only key is not overridable");
@@ -227,7 +230,7 @@ public class OrgSettingsLadderTest {
 
     @Test
     public void aRequestOnAnOrgHostResolvesAutomaticallyAndOtherHostsDoNot() throws java.io.IOException {
-        final SettingDef def = KnownSettings.SITE_ORG_NAME;
+        final SettingDef def = KnownSettings.FINANCE_TREASURER_EMAIL;
         final Organization org = new Organization();
         org.setName("Ladder " + RandomData.genAlpha(6));
         org.setSlug("ladder" + RandomData.genAlpha(6).toLowerCase(java.util.Locale.ROOT));

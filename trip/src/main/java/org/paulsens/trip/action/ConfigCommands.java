@@ -14,6 +14,7 @@ import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.cache.NearCacheClient;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.config.OrgSettingsTabs;
 import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.util.EmailAddresses;
@@ -280,13 +281,19 @@ public class ConfigCommands {
         return KnownSettings.sections();
     }
 
-    /**
-     * The rows the generic org settings editor ({@code admin/orgConfig.xhtml}) renders: every org-overridable
-     * setting EXCEPT the look-and-feel ones, which {@code admin/orgAppearance.xhtml} edits with purpose-built
-     * controls. Split here rather than in the page so the two pages cannot both offer (or both skip) one.
-     */
-    public List<SettingDef> getOrgConfigDefs() {
-        return KnownSettings.orgOverridableNonBranding();
+    /** The settings page tab a {@code ?tab=} key opens (its {@code p:tabView} index); see {@link OrgSettingsTabs}. */
+    public int orgTabIndex(final String key) {
+        return OrgSettingsTabs.indexOf(key);
+    }
+
+    /** The generic setting rows of one org settings tab. */
+    public List<SettingDef> orgTabDefs(final String key) {
+        return OrgSettingsTabs.defsFor(key);
+    }
+
+    /** One tab's entries of the page's edit map: what that tab's Save hands to {@code saveOrgSettings}. */
+    public Map<String, String> orgTabValues(final String key, final Map<String, String> values) {
+        return OrgSettingsTabs.valuesFor(key, values);
     }
 
     /**

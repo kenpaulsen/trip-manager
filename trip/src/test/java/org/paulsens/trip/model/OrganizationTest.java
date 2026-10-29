@@ -91,6 +91,23 @@ public class OrganizationTest {
     }
 
     @Test
+    public void theRegisterTargetRoundTripsAndAbsentOrUnknownReadsAsTheDetailPage() throws Exception {
+        final Organization never = MAPPER.readValue("{\"name\":\"CFPW\"}", Organization.class);
+        assertNull(never.getSharedSiteRegisterTarget());
+        assertEquals(never.registerTarget(), SharedSiteRegisterTarget.DETAIL_PAGE, "every existing row");
+        final Organization org = Organization.builder().name("Acme Inc").build();
+        org.setSharedSiteRegisterTarget(SharedSiteRegisterTarget.ORG_TRIP_PAGE.name());
+        final Organization back = MAPPER.readValue(MAPPER.writeValueAsString(org), Organization.class);
+        assertEquals(back.registerTarget(), SharedSiteRegisterTarget.ORG_TRIP_PAGE);
+        org.setSharedSiteRegisterTarget("FROM_A_NEWER_BUILD");
+        assertEquals(org.registerTarget(), SharedSiteRegisterTarget.DETAIL_PAGE,
+                "a name this build does not know degrades to the default, never fails the row");
+        assertEquals(SharedSiteRegisterTarget.from("  ORG_HOME "), SharedSiteRegisterTarget.ORG_HOME);
+        assertEquals(SharedSiteRegisterTarget.from(" "), SharedSiteRegisterTarget.DETAIL_PAGE);
+        assertEquals(SharedSiteRegisterTarget.from(null), SharedSiteRegisterTarget.DETAIL_PAGE);
+    }
+
+    @Test
     public void shortNamePrefersAbbreviation() {
         assertEquals(Organization.builder().name("Center for Peace West").abbreviation("CFPW").build()
                 .getShortName(), "CFPW");

@@ -10,6 +10,7 @@ import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.SharedSiteRegisterTarget;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -115,6 +116,28 @@ public class OrgHomePageSeedingTest {
         Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, Boolean.TRUE));
         Assert.assertNull(reread(org).getAllowSharedSites(), "allow is stored as the null default");
         Assert.assertTrue(admin.storedAllowSharedSites("no-such-org"), "unknown org: nothing to restrict");
+    }
+
+    @Test
+    public void theRegisterTargetIsTheOrgsOwnAndDefaultsToTheDetailPage() {
+        final OrgCommands admin = as(SITE_ADMIN, true);
+        final Organization org = newOrg(admin, "Register Target " + UUID.randomUUID());
+        final String id = org.getId().getValue();
+        Assert.assertEquals(admin.storedRegisterTarget(id), "DETAIL_PAGE", "the default");
+        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, null, "ORG_HOME"));
+        Assert.assertEquals(admin.storedRegisterTarget(id), "ORG_HOME");
+        Assert.assertEquals(reread(org).registerTarget(), SharedSiteRegisterTarget.ORG_HOME);
+        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, Boolean.FALSE),
+                "the 8-arg save leaves the target alone");
+        Assert.assertEquals(admin.storedRegisterTarget(id), "ORG_HOME");
+        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, null, "ORG_TRIP_PAGE"));
+        Assert.assertEquals(reread(org).getSharedSiteRegisterTarget(), "ORG_TRIP_PAGE");
+        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, null, "bogus"));
+        Assert.assertNull(reread(org).getSharedSiteRegisterTarget(), "an unknown name stores the null default");
+        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, null, "ORG_HOME"));
+        Assert.assertTrue(admin.saveOrgEdits(id, org.getName(), null, null, null, null, null, null, "DETAIL_PAGE"));
+        Assert.assertNull(reread(org).getSharedSiteRegisterTarget(), "the default is stored as null");
+        Assert.assertEquals(admin.storedRegisterTarget("no-such-org"), "DETAIL_PAGE");
     }
 
     @Test

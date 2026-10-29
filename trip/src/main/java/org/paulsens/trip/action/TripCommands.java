@@ -19,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -29,6 +30,7 @@ import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.SharedSiteRegisterTarget;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
 
@@ -710,6 +712,68 @@ public class TripCommands {
             return false;
         }
         return selectedOrgId == null || selectedOrgId.isBlank() || selectedOrgId.equals(trip.getOrgId());
+    }
+
+    /** A trip's detail page, site-relative: where a trip link goes unless something below says otherwise. */
+    static final String DETAIL_URL = "/trip/tripDetails.jsf?trip=";
+
+    /**
+     * Where a listed trip links for this viewer: the landing page's Register chip and the Trips menu's
+     * public entries both ask here, so the two can never send the same visitor to different places.
+     * <ul>
+     *   <li>An EXTERNAL trip, for anyone not registered on it, goes to its own site (registration happens
+     *       there).</li>
+     *   <li>A viewer registered on the trip always gets this site's detail page -- the chip shows their
+     *       status, and the status lives here.</li>
+     *   <li>On a SHARED site, the owning organization's {@link SharedSiteRegisterTarget} decides: its own site's
+     *       copy of the trip page, its own site's home page, or (the default) this site's detail page. An org
+     *       with no subdomain has no site to send anyone to, so it always gets the detail page.</li>
+     *   <li>Everywhere else (an org's own site, the marketing host) it is the detail page.</li>
+     * </ul>
+     * Anonymous-safe: a null viewer looks up no registration and touches no session.
+     */
+    public String publicTripUrl(final Trip trip, final Person.Id viewer) {
+        if (trip == null || trip.getId() == null) {
+            return "/";
+        }
+        final boolean registered = viewer != null && org.paulsens.trip.api.Beans.get(RegistrationCommands.class)
+                .isChipRegistered(trip.getId(), viewer);
+        final SiteCommands site = new SiteCommands();
+        return publicTripUrl(trip, registered, SiteContext.current(), TripCommands::ownerOf, site::orgSiteUrl);
+    }
+
+    /** {@link #publicTripUrl(Trip, Person.Id)} on explicit facts: the testable half. */
+    static String publicTripUrl(final Trip trip, final boolean registered, final SiteContext site,
+            final java.util.function.Function<String, Optional<Organization>> ownerLookup,
+            final java.util.function.UnaryOperator<String> orgSiteUrl) {
+        if (trip.isExternal() && !registered) {
+            return trip.getNonHostedTripUrl().trim();
+        }
+        final String detail = DETAIL_URL + trip.getId();
+        if (registered || !site.isShared()) {
+            return detail;
+        }
+        final Organization owner = ownerLookup.apply(trip.getOrgId()).orElse(null);
+        if (owner == null || owner.getSlug() == null || owner.getSlug().isBlank()) {
+            return detail;
+        }
+        final String home = withSlash(orgSiteUrl.apply(owner.getSlug()));
+        return switch (owner.registerTarget()) {
+            case ORG_HOME -> home;
+            case ORG_TRIP_PAGE -> home + DETAIL_URL.substring(1) + trip.getId();
+            case DETAIL_PAGE -> detail;
+        };
+    }
+
+    private static Optional<Organization> ownerOf(final String orgId) {
+        if (orgId == null || orgId.isBlank()) {
+            return Optional.empty();
+        }
+        return DAO.getInstance().getOrganization(Organization.Id.from(orgId), Cached.YES);
+    }
+
+    private static String withSlash(final String url) {
+        return url.endsWith("/") ? url : url + "/";
     }
 
     /**

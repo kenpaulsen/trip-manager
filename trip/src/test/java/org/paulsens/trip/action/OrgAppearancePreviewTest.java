@@ -15,6 +15,7 @@ import org.mockito.Mockito;
 import org.paulsens.trip.audit.RequestContext;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.config.OrgSettingsTabs;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Config;
 import org.paulsens.trip.model.Organization;
@@ -242,9 +243,9 @@ public class OrgAppearancePreviewTest {
             final BrandCommands real = new BrandCommands();
             params.put("orgId", org.getId().getValue());
 
-            Mockito.when(view.getViewId()).thenReturn("/admin/orgConfig.xhtml");
+            Mockito.when(view.getViewId()).thenReturn("/admin/orgProfile.xhtml");
             real.preview(org.getId().getValue(), Map.of(PALETTE, "purple"), null);
-            Assert.assertFalse(real.isPreviewing(), "another admin page is not the Appearance page");
+            Assert.assertFalse(real.isPreviewing(), "another admin page is not the org settings page");
 
             Mockito.when(view.getViewId()).thenReturn(BrandCommands.APPEARANCE_VIEW_ID);
             Assert.assertTrue(real.isPreviewing(), "the Appearance view, for the org the parameter names");
@@ -300,7 +301,9 @@ public class OrgAppearancePreviewTest {
         Assert.assertEquals(image.get(BG_COLOR), "", "picking an image clears the color that cannot show");
         Assert.assertFalse(image.containsKey(BrandCommands.BG_MODE_KEY),
                 "the chooser's mode is not a setting and must never reach a row");
-        Assert.assertEquals(image.keySet().size(), KnownSettings.branding().size());
+        Assert.assertEquals(image.keySet().size(), OrgSettingsTabs.appearanceDefs().size());
+        Assert.assertFalse(image.containsKey(KnownSettings.SITE_CONTACT_NAME.getName()),
+                "a setting another tab owns is never echoed back, so a stale preview cannot undo that tab's save");
 
         vals.put(BrandCommands.BG_MODE_KEY, BrandCommands.BG_MODE_COLOR);
         final Map<String, String> color = brand.forSave(vals, "0f0");
@@ -343,9 +346,9 @@ public class OrgAppearancePreviewTest {
     @Test
     public void thePagesSmallHelpersAnswerWhatTheControlsNeed() {
         Assert.assertEquals(brand.getPalettes(), KnownSettings.THEME_PALETTES);
-        Assert.assertEquals(brand.appearanceUrl("abc"), "/admin/orgAppearance.jsf?orgId=abc",
-                "every preview, Save and Cancel redirects here, so the orgId parameter is always present");
-        Assert.assertEquals(brand.appearanceUrl(null), "/admin/orgAppearance.jsf?orgId=");
+        Assert.assertEquals(brand.appearanceUrl("abc"), "/admin/orgConfig.jsf?orgId=abc&tab=appearance",
+                "every preview, Save and Reset redirects to the tab, so the orgId parameter is always present");
+        Assert.assertEquals(brand.appearanceUrl(null), "/admin/orgConfig.jsf?orgId=&tab=appearance");
         Assert.assertEquals(brand.colorHex(Map.of(BG_COLOR, "#AABBCC")), "aabbcc",
                 "the widget's value shape: no '#'");
         Assert.assertEquals(brand.colorHex(Map.of()), "333333", "nothing chosen: what the picker opens on");
@@ -354,24 +357,27 @@ public class OrgAppearancePreviewTest {
     }
 
     /**
-     * The Appearance page renders EVERY branding setting: the six with a control of their own, and the rest
-     * from {@code brand.detailFields}, which the page repeats over. This is the guard the split needed --
+     * The Appearance tab renders every branding setting it owns: the six with a control of their own, and the
+     * rest from {@code brand.detailFields}, which the tab repeats over. This is the guard the split needed --
      * `site.ogImage.url`, the two footer settings, both contact settings and the donate URL were on NEITHER
-     * page for a while (the org Settings page excludes the whole Branding section), which is how a site
-     * ended up with a "Questions?" card nobody could put a name or a phone number on.
+     * page for a while, which is how a site ended up with a "Questions?" card nobody could put a name or a
+     * phone number on. The contact and donate settings now live on the Profile and Home page tabs
+     * ({@code OrgSettingsTabsTest} holds every tab together against the whole overridable set).
      */
     @Test
     public void everyBrandingSettingIsReachableOnTheAppearancePage() {
         final List<String> detail = brand.getDetailFields().stream().map(SettingDef::getName).toList();
         final List<String> rendered = Stream.concat(BrandCommands.DEDICATED_FIELDS.stream(), detail.stream())
                 .sorted().toList();
-        final List<String> declared = KnownSettings.branding().stream().map(SettingDef::getName).sorted()
-                .toList();
+        final List<String> declared = OrgSettingsTabs.appearanceDefs().stream().map(SettingDef::getName)
+                .sorted().toList();
         Assert.assertEquals(rendered, declared,
-                "a branding setting the page neither gives a control nor repeats over is editable NOWHERE");
-        for (final String missed : List.of("site.ogImage.url", "site.footer.title", "site.footer.text",
-                "site.contact.name", "site.contact.phone", "site.donate.url")) {
+                "a branding setting the tab neither gives a control nor repeats over is editable NOWHERE");
+        for (final String missed : List.of("site.ogImage.url", "site.footer.title", "site.footer.text")) {
             Assert.assertTrue(detail.contains(missed), missed + " must be on the page's own key list");
+        }
+        for (final String moved : List.of("site.contact.name", "site.contact.phone", "site.donate.url")) {
+            Assert.assertFalse(detail.contains(moved), moved + " is edited on its own tab, not twice");
         }
         Assert.assertFalse(detail.contains(PALETTE), "the palette has a menu of its own, not a text box");
         Assert.assertFalse(detail.contains(KnownSettings.SITE_THEME_DARK.getName()));
@@ -447,13 +453,14 @@ public class OrgAppearancePreviewTest {
         return session;
     }
 
-    /** Guards the list the org Settings page renders against silently gaining a look-and-feel row. */
+    /** Guards the settings page's generic tabs against silently gaining a look-and-feel row. */
     @Test
-    public void theGenericOrgSettingsPageOffersNoAppearanceRow() {
-        final List<String> names = new ConfigCommands().getOrgConfigDefs().stream()
+    public void theGenericTabsOfferNoAppearanceRow() {
+        final ConfigCommands config = new ConfigCommands();
+        final List<String> names = OrgSettingsTabs.KEYS.stream().flatMap(key -> config.orgTabDefs(key).stream())
                 .map(SettingDef::getName).toList();
-        Assert.assertFalse(names.contains(PALETTE), "the palette belongs to the Appearance page alone");
+        Assert.assertFalse(names.contains(PALETTE), "the palette belongs to the Appearance tab alone");
         Assert.assertFalse(names.contains(BG_COLOR));
-        Assert.assertTrue(names.contains("reg.allowEdits"), "everything else still shows there");
+        Assert.assertTrue(names.contains("reg.allowEdits"), "everything else still shows on a generic tab");
     }
 }

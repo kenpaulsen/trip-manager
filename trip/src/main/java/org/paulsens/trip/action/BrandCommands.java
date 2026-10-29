@@ -14,6 +14,7 @@ import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
+import org.paulsens.trip.config.OrgSettingsTabs;
 import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Organization;
@@ -91,10 +92,15 @@ public class BrandCommands {
     static final String PALETTE_BACKGROUND =
             "var(--site-bg-default, var(--surface-ground, " + FALLBACK_BACKGROUND_COLOR + "))";
 
-    /** The Appearance page's view id: the one view a preview may change. */
-    static final String APPEARANCE_VIEW_ID = "/admin/orgAppearance.xhtml";
-    /** The Appearance page's URL, whose {@code orgId} parameter half of the preview trigger keys off. */
-    static final String APPEARANCE_URL = "/admin/orgAppearance.jsf";
+    /**
+     * The org settings page's view id: the one view a preview may change. Appearance is a TAB of that page
+     * (2026-10-29), so a preview shows on every tab of it while it lasts, which is also where its banner is.
+     */
+    static final String APPEARANCE_VIEW_ID = "/admin/orgConfig.xhtml";
+    /** The org settings page's URL, whose {@code orgId} parameter half of the preview trigger keys off. */
+    static final String APPEARANCE_URL = "/admin/orgConfig.jsf";
+    /** The {@code ?tab=} that opens the settings page on its Appearance tab. */
+    private static final String APPEARANCE_TAB = "&tab=" + OrgSettingsTabs.APPEARANCE;
     private static final String ORG_PARAM = "orgId";
 
     /**
@@ -479,15 +485,18 @@ public class BrandCommands {
     }
 
     /**
-     * The map to hand {@code OrgCommands.saveOrgSettings}: the branding settings only (the mode key is not a
-     * setting and never reaches a row), with the LOSING backgrounds cleared -- picking a color drops the
-     * image URL, picking an image drops the color, and following the palette drops both -- so what is
-     * stored is what shows.
+     * The map to hand {@code OrgCommands.saveOrgSettings}: the Appearance tab's own settings only ({@link
+     * OrgSettingsTabs#appearanceDefs}; the mode key is not a setting and never reaches a row). The branding
+     * settings that live on other tabs (contact name and phone, the donate link) are left OUT rather than
+     * echoed back, because {@code saveOrgSettings} writes only the keys it is given: a preview started before
+     * an edit on the Profile tab must not undo that edit when it is saved. The LOSING backgrounds are
+     * cleared -- picking a color drops the image URL, picking an image drops the color, and following the
+     * palette drops both -- so what is stored is what shows.
      */
     public Map<String, String> forSave(final Map<String, String> values, final String colorHex) {
         final Map<String, String> edited = withColor(values, colorHex);
         final Map<String, String> out = new LinkedHashMap<>();
-        for (final SettingDef def : KnownSettings.branding()) {
+        for (final SettingDef def : OrgSettingsTabs.appearanceDefs()) {
             out.put(def.getName(), cleaned(def, edited.get(def.getName())));
         }
         final String mode = backgroundMode(edited);
@@ -499,13 +508,15 @@ public class BrandCommands {
     }
 
     /**
-     * The branding settings with no purpose-built control of their own, in declaration order: the page
-     * renders exactly these as labelled text boxes in its "Site details" fieldset. Deriving the list here,
-     * rather than hand-listing rows in the page, is what stops a new branding setting from being editable
-     * on neither page -- which is how the footer, contact and donate settings went missing.
+     * The Appearance tab's settings with no purpose-built control of their own, in declaration order: the
+     * tab renders exactly these as labelled text boxes in its "Site details" fieldset. Deriving the list
+     * here, rather than hand-listing rows in the page, is what stops a new branding setting from being
+     * editable nowhere -- which is how the footer, contact and donate settings once went missing. The ones
+     * that moved to another tab ({@code OrgSettingsTabs.MOVED_OFF_APPEARANCE}) are rendered there.
      */
     public List<SettingDef> getDetailFields() {
-        return KnownSettings.branding().stream().filter(def -> !DEDICATED_FIELDS.contains(def.getName()))
+        return OrgSettingsTabs.appearanceDefs().stream()
+                .filter(def -> !DEDICATED_FIELDS.contains(def.getName()))
                 .toList();
     }
 
@@ -514,9 +525,9 @@ public class BrandCommands {
         return KnownSettings.THEME_PALETTES;
     }
 
-    /** The Appearance page's own URL for this org: what every preview, Save and Cancel redirects back to. */
+    /** The Appearance tab's URL for this org: what every preview, Save and Reset redirects back to. */
     public String appearanceUrl(final String orgId) {
-        return APPEARANCE_URL + "?" + ORG_PARAM + "=" + (orgId == null ? "" : orgId);
+        return APPEARANCE_URL + "?" + ORG_PARAM + "=" + (orgId == null ? "" : orgId) + APPEARANCE_TAB;
     }
 
     /** What the color picker starts on: the chosen color WITHOUT its '#', which is the widget's shape. */

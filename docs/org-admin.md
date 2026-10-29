@@ -8,32 +8,54 @@ in `payments.md`; family-admin gating is in `family-accounts.md`.
 
 `admin/orgSettings.jsf?orgId=…` is a dashboard of cards and the org area's **only** navigation (user
 decision 2026-09-02: cards, not tabs — `WEB-INF/orgTabs.xhtml` is deleted). Every sub-page carries one
-control back: a **Done** `p:linkButton` (`id="orgDone"`, a plain GET) top-right of its heading. All of them
-follow the self-gating pattern — org authority has no role or privilege row, so these pages gate themselves
-in `initPage`, NOT via defaultAuth:
+control back: a **Done** `p:linkButton` (`id="orgDone"` on every page, the templates and lodging pages
+included, a plain GET) top-right of its heading. All of them follow the self-gating pattern -- org authority
+has no role or privilege row, so these pages gate themselves in `initPage`, NOT via defaultAuth:
 
 | Page | View gate (`OrgCommands`) | Mutations |
 |------|---------------------------|-----------|
 | `orgSettings.jsf` (hub) | `canViewOrgHub` — admin OR any org-scoped privilege here | — (cards render per-permission) |
-| `orgProfile.jsf` | `canManageOrg` | `saveOrgEdits`, **the name included** |
+| `orgConfig.jsf` (Organization Settings, tabbed) | `canManageOrg` | per tab: `saveOrgEdits` (Profile, Email; **the name included**; Profile's contact name and phone go through `saveOrgSettings`), `saveOrgSettings` (Home page, Trips & money, Chat, Appearance), `setGrantablePrivileges` (Privileges, site admins only) |
 | `orgTrips.jsf` | `canViewOrgTrips` — admin OR `addTrip@org` | New Trip: `canCreateTripFor` |
 | `orgPeople.jsf` | `canViewOrgPeople` — admin OR `peopleAdmin@org` | **org admins only** (all of them) |
 | `orgProcessors.jsf` | `canManageOrg` | `canManageOrg` |
-| `orgConfig.jsf` | `canManageOrg` | `saveOrgSettings` (see "Per-org settings") |
 | `orgWaivers.jsf` | `canManageOrg` | the org's trip documents ("waivers"): create, publish the next version, retire (`docs/waivers.md`) |
 
-The hub's cards are Profile, Trips, People, Payment Processors, Appearance
-(`orgAppearance.jsf` — the Branding settings), Settings (`orgConfig.jsf` — everything else), Content
-Templates (`templates.jsf?orgId=` — org admins OR whoever `priv.checkHere('contentAdmin', …)` admits on
-this host), Media (`canViewOrgMedia`: site admins, global or org-scoped `mediaAdmin` — NOT org admins as
-such; links to `{site.hostFor(org)}/admin/media.jsf`, the library being host-scoped), Audit Trail
-(`auditView.canView(org)`; `audit.jsf?orgId=`, org-keyed so it reads from any host), and, for site
-admins only, Privileges. There is no "Organization Site" card: the site's own
-address is a link on the **profile**, beside the subdomain field that decides it.
+**The hub is two labeled groups (2026-10-29).** "Run this organization": Trips, People, Documents, Lodging,
+Media (`canViewOrgMedia`: site admins, global or org-scoped `mediaAdmin` -- NOT org admins as such; links to
+`{site.hostFor(org)}/admin/media.jsf`, the library being host-scoped) and Audit Trail
+(`auditView.canView(org)`; `audit.jsf?orgId=`, org-keyed so it reads from any host). "Set up this
+organization": **Organization Settings** (`orgConfig.jsf`, one card for every setting), Payment Processors and
+Content Templates (`templates.jsf?orgId=`). The Content Templates card is gated exactly as the page is,
+`priv.checkHere('contentAdmin', …)`: it used to be offered to every org admin, and the page then bounced one
+without the grant straight home (template bodies are raw HTML, so an org admin is deliberately NOT admitted
+as such; grant Content Editor on People). The Profile, Appearance and site-admin Privileges cards are gone,
+folded into the settings page. There is no "Organization Site" card: the site's own address is a link on the
+Profile tab, beside the subdomain field that decides it.
 
-**Save Profile returns to the hub.** `saveOrgEdits` answers a boolean; on true the page redirects to
-`orgSettings.jsf?orgId=…&info=Organization profile saved.` (a growl carried as a URL message, the
-`account/person.xhtml` idiom), on false it stays put with the typed values and the refusal's own growl.
+**One settings page, tabbed by topic (2026-10-29).** The old pages split settings by where they are STORED
+(the org row, the override map, the Branding defs), so contact email sat on Profile while contact name and
+phone sat on Appearance, and the org's name was editable twice. `orgConfig.jsf` is now one `p:tabView`
+(`id="orgTabs"`), with `?tab=` naming the tab to open (run-once into viewScope, the `admin/lodging.xhtml`
+pattern; absent opens the first):
+
+| `?tab=` | Tab | What is on it |
+|---------|-----|---------------|
+| `profile` | Profile | name, abbreviation, contact email, contact name and phone, subdomain + the live-site link (site-admin only), "Shared sites", and the shared-site Register target (below) |
+| `appearance` | Appearance | palette, dark mode, layout, logo, favicon, background, link preview image, footer; with the uploads and the server-rendered preview ("The Appearance page and its live preview") |
+| `home` | Home page | `home.photos.windowDays`, `home.photos.minCount`, `home.countdown.soonDays`, `site.donate.url`, `site.analytics.id` |
+| `trips` | Trips & money | `reg.allowEdits`, `lodging.bills.autoRecompute`, `finance.treasurer.email` |
+| `chat` | Chat | `chat.background.colors`, `chat.background.image`, `chat.reactions.palette` (each trip's chat can still override them in its own settings) |
+| `email` | Email | sending domains (site-admin only), default domain, a link to the org's email templates |
+| `privileges` | Privileges | the allow-list ("The per-org allow-list"), who holds which org-scoped privilege, pointers to where trip roles and Hotel Operators are granted, and for site admins a link (`toOrgPrivs`) to the raw row editor |
+
+Each tab has its own Save (`saveProfile`, `saveHome`, `saveTrips`, `saveChat`, `saveEmail`,
+`saveGrantable`; Appearance keeps its preview banner's Save/Reset) that processes that tab alone, so an edit
+left unsaved on one tab never rides another tab's Save; `saveOrgSettings` writes only the keys it is
+handed. **Save stays on the tab** with a growl; the old Save Profile redirect to the hub (`&info=`) is gone.
+The retired URLs `orgProfile.jsf?orgId=` and `orgAppearance.jsf?orgId=` redirect to `tab=profile` /
+`tab=appearance` (bookmarks, docs, old mail). Which setting is on which tab is one Java table, so a new
+org-overridable setting cannot land on no tab (see "Per-org settings").
 
 **A page's multi-select value goes through `OrgCommands.asStringList`, never `util.asList`.** A rendered
 `selectManyCheckbox` decodes to an `Object[]`, but a **disabled** one never decodes at all, so its binding
@@ -218,7 +240,7 @@ Which domains the dropdown offers is a **per-org allow-list**, `Organization.mai
   send at all, so restriction is only ever expressed by listing the domains that ARE allowed. No
   migration was needed and no existing org changed behavior.
 - The list is **site-admin only** (it decides which tenant may send as which domain). It is edited on
-  `admin/organizations.jsf`, and rendered-but-disabled on `admin/orgProfile.jsf`; both pages share
+  `admin/organizations.jsf`, and rendered-but-disabled on the settings page's Email tab; both pages share
   `/WEB-INF/orgProfileFields.xhtml`, and `OrgCommands.saveOrgEdits` silently **ignores** the field for a
   non-site-admin rather than refusing the post — that is what makes one shared include safe for both.
 - `Organization.defaultMailDomain` is the org admins' own choice among what they are allowed; it only
@@ -245,7 +267,11 @@ whole site).
 `Organization.grantablePrivileges` bounds what an org may grant (both trip roles and org-scoped bases):
 
 - `null` (never set) = **everything allowed** — existing orgs needed no migration; restriction is an
-  explicit site-admin act on `admin/organizations.jsf` ("Grantable Privileges" fieldset).
+  explicit site-admin act on the organization settings page's **Privileges tab**
+  (`orgConfig.jsf?orgId=…&tab=privileges`, moved there from `admin/organizations.jsf` 2026-10-29, which
+  now only links to it). An org admin sees the same checkboxes read-only with "Only a site administrator
+  can change this": the list is what their plan includes, so they should see it without being able to
+  widen it. Each box's hover popup says what the privilege does (`OrgCommands.grantableDescription`).
 - An EMPTY list = nothing grantable. The getter deliberately never lazy-inits (unlike `paymentDefaults`),
   because that distinction is load-bearing.
 - Enforced server-side in `grantOrgPrivilege` and `setTripRole` and reflected in the same
@@ -254,6 +280,13 @@ whole site).
   removable).
 
 ## The privilege editors
+
+Where privileges are granted is deliberately CONTEXTUAL, and the Privileges tab says so rather than
+duplicating it: an org-scoped privilege on the org People page (`grantOrgPrivilege`, allow-list checked),
+a trip role on the trip editor's Trip Managers roster (`setTripRole`, allow-list checked), a Hotel Operator
+on the hotel's Lodging page. The tab lists who holds each org-scoped privilege (`privHolders`) with a link to
+People, and only a site admin gets the link to the raw row editor below, with the warning that it applies
+none of those checks. (The hub's Privileges card that used to open it directly is gone.)
 
 `admin/editPrivs.jsf` (Global) / `editTripPrivs.jsf` / `editOrgPrivs.jsf` — three structurally identical
 pages (shared `WEB-INF/privEditor.xhtml`, nav via `WEB-INF/privTabs.xhtml`), all site-admin/privilegeAdmin
@@ -309,7 +342,9 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
 - **Shared sites and the org's content — the double gate** (`site/ListingScope`, see
   `content-templates.md` "Organization sites"): a shared site's sections list a hosted org only when the
   section's `includeOrgs` pick includes it AND the org has not unchecked "Shared sites" on its profile
-  (`Organization.allowSharedSites`, org-admin controlled, saved through `saveOrgEdits`' 8th argument). With
+  (`Organization.allowSharedSites`, org-admin controlled, saved through `saveOrgEdits`' 8th argument; where
+  such a listing's Register chip then sends a visitor is the org's next choice, "Shared-site Register
+  target" below). With
   no pick, a shared site lists the orgs that have no site of their own — so assigning a subdomain also
   takes the org OFF the shared sites until a site admin curates it back in.
 - **The app on the marketing host (2026-09-14):** a request under `/api/` on unitetrip.com (the UniteTrip
@@ -391,6 +426,45 @@ script, no DNS step, no deploy (wildcard DNS and the wildcard certificate alread
   library document; Matt (user6) is Acme's SITE editor (`contentAdmin`+`mediaAdmin` scoped to Acme) and
   Kevin (user3) its org admin WITHOUT the grant. `OwnedFixturePolicyIT` ratchets which webtests may
   reference the seeded orgs.
+
+## Shared-site Register target (2026-10-29)
+
+When a shared site lists a hosted organization's trip, the organization decides where that trip's
+**Register** chip sends a visitor: `Organization.sharedSiteRegisterTarget`, a `SharedSiteRegisterTarget`
+name stored as a string (a value from a newer build reads back as the default), org-admin controlled, set on
+the Profile tab beside "Shared sites" (a one-per-line radio, `orgRegisterTarget`) and saved through
+`saveOrgEdits`' 9th argument (null = leave it alone):
+
+| Target | The chip goes to |
+|--------|------------------|
+| `DETAIL_PAGE` (default; null) | the trip's detail page on the shared site itself, as before |
+| `ORG_TRIP_PAGE` | the same trip's detail page on the org's own site (`{orgSiteUrl}trip/tripDetails.jsf?trip=…`) |
+| `ORG_HOME` | the org's own site's home page (`SiteCommands.orgSiteUrl`, `http://{slug}.localhost:{port}/` locally) |
+
+The rule lives in ONE method, `TripCommands.publicTripUrl(trip, viewer)`, which the landing page's chip
+(`WEB-INF/ptypes/pilgrimages.xhtml`) and the Trips menu (`WEB-INF/menu.xhtml`, for a viewer who is not on
+the trip) both call, so no route can send a visitor somewhere the other would not:
+
+- **Only on a shared site.** On an org's own site (or the marketing host) a trip link is always that site's
+  own detail page.
+- **An external trip** (`nonHostedTripUrl`) still sends an unregistered visitor to its external page, the
+  rule that used to live in the chip's EL.
+- **A visitor already registered** on the trip always gets the shared detail page: their chip shows their
+  status there, not a call to action, the same exception external trips make.
+- **No subdomain, no redirect.** An org without a site of its own falls back to `DETAIL_PAGE` whatever is
+  stored, so a stored choice can never strand anyone on a host that does not exist; the profile disables the
+  radio (with a hint) while the org has no subdomain or has unchecked "Shared sites".
+- **The Trips menu follows by construction, not by sight:** a shared site's menus list no hosted org's trips
+  at all ("Organization sites" above), and an org without a subdomain falls back to the detail page, so
+  today the choice is visible on the chip alone. The menu calls the same method so that this stays true if
+  either rule ever changes.
+- **The sidebar is unaffected**: it lists CFPW's trips only, and CFPW has no subdomain.
+- **Visitors arrive signed out.** A shared host (e.g. visitqueenofpeace.com) and `{slug}.unitetrip.com` are
+  different cookie domains (see "One login across the org sites"), so someone signed in on the shared site
+  signs in again on the org's. The profile's hint says so.
+
+Guarded by `SharedSiteRegisterTargetPwIT` (each target as the anonymous landing page renders it, the
+registered visitor's chip, the radio's disabled states) and the unit tests on `publicTripUrl`.
 
 ## Org-site editors: `contentAdmin@org` / `mediaAdmin@org` (privilege-only, 2026-09)
 
@@ -482,14 +556,18 @@ organization's own value then wins on its own site. Three rungs, resolved in ord
    re-keyed per org);
 3. the compiled default on the `SettingDef`.
 
-Which settings: those `KnownSettings` marks with `.withOrgOverride()` — `site.org.name`,
-`home.photos.windowDays`, `home.photos.minCount`, `home.countdown.soonDays`, `reg.allowEdits`,
-`chat.background.colors`, `chat.background.image`, `chat.reactions.palette` — plus `site.analytics.id`,
-which is **org-explicit** (`.withOrgOnly()`): an org host resolves it from the org's override or the
-compiled default (blank) and *never* from the site's row, so the shared site's analytics property can never
-collect an org site's traffic — and the thirteen org-only **Branding** defs (`site.theme.palette`,
-`site.logo.url`, …; see "Branding" below). `KnownSettings.orgOverridable()` is the authoritative list;
-marking a new setting is a product decision (`OrgSettingsLadderTest` pins the set).
+Which settings: those `KnownSettings` marks with `.withOrgOverride()` -- `home.photos.windowDays`,
+`home.photos.minCount`, `home.countdown.soonDays`, `reg.allowEdits`, `lodging.bills.autoRecompute`,
+`finance.treasurer.email`, `chat.background.colors`, `chat.background.image`, `chat.reactions.palette` --
+plus `site.analytics.id`, which is **org-explicit** (`.withOrgOnly()`): an org host resolves it from the
+org's override or the compiled default (blank) and *never* from the site's row, so the shared site's
+analytics property can never collect an org site's traffic -- and the org-only **Branding** defs
+(`site.theme.palette`, `site.logo.url`, ...; see "Branding" below). `KnownSettings.orgOverridable()` is the
+authoritative list; marking a new setting is a product decision (`OrgSettingsLadderTest` pins the set).
+**`site.org.name` is no longer org-overridable (2026-10-29):** it was editable both as the profile's Name and
+as a setting row, and on an org site the only reader (`WEB-INF/homePage.xhtml`'s upload license line) now
+reads the org's own name (`#{site.orgName}`), like everything else there. A stored override for it is
+simply never read again.
 
 Resolution is automatic for request-bound code: `ConfigCommands.getString/getInt/getBoolean/getLong(def)` —
 and the page entry points `#{config.getString('key')}` etc. — consult `SiteContext.current()`, and on an ORG
@@ -500,15 +578,21 @@ no host and must name the organization explicitly — `ConfigCommands.getString(
 `OrgCommands.effectiveSetting(def, orgId)` — deriving it from the entity in hand (trip → org), never from
 a session. `ConfigCommands.siteString(def)` is the site rung alone, whatever host the request is on.
 
-The editor: `admin/orgConfig.jsf?orgId=…` (hub card "Settings"; `canManageOrg`) lists every org-overridable
-setting with the site's value as its placeholder ("Inherit (…)" for booleans), blank = inherit — **minus the
-look-and-feel ones**, which `admin/orgAppearance.jsf` owns (see "Branding"). The two lists are one split
-(`KnownSettings.branding()` / `.orgOverridableNonBranding()`, offered to the pages as
-`#{config.orgConfigDefs}`), so no setting can appear on both pages or on neither.
+The editor: `admin/orgConfig.jsf?orgId=…` (hub card "Organization Settings"; `canManageOrg`), tabbed by
+topic since 2026-10-29 ("The hub and its pages" has the tabs). The Home page, Trips & money and Chat tabs
+render their settings as generic rows (one shared include, `WEB-INF/orgSettingRows.xhtml`) with the site's
+value as the placeholder ("Inherit (...)" for booleans), blank = inherit; the Profile tab shows the same rows
+for contact name and phone under its own fields, and the Appearance tab keeps its dedicated controls. Which setting is on which tab is one Java table (`OrgSettingsTabs`), and
+its test holds every def in `KnownSettings.orgOverridable()` to EXACTLY one tab or one dedicated control,
+so a new setting cannot land on no tab, or on two (the failure the 2026-09-02 Appearance split had: six
+branding settings were editable nowhere). The Branding defs still split from the rest the same way
+(`KnownSettings.branding()` / `.orgOverridableNonBranding()`), but contact name and phone are on the Profile
+tab and the donate URL on the Home page tab, beside the things they sit next to on the site.
 `OrgCommands.saveOrgSettings(orgId, map)` refuses non-overridable keys and values that do not
-parse as the declared type, applies onto a `Cached.NO` read, writes only when something changed, and
-audits the change list. Rows bind by setting NAME into a viewScope map (names and scalars only), like the
-site Settings page. Both pages end with a "Done" link back to the org dashboard.
+parse as the declared type, applies onto a `Cached.NO` read, writes only the keys it is handed (which is
+what makes a Save per tab safe), writes only when something changed, and audits the change list. Rows bind
+by setting NAME into a viewScope map (names and scalars only), like the site Settings page. The page ends
+its heading row with a "Done" link back to the org dashboard.
 
 **Derived base URLs.** `reg.mail.baseUrl` and `chat.mail.baseUrl` are the *shared-site* rung only. Every
 absolute link about an org — registration mail (`RegistrationCommands`), org invites (`sendOrgInvite`),
@@ -665,21 +749,25 @@ inline color literals; sweeping them is a separate, tracked job.
 
 #### The Appearance page and its live preview (2026-09-02)
 
-`admin/orgAppearance.jsf?orgId=…` ("Appearance", hub card, `canManageOrg`, "Done" back to the dashboard)
-is where an organization sets its look. Two fieldsets:
+The **Appearance tab** of the organization settings page (`admin/orgConfig.jsf?orgId=…&tab=appearance`,
+`canManageOrg`; it was its own page, `admin/orgAppearance.jsf`, until 2026-10-29, and that URL now
+redirects to the tab) is where an organization sets its look. Two fieldsets:
 
 - **Appearance** — the color palette as a menu, **Dark mode** as a radio right beneath it, the logo and
   favicon URLs, and the background chooser (Color palette / Color with a `p:colorPicker` / Image with a
   URL box).
-- **Site details** — every OTHER branding setting (`site.ogImage.url`, the footer title and text, the three
-  footer colors, both contact settings, `site.donate.url`), as labelled text boxes, in the same preview / Save /
-  Cancel flow. A hex-color setting (`def.hexColor`) gets a `p:colorPicker` with `clearButton` instead of a
+- **Site details** -- every OTHER branding setting that is about the LOOK (`site.ogImage.url`, the footer
+  title and text, the three footer colors), as labelled text boxes, in the same preview / Save / Reset
+  flow. Contact name and phone moved to the Profile tab and the donate URL to the Home page tab
+  (2026-10-29), beside the contact email and the home page they belong with; they are saved there, so
+  the Appearance Save leaves them out of the map it hands `saveOrgSettings` (which writes only the
+  keys it is handed) and cannot overwrite them with a stale preview copy. A hex-color setting (`def.hexColor`) gets a `p:colorPicker` with `clearButton` instead of a
   text box: Clear empties the field, and blank IS the theme's default, so unlike the page background it
   needs no separate "default" choice. Coloris fires the field's `change` (the page's ajax) when its popup
   CLOSES on a new value, not as the popup's own box is typed in. The bean normalizes either picker shape
   (with or without its `#`) to `#rrggbb` on preview and save. The page
   repeats over **`brand.detailFields`** — `KnownSettings.branding()` minus `BrandCommands.DEDICATED_FIELDS`,
-  the six with a control of their own — rather than hand-listing rows, because when this page was carved
+  the ones with a control of their own (on this tab or another) -- rather than hand-listing rows, because when this page was carved
   out of `orgConfig.jsf` (which excludes the Branding section whole) those six landed on NEITHER page and a
   site could not be given the contact name and phone its "Questions?" card shows.
   `OrgAppearancePreviewTest.everyBrandingSettingIsReachableOnTheAppearancePage` holds dedicated + detail
@@ -704,11 +792,15 @@ So:
   partial update can replace that stylesheet link.
 - `BrandCommands` consults the preview BEFORE the org's stored settings, and only then. **The trigger is
   the view id plus the `orgId` request parameter** (`BrandCommands.appearanceViewOrgId`:
-  `FacesContext.getViewRoot().getViewId()` equals `/admin/orgAppearance.xhtml` AND the request's `orgId`
+  `FacesContext.getViewRoot().getViewId()` equals `/admin/orgConfig.xhtml` (the settings page that holds
+  the Appearance tab; `/admin/orgAppearance.xhtml` before 2026-10-29) AND the request's `orgId`
   equals the preview's org). It is keyed that way because the theme is resolved during `h:head` render,
   *before* any `initPage` handler has necessarily run — a request-scope flag the page sets would be too
   late, so the preview would apply unreliably. The page carries `?orgId=` on every GET (that is what the
-  redirects go to) and re-supplies it on postbacks with one hidden field, so the parameter is always there.
+  redirects go to: `BrandCommands.appearanceUrl(orgId)`, `/admin/orgConfig.jsf?orgId=…&tab=appearance`, so
+  a preview, Save or Reset lands back on the Appearance tab) and re-supplies it on postbacks with one hidden
+  field, so the parameter is always there. While a preview is in force the WHOLE settings page wears it,
+  whichever tab is showing: it is one view.
 - The session is read with `getSession(false)` and **never created**: a request with no session gets the
   stored values, like every other visitor.
 - **Cancel** clears the preview; **Save** writes through `OrgCommands.saveOrgSettings` (which re-checks

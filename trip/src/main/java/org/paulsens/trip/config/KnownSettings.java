@@ -31,8 +31,9 @@ public final class KnownSettings {
 
     public static final SettingDef SITE_ORG_NAME = new SettingDef(
             "site.org.name", Config.Type.STRING, "Center for Peace West", "Organization name",
-            "The organization's display name, used on public pages and in notices such as the photo-upload "
-                    + "license text.").withOrgOverride();
+            "The shared site's organization name, used on its public pages and in notices such as the "
+                    + "photo-upload license text. An organization's own site shows the organization's name "
+                    + "from its profile instead.");
 
     public static final SettingDef SITE_ORGSITES_BASE_DOMAIN = new SettingDef(
             "site.orgsites.baseDomain", Config.Type.STRING, "unitetrip.com", "Org sites base domain",

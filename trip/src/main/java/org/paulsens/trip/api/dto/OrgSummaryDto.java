@@ -18,6 +18,7 @@ public record OrgSummaryDto(
         boolean isMember,
         boolean isAdmin,
         boolean allowsSharedSites,
+        String registerTarget,
         String contactEmail,
         OrgBrandingDto branding) {
 }

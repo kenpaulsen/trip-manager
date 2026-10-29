@@ -109,6 +109,15 @@ public final class Organization implements Serializable {
     private Boolean allowSharedSites;
 
     /**
+     * Where a shared site's Register chip and Trips menu send a visitor for one of this org's trips: a
+     * {@link SharedSiteRegisterTarget} NAME, stored as a string so a value from a newer build reads back as
+     * the default rather than failing the whole row. {@code null} = {@link SharedSiteRegisterTarget#DETAIL_PAGE},
+     * the behavior every existing row already has. Org-admin controlled, beside {@link #allowSharedSites}.
+     * Setter-populated, outside the 8-arg creator like {@link #paymentDefaults}.
+     */
+    private String sharedSiteRegisterTarget;
+
+    /**
      * The privilege base names this org may grant (site-admin controlled allow-list, bounding both the
      * trip-scoped roles on the trip editor and the org-scoped grants on the org People page). {@code null}
      * means "never restricted" == everything allowed, so existing rows need no migration and restriction is
@@ -190,6 +199,12 @@ public final class Organization implements Serializable {
     @JsonIgnore
     public boolean allowsSharedSites() {
         return !Boolean.FALSE.equals(allowSharedSites);
+    }
+
+    /** The resolved {@link #sharedSiteRegisterTarget}: null or unknown reads as the detail page. */
+    @JsonIgnore
+    public SharedSiteRegisterTarget registerTarget() {
+        return SharedSiteRegisterTarget.from(sharedSiteRegisterTarget);
     }
 
     /** True when this org may grant the given privilege base name -- see {@link #grantablePrivileges}. */
