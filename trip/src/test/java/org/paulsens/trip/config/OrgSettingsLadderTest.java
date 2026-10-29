@@ -51,6 +51,7 @@ public class OrgSettingsLadderTest {
                 "site.ogImage.url",
                 "site.background.url", "site.background.color",
                 "site.footer.title", "site.footer.title.color", "site.footer.text", "site.footer.text.color",
+                "site.footer.links.color",
                 "site.contact.name", "site.contact.phone", "site.donate.url",
                 "home.photos.windowDays", "home.photos.minCount", "home.countdown.soonDays",
                 "chat.reactions.palette", "chat.background.colors", "chat.background.image", "reg.allowEdits",

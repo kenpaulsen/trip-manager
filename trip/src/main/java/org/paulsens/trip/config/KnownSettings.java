@@ -158,6 +158,12 @@ public final class KnownSettings {
             "The color of the footer text line, as a hex value such as #ffffff. Blank uses the theme's own "
                     + "footer color.").withOrgOnly().withHexColor();
 
+    /** ONE color for the footer's Privacy, Terms and Support links and the dots between them. */
+    public static final SettingDef SITE_FOOTER_LINKS_COLOR = new SettingDef(
+            "site.footer.links.color", Config.Type.STRING, "", "Footer links color",
+            "The color of the footer's Privacy, Terms and Support links, as a hex value such as #ffffff. Blank "
+                    + "uses the theme's own footer link color.").withOrgOnly().withHexColor();
+
     public static final SettingDef SITE_CONTACT_NAME = new SettingDef(
             "site.contact.name", Config.Type.STRING, "", "Contact name",
             "Who the \"Questions?\" card in the sidebar names. The card's email is the organization "
@@ -739,7 +745,7 @@ public final class KnownSettings {
                     List.of(SITE_THEME_PALETTE, SITE_THEME_DARK, SITE_LAYOUT, SITE_LOGO_URL, SITE_FAVICON_URL,
                             SITE_OG_IMAGE_URL,
                             SITE_BACKGROUND_URL, SITE_BACKGROUND_COLOR, SITE_FOOTER_TITLE, SITE_FOOTER_TITLE_COLOR,
-                            SITE_FOOTER_TEXT, SITE_FOOTER_TEXT_COLOR,
+                            SITE_FOOTER_TEXT, SITE_FOOTER_TEXT_COLOR, SITE_FOOTER_LINKS_COLOR,
                             SITE_CONTACT_NAME, SITE_CONTACT_PHONE, SITE_DONATE_URL)),
             new SettingSection(EMAIL_ADDRESSES_SECTION,
                     "Every address the application sends with or to. From addresses must be on an "

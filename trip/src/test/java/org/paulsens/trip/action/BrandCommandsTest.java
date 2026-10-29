@@ -78,6 +78,7 @@ public class BrandCommandsTest {
         Assert.assertNull(brand.getFooterText(), where);
         Assert.assertNull(brand.getFooterTitleStyle(), where);
         Assert.assertNull(brand.getFooterTextStyle(), where);
+        Assert.assertNull(brand.getFooterLinksStyle(), where);
         Assert.assertNull(brand.getContactName(), where);
         Assert.assertNull(brand.getContactPhone(), where);
         Assert.assertNull(brand.getContactEmail(), where);
@@ -150,10 +151,12 @@ public class BrandCommandsTest {
     @Test
     public void theFooterColorsAreInlineStylesAndOnlyEverAHexValue() throws IOException {
         setAcme(Map.of(KnownSettings.SITE_FOOTER_TITLE_COLOR.getName(), " #AABBCC ",
-                KnownSettings.SITE_FOOTER_TEXT_COLOR.getName(), "#fff"), null);
+                KnownSettings.SITE_FOOTER_TEXT_COLOR.getName(), "#fff",
+                KnownSettings.SITE_FOOTER_LINKS_COLOR.getName(), "#00FF00"), null);
         onSite(ACME_SITE, () -> {
             Assert.assertEquals(brand.getFooterTitleStyle(), "color:#aabbcc");
             Assert.assertEquals(brand.getFooterTextStyle(), "color:#fff");
+            Assert.assertEquals(brand.getFooterLinksStyle(), "color:#00ff00", "one color for all three links");
         });
         // A row written by hand bypasses the save's validation; the style attribute must still be safe.
         setAcme(Map.of(KnownSettings.SITE_FOOTER_TITLE_COLOR.getName(), "red;background:url(x)",
@@ -161,6 +164,7 @@ public class BrandCommandsTest {
         onSite(ACME_SITE, () -> {
             Assert.assertNull(brand.getFooterTitleStyle(), "anything but hex is the theme's own color");
             Assert.assertEquals(brand.getFooterTextStyle(), "color:#fff", "each color stands alone");
+            Assert.assertNull(brand.getFooterLinksStyle(), "an unset links color is the theme's own");
         });
         onSite(SiteContext.shared("www.visitqueenofpeace.com"), () -> assertNeutral("the shared site"));
     }

@@ -362,6 +362,11 @@ public class BrandCommands {
         return colorStyle(KnownSettings.SITE_FOOTER_TEXT_COLOR);
     }
 
+    /** The footer's Privacy / Terms / Support links' (and their separators') color, the same rule. */
+    public String getFooterLinksStyle() {
+        return colorStyle(KnownSettings.SITE_FOOTER_LINKS_COLOR);
+    }
+
     /**
      * {@code color:#rrggbb} for a usable hex setting, else null. Re-screened as hex here even though the save
      * path validates: the value is interpolated straight into a {@code style} attribute, and a row written by
