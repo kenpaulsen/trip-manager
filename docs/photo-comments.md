@@ -174,6 +174,17 @@ key). That covers both the message-removal cascade and the admin media delete, s
 `ChatPhotos.deleteEverywhere` also purges per attachment key directly (belt-and-braces for a photo whose
 media row was never recorded). Purging is idempotent.
 
+## Rotation keeps the thread (2026-10-30)
+
+Rotating a posted photo (`action/ChatPhotoRotation`, the one rule behind the chat page, the trip Photos page
+and the apps' `POST .../photos/rotate`) turns the stored renditions IN PLACE under the SAME key, because the key
+is what this whole feature joins on: the `photo:{key}` channel, its reactions, `PhotoChatMeta` and the album row.
+It therefore NEVER fires `MediaEvents.REMOVED` for the key (the listener above would purge the thread); what
+moves instead is `rev` on the attachment and the album row, which every client appends as `?r={rev}`, plus one
+wildcard CDN invalidation of `/chat/{trip}/{stamp}-{rand}*`. In the viewer, Rotate left / Rotate right sit in
+the `⋯` menu with Download and Delete, shown to the photo's author or a chat admin (the same people as the
+public-site toggle); a photo with no edit handler keeps the bare Download link.
+
 ## Settings
 
 `chat.photoComments.enabled` (default true — refusing new posts, keeping existing threads) and

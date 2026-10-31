@@ -570,4 +570,70 @@ public class ProfilePhotoCommandsTest {
         Assert.assertNull(ProfilePhotoCommands.parseColor("bluish"));
         Assert.assertNull(ProfilePhotoCommands.parseColor("#12345g"));
     }
+
+    // --- rotation ---
+
+    private void slotHolds(final int slot, final byte[] bytes) {
+        Mockito.when(profilePhotos.currentBytes(subject.getId().getValue(), slot))
+                .thenReturn(java.util.Optional.ofNullable(bytes));
+    }
+
+    @Test
+    public void rotatingASlotStoresTheTurnedPictureAsANewVersion() throws Exception {
+        slotHolds(2, PhotoFixtures.jpeg(300, 200));
+        Mockito.when(profilePhotos.store(ArgumentMatchers.anyString(), ArgumentMatchers.eq(2),
+                ArgumentMatchers.any())).thenReturn(true);
+
+        Assert.assertTrue(bean.rotate(subject, 2, "right"));
+
+        final ArgumentCaptor<byte[]> jpeg = ArgumentCaptor.forClass(byte[].class);
+        Mockito.verify(profilePhotos).store(ArgumentMatchers.eq(subject.getId().getValue()), ArgumentMatchers.eq(2),
+                jpeg.capture());
+        final BufferedImage turned = ImageIO.read(new ByteArrayInputStream(jpeg.getValue()));
+        Assert.assertEquals(turned.getWidth(), 200);
+        Assert.assertEquals(turned.getHeight(), 300);
+    }
+
+    @Test
+    public void rotateForAnswersEveryRefusalWithItsCode() {
+        final Caller stranger = callerFor(new Person().getId(), false);
+        Assert.assertEquals(bean.rotateFor(stranger, subject, 1,
+                org.paulsens.trip.media.QuarterTurn.LEFT).code(), ProfilePhotoCommands.PhotoResult.NOT_ALLOWED);
+        slotHolds(1, null);
+        Assert.assertEquals(bean.rotateFor(caller, subject, 1, org.paulsens.trip.media.QuarterTurn.LEFT).code(),
+                ProfilePhotoCommands.PhotoResult.EMPTY_SLOT);
+        Assert.assertEquals(bean.rotateFor(caller, subject, 9, org.paulsens.trip.media.QuarterTurn.LEFT).code(),
+                ProfilePhotoCommands.PhotoResult.EMPTY_SLOT, "an out-of-range slot holds nothing");
+        slotHolds(1, new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13});
+        Assert.assertEquals(bean.rotateFor(caller, subject, 1, org.paulsens.trip.media.QuarterTurn.LEFT).code(),
+                ProfilePhotoCommands.PhotoResult.REJECTED);
+        slotHolds(1, PhotoFixtures.jpeg(64, 64));
+        Assert.assertEquals(bean.rotateFor(caller, subject, 1, org.paulsens.trip.media.QuarterTurn.LEFT).code(),
+                ProfilePhotoCommands.PhotoResult.STORE_FAILED, "the mocked store answers false");
+    }
+
+    @Test
+    public void aSlotAlreadyBeingRotatedIsBusyUntilReleased() {
+        slotHolds(1, PhotoFixtures.jpeg(64, 64));
+        Mockito.when(profilePhotos.store(ArgumentMatchers.anyString(), ArgumentMatchers.eq(1),
+                ArgumentMatchers.any())).thenReturn(true);
+        final String key = "profilePics/" + subject.getId().getValue() + "/1";
+        Assert.assertTrue(org.paulsens.trip.media.RotationGuard.begin(key));
+        try {
+            Assert.assertEquals(bean.rotateFor(caller, subject, 1, org.paulsens.trip.media.QuarterTurn.RIGHT)
+                    .code(), ProfilePhotoCommands.PhotoResult.BUSY);
+        } finally {
+            org.paulsens.trip.media.RotationGuard.end(key);
+        }
+        Assert.assertTrue(bean.rotateFor(caller, subject, 1, org.paulsens.trip.media.QuarterTurn.RIGHT).isOk());
+    }
+
+    @Test
+    public void thePageActionRefusesAnUnknownDirectionOrAFailedRotation() {
+        Assert.assertFalse(bean.rotate(subject, 1, "sideways"));
+        slotHolds(1, null);
+        Assert.assertFalse(bean.rotate(subject, 1, "left"));
+        Mockito.verify(profilePhotos, Mockito.never()).store(ArgumentMatchers.anyString(), ArgumentMatchers.anyInt(),
+                ArgumentMatchers.any());
+    }
 }

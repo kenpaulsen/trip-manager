@@ -460,6 +460,65 @@ public class PeopleResourceTest extends ResourceTestSupport {
     }
 
     @Test
+    public void rotatePhotoAnswersTheNewStateWithTheRotatedSlot() {
+        signedInAs(ME);
+        exists(person(ME, "Me"));
+        final ProfilePhotoCommands commands = photoCommandsAllowing(true);
+        Mockito.when(commands.rotateFor(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.eq(2),
+                ArgumentMatchers.eq(org.paulsens.trip.media.QuarterTurn.RIGHT)))
+                .thenReturn(new ProfilePhotoCommands.PhotoResult(null, null, 2));
+        final ProfilePhotos photos = bindMock(ProfilePhotos.class);
+        Mockito.when(photos.hasPhoto(ME.getValue())).thenReturn(true);
+        Mockito.when(photos.getUrl(ME.getValue())).thenReturn("/profile-photos/x-2.jpg");
+        Mockito.when(photos.getSelectedSlot(ME.getValue())).thenReturn(2);
+        Mockito.when(photos.getSlots(ME.getValue()))
+                .thenReturn(List.of(new ProfilePhotos.Slot(2, "x-2.jpg", "/profile-photos/x-2.jpg")));
+
+        final Response response = resource.rotatePhoto(ME.getValue(), 2, CSRF_OK,
+                new org.paulsens.trip.api.dto.RotateRequest("Right"));
+
+        assertOk(response);
+        final ProfilePhotoDto body = (ProfilePhotoDto) response.getEntity();
+        Assert.assertEquals(body.storedSlot(), Integer.valueOf(2));
+        Assert.assertTrue(body.slots().get(0).url().endsWith("/profile-photos/x-2.jpg"));
+    }
+
+    @Test
+    public void rotatePhotoRefusalsMapOntoTheStatuses() {
+        signedInAs(ME);
+        exists(person(ME, "Me"));
+        final org.paulsens.trip.api.dto.RotateRequest left = new org.paulsens.trip.api.dto.RotateRequest("left");
+        assertError(resource.rotatePhoto(ME.getValue(), 1, null, left), 403, ApiErrors.CSRF);
+        assertError(resource.rotatePhoto(OTHER.getValue(), 1, CSRF_OK, left), 404, ApiErrors.NOT_FOUND);
+        assertError(resource.rotatePhoto(ME.getValue(), 0, CSRF_OK, left), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.rotatePhoto(ME.getValue(), 1, CSRF_OK, null), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.rotatePhoto(ME.getValue(), 1, CSRF_OK,
+                new org.paulsens.trip.api.dto.RotateRequest("up")), 400, ApiErrors.VALIDATION_FAILED);
+
+        final ProfilePhotoCommands commands = photoCommandsAllowing(true);
+        Mockito.when(commands.rotateFor(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.anyInt(),
+                ArgumentMatchers.any()))
+                .thenReturn(new ProfilePhotoCommands.PhotoResult(
+                        ProfilePhotoCommands.PhotoResult.NOT_ALLOWED, "Not allowed", 0))
+                .thenReturn(new ProfilePhotoCommands.PhotoResult(
+                        ProfilePhotoCommands.PhotoResult.EMPTY_SLOT, "Gone", 0))
+                .thenReturn(new ProfilePhotoCommands.PhotoResult(
+                        ProfilePhotoCommands.PhotoResult.BUSY, "Busy", 0))
+                .thenReturn(new ProfilePhotoCommands.PhotoResult(
+                        ProfilePhotoCommands.PhotoResult.REJECTED, "Photo rejected: garbage", 0))
+                .thenReturn(new ProfilePhotoCommands.PhotoResult(
+                        ProfilePhotoCommands.PhotoResult.STORE_FAILED, "Not stored", 0))
+                .thenReturn(new ProfilePhotoCommands.PhotoResult(
+                        ProfilePhotoCommands.PhotoResult.BAD_DIRECTION, "Say left or right", 0));
+        assertError(resource.rotatePhoto(ME.getValue(), 1, CSRF_OK, left), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.rotatePhoto(ME.getValue(), 1, CSRF_OK, left), 404, ApiErrors.NOT_FOUND);
+        assertError(resource.rotatePhoto(ME.getValue(), 1, CSRF_OK, left), 409, ApiErrors.CONFLICT);
+        assertError(resource.rotatePhoto(ME.getValue(), 1, CSRF_OK, left), 422, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.rotatePhoto(ME.getValue(), 1, CSRF_OK, left), 500, ApiErrors.STORE_FAILED);
+        assertError(resource.rotatePhoto(ME.getValue(), 1, CSRF_OK, left), 400, ApiErrors.VALIDATION_FAILED);
+    }
+
+    @Test
     public void deletePhotoAnswersTheRemainingStateOr404ForAnEmptySlot() {
         signedInAs(ME);
         exists(person(ME, "Me"));

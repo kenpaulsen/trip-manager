@@ -21,6 +21,8 @@ import org.paulsens.trip.media.LocalObjectStore;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.media.PhotoRejectedException;
 import org.paulsens.trip.media.ProcessedPhoto;
+import org.paulsens.trip.media.QuarterTurn;
+import org.paulsens.trip.media.RotationGuard;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.MediaItem;
@@ -279,6 +281,108 @@ public class ExpenseReceipts {
         } catch (final RuntimeException ex) {
             log.error("Receipt objects deleted, but their media row was not: " + item.getId(), ex);
         }
+    }
+
+    // ================================================================== rotate
+
+    /** What a rotation came to: {@code item} is the rewritten row on {@link #OK}, else {@code problem} says why. */
+    public record RotateOutcome(String code, String problem, MediaItem item) {
+        public static final String OK = "ok";
+        public static final String NOT_ALLOWED = "not_allowed";
+        public static final String NOT_ON_REPORT = "not_on_report";
+        public static final String PDF = "pdf";
+        public static final String REJECTED = "rejected";
+        public static final String STORE_FAILED = "store";
+        public static final String BUSY = "busy";
+        public static final String BAD_DIRECTION = "bad_direction";
+
+        static RotateOutcome refused(final String code, final String problem) {
+            return new RotateOutcome(code, problem, null);
+        }
+
+        public boolean ok() {
+            return OK.equals(code);
+        }
+    }
+
+    /**
+     * The receipt dialog's Rotate left / Rotate right ({@code direction} "left" or "right"); refusals growl.
+     *
+     * @return true when rotated.
+     */
+    public boolean rotateReceipt(final String tripId, final String mediaId, final String direction) {
+        final RotateOutcome outcome = QuarterTurn.parse(direction)
+                .map(turn -> rotate(tripId, mediaId, turn))
+                .orElseGet(ExpenseReceipts::badDirection);
+        if (!outcome.ok()) {
+            return refuse(outcome.problem());
+        }
+        info("Receipt rotated.");
+        return true;
+    }
+
+    private static RotateOutcome badDirection() {
+        return RotateOutcome.refused(RotateOutcome.BAD_DIRECTION, "Say which way to rotate: left or right.");
+    }
+
+    /**
+     * Turns one image receipt a quarter. The object is overwritten IN PLACE: receipts are served only by this
+     * app's servlet with {@code private, no-store} (never the CDN), so the only stale copy is an in-page image
+     * cache, which the row's new {@code rev} busts through {@link MediaItem#getCacheBuster()} on every URL.
+     * The small rendition is re-derived from the turned image (a key is minted if the receipt had none). A
+     * PDF is refused: it has no pixels to turn.
+     */
+    public RotateOutcome rotate(final String tripId, final String mediaId, final QuarterTurn turn) {
+        if (!expenses().canEditExpenses(tripId)) {
+            return RotateOutcome.refused(RotateOutcome.NOT_ALLOWED,
+                    "Not allowed: only the trip's managers and finance admins can rotate receipts.");
+        }
+        final MediaItem item = (mediaId == null) ? null : DAO.getInstance().getMedia(mediaId, Cached.NO).orElse(null);
+        if (item == null || !slotFor(tripId).equals(item.getSlot())) {
+            return RotateOutcome.refused(RotateOutcome.NOT_ON_REPORT, "That receipt is not on this report.");
+        }
+        if (PDF.equals(item.getContentType())) {
+            return RotateOutcome.refused(RotateOutcome.PDF, "A PDF receipt cannot be rotated.");
+        }
+        if (!RotationGuard.begin(item.getId())) {
+            return RotateOutcome.refused(RotateOutcome.BUSY,
+                    "That receipt is already being rotated. Try again in a moment.");
+        }
+        try {
+            return rotateOwned(tripId, item, turn);
+        } finally {
+            RotationGuard.end(item.getId());
+        }
+    }
+
+    private RotateOutcome rotateOwned(final String tripId, final MediaItem item, final QuarterTurn turn) {
+        final Optional<Served> current = served(item, false);
+        if (current.isEmpty()) {
+            return RotateOutcome.refused(RotateOutcome.STORE_FAILED, "The receipt could not be read. Try again.");
+        }
+        final ProcessedPhoto photo;
+        try {
+            photo = processor.processWithin(processor.rotate(current.get().bytes(), turn).bytes(), MAX_IMAGE_SIDE);
+        } catch (final PhotoRejectedException ex) {
+            return RotateOutcome.refused(RotateOutcome.REJECTED, ex.getMessage());
+        }
+        final String smallKey = photo.smallIsFull() ? null
+                : (item.getSmallKey() != null ? item.getSmallKey()
+                        : KEY_PREFIX + tripId + "/" + item.getId() + "-small." + photo.smallExtension());
+        if (!storeBytes(item.getS3Key(), photo.fullBytes(), typeOf(item.getS3Key()))
+                || (smallKey != null && !storeBytes(smallKey, photo.smallBytes(), typeOf(smallKey)))) {
+            return RotateOutcome.refused(RotateOutcome.STORE_FAILED, "The receipt could not be stored. Try again.");
+        }
+        final MediaItem rotated = item.withRotated(photo.fullBytes().length, smallKey);
+        if (!saveRow(rotated)) {
+            return RotateOutcome.refused(RotateOutcome.STORE_FAILED, "The receipt could not be stored. Try again.");
+        }
+        if (item.getSmallKey() != null && smallKey == null) {
+            deleteObjects(item.getSmallKey(), null);
+        }
+        audit(item.getId(), "Expense receipt rotated " + turn.name().toLowerCase(Locale.ROOT) + " on trip " + tripId
+                + " (" + item.getS3Key() + ")");
+        return new RotateOutcome(RotateOutcome.OK, null, rotated);
     }
 
     // ================================================================== serve

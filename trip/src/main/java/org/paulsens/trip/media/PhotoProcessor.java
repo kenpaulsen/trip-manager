@@ -200,6 +200,56 @@ public final class PhotoProcessor {
                 maxBytes);
     }
 
+    /**
+     * A stored image turned a quarter, re-encoded in the format it came in, with its new (displayed)
+     * dimensions -- which are the old ones swapped.
+     */
+    public record RotatedImage(byte[] bytes, String contentType, String extension, int width, int height) {
+    }
+
+    /**
+     * The image turned one quarter, in the SAME format: JPEG stays JPEG (a lossy re-encode at the full
+     * rendition's quality, accepted for a one-tap fix), PNG stays PNG with its alpha, a static GIF stays GIF.
+     * HEIC comes back as JPEG, which is what every stored HEIC already is. Any EXIF orientation is baked in
+     * FIRST, so the turn is relative to what people actually see, not to the raw pixel rows.
+     *
+     * @throws PhotoRejectedException for bytes that are not a supported image, and for an animated GIF:
+     *         turning only its first frame would silently throw the animation away.
+     */
+    public RotatedImage rotate(final byte[] original, final QuarterTurn turn) {
+        final ImageFormat format = ImageFormat.detect(original).orElseThrow(PhotoProcessor::notAnImage);
+        final BufferedImage turned = turned(original, format, turn);
+        return switch (format) {
+            case PNG -> rotated(encodePng(turned), ImageFormat.PNG, turned);
+            case GIF -> rotated(encodeGif(turned), ImageFormat.GIF, turned);
+            case JPEG, HEIC -> rotated(encodeJpeg(turned, FULL_JPEG_QUALITY), ImageFormat.JPEG, turned);
+        };
+    }
+
+    /**
+     * The image turned one quarter as a JPEG that fits {@code maxBytes}, for the byte-capped roles (lodging
+     * photos, link-preview and background images): the turned image of a capped original can encode a little
+     * larger than the original did, and the cap is the role's promise, not the upload's.
+     *
+     * @throws PhotoRejectedException as {@link #rotate}, or when even a shrunk encode cannot fit the budget.
+     */
+    public byte[] rotateJpegWithin(final byte[] original, final QuarterTurn turn, final long maxBytes) {
+        final ImageFormat format = ImageFormat.detect(original).orElseThrow(PhotoProcessor::notAnImage);
+        return encodeJpegWithin(turned(original, format, turn), maxBytes);
+    }
+
+    private static BufferedImage turned(final byte[] original, final ImageFormat format, final QuarterTurn turn) {
+        if (format == ImageFormat.GIF && isAnimatedGif(original)) {
+            throw new PhotoRejectedException("Animated GIFs can't be rotated.");
+        }
+        return applyOrientation(decodeOriented(original, format), turn.exifOrientation());
+    }
+
+    private static RotatedImage rotated(final byte[] bytes, final ImageFormat format, final BufferedImage img) {
+        return new RotatedImage(bytes, format.getContentType(), format.getExtension(), img.getWidth(),
+                img.getHeight());
+    }
+
     /** Decode, orient, and cut out the region {@link #aspectRect} settles on. */
     private static BufferedImage cutOut(final byte[] original, final CropRect rect, final double aspect) {
         final ImageFormat format = ImageFormat.detect(original).orElseThrow(PhotoProcessor::notAnImage);
@@ -678,6 +728,19 @@ public final class PhotoProcessor {
             ImageIO.write(img, "png", bytes);
         } catch (final IOException ex) {
             throw new IllegalStateException("In-memory PNG encode failed", ex);
+        }
+        return bytes.toByteArray();
+    }
+
+    /** A static GIF of this image; the JDK writer builds the palette itself from a true-color source. */
+    static byte[] encodeGif(final BufferedImage img) {
+        final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try {
+            if (!ImageIO.write(img, "gif", bytes)) {
+                throw new IllegalStateException("No GIF writer for image type " + img.getType());
+            }
+        } catch (final IOException ex) {
+            throw new IllegalStateException("In-memory GIF encode failed", ex);
         }
         return bytes.toByteArray();
     }

@@ -98,6 +98,14 @@ expenses, 20 currencies, 40 receipts per expense, 60 at report level, 100 paymen
   a time (`sequential`), because each is a versioned save of the report. Not a `PhotoUploadBean`: that base
   crops, and rejects PDFs. An upload's response re-renders the dialog's list, then `refreshExpenseBody()`
   re-renders the page: the page's figures are computed before the upload's listener runs.
+- **Rotated** (2026-10-30) from the receipt's own menu, images only (a PDF has no menu): `rotateReceipt(tripId,
+  mediaId, "left"|"right")` → `ExpenseReceipts.rotate`, behind the same edit gate as delete. The object is
+  overwritten IN PLACE under its key (the servlet answers `private, no-store` and the CDN never serves receipts,
+  so there is no shared cache to invalidate); the small rendition is re-derived from the turned image (minted
+  as `{id}-small.{ext}` if the receipt had none, dropped when the turn no longer needs one), and the row's
+  `rev` moves on. `ReceiptRow.url`/`thumbUrl` append `MediaItem.getCacheBuster()` (`?r=N`), which is what makes
+  the page's own image cache let go of the old turn. A second rotate of the same receipt while one runs is
+  refused (`RotationGuard`).
 - **Deleted** from the dialog by id (`f:param`), or with their expense.
 - **Kept** by a trip delete, with the report: they are the record of money that was spent
   ([trip-delete.md](trip-delete.md), "Financial history is never destroyed").
@@ -177,6 +185,7 @@ and after every write (`SessionScopePolicyIT` lists it as domain-valued); only t
 | POST / PUT / DELETE | `expenses/trips/{tripId}/payments[/{paymentId}]` | `{date, amount, method, note, lineIds}` → `{id}`; the settle gate (403 "Finance admin required." for a trip manager) |
 | POST | `expenses/trips/{tripId}/receipts?lineId=&name=` | a RAW body (image or PDF), 413 over 16 MB → `{id, url, thumbUrl}` |
 | DELETE | `expenses/trips/{tripId}/receipts/{receiptId}` | |
+| POST | `expenses/trips/{tripId}/receipts/{receiptId}/rotate` | `{direction: "left"\|"right"}` → `{id, title, pdf:false, url, thumbUrl, rev}`, URLs ending in `?r={rev}`; 404 not on this report, 409 already rotating, 422 a PDF |
 
 Writes need the CSRF header and the edit gate (403); a refusal is 400 `VALIDATION_FAILED` with the bean's
 reason; an unknown trip is 404.

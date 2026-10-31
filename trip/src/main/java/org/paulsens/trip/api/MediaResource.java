@@ -409,7 +409,12 @@ public class MediaResource extends BaseResource {
         return email == null ? "api" : email;
     }
 
+    /** Both URLs carry the item's cache buster: a rotated picture keeps its key, so only the query moves. */
     private static MediaItemDto toDto(final MediaCommands media, final MediaItem item) {
-        return MediaItemDto.of(item, item == null ? null : media.getUrl(item));
+        if (item == null) {
+            return null;
+        }
+        return MediaItemDto.of(item, media.getUrl(item) + item.getCacheBuster(),
+                media.publicUrl(item.getDisplayKey()) + item.getCacheBuster());
     }
 }

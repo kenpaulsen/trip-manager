@@ -2,6 +2,7 @@ package org.paulsens.trip.model.chat;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serial;
 import java.io.Serializable;
@@ -39,6 +40,14 @@ public class ChatAttachment implements Serializable {
      * even if the person later leaves the roster.
      */
     String deletedBy;
+    /**
+     * How many times the photo was rotated in place. The object keys never change (the key is the photo's
+     * identity: its comment thread, reactions and album row all join on it), so this is what a client puts
+     * in the URL ({@code ?r=N}) to stop showing the cached unrotated bytes. Null when never rotated, like
+     * {@link #hidden}, so old rows and the wire stay compact. Read via {@link #getRev()}.
+     */
+    @Getter(AccessLevel.NONE)
+    Integer rev;
 
     @JsonCreator
     public ChatAttachment(
@@ -52,7 +61,8 @@ public class ChatAttachment implements Serializable {
             @JsonProperty("caption") final String caption,
             @JsonProperty("hidden") final Boolean hidden,
             @JsonProperty("deletedAt") final Instant deletedAt,
-            @JsonProperty("deletedBy") final String deletedBy) {
+            @JsonProperty("deletedBy") final String deletedBy,
+            @JsonProperty("rev") final Integer rev) {
         this.kind = kind;
         this.s3Key = s3Key;
         this.contentType = contentType;
@@ -64,6 +74,14 @@ public class ChatAttachment implements Serializable {
         this.hidden = Boolean.TRUE.equals(hidden) ? Boolean.TRUE : null;
         this.deletedAt = deletedAt;
         this.deletedBy = deletedBy;
+        this.rev = (rev == null || rev <= 0) ? null : rev;
+    }
+
+    /** Compatibility constructor predating {@link #rev}. */
+    public ChatAttachment(final String kind, final String s3Key, final String contentType, final Long size,
+            final Integer width, final Integer height, final String thumbKey, final String caption,
+            final Boolean hidden, final Instant deletedAt, final String deletedBy) {
+        this(kind, s3Key, contentType, size, width, height, thumbKey, caption, hidden, deletedAt, deletedBy, null);
     }
 
     /** Compatibility constructor predating the per-attachment tombstone. */
@@ -87,7 +105,7 @@ public class ChatAttachment implements Serializable {
      */
     public ChatAttachment deleted(final String by) {
         return new ChatAttachment(kind, null, null, null, null, null, null, null, null,
-                Instant.now().truncatedTo(ChronoUnit.MILLIS), by);
+                Instant.now().truncatedTo(ChronoUnit.MILLIS), by, null);
     }
 
     /**
@@ -96,7 +114,33 @@ public class ChatAttachment implements Serializable {
      */
     public ChatAttachment withHidden(final boolean newHidden) {
         return new ChatAttachment(kind, s3Key, contentType, size, width, height, thumbKey, caption,
-                newHidden, deletedAt, deletedBy);
+                newHidden, deletedAt, deletedBy, rev);
+    }
+
+    /**
+     * This attachment after its stored renditions were turned a quarter in place: the dimensions swap
+     * (they came from the turned image, so they are passed rather than swapped here), the full rendition's
+     * size is the re-encode's, {@code thumbKey} names where the small rendition now is, and {@link #rev} moves
+     * on by one so every client's URL changes. Keys, caption and flags are kept.
+     */
+    public ChatAttachment rotated(final int newWidth, final int newHeight, final long newSize,
+            final String newThumbKey) {
+        return new ChatAttachment(kind, s3Key, contentType, newSize, newWidth, newHeight, newThumbKey, caption,
+                hidden, deletedAt, deletedBy, getRev() + 1);
+    }
+
+    /** {@link #rotated(int, int, long, String)} keeping the small rendition where it was. */
+    public ChatAttachment rotated(final int newWidth, final int newHeight, final long newSize) {
+        return rotated(newWidth, newHeight, newSize, thumbKey);
+    }
+
+    /**
+     * How many times the photo was rotated; 0 when never. Absent from JSON at 0 (the stored row and every
+     * payload carrying messages), so a client reads a missing {@code rev} as 0.
+     */
+    @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+    public int getRev() {
+        return rev == null ? 0 : rev;
     }
 
     /** Whether this attachment was individually removed; null-safe (old messages read as live). */

@@ -346,6 +346,13 @@ with the chat photos behind its "Include chat and lodging photos" toggle; `Media
 excludes them. Uploads go through the shared crop dialog with `LodgingUploadCommands` (`lodgingUpload`):
 kinds `accPhoto`, `roomTypePhoto`, `floorMap` (floor plans are stored whole, 2000 px long edge).
 
+Rotating a gallery or room-type photo (2026-10-30, `lodgingUpload.rotatePhoto(accId, mediaId, "left"|"right")`,
+gated by `canEditAccommodation`) RE-KEYS it: the turned JPEG (within the same byte budget) is stored under a NEW
+`lodging/{accId}/{uuid}.jpg`, the media row is repointed with `MediaItem.withKeys` (its id, which every gallery
+list holds, never changes), and the old object is deleted and invalidated. A new key and not an overwrite because
+these objects are cached for a year. Floor plans are EXCLUDED: a row any `FloorMap.mediaId` names is refused,
+since the room boxes drawn on the plan would no longer line up (the fix for a sideways plan is to replace it).
+
 ## Price vs cost (`pay/LodgingPricing`, `pay/LodgingBiller`, `pay/CostExtras`)
 
 (The trip's planning budget reads an option's two schedules LIVE as well: a budget lodging line multiplies the

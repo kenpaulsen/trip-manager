@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.UnaryOperator;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.CacheClient;
@@ -604,25 +605,48 @@ public class ChatDAO {
      */
     protected Optional<ChatMessage> setAttachmentHidden(
             final ChatChannel.Id channelId, final ChatMessage.Id msgId, final String s3Key, final boolean hidden) {
+        return rewriteAttachment(channelId, msgId, s3Key, attachment -> attachment.withHidden(hidden));
+    }
+
+    /**
+     * Records that ONE live attachment's renditions were turned a quarter in place: new dimensions, size and
+     * thumbnail key, and {@code rev} one higher, through the same write as a visibility change, so the
+     * mutation counter moves and polling clients refetch the message (and with it the new {@code ?r=}).
+     */
+    protected Optional<ChatMessage> rotateAttachment(final ChatChannel.Id channelId, final ChatMessage.Id msgId,
+            final String s3Key, final int width, final int height, final long size, final String thumbKey) {
+        return rewriteAttachment(channelId, msgId, s3Key,
+                attachment -> attachment.rotated(width, height, size, thumbKey));
+    }
+
+    /**
+     * Replaces ONE live attachment with {@code change} applied to it, leaving the rest (and the body)
+     * untouched; the same write as {@link #removeAttachment}, so the body hash and {@code mutationsVersion}
+     * move. A change that leaves the attachment equal writes nothing and announces nothing. Empty when the
+     * message is gone, tombstoned, or has no live attachment under that key.
+     */
+    private Optional<ChatMessage> rewriteAttachment(final ChatChannel.Id channelId, final ChatMessage.Id msgId,
+            final String s3Key, final UnaryOperator<ChatAttachment> change) {
         final Optional<ChatMessage> existing = getMessage(channelId, msgId);
         if (existing.isEmpty() || existing.get().isDeleted()) {
             return Optional.empty();
         }
-        boolean matched = false;
+        ChatAttachment before = null;
+        ChatAttachment after = null;
         final List<ChatAttachment> out = new ArrayList<>();
         for (final ChatAttachment attachment : existing.get().getAttachments()) {
-            if (!matched && !attachment.isDeleted() && s3Key.equals(attachment.getS3Key())) {
-                matched = true;
-                out.add(attachment.withHidden(hidden));
+            if (before == null && !attachment.isDeleted() && s3Key.equals(attachment.getS3Key())) {
+                before = attachment;
+                after = change.apply(attachment);
+                out.add(after);
             } else {
                 out.add(attachment);
             }
         }
-        if (!matched) {
+        if (before == null) {
             return Optional.empty();
         }
-        if (existing.get().getAttachments().stream()
-                .anyMatch(a -> !a.isDeleted() && s3Key.equals(a.getS3Key()) && a.isHidden() == hidden)) {
+        if (before.equals(after)) {
             // Already so: nothing to write, and no mutation to announce.
             return existing;
         }

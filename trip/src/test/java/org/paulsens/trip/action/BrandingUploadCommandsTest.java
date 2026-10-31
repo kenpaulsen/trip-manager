@@ -428,4 +428,104 @@ public class BrandingUploadCommandsTest {
         Assert.assertNotNull(real.caller(), "and an unauthenticated caller is still a caller");
         Assert.assertNull(FacesContext.getCurrentInstance(), "nothing here creates one");
     }
+
+    // --- rotating a stored version ---
+
+    private java.awt.image.BufferedImage newest(final String role) throws java.io.IOException {
+        final String key = photos.history(ORG, role).getFirst().key();
+        return javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(photos.localGet(key).orElseThrow()));
+    }
+
+    @Test
+    public void rotatingALogoStoresANewPngVersionAndPreviewsIt() throws Exception {
+        upload("logo", 1400, 1000);
+        bean.confirmFullPhoto();
+        final String first = photos.history(ORG, "logo").getFirst().key();
+        final java.awt.image.BufferedImage before = newest("logo");
+
+        Assert.assertTrue(bean.rotateVersion(ORG, first, "right"));
+
+        final List<BrandingPhotos.Version> history = photos.history(ORG, "logo");
+        Assert.assertEquals(history.size(), 2, "a NEW version; the turned-from one stays recoverable");
+        Assert.assertTrue(history.getFirst().key().endsWith(".png"), history.getFirst().key());
+        Assert.assertEquals(newest("logo").getWidth(), before.getHeight());
+        Assert.assertEquals(newest("logo").getHeight(), before.getWidth());
+        Assert.assertEquals(previewed(LOGO), history.getFirst().url(), "previewed, not saved");
+        Assert.assertEquals(published.get("brandUrl"), brand.appearanceUrl(ORG));
+    }
+
+    @Test
+    public void aFaviconStaysASquarePngAndTheJpegRolesStayWithinTheirBudget() throws Exception {
+        upload("favicon", 900, 900);
+        bean.confirmFullPhoto();
+        Assert.assertTrue(bean.rotateVersion(ORG, photos.history(ORG, "favicon").getFirst().key(), "left"));
+        Assert.assertTrue(photos.history(ORG, "favicon").getFirst().key().endsWith(".png"));
+        Assert.assertEquals(newest("favicon").getWidth(), newest("favicon").getHeight());
+
+        upload("ogImage", 2000, 1500);
+        bean.confirmFullPhoto();
+        Assert.assertTrue(bean.rotateVersion(ORG, photos.history(ORG, "ogImage").getFirst().key(), "left"),
+                "a turned link preview is warned about, not refused");
+        final String og = photos.history(ORG, "ogImage").getFirst().key();
+        Assert.assertTrue(og.endsWith(".jpg"), og);
+        Assert.assertTrue(photos.localGet(og).orElseThrow().length <= BrandingRole.OG_IMAGE.getMaxBytes());
+        Assert.assertTrue(newest("ogImage").getHeight() > newest("ogImage").getWidth());
+        Assert.assertEquals(previewed(OG_IMAGE), photos.history(ORG, "ogImage").getFirst().url());
+
+        upload("background", 2400, 1200);
+        bean.confirmFullPhoto();
+        Assert.assertTrue(bean.rotateVersion(ORG, photos.history(ORG, "background").getFirst().key(), "right"));
+        Assert.assertEquals(brand.appearanceEdit(ORG).get(BrandCommands.BG_MODE_KEY), BrandCommands.BG_MODE_IMAGE);
+    }
+
+    @Test
+    public void rotationsArePrunedLikeAnyOtherVersion() {
+        upload("logo", 800, 600);
+        bean.confirmFullPhoto();
+        for (int i = 0; i < BrandingPhotos.KEEP_VERSIONS + 1; i++) {
+            Assert.assertTrue(bean.rotateVersion(ORG, photos.history(ORG, "logo").getFirst().key(), "left"));
+        }
+        Assert.assertEquals(photos.history(ORG, "logo").size(), BrandingPhotos.KEEP_VERSIONS);
+    }
+
+    @Test
+    public void rotationRefusesForeignKeysNonAdministratorsBadDirectionsAndMissingBytes() throws Exception {
+        upload("logo", 800, 600);
+        bean.confirmFullPhoto();
+        final String key = photos.history(ORG, "logo").getFirst().key();
+
+        Assert.assertFalse(bean.rotateVersion("org-somebody-else", key, "left"));
+        Assert.assertFalse(bean.rotateVersion(ORG, "org/" + ORG + "/media/brochure.png", "left"));
+        Assert.assertFalse(bean.rotateVersion(null, key, "left"));
+        Assert.assertFalse(bean.rotateVersion(ORG, key, "around"));
+        Assert.assertFalse(bean.rotateVersion(ORG, BrandingPhotos.keyFor(ORG, "logo", 1L, "png"), "left"),
+                "a well-formed key with nothing stored");
+        manageable = false;
+        Assert.assertFalse(bean.rotateVersion(ORG, key, "left"));
+        manageable = true;
+        Assert.assertEquals(photos.history(ORG, "logo").size(), 1, "nothing was stored by any refusal");
+
+        final BrandingPhotos refusing = new BrandingPhotos() {
+            @Override
+            public Optional<byte[]> currentBytes(final String any) {
+                return Optional.of(PhotoFixtures.png(40, 20, true));
+            }
+
+            @Override
+            public String store(final String orgId, final String roleKey, final byte[] bytes,
+                    final String contentType, final String extension) {
+                return null;
+            }
+        };
+        set(BrandingUploadCommands.class, bean, "brandingPhotos", refusing);
+        Assert.assertFalse(bean.rotateVersion(ORG, key, "left"), "a refused store");
+        final BrandingPhotos garbage = new BrandingPhotos() {
+            @Override
+            public Optional<byte[]> currentBytes(final String any) {
+                return Optional.of(new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13});
+            }
+        };
+        set(BrandingUploadCommands.class, bean, "brandingPhotos", garbage);
+        Assert.assertFalse(bean.rotateVersion(ORG, key, "left"), "undecodable bytes");
+    }
 }

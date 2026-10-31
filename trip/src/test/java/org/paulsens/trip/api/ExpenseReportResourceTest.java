@@ -116,6 +116,69 @@ public class ExpenseReportResourceTest extends ResourceTestSupport {
 
     @Test
     @SuppressWarnings("unchecked")
+    public void anImageReceiptRotatesOverTheWireAndAPdfIsRefused() throws IOException {
+        signedInAsSiteAdmin(Person.Id.newInstance());
+        final ExpenseReportResource api = resource(new ExpenseReportResource());
+        final Trip own = Trip.builder().id(UUID.randomUUID().toString()).title("Rotate report")
+                .startDate(LocalDateTime.of(2026, 9, 20, 8, 0)).build();
+        assertTrue(DAO.getInstance().saveTrip(own));
+        final String id = own.getId();
+        final byte[] photo = org.paulsens.trip.media.PhotoFixtures.jpeg(900, 600);
+        final String receiptId = (String) ((Map<String, Object>) api.uploadReceipt(id, CSRF_OK, null, null,
+                "van.jpg", body(photo)).getEntity()).get("id");
+        final String pdfId = (String) ((Map<String, Object>) api.uploadReceipt(id, CSRF_OK, null, null, "a.pdf",
+                body(PDF)).getEntity()).get("id");
+        final org.paulsens.trip.api.dto.RotateRequest right = new org.paulsens.trip.api.dto.RotateRequest("right");
+
+        final Response rotated = api.rotateReceipt(id, receiptId, CSRF_OK, right);
+
+        assertOk(rotated);
+        final Map<String, Object> body = (Map<String, Object>) rotated.getEntity();
+        assertEquals(body.get("id"), receiptId);
+        assertEquals(body.get("title"), "van.jpg");
+        assertEquals(body.get("pdf"), false);
+        assertEquals(body.get("rev"), 1);
+        assertTrue(((String) body.get("url")).endsWith("/expense-receipts/" + receiptId + "?r=1"), body.toString());
+        assertTrue(((String) body.get("thumbUrl")).endsWith("/expense-receipts/" + receiptId + "/thumb?r=1"));
+        final List<Map<String, Object>> listed = (List<Map<String, Object>>) ((Map<String, Object>) api.get(id)
+                .getEntity()).get("receipts");
+        assertTrue(listed.stream().anyMatch(r -> String.valueOf(r.get("url")).endsWith(receiptId + "?r=1")),
+                "the report's own listing carries the buster too");
+
+        assertError(api.rotateReceipt(id, pdfId, CSRF_OK, right), 422, ApiErrors.VALIDATION_FAILED);
+        assertError(api.rotateReceipt(id, "no-such", CSRF_OK, right), 404, ApiErrors.NOT_FOUND);
+        assertError(api.rotateReceipt(id, receiptId, CSRF_OK, null), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(api.rotateReceipt(id, receiptId, CSRF_OK, new org.paulsens.trip.api.dto.RotateRequest("up")),
+                400, ApiErrors.VALIDATION_FAILED);
+        assertError(api.rotateReceipt(id, receiptId, null, right), 403, ApiErrors.CSRF);
+        assertTrue(org.paulsens.trip.media.RotationGuard.begin(receiptId));
+        try {
+            assertError(api.rotateReceipt(id, receiptId, CSRF_OK, right), 409, ApiErrors.CONFLICT);
+        } finally {
+            org.paulsens.trip.media.RotationGuard.end(receiptId);
+        }
+        signedInAs(Person.Id.newInstance());
+        assertError(resource(new ExpenseReportResource()).rotateReceipt(id, receiptId, CSRF_OK, right), 403,
+                ApiErrors.FORBIDDEN);
+    }
+
+    @Test
+    public void aReceiptThatCannotBeStoredAfterTurningIsA500() throws IOException {
+        signedInAsSiteAdmin(Person.Id.newInstance());
+        final Trip own = Trip.builder().id(UUID.randomUUID().toString()).title("Rotate fail")
+                .startDate(LocalDateTime.of(2026, 9, 20, 8, 0)).build();
+        assertTrue(DAO.getInstance().saveTrip(own));
+        final org.paulsens.trip.model.MediaItem gone = new org.paulsens.trip.model.MediaItem(
+                UUID.randomUUID().toString(), "receipts/" + own.getId() + "/gone.jpg", "gone", null, "image/jpeg", 3,
+                org.paulsens.trip.action.ExpenseReceipts.slotFor(own.getId()), 0, LocalDateTime.now(), null, null,
+                Boolean.TRUE, null);
+        assertTrue(DAO.getInstance().saveMedia(gone));
+        assertError(resource(new ExpenseReportResource()).rotateReceipt(own.getId(), gone.getId(), CSRF_OK,
+                new org.paulsens.trip.api.dto.RotateRequest("left")), 500, ApiErrors.STORE_FAILED);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     public void anAdminBuildsAReportOverTheWire() throws IOException {
         signedInAsSiteAdmin(Person.Id.newInstance());
         final ExpenseReportResource api = resource(new ExpenseReportResource());

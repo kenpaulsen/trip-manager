@@ -233,6 +233,19 @@ public class BrandingPhotos {
         return localStore.get(key);
     }
 
+    /**
+     * One stored version's bytes -- what a rotation turns. Empty when the key is not a branding key, belongs
+     * to an organization the caller may not manage (a key is a request string, so this is the same tenancy
+     * check as writing), or is gone from the store.
+     */
+    public Optional<byte[]> currentBytes(final String key) {
+        final BrandingKey parsed = parse(key);
+        if (parsed == null || !mayManage(parsed.orgId())) {
+            return Optional.empty();
+        }
+        return media.isUploadEnabled() ? media.getObject(key) : localStore.get(key);
+    }
+
     /** Seam: the tenancy rule. Tests answer it directly rather than standing up a caller and a roster. */
     protected boolean mayManage(final String orgId) {
         return orgs != null && orgs.canManageOrg(orgId);

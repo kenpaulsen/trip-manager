@@ -368,6 +368,85 @@ public class ChatPhotos {
     }
 
     /**
+     * The album half of a rotation: every album row of this photo gets the new full-size {@code size}, the
+     * small rendition's key, and a {@code rev} one higher, so the Photos page and the apps' album listings
+     * bust their caches too. Matched by key like {@link #setAlbumHidden}; true when every matching row saved
+     * (none matching is also true -- the message copy is what the chat renders).
+     */
+    public boolean setAlbumRotated(final String tripId, final String s3Key, final long size,
+            final String smallKey) {
+        final List<MediaItem> rows;
+        try {
+            rows = DAO.getInstance().getMediaInSlot(slotFor(tripId), Cached.NO);
+        } catch (final RuntimeException ex) {
+            log.error("The album rows could not be listed to record a photo's rotation: " + s3Key, ex);
+            return false;
+        }
+        boolean ok = true;
+        for (final MediaItem row : rows) {
+            if (s3Key.equals(row.getS3Key())) {
+                ok &= saveRotatedRow(row.withRotated(size, smallKey));
+            }
+        }
+        return ok;
+    }
+
+    private static boolean saveRotatedRow(final MediaItem row) {
+        try {
+            return DAO.getInstance().saveMedia(row);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to save a rotation for chat photo " + row.getS3Key(), ex);
+            return false;
+        }
+    }
+
+    /** The stored bytes of one photo's full rendition, from S3 or the local store; empty when unavailable. */
+    public Optional<byte[]> currentBytes(final String s3Key) {
+        if (isRemoteStore()) {
+            return media.getObject(s3Key);
+        }
+        return localStore.get(s3Key);
+    }
+
+    /**
+     * Overwrites a posted photo's renditions IN PLACE with freshly processed ones -- the key is the photo's
+     * identity (its comment thread, reactions and album row all join on it), so a rotation cannot mint a new
+     * one the way a profile picture does. The small rendition keeps its key when it has one: a turn that no
+     * longer needs a separate copy writes the full bytes there too rather than moving the key. A photo whose
+     * small rendition WAS the full one, and now needs its own, gets the {@code -small} key an upload would
+     * have minted. Then ONE wildcard CDN invalidation covers both objects (CloudFront bills a wildcard as one
+     * path, and its cache key ignores the {@code ?r=} the clients add).
+     *
+     * @return the small rendition's key after the write.
+     * @throws IllegalStateException when the store refused the bytes.
+     */
+    public String replaceRenditions(final ChatAttachment attachment, final ProcessedPhoto renditions) {
+        final String fullKey = attachment.getS3Key();
+        final String stem = stemOf(fullKey);
+        final String oldThumb = attachment.getThumbKey();
+        final boolean hadSmall = oldThumb != null && !oldThumb.equals(fullKey);
+        final String thumbKey;
+        if (hadSmall) {
+            thumbKey = oldThumb;
+        } else {
+            thumbKey = renditions.smallIsFull() ? fullKey : stem + "-small." + renditions.smallExtension();
+        }
+        store(fullKey, renditions.fullBytes(), renditions.fullContentType(), true);
+        if (!thumbKey.equals(fullKey)) {
+            store(thumbKey, renditions.smallBytes(), renditions.smallContentType(), false);
+        }
+        invalidate(List.of("/" + stem + "*"));
+        return thumbKey;
+    }
+
+    /** A key without its extension: {@code chat/{trip}/{stamp}-{rand}}, the prefix both renditions share. */
+    private static String stemOf(final String key) {
+        final int dot = key.lastIndexOf('.');
+        final int slash = key.lastIndexOf('/');
+        return dot > slash ? key.substring(0, dot) : key;
+    }
+
+    /**
      * When a photo was staged, read from its key ({@code chat/{trip}/{yyyyMMdd-HHmmssSSS}-{rand}.ext}); 0 for
      * a key not in that shape. A message is sent after its photos were staged, so this bounds the search for
      * the message that carries one.

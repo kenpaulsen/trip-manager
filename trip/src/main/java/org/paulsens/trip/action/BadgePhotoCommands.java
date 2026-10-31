@@ -4,6 +4,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
@@ -12,6 +13,7 @@ import org.paulsens.trip.media.LocalObjectStore;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.media.PhotoRejectedException;
+import org.paulsens.trip.media.QuarterTurn;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.BadgeImage;
@@ -238,6 +240,85 @@ public class BadgePhotoCommands extends PhotoUploadBean {
         publishParam("badgeDeleted", delete(subjectTrip(), key));
     }
 
+    /**
+     * Turns one custom image a quarter. The turned picture is stored under a NEW key (the objects are cached
+     * for a day by browsers and the CDN, so overwriting would show the old turn until tomorrow), the trip's
+     * entry is repointed at it and saved -- the publish -- and only then is the old object removed. A failed
+     * save removes the new object and leaves the entry as it was. A badge being previewed with the old key
+     * follows to the new one.
+     *
+     * @return true when rotated; false (with a growl) otherwise.
+     */
+    public boolean rotate(final Trip trip, final String key, final QuarterTurn turn) {
+        if (!mayEdit(trip)) {
+            error("Not allowed: only this trip's managers can rotate badge images.");
+            return false;
+        }
+        final BadgeImage image = trip.getBadgeImage(key);
+        final Optional<byte[]> current = (image == null) ? Optional.empty() : storedBytes(key);
+        if (current.isEmpty()) {
+            error("Not found: that badge image is no longer on this trip.");
+            return false;
+        }
+        final byte[] jpeg;
+        try {
+            jpeg = processor.rotate(current.get(), turn).bytes();
+        } catch (final PhotoRejectedException ex) {
+            error("Image rejected: " + ex.getMessage());
+            return false;
+        }
+        final String newKey = PREFIX + trip.getId() + "/" + nextVersion(key) + ".jpg";
+        if (!storeBytes(newKey, jpeg)) {
+            error("Not stored: the image could not be stored. Try again.");
+            return false;
+        }
+        image.setKey(newKey);
+        if (!saveTrip(trip)) {
+            image.setKey(key);
+            removeStored(newKey);
+            error("Not saved: the trip could not be updated. The image was not rotated.");
+            return false;
+        }
+        removeStored(key);
+        if (key.equals(sessionGet(SELECTED_KEY))) {
+            sessionPut(SELECTED_KEY, newKey);
+        }
+        audit("Badge image rotated " + turn.name().toLowerCase(Locale.ROOT), trip, newKey);
+        info("Badge image rotated.");
+        return true;
+    }
+
+    /**
+     * The thumbnail menu's Rotate left / Rotate right: like {@link #deleteFromUi}, void, reporting through the
+     * {@code badgeRotated} ajax param so the page reloads (the big badge reads session state outside the
+     * form) only on success, and a refusal's growl is seen.
+     */
+    public void rotateFromUi(final String key, final String direction) {
+        final Optional<QuarterTurn> turn = QuarterTurn.parse(direction);
+        if (turn.isEmpty()) {
+            error("Not rotated: say left or right.");
+            publishParam("badgeRotated", false);
+            return;
+        }
+        publishParam("badgeRotated", rotate(subjectTrip(), key, turn.get()));
+    }
+
+    /**
+     * The version stamp for a re-keyed image: now, but always past the old key's own stamp, so two rotations
+     * in one millisecond (or a clock that stepped back) can never reuse a key the CDN already cached.
+     */
+    static long nextVersion(final String oldKey) {
+        final int slash = oldKey.lastIndexOf('/');
+        final int dot = oldKey.lastIndexOf('.');
+        long old = 0L;
+        try {
+            old = Long.parseLong(oldKey.substring(slash + 1, dot > slash ? dot : oldKey.length()));
+        } catch (final NumberFormatException ex) {
+            log.debug("Badge key {} has no version stamp", oldKey);
+        }
+        return Math.max(System.currentTimeMillis(), old + 1);
+    }
+
     /** Whether the given dropdown value is one of THIS trip's custom images (vs a built-in name). */
     public boolean isCustom(final Trip trip, final String selected) {
         return trip != null && trip.getBadgeImage(selected) != null;
@@ -294,6 +375,11 @@ public class BadgePhotoCommands extends PhotoUploadBean {
             warn(message);
             publishParam("badgeWarn", message);
         }
+    }
+
+    /** One stored image's bytes, from the bucket or the local store; empty when gone. */
+    private Optional<byte[]> storedBytes(final String key) {
+        return media.isUploadEnabled() ? media.getObject(key) : localStore.get(key);
     }
 
     private boolean storeBytes(final String key, final byte[] jpeg) {

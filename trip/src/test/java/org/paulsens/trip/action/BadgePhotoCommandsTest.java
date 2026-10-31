@@ -561,4 +561,98 @@ public class BadgePhotoCommandsTest {
         Mockito.verify(media).deleteObject("badgeImages/trip-1/stray.jpg");
         Mockito.verify(media).invalidateCdn(List.of("/badgeImages/trip-1/*"));
     }
+
+    // --- rotate ---
+
+    private static final String OLD_KEY = "badgeImages/trip-1/42.jpg";
+
+    private void remoteHolding(final byte[] bytes) {
+        Mockito.when(media.isUploadEnabled()).thenReturn(true);
+        Mockito.when(media.getObject(OLD_KEY)).thenReturn(java.util.Optional.ofNullable(bytes));
+        Mockito.when(media.putObject(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyString(), ArgumentMatchers.anyLong(), ArgumentMatchers.anyBoolean()))
+                .thenReturn(true);
+        trip.getBadgeImages().add(new BadgeImage(OLD_KEY, "Group"));
+    }
+
+    @Test
+    public void rotatingStoresANewKeyRepublishesTheTripAndRemovesTheOld() throws Exception {
+        remoteHolding(PhotoFixtures.jpeg(300, 200));
+        session.put(BadgePhotoCommands.SELECTED_KEY, OLD_KEY);
+
+        Assert.assertTrue(bean.rotate(trip, OLD_KEY, org.paulsens.trip.media.QuarterTurn.RIGHT));
+
+        final BadgeImage image = trip.getBadgeImages().getFirst();
+        Assert.assertNotEquals(image.getKey(), OLD_KEY);
+        Assert.assertTrue(image.getKey().startsWith("badgeImages/trip-1/"), image.getKey());
+        Assert.assertEquals(image.getLabel(), "Group");
+        Assert.assertEquals(savedTrips, List.of(trip));
+        Assert.assertEquals(session.get(BadgePhotoCommands.SELECTED_KEY), image.getKey(), "the preview follows");
+        final org.mockito.ArgumentCaptor<byte[]> bytes = org.mockito.ArgumentCaptor.forClass(byte[].class);
+        Mockito.verify(media).putObject(ArgumentMatchers.eq(image.getKey()), bytes.capture(),
+                ArgumentMatchers.eq("image/jpeg"), ArgumentMatchers.eq(BadgePhotoCommands.CACHE_SECONDS),
+                ArgumentMatchers.eq(false));
+        final BufferedImage turned = ImageIO.read(new ByteArrayInputStream(bytes.getValue()));
+        Assert.assertEquals(turned.getWidth(), 200);
+        Assert.assertEquals(turned.getHeight(), 300);
+        Mockito.verify(media).deleteObject(OLD_KEY);
+        Mockito.verify(media).invalidateCdn(List.of("/" + OLD_KEY));
+    }
+
+    @Test
+    public void rotatingLocallyMovesTheBytesToTheNewKey() {
+        uploadFixture();
+        Assert.assertTrue(bean.applyCrop(trip, null));
+        final String before = trip.getBadgeImages().getFirst().getKey();
+        session.put(BadgePhotoCommands.SELECTED_KEY, "BlueCross");
+
+        bean.rotateFromUi(before, "left");
+
+        Assert.assertEquals(params.get("badgeRotated"), Boolean.TRUE);
+        final String after = trip.getBadgeImages().getFirst().getKey();
+        Assert.assertTrue(bean.localGet(after).isPresent());
+        Assert.assertTrue(bean.localGet(before).isEmpty());
+        Assert.assertEquals(session.get(BadgePhotoCommands.SELECTED_KEY), "BlueCross", "another selection stays");
+    }
+
+    @Test
+    public void aFailedTripSaveRevertsTheKeyAndRemovesTheNewObject() {
+        remoteHolding(PhotoFixtures.jpeg(300, 200));
+        saveResult = false;
+
+        Assert.assertFalse(bean.rotate(trip, OLD_KEY, org.paulsens.trip.media.QuarterTurn.LEFT));
+
+        Assert.assertEquals(trip.getBadgeImages().getFirst().getKey(), OLD_KEY);
+        Mockito.verify(media, Mockito.never()).deleteObject(OLD_KEY);
+        Mockito.verify(media).deleteObject(ArgumentMatchers.startsWith("badgeImages/trip-1/"));
+    }
+
+    @Test
+    public void rotateRefusalsChangeNothing() {
+        remoteHolding(new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13});
+        Assert.assertFalse(bean.rotate(trip, OLD_KEY, org.paulsens.trip.media.QuarterTurn.LEFT), "undecodable");
+        Assert.assertFalse(bean.rotate(trip, "badgeImages/trip-1/none.jpg",
+                org.paulsens.trip.media.QuarterTurn.LEFT), "not this trip's");
+        Mockito.when(media.getObject(OLD_KEY)).thenReturn(java.util.Optional.empty());
+        Assert.assertFalse(bean.rotate(trip, OLD_KEY, org.paulsens.trip.media.QuarterTurn.LEFT), "bytes gone");
+        Mockito.when(media.getObject(OLD_KEY)).thenReturn(java.util.Optional.of(PhotoFixtures.jpeg(30, 20)));
+        Mockito.when(media.putObject(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyString(), ArgumentMatchers.anyLong(), ArgumentMatchers.anyBoolean()))
+                .thenReturn(false);
+        Assert.assertFalse(bean.rotate(trip, OLD_KEY, org.paulsens.trip.media.QuarterTurn.LEFT), "store refused");
+        caller = callerFor(Person.Id.newInstance(), false);
+        Assert.assertFalse(bean.rotate(trip, OLD_KEY, org.paulsens.trip.media.QuarterTurn.LEFT), "not a manager");
+        bean.rotateFromUi(OLD_KEY, "sideways");
+        Assert.assertEquals(params.get("badgeRotated"), Boolean.FALSE);
+        Assert.assertEquals(trip.getBadgeImages().getFirst().getKey(), OLD_KEY);
+        Assert.assertTrue(savedTrips.isEmpty());
+    }
+
+    @Test
+    public void theNewVersionAlwaysPassesTheOldOne() {
+        final long now = System.currentTimeMillis();
+        Assert.assertTrue(BadgePhotoCommands.nextVersion("badgeImages/t/abc.jpg") >= now);
+        Assert.assertEquals(BadgePhotoCommands.nextVersion("badgeImages/t/99999999999999.jpg"), 100_000_000_000_000L);
+        Assert.assertTrue(BadgePhotoCommands.nextVersion("badgeImages/t/12") >= now, "no extension parses too");
+    }
 }

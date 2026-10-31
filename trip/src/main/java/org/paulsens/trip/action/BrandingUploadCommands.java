@@ -13,6 +13,7 @@ import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.media.PhotoRejectedException;
+import org.paulsens.trip.media.QuarterTurn;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.primefaces.model.CroppedImage;
@@ -191,6 +192,71 @@ public class BrandingUploadCommands extends PhotoUploadBean {
         audit(orgId, role.get(), key, "restored");
         info(role.get().getLabel() + " restored. It is not saved yet: check it, then use Save.");
         return true;
+    }
+
+    /**
+     * Turns a stored version a quarter and stores the result as a NEW version (versions are cached for a day
+     * under their own keys, and the old one stays recoverable like any replaced image), then points the
+     * Appearance page's PREVIEW at it exactly as "Use this" does -- the page's Save still decides. The logo
+     * and favicon stay PNG (transparency kept); the link preview and background are re-encoded within their
+     * byte budgets. A turned link-preview image is no longer the wide shape link previews expect, so that
+     * case is warned about rather than refused.
+     *
+     * @return true when the new version was stored and previewed; false with a message otherwise.
+     */
+    public boolean rotateVersion(final String orgId, final String key, final String direction) {
+        final BrandingPhotos.BrandingKey parsed = BrandingPhotos.parse(key);
+        if (parsed == null || orgId == null || !orgId.equals(parsed.orgId())) {
+            error("Not found: that image does not belong to this organization.");
+            return false;
+        }
+        final Optional<BrandingRole> role = BrandingRole.of(parsed.role());
+        if (role.isEmpty() || !orgs.canManageOrg(orgId)) {
+            error("Not allowed: only this organization's administrators can change its appearance.");
+            return false;
+        }
+        final Optional<QuarterTurn> turn = QuarterTurn.parse(direction);
+        if (turn.isEmpty()) {
+            error("Not rotated: say left or right.");
+            return false;
+        }
+        final Optional<byte[]> current = brandingPhotos.currentBytes(key);
+        if (current.isEmpty()) {
+            error("Not found: that image is no longer stored.");
+            return false;
+        }
+        final String stored;
+        try {
+            stored = storeRotated(orgId, role.get(), current.get(), turn.get());
+        } catch (final PhotoRejectedException ex) {
+            error("Image rejected: " + ex.getMessage());
+            return false;
+        }
+        if (stored == null) {
+            error("Not stored: the image could not be stored. Try again.");
+            return false;
+        }
+        applyToPreview(orgId, role.get(), brandingPhotos.urlFor(stored));
+        audit(orgId, role.get(), stored, "rotated " + turn.get().name().toLowerCase(Locale.ROOT));
+        if (role.get() == BrandingRole.OG_IMAGE) {
+            warn("Shape: link previews are shown wide (1200x630), and the turned image is tall. It was stored "
+                    + "anyway; check how it looks before you Save.");
+        }
+        info(role.get().getLabel() + " rotated. It is not saved yet: check it, then use Save.");
+        return true;
+    }
+
+    /** The turned bytes stored as a new version of the role; the new key, or null when the store refused. */
+    private String storeRotated(final String orgId, final BrandingRole role, final byte[] original,
+            final QuarterTurn turn) {
+        if (role.getMaxBytes() > 0) {
+            return brandingPhotos.store(orgId, role.getKey(),
+                    processor.rotateJpegWithin(original, turn, role.getMaxBytes()), role.getContentType(),
+                    role.getExtension());
+        }
+        final PhotoProcessor.RotatedImage rotated = processor.rotate(original, turn);
+        return brandingPhotos.store(orgId, role.getKey(), rotated.bytes(), rotated.contentType(),
+                rotated.extension());
     }
 
     /** Each role's own pipeline; the whole reason a shared "crop and store" would not have done. */

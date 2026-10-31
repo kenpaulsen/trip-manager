@@ -27,6 +27,9 @@ import org.paulsens.trip.action.ExpenseReportPdf;
 import org.paulsens.trip.action.ExpenseViews;
 import org.paulsens.trip.action.ExpenseViews.ReceiptRow;
 import org.paulsens.trip.action.PhotoUploadBean;
+import org.paulsens.trip.api.dto.RotateRequest;
+import org.paulsens.trip.media.QuarterTurn;
+import org.paulsens.trip.model.MediaItem;
 
 /**
  * A trip's expense report over REST, a thin wrapper of {@link ExpenseCommands} (the {@link BudgetResource}
@@ -304,6 +307,54 @@ public class ExpenseReportResource extends BaseResource {
         }
         final String problem = receipts().remove(tripId, receiptId);
         return (problem == null) ? ok(Map.of("ok", true)) : error(400, ApiErrors.VALIDATION_FAILED, problem);
+    }
+
+    /**
+     * Turns one image receipt a quarter, in place: {@code {"direction": "left" | "right"}}. Answers
+     * {@code {id, title, pdf:false, url, thumbUrl, rev}}, both URLs ending in {@code ?r={rev}} so a cached
+     * copy of the old turn is never shown. 400 for a bad direction, 404 when the receipt is not on this
+     * report, 409 while it is already being rotated, 422 for a PDF or an undecodable image.
+     */
+    @POST
+    @Path("trips/{tripId}/receipts/{receiptId}/rotate")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response rotateReceipt(@PathParam("tripId") final String tripId,
+            @PathParam("receiptId") final String receiptId, @HeaderParam(CSRF_HEADER) final String csrf,
+            final RotateRequest body) {
+        final Response refused = refuseWrite(tripId, csrf);
+        if (refused != null) {
+            return refused;
+        }
+        final Optional<QuarterTurn> turn = (body == null) ? Optional.empty() : body.turn();
+        if (turn.isEmpty()) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "direction must be left or right.");
+        }
+        final ExpenseReceipts.RotateOutcome outcome = receipts().rotate(tripId, receiptId, turn.get());
+        if (!outcome.ok()) {
+            return rotateError(outcome);
+        }
+        final MediaItem item = outcome.item();
+        final String path = ExpenseReceipts.path(item.getId());
+        final Map<String, Object> out = new LinkedHashMap<>();
+        out.put("id", item.getId());
+        out.put("title", (item.getTitle() == null) ? "Receipt" : item.getTitle());
+        out.put("pdf", false);
+        out.put("url", absoluteUrl(path + item.getCacheBuster()));
+        out.put("thumbUrl", absoluteUrl(path + ExpenseReceipts.THUMB + item.getCacheBuster()));
+        out.put("rev", item.getRev());
+        return ok(out);
+    }
+
+    private Response rotateError(final ExpenseReceipts.RotateOutcome outcome) {
+        return switch (outcome.code()) {
+            case ExpenseReceipts.RotateOutcome.NOT_ALLOWED -> error(403, ApiErrors.FORBIDDEN, outcome.problem());
+            case ExpenseReceipts.RotateOutcome.NOT_ON_REPORT -> error(404, ApiErrors.NOT_FOUND, outcome.problem());
+            case ExpenseReceipts.RotateOutcome.BUSY -> error(409, ApiErrors.CONFLICT, outcome.problem());
+            case ExpenseReceipts.RotateOutcome.PDF, ExpenseReceipts.RotateOutcome.REJECTED ->
+                    error(422, ApiErrors.VALIDATION_FAILED, outcome.problem());
+            default -> error(500, ApiErrors.STORE_FAILED, outcome.problem());
+        };
     }
 
     /**

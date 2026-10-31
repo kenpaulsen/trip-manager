@@ -56,6 +56,8 @@ public final class ChatErrors {
     public static final String UNSUPPORTED_MEDIA_TYPE = "UNSUPPORTED_MEDIA_TYPE";
     public static final String NOT_ACCEPTABLE = "NOT_ACCEPTABLE";
     public static final String NOT_FOUND = "NOT_FOUND";
+    /** Another request is changing the same thing right now (a second rotate of one photo, 409). Retry later. */
+    public static final String CONFLICT = "CONFLICT";
     public static final String REACTIONS_DISABLED = "REACTIONS_DISABLED";
     public static final String PHOTO_COMMENTS_DISABLED = "PHOTO_COMMENTS_DISABLED";
     public static final String BAD_EMOJI = "BAD_EMOJI";

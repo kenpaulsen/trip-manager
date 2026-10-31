@@ -37,7 +37,7 @@ public final class ApiErrors {
     /** The request was malformed. Distinct from {@link #VALIDATION_FAILED}, which means well-formed but refused. */
     public static final String BAD_REQUEST = "BAD_REQUEST";
     public static final String VALIDATION_FAILED = "VALIDATION_FAILED";
-    public static final String CONFLICT = "CONFLICT";
+    public static final String CONFLICT = ChatErrors.CONFLICT;
     /** A raw upload body over the endpoint's byte cap (413), refused before it is buffered. */
     public static final String PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE";
     /** The write was understood and attempted, and the store refused it. Retryable, unlike the 4xx codes. */

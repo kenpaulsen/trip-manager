@@ -2,6 +2,7 @@ package org.paulsens.trip.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serial;
 import java.io.Serializable;
@@ -67,6 +68,15 @@ public class MediaItem implements Serializable {
      * null-org chat photo still shows in its trip's album.
      */
     String orgId;
+    /**
+     * How many times this picture was rotated in place (a chat photo or a receipt keeps its key, which is its
+     * identity elsewhere). Pages and clients append {@link #getCacheBuster()} to its URLs so a browser drops
+     * the cached unrotated copy. STORED rather than derived from the chat message: deriving would walk the
+     * channel for every album row on every listing, while the row is rewritten per photo change anyway. Null
+     * when never rotated, like {@link #hidden}. Read via {@link #getRev()}.
+     */
+    @Getter(AccessLevel.NONE)
+    Integer rev;
 
     @JsonCreator
     public MediaItem(
@@ -82,7 +92,8 @@ public class MediaItem implements Serializable {
             @JsonProperty("uploadedBy") final String uploadedBy,
             @JsonProperty("smallKey") final String smallKey,
             @JsonProperty("hidden") final Boolean hidden,
-            @JsonProperty("orgId") final String orgId) {
+            @JsonProperty("orgId") final String orgId,
+            @JsonProperty("rev") final Integer rev) {
         this.orgId = (orgId == null || orgId.isBlank()) ? null : orgId.trim();
         this.id = id;
         this.s3Key = s3Key;
@@ -98,6 +109,16 @@ public class MediaItem implements Serializable {
         // FALSE normalizes to null so visible rows stay compact in JSON and equality is stable across a
         // serialization round trip.
         this.hidden = Boolean.TRUE.equals(hidden) ? Boolean.TRUE : null;
+        this.rev = (rev == null || rev <= 0) ? null : rev;
+    }
+
+    /** Compatibility constructor predating {@link #rev}. */
+    public MediaItem(final String id, final String s3Key, final String title, final String description,
+            final String contentType, final long size, final String slot, final int position,
+            final LocalDateTime uploaded, final String uploadedBy, final String smallKey, final Boolean hidden,
+            final String orgId) {
+        this(id, s3Key, title, description, contentType, size, slot, position, uploaded, uploadedBy, smallKey,
+                hidden, orgId, null);
     }
 
     /** Compatibility constructor predating {@link #orgId}: a site-level item. */
@@ -143,14 +164,50 @@ public class MediaItem implements Serializable {
     @JsonIgnore
     public MediaItem withHidden(final boolean nowHidden) {
         return new MediaItem(id, s3Key, title, description, contentType, size, slot, position, uploaded,
-                uploadedBy, smallKey, nowHidden, orgId);
+                uploadedBy, smallKey, nowHidden, orgId, rev);
     }
 
     /** @return a copy of this item owned by {@code newOrgId} (null = site-level); all other fields unchanged. */
     @JsonIgnore
     public MediaItem withOrg(final String newOrgId) {
         return new MediaItem(id, s3Key, title, description, contentType, size, slot, position, uploaded,
-                uploadedBy, smallKey, hidden, newOrgId);
+                uploadedBy, smallKey, hidden, newOrgId, rev);
+    }
+
+    /**
+     * @return this item after its picture was turned a quarter in place: the new full-size {@code size}, the
+     *     small rendition's key ({@code null} = none), and {@link #rev} one higher; everything else unchanged.
+     */
+    @JsonIgnore
+    public MediaItem withRotated(final long newSize, final String newSmallKey) {
+        return new MediaItem(id, s3Key, title, description, contentType, newSize, slot, position, uploaded,
+                uploadedBy, newSmallKey, hidden, orgId, getRev() + 1);
+    }
+
+    /**
+     * @return this item pointing at different objects (a re-keyed rotation, where the URL itself must change
+     *     because the object is cached for a year); the row id, and so every reference to it, is kept.
+     */
+    @JsonIgnore
+    public MediaItem withKeys(final String newS3Key, final String newSmallKey, final long newSize) {
+        return new MediaItem(id, newS3Key, title, description, contentType, newSize, slot, position, uploaded,
+                uploadedBy, newSmallKey, hidden, orgId, rev);
+    }
+
+    /** How many times the picture was rotated in place; 0 when never. Absent from JSON at 0. */
+    @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+    public int getRev() {
+        return rev == null ? 0 : rev;
+    }
+
+    /**
+     * What to append to this item's URLs so a browser cannot show a cached copy from before a rotation:
+     * empty when never rotated, else {@code ?r=N}. A property (not a function) so EL reaches it as
+     * {@code item.cacheBuster}.
+     */
+    @JsonIgnore
+    public String getCacheBuster() {
+        return rev == null ? "" : "?r=" + rev;
     }
 
     /** @return the key a page should display: the reduced rendition when there is one, else the object. */

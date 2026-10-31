@@ -26,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.paulsens.trip.action.ChatCommands;
+import org.paulsens.trip.action.ChatPhotoRotation;
 import org.paulsens.trip.action.ChatPhotos;
 import org.paulsens.trip.action.ModerationCommands;
 import lombok.extern.slf4j.Slf4j;
@@ -33,8 +34,10 @@ import org.paulsens.trip.api.dto.ChatPhotoDto;
 import org.paulsens.trip.chat.ChatNudgeRegistry;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.media.PhotoRejectedException;
+import org.paulsens.trip.media.QuarterTurn;
 import org.paulsens.trip.media.UploadRateLimiter;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.chat.ChatAttachment;
 import org.paulsens.trip.model.chat.ChatChannel;
 import org.paulsens.trip.model.chat.ChatMessage;
 import org.paulsens.trip.model.chat.ChatNotifyPref;
@@ -630,6 +633,76 @@ public class ChatResource extends BaseResource {
         return ok(Map.of("key", key, "hidden", body.hidden()));
     }
 
+    /** {@code POST .../photos/rotate?key=}: which way to turn, and (a hint) the message carrying the photo. */
+    public record PhotoRotateRequest(String direction, String messageId) {
+    }
+
+    /**
+     * Turns a posted photo a quarter, persisted ({@link ChatPhotoRotation}). The key is unchanged -- it is the
+     * photo's identity -- so the answer's URLs carry {@code ?r={rev}} and the dimensions are the turned ones:
+     * {@code {key, thumbUrl, fullUrl, width, height, rev}}. The author of the message that sent the photo may
+     * rotate it, as may a chat admin. 409 while the same photo is already being rotated; 422 for an animated
+     * GIF. The channel's mutation counter moves, so polling clients refetch the message.
+     */
+    @POST
+    @Path("photos/rotate")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response rotatePhoto(
+            @PathParam("channelId") final String channelId,
+            @QueryParam("key") final String key,
+            @HeaderParam(ChatCommands.CSRF_HEADER) final String csrf,
+            final PhotoRotateRequest body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
+        }
+        final String tripId = tripIdOf(channelId);
+        if (tripId == null) {
+            return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");
+        }
+        if (key == null || key.isBlank()) {
+            return error(400, ChatErrors.BAD_ATTACHMENT, "Missing photo key.");
+        }
+        final Optional<QuarterTurn> turn = (body == null) ? Optional.empty() : QuarterTurn.parse(body.direction());
+        if (turn.isEmpty()) {
+            return error(400, ChatErrors.BAD_ATTACHMENT, "Say which way to rotate: left or right.");
+        }
+        final ChatMessage.Id hint = body.messageId() == null || body.messageId().isBlank()
+                ? null : ChatMessage.Id.from(body.messageId());
+        final ChatPhotoRotation.Outcome outcome = ChatPhotoRotation.rotate(ChatCommands.getChatCommands(), tripId,
+                key, turn.get(), hint, caller());
+        if (!outcome.ok()) {
+            return rotateError(outcome);
+        }
+        return ok(rotatedBody(outcome.attachment()));
+    }
+
+    private Response rotateError(final ChatPhotoRotation.Outcome outcome) {
+        return switch (outcome.code()) {
+            case ChatPhotoRotation.Outcome.FORBIDDEN -> error(403, ChatErrors.FORBIDDEN, outcome.message());
+            case ChatPhotoRotation.Outcome.NOT_FOUND -> error(404, ChatErrors.NOT_FOUND, outcome.message());
+            case ChatPhotoRotation.Outcome.BUSY -> error(409, ChatErrors.CONFLICT, outcome.message());
+            case ChatPhotoRotation.Outcome.REJECTED -> error(422, ChatErrors.BAD_ATTACHMENT, outcome.message());
+            default -> error(500, ChatErrors.STORE_FAILED, outcome.message());
+        };
+    }
+
+    /** The upload's URL base (CDN, else this app's servlet), each URL busted by the new rev. */
+    private Map<String, Object> rotatedBody(final ChatAttachment attachment) {
+        final ChatPhotos photos = chatPhotos();
+        final String base = photos.getPublicBase() != null ? photos.getPublicBase() : absoluteUrl("/chat-photos/");
+        final String buster = "?r=" + attachment.getRev();
+        final String thumbKey = attachment.getThumbKey() == null ? attachment.getS3Key() : attachment.getThumbKey();
+        final Map<String, Object> out = new LinkedHashMap<>();
+        out.put("key", attachment.getS3Key());
+        out.put("thumbUrl", base + thumbKey + buster);
+        out.put("fullUrl", base + attachment.getS3Key() + buster);
+        out.put("width", attachment.getWidth());
+        out.put("height", attachment.getHeight());
+        out.put("rev", attachment.getRev());
+        return out;
+    }
+
     /**
      * Author self-edit. {@code PATCH} because it replaces one field of an existing message rather than creating
      * anything — a {@code PUT} would imply the client is supplying the whole resource, including fields
@@ -1050,7 +1123,6 @@ public class ChatResource extends BaseResource {
         if (csrfMissing(csrf)) {
             return error(403, ChatErrors.CSRF, "Missing " + ChatCommands.CSRF_HEADER + " header.");
         }
-        personId();
         final String tripId = tripIdOf(channelId);
         if (tripId == null) {
             return error(400, ChatErrors.BAD_CHANNEL, "Invalid channel id.");

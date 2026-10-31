@@ -3,6 +3,7 @@ package org.paulsens.trip.action;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
+import java.util.Locale;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
@@ -12,6 +13,8 @@ import org.paulsens.trip.media.BackgroundRemover;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.media.PhotoProcessor;
 import org.paulsens.trip.media.PhotoRejectedException;
+import org.paulsens.trip.media.QuarterTurn;
+import org.paulsens.trip.media.RotationGuard;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
 import org.paulsens.trip.model.Person;
@@ -94,6 +97,8 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
         public static final String REJECTED = "rejected";
         public static final String STORE_FAILED = "store";
         public static final String EMPTY_SLOT = "empty_slot";
+        public static final String BAD_DIRECTION = "bad_direction";
+        public static final String BUSY = "busy";
 
         static PhotoResult ok(final int slot) {
             return new PhotoResult(null, null, slot);
@@ -228,6 +233,75 @@ public class ProfilePhotoCommands extends PhotoUploadBean {
                     "Not deleted: that picture was already removed. Reload the page to see your pictures.");
         }
         audit(who, "Profile picture deleted", subject, slot);
+        return PhotoResult.ok(slot);
+    }
+
+    /**
+     * The slot menu's "Rotate left" / "Rotate right": turns the slot's picture a quarter and growls the
+     * outcome. {@code direction} is {@code "left"} or {@code "right"}.
+     *
+     * @return true when rotated.
+     */
+    public boolean rotate(final Person subject, final int slot, final String direction) {
+        final PhotoResult result = QuarterTurn.parse(direction)
+                .map(turn -> rotateFor(caller(), subject, slot, turn))
+                .orElseGet(ProfilePhotoCommands::badDirection);
+        if (!result.isOk()) {
+            error(result.message());
+            return false;
+        }
+        info("Profile picture rotated: picture " + slot + " updated.");
+        return true;
+    }
+
+    private static PhotoResult badDirection() {
+        return PhotoResult.refused(PhotoResult.BAD_DIRECTION, "Not rotated: say left or right.");
+    }
+
+    /**
+     * Turns one slot's picture a quarter, with the caller explicit and the outcome returned (the REST edge).
+     * The turned picture is stored like any replacement -- a NEW versioned key in the same slot, the old one
+     * deleted and invalidated -- so every cache sees a new URL and the selection is untouched. A second
+     * rotation of the same slot while one is running is refused as BUSY rather than racing it.
+     */
+    public PhotoResult rotateFor(final Caller who, final Person subject, final int slot, final QuarterTurn turn) {
+        if (!mayEdit(who, subject)) {
+            return PhotoResult.refused(PhotoResult.NOT_ALLOWED,
+                    "Not allowed: you may not change this profile picture.");
+        }
+        final String personId = subject.getId().getValue();
+        final String guardKey = ProfilePhotos.PREFIX + personId + "/" + slot;
+        if (!RotationGuard.begin(guardKey)) {
+            return PhotoResult.refused(PhotoResult.BUSY,
+                    "Not rotated: that picture is already being rotated. Try again in a moment.");
+        }
+        try {
+            return rotateGuarded(who, subject, slot, turn);
+        } finally {
+            RotationGuard.end(guardKey);
+        }
+    }
+
+    private PhotoResult rotateGuarded(final Caller who, final Person subject, final int slot,
+            final QuarterTurn turn) {
+        final String personId = subject.getId().getValue();
+        final Optional<byte[]> current = (slot < 1 || slot > ProfilePhotos.MAX_SLOTS)
+                ? Optional.empty() : profilePhotos.currentBytes(personId, slot);
+        if (current.isEmpty()) {
+            return PhotoResult.refused(PhotoResult.EMPTY_SLOT,
+                    "Not rotated: that picture is no longer there. Reload the page to see your pictures.");
+        }
+        final byte[] jpeg;
+        try {
+            jpeg = processor.rotate(current.get(), turn).bytes();
+        } catch (final PhotoRejectedException ex) {
+            return PhotoResult.refused(PhotoResult.REJECTED, "Photo rejected: " + ex.getMessage());
+        }
+        if (!profilePhotos.store(personId, slot, jpeg)) {
+            return PhotoResult.refused(PhotoResult.STORE_FAILED,
+                    "Not stored: the photo could not be stored. Try again.");
+        }
+        audit(who, "Profile picture rotated " + turn.name().toLowerCase(Locale.ROOT), subject, slot);
         return PhotoResult.ok(slot);
     }
 

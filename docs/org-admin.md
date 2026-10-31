@@ -843,6 +843,15 @@ setting back at one (`BrandingUploadCommands.useVersion`; the KEY carries its ow
 a foreign one simply does not match). The warning beside each Upload button says both halves of this up
 front: uploading replaces what the site shows now, and what it replaces can be put back.
 
+**Rotating a previous image (2026-10-30)** is the "Use this" round trip with a turn in it:
+`BrandingUploadCommands.rotateVersion(orgId, key, "left"|"right")` (same key/role/`canManageOrg` checks as
+`useVersion`) reads the version's bytes (`BrandingPhotos.currentBytes`, tenancy-checked like a write), turns
+them a quarter, and stores the result as a NEW version (the turned-from one stays in the list, and the usual
+prune to five applies), then points the page's PREVIEW at it; the page's Save still decides. The logo and
+favicon stay PNG (alpha kept; the favicon stays square); the link preview and background are re-encoded within
+their 1 MB budgets. A turned link preview is tall, which link previews do not expect, so that one warns rather
+than refusing.
+
 **One bean, four roles** (`action/BrandingUploadCommands`, `#{brandingUpload}`). The shared dialog has fixed
 component ids and one `widgetVar`, so a view can mount it exactly once — the role is therefore chosen when
 the dialog OPENS (`startUpload`) and rides the session beside the pending-upload token, and the bean answers

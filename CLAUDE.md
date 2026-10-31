@@ -323,7 +323,9 @@ expenses (`getClasses()` is the authoritative list) +
   through `web/ChatUploadServlet` (`/chat-photos/*`, own multipart-config in the live web.xml — the chat
   page's JSF form must NEVER go multipart, Tomcat's `maxPartCount` counts ordinary fields). Album rows land
   in the media table under slot `tripChat-{tripId}`; message removal deletes photos everywhere (album
-  semantics: retention expiry does NOT).
+  semantics: retention expiry does NOT). Rotation (`PhotoProcessor.rotate`, `QuarterTurn`, `RotationGuard`):
+  chat photos and receipts turn IN PLACE and bump `rev` (clients append `?r=N`; never fire REMOVED for a
+  rotated chat key), while profile, badge, lodging and branding images get a NEW key.
 - `audit/` — `Audit` writes every event to CloudWatch Logs (`TRIP_AUDIT_LOG_GROUP`) AND the `audit` DynamoDB
   table when deployed, stdout otherwise. Append-only in IAM *and* in code — no update/delete paths.
 - `config/KnownSettings` — every runtime setting is declared ONCE here (`SettingDef` constants); the admin

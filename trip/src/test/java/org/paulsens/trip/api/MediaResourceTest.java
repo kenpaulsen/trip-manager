@@ -97,6 +97,31 @@ public class MediaResourceTest extends ResourceTestSupport {
         Assert.assertFalse(dto.hidden());
     }
 
+    /** A rotated picture keeps its key, so both URLs carry the rev, and the thumbnail is the small rendition. */
+    @Test
+    public void aRotatedItemCarriesItsRevAndBustedUrls() {
+        signedInAsSiteAdmin(ADMIN);
+        final MediaItem rotated = new MediaItem("m1", "chat/t/a.jpg", null, null, "image/jpeg", 9L, "tripChat-t",
+                0, LocalDateTime.of(2026, 8, 1, 12, 0), "who", "chat/t/a-small.jpg", null, null)
+                .withRotated(8L, "chat/t/a-small.jpg");
+        Mockito.when(media.getAll()).thenReturn(List.of(rotated, item("m2", "downloads/b.pdf", null)));
+        Mockito.when(media.getUrl(ArgumentMatchers.any())).thenAnswer(
+                call -> "https://cdn.example/" + call.<MediaItem>getArgument(0).getS3Key());
+        Mockito.when(media.publicUrl(ArgumentMatchers.anyString())).thenAnswer(
+                call -> "https://cdn.example/" + call.<String>getArgument(0));
+
+        final List<?> items = (List<?>) resource.list().getEntity();
+
+        final MediaItemDto dto = (MediaItemDto) items.get(0);
+        Assert.assertEquals(dto.rev(), 1);
+        Assert.assertEquals(dto.url(), "https://cdn.example/chat/t/a.jpg?r=1");
+        Assert.assertEquals(dto.thumbUrl(), "https://cdn.example/chat/t/a-small.jpg?r=1");
+        final MediaItemDto plain = (MediaItemDto) items.get(1);
+        Assert.assertEquals(plain.rev(), 0);
+        Assert.assertEquals(plain.url(), "https://cdn.example/downloads/b.pdf");
+        Assert.assertEquals(plain.thumbUrl(), "https://cdn.example/downloads/b.pdf", "no small rendition");
+    }
+
     /** A non-admin browsing a slot sees what a public page would render, never the hidden rows. */
     @Test
     public void slotListingServesOrdinaryUsersTheVisibleItemsOnly() {

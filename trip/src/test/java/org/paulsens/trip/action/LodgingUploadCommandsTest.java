@@ -271,4 +271,85 @@ public class LodgingUploadCommandsTest {
         Mockito.when(file.getFileName()).thenReturn("plan.jpg");
         return new FileUploadEvent(Mockito.mock(UIComponent.class), file, 1);
     }
+
+    // --- rotate ---
+
+    /** Uploads one gallery photo of the given shape; answers its media row. */
+    private MediaItem galleryPhoto(final int width, final int height) {
+        bean.startUpload("accPhoto", accId, null);
+        bean.handleUpload(uploadOf(PhotoFixtures.jpeg(width, height)));
+        bean.confirmFullPhoto();
+        final List<String> ids = lodging.findAccommodation(accId).getPhotoIds();
+        return DAO.getInstance().getMedia(ids.get(ids.size() - 1), Cached.NO).orElseThrow();
+    }
+
+    @Test
+    public void rotatingAPhotoReKeysTheRowAndRemovesTheOldObject() throws Exception {
+        final MediaItem before = galleryPhoto(1200, 900);
+
+        Assert.assertTrue(bean.rotatePhoto(accId, before.getId(), "right"));
+
+        final MediaItem after = DAO.getInstance().getMedia(before.getId(), Cached.NO).orElseThrow();
+        Assert.assertNotEquals(after.getS3Key(), before.getS3Key(), "cached for a year: a new URL");
+        Assert.assertTrue(after.getS3Key().startsWith("lodging/" + accId + "/"), after.getS3Key());
+        Assert.assertEquals(after.getId(), before.getId(), "the gallery's reference is the row id");
+        Assert.assertEquals(lodging.findAccommodation(accId).getPhotoIds(), List.of(before.getId()));
+        Assert.assertTrue(bean.localGet(before.getS3Key()).isEmpty(), "the old object is gone");
+        final java.awt.image.BufferedImage turned = javax.imageio.ImageIO.read(
+                new java.io.ByteArrayInputStream(bean.localGet(after.getS3Key()).orElseThrow()));
+        Assert.assertEquals(turned.getWidth(), 900);
+        Assert.assertEquals(turned.getHeight(), 1200);
+        Assert.assertEquals(after.getSize(), bean.localGet(after.getS3Key()).orElseThrow().length);
+    }
+
+    @Test
+    public void aFloorPlanAStrangerAForeignRowAndABadDirectionAreRefused() {
+        bean.startUpload("floorMap", accId, "1");
+        bean.handleUpload(uploadOf(PhotoFixtures.jpeg(1200, 800)));
+        bean.confirmFullPhoto();
+        final String planId = lodging.floorMapMediaId(accId, "1");
+        final String planKey = DAO.getInstance().getMedia(planId, Cached.NO).orElseThrow().getS3Key();
+        Assert.assertFalse(bean.rotatePhoto(accId, planId, "left"), "the room boxes would no longer line up");
+        Assert.assertEquals(DAO.getInstance().getMedia(planId, Cached.NO).orElseThrow().getS3Key(), planKey);
+
+        final MediaItem photo = galleryPhoto(800, 600);
+        Assert.assertFalse(bean.rotatePhoto(accId, photo.getId(), "upward"));
+        Assert.assertFalse(bean.rotatePhoto(accId, "no-such-row", "left"));
+        Assert.assertFalse(bean.rotatePhoto(accId, null, "left"));
+        final AccommodationForm other = new AccommodationForm();
+        other.setName("Other " + RandomData.genAlpha(6));
+        final String otherAcc = lodging.saveAccommodation(other, FakeData.CFPW_ORG_ID);
+        Assert.assertFalse(bean.rotatePhoto(otherAcc, photo.getId(), "left"), "not that hotel's photo");
+        caller = TestCallers.person(Person.Id.newInstance());
+        Assert.assertFalse(bean.rotatePhoto(accId, photo.getId(), "left"));
+        Assert.assertEquals(DAO.getInstance().getMedia(photo.getId(), Cached.NO).orElseThrow().getS3Key(),
+                photo.getS3Key(), "nothing moved");
+    }
+
+    @Test
+    public void missingBytesTheBudgetAndAFailedRowSaveEachLeaveThePhotoAlone() {
+        final MediaItem photo = galleryPhoto(800, 600);
+        rowSaves = false;
+        Assert.assertFalse(bean.rotatePhoto(accId, photo.getId(), "left"), "the row would not save");
+        rowSaves = true;
+        Assert.assertTrue(bean.localGet(photo.getS3Key()).isPresent(), "the original stays");
+        bean.storedMaxBytesForTest(1L);
+        Assert.assertFalse(bean.rotatePhoto(accId, photo.getId(), "left"), "no JPEG fits one byte");
+        bean.storedMaxBytesForTest(LodgingUploadCommands.MAX_STORED_BYTES);
+
+        final MediaCommands s3 = Mockito.mock(MediaCommands.class);
+        Mockito.when(s3.isUploadEnabled()).thenReturn(true);
+        Mockito.when(s3.getObject(photo.getS3Key())).thenReturn(java.util.Optional.empty());
+        bean.setCollaboratorsForTest(s3, lodging);
+        Assert.assertFalse(bean.rotatePhoto(accId, photo.getId(), "left"), "the object is gone");
+        Mockito.when(s3.getObject(photo.getS3Key())).thenReturn(java.util.Optional.of(PhotoFixtures.jpeg(80, 60)));
+        Mockito.when(s3.putObject(ArgumentMatchers.anyString(), ArgumentMatchers.any(), ArgumentMatchers.anyString(),
+                ArgumentMatchers.anyLong(), ArgumentMatchers.anyBoolean())).thenReturn(false);
+        Assert.assertFalse(bean.rotatePhoto(accId, photo.getId(), "left"), "the bucket refused");
+        Mockito.when(s3.putObject(ArgumentMatchers.anyString(), ArgumentMatchers.any(), ArgumentMatchers.anyString(),
+                ArgumentMatchers.anyLong(), ArgumentMatchers.anyBoolean())).thenReturn(true);
+        Assert.assertTrue(bean.rotatePhoto(accId, photo.getId(), "left"));
+        Mockito.verify(s3).deleteObject(photo.getS3Key());
+        Mockito.verify(s3).invalidateCdn(List.of("/" + photo.getS3Key()));
+    }
 }

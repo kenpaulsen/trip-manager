@@ -812,6 +812,10 @@ public final class DAO {
             final ChatChannel.Id channelId, final ChatMessage.Id msgId, final String s3Key, final boolean hidden) {
         return chatDao.setAttachmentHidden(channelId, msgId, s3Key, hidden);
     }
+    public Optional<ChatMessage> rotateChatAttachment(final ChatChannel.Id channelId, final ChatMessage.Id msgId,
+            final String s3Key, final int width, final int height, final long size, final String thumbKey) {
+        return chatDao.rotateAttachment(channelId, msgId, s3Key, width, height, size, thumbKey);
+    }
     public Optional<ChatMessage> findChatMessageWithAttachment(
             final ChatChannel.Id channelId, final String s3Key, final long fromMillis, final int maxPages) {
         return chatDao.findMessageWithAttachment(channelId, s3Key, fromMillis, maxPages);

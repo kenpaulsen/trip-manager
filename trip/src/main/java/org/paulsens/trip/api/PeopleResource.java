@@ -33,8 +33,10 @@ import org.paulsens.trip.api.dto.PersonDataValueDto;
 import org.paulsens.trip.api.dto.PersonDto;
 import org.paulsens.trip.api.dto.PrivacyDto;
 import org.paulsens.trip.api.dto.ProfilePhotoDto;
+import org.paulsens.trip.api.dto.RotateRequest;
 import org.paulsens.trip.api.mapper.PersonMapper;
 import org.paulsens.trip.media.PhotoProcessor;
+import org.paulsens.trip.media.QuarterTurn;
 import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
@@ -356,6 +358,43 @@ public class PeopleResource extends BaseResource {
         return ok(profilePhotoDto(id, null));
     }
 
+    /**
+     * Turns one slot's picture a quarter: {@code {"direction": "left" | "right"}}. The slot then holds a NEW
+     * versioned key (so its URL changes); answers the photo state with {@code storedSlot} = the slot. 400 for
+     * a bad slot or direction, 403 when not permitted, 404 for an empty slot, 409 while the same slot is
+     * already being rotated, 422 when the stored picture cannot be decoded.
+     */
+    @POST
+    @Path("{id}/photo/{slot}/rotate")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response rotatePhoto(
+            @PathParam("id") final String id,
+            @PathParam("slot") final int slot,
+            @HeaderParam(CSRF_HEADER) final String csrf,
+            final RotateRequest body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final Person subject = findPerson(Person.Id.from(id));
+        if (subject == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such person.");
+        }
+        if (slot < 1 || slot > ProfilePhotos.MAX_SLOTS) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "slot must be 1-" + ProfilePhotos.MAX_SLOTS + ".");
+        }
+        final Optional<QuarterTurn> turn = (body == null) ? Optional.empty() : body.turn();
+        if (turn.isEmpty()) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "direction must be left or right.");
+        }
+        final ProfilePhotoCommands.PhotoResult result =
+                Beans.get(ProfilePhotoCommands.class).rotateFor(caller(), subject, slot, turn.get());
+        if (!result.isOk()) {
+            return photoError(result);
+        }
+        return ok(profilePhotoDto(id, result.slot()));
+    }
+
     /** Makes one occupied slot THE picture: {@code {"slot": n}}. */
     @PUT
     @Path("{id}/photo/selected")
@@ -393,7 +432,10 @@ public class PeopleResource extends BaseResource {
     private Response photoError(final ProfilePhotoCommands.PhotoResult result) {
         return switch (result.code()) {
             case ProfilePhotoCommands.PhotoResult.NOT_ALLOWED -> error(403, ApiErrors.FORBIDDEN, result.message());
-            case ProfilePhotoCommands.PhotoResult.NO_FREE_SLOT -> error(409, ApiErrors.CONFLICT, result.message());
+            case ProfilePhotoCommands.PhotoResult.NO_FREE_SLOT, ProfilePhotoCommands.PhotoResult.BUSY ->
+                    error(409, ApiErrors.CONFLICT, result.message());
+            case ProfilePhotoCommands.PhotoResult.BAD_DIRECTION ->
+                    error(400, ApiErrors.VALIDATION_FAILED, result.message());
             case ProfilePhotoCommands.PhotoResult.REJECTED ->
                     error(422, ApiErrors.VALIDATION_FAILED, result.message());
             case ProfilePhotoCommands.PhotoResult.EMPTY_SLOT ->

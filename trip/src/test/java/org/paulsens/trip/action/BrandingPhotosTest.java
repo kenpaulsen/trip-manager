@@ -275,4 +275,21 @@ public class BrandingPhotosTest {
         Assert.assertTrue(photos.localGet(first).isEmpty(),
                 "the local store is a capped convenience, evicted oldest-first like every other one");
     }
+
+    // --- what a rotation reads ---
+
+    @Test
+    public void currentBytesAnswersOnlyAKeyOfAnOrganizationTheCallerManages() {
+        final String key = storeLogo("logo-bytes");
+        Assert.assertEquals(photos.currentBytes(key).orElseThrow(), bytes("logo-bytes"));
+        Assert.assertTrue(photos.currentBytes("downloads/x.png").isEmpty(), "not a branding key");
+        Assert.assertTrue(photos.currentBytes(BrandingPhotos.keyFor(ORG, "logo", 1L, "png")).isEmpty(), "gone");
+        manageable = false;
+        Assert.assertTrue(photos.currentBytes(key).isEmpty(), "another tenant's key reads as nothing");
+
+        manageable = true;
+        Mockito.when(media.isUploadEnabled()).thenReturn(true);
+        Mockito.when(media.getObject(key)).thenReturn(java.util.Optional.of(bytes("remote")));
+        Assert.assertEquals(photos.currentBytes(key).orElseThrow(), bytes("remote"));
+    }
 }

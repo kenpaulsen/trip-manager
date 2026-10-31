@@ -132,7 +132,12 @@ slots:[{slot, url}]}`; `POST /api/people/{id}/photo?slot=&cropX=&cropY=&cropW=&c
 1–4 or absent for the next free one → the same shape plus `storedSlot`; 409 `CONFLICT` when all four slots
 are taken, 422 `VALIDATION_FAILED` when the bytes are refused, 413 `PAYLOAD_TOO_LARGE`. `DELETE
 /api/people/{id}/photo/{slot}` (404 when empty); `PUT /api/people/{id}/photo/selected {slot}` (404 when the
-slot holds nothing). Yourself, someone you manage, or a site admin.
+slot holds nothing). `POST /api/people/{id}/photo/{slot}/rotate {"direction":"left"|"right"}` (2026-10-30)
+turns that slot's picture a quarter and stores it as a NEW versioned key (so the slot's `url` changes; the
+selection is untouched) → the same shape with `storedSlot` = the slot; 400 `VALIDATION_FAILED` for a bad slot or
+direction, 403 `FORBIDDEN`, 404 for an empty slot, 409 `CONFLICT` while the same slot is already being
+rotated, 422 `VALIDATION_FAILED` when the stored bytes cannot be decoded, 500 `STORE_FAILED`. Never auto-retry
+it (each call turns again). Yourself, someone you manage, or a site admin.
 
 Roster: `GET /api/trips/{id}/roster` → `{tripId, people:[{id, first, last, nickname, preferredName,
 photoUrl, roles:[MEMBER|DIRECTOR|FACILITATOR]}], directorIds, facilitatorIds, localGuide}` for anyone who
@@ -196,7 +201,19 @@ is filled only from chat; there is no separate album upload. A posted photo's pu
 at any time by the uploader or a chat admin (2026-10-12): `PATCH /api/chat/channels/trip:{tripId}/photos?key=`
 `{hidden, messageId?}` (`messageId` is only a hint; the server finds the message by key) moves BOTH copies, the
 attachment in the message (the `mutationsVersion` bump makes polling clients refetch it) and the album row; 403
-`FORBIDDEN` for anyone else, 404 `NOT_FOUND` for an unknown or deleted photo. For that, a trip's own members get
+`FORBIDDEN` for anyone else, 404 `NOT_FOUND` for an unknown or deleted photo. The same two may rotate a posted
+photo a quarter (2026-10-30): `POST /api/chat/channels/trip:{tripId}/photos/rotate?key=` `{direction:"left"|"right",
+messageId?}` → `{key, thumbUrl, fullUrl, width, height, rev}`. The key is UNCHANGED (it is the photo's identity:
+its `photo:{key}` thread, reactions and album row join on it), so the stored renditions are overwritten in place
+and `width`/`height` are the turned ones; 400 `BAD_CHANNEL`/`BAD_ATTACHMENT` (no key or direction), 403
+`FORBIDDEN` "You can only rotate photos you posted.", 404 `NOT_FOUND`, 409 `CONFLICT` while the same photo is
+already being rotated, 422 `BAD_ATTACHMENT` for an animated GIF, 500 `STORE_FAILED`. It bumps `mutationsVersion`
+so polling clients refetch the message. Non-idempotent: never auto-retry it, never queue it offline. Every
+`ChatAttachment` in every payload carrying messages (history, poll, photo thread, send response) has `rev` (an
+int, ABSENT when 0) = how many times it was rotated, and the URL rule for every client is
+`base + key + ("?r=" + rev if rev > 0)` (the CDN ignores the query; the server invalidates the CDN path itself).
+`MediaItemDto` (the album, `GET /api/media/...`) likewise carries `rev` (0 when never) and `thumbUrl` (the small
+rendition, else the object), and its `url` and `thumbUrl` already end in `?r={rev}` when `rev` > 0. For that, a trip's own members get
 the whole `tripChat-` album from `GET /api/media/slots/{slot}`, hidden rows included (the website's trip media
 page shows them too); other viewers still get the public filter. `GET .../invite` also answers `canAdminister`,
 the chat-admin signal the apps use for moderator-only items. Refusals: 429 `RATE_LIMITED` + `Retry-After` (40 uploads / 10 min per person, shared with
@@ -335,6 +352,11 @@ versioned put, so two simultaneous writes can refuse one as "Saved by someone el
   `application/octet-stream`; the bytes decide, not the header) → `{id, url, thumbUrl}`. No `lineId` = a
   report-level receipt; `name` is the file name shown. 413 `PAYLOAD_TOO_LARGE` over 16 MB; images are stored at
   most 1280 px on the longest side. `DELETE .../receipts/{receiptId}` → `{ok:true}`.
+- `POST /api/expenses/trips/{tripId}/receipts/{receiptId}/rotate {"direction":"left"|"right"}` (2026-10-30)
+  turns an IMAGE receipt a quarter in place → `{id, title, pdf:false, url, thumbUrl, rev}`; 400
+  `VALIDATION_FAILED` for a bad direction, 403 without the edit gate, 404 when the receipt is not on this report,
+  409 `CONFLICT` while it is already being rotated, 422 `VALIDATION_FAILED` for a PDF. Web-only today.
+- Receipt URLs carry `?r={rev}` once a receipt was rotated (same path, so the query is what busts an image cache).
 - Receipt `url`/`thumbUrl` are absolute app URLs (`/expense-receipts/{id}[/thumb]`), served only to a signed-in
   SESSION that may read the report (a signed-out GET redirects to login; 403 otherwise). That servlet does not
   read a bearer token today, so an app would need a session cookie or a future API download route. They are never

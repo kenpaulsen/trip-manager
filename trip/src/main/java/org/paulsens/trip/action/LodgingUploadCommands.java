@@ -4,17 +4,22 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
 import org.paulsens.trip.audit.AuditEventBuilder;
+import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.media.LocalObjectStore;
 import org.paulsens.trip.media.PendingUploads;
 import org.paulsens.trip.media.PhotoRejectedException;
+import org.paulsens.trip.media.QuarterTurn;
 import org.paulsens.trip.model.AuditAction;
 import org.paulsens.trip.model.AuditOutcome;
+import org.paulsens.trip.model.Accommodation;
 import org.paulsens.trip.model.MediaItem;
 import org.primefaces.model.CroppedImage;
 
@@ -199,6 +204,76 @@ public class LodgingUploadCommands extends PhotoUploadBean {
         return true;
     }
 
+    /**
+     * A gallery photo's Rotate left / Rotate right ({@code direction} "left" or "right"). The turned image is
+     * stored under a NEW key -- these objects are cached for a year, so overwriting could never be seen --
+     * and the media row is repointed at it (its id, which every gallery list holds, is kept); the old object
+     * is then removed. A floor plan is refused: the room boxes drawn on it would no longer line up, and the
+     * fix for a sideways plan is to replace it.
+     *
+     * @return true when rotated; false with a message otherwise.
+     */
+    public boolean rotatePhoto(final String accId, final String mediaId, final String direction) {
+        if (!lodging.canEditAccommodation(accId)) {
+            error("Not allowed: you do not manage this accommodation.");
+            return false;
+        }
+        final Optional<QuarterTurn> turn = QuarterTurn.parse(direction);
+        if (turn.isEmpty()) {
+            error("Not rotated: say left or right.");
+            return false;
+        }
+        final MediaItem item = (mediaId == null) ? null : DAO.getInstance().getMedia(mediaId, Cached.NO).orElse(null);
+        if (item == null || !slotFor(accId).equals(item.getSlot())) {
+            error("Not found: that photo is not one of this accommodation's.");
+            return false;
+        }
+        if (isFloorPlan(accId, mediaId)) {
+            error("Not rotated: this image is a floor plan, and its room boxes would no longer line up. "
+                    + "Replace the plan instead.");
+            return false;
+        }
+        final Optional<byte[]> current = media.isUploadEnabled() ? media.getObject(item.getS3Key())
+                : localStore.get(item.getS3Key());
+        if (current.isEmpty()) {
+            error("Not found: that photo's file is missing.");
+            return false;
+        }
+        final byte[] stored;
+        try {
+            stored = processor.rotateJpegWithin(current.get(), turn.get(), storedMaxBytes);
+        } catch (final PhotoRejectedException ex) {
+            error("Image rejected: " + ex.getMessage());
+            return false;
+        }
+        final String key = KEY_PREFIX + accId + "/" + UUID.randomUUID() + ".jpg";
+        if (!storeBytes(key, stored)) {
+            error("Not stored: the image could not be stored. Try again.");
+            return false;
+        }
+        if (!saveRow(item.withKeys(key, null, stored.length))) {
+            removeStored(key);
+            error("Not stored: the media row could not be saved.");
+            return false;
+        }
+        removeStored(item.getS3Key());
+        Audit.builder(AuditAction.MEDIA, AuditOutcome.SUCCESS)
+                .actor(caller().auditActor())
+                .target(AuditEventBuilder.TARGET_MEDIA, item.getId())
+                .message("Lodging photo rotated " + turn.get().name().toLowerCase(Locale.ROOT)
+                        + " for accommodation " + accId + " (" + item.getS3Key() + " -> " + key + ")")
+                .log();
+        info("Photo rotated.");
+        return true;
+    }
+
+    /** Whether any floor of this accommodation uses this media row as its plan (read fresh: it gates a write). */
+    private static boolean isFloorPlan(final String accId, final String mediaId) {
+        final Accommodation acc = DAO.getInstance().getAccommodation(Accommodation.Id.from(accId), Cached.NO)
+                .orElse(null);
+        return acc != null && acc.getFloorMaps().stream().anyMatch(map -> mediaId.equals(map.getMediaId()));
+    }
+
     /** The URL a browser loads this key from: the media CDN when configured, this app's own GET locally. */
     public String urlFor(final String key) {
         if (key == null) {
@@ -228,6 +303,16 @@ public class LodgingUploadCommands extends PhotoUploadBean {
         }
         localStore.put(key, jpeg);
         return true;
+    }
+
+    /** Deletes a stored object and (the old key is cached for a year) invalidates its CDN path. */
+    private void removeStored(final String key) {
+        if (media.isUploadEnabled()) {
+            media.deleteObject(key);
+            media.invalidateCdn(List.of("/" + key));
+        } else {
+            localStore.remove(key);
+        }
     }
 
     private static String title(final String kind) {

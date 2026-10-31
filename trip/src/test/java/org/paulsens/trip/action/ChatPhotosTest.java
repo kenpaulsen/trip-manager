@@ -322,4 +322,85 @@ public class ChatPhotosTest {
         Assert.assertTrue(photos.localGet(first.key()).isEmpty(), "oldest evicted");
         Assert.assertTrue(photos.localGet(third.key()).isPresent(), "newest kept");
     }
+
+    // --- rotation: in-place renditions, one wildcard invalidation ---
+
+    private static MediaCommands remoteMedia() {
+        final MediaCommands media = Mockito.mock(MediaCommands.class);
+        Mockito.when(media.isUploadEnabled()).thenReturn(true);
+        Mockito.when(media.putObject(ArgumentMatchers.anyString(), ArgumentMatchers.any(byte[].class),
+                ArgumentMatchers.anyString(), ArgumentMatchers.anyLong(), ArgumentMatchers.anyBoolean()))
+                .thenReturn(true);
+        return media;
+    }
+
+    @Test
+    public void replacingRenditionsRemotelyWritesBothKeysInPlaceAndInvalidatesOneWildcard() {
+        final MediaCommands media = remoteMedia();
+        final ChatPhotos photos = new ChatPhotos(media);
+        final ChatAttachment attachment = new ChatAttachment("image", "chat/t/20260801-120000000-abcdef.jpg",
+                "image/jpeg", 9L, 1600, 900, "chat/t/20260801-120000000-abcdef-small.jpg", null);
+        final org.paulsens.trip.media.ProcessedPhoto renditions =
+                new org.paulsens.trip.media.PhotoProcessor().process(PhotoFixtures.jpeg(900, 1600));
+
+        final String thumb = photos.replaceRenditions(attachment, renditions);
+
+        Assert.assertEquals(thumb, attachment.getThumbKey(), "the small key is kept");
+        Mockito.verify(media).putObject(ArgumentMatchers.eq(attachment.getS3Key()),
+                ArgumentMatchers.any(byte[].class), ArgumentMatchers.eq("image/jpeg"),
+                ArgumentMatchers.eq(ChatPhotos.CACHE_SECONDS), ArgumentMatchers.eq(true));
+        Mockito.verify(media).putObject(ArgumentMatchers.eq(attachment.getThumbKey()),
+                ArgumentMatchers.any(byte[].class), ArgumentMatchers.eq("image/jpeg"),
+                ArgumentMatchers.eq(ChatPhotos.CACHE_SECONDS), ArgumentMatchers.eq(false));
+        Mockito.verify(media).invalidateCdn(List.of("/chat/t/20260801-120000000-abcdef*"));
+        Mockito.verify(media, Mockito.never()).deleteObject(ArgumentMatchers.anyString());
+    }
+
+    @Test
+    public void aOneObjectPhotoThatStaysSmallWritesOnlyTheOneObject() {
+        final MediaCommands media = remoteMedia();
+        final ChatPhotos photos = new ChatPhotos(media);
+        final ChatAttachment attachment = new ChatAttachment("image", "chat/t/x.png", "image/png", 9L, 300, 200,
+                "chat/t/x.png", null);
+        final org.paulsens.trip.media.ProcessedPhoto renditions =
+                new org.paulsens.trip.media.PhotoProcessor().process(PhotoFixtures.png(200, 300, false));
+
+        Assert.assertTrue(renditions.smallIsFull(), "test setup");
+        Assert.assertEquals(photos.replaceRenditions(attachment, renditions), "chat/t/x.png");
+        Mockito.verify(media, Mockito.times(1)).putObject(ArgumentMatchers.anyString(),
+                ArgumentMatchers.any(byte[].class), ArgumentMatchers.anyString(), ArgumentMatchers.anyLong(),
+                ArgumentMatchers.anyBoolean());
+        Mockito.verify(media).invalidateCdn(List.of("/chat/t/x*"));
+    }
+
+    @Test
+    public void currentBytesReadsTheStoreInUse() {
+        final MediaCommands media = remoteMedia();
+        Mockito.when(media.getObject("chat/t/a.jpg")).thenReturn(java.util.Optional.of(new byte[] {1, 2}));
+        Assert.assertEquals(new ChatPhotos(media).currentBytes("chat/t/a.jpg").orElseThrow().length, 2);
+
+        final ChatPhotos local = freshLocal();
+        final ChatPhotos.StagedPhoto staged = local.stage("trip-rot", UPLOADER, PhotoFixtures.jpeg(400, 300));
+        Assert.assertTrue(local.currentBytes(staged.key()).isPresent());
+        Assert.assertTrue(local.currentBytes("chat/trip-rot/none.jpg").isEmpty());
+    }
+
+    @Test
+    public void albumRotationReportsAnEmptyAlbumAsDoneAndAStoreFailureAsNot() {
+        DAO.getInstance();
+        final ChatPhotos photos = freshLocal();
+        Assert.assertTrue(photos.setAlbumRotated("no-album-" + System.nanoTime(), "chat/x/y.jpg", 1L, null),
+                "no rows is nothing to rotate");
+        final MediaItem row = new MediaItem("r1", "chat/x/y.jpg", null, null, "image/jpeg", 1L, "tripChat-x", 0,
+                null, null);
+        final DAO dao = Mockito.mock(DAO.class);
+        Mockito.when(dao.getMediaInSlot("tripChat-x", Cached.NO)).thenReturn(List.of(row));
+        Mockito.when(dao.saveMedia(ArgumentMatchers.any())).thenThrow(new IllegalStateException("store down"));
+        Mockito.when(dao.getMediaInSlot("tripChat-gone", Cached.NO)).thenThrow(new IllegalStateException("down"));
+        try (org.mockito.MockedStatic<DAO> daoStatic = Mockito.mockStatic(DAO.class)) {
+            daoStatic.when(DAO::getInstance).thenReturn(dao);
+            Assert.assertFalse(photos.setAlbumRotated("x", "chat/x/y.jpg", 2L, null), "a failed row save");
+            Assert.assertFalse(photos.setAlbumRotated("gone", "chat/x/y.jpg", 2L, null), "an unlistable album");
+        }
+    }
 }

@@ -422,9 +422,11 @@ public class ExpenseCommands {
         final ReceiptRow row = new ReceiptRow();
         row.setMediaId(item.getId());
         row.setTitle((item.getTitle() == null) ? "Receipt" : item.getTitle());
-        row.setUrl(ExpenseReceipts.path(item.getId()));
+        // The buster: a rotated receipt keeps its URL path, and the page's own image cache would show the old turn.
+        row.setUrl(ExpenseReceipts.path(item.getId()) + item.getCacheBuster());
         row.setPdf(ExpenseReceipts.PDF.equals(item.getContentType()));
-        row.setThumbUrl(row.isPdf() ? null : ExpenseReceipts.path(item.getId()) + ExpenseReceipts.THUMB);
+        row.setThumbUrl(row.isPdf() ? null
+                : ExpenseReceipts.path(item.getId()) + ExpenseReceipts.THUMB + item.getCacheBuster());
         row.setSize(size(item.getSize()));
         return row;
     }

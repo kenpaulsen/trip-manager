@@ -442,6 +442,95 @@ public class ChatResourceTest extends ResourceTestSupport {
         assertError(resource.setPhotoVisibility(CHANNEL, KEY, null, hide(true, null)), 403, ChatErrors.CSRF);
     }
 
+    // --- rotating a posted photo ---
+
+    private static ChatResource.PhotoRotateRequest turn(final String direction, final String hint) {
+        return new ChatResource.PhotoRotateRequest(direction, hint);
+    }
+
+    private org.mockito.MockedStatic<org.paulsens.trip.action.ChatPhotoRotation> rotationAnswers(
+            final org.paulsens.trip.action.ChatPhotoRotation.Outcome outcome) {
+        final org.mockito.MockedStatic<org.paulsens.trip.action.ChatPhotoRotation> rotation =
+                Mockito.mockStatic(org.paulsens.trip.action.ChatPhotoRotation.class);
+        rotation.when(() -> org.paulsens.trip.action.ChatPhotoRotation.rotate(ArgumentMatchers.any(),
+                ArgumentMatchers.anyString(), ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(outcome);
+        return rotation;
+    }
+
+    @Test
+    public void aRotationAnswersTheKeyTheTurnedDimensionsAndBustedUrls() {
+        final org.paulsens.trip.model.chat.ChatAttachment rotated = new org.paulsens.trip.model.chat.ChatAttachment(
+                "image", KEY, "image/jpeg", 9L, 1000, 1400, "chat/t/p-small.jpg", null, null, null, null, 1);
+        final org.paulsens.trip.action.ChatPhotos photos = Mockito.mock(org.paulsens.trip.action.ChatPhotos.class);
+        Mockito.when(photos.getPublicBase()).thenReturn("https://cdn.example/");
+        final ChatResource rotating = uploader(photos, new org.paulsens.trip.media.UploadRateLimiter(5, 60));
+        try (org.mockito.MockedStatic<org.paulsens.trip.action.ChatPhotoRotation> rotation = rotationAnswers(
+                new org.paulsens.trip.action.ChatPhotoRotation.Outcome("ok", null, rotated))) {
+
+            final Response response = rotating.rotatePhoto(CHANNEL, KEY, CSRF_OK, turn("right", "m1"));
+
+            assertOk(response);
+            @SuppressWarnings("unchecked")
+            final Map<String, Object> body = (Map<String, Object>) response.getEntity();
+            Assert.assertEquals(body.get("key"), KEY);
+            Assert.assertEquals(body.get("thumbUrl"), "https://cdn.example/chat/t/p-small.jpg?r=1");
+            Assert.assertEquals(body.get("fullUrl"), "https://cdn.example/chat/t/p.jpg?r=1");
+            Assert.assertEquals(body.get("width"), 1000);
+            Assert.assertEquals(body.get("height"), 1400);
+            Assert.assertEquals(body.get("rev"), 1);
+            rotation.verify(() -> org.paulsens.trip.action.ChatPhotoRotation.rotate(ArgumentMatchers.eq(chat),
+                    ArgumentMatchers.eq(TRIP_ID), ArgumentMatchers.eq(KEY),
+                    ArgumentMatchers.eq(org.paulsens.trip.media.QuarterTurn.RIGHT),
+                    ArgumentMatchers.eq(ChatMessage.Id.from("m1")), ArgumentMatchers.any(Caller.class)));
+        }
+    }
+
+    @Test
+    public void aOneObjectPhotoAnswersItsOwnKeyAsTheThumbnailOnTheLocalBase() {
+        final org.paulsens.trip.model.chat.ChatAttachment rotated = new org.paulsens.trip.model.chat.ChatAttachment(
+                "image", KEY, "image/jpeg", 9L, 300, 400, null, null, null, null, null, 2);
+        final org.paulsens.trip.action.ChatPhotos photos = Mockito.mock(org.paulsens.trip.action.ChatPhotos.class);
+        Mockito.when(request.getScheme()).thenReturn("http");
+        Mockito.when(request.getServerName()).thenReturn("localhost");
+        Mockito.when(request.getServerPort()).thenReturn(8080);
+        final ChatResource rotating = uploader(photos, new org.paulsens.trip.media.UploadRateLimiter(5, 60));
+        try (org.mockito.MockedStatic<org.paulsens.trip.action.ChatPhotoRotation> ignored = rotationAnswers(
+                new org.paulsens.trip.action.ChatPhotoRotation.Outcome("ok", null, rotated))) {
+            final Response response = rotating.rotatePhoto(CHANNEL, KEY, CSRF_OK, turn("LEFT", " "));
+            assertOk(response);
+            @SuppressWarnings("unchecked")
+            final Map<String, Object> body = (Map<String, Object>) response.getEntity();
+            Assert.assertEquals(body.get("thumbUrl"), "http://localhost:8080/chat-photos/chat/t/p.jpg?r=2");
+        }
+    }
+
+    @Test
+    public void rotationRefusalsMapOntoTheContractStatuses() {
+        assertError(resource.rotatePhoto(CHANNEL, KEY, null, turn("left", null)), 403, ChatErrors.CSRF);
+        assertError(resource.rotatePhoto("support:main", KEY, CSRF_OK, turn("left", null)), 400,
+                ChatErrors.BAD_CHANNEL);
+        assertError(resource.rotatePhoto(CHANNEL, " ", CSRF_OK, turn("left", null)), 400, ChatErrors.BAD_ATTACHMENT);
+        assertError(resource.rotatePhoto(CHANNEL, KEY, CSRF_OK, null), 400, ChatErrors.BAD_ATTACHMENT);
+        assertError(resource.rotatePhoto(CHANNEL, KEY, CSRF_OK, turn("around", null)), 400,
+                ChatErrors.BAD_ATTACHMENT);
+        final String[][] cases = {
+                {"forbidden", "403", ChatErrors.FORBIDDEN},
+                {"not_found", "404", ChatErrors.NOT_FOUND},
+                {"busy", "409", ChatErrors.CONFLICT},
+                {"rejected", "422", ChatErrors.BAD_ATTACHMENT},
+                {"store", "500", ChatErrors.STORE_FAILED},
+        };
+        for (final String[] each : cases) {
+            try (org.mockito.MockedStatic<org.paulsens.trip.action.ChatPhotoRotation> ignored = rotationAnswers(
+                    new org.paulsens.trip.action.ChatPhotoRotation.Outcome(each[0], "no", null))) {
+                assertError(resource.rotatePhoto(CHANNEL, KEY, CSRF_OK, turn("right", null)),
+                        Integer.parseInt(each[1]), each[2]);
+            }
+        }
+        Assert.assertEquals(ChatErrors.CONFLICT, ApiErrors.CONFLICT, "one wire code for a conflict");
+    }
+
     @Test
     public void inviteAvailabilitySaysWhetherTheCallerAdministersTheChat() {
         Mockito.when(chat.invitesEnabled()).thenReturn(true);

@@ -277,4 +277,135 @@ public class ExpenseReceiptsTest {
         assertTrue(new Outcome("m", null).ok());
         ExpenseReceipts.localStoreMaxBytesForTest(ExpenseReceipts.LOCAL_STORE_MAX_BYTES);
     }
+
+    // ================================================================== rotate
+
+    private static BufferedImage image(final Served served) throws IOException {
+        return ImageIO.read(new ByteArrayInputStream(served.bytes()));
+    }
+
+    @Test
+    public void rotatingTurnsBothRenditionsInPlaceAndBustsTheUrls() throws IOException {
+        final String tripId = newTrip();
+        final String lineId = newLine(tripId);
+        final String id = receipts.store(tripId, lineId, PhotoFixtures.jpeg(1200, 900), "van.jpg").mediaId();
+        final MediaItem before = row(id);
+
+        final ExpenseReceipts.RotateOutcome outcome = receipts.rotate(tripId, id,
+                org.paulsens.trip.media.QuarterTurn.RIGHT);
+
+        assertTrue(outcome.ok(), outcome.problem());
+        final MediaItem after = row(id);
+        assertEquals(after, outcome.item());
+        assertEquals(after.getRev(), 1);
+        assertEquals(after.getS3Key(), before.getS3Key(), "overwritten in place");
+        assertEquals(after.getSmallKey(), before.getSmallKey());
+        final BufferedImage full = image(receipts.served(after, false).orElseThrow());
+        assertEquals(full.getWidth(), 900);
+        assertEquals(full.getHeight(), 1200);
+        assertEquals(image(receipts.served(after, true).orElseThrow()).getWidth(), 800);
+        final ReceiptRow listed = expenses.receiptRowsFor(tripId, lineId).get(0);
+        assertEquals(listed.getUrl(), "/expense-receipts/" + id + "?r=1");
+        assertEquals(listed.getThumbUrl(), "/expense-receipts/" + id + "/thumb?r=1");
+        assertTrue(receipts.rotateReceipt(tripId, id, "left"));
+        assertEquals(row(id).getRev(), 2);
+    }
+
+    @Test
+    public void aTurnThatNowNeedsAThumbnailMintsItsKeyAndOneThatDoesNotDropsIt() throws IOException {
+        final String tripId = newTrip();
+        final String id = receipts.store(tripId, null, PhotoFixtures.jpeg(600, 1000), "tall.jpg").mediaId();
+        assertNull(row(id).getSmallKey(), "test setup: narrow enough for one object");
+
+        assertTrue(receipts.rotate(tripId, id, org.paulsens.trip.media.QuarterTurn.LEFT).ok());
+        final MediaItem wide = row(id);
+        assertEquals(wide.getSmallKey(), "receipts/" + tripId + "/" + id + "-small.jpg");
+        assertEquals(image(receipts.served(wide, true).orElseThrow()).getWidth(), 800);
+
+        assertTrue(receipts.rotate(tripId, id, org.paulsens.trip.media.QuarterTurn.RIGHT).ok());
+        final MediaItem back = row(id);
+        assertNull(back.getSmallKey());
+        assertEquals(back.getRev(), 2);
+        assertTrue(receipts.served(wide, true).isEmpty(), "the dropped thumbnail object is deleted");
+        assertEquals(image(receipts.served(back, true).orElseThrow()).getWidth(), 600);
+    }
+
+    @Test
+    public void rotationRefusesPdfsStrangersOtherTripsAndBadDirections() throws IOException {
+        final String tripId = newTrip();
+        final String pdf = receipts.store(tripId, null, PDF, "a.pdf").mediaId();
+        final String photo = receipts.store(tripId, null, PhotoFixtures.jpeg(300, 200), "p.jpg").mediaId();
+        final org.paulsens.trip.media.QuarterTurn left = org.paulsens.trip.media.QuarterTurn.LEFT;
+
+        assertEquals(receipts.rotate(tripId, pdf, left).code(), ExpenseReceipts.RotateOutcome.PDF);
+        assertEquals(receipts.rotate(newTrip(), photo, left).code(), ExpenseReceipts.RotateOutcome.NOT_ON_REPORT);
+        assertEquals(receipts.rotate(tripId, null, left).code(), ExpenseReceipts.RotateOutcome.NOT_ON_REPORT);
+        final ExpenseReceipts viewer = new ExpenseReceipts(() -> TestCallers.person(Person.Id.newInstance()));
+        assertEquals(viewer.rotate(tripId, photo, left).code(), ExpenseReceipts.RotateOutcome.NOT_ALLOWED);
+        assertFalse(receipts.rotateReceipt(tripId, photo, "upside down"));
+        assertFalse(receipts.rotateReceipt(tripId, pdf, "left"));
+        assertEquals(row(photo).getRev(), 0, "nothing moved");
+        assertNull(receipts.rotate(tripId, pdf, left).item());
+    }
+
+    @Test
+    public void aReceiptAlreadyBeingRotatedIsBusyUntilReleased() throws IOException {
+        final String tripId = newTrip();
+        final String id = receipts.store(tripId, null, PhotoFixtures.jpeg(300, 200), "p.jpg").mediaId();
+        assertTrue(org.paulsens.trip.media.RotationGuard.begin(id));
+        try {
+            assertEquals(receipts.rotate(tripId, id, org.paulsens.trip.media.QuarterTurn.LEFT).code(),
+                    ExpenseReceipts.RotateOutcome.BUSY);
+        } finally {
+            org.paulsens.trip.media.RotationGuard.end(id);
+        }
+        assertTrue(receipts.rotate(tripId, id, org.paulsens.trip.media.QuarterTurn.LEFT).ok());
+    }
+
+    @Test
+    public void remoteRotationReadsWritesAndReportsEachFailure() throws IOException {
+        final String tripId = newTrip();
+        final String id = receipts.store(tripId, null, PhotoFixtures.jpeg(300, 200), "p.jpg").mediaId();
+        final MediaItem item = row(id);
+        final MediaCommands media = Mockito.mock(MediaCommands.class);
+        Mockito.when(media.isUploadEnabled()).thenReturn(true);
+        final ExpenseReceipts remote = new ExpenseReceipts(TestCallers::siteAdmin);
+        remote.setMediaForTest(media);
+        final org.paulsens.trip.media.QuarterTurn left = org.paulsens.trip.media.QuarterTurn.LEFT;
+
+        Mockito.when(media.getObject(item.getS3Key())).thenReturn(Optional.empty());
+        assertEquals(remote.rotate(tripId, id, left).problem(), "The receipt could not be read. Try again.");
+
+        Mockito.when(media.getObject(item.getS3Key())).thenReturn(Optional.of(new byte[] {1, 2, 3, 4, 5, 6, 7, 8,
+                9, 10, 11, 12, 13}));
+        assertEquals(remote.rotate(tripId, id, left).code(), ExpenseReceipts.RotateOutcome.REJECTED);
+
+        Mockito.when(media.getObject(item.getS3Key())).thenReturn(Optional.of(PhotoFixtures.jpeg(300, 200)));
+        Mockito.when(media.putObject(ArgumentMatchers.anyString(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyLong(), ArgumentMatchers.anyBoolean())).thenReturn(false);
+        assertEquals(remote.rotate(tripId, id, left).code(), ExpenseReceipts.RotateOutcome.STORE_FAILED);
+
+        Mockito.when(media.putObject(ArgumentMatchers.anyString(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyLong(), ArgumentMatchers.anyBoolean())).thenReturn(true);
+        assertTrue(remote.rotate(tripId, id, left).ok());
+        Mockito.verify(media, Mockito.times(2)).putObject(ArgumentMatchers.eq(item.getS3Key()), ArgumentMatchers.any(),
+                ArgumentMatchers.eq("image/jpeg"), ArgumentMatchers.eq(ExpenseReceipts.CACHE_SECONDS),
+                ArgumentMatchers.eq(false));
+        Mockito.verify(media, Mockito.never()).invalidateCdn(ArgumentMatchers.anyList());
+    }
+
+    @Test
+    public void aRowThatWillNotSaveIsAStoreFailure() throws IOException {
+        final String tripId = newTrip();
+        final String id = receipts.store(tripId, null, PhotoFixtures.jpeg(300, 200), "p.jpg").mediaId();
+        final ExpenseReceipts failing = new ExpenseReceipts(TestCallers::siteAdmin) {
+            @Override
+            protected boolean saveRow(final MediaItem item) {
+                return false;
+            }
+        };
+        assertEquals(failing.rotate(tripId, id, org.paulsens.trip.media.QuarterTurn.LEFT).code(),
+                ExpenseReceipts.RotateOutcome.STORE_FAILED);
+        assertEquals(row(id).getRev(), 0);
+    }
 }
