@@ -3,6 +3,9 @@ package org.paulsens.trip.pay;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import org.paulsens.trip.model.AdvanceEntry;
+import org.paulsens.trip.model.AdvanceType;
 import org.paulsens.trip.model.CurrencyRate;
 import org.paulsens.trip.model.ExpenseCategory;
 import org.paulsens.trip.model.ExpenseLine;
@@ -43,8 +46,15 @@ public final class ExpenseOracle {
         lines.add(line("bus", 9, 30, ExpenseCategory.TRANSPORTATION, "Ground Transportation", "USD", 316_068L));
         lines.add(line("dragan-gas", 9, 30, ExpenseCategory.TRANSPORTATION, "Gas for Dragan's car", "USD", 4_770L));
         lines.add(line("left", 9, 30, ExpenseCategory.GENERAL, "Money left with Huanita", "USD", 2_294_295L));
-        return TripExpenseReport.builder().tripId("t").submittedBy("Ken Paulsen").cashAdvanceCents(CASH_ADVANCE)
+        return TripExpenseReport.builder().tripId("t").submittedBy("Ken Paulsen")
+                .advances(List.of(advance(CASH_ADVANCE)))
                 .currencies(List.of(rate("EUR", 830_000L), rate("BAM", 1_660_000L))).lines(lines).build();
+    }
+
+    /** One Cash advance from CFPW of this many US cents: the sheet's single "Cash advance" header figure. */
+    public static AdvanceEntry advance(final long usdCents) {
+        return AdvanceEntry.builder().id("advance-" + usdCents).type(AdvanceType.CASH).amountMinor(usdCents)
+                .fields(Map.of("from", "CFPW")).build();
     }
 
     static CurrencyRate rate(final String code, final long micros) {

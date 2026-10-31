@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Collection;
 import java.util.Set;
+import org.paulsens.trip.model.AdvanceEntry;
 import org.paulsens.trip.model.BudgetLine;
 import org.paulsens.trip.model.BudgetLodgingLine;
 import org.paulsens.trip.model.CurrencyRate;
@@ -52,6 +53,39 @@ public final class ExpenseMath {
         return rate == null || rate.getPerUsdMicros() <= 0L;
     }
 
+    /** Whether a foreign worksheet entry has no usable rate, so it counts $0 and the page warns. */
+    public static boolean rateMissing(final TripExpenseReport report, final AdvanceEntry entry) {
+        if (entry.isUsd()) {
+            return false;
+        }
+        final CurrencyRate rate = report.currency(entry.getCurrency());
+        return rate == null || rate.getPerUsdMicros() <= 0L;
+    }
+
+    /**
+     * One worksheet entry in US cents, SIGNED by its type: money returned or transferred counts negative. A
+     * foreign entry prices at the report's current rate like a line does, and counts 0 without one.
+     */
+    public static long advanceUsd(final TripExpenseReport report, final AdvanceEntry entry) {
+        final long magnitude;
+        if (entry.isUsd()) {
+            magnitude = entry.getAmountMinor();
+        } else {
+            final CurrencyRate rate = report.currency(entry.getCurrency());
+            magnitude = (rate == null) ? 0L : usdCents(entry.getAmountMinor(), rate.getPerUsdMicros());
+        }
+        return entry.getType().getSign() * magnitude;
+    }
+
+    /** The cash advanced: every worksheet entry added up, signed, in US cents (so it can be negative). */
+    public static long advanced(final TripExpenseReport report) {
+        long sum = 0L;
+        for (final AdvanceEntry entry : report.getAdvances()) {
+            sum += advanceUsd(report, entry);
+        }
+        return sum;
+    }
+
     /** Everything spent, in US cents. */
     public static long total(final TripExpenseReport report) {
         long sum = 0L;
@@ -78,11 +112,11 @@ public final class ExpenseMath {
     }
 
     /**
-     * The cash advance less what the submitter is out of pocket for: positive is owed back to the organization,
+     * The cash advanced less what the submitter is out of pocket for: positive is owed back to the organization,
      * negative to the submitter. Lines settled outside the report count as spent but not here.
      */
     public static long due(final TripExpenseReport report) {
-        return report.getCashAdvanceCents() - outOfPocket(report);
+        return advanced(report) - outOfPocket(report);
     }
 
     /** Every recorded payment, signed: positive paid to the submitter, negative paid back to the organization. */

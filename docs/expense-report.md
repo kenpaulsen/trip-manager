@@ -23,8 +23,18 @@ budget it was spending against, or keep the receipts.
   expenses, Lodging, Postage, Meals, Other.
 - The budget table lists EVERY budget line (shared, per person, lodging) and an expense may match any of them.
 - A Submit stamp (who, when) and a Draft / Submitted / Partly paid / Paid status, the last two from payments.
-- Paid status per expense (asked 2026-10-26): Not paid, Paid by organization, Already reimbursed. The last two
-  still count as spent (total, budget vs actual) but are left out of what is due.
+- Paid status per expense (asked 2026-10-26): Not yet reimbursed (called "Not paid" until 2026-10-30, which
+  confused the people who HAD paid, out of pocket), Paid by organization, Already reimbursed. The last two still
+  count as spent (total, budget vs actual) but are left out of what is due; the totals card's row for the first
+  reads "Not yet reimbursed" too.
+- The cash advanced is a WORKSHEET (asked 2026-10-30), not one number with a note: several advances per trip, of
+  five kinds (Cash advance, Credit applied, Cash given by participant(s), Money returned / transferred, Other),
+  each in its own currency with an optional date, a free note and the kind's own question (who gave it, where the
+  credit came from, who it went to, which participants). Money returned is SUBTRACTED. The report's cash advance
+  is their signed sum. A participant entry for ONE person may record a Payment transaction for them, once, and
+  only when a finance admin asks; the ledger is never touched again from the report, a later edit or delete only
+  warns. Stored as a typed list on the report; the old `cashAdvanceCents`/`cashAdvanceDetails` were dropped
+  (production held no reports).
 - Payments (asked 2026-10-26): a finance admin records each payment against the expenses it settles, with the
   amount, how, the date and a note. The amount is free and signed (the advance can make it less, zero or
   negative). They REPLACE the report's old "Paid on" / "How it was paid" fields. Only site admins and
@@ -37,11 +47,13 @@ budget it was spending against, or keep the receipts.
 
 | Type | What it is |
 |------|------------|
-| `model/TripExpenseReport` | ONE row per trip: `submittedBy` (free text, pre-filled with whoever started it), `submittedById` + `submittedOn` (the submit stamp), `cashAdvanceCents`, `cashAdvanceDetails`, `paymentInstructions`, `currencies`, `lines`, `payments`, `receiptIds` (report level), `orgId`, `createdBy`, `created`, `version`. `getStatus()` is derived, never stored |
+| `model/TripExpenseReport` | ONE row per trip: `submittedBy` (free text, pre-filled with whoever started it), `submittedById` + `submittedOn` (the submit stamp), `paymentInstructions`, `advances` (the worksheet), `currencies`, `lines`, `payments`, `receiptIds` (report level), `orgId`, `createdBy`, `created`, `version`. `getStatus()` is derived, never stored |
+| `model/AdvanceEntry` | One worksheet line: `id`, `type` (`AdvanceType`), `date` (optional), `currency` (USD by default), `amountMinor` (a MAGNITUDE in hundredths of its currency; the type carries the sign), `note` (up to 2000), `fields` (name-value map of the type's own answers: `from` for CASH, `source` for CREDIT, `to` for RETURNED; extensible), `personIds` (PARTICIPANT), `transaction` (`RecordedTransaction`: `txId`, `personId`, `amountCents`, `recordedOn`; null until a payment was recorded) |
+| `AdvanceType` | CASH "Cash advance", CREDIT "Credit applied", PARTICIPANT "Cash given by participant(s)", RETURNED "Money returned / transferred" (the one reverse kind, sign -1), OTHER |
 | `model/CurrencyRate` | `code` (three letters, upper-cased), `perUsdMicros` (foreign units per ONE dollar, in millionths: 0.83 EUR is 830,000), `note`. USD never has a row |
 | `model/ExpenseLine` | `id`, `date` (null reads "Various"), `category` (`ExpenseCategory`), `description`, `currency` (USD by default), `amountMinor` (hundredths of the line's own currency), `budgetLineId` (a `BudgetLine` or `BudgetLodgingLine` id, or null), `note`, `receiptIds`, `paidStatus` (`ExpensePaidStatus`, NOT_PAID by default) |
 | `model/ExpensePayment` | `id`, `date`, `amountCents` (SIGNED: positive paid to the submitter, negative paid back to the organization), `method`, `note`, `lineIds` (the expenses it settles; may be empty, a pure settlement of the balance), `recordedById`, `recordedBy`, `recordedOn` |
-| `ExpensePaidStatus` | NOT_PAID, ORG ("Paid by organization", chip "Org paid"), REIMBURSED ("Already reimbursed", chip "Reimbursed") |
+| `ExpensePaidStatus` | NOT_PAID ("Not yet reimbursed", no chip), ORG ("Paid by organization", chip "Org paid"), REIMBURSED ("Already reimbursed", chip "Reimbursed") |
 | `ExpenseCategory` | The menu above; `ofBudget(BudgetCategory)` maps by name |
 | `ExpenseStatus` | DRAFT, SUBMITTED, PARTLY_PAID, PAID: with no payment, Submitted once stamped else Draft; with any, Paid when every Not-paid expense is in a payment, else Partly paid |
 
@@ -53,16 +65,17 @@ normalize like the budget's.
 `trip_expense_reports` (PK `tripId`, no index) is `dynamo/ExpenseReportDAO`, the `BudgetDAO` shape exactly: a
 `PointCache` (`CacheKeys.EXPENSE_PREFIX`, `DAO.CacheScope.EXPENSE`), a versioned conditional put (version 0 may
 only create), "Saved by someone else: reload the page and try again." on a lost race, a 350 KB guard. Caps: 300
-expenses, 20 currencies, 40 receipts per expense, 60 at report level, 100 payments.
+expenses, 20 currencies, 40 receipts per expense, 60 at report level, 100 payments, 100 worksheet entries.
 
 ## Formulas (`pay/ExpenseMath`, HALF_UP to the cent)
 
 | Quantity | Formula | Sheet oracle |
 |---|---|---|
 | usd(line) | USD: the amount; else amount × 1,000,000 / perUsdMicros; a currency with no rate counts $0 and the page warns | 23 EUR → 27.71; 220 EUR → 265.06; 800 KM → 481.93; 200 KM → 120.48 |
+| advanceUsd(entry) / advanced | sign(type) × usd(entry), the same rate rule; advanced = Σ over the worksheet, SIGNED (it can be negative) | Cash 45,765 + Credit 200 + 83 EUR from a participant (100.00) − Returned 300 → 45,765.00 |
 | total | Σ usd | 55,560.95 |
-| settled / out of pocket | Σ usd of the ORG (or REIMBURSED) expenses / Σ usd of the NOT_PAID ones | with 220 EUR org-paid and 200 KM reimbursed: 265.06, 120.48, 55,175.41 |
-| due | cash advance − out of pocket; positive is "Due to {organization}", negative "Due to {submitter}", shown unsigned | −9,795.95 on 45,765.00 (nothing settled); −9,410.41 with the two above |
+| settled / not yet reimbursed | Σ usd of the ORG (or REIMBURSED) expenses / Σ usd of the NOT_PAID ones (`ExpenseMath.outOfPocket`) | with 220 EUR org-paid and 200 KM reimbursed: 265.06, 120.48, 55,175.41 |
+| due | advanced − not yet reimbursed; positive is "Due to {organization}", negative "Due to {submitter}", shown unsigned | −9,795.95 on 45,765.00 (nothing settled); −9,410.41 with the two above |
 | payments / still due | Σ signed payment amounts / due + payments; 0 reads "Settled" | −9,410.41 + 9,000.00 → "Still due to Ken Paulsen" 410.41 |
 | budgeted(line) | a typed line: `BudgetMath.tripCents` (a per-person line × people); a lodging line: its hotel COST | |
 | spent(line) / remaining | Σ usd of the expenses matched to it / budgeted − spent (red when negative) | |
@@ -150,12 +163,28 @@ Reached from the dashboard card (`toExpenses`, its number `expenseHeadline`: "$5
 yet") and from the Budget page (`toExpenses`); back with `reportsDone`, across with `toBudget`, and a print view
 (`?print=true`) that edits nothing and ends with the sheet's signature line. Sections: warnings; Report (status
 chip, trip dates, the submit line, then the fields for an editor or their values for anyone else; Save details,
-Submit / Submit again, Withdraw submission); Currencies; Budget (budget vs actual, with Not in budget and
+Submit / Submit again, Withdraw submission); Cash advanced (the worksheet: a numbered table `#`, Type, Date,
+From / to, Amount, USD, Note with a Total advanced row `exAdvanced`; an Add `p:menuButton` whose five items open
+`advanceDlg` already set to that kind; Edit / Delete by `advanceId`); Currencies; Budget (budget vs actual, with Not in budget and
 totals); Expenses (Edit / Up / Down / Delete in `WEB-INF/expenseLineActions.xhtml`, and a Receipts button per
 expense, and a Paid column with the row's chip: "Org paid", "Reimbursed" or "Paid Oct 20"); Payments (the
 table, Record payment / Edit / Delete for a finance admin); Report receipts; the totals card (total spent; paid by
-organization, already reimbursed and out of pocket when any expense was settled outside; cash advance; the due
-line; payments recorded and the Still due / Settled line once there are payments; the payment instructions).
+organization, already reimbursed and not yet reimbursed when any expense was settled outside; cash advanced (red
+when the worksheet nets negative); the due line; payments recorded and the Still due / Settled line once there
+are payments; the payment instructions).
+
+The advance dialog (`advanceDlg`) shows the kind's help text and question (`typeHelp`, `partyLabel`): a text
+answer for Cash advance (prefilled with the organization), Credit applied and Money returned (prefilled with the
+organization; the amount is entered positive and subtracted), a `p:selectCheckboxMenu` of the trip's people for
+Cash given by participant(s), nothing extra for Other. Under the people picker: with ONE person and the settle
+gate, the box "Also record a Payment transaction..." (`advRecordTx`); with two or more, or for a trip manager,
+the manual-step note (`advManualNote`); once a transaction exists, its line (`advTxLine`) and no box. Then the
+currency (with the expense dialog's inline "Add a currency..."), the amount (a magnitude, `minValue` 0), an
+optional date and a note of up to 2000 characters. The transaction is Payment / category "Payment" / note "Cash
+given during the trip", dated the entry's date (today when blank), the USD figure at save time, bound to the trip
+and audited exactly as the Transactions page does; it is written AFTER the worksheet save and stamped on the entry
+with a second put, so it is never recorded twice. Editing or deleting a stamped entry growls "A payment of $X was
+recorded for Y on Z. If the amount, date or person changed, adjust their transactions by hand."
 
 The payment dialog (`paymentDlg`) lists every expense still to be paid as a checklist (plus the payment's own
 when editing); ticking one refills the amount with the ticked expenses' dollars (`prefillAmount`), which stays
@@ -169,18 +198,19 @@ the expense), the amount, the paid status and a note. Refusals show inside the d
 
 State follows `docs/page-state-and-identity.md`: `requestScope.ep = expenses.reportPage(tripId)` every request
 and after every write (`SessionScopePolicyIT` lists it as domain-valued); only the scalar forms (`headerForm`,
-`expenseForm`, `currencyForm`, `paymentForm`) and the receipt dialog's `receiptLineId` live in viewScope.
+`expenseForm`, `currencyForm`, `paymentForm`, `advanceForm`) and the receipt dialog's `receiptLineId` live in viewScope.
 
 ## REST (`api/ExpenseReportResource`, `application/vnd.trip.expense-report.v1+json`)
 
 | Method | Path | Body / answer |
 |---|---|---|
-| GET | `expenses/trips/{tripId}` | `{header, currencies, lines, payments, receipts, summary}`; `receipts` carry their `lineId` (null = the report) and absolute app URLs |
-| PUT | `expenses/trips/{tripId}/header` | `{submittedBy, cashAdvance, cashAdvanceDetails, paymentInstructions}` |
+| GET | `expenses/trips/{tripId}` | `{header, advances, currencies, lines, payments, receipts, summary}`; `receipts` carry their `lineId` (null = the report) and absolute app URLs |
+| PUT | `expenses/trips/{tripId}/header` | `{submittedBy, paymentInstructions}` |
+| POST / PUT / DELETE | `expenses/trips/{tripId}/advances[/{advanceId}]` | `{type, date, currency, amount, party, personIds, note, recordTransaction, newCode, rate}` → `{id, transactionId}`; the edit gate; `recordTransaction` is honored only for a finance admin, one PARTICIPANT person and an entry with no transaction yet |
 | POST | `expenses/trips/{tripId}/submit` · `.../unsubmit` | stamps / withdraws; submit is 400 while there are no expenses |
 | POST | `expenses/trips/{tripId}/email` | emails the treasurer the PDF with receipts; 400 when none is set or the send fails |
 | GET | `expenses/trips/{tripId}/pdf[?receipts=true]` | `application/pdf` |
-| POST / PUT / DELETE | `expenses/trips/{tripId}/currencies[/{code}]` | `{code, rate, note}`; a currency in use cannot be deleted |
+| POST / PUT / DELETE | `expenses/trips/{tripId}/currencies[/{code}]` | `{code, rate, note}`; a currency an expense or an advance uses cannot be deleted |
 | POST / PUT / DELETE | `expenses/trips/{tripId}/lines[/{lineId}]` | `{date, category, description, currency, amount, budgetLineId, note, paidStatus}`; a new code with `rate` adds the currency in the same save; `paidStatus` NOT_PAID (default), ORG or REIMBURSED |
 | POST / PUT / DELETE | `expenses/trips/{tripId}/payments[/{paymentId}]` | `{date, amount, method, note, lineIds}` → `{id}`; the settle gate (403 "Finance admin required." for a trip manager) |
 | POST | `expenses/trips/{tripId}/receipts?lineId=&name=` | a RAW body (image or PDF), 413 over 16 MB → `{id, url, thumbUrl}` |

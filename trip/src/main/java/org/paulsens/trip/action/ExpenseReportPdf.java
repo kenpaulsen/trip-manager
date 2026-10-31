@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.paulsens.trip.action.ExpenseViews.AdvanceRow;
 import org.paulsens.trip.action.ExpenseViews.BudgetRow;
 import org.paulsens.trip.action.ExpenseViews.CurrencyRow;
 import org.paulsens.trip.action.ExpenseViews.ExpensePage;
@@ -33,6 +34,9 @@ public final class ExpenseReportPdf {
     public record ReceiptDoc(String label, String forWhat, String title, String contentType, byte[] bytes) {
     }
 
+    private static final Table ADVANCES = Table.of(new String[] {"#", "Type", "Date", "From / to", "Amount", "USD",
+        "Note"}, new float[] {22, 92, 56, 96, 68, 64, 134},
+            new boolean[] {false, false, false, false, true, true, false});
     private static final Table CURRENCIES = Table.of(new String[] {"Currency", "Rate", "In dollars", "Expenses",
         "Total", "USD"}, new float[] {60, 120, 120, 60, 90, 82}, new boolean[] {false, false, false, true, true, true});
     private static final Table BUDGET = Table.of(new String[] {"Budget line", "Kind", "Category", "Budget", "Spent",
@@ -68,9 +72,12 @@ public final class ExpenseReportPdf {
             }
             out.section("Report", 70);
             out.fields(List.of(new String[] {"Submitted by", nonNull(page.getSubmittedBy())},
-                    new String[] {"Cash advance", page.getCashAdvance()},
-                    new String[] {"How the cash was advanced", nonNull(page.getCashAdvanceDetails())},
                     new String[] {"Payment instructions", nonNull(page.getPaymentInstructions())}));
+            if (!page.getAdvanceRows().isEmpty()) {
+                out.section("Cash advanced");
+                out.table(ADVANCES, advances(page.getAdvanceRows()), new String[] {"", "Total advanced", "", "", "",
+                    page.getCashAdvance(), ""});
+            }
             if (!page.getCurrencyRows().isEmpty()) {
                 out.section("Currencies");
                 out.table(CURRENCIES, currencies(page.getCurrencyRows()), null);
@@ -108,9 +115,9 @@ public final class ExpenseReportPdf {
         if (page.isHasSettled()) {
             fields.add(new String[] {"Paid by organization", page.getPaidByOrg()});
             fields.add(new String[] {"Already reimbursed", page.getReimbursed()});
-            fields.add(new String[] {"Out of pocket", page.getOutOfPocket()});
+            fields.add(new String[] {"Not yet reimbursed", page.getOutOfPocket()});
         }
-        fields.add(new String[] {"Cash advance", page.getCashAdvance()});
+        fields.add(new String[] {"Cash advanced", page.getCashAdvance()});
         out.fields(fields);
         out.bigTotal(page.getDueLabel(), page.getDue(), page.isDueToSubmitter());
         if (!page.getPaymentRows().isEmpty()) {
@@ -122,6 +129,18 @@ public final class ExpenseReportPdf {
     /** {@code "Spring Demo Trip - Expense Report.pdf"}. */
     public static String fileName(final String tripTitle) {
         return BudgetPdf.safeTitle(tripTitle) + " - Expense Report.pdf";
+    }
+
+    /** The worksheet; an entry that recorded a transaction says so under its note. */
+    private static List<String[]> advances(final List<AdvanceRow> rows) {
+        final List<String[]> out = new ArrayList<>();
+        for (final AdvanceRow a : rows) {
+            final String note = (a.getTransactionLine() == null) ? nonNull(a.getNote())
+                    : (nonNull(a.getNote()) + " " + a.getTransactionLine()).trim();
+            out.add(new String[] {String.valueOf(a.getNumber()), a.getTypeLabel(), a.getDateText(),
+                nonNull(a.getParty()), a.getAmount(), a.getUsd(), note});
+        }
+        return out;
     }
 
     private static List<String[]> currencies(final List<CurrencyRow> rows) {

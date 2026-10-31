@@ -1,12 +1,13 @@
 package org.paulsens.trip.model;
 
 /**
- * Whether an {@link ExpenseLine} still has to be paid back to whoever spent it. A line the organization paid
- * directly, or one already reimbursed before the report, still counts as spent against the budget but drops
- * out of what the report says is due ({@code pay/ExpenseMath.outOfPocket}).
+ * Whether an {@link ExpenseLine} still has to be paid back to whoever spent it ("Not yet reimbursed": the
+ * submitter paid out of pocket and is owed). A line the organization paid directly, or one already reimbursed
+ * before the report, still counts as spent against the budget but drops out of what the report says is due
+ * ({@code pay/ExpenseMath.outOfPocket}).
  */
 public enum ExpensePaidStatus {
-    NOT_PAID("Not paid", null),
+    NOT_PAID("Not yet reimbursed", null),
     ORG("Paid by organization", "Org paid"),
     REIMBURSED("Already reimbursed", "Reimbursed");
 

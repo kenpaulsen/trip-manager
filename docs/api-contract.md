@@ -305,18 +305,24 @@ versioned put, so two simultaneous writes can refuse one as "Saved by someone el
 
 ### Expense report (`/api/expenses`, Accept `application/vnd.trip.expense-report.v1+json`)
 
-- `GET /api/expenses/trips/{tripId}` → `{header, currencies:[CurrencyForm], lines:[ExpenseForm],
-  payments:[PaymentForm], receipts:[...], summary:ExpensePage}`. `header` = `{submittedBy, cashAdvance,
-  cashAdvanceDetails, paymentInstructions}`; `CurrencyForm` = `{code, rate, note, existing}` where `rate` is foreign units per ONE US dollar
+- `GET /api/expenses/trips/{tripId}` → `{header, advances:[AdvanceForm], currencies:[CurrencyForm],
+  lines:[ExpenseForm], payments:[PaymentForm], receipts:[...], summary:ExpensePage}`. `header` = `{submittedBy,
+  paymentInstructions}`; `AdvanceForm` = `{id, type, date, currency, amount, party, personIds, recordTransaction,
+  note, transactionLine, transactionId}` with `type` one of `CASH|CREDIT|PARTICIPANT|RETURNED|OTHER`, `amount` a
+  positive magnitude in `currency` (RETURNED is subtracted), `party` the kind's "who" answer, `personIds` the
+  participants, `transactionId` the Payment transaction a participant entry recorded (null until it did);
+  `CurrencyForm` = `{code, rate, note, existing}` where `rate` is foreign units per ONE US dollar
   (`0.83` = "1 USD = 0.83 EUR"); `ExpenseForm` = `{id, date, category, description, currency, amount, budgetLineId,
-  note, paidStatus}` with `paidStatus` one of `NOT_PAID|ORG|REIMBURSED` (paid by the organization or already
-  reimbursed: still spent, but not part of what is due), `date` a LocalDate or null ("Various"), `amount` in the line's OWN currency, `category` one of
+  note, paidStatus}` with `paidStatus` one of `NOT_PAID|ORG|REIMBURSED` ("Not yet reimbursed"; paid by the
+  organization or already reimbursed: still spent, but not part of what is due), `date` a LocalDate or null ("Various"), `amount` in the line's OWN currency, `category` one of
   `TRANSPORTATION|GUIDE|SUPPLIES|TIPS|SCHOLARSHIP|LEADER|LODGING|POSTAGE|MEALS|GENERAL`, and `budgetLineId` a
   budget line or lodging line id (null = not in budget). `PaymentForm` = `{id, date, amount, method, note,
   lineIds}` with `amount` SIGNED dollars (negative = the submitter paid the organization back) and `lineIds` the
   expenses it settles (may be empty). `receipts` = `[{id, lineId, title, pdf, url, thumbUrl}]`,
   `lineId` null for a report-level receipt. `ExpensePage` = `{exists, status (Draft|Submitted|Partly paid|Paid), statusKey,
-  tripTitle, tripDates, orgName, submittedBy, submittedLine, submitted, cashAdvance, total, hasSettled, paidByOrg, reimbursed,
+  tripTitle, tripDates, orgName, submittedBy, submittedLine, submitted, cashAdvance (the worksheet's signed total),
+  advanceNegative, advanceRows:[{id, number, typeLabel, dateText, party, amount, usd, negative, rateMissing, note,
+  transactionLine}], advanceCount, total, hasSettled, paidByOrg, reimbursed,
   outOfPocket, dueLabel, due, dueToSubmitter, paymentRows:[{id, dateText, amount, negative, method, note, lines,
   lineCount, recordedLine}], paymentsTotal, stillDueLabel, stillDue, stillDueToSubmitter, settled,
   canRecordPayments, unpaidCount, linesWithoutReceipt, currencyRows:[{code, rateText, inverseText, note, lines, foreignTotal,
@@ -324,10 +330,18 @@ versioned put, so two simultaneous writes can refuse one as "Saved by someone el
   notInBudget}], budgetTotal, spentTotal, remainingTotal, lineRows:[{id, dateText, category, description,
   amountText, usd, foreign, rateMissing, budgetLabel, receiptCount, note, paidKey, paidChip, paymentId}],
   reportReceipts, warnings[]}`. Dollar figures are computed on every read at the CURRENT rate; `due` (the cash
-  advance less the NOT_PAID expenses) is unsigned and `dueLabel` says who is owed; `stillDue` is `due` after the
+  advanced less the NOT_PAID expenses) is unsigned and `dueLabel` says who is owed; `stillDue` is `due` after the
   payments ("Settled" at zero).
-- `PUT /api/expenses/trips/{tripId}/header` `{submittedBy, cashAdvance, cashAdvanceDetails, paymentInstructions}`
-  → `{ok:true}`.
+- `PUT /api/expenses/trips/{tripId}/header` `{submittedBy, paymentInstructions}` → `{ok:true}`.
+- `POST /api/expenses/trips/{tripId}/advances` / `PUT .../advances/{advanceId}` `{type, date, currency, amount,
+  party, personIds, note, recordTransaction, newCode, rate}` → `{id, transactionId}`; `DELETE .../advances/{advanceId}`
+  → `{ok:true}`. The edit gate. `currency` must be `USD` or one the report has, or `"__new"` with `newCode` and
+  `rate` to add one in the same save. A PARTICIPANT entry needs at least one `personIds` entry, each a person on
+  the trip. `recordTransaction: true` records ONE Payment transaction (category "Payment", note "Cash given during
+  the trip", the USD figure, the entry's date or today) for the one person picked, only when the caller passes
+  the settle gate (site admin or `tripFinAdmin`) and the entry has none yet; otherwise it is ignored and
+  `transactionId` is null. The transaction is never changed or deleted from here: an edit or delete of the entry
+  keeps it (the page warns).
 - `POST /api/expenses/trips/{tripId}/submit` → `{ok:true}` (stamps the caller and now; 400 while there are no
   expenses); `POST .../unsubmit` → `{ok:true}`.
 - `POST /api/expenses/trips/{tripId}/email` → `{ok:true}`: emails the report to the organization's treasurer (the
@@ -337,7 +351,7 @@ versioned put, so two simultaneous writes can refuse one as "Saved by someone el
   receipts appended when asked; 403 for a caller who may not read it. This is how an app gets the receipts with a
   bearer token today.
 - `POST /api/expenses/trips/{tripId}/currencies` `{code, rate, note}` → `{code}`; `PUT .../currencies/{code}`
-  `{rate, note}`; `DELETE .../currencies/{code}` (400 while an expense uses it). USD never has a row.
+  `{rate, note}`; `DELETE .../currencies/{code}` (400 while an expense or an advance uses it). USD never has a row.
 - `POST /api/expenses/trips/{tripId}/lines` / `PUT .../lines/{lineId}` `{date, category, description, currency,
   amount, budgetLineId, note, paidStatus}` → `{id}`. A blank `category` takes the matched budget line's. `currency` must be
   `USD` or one the report has, unless `rate` is sent too, which adds that currency in the same save. An edit keeps

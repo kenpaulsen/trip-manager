@@ -7,6 +7,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.paulsens.trip.action.BudgetViews.Choice;
+import org.paulsens.trip.action.ExpenseViews.AdvanceForm;
+import org.paulsens.trip.action.ExpenseViews.AdvanceRow;
 import org.paulsens.trip.action.ExpenseViews.BudgetRow;
 import org.paulsens.trip.action.ExpenseViews.CurrencyForm;
 import org.paulsens.trip.action.ExpenseViews.CurrencyRow;
@@ -25,6 +27,8 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.model.Accommodation;
+import org.paulsens.trip.model.AdvanceEntry;
+import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.BudgetCategory;
 import org.paulsens.trip.model.BudgetLine;
 import org.paulsens.trip.model.BudgetLineKind;
@@ -39,6 +43,7 @@ import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PricingModel;
 import org.paulsens.trip.model.RateSchedule;
 import org.paulsens.trip.model.ReservationOffer;
+import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripBudget;
 import org.paulsens.trip.model.TripExpenseReport;
@@ -113,16 +118,24 @@ public class ExpenseCommandsTest {
         return form;
     }
 
-    private static HeaderForm header(final String name, final Double advance) {
+    private static HeaderForm header(final String name) {
         final HeaderForm form = new HeaderForm();
         form.setSubmittedBy(name);
-        form.setCashAdvance(advance);
+        return form;
+    }
+
+    static AdvanceForm advance(final String type, final Double amount, final String party) {
+        final AdvanceForm form = new AdvanceForm();
+        form.setType(type);
+        form.setAmount(amount);
+        form.setParty(party);
         return form;
     }
 
     /** The spreadsheet's report, typed in through the bean the way the page does it. */
     private void saveSheet(final String tripId) {
-        assertTrue(admin.saveHeader(tripId, header("Ken Paulsen", 45_765.0)));
+        assertTrue(admin.saveHeader(tripId, header("Ken Paulsen")));
+        assertTrue(admin.saveAdvance(tripId, advance("CASH", 45_765.0, "CFPW")));
         assertTrue(admin.saveCurrency(tripId, currency("EUR", 0.83)));
         assertTrue(admin.saveCurrency(tripId, currency("bam", 1.66)));
         for (final ExpenseLine sheet : ExpenseOracle.report().getLines()) {
@@ -161,7 +174,9 @@ public class ExpenseCommandsTest {
         final ExpenseCommands finView = as(grant(PrivilegeCommands.TRIP_FIN_VIEW, id));
         assertTrue(finView.canViewExpenses(id));
         assertFalse(finView.canEditExpenses(id));
-        assertFalse(finView.saveHeader(id, header("x", 1.0)), "A viewer writes nothing");
+        assertFalse(finView.saveHeader(id, header("x")), "A viewer writes nothing");
+        assertFalse(finView.saveAdvance(id, advance("CASH", 1.0, null)));
+        assertFalse(finView.deleteAdvance(id, "x"));
         assertFalse(finView.submit(id));
         final ExpenseCommands global = as(grant(PrivilegeCommands.VIEW_FINANCES, null));
         assertTrue(global.canViewExpenses(id));
@@ -176,7 +191,10 @@ public class ExpenseCommandsTest {
         assertTrue(stranger.currencyFormsFor(id).isEmpty());
         assertTrue(stranger.budgetChoices(id).isEmpty());
         assertTrue(stranger.receiptRowsFor(id, null).isEmpty());
-        assertNull(stranger.headerFormFor(id).getCashAdvance());
+        assertNull(stranger.headerFormFor(id).getSubmittedBy());
+        assertTrue(stranger.advanceFormsFor(id).isEmpty());
+        assertNull(stranger.advanceFormFor(id, "x").getId());
+        assertTrue(stranger.participantChoices(id).isEmpty());
         assertEquals(stranger.currencyChoices(id).size(), 2, "USD and Add only");
         assertEquals(stranger.receiptHeading(id, "x"), "Receipts");
         assertNull(stranger.currencyFormFor(id, "EUR").getCode());
@@ -377,7 +395,8 @@ public class ExpenseCommandsTest {
     @Test
     public void aPaymentMayRunEitherWayAndCoverNoLine() throws IOException {
         final String id = newTrip().getId();
-        assertTrue(admin.saveHeader(id, header("Ken", 2_000.0)));
+        assertTrue(admin.saveHeader(id, header("Ken")));
+        assertTrue(admin.saveAdvance(id, advance("CASH", 2_000.0, null)));
         assertTrue(admin.saveLine(id, line(null, null, "Hotel", "USD", 1_500.0)));
         final ExpensePage due = admin.reportPage(id);
         assertEquals(due.getDue(), "$500.00");
@@ -493,7 +512,7 @@ public class ExpenseCommandsTest {
     @Test
     public void aSurplusIsDueToTheOrganization() throws IOException {
         final String id = newTrip().getId();
-        assertTrue(admin.saveHeader(id, header(null, 100.0)));
+        assertTrue(admin.saveAdvance(id, advance("CASH", 100.0, null)));
         assertTrue(admin.saveLine(id, line(null, null, "Postage", "USD", 40.0)));
         final ExpensePage page = admin.reportPage(id);
         assertFalse(page.isDueToSubmitter());
@@ -508,28 +527,21 @@ public class ExpenseCommandsTest {
     public void theHeaderSavesAndRefuses() throws IOException {
         final String id = newTrip().getId();
         final HeaderForm form = admin.headerFormFor(id);
-        assertEquals(form.getCashAdvance(), 0.0);
+        assertNull(form.getPaymentInstructions());
         form.setSubmittedBy("  Ken  ");
-        form.setCashAdvance(45_765.0);
-        form.setCashAdvanceDetails("Check 1001 from CFPW");
         form.setPaymentInstructions("Zelle the balance");
         assertTrue(admin.saveHeader(id, form));
         final TripExpenseReport report = stored(id);
         assertEquals(report.getSubmittedBy(), "Ken");
-        assertEquals(report.getCashAdvanceCents(), 4_576_500L);
         assertEquals(report.getOrgId(), orgId);
         assertNotNull(report.getCreated());
         assertEquals(report.getStatus(), ExpenseStatus.DRAFT);
         assertEquals(admin.headerFormFor(id).getPaymentInstructions(), "Zelle the balance");
 
-        final HeaderForm bad = header("x", -5.0);
+        final HeaderForm bad = header("n".repeat(ExpenseCommands.MAX_NAME + 1));
         assertFalse(admin.saveHeader(id, bad));
-        assertEquals(bad.getProblem(), "The cash advance must be between $0 and $10,000,000.00.");
-        assertFalse(admin.saveHeader(id, header("n".repeat(ExpenseCommands.MAX_NAME + 1), 1.0)));
-        final HeaderForm longDetails = header("x", 1.0);
-        longDetails.setCashAdvanceDetails("d".repeat(ExpenseCommands.MAX_TEXT + 1));
-        assertFalse(admin.saveHeader(id, longDetails));
-        final HeaderForm longInstructions = header("x", 1.0);
+        assertEquals(bad.getProblem(), "The name is at most 120 characters.");
+        final HeaderForm longInstructions = header("x");
         longInstructions.setPaymentInstructions("i".repeat(ExpenseCommands.MAX_TEXT + 1));
         assertFalse(admin.saveHeader(id, longInstructions));
         assertEquals(longInstructions.getProblem(), "The payment instructions is at most 2000 characters.");
@@ -910,6 +922,7 @@ public class ExpenseCommandsTest {
                     .equals("%PDF-"), "the attachment is a PDF");
             assertTrue(body.getValue().contains("<b>Holy Angels</b>") && body.getValue().contains("$1,440.00"),
                     body.getValue());
+            assertTrue(body.getValue().contains("Cash advanced: $"), body.getValue());
             assertTrue(body.getValue().contains("with its receipts after it"), body.getValue());
             assertFalse(body.getValue().contains("Payments recorded"), "No payments yet");
             assertEquals(stored(id).getEmailedTo(), "treasurer@example.org");
@@ -946,6 +959,225 @@ public class ExpenseCommandsTest {
         } finally {
             treasurer(null);
         }
+    }
+
+
+    // ------------------------------------------------------------------ the cash-advance worksheet
+
+    @Test
+    public void theWorksheetAddsUpSignedAndPrices() throws IOException {
+        final String id = newTrip().getId();
+        final AdvanceForm cash = admin.newAdvanceForm(id, "CASH");
+        assertEquals(cash.getParty(), orgName, "the organization usually gives the advance");
+        assertEquals(admin.newAdvanceForm(id, "RETURNED").getParty(), orgName);
+        assertNull(admin.newAdvanceForm(id, "CREDIT").getParty());
+        assertEquals(admin.newAdvanceForm(id, "bogus").getType(), "OTHER");
+        cash.setAmount(1000.0);
+        cash.setDate(LocalDate.of(2026, 9, 19));
+        assertTrue(admin.saveAdvance(id, cash), cash.getProblem());
+        assertNotNull(cash.getId());
+        assertTrue(admin.saveAdvance(id, advance("CREDIT", 200.0, "previous trip")));
+        final AdvanceForm euros = advance("OTHER", 83.0, "ignored for Other");
+        euros.setCurrency(ExpenseViews.NEW_CURRENCY);
+        euros.setNewCode("eur");
+        euros.setNewRate(0.83);
+        euros.setNote("Left in the envelope");
+        assertTrue(admin.saveAdvance(id, euros), euros.getProblem());
+        assertEquals(euros.getCurrency(), "EUR");
+        assertNull(euros.getNewCode());
+        assertTrue(admin.saveAdvance(id, advance("RETURNED", 300.0, orgName)));
+
+        final ExpensePage page = admin.reportPage(id);
+        assertEquals(page.getAdvanceCount(), 4);
+        assertEquals(page.getCashAdvance(), "$1,000.00", "1,000 + 200 + 100 - 300");
+        assertFalse(page.isAdvanceNegative());
+        final List<AdvanceRow> rows = page.getAdvanceRows();
+        assertEquals(rows.get(0).getNumber(), 1);
+        assertEquals(rows.get(0).getTypeLabel(), "Cash advance");
+        assertEquals(rows.get(0).getParty(), orgName);
+        assertEquals(rows.get(0).getDateText(), "Sep 19, 2026");
+        assertEquals(rows.get(0).getAmount(), "$1,000.00");
+        assertEquals(rows.get(0).getUsd(), "$1,000.00");
+        assertEquals(rows.get(1).getParty(), "previous trip");
+        assertEquals(rows.get(2).getAmount(), "83.00 EUR");
+        assertEquals(rows.get(2).getUsd(), "$100.00");
+        assertEquals(rows.get(2).getDateText(), "");
+        assertNull(rows.get(2).getParty(), "Other asks no 'who'");
+        assertEquals(rows.get(2).getNote(), "Left in the envelope");
+        assertNull(rows.get(2).getTransactionLine());
+        assertEquals(rows.get(3).getNumber(), 4);
+        assertEquals(rows.get(3).getUsd(), "-$300.00");
+        assertTrue(rows.get(3).isNegative());
+        assertEquals(page.getDueLabel(), "Due to " + orgName);
+        assertEquals(page.getDue(), "$1,000.00");
+        assertEquals(page.getCurrencyRows().get(0).getCode(), "EUR", "the dialog added the currency");
+
+        final AdvanceForm edit = admin.advanceFormFor(id, rows.get(1).getId());
+        assertEquals(edit.getParty(), "previous trip");
+        assertEquals(edit.getType(), "CREDIT");
+        edit.setAmount(250.0);
+        assertTrue(admin.saveAdvance(id, edit));
+        assertEquals(admin.reportPage(id).getAdvanceRows().get(1).getUsd(), "$250.00");
+        assertEquals(admin.reportPage(id).getCashAdvance(), "$1,050.00");
+        assertEquals(admin.advanceFormsFor(id).size(), 4);
+        assertFalse(admin.deleteCurrency(id, "EUR"), "an advance uses it");
+        assertTrue(admin.deleteAdvance(id, rows.get(3).getId()));
+        assertEquals(admin.reportPage(id).getCashAdvance(), "$1,350.00");
+        assertTrue(admin.deleteAdvance(id, "gone"), "already gone");
+        assertTrue(admin.saveAdvance(id, advance("RETURNED", 5000.0, "Ken")));
+        final ExpensePage negative = admin.reportPage(id);
+        assertTrue(negative.isAdvanceNegative());
+        assertEquals(negative.getCashAdvance(), "-$3,650.00");
+        assertTrue(negative.isDueToSubmitter());
+        assertEquals(negative.getDue(), "$3,650.00");
+    }
+
+    @Test
+    public void worksheetEntriesAreChecked() throws IOException {
+        final String id = newTrip().getId();
+        assertFalse(admin.saveAdvance(id, null));
+        final AdvanceForm noType = advance("WHAT", 1.0, null);
+        assertFalse(admin.saveAdvance(id, noType));
+        assertEquals(noType.getProblem(), "Pick what kind of advance this is.");
+        final AdvanceForm noAmount = advance("CASH", null, null);
+        assertFalse(admin.saveAdvance(id, noAmount));
+        assertEquals(noAmount.getProblem(), "Enter the amount.");
+        final AdvanceForm negative = advance("CASH", -1.0, null);
+        assertFalse(admin.saveAdvance(id, negative));
+        assertEquals(negative.getProblem(), "The amount must be between $0 and $10,000,000.00.");
+        final AdvanceForm longParty = advance("CASH", 1.0, "p".repeat(ExpenseCommands.MAX_DESCRIPTION + 1));
+        assertFalse(admin.saveAdvance(id, longParty));
+        assertEquals(longParty.getProblem(), "The answer is at most 200 characters.");
+        final AdvanceForm longNote = advance("OTHER", 1.0, null);
+        longNote.setNote("n".repeat(ExpenseCommands.MAX_TEXT + 1));
+        assertFalse(admin.saveAdvance(id, longNote));
+        assertEquals(longNote.getProblem(), "The note is at most 2000 characters.");
+        final AdvanceForm nobody = advance("PARTICIPANT", 1.0, null);
+        assertFalse(admin.saveAdvance(id, nobody));
+        assertEquals(nobody.getProblem(), "Pick who handed you the cash.");
+        nobody.setPersonIds(new ArrayList<>(List.of(Person.Id.newInstance().getValue())));
+        assertFalse(admin.saveAdvance(id, nobody));
+        assertEquals(nobody.getProblem(), "(unknown person) is not on this trip: reload the page.");
+        final AdvanceForm badCurrency = advance("CASH", 1.0, null);
+        badCurrency.setCurrency("XXX");
+        assertFalse(admin.saveAdvance(id, badCurrency));
+        assertEquals(badCurrency.getProblem(), "Choose a currency the report has, or add one.");
+        final AdvanceForm gone = advance("CASH", 1.0, null);
+        gone.setId("gone");
+        assertFalse(admin.saveAdvance(id, gone));
+        assertEquals(gone.getProblem(), "This advance no longer exists: reload the page.");
+        for (int i = 0; i < ExpenseCommands.MAX_ADVANCES; i++) {
+            assertTrue(admin.saveAdvance(id, advance("CASH", 1.0, null)));
+        }
+        final AdvanceForm over = advance("CASH", 1.0, null);
+        assertFalse(admin.saveAdvance(id, over));
+        assertEquals(over.getProblem(), "A worksheet holds at most 100 advances.");
+
+        assertEquals(admin.advanceTypes().size(), 5);
+        assertEquals(admin.advanceTypes().get(3).getLabel(), "Money returned / transferred");
+        assertEquals(admin.typeLabel("CASH"), "Cash advance");
+        assertEquals(admin.typeLabel("x"), "Advance");
+        assertEquals(admin.partyLabel("RETURNED"), "Who did you give the money to?");
+        assertEquals(admin.partyLabel("CASH"), "Who gave the advance?");
+        assertEquals(admin.partyLabel("CREDIT"), "Who or where did this credit come from?");
+        assertNull(admin.partyLabel("OTHER"));
+        assertNull(admin.partyLabel("x"));
+        assertTrue(admin.typeHelp("RETURNED").contains("subtracted"));
+        assertTrue(admin.typeHelp("OTHER").contains("other types"));
+        assertEquals(admin.typeHelp("x"), "");
+    }
+
+    @Test
+    public void aParticipantEntryRecordsOnePaymentForOnePerson() throws IOException {
+        final Trip trip = newTrip();
+        final String id = trip.getId();
+        final Person ken = Person.builder().first("Ken").last("Paulsen").build();
+        final Person trinity = Person.builder().first("Trinity").last("Adams").build();
+        assertTrue(DAO.getInstance().savePerson(ken));
+        assertTrue(DAO.getInstance().savePerson(trinity));
+        trip.getPeople().add(ken.getId());
+        trip.getPeople().add(trinity.getId());
+        assertTrue(DAO.getInstance().saveTrip(trip));
+        final List<Choice> who = admin.participantChoices(id);
+        assertEquals(who.size(), 2);
+        assertEquals(who.get(0).getLabel(), "Adams, Trinity", "sorted by last name");
+        assertEquals(who.get(1).getId(), ken.getId().getValue());
+        final TransactionsCommands ledger = new TransactionsCommands();
+        final int before = ledger.getTransactions(ken.getId()).size();
+
+        final AdvanceForm given = advance("PARTICIPANT", 83.0, null);
+        given.setCurrency(ExpenseViews.NEW_CURRENCY);
+        given.setNewCode("EUR");
+        given.setNewRate(0.83);
+        given.setDate(LocalDate.of(2026, 9, 25));
+        given.setPersonIds(new ArrayList<>(List.of(ken.getId().getValue())));
+        given.setRecordTransaction(true);
+        assertTrue(given.isOnePerson());
+        assertFalse(new AdvanceForm().isOnePerson());
+        assertTrue(admin.saveAdvance(id, given), given.getProblem());
+        assertNotNull(given.getTransactionId());
+        assertFalse(given.isRecordTransaction(), "a second save does not ask again");
+        assertTrue(given.getTransactionLine().startsWith("A payment of $100.00 was recorded for Ken Paulsen on "),
+                given.getTransactionLine());
+        final AdvanceEntry entry = stored(id).getAdvances().get(0);
+        assertEquals(entry.getTransaction().getTxId(), given.getTransactionId());
+        assertEquals(entry.getTransaction().getPersonId(), ken.getId().getValue());
+        assertEquals(entry.getTransaction().getAmountCents(), 10_000L);
+        assertNotNull(entry.getTransaction().getRecordedOn());
+        assertEquals(ledger.getTransactions(ken.getId()).size(), before + 1);
+        final Transaction tx = ledger.getTransaction(ken.getId(), given.getTransactionId());
+        assertEquals(tx.getTxType(), Transaction.TransactionType.Payment);
+        assertEquals(tx.getCategory(), "Payment");
+        assertEquals(tx.getNote(), ExpenseCommands.PARTICIPANT_TX_NOTE);
+        assertEquals(tx.getAmount(), 100.0f);
+        assertEquals(tx.getTxDate(), LocalDate.of(2026, 9, 25).atStartOfDay());
+        assertEquals(tx.getOrgId(), orgId);
+        final BindingCommands bind = new BindingCommands();
+        assertEquals(bind.getBindings(bind.key(ken.getId().getValue(), tx.getTxId()), BindingType.TRANSACTION,
+                BindingType.TRIP), List.of(id));
+        final AdvanceRow row = admin.reportPage(id).getAdvanceRows().get(0);
+        assertEquals(row.getParty(), "Ken Paulsen");
+        assertEquals(row.getTransactionLine(), given.getTransactionLine());
+
+        final AdvanceForm again = admin.advanceFormFor(id, entry.getId());
+        assertEquals(again.getTransactionId(), tx.getTxId());
+        again.setRecordTransaction(true);
+        again.setAmount(90.0);
+        assertTrue(admin.saveAdvance(id, again), "editing warns but saves");
+        assertEquals(ledger.getTransactions(ken.getId()).size(), before + 1, "never a second transaction");
+        assertEquals(stored(id).getAdvances().get(0).getTransaction().getAmountCents(), 10_000L,
+                "the stamp keeps what was recorded, not the edited amount");
+        assertEquals(admin.reportPage(id).getAdvanceRows().get(0).getUsd(), "$108.43");
+
+        final AdvanceForm two = advance("PARTICIPANT", 50.0, null);
+        two.setPersonIds(new ArrayList<>(List.of(ken.getId().getValue(), trinity.getId().getValue(),
+                ken.getId().getValue())));
+        two.setRecordTransaction(true);
+        assertTrue(admin.saveAdvance(id, two), two.getProblem());
+        assertNull(two.getTransactionId(), "two people: the report records nothing");
+        assertEquals(two.getPersonIds().size(), 2, "de-duplicated");
+        assertEquals(admin.reportPage(id).getAdvanceRows().get(1).getParty(), "Ken Paulsen; Trinity Adams");
+        assertEquals(ledger.getTransactions(ken.getId()).size(), before + 1);
+
+        final ExpenseCommands manager = as(grant(PrivilegeCommands.TRIP_MGR, id));
+        final AdvanceForm byManager = advance("PARTICIPANT", 20.0, null);
+        byManager.setPersonIds(new ArrayList<>(List.of(trinity.getId().getValue())));
+        byManager.setRecordTransaction(true);
+        assertTrue(manager.saveAdvance(id, byManager), byManager.getProblem());
+        assertNull(byManager.getTransactionId(), "a trip manager's tick is ignored");
+        assertTrue(ledger.getTransactions(trinity.getId()).isEmpty());
+        final ExpenseCommands finAdmin = as(grant(PrivilegeCommands.TRIP_FIN_ADMIN, id));
+        final AdvanceForm byFinAdmin = advance("PARTICIPANT", 20.0, null);
+        byFinAdmin.setPersonIds(new ArrayList<>(List.of(trinity.getId().getValue())));
+        byFinAdmin.setRecordTransaction(true);
+        assertTrue(finAdmin.saveAdvance(id, byFinAdmin), byFinAdmin.getProblem());
+        assertNotNull(byFinAdmin.getTransactionId(), "a finance admin may record it");
+        assertEquals(ledger.getTransactions(trinity.getId()).size(), 1);
+        assertEquals(ledger.getTransactions(trinity.getId()).get(0).getAmount(), 20.0f);
+
+        assertTrue(admin.deleteAdvance(id, entry.getId()), "deleting warns and leaves the ledger alone");
+        assertNotNull(ledger.getTransaction(ken.getId(), tx.getTxId()));
+        assertEquals(admin.reportPage(id).getAdvanceCount(), 3);
     }
 
     // ------------------------------------------------------------------ helpers

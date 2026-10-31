@@ -163,9 +163,11 @@ price on a plan); `PricingModel`, `OfferType`; the trip's planning budget `TripB
 `BudgetLine`s (`BudgetLineKind` SHARED/INDIVIDUAL, `BudgetCategory`) and `BudgetLodgingLine`s that read one of
 the trip's options LIVE, `docs/budget.md`; the trip's expense report `TripExpenseReport` with inline
 `CurrencyRate`s (foreign units per dollar, in millionths), `ExpenseLine`s (one currency each, optionally
-matched to a budget line, with a paid status: Not paid / Paid by organization / Already reimbursed; dollar
-figures derived on read, never stored) and `ExpensePayment`s (signed, recorded by a finance admin against the
-expenses they settle), `docs/expense-report.md` --
+matched to a budget line, with a paid status: Not yet reimbursed / Paid by organization / Already reimbursed; dollar
+figures derived on read, never stored), `AdvanceEntry`s (the cash-advance WORKSHEET: typed `AdvanceType` entries,
+a magnitude in their own currency with the type carrying the sign, a `fields` name-value map for the type's own
+answers, and the one Payment `Transaction` a participant entry may have recorded) and `ExpensePayment`s (signed,
+recorded by a finance admin against the expenses they settle), `docs/expense-report.md` --
 `docs/lodging.md` "Price vs cost" before touching any money field; the four legacy flat price keys still
 fold on read and mirror on write for one release, `docs/migrations/lodging-price-cost.md`), plus
 `model/chat/*` (15 chat types) and `model/deploy/*`. **Accommodations are GLOBAL, not org-owned** — the one

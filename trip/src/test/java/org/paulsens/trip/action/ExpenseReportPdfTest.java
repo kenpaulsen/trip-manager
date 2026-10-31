@@ -49,9 +49,10 @@ public class ExpenseReportPdfTest {
         final String tripId = newTrip();
         final ExpenseViews.HeaderForm header = new ExpenseViews.HeaderForm();
         header.setSubmittedBy("Ken Paulsen");
-        header.setCashAdvance(1000.0);
-        header.setCashAdvanceDetails("Check 1001\nplus 200 EUR cash");
         assertTrue(admin.saveHeader(tripId, header));
+        final ExpenseViews.AdvanceForm cash = ExpenseCommandsTest.advance("CASH", 1000.0, "CFPW");
+        cash.setNote("Check 1001");
+        assertTrue(admin.saveAdvance(tripId, cash), cash.getProblem());
         assertTrue(admin.saveLine(tripId, ExpenseCommandsTest.line(LocalDate.of(2026, 9, 29), "GUIDE", "Guide",
                 "USD", 1440.0)));
         assertTrue(admin.saveLine(tripId, ExpenseCommandsTest.line(null, null, "Party 🎉 supplies",
@@ -65,7 +66,8 @@ public class ExpenseReportPdfTest {
         final List<String> withReceipts = PdfText.pages(admin.reportPdf(tripId, true));
         final String text = String.join("\n", withReceipts);
         for (final String expected : List.of("Holy Angels: Expense Report", "Sep 20, 2026 to Oct 5, 2026",
-                "Status: Draft", "Ken Paulsen", "Check 1001", "plus 200 EUR cash", "Budget", "Not in budget",
+                "Status: Draft", "Ken Paulsen", "Cash advanced", "Total advanced", "CFPW", "Check 1001",
+                "Budget", "Not in budget",
                 "Expenses", "R2, R3", "Party ? supplies", "Total spent", "$1,546.44", "Due to Ken Paulsen",
                 "$546.44", "Signature", "Receipts", "R1", "The report", "advance.pdf", "PDF, 1 page", "image",
                 "PDF, 2 pages", "R2: Guide (guide.jpg)", "R1: The report (advance.pdf)", "Advance slip page 1",
@@ -85,15 +87,17 @@ public class ExpenseReportPdfTest {
         final String tripId = newTrip();
         final ExpenseViews.HeaderForm header = new ExpenseViews.HeaderForm();
         header.setSubmittedBy("Ken Paulsen");
-        header.setCashAdvance(100.0);
         assertTrue(admin.saveHeader(tripId, header));
+        assertTrue(admin.saveAdvance(tripId, ExpenseCommandsTest.advance("CASH", 400.0, null)));
+        assertTrue(admin.saveAdvance(tripId, ExpenseCommandsTest.advance("RETURNED", 300.0, "CFPW")));
         final ExpenseViews.ExpenseForm hotel = ExpenseCommandsTest.line(null, null, "Hotel", "USD", 500.0);
         hotel.setPaidStatus("ORG");
         assertTrue(admin.saveLine(tripId, hotel));
         final ExpenseViews.ExpenseForm taxi = ExpenseCommandsTest.line(null, null, "Taxi", "USD", 60.0);
         assertTrue(admin.saveLine(tripId, taxi));
         final String before = String.join("\n", PdfText.pages(admin.reportPdf(tripId, false)));
-        assertTrue(before.contains("Org paid") && before.contains("Out of pocket"), before);
+        assertTrue(before.contains("Org paid") && before.contains("Not yet reimbursed"), before);
+        assertTrue(before.contains("Money returned") && before.contains("-$300.00"), before);
         assertTrue(!before.contains("Payments recorded"), "No payments section yet");
 
         final ExpenseViews.PaymentForm payment = admin.newPaymentForm();
@@ -105,7 +109,7 @@ public class ExpenseReportPdfTest {
         assertTrue(admin.recordPayment(tripId, payment), payment.getProblem());
         final String text = String.join("\n", PdfText.pages(admin.reportPdf(tripId, false)));
         for (final String expected : List.of("Status: Paid", "Org paid", "Paid Oct 20", "Paid by organization",
-                "$500.00", "Out of pocket", "$60.00", "Due to", "$40.00", "Payments", "-$40.00", "Zelle", "Taxi",
+                "$500.00", "Not yet reimbursed", "$60.00", "Due to", "$40.00", "Payments", "-$40.00", "Zelle", "Taxi",
                 "Advance left over", "Payments recorded", "Settled")) {
             assertTrue(text.contains(expected), "missing '" + expected + "' in:\n" + text);
         }

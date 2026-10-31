@@ -3,6 +3,8 @@ package org.paulsens.trip.pay;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Set;
+import org.paulsens.trip.model.AdvanceEntry;
+import org.paulsens.trip.model.AdvanceType;
 import org.paulsens.trip.model.BudgetLine;
 import org.paulsens.trip.model.BudgetLineKind;
 import org.paulsens.trip.model.BudgetLodgingLine;
@@ -67,11 +69,35 @@ public class ExpenseMathTest {
         report.getPayments().add(ExpensePayment.builder().amountCents(41_041L).build());
         assertEquals(ExpenseMath.stillDue(report), 0L, "Settled");
 
-        final TripExpenseReport surplus = TripExpenseReport.builder().cashAdvanceCents(200_000L)
+        final TripExpenseReport surplus = TripExpenseReport.builder().advances(List.of(ExpenseOracle.advance(200_000L)))
                 .lines(List.of(ExpenseLine.builder().id("a").amountMinor(150_000L).build())).build();
         assertEquals(ExpenseMath.due(surplus), 50_000L, "The submitter owes the organization");
         surplus.getPayments().add(ExpensePayment.builder().amountCents(-50_000L).build());
         assertEquals(ExpenseMath.stillDue(surplus), 0L, "A negative payment: the submitter paid it back");
+    }
+
+    @Test
+    public void theWorksheetAddsUpSignedAtTheReportsRates() {
+        final TripExpenseReport report = ExpenseOracle.report();
+        assertEquals(ExpenseMath.advanced(report), 4_576_500L, "the sheet's one cash advance");
+        report.getAdvances().add(AdvanceEntry.builder().type(AdvanceType.CREDIT).amountMinor(20_000L).build());
+        report.getAdvances().add(AdvanceEntry.builder().type(AdvanceType.PARTICIPANT).currency("EUR")
+                .amountMinor(8_300L).build());
+        report.getAdvances().add(AdvanceEntry.builder().type(AdvanceType.RETURNED).amountMinor(30_000L).build());
+        assertEquals(ExpenseMath.advanceUsd(report, report.getAdvances().get(2)), 10_000L, "83 EUR at 0.83");
+        assertEquals(ExpenseMath.advanceUsd(report, report.getAdvances().get(3)), -30_000L, "returned: negative");
+        assertEquals(ExpenseMath.advanced(report), 4_576_500L, "200 + 100 - 300 nets to nothing");
+        assertEquals(ExpenseMath.due(report), -979_595L, "so the due is the sheet's");
+        final AdvanceEntry noRate = AdvanceEntry.builder().type(AdvanceType.CASH).currency("GBP").amountMinor(100L)
+                .build();
+        report.getAdvances().add(noRate);
+        assertTrue(ExpenseMath.rateMissing(report, noRate));
+        assertFalse(ExpenseMath.rateMissing(report, report.getAdvances().get(0)));
+        assertEquals(ExpenseMath.advanceUsd(report, noRate), 0L, "no rate counts nothing");
+        final TripExpenseReport returnedOnly = TripExpenseReport.builder().advances(List.of(AdvanceEntry.builder()
+                .type(AdvanceType.RETURNED).amountMinor(50_000L).build())).build();
+        assertEquals(ExpenseMath.advanced(returnedOnly), -50_000L, "the worksheet can net negative");
+        assertEquals(ExpenseMath.due(returnedOnly), -50_000L);
     }
 
     @Test

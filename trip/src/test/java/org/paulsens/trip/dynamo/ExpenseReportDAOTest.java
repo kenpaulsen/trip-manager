@@ -11,6 +11,7 @@ import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.cache.NoopCacheClient;
 import org.paulsens.trip.model.ExpenseLine;
 import org.paulsens.trip.model.TripExpenseReport;
+import org.paulsens.trip.pay.ExpenseOracle;
 import org.paulsens.trip.util.RandomData;
 import org.testng.annotations.Test;
 import software.amazon.awssdk.http.SdkHttpResponse;
@@ -36,13 +37,13 @@ public class ExpenseReportDAOTest {
         assertEquals(read, report);
         assertEquals(DAO.getInstance().getTripExpenseReport(report.getTripId(), Cached.YES).orElseThrow(), report);
 
-        read.setCashAdvanceCents(47L);
+        read.setPaymentInstructions("Zelle");
         assertTrue(DAO.getInstance().saveTripExpenseReport(read));
-        report.setCashAdvanceCents(1L);
+        report.setPaymentInstructions("Check");
         assertThrows(ConditionalCheckFailedException.class, () -> DAO.getInstance().saveTripExpenseReport(report));
         assertEquals(report.getVersion(), 1L, "A rejected save restores the caller's version");
         assertEquals(DAO.getInstance().getTripExpenseReport(report.getTripId(), Cached.NO).orElseThrow()
-                .getCashAdvanceCents(), 47L);
+                .getPaymentInstructions(), "Zelle");
     }
 
     @Test
@@ -115,7 +116,7 @@ public class ExpenseReportDAOTest {
 
     private static TripExpenseReport report() {
         return TripExpenseReport.builder().tripId("trip-" + RandomData.genAlpha(10)).orgId("org-1")
-                .cashAdvanceCents(4_576_500L)
+                .advances(List.of(ExpenseOracle.advance(4_576_500L)))
                 .lines(List.of(ExpenseLine.builder().description("Guide").amountMinor(144_000L).build())).build();
     }
 }

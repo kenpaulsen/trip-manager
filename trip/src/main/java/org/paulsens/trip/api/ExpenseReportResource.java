@@ -61,8 +61,8 @@ public class ExpenseReportResource extends BaseResource {
     }
 
     /**
-     * The whole report: {@code {header, currencies, lines, payments, receipts, summary}}, summary being the page's
-     * computed figures and {@code receipts} every receipt with the line it belongs to (null = the report).
+     * The whole report: {@code {header, advances, currencies, lines, payments, receipts, summary}}, summary being
+     * the page's computed figures and {@code receipts} every receipt with the line it belongs to (null = the report).
      */
     @GET
     @Path("trips/{tripId}")
@@ -75,6 +75,7 @@ public class ExpenseReportResource extends BaseResource {
         }
         final Map<String, Object> out = new LinkedHashMap<>();
         out.put("header", expenses.headerFormFor(tripId));
+        out.put("advances", expenses.advanceFormsFor(tripId));
         out.put("currencies", expenses.currencyFormsFor(tripId));
         final List<ExpenseViews.ExpenseForm> lines = expenses.lineFormsFor(tripId);
         out.put("lines", lines);
@@ -102,7 +103,7 @@ public class ExpenseReportResource extends BaseResource {
         }
     }
 
-    /** Body: {@code {submittedBy, cashAdvance, cashAdvanceDetails, paymentInstructions}}. Answers {@code {ok:true}}. */
+    /** Body: {@code {submittedBy, paymentInstructions}}; advances have their own endpoints. Answers {@code {ok}}. */
     @PUT
     @Path("trips/{tripId}/header")
     @Consumes({V1, MediaType.APPLICATION_JSON})
@@ -115,8 +116,6 @@ public class ExpenseReportResource extends BaseResource {
         }
         final ExpenseViews.HeaderForm form = new ExpenseViews.HeaderForm();
         form.setSubmittedBy(str(body, "submittedBy"));
-        form.setCashAdvance(dbl(body, "cashAdvance"));
-        form.setCashAdvanceDetails(str(body, "cashAdvanceDetails"));
         form.setPaymentInstructions(str(body, "paymentInstructions"));
         return expenses().saveHeader(tripId, form) ? ok(Map.of("ok", true))
                 : error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(), "The report was not saved."));
@@ -397,7 +396,80 @@ public class ExpenseReportResource extends BaseResource {
                 : error(400, ApiErrors.VALIDATION_FAILED, "The payment was not deleted.");
     }
 
+    /**
+     * Adds a cash-advance worksheet entry. Body: {@code {type, date, currency, amount, party, personIds, note,
+     * recordTransaction, newCode, rate}}: {@code type} CASH, CREDIT, PARTICIPANT, RETURNED or OTHER, {@code amount}
+     * a positive magnitude in {@code currency} (the type carries the sign; {@code "__new"} with {@code newCode} and
+     * {@code rate} adds a currency), {@code party} the type's "who" answer, {@code personIds} the participants.
+     * {@code recordTransaction} records a Payment transaction for the ONE participant, finance admins only (ignored
+     * for anyone else). Answers {@code {id, transactionId}}.
+     */
+    @POST
+    @Path("trips/{tripId}/advances")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response createAdvance(@PathParam("tripId") final String tripId,
+            @HeaderParam(CSRF_HEADER) final String csrf, final Map<String, Object> body) {
+        return saveAdvance(tripId, null, csrf, body);
+    }
+
+    /** Edits a worksheet entry; body as {@link #createAdvance}. A recorded transaction is never changed. */
+    @PUT
+    @Path("trips/{tripId}/advances/{advanceId}")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response updateAdvance(@PathParam("tripId") final String tripId,
+            @PathParam("advanceId") final String advanceId, @HeaderParam(CSRF_HEADER) final String csrf,
+            final Map<String, Object> body) {
+        return saveAdvance(tripId, advanceId, csrf, body);
+    }
+
+    /** Deletes a worksheet entry; a transaction it recorded stays. Deleting one already gone succeeds. */
+    @DELETE
+    @Path("trips/{tripId}/advances/{advanceId}")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response deleteAdvance(@PathParam("tripId") final String tripId,
+            @PathParam("advanceId") final String advanceId, @HeaderParam(CSRF_HEADER) final String csrf) {
+        final Response refused = refuseWrite(tripId, csrf);
+        if (refused != null) {
+            return refused;
+        }
+        return expenses().deleteAdvance(tripId, advanceId) ? ok(Map.of("ok", true))
+                : error(400, ApiErrors.VALIDATION_FAILED, "The advance was not deleted.");
+    }
+
     // ------------------------------------------------------------------ plumbing
+
+    private Response saveAdvance(final String tripId, final String advanceId, final String csrf,
+            final Map<String, Object> body) {
+        final Response refused = refuseWrite(tripId, csrf);
+        if (refused != null) {
+            return refused;
+        }
+        final ExpenseViews.AdvanceForm form = new ExpenseViews.AdvanceForm();
+        form.setId(advanceId);
+        form.setType(str(body, "type"));
+        form.setCurrency((str(body, "currency") == null) ? "USD" : str(body, "currency"));
+        form.setAmount(dbl(body, "amount"));
+        form.setParty(str(body, "party"));
+        form.setPersonIds(strings(body, "personIds"));
+        form.setNote(str(body, "note"));
+        form.setRecordTransaction(Boolean.TRUE.equals(body.get("recordTransaction")));
+        form.setNewCode(str(body, "newCode"));
+        form.setNewRate(dbl(body, "rate"));
+        try {
+            form.setDate(date(body, "date"));
+        } catch (final DateTimeParseException ex) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "date must be a date like 2026-10-20.");
+        }
+        if (!expenses().saveAdvance(tripId, form)) {
+            return error(400, ApiErrors.VALIDATION_FAILED, problemOr(form.getProblem(), "The advance was not saved."));
+        }
+        final Map<String, Object> out = new LinkedHashMap<>();
+        out.put("id", form.getId());
+        out.put("transactionId", form.getTransactionId());
+        return ok(out);
+    }
 
     private Response savePayment(final String tripId, final String paymentId, final String csrf,
             final Map<String, Object> body) {

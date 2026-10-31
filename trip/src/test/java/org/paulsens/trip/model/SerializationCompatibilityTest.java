@@ -155,6 +155,9 @@ public class SerializationCompatibilityTest {
             of(BudgetViews.LodgingLineForm.class, SerializationCompatibilityTest::lodgingLineForm,
                     BudgetViews.LodgingLineForm::getOfferId),
             of(TripExpenseReport.class, SerializationCompatibilityTest::expenseReport, TripExpenseReport::getTripId),
+            of(AdvanceEntry.class, SerializationCompatibilityTest::advanceEntry, AdvanceEntry::getCurrency),
+            of(ExpenseViews.AdvanceForm.class, SerializationCompatibilityTest::advanceForm,
+                    ExpenseViews.AdvanceForm::getType),
             of(ExpenseLine.class, SerializationCompatibilityTest::expenseLine, ExpenseLine::getDescription),
             of(CurrencyRate.class, () -> CurrencyRate.builder().code("EUR").perUsdMicros(830_000L).build(),
                     CurrencyRate::getPerUsdMicros),
@@ -354,8 +357,7 @@ public class SerializationCompatibilityTest {
 
     private static TripExpenseReport expenseReport() {
         return TripExpenseReport.builder().tripId("trip-rome").orgId("org-acme").submittedBy("Ada Lovelace")
-                .submittedById(ADA).submittedOn(AT).cashAdvanceCents(4_576_500L).cashAdvanceDetails("Check 1001")
-                .paymentInstructions("Zelle")
+                .submittedById(ADA).submittedOn(AT).advances(List.of(advanceEntry())).paymentInstructions("Zelle")
                 .currencies(List.of(CurrencyRate.builder().code("EUR").perUsdMicros(830_000L).build()))
                 .lines(List.of(expenseLine())).payments(List.of(expensePayment())).receiptIds(List.of("receipt-0"))
                 .createdBy(ADA).created(AT).version(3L).build();
@@ -364,7 +366,26 @@ public class SerializationCompatibilityTest {
     private static ExpenseViews.HeaderForm headerForm() {
         final ExpenseViews.HeaderForm form = new ExpenseViews.HeaderForm();
         form.setSubmittedBy("Ada Lovelace");
-        form.setCashAdvance(45_765.0);
+        form.setPaymentInstructions("Zelle");
+        return form;
+    }
+
+    private static AdvanceEntry advanceEntry() {
+        return AdvanceEntry.builder().id("advance-1").type(AdvanceType.PARTICIPANT).date(AT.toLocalDate())
+                .currency("EUR").amountMinor(8_300L).note("handed over in Rome").fields(Map.of("from", "Ada"))
+                .personIds(List.of(ADA.getValue())).transaction(AdvanceEntry.RecordedTransaction.builder()
+                        .txId("tx-1").personId(ADA.getValue()).amountCents(10_000L).recordedOn(AT).build()).build();
+    }
+
+    private static ExpenseViews.AdvanceForm advanceForm() {
+        final ExpenseViews.AdvanceForm form = new ExpenseViews.AdvanceForm();
+        form.setType("PARTICIPANT");
+        form.setAmount(83.0);
+        form.setCurrency("EUR");
+        form.setPersonIds(new ArrayList<>(List.of(ADA.getValue())));
+        form.setRecordTransaction(true);
+        form.setTransactionLine("A payment of $100.00 was recorded for Ada Lovelace on Oct 7, 2026.");
+        form.setTransactionId("tx-1");
         return form;
     }
 

@@ -33,12 +33,12 @@ public final class TripExpenseReport implements Serializable {
     private Person.Id submittedById;
     /** When it was submitted; null while it is a draft. */
     private LocalDateTime submittedOn;
-    private long cashAdvanceCents;
-    private String cashAdvanceDetails;
     private String paymentInstructions;
     /** Who the report was last emailed to (the treasurer), and when; null until it is. */
     private String emailedTo;
     private LocalDateTime emailedOn;
+    /** The cash-advance worksheet, in the order entered; the cash advanced is their signed sum. */
+    private List<AdvanceEntry> advances;
     private List<CurrencyRate> currencies;
     private List<ExpenseLine> lines;
     /** What the treasurer paid against the report, in the order recorded. */
@@ -57,11 +57,10 @@ public final class TripExpenseReport implements Serializable {
             @JsonProperty("submittedBy") final String submittedBy,
             @JsonProperty("submittedById") final Person.Id submittedById,
             @JsonProperty("submittedOn") final LocalDateTime submittedOn,
-            @JsonProperty("cashAdvanceCents") final long cashAdvanceCents,
-            @JsonProperty("cashAdvanceDetails") final String cashAdvanceDetails,
             @JsonProperty("paymentInstructions") final String paymentInstructions,
             @JsonProperty("emailedTo") final String emailedTo,
             @JsonProperty("emailedOn") final LocalDateTime emailedOn,
+            @JsonProperty("advances") final List<AdvanceEntry> advances,
             @JsonProperty("currencies") final List<CurrencyRate> currencies,
             @JsonProperty("lines") final List<ExpenseLine> lines,
             @JsonProperty("payments") final List<ExpensePayment> payments,
@@ -74,11 +73,10 @@ public final class TripExpenseReport implements Serializable {
         this.submittedBy = BudgetLine.trimToNull(submittedBy);
         this.submittedById = submittedById;
         this.submittedOn = submittedOn;
-        this.cashAdvanceCents = Math.max(0L, cashAdvanceCents);
-        this.cashAdvanceDetails = BudgetLine.trimToNull(cashAdvanceDetails);
         this.paymentInstructions = BudgetLine.trimToNull(paymentInstructions);
         this.emailedTo = BudgetLine.trimToNull(emailedTo);
         this.emailedOn = emailedOn;
+        this.advances = (advances == null) ? new ArrayList<>() : new ArrayList<>(advances);
         this.currencies = (currencies == null) ? new ArrayList<>() : new ArrayList<>(currencies);
         this.lines = (lines == null) ? new ArrayList<>() : new ArrayList<>(lines);
         this.payments = (payments == null) ? new ArrayList<>() : new ArrayList<>(payments);
@@ -89,7 +87,7 @@ public final class TripExpenseReport implements Serializable {
     }
 
     public TripExpenseReport() {
-        this(null, null, null, null, null, 0L, null, null, null, null, null, null, null, null, null, null, 0L);
+        this(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0L);
     }
 
     /** The line with this id; null when there is none. */
@@ -100,6 +98,27 @@ public final class TripExpenseReport implements Serializable {
             }
         }
         return null;
+    }
+
+    /** The worksheet entry with this id; null when there is none. */
+    public AdvanceEntry advance(final String id) {
+        for (final AdvanceEntry entry : advances) {
+            if (entry.getId().equals(id)) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
+    /** The worksheet entries in this currency: what a delete of the currency would orphan, with the lines. */
+    public List<AdvanceEntry> advancesUsing(final String code) {
+        final List<AdvanceEntry> out = new ArrayList<>();
+        for (final AdvanceEntry entry : advances) {
+            if (entry.getCurrency().equals(code)) {
+                out.add(entry);
+            }
+        }
+        return out;
     }
 
     /** The rate row for this currency code; null for USD or a code the report does not use. */

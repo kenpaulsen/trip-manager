@@ -26,15 +26,13 @@ public final class ExpenseViews {
 
     // ================================================================== forms (viewScope)
 
-    /** The report's own fields: who it is from, the cash advance, and how to pay it. */
+    /** The report's own fields: who it is from and how to pay it (the cash advanced is the worksheet). */
     @Data
     @NoArgsConstructor
     public static final class HeaderForm implements Serializable {
         @Serial
         private static final long serialVersionUID = 1L;
         private String submittedBy;
-        private Double cashAdvance;
-        private String cashAdvanceDetails;
         private String paymentInstructions;
         /** Why the last save was refused. */
         private String problem;
@@ -104,7 +102,73 @@ public final class ExpenseViews {
         private String problem;
     }
 
+    /**
+     * The cash-advance worksheet dialog, one entry of one {@code AdvanceType}: the type's "who" answer
+     * ({@code party}, or the people picked for a participant entry), the amount as a positive magnitude in
+     * {@code currency} (the type carries the sign; {@code NEW_CURRENCY} adds one as the expense dialog does),
+     * an optional date and a note. {@code recordTransaction} asks for a Payment transaction for the ONE person
+     * picked; {@code transactionLine} reads back the one already recorded.
+     */
+    @Data
+    @NoArgsConstructor
+    public static final class AdvanceForm implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String id;
+        /** An {@code AdvanceType} name. */
+        private String type = "CASH";
+        private LocalDate date;
+        private String currency = "USD";
+        private Double amount;
+        private String party;
+        private List<String> personIds = new ArrayList<>();
+        private boolean recordTransaction;
+        private String note;
+        private String newCode;
+        private Double newRate;
+        /** "A payment of $100.00 was recorded for Ken Paulsen on Oct 30, 2026."; null until one is. */
+        private String transactionLine;
+        /** The id of that transaction; null until one is. */
+        private String transactionId;
+        /** Why the last save was refused, shown inside the dialog. */
+        private String problem;
+
+        /** Whether the dialog shows the new-currency fields. */
+        public boolean isAddingCurrency() {
+            return NEW_CURRENCY.equals(currency);
+        }
+
+        /** Exactly one participant picked: the only case the report records a transaction for. */
+        public boolean isOnePerson() {
+            return personIds != null && personIds.size() == 1;
+        }
+    }
+
     // ================================================================== rows (requestScope)
+
+    /** One line of the cash-advance worksheet, numbered as the page prints it. */
+    @Data
+    @NoArgsConstructor
+    public static final class AdvanceRow implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+        private String id;
+        private int number;
+        private String typeLabel;
+        /** "Sep 20, 2026", or blank for an entry without a date. */
+        private String dateText;
+        /** Who gave it, where it came from, who it went to, or the participants' names. */
+        private String party;
+        /** "500.00 EUR", or "$1,000.00" for a dollar entry. */
+        private String amount;
+        /** Signed: "-$300.00" for money returned. */
+        private String usd;
+        private boolean negative;
+        private boolean rateMissing;
+        private String note;
+        /** The Payment transaction this entry recorded; null when none. */
+        private String transactionLine;
+    }
 
     /** One currency the report uses: its rate both ways, how many lines use it, and their totals. */
     @Data
@@ -230,8 +294,11 @@ public final class ExpenseViews {
         /** "Submitted by Ken Paulsen on Oct 7, 2026"; null while a draft. */
         private String submittedLine;
         private boolean submitted;
+        /** The cash advanced: the worksheet's signed total. */
         private String cashAdvance;
-        private String cashAdvanceDetails;
+        private boolean advanceNegative;
+        private List<AdvanceRow> advanceRows = new ArrayList<>();
+        private int advanceCount;
         private String paymentInstructions;
         private List<CurrencyRow> currencyRows = new ArrayList<>();
         private boolean hasBudget;
@@ -247,7 +314,7 @@ public final class ExpenseViews {
         private boolean hasSettled;
         private String paidByOrg;
         private String reimbursed;
-        /** What the submitter is still out of pocket for: the total less the two above. */
+        /** What the submitter is not yet reimbursed for (out of pocket): the total less the two above. */
         private String outOfPocket;
         /** "Due to CFPW" or "Due to the submitter". */
         private String dueLabel;

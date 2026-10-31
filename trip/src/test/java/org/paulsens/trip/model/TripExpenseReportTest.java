@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import org.paulsens.trip.dynamo.DAO;
 import org.testng.annotations.Test;
 
@@ -28,12 +29,17 @@ public class TripExpenseReportTest {
 
     @Test
     public void theConstructorNormalizes() {
-        final TripExpenseReport report = TripExpenseReport.builder().cashAdvanceCents(-1L).submittedBy("  ")
-                .cashAdvanceDetails(" Wire ").paymentInstructions("").build();
-        assertEquals(report.getCashAdvanceCents(), 0L);
+        final TripExpenseReport report = TripExpenseReport.builder().submittedBy("  ").advances(null)
+                .paymentInstructions("").build();
         assertNull(report.getSubmittedBy());
-        assertEquals(report.getCashAdvanceDetails(), "Wire");
         assertNull(report.getPaymentInstructions());
+        assertTrue(report.getAdvances().isEmpty());
+        assertNull(report.advance("x"));
+        report.getAdvances().add(AdvanceEntry.builder().id("a").type(AdvanceType.CASH).amountMinor(100L).build());
+        report.getAdvances().add(AdvanceEntry.builder().id("b").currency("EUR").amountMinor(100L).build());
+        assertEquals(report.advance("b").getType(), AdvanceType.OTHER);
+        assertEquals(report.advancesUsing("EUR").size(), 1);
+        assertTrue(report.advancesUsing("BAM").isEmpty());
     }
 
     @Test
@@ -95,7 +101,10 @@ public class TripExpenseReportTest {
         final ObjectMapper mapper = DAO.getInstance().getMapper();
         final TripExpenseReport report = TripExpenseReport.builder().tripId("t").orgId("o").submittedBy("Ken")
                 .submittedById(new Person.Id("p")).submittedOn(LocalDateTime.of(2026, 10, 7, 9, 30))
-                .cashAdvanceCents(4_576_500L).cashAdvanceDetails("Check").paymentInstructions("Zelle")
+                .advances(List.of(AdvanceEntry.builder().id("a").type(AdvanceType.CASH).amountMinor(4_576_500L)
+                        .fields(Map.of("from", "CFPW")).transaction(AdvanceEntry.RecordedTransaction.builder()
+                                .txId("tx").personId("p").amountCents(100L).build()).build()))
+                .paymentInstructions("Zelle")
                 .emailedTo("treasurer@example.org")
                 .emailedOn(LocalDateTime.of(2026, 10, 21, 9, 0))
                 .currencies(List.of(CurrencyRate.builder().code("EUR").perUsdMicros(830_000L).build()))

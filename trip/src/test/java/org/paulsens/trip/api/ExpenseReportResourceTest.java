@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.paulsens.trip.action.ExpenseViews;
+import org.paulsens.trip.action.TransactionsCommands;
 import org.paulsens.trip.action.PersonCommands;
 import org.paulsens.trip.action.PhotoUploadBean;
 import org.paulsens.trip.action.PrivilegeCommands;
@@ -26,6 +27,7 @@ import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
@@ -100,7 +102,7 @@ public class ExpenseReportResourceTest extends ResourceTestSupport {
     }
 
     @Test
-    public void aTripManagerEditsButRecordsNoPayment() {
+    public void aTripManagerEditsButRecordsNoPayment() throws IOException {
         final Person.Id manager = Person.Id.newInstance();
         final PrivilegeCommands priv = new PrivilegeCommands();
         assertTrue(priv.savePrivilege(priv.getOrCreate(PrivilegeCommands.TRIP_MGR, trip.getId(), "m")
@@ -112,6 +114,18 @@ public class ExpenseReportResourceTest extends ResourceTestSupport {
                 "amount", 5, "method", "Zelle"));
         assertError(refused, 403, ApiErrors.FORBIDDEN);
         assertTrue(String.valueOf(refused.getEntity()).contains("Finance admin required."));
+        final Person giver = Person.builder().first("Pat").last("Giver").build();
+        assertTrue(DAO.getInstance().savePerson(giver));
+        trip.getPeople().add(giver.getId());
+        assertTrue(DAO.getInstance().saveTrip(trip));
+        final Response given = resource.createAdvance(trip.getId(), CSRF_OK, Map.of("type", "PARTICIPANT",
+                "amount", 40, "personIds", List.of(giver.getId().getValue()), "recordTransaction", true));
+        assertOk(given);
+        assertNull(((Map<?, ?>) given.getEntity()).get("transactionId"), "a manager's tick is ignored");
+        assertTrue(new TransactionsCommands().getTransactions(giver.getId()).isEmpty());
+        final String advanceId = (String) ((Map<?, ?>) given.getEntity()).get("id");
+        assertOk(resource.deleteAdvance(trip.getId(), advanceId, CSRF_OK));
+        assertError(resource.deleteAdvance(trip.getId(), advanceId, null), 403, ApiErrors.CSRF);
     }
 
     @Test
@@ -188,9 +202,20 @@ public class ExpenseReportResourceTest extends ResourceTestSupport {
         final String id = own.getId();
 
         assertError(api.submit(id, CSRF_OK), 400, ApiErrors.VALIDATION_FAILED);
-        assertOk(api.saveHeader(id, CSRF_OK, Map.of("submittedBy", "Ken", "cashAdvance", 45765,
-                "paymentInstructions", "Zelle")));
-        assertError(api.saveHeader(id, CSRF_OK, Map.of("cashAdvance", -1)), 400, ApiErrors.VALIDATION_FAILED);
+        assertOk(api.saveHeader(id, CSRF_OK, Map.of("submittedBy", "Ken", "paymentInstructions", "Zelle")));
+        assertError(api.saveHeader(id, CSRF_OK, Map.of("submittedBy", "n".repeat(121))), 400,
+                ApiErrors.VALIDATION_FAILED);
+        final Response advance = api.createAdvance(id, CSRF_OK, Map.of("type", "CASH", "amount", 45765,
+                "party", "CFPW", "date", "2026-09-19"));
+        final String advanceId = (String) ((Map<?, ?>) advance.getEntity()).get("id");
+        assertNotNull(advanceId);
+        assertNull(((Map<?, ?>) advance.getEntity()).get("transactionId"));
+        assertError(api.createAdvance(id, CSRF_OK, Map.of("type", "CASH", "amount", -1)), 400,
+                ApiErrors.VALIDATION_FAILED);
+        assertError(api.createAdvance(id, CSRF_OK, Map.of("type", "CASH", "amount", 1, "date", "yesterday")), 400,
+                ApiErrors.VALIDATION_FAILED);
+        assertOk(api.updateAdvance(id, advanceId, CSRF_OK, Map.of("type", "CASH", "amount", 45765, "party", "CFPW",
+                "note", "check 1001")));
 
         final Response eur = api.createCurrency(id, CSRF_OK, Map.of("code", "eur", "rate", 0.83));
         assertEquals(((Map<?, ?>) eur.getEntity()).get("code"), "EUR");

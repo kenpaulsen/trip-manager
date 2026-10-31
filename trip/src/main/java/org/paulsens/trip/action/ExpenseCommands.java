@@ -20,6 +20,8 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.BudgetViews.Choice;
+import org.paulsens.trip.action.ExpenseViews.AdvanceForm;
+import org.paulsens.trip.action.ExpenseViews.AdvanceRow;
 import org.paulsens.trip.action.ExpenseViews.BudgetRow;
 import org.paulsens.trip.action.ExpenseViews.CurrencyForm;
 import org.paulsens.trip.action.ExpenseViews.CurrencyRow;
@@ -33,6 +35,9 @@ import org.paulsens.trip.action.ExpenseViews.ReceiptRow;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.model.AdvanceEntry;
+import org.paulsens.trip.model.AdvanceType;
+import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.BudgetLine;
 import org.paulsens.trip.model.BudgetLodgingLine;
 import org.paulsens.trip.model.CurrencyRate;
@@ -44,11 +49,13 @@ import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.ReservationOffer;
+import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripBudget;
 import org.paulsens.trip.model.TripExpenseReport;
 import org.paulsens.trip.pay.BudgetMath;
 import org.paulsens.trip.pay.ExpenseMath;
+import org.paulsens.trip.pay.MoneyMath;
 import org.paulsens.trip.util.EmailAddresses;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
@@ -62,6 +69,7 @@ import static org.paulsens.trip.action.MoneyForms.signedDollarsProblem;
 import static org.paulsens.trip.action.MoneyForms.tooLong;
 import static org.paulsens.trip.action.PageFeedback.info;
 import static org.paulsens.trip.action.PageFeedback.refuse;
+import static org.paulsens.trip.action.PageFeedback.warn;
 
 /**
  * A trip's expense report, exposed to pages as {@code #{expenses}} ({@code docs/expense-report.md}): what was
@@ -73,6 +81,12 @@ import static org.paulsens.trip.action.PageFeedback.refuse;
  * <p>Receipts are stored by {@link ExpenseReceipts}; this bean only links their ids to the report or a line,
  * and asks it to purge the files of a line it deletes. Payments against the report are recorded here too,
  * behind the narrower settle gate (site admin or the trip's finance admins, never a trip manager as such).
+ *
+ * <p>The cash advanced is a WORKSHEET of typed {@link AdvanceEntry}s (cash from the organization, a credit
+ * applied, cash handed over by participants, money returned, other), each in its own currency; the report's
+ * "cash advance" is their signed sum. A participant entry for one person may record a Payment
+ * {@link Transaction} for them, once and only for a finance admin; the ledger is never touched again from here,
+ * a later edit or delete only warns.
  */
 @Slf4j
 @Named("expenses")
@@ -97,7 +111,13 @@ public class ExpenseCommands {
     static final String SHARED = "Shared";
     static final String PER_PERSON = "Per person";
     static final String LODGING = "Lodging";
+    static final int MAX_ADVANCES = 100;
     static final String NO_LINES = "No specific expenses";
+    static final String PARTICIPANT_TX_NOTE = "Cash given during the trip";
+    static final String MANUAL_TX_NOTE = "Record this payment in each person's transactions yourself: the report "
+            + "does not do it for more than one person.";
+    static final String TX_WARNING = "A payment of %s was recorded for %s on %s. If the amount, date or person "
+            + "changed, adjust their transactions by hand.";
     static final String PAID_LINE = "This expense is in a recorded payment: remove it from the payment first.";
     private static final String NOT_ALLOWED =
             "Not allowed: only the trip's managers and finance admins can edit its expense report.";
@@ -108,6 +128,9 @@ public class ExpenseCommands {
 
     private final Supplier<Caller> callerSource;
     private final Supplier<AuditCommands> auditSource;
+    /** The ledger a participant entry records into; plain instances, like every test of the ledger uses. */
+    private final Supplier<TransactionsCommands> txSource = TransactionsCommands::new;
+    private final Supplier<BindingCommands> bindSource = BindingCommands::new;
     private final Supplier<ExpenseReceipts> receiptSource;
     private final TripFinanceGate gate;
     private final Supplier<ConfigCommands> configSource = ConfigCommands::new;
@@ -187,8 +210,7 @@ public class ExpenseCommands {
             page.setSubmittedLine("Submitted by " + nameOr(report.getSubmittedBy(), "(no name)") + " on "
                     + DAY.format(report.getSubmittedOn()));
         }
-        page.setCashAdvance(money(report.getCashAdvanceCents()));
-        page.setCashAdvanceDetails(report.getCashAdvanceDetails());
+        fillAdvances(page, report);
         page.setPaymentInstructions(report.getPaymentInstructions());
         for (final CurrencyRate rate : report.getCurrencies()) {
             page.getCurrencyRows().add(currencyRow(report, rate));
@@ -209,9 +231,69 @@ public class ExpenseCommands {
         return page;
     }
 
+    /** The worksheet, numbered in the order entered, and the cash advanced it adds up to. */
+    private void fillAdvances(final ExpensePage page, final TripExpenseReport report) {
+        final List<AdvanceEntry> entries = report.getAdvances();
+        for (int i = 0; i < entries.size(); i++) {
+            page.getAdvanceRows().add(advanceRow(report, entries.get(i), i + 1));
+        }
+        final long advanced = ExpenseMath.advanced(report);
+        page.setCashAdvance(money(advanced));
+        page.setAdvanceNegative(advanced < 0);
+        page.setAdvanceCount(entries.size());
+    }
+
+    private AdvanceRow advanceRow(final TripExpenseReport report, final AdvanceEntry entry, final int number) {
+        final AdvanceRow row = new AdvanceRow();
+        row.setId(entry.getId());
+        row.setNumber(number);
+        row.setTypeLabel(entry.getType().getLabel());
+        row.setDateText((entry.getDate() == null) ? "" : DAY.format(entry.getDate()));
+        row.setParty((entry.getType() == AdvanceType.PARTICIPANT) ? participantNames(entry) : entry.getParty());
+        row.setAmount(entry.isUsd() ? money(entry.getAmountMinor())
+                : foreign(entry.getAmountMinor(), entry.getCurrency()));
+        final long usd = ExpenseMath.advanceUsd(report, entry);
+        row.setUsd(money(usd));
+        row.setNegative(usd < 0);
+        row.setRateMissing(ExpenseMath.rateMissing(report, entry));
+        row.setNote(entry.getNote());
+        row.setTransactionLine(transactionLine(entry));
+        return row;
+    }
+
+    /** "Ken Paulsen; Trinity Paulsen": the participants who handed over the cash, in the order picked. */
+    private String participantNames(final AdvanceEntry entry) {
+        final List<String> names = new ArrayList<>();
+        for (final String id : entry.getPersonIds()) {
+            names.add(personName(id));
+        }
+        return names.isEmpty() ? null : String.join("; ", names);
+    }
+
+    /** "A payment of $100.00 was recorded for Ken Paulsen on Oct 30, 2026."; null when the entry recorded none. */
+    private String transactionLine(final AdvanceEntry entry) {
+        final AdvanceEntry.RecordedTransaction tx = entry.getTransaction();
+        if (tx == null) {
+            return null;
+        }
+        return "A payment of " + money(tx.getAmountCents()) + " was recorded for " + personName(tx.getPersonId())
+                + ((tx.getRecordedOn() == null) ? "" : " on " + DAY.format(tx.getRecordedOn())) + ".";
+    }
+
+    /** "Ken Paulsen", or "(unknown person)" for an id no longer on file. */
+    private static String personName(final String id) {
+        final Person person = (id == null) ? null
+                : DAO.getInstance().getPerson(Person.Id.from(id), Cached.YES).orElse(null);
+        if (person == null) {
+            return "(unknown person)";
+        }
+        return nameOr(trimToNull((nameOr(person.getPreferredName(), "") + " " + nameOr(person.getLast(), "")).trim()),
+                "(unnamed person)");
+    }
+
     /**
-     * Total spent, the part settled outside the report, and what is due: the advance less what the submitter is
-     * still out of pocket for.
+     * Total spent, the part settled outside the report, and what is due: the cash advanced less what the
+     * submitter is not yet reimbursed for.
      */
     private static void fillTotals(final ExpensePage page, final TripExpenseReport report) {
         final long byOrg = ExpenseMath.settledBy(report, ExpensePaidStatus.ORG);
@@ -366,7 +448,7 @@ public class ExpenseCommands {
         }
     }
 
-    /** The line's chip: "Paid Oct 7" once a payment settles it, else its own paid status (none for Not paid). */
+    /** The line's chip: "Paid Oct 7" once a payment settles it, else its own paid status (none when unreimbursed). */
     private static void paidChip(final ExpenseRow row, final TripExpenseReport report, final ExpenseLine line) {
         final ExpensePayment payment = report.paymentFor(line.getId());
         if (payment != null) {
@@ -401,6 +483,12 @@ public class ExpenseCommands {
         for (final ExpenseLine line : report.getLines()) {
             if (ExpenseMath.rateMissing(report, line) && warned.add(line.getCurrency())) {
                 page.getWarnings().add("The expenses in " + line.getCurrency() + " have no exchange rate and count "
+                        + "$0.00: enter the rate under Currencies.");
+            }
+        }
+        for (final AdvanceEntry entry : report.getAdvances()) {
+            if (ExpenseMath.rateMissing(report, entry) && warned.add(entry.getCurrency())) {
+                page.getWarnings().add("The advances in " + entry.getCurrency() + " have no exchange rate and count "
                         + "$0.00: enter the rate under Currencies.");
             }
         }
@@ -465,8 +553,6 @@ public class ExpenseCommands {
         }
         final TripExpenseReport report = reportOrDefault(trip, Cached.YES);
         form.setSubmittedBy(report.getSubmittedBy());
-        form.setCashAdvance(dollars(report.getCashAdvanceCents()));
-        form.setCashAdvanceDetails(report.getCashAdvanceDetails());
         form.setPaymentInstructions(report.getPaymentInstructions());
         return form;
     }
@@ -565,7 +651,7 @@ public class ExpenseCommands {
 
     /**
      * The expense dialog's Budget line menu: every line of the trip's budget, shared then per person then
-     * lodging, labelled with what it plans for the whole trip ("Shared: Guide ($1,440.00)").
+     * lodging, labeled with what it plans for the whole trip ("Shared: Guide ($1,440.00)").
      */
     public List<Choice> budgetChoices(final String tripId) {
         final List<Choice> choices = new ArrayList<>();
@@ -595,7 +681,7 @@ public class ExpenseCommands {
         return choices;
     }
 
-    /** The Paid status menu: Not paid, Paid by organization, Already reimbursed; value = the enum name. */
+    /** The Paid status menu: Not yet reimbursed, Paid by organization, Already reimbursed; value = the enum name. */
     public List<Choice> paidStatuses() {
         final List<Choice> choices = new ArrayList<>();
         for (final ExpensePaidStatus status : ExpensePaidStatus.values()) {
@@ -651,8 +737,6 @@ public class ExpenseCommands {
         }
         final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
         report.setSubmittedBy(trimToNull(form.getSubmittedBy()));
-        report.setCashAdvanceCents(cents(form.getCashAdvance()));
-        report.setCashAdvanceDetails(trimToNull(form.getCashAdvanceDetails()));
         report.setPaymentInstructions(trimToNull(form.getPaymentInstructions()));
         if (!persist(trip, report, refusal, "saved the details", "Expense report saved.")) {
             return false;
@@ -672,17 +756,9 @@ public class ExpenseCommands {
     }
 
     private static String headerProblem(final HeaderForm form) {
-        final String advance = dollarsProblem("The cash advance", form.getCashAdvance());
-        if (advance != null) {
-            return advance;
-        }
         final String name = tooLong("The name", form.getSubmittedBy(), MAX_NAME);
         if (name != null) {
             return name;
-        }
-        final String details = tooLong("How the cash was advanced", form.getCashAdvanceDetails(), MAX_TEXT);
-        if (details != null) {
-            return details;
         }
         return tooLong("The payment instructions", form.getPaymentInstructions(), MAX_TEXT);
     }
@@ -799,6 +875,11 @@ public class ExpenseCommands {
             return refuse(using + ((using == 1) ? " expense is" : " expenses are") + " in " + code
                     + ": change or delete " + ((using == 1) ? "it" : "them") + " first.");
         }
+        final int advances = report.advancesUsing(code).size();
+        if (advances > 0) {
+            return refuse(advances + ((advances == 1) ? " advance is" : " advances are") + " in " + code
+                    + " on the worksheet: change or delete " + ((advances == 1) ? "it" : "them") + " first.");
+        }
         report.getCurrencies().remove(rate);
         return persist(trip, report, PageFeedback::refuse, "removed " + code, "Currency removed.");
     }
@@ -867,7 +948,7 @@ public class ExpenseCommands {
         return true;
     }
 
-    /** The form's paid status; Not paid when it names none. */
+    /** The form's paid status; Not yet reimbursed when it names none. */
     private static ExpensePaidStatus paidStatusOf(final ExpenseForm form) {
         final ExpensePaidStatus status = parse(ExpensePaidStatus.class, form.getPaidStatus());
         return (status == null) ? ExpensePaidStatus.NOT_PAID : status;
@@ -901,19 +982,26 @@ public class ExpenseCommands {
      */
     private static String currencyFor(final TripExpenseReport report, final ExpenseForm form,
             final Consumer<String> refusal) {
-        if (!form.isAddingCurrency()) {
-            final String code = CurrencyRate.normalizeCode(form.getCurrency());
+        return currencyFor(report, form.isAddingCurrency(), form.getCurrency(), form.getNewCode(), form.getNewRate(),
+                refusal);
+    }
+
+    /** {@link #currencyFor(TripExpenseReport, ExpenseForm, Consumer)} for any dialog with the currency fields. */
+    private static String currencyFor(final TripExpenseReport report, final boolean adding, final String currency,
+            final String newCode, final Double newRate, final Consumer<String> refusal) {
+        if (!adding) {
+            final String code = CurrencyRate.normalizeCode(currency);
             if (code == null || (!ExpenseLine.USD.equals(code) && report.currency(code) == null)) {
                 refusal.accept("Choose a currency the report has, or add one.");
                 return null;
             }
             return code;
         }
-        final String code = CurrencyRate.normalizeCode(form.getNewCode());
+        final String code = CurrencyRate.normalizeCode(newCode);
         if (code != null && (ExpenseLine.USD.equals(code) || report.currency(code) != null)) {
             return code;
         }
-        final String problem = currencyProblem(code, form.getNewRate(), null);
+        final String problem = currencyProblem(code, newRate, null);
         if (problem != null) {
             refusal.accept(problem);
             return null;
@@ -922,7 +1010,7 @@ public class ExpenseCommands {
             refusal.accept("A report holds at most " + MAX_CURRENCIES + " currencies.");
             return null;
         }
-        report.getCurrencies().add(CurrencyRate.builder().code(code).perUsdMicros(micros(form.getNewRate())).build());
+        report.getCurrencies().add(CurrencyRate.builder().code(code).perUsdMicros(micros(newRate)).build());
         return code;
     }
 
@@ -1286,7 +1374,7 @@ public class ExpenseCommands {
             html.append("<br/>Paid by organization: ").append(esc(page.getPaidByOrg()))
                     .append("<br/>Already reimbursed: ").append(esc(page.getReimbursed()));
         }
-        html.append("<br/>Cash advance: ").append(esc(page.getCashAdvance())).append("<br/><b>")
+        html.append("<br/>Cash advanced: ").append(esc(page.getCashAdvance())).append("<br/><b>")
                 .append(esc(page.getDueLabel())).append(": ").append(esc(page.getDue())).append("</b>");
         if (!page.getPaymentRows().isEmpty()) {
             html.append("<br/>Payments recorded: ").append(esc(page.getPaymentsTotal())).append("<br/><b>")
@@ -1367,6 +1455,294 @@ public class ExpenseCommands {
             line.getReceiptIds().remove(mediaId);
         }
         return persist(trip, report, refusal, "removed a receipt", null);
+    }
+
+    // ================================================================== cash-advance worksheet
+
+    /** The worksheet types in menu order; value = the enum name. */
+    public List<Choice> advanceTypes() {
+        final List<Choice> choices = new ArrayList<>();
+        for (final AdvanceType type : AdvanceType.values()) {
+            choices.add(choice(type.name(), type.getLabel()));
+        }
+        return choices;
+    }
+
+    /** The dialog's title for a type name; "Advance" for an unknown one. */
+    public String typeLabel(final String type) {
+        final AdvanceType parsed = parse(AdvanceType.class, type);
+        return (parsed == null) ? "Advance" : parsed.getLabel();
+    }
+
+    /** The question above the type's "who" field; null for a type without one. */
+    public String partyLabel(final String type) {
+        final AdvanceType parsed = parse(AdvanceType.class, type);
+        if (parsed == null) {
+            return null;
+        }
+        return switch (parsed) {
+            case CASH -> "Who gave the advance?";
+            case CREDIT -> "Who or where did this credit come from?";
+            case RETURNED -> "Who did you give the money to?";
+            default -> null;
+        };
+    }
+
+    /** The help text the dialog shows for a type; empty for an unknown one. */
+    public String typeHelp(final String type) {
+        final AdvanceType parsed = parse(AdvanceType.class, type);
+        if (parsed == null) {
+            return "";
+        }
+        return switch (parsed) {
+            case CASH -> "Cash the organization (usually) gave you before or during the trip.";
+            case CREDIT -> "For example money carried over from a previous trip, or the cash value of an item given "
+                    + "as payment.";
+            case PARTICIPANT -> "Pick who handed you cash.";
+            case RETURNED -> "Usually the organization, but it may be a person. This is subtracted from the total "
+                    + "advanced. Tell your treasurer where the money went.";
+            case OTHER -> "Explain this advance clearly in the note. Use one of the other types when it fits.";
+        };
+    }
+
+    /** The trip's participants for the picker, "Last, Preferred", sorted; value = the person id. */
+    public List<Choice> participantChoices(final String tripId) {
+        final List<Choice> choices = new ArrayList<>();
+        final Trip trip = gate.knownTrip(tripId);
+        if (trip == null || !canViewExpenses(tripId)) {
+            return choices;
+        }
+        for (final Person.Id id : trip.getPeople()) {
+            final Person person = (id == null) ? null : DAO.getInstance().getPerson(id, Cached.YES).orElse(null);
+            if (person != null) {
+                choices.add(choice(id.getValue(),
+                        nameOr(person.getLast(), "") + ", " + nameOr(person.getPreferredName(), "")));
+            }
+        }
+        choices.sort((a, b) -> a.getLabel().compareToIgnoreCase(b.getLabel()));
+        return choices;
+    }
+
+    /** A fresh entry of this type: dollars, no date, the organization's name prefilled where it usually is. */
+    public AdvanceForm newAdvanceForm(final String tripId, final String type) {
+        final AdvanceForm form = new AdvanceForm();
+        final AdvanceType parsed = parse(AdvanceType.class, type);
+        form.setType((parsed == null) ? AdvanceType.OTHER.name() : parsed.name());
+        final Trip trip = gate.knownTrip(tripId);
+        if (trip != null && (parsed == AdvanceType.CASH || parsed == AdvanceType.RETURNED)) {
+            form.setParty(orgName(trip));
+        }
+        return form;
+    }
+
+    /** The entry with this id as a form; a blank form when there is none or the caller may not view. */
+    public AdvanceForm advanceFormFor(final String tripId, final String advanceId) {
+        final Trip trip = gate.knownTrip(tripId);
+        if (trip == null || !canViewExpenses(tripId)) {
+            return new AdvanceForm();
+        }
+        final AdvanceEntry entry = reportOrDefault(trip, Cached.YES).advance(advanceId);
+        return (entry == null) ? new AdvanceForm() : advanceForm(entry);
+    }
+
+    private AdvanceForm advanceForm(final AdvanceEntry entry) {
+        final AdvanceForm form = new AdvanceForm();
+        form.setId(entry.getId());
+        form.setType(entry.getType().name());
+        form.setDate(entry.getDate());
+        form.setCurrency(entry.getCurrency());
+        form.setAmount(dollars(entry.getAmountMinor()));
+        form.setParty(entry.getParty());
+        form.setPersonIds(new ArrayList<>(entry.getPersonIds()));
+        form.setNote(entry.getNote());
+        form.setTransactionLine(transactionLine(entry));
+        form.setTransactionId((entry.getTransaction() == null) ? null : entry.getTransaction().getTxId());
+        return form;
+    }
+
+    /** Every worksheet entry as a form (the REST GET). */
+    public List<AdvanceForm> advanceFormsFor(final String tripId) {
+        final List<AdvanceForm> forms = new ArrayList<>();
+        final Trip trip = gate.knownTrip(tripId);
+        if (trip == null || !canViewExpenses(tripId)) {
+            return forms;
+        }
+        for (final AdvanceEntry entry : reportOrDefault(trip, Cached.YES).getAdvances()) {
+            forms.add(advanceForm(entry));
+        }
+        return forms;
+    }
+
+    /**
+     * Adds an entry (blank {@code form.id}) or edits one; refusals land on {@code form.problem}, a new entry's id
+     * on {@code form.id}. When a finance admin ticks {@code recordTransaction} on a participant entry for ONE
+     * person that has recorded none yet, a Payment transaction is recorded for them after the save (see
+     * {@link #recordParticipantPayment}); the tick is ignored for everyone else. Editing an entry that recorded
+     * one warns that the ledger is not updated.
+     */
+    public boolean saveAdvance(final String tripId, final AdvanceForm form) {
+        final Consumer<String> refusal = (form == null) ? PageFeedback::refuse : form::setProblem;
+        final Trip trip = gate.editableTrip(tripId, form, refusal, NOT_ALLOWED);
+        if (trip == null) {
+            return false;
+        }
+        final AdvanceType type = parse(AdvanceType.class, form.getType());
+        final String problem = advanceProblem(trip, type, form);
+        if (problem != null) {
+            return refused(refusal, problem);
+        }
+        final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
+        final boolean adding = form.getId() == null || form.getId().isBlank();
+        final AdvanceEntry existing = adding ? null : report.advance(form.getId());
+        if (!adding && existing == null) {
+            return refused(refusal, "This advance no longer exists: reload the page.");
+        }
+        if (adding && report.getAdvances().size() >= MAX_ADVANCES) {
+            return refused(refusal, "A worksheet holds at most " + MAX_ADVANCES + " advances.");
+        }
+        final String currency = currencyFor(report, form.isAddingCurrency(), form.getCurrency(), form.getNewCode(),
+                form.getNewRate(), refusal);
+        if (currency == null) {
+            return false;
+        }
+        final AdvanceEntry entry = AdvanceEntry.builder().id(adding ? null : existing.getId()).type(type)
+                .date(form.getDate()).currency(currency).amountMinor(cents(form.getAmount())).note(form.getNote())
+                .fields(advanceFields(type, form))
+                .personIds((type == AdvanceType.PARTICIPANT) ? distinct(form.getPersonIds()) : List.of())
+                .transaction(adding ? null : existing.getTransaction()).build();
+        if (adding) {
+            report.getAdvances().add(entry);
+        } else {
+            report.getAdvances().set(report.getAdvances().indexOf(existing), entry);
+        }
+        final String what = (adding ? "added" : "edited") + " the " + type.getLabel() + " of "
+                + money(Math.abs(ExpenseMath.advanceUsd(report, entry))) + " on the cash-advance worksheet";
+        if (!persist(trip, report, refusal, what, "Advance saved.")) {
+            return false;
+        }
+        if (entry.getTransaction() != null) {
+            warnRecorded(entry);
+        } else if (form.isRecordTransaction() && type == AdvanceType.PARTICIPANT && entry.getPersonIds().size() == 1
+                && canRecordPayments(tripId)) {
+            recordParticipantPayment(trip, report, entry);
+        }
+        form.setId(entry.getId());
+        form.setCurrency(currency);
+        form.setPersonIds(new ArrayList<>(entry.getPersonIds()));
+        form.setNewCode(null);
+        form.setNewRate(null);
+        form.setRecordTransaction(false);
+        form.setTransactionLine(transactionLine(entry));
+        form.setTransactionId((entry.getTransaction() == null) ? null : entry.getTransaction().getTxId());
+        form.setProblem(null);
+        return true;
+    }
+
+    /** The type's "who" answer under its key; nothing for a type that asks none. */
+    private static Map<String, String> advanceFields(final AdvanceType type, final AdvanceForm form) {
+        final Map<String, String> fields = new HashMap<>();
+        if (type.partyKey() != null && trimToNull(form.getParty()) != null) {
+            fields.put(type.partyKey(), form.getParty().trim());
+        }
+        return fields;
+    }
+
+    private static String advanceProblem(final Trip trip, final AdvanceType type, final AdvanceForm form) {
+        if (type == null) {
+            return "Pick what kind of advance this is.";
+        }
+        if (form.getAmount() == null) {
+            return "Enter the amount.";
+        }
+        final String amount = dollarsProblem("The amount", form.getAmount());
+        if (amount != null) {
+            return amount;
+        }
+        if (cents(form.getAmount()) > MAX_AMOUNT_MINOR) {
+            return "The amount is too large.";
+        }
+        final String party = tooLong("The answer", form.getParty(), MAX_DESCRIPTION);
+        if (party != null) {
+            return party;
+        }
+        if (type == AdvanceType.PARTICIPANT) {
+            final List<String> ids = distinct(form.getPersonIds());
+            if (ids.isEmpty()) {
+                return "Pick who handed you the cash.";
+            }
+            for (final String id : ids) {
+                if (!trip.getPeople().contains(Person.Id.from(id))) {
+                    return personName(id) + " is not on this trip: reload the page.";
+                }
+            }
+        }
+        return tooLong("The note", form.getNote(), MAX_TEXT);
+    }
+
+    /**
+     * Records the Payment transaction for a participant entry's one person: the USD figure at today's rate,
+     * dated the entry's date (today when it has none), bound to the trip and audited like the Transactions
+     * page does, then stamped on the entry with a second put so it is never recorded twice. The ledger write
+     * comes AFTER the worksheet save on purpose: an entry always exists before money is recorded against it.
+     */
+    private void recordParticipantPayment(final Trip trip, final TripExpenseReport report, final AdvanceEntry entry) {
+        final Person.Id personId = Person.Id.from(entry.getPersonIds().get(0));
+        final long cents = ExpenseMath.advanceUsd(report, entry);
+        final LocalDateTime when = (entry.getDate() == null) ? LocalDateTime.now() : entry.getDate().atStartOfDay();
+        final Transaction tx = new Transaction(null, personId, null, Transaction.Type.Tx,
+                Transaction.TransactionType.Payment, when, MoneyMath.toFloatDollars(cents), "Payment",
+                PARTICIPANT_TX_NOTE);
+        if (!txSource.get().saveTransaction(tx, trip.getId())) {
+            warn("The advance was saved, but the payment transaction could not be recorded. Record it by hand.");
+            return;
+        }
+        final BindingCommands bind = bindSource.get();
+        bind.setBindings(bind.key(personId.getValue(), tx.getTxId()), BindingType.TRANSACTION, BindingType.TRIP,
+                List.of(trip.getId()), true);
+        final Person person = DAO.getInstance().getPerson(personId, Cached.YES).orElse(null);
+        auditSource.get().transaction(person, tx, caller().auditActor());
+        entry.setTransaction(AdvanceEntry.RecordedTransaction.builder().txId(tx.getTxId())
+                .personId(personId.getValue()).amountCents(cents).recordedOn(LocalDateTime.now()).build());
+        final String name = personName(personId.getValue());
+        if (!persist(trip, report, ExpenseCommands::stampFailed, "recorded a " + money(cents) + " payment for " + name,
+                null)) {
+            return;
+        }
+        info("Payment of " + money(cents) + " recorded for " + name + ".");
+    }
+
+    private static void stampFailed(final String reason) {
+        warn("The payment was recorded, but the report could not note it (" + reason + ") Reload the page.");
+    }
+
+    /** The edit/delete warning for an entry that recorded a transaction: the ledger is not updated from here. */
+    private void warnRecorded(final AdvanceEntry entry) {
+        final AdvanceEntry.RecordedTransaction tx = entry.getTransaction();
+        warn(String.format(TX_WARNING, money(tx.getAmountCents()), personName(tx.getPersonId()),
+                (tx.getRecordedOn() == null) ? "an earlier date" : DAY.format(tx.getRecordedOn())));
+    }
+
+    /** Deletes a worksheet entry; one that recorded a transaction leaves it in the ledger and warns. */
+    public boolean deleteAdvance(final String tripId, final String advanceId) {
+        final Trip trip = gate.editableTrip(tripId, advanceId, PageFeedback::refuse, NOT_ALLOWED);
+        if (trip == null) {
+            return false;
+        }
+        final TripExpenseReport report = reportOrDefault(trip, Cached.NO);
+        final AdvanceEntry entry = report.advance(advanceId);
+        if (entry == null) {
+            return true;
+        }
+        report.getAdvances().remove(entry);
+        final String what = "deleted the " + entry.getType().getLabel() + " of "
+                + money(Math.abs(ExpenseMath.advanceUsd(report, entry))) + " from the cash-advance worksheet";
+        if (!persist(trip, report, PageFeedback::refuse, what, "Advance deleted.")) {
+            return false;
+        }
+        if (entry.getTransaction() != null) {
+            warnRecorded(entry);
+        }
+        return true;
     }
 
     // ================================================================== write plumbing
