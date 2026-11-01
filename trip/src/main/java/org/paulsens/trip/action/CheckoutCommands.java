@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.checkout.CheckoutCapacity;
@@ -24,6 +25,8 @@ import org.paulsens.trip.checkout.CheckoutValidator;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.AgeBand;
 import org.paulsens.trip.model.CheckoutConfig;
+import org.paulsens.trip.model.Concession;
+import org.paulsens.trip.model.DiscountCode;
 import org.paulsens.trip.model.FeesPaidBy;
 import org.paulsens.trip.model.OptionChoice;
 import org.paulsens.trip.model.Payment;
@@ -634,5 +637,340 @@ public class CheckoutCommands {
         return DAO.getInstance().getPerson(personId, Cached.YES)
                 .map(person -> person.getPreferredName() + " " + person.getLast())
                 .orElse(personId.getValue());
+    }
+
+    // ================================================================== page view helpers
+    //
+    // EL-friendly views for trip/joinTrip.xhtml, WEB-INF/regOptionsDialog.xhtml and admin/tripRegistrations.xhtml.
+    // No flow logic: each one reads, formats, or (for the pricing editor) adds and removes a row of the trip
+    // editor's DRAFT, which nothing persists until the trip page's Save.
+
+    /** The draft's attestation key for one person's choice ({@link RegistrationDraft#attestKey}). */
+    public String attestKey(final String personId, final String choiceId) {
+        return RegistrationDraft.attestKey(personId, choiceId);
+    }
+
+    /** The choices of {@code question} picked in {@code answers} that require an attestation, in pick order. */
+    public List<OptionChoice> attestationsFor(final RegistrationOption question, final Map<String, String> answers) {
+        final List<OptionChoice> picked = new ArrayList<>();
+        if (question == null || answers == null || !question.isChoiceType()) {
+            return picked;
+        }
+        for (final String choiceId : question.choiceIdsOf(answers.get(question.getKey()))) {
+            final OptionChoice choice = question.choice(choiceId);
+            if (choice != null && choice.isAttestationRequired()) {
+                picked.add(choice);
+            }
+        }
+        return picked;
+    }
+
+    /** {@code $1,234.56}, for EL. */
+    public String formatCents(final long cents) {
+        return MoneyMath.formatCents(cents);
+    }
+
+    /** One breakdown line as a page shows it: the price of a base or add-on, a signed change otherwise. */
+    public record LineView(String label, String amount, String kind) implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+    }
+
+    /** The ordered lines of a breakdown, ready to print; empty for none. */
+    public List<LineView> breakdownLines(final PriceBreakdown breakdown) {
+        final List<LineView> lines = new ArrayList<>();
+        if (breakdown != null) {
+            breakdown.getLines().forEach(line -> lines.add(lineView(line)));
+        }
+        return lines;
+    }
+
+    private static LineView lineView(final PriceBreakdown.Line line) {
+        final long delta = line.getDeltaCents();
+        final String amount = switch (line.getKind()) {
+            case BASE, ADD_ON -> MoneyMath.formatCents(delta);
+            case NOTE -> "";
+            default -> delta < 0 ? "-" + MoneyMath.formatCents(-delta) : "+" + MoneyMath.formatCents(delta);
+        };
+        return new LineView(line.getLabel(), amount, line.getKind().name());
+    }
+
+    /**
+     * Who pays when the page's SUBJECT is registered: the subject when the caller administers registration (an
+     * admin registering on someone's behalf), else the caller (a family manager acting for a member still pays
+     * as themselves; {@link #start} refuses any other payer).
+     */
+    public Person.Id payerFor(final Trip trip, final Person.Id subjectId) {
+        return canAdminister(trip) && subjectId != null ? subjectId : callerSource.get().personId();
+    }
+
+    /** The ids of the people selected in {@code draft}, in party order: what a result panel lists afterwards. */
+    public List<String> selectedIds(final RegistrationDraft draft, final List<Person> party) {
+        final List<String> ids = new ArrayList<>();
+        if (draft == null || party == null) {
+            return ids;
+        }
+        for (final Person person : party) {
+            final String pid = person.getId().getValue();
+            if (Boolean.TRUE.equals(draft.getSel().get(pid))) {
+                ids.add(pid);
+            }
+        }
+        return ids;
+    }
+
+    /**
+     * The person ids a checkout payment registers, for its result panel; empty unless the caller may finish the
+     * payment (its payer, a site admin, or the trip's registration admin) or it is not a checkout.
+     */
+    public List<String> partyIdsOf(final String paymentId) {
+        final Payment payment = paymentId == null ? null : DAO.getInstance().getPayment(paymentId).orElse(null);
+        if (payment == null || !payment.hasCheckout()) {
+            return new ArrayList<>();
+        }
+        final Caller caller = callerSource.get();
+        final boolean mine = payment.getPayerId() != null && payment.getPayerId().equals(caller.personId());
+        if (!mine && !caller.isSiteAdmin() && !caller.has(PrivilegeCommands.REGISTRATION_ADMIN, payment.getTripId())) {
+            return new ArrayList<>();
+        }
+        return payment.getCheckout().getRows().stream().map(row -> row.getUserId().getValue())
+                .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    /** One registered person on a checkout's result panel. */
+    public record ResultRow(String personId, String name, String registrationType, String price, String status,
+            String ticketCode) implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+    }
+
+    /**
+     * The stored registrations of {@code personIds} on {@code trip}, read fresh: the result panel after a
+     * checkout. A person the caller may neither register nor administer is left out.
+     */
+    public List<ResultRow> resultRows(final Trip trip, final List<String> personIds) {
+        final List<ResultRow> rows = new ArrayList<>();
+        if (trip == null || personIds == null) {
+            return rows;
+        }
+        final boolean admin = canAdminister(trip);
+        final RegistrationCommands regs = new RegistrationCommands(callerSource);
+        for (final String pid : personIds) {
+            final Person person = DAO.getInstance().getPerson(Person.Id.from(pid), Cached.YES).orElse(null);
+            if (person != null && (admin || regs.canRegister(person))) {
+                rows.add(resultRow(trip, person));
+            }
+        }
+        return rows;
+    }
+
+    private static ResultRow resultRow(final Trip trip, final Person person) {
+        final Registration reg = DAO.getInstance().getRegistration(trip.getId(), person.getId(), Cached.NO)
+                .orElse(null);
+        final String name = person.getPreferredName() + " " + person.getLast();
+        if (reg == null) {
+            return new ResultRow(person.getId().getValue(), name, "", "", "Not Registered", "");
+        }
+        return new ResultRow(person.getId().getValue(), name, blank(reg.getRegistrationType()),
+                reg.getPriceBreakdown() == null ? "" : MoneyMath.formatCents(reg.getPriceBreakdown().getTotalCents()),
+                reg.getStatus().getDescription(), blank(reg.getTicketCode()));
+    }
+
+    private static String blank(final String text) {
+        return text == null ? "" : text;
+    }
+
+    // ------------------------------------------------------------------ the trip editor's Pricing fieldset
+
+    /** What is wrong with the trip's checkout policy as the editor left it; empty when it may be saved. */
+    public List<String> configProblems(final Trip trip) {
+        return trip == null ? List.of() : trip.getCheckout().problems();
+    }
+
+    /**
+     * The Pricing fieldset's Done: growls every problem and publishes {@code pricingOk} so the dialog stays open
+     * on a refusal (closing on a growl reads as "saved anyway"). Answers whether the policy is acceptable.
+     */
+    public boolean acceptConfig(final Trip trip) {
+        final List<String> problems = configProblems(trip);
+        problems.forEach(PageFeedback::warn);
+        PageFeedback.callbackParam("pricingOk", problems.isEmpty());
+        return problems.isEmpty();
+    }
+
+    /** The adjustments an age band or a code may make (lodging's per-night kind has no meaning here). */
+    public List<Concession.Kind> getConcessionKinds() {
+        return List.of(Concession.Kind.PERCENT,
+                Concession.Kind.TOTAL,
+                Concession.Kind.FIXED_PRICE,
+                Concession.Kind.COMPLIMENTARY);
+    }
+
+    /** The menu label of a concession kind. */
+    public String kindLabel(final Concession.Kind kind) {
+        if (kind == null) {
+            return "";
+        }
+        return switch (kind) {
+            case PERCENT -> "% off";
+            case TOTAL -> "$ off";
+            case FIXED_PRICE -> "At most $";
+            case COMPLIMENTARY -> "Free";
+            case PER_NIGHT -> "$ off per night";
+        };
+    }
+
+    /**
+     * The editor's ONE "$ or %" cell for a concession: a percentage for PERCENT, dollars otherwise. Kind is
+     * decoded before amount (column order), so the write lands in the field the new kind reads.
+     */
+    public ConcessionAmount amountOf(final Concession concession) {
+        return new ConcessionAmount(concession);
+    }
+
+    /** The bindable adapter behind {@link #amountOf}. */
+    public static final class ConcessionAmount {
+        private final Concession concession;
+
+        ConcessionAmount(final Concession concession) {
+            this.concession = concession;
+        }
+
+        public Double getValue() {
+            if (concession == null) {
+                return null;
+            }
+            return concession.getKind() == Concession.Kind.PERCENT
+                    ? concession.getPercentBps() / 100.0 : concession.getAmountCents() / 100.0;
+        }
+
+        public void setValue(final Double value) {
+            if (concession == null) {
+                return;
+            }
+            final long hundredths = (value == null || value < 0) ? 0L : Math.round(value * 100);
+            if (concession.getKind() == Concession.Kind.PERCENT) {
+                concession.setPercentBps((int) Math.min(10_000L, hundredths));
+            } else {
+                concession.setAmountCents(hundredths);
+            }
+        }
+    }
+
+    /** A priced choice as the code editor's "valid for" menu lists it. */
+    public record ChoiceItem(String id, String label) implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+    }
+
+    /** Every priced choice of the trip's pick-one and pick-any questions, labelled "Question: Choice". */
+    public List<ChoiceItem> pricedChoices(final Trip trip) {
+        final List<ChoiceItem> items = new ArrayList<>();
+        if (trip == null) {
+            return items;
+        }
+        for (final RegistrationOption question : trip.getRegOptions()) {
+            for (final OptionChoice choice : question.getChoices()) {
+                if (question.isChoiceType() && choice.isPriced()) {
+                    items.add(new ChoiceItem(choice.getId(), question.getShortDesc() + ": " + choice.getLabel()));
+                }
+            }
+        }
+        return items;
+    }
+
+    /**
+     * A row's identity in the editor's tables, baked into its remove button at render: the draft is ONE heap
+     * instance for the whole edit (TripEditDrafts), so the object a render saw is the object the click finds,
+     * whatever the rows' positions by then. Age bands have no id of their own, and a new code no code yet.
+     */
+    public String rowKey(final Object row) {
+        return row == null ? "" : Integer.toHexString(System.identityHashCode(row));
+    }
+
+    /** Appends an empty age band to the draft's policy. */
+    public void addBand(final Trip trip) {
+        if (trip != null) {
+            trip.getCheckout().getAgeBands().add(new AgeBand());
+        }
+    }
+
+    /** Removes the draft's age band whose {@link #rowKey} is {@code key}; answers whether one went. */
+    public boolean removeBand(final Trip trip, final String key) {
+        return trip != null && key != null
+                && trip.getCheckout().getAgeBands().removeIf(band -> key.equals(rowKey(band)));
+    }
+
+    /** Appends an empty discount code to the draft's policy. */
+    public void addCode(final Trip trip) {
+        if (trip != null) {
+            trip.getCheckout().getCodes().add(new DiscountCode());
+        }
+    }
+
+    /** Removes the draft's discount code whose {@link #rowKey} is {@code key}; answers whether one went. */
+    public boolean removeCode(final Trip trip, final String key) {
+        return trip != null && key != null
+                && trip.getCheckout().getCodes().removeIf(code -> key.equals(rowKey(code)));
+    }
+
+    // ------------------------------------------------------------------ the Registrations tab
+
+    /** The registration type of a row ("Full weekend"), or "". */
+    public String typeOf(final List<Registration> regs, final String userId) {
+        final Registration reg = new RegistrationCommands(callerSource).rowRegistration(regs, userId);
+        return reg == null ? "" : blank(reg.getRegistrationType());
+    }
+
+    /** What a row's checkout charged (its stored price) when a payment registered it, or "". */
+    public String paidText(final List<Registration> regs, final String userId) {
+        final Registration reg = new RegistrationCommands(callerSource).rowRegistration(regs, userId);
+        if (reg == null || reg.getPaymentId() == null) {
+            return "";
+        }
+        return reg.getPriceBreakdown() == null ? "paid"
+                : MoneyMath.formatCents(reg.getPriceBreakdown().getTotalCents());
+    }
+
+    /** Everything the Registrations tab's "details" dialog explains about one row's price. */
+    public record RegDetails(String name, String registrationType, Integer ageAtStart, LocalDate birthdate,
+            List<String> choices, String code, List<String> attestations, List<LineView> lines, String total,
+            String paymentId, String ticketCode) implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
+    }
+
+    /** The details of {@code userId}'s registration in {@code regs}, or null when there is none. */
+    public RegDetails details(final Trip trip, final List<Registration> regs, final String userId) {
+        final Registration reg = new RegistrationCommands(callerSource).rowRegistration(regs, userId);
+        if (trip == null || reg == null) {
+            return null;
+        }
+        final Person person = DAO.getInstance().getPerson(reg.getUserId(), Cached.YES).orElse(null);
+        final PriceBreakdown breakdown = reg.getPriceBreakdown();
+        final PriceBreakdown.Inputs inputs = breakdown == null ? null : breakdown.getInputs();
+        final List<String> choices = new ArrayList<>();
+        if (inputs != null) {
+            inputs.getChoiceIds().forEach(id -> choices.add(choiceLabelOf(trip, id)));
+        }
+        final List<String> attestations = new ArrayList<>();
+        reg.getAttestations().forEach((id, text) -> attestations.add(choiceLabelOf(trip, id) + ": " + text));
+        return new RegDetails(person == null ? userId : person.getPreferredName() + " " + person.getLast(),
+                blank(reg.getRegistrationType()), inputs == null ? null : inputs.getAgeAtStart(),
+                person == null ? null : person.getBirthdate(), choices,
+                inputs == null ? "" : blank(inputs.getCodeText()), attestations, breakdownLines(breakdown),
+                breakdown == null ? "" : MoneyMath.formatCents(breakdown.getTotalCents()), blank(reg.getPaymentId()),
+                blank(reg.getTicketCode()));
+    }
+
+    /** A choice id's label on this trip, or the id itself when no question offers it any more. */
+    private static String choiceLabelOf(final Trip trip, final String choiceId) {
+        for (final RegistrationOption question : trip.getRegOptions()) {
+            final OptionChoice choice = question.choice(choiceId);
+            if (choice != null) {
+                return choice.getLabel();
+            }
+        }
+        return choiceId;
     }
 }
