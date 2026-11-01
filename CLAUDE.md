@@ -203,7 +203,12 @@ before touching pricing or a checkout payment): the pure engine in `checkout/` (
 the typed questions), bean `checkout` (`CheckoutCommands`), PAY-FIRST: the party rides the `Payment` as a
 `PendingParty` and `PaymentCommands.recordNow` writes it via `finalizeParty`; `ProcessorType.OFFLINE` for checks,
 cash, comps and $0 parties; `pay/Bills` is the one deterministic Bill writer (lodging and checkout).
-`Payment.hasCheckout()` must never become a bean getter (`docs/checkout.md`, "Idempotency").
+`Payment.hasCheckout()` must never become a bean getter (`docs/checkout.md`, "Idempotency"). Tickets and check-in
+(`docs/checkin.md`, required reading before touching them): ONE bean, `CheckinCommands` (`#{checkin}`), behind the
+anonymous TRANSIENT ticket page (`trip/ticket.jsf`, inline SVG QR from `util/TicketQr`, never `p:barcode`), the
+staff check-in page, the batch badges, the export rows and the four check-in endpoints on `RegistrationsResource`;
+a registration's type and days come from the trip's type question (`RegistrationOption.typeQuestion`), a person's
+money is `tripBalance` (rows bound to THAT trip only, never `getBalance`), and listings never carry a ticket.
 
 `Person.privacy` (`PrivacySettings`) holds the owner's field-visibility choices; `PersonDto.redactedFor`
 (REST) and `PrivacyView` (pages) are the two enforcement points — read `docs/privacy-settings.md` before
@@ -265,7 +270,9 @@ gate), `savePlan` fans the cost out to every linked option and never recomputes 
 on the trip side creates the option WITH its own participant price, `detach` cuts it loose; see
 `docs/lodging.md` "Rate plans"), `waiver` (WaiverCommands -- trip documents: an org's versioned library, a
 trip's pinned versions with the re-sign decision, the two-box signature, the `WAIVERS_REQUIRED` registration
-gate and the signed-copy PDF; see `docs/waivers.md`), `deploy`, `json`, `tripUtil`.
+gate and the signed-copy PDF; see `docs/waivers.md`), `checkin` (CheckinCommands -- tickets, staff check-in,
+counts, the trip-bound balance, batch badges and the export rows; see `docs/checkin.md`), `deploy`, `json`,
+`tripUtil`.
 
 - A `Person` comes into being through exactly four paths: sign-up, a family manager's add-member flow, the
   REST people API, and a lodging contact auto-created by `LodgingCommands.findOrCreateContact` (no

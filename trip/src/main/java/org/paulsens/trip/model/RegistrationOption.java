@@ -176,6 +176,22 @@ public final class RegistrationOption implements Serializable {
         return !isChoiceType() || !choiceIdsOf(answer).isEmpty();
     }
 
+    /**
+     * The trip's "registration type" question, or null: the first SHOWN, required, pick-one question with a priced
+     * choice ("Full weekend / Friday only"). Its answer is what a registration counts as when nothing stored a
+     * {@code Registration.registrationType}, and its choice's {@link OptionChoice#getDays() days} say which days of
+     * the event the person attends (the check-in counts, {@code docs/checkin.md}).
+     */
+    public static RegistrationOption typeQuestion(final List<RegistrationOption> questions) {
+        if (questions == null) {
+            return null;
+        }
+        return questions.stream()
+                .filter(q -> q != null && Boolean.TRUE.equals(q.getShow()) && q.isRequiredFlag())
+                .filter(q -> q.getType() == QuestionType.CHOICE && q.isPriced())
+                .findFirst().orElse(null);
+    }
+
     /** Appends a new free choice: the editor's "Add choice". */
     public OptionChoice addChoice() {
         final OptionChoice added = new OptionChoice("New choice");

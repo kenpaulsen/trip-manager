@@ -745,6 +745,11 @@ public class RegistrationCommands {
      * only; the real {@link Registration} and Person resolve per request from {@link #getUserId()}.
      * Plain mutable POJO with a no-arg constructor on purpose: Kryo session serialization restores
      * fields directly and runs no constructor (see BadgeImage for the precedent).
+     *
+     * <p>The check-in page's rows ({@code CheckinCommands.lookup}, {@code docs/checkin.md}) are the same row with
+     * three more scalars: the display name, the registration type and the check-in stamp. Added fields only, so a
+     * session written before them reads them as null under the pinned UID. Never the ticket code: that is a
+     * bearer secret, and a row may sit in the session.
      */
     @Data
     @NoArgsConstructor
@@ -756,6 +761,14 @@ public class RegistrationCommands {
         private LocalDateTime created;
         private String status;
         private String party;
+        private String name;
+        private String registrationType;
+        private LocalDateTime checkedInAt;
+
+        /** The registrations table's row: no check-in columns. */
+        public RegRow(final String userId, final LocalDateTime created, final String status, final String party) {
+            this(userId, created, status, party, null, null, null);
+        }
     }
 
     /** The view-held rows for the admin registrations table -- scalars only, see {@link RegRow}. */

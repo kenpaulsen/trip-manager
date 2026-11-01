@@ -45,6 +45,10 @@ public final class ApiErrors {
     public static final String CSRF = ChatErrors.CSRF;
     public static final String NOT_ACCEPTABLE = ChatErrors.NOT_ACCEPTABLE;
     public static final String INTERNAL = ChatErrors.INTERNAL;
+    /** 409 from a check-in: the person already has a stamp, which is never overwritten ({@code docs/checkin.md}). */
+    public static final String ALREADY_CHECKED_IN = "ALREADY_CHECKED_IN";
+    /** 409 from a check-in: the registration is not CONFIRMED (pending approval, or cancelled). */
+    public static final String NOT_CONFIRMED = "NOT_CONFIRMED";
 
     private ApiErrors() {
     }

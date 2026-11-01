@@ -5,15 +5,15 @@ family party sign-up, waivers, payments, reports, chat and lodging. This replace
 ran the 2025 Chicago and 2026 Orlando conferences as a hand-patched trip (the trip id hard-coded in ten files, hotel
 logic in Java, a confirmation page that exposed attendees' answers to anyone holding their person id).
 
-The work lands in phases on the `conference` branches of both repos. Phases 0 (the foundations) and 2 (the public
-conference page) are done.
+The work lands in phases on the `conference` branches of both repos. Phases 0 (the foundations), 2 (the public
+conference page) and 3 (tickets and check-in) are done.
 
 | Phase | What | State |
 |---|---|---|
 | 0 | Trip kind, typed and priceable questions, the widened `Registration`, ticket codes, agenda fields, the Check-in Staff role | landed |
 | 1 | Priced checkout: age bands, discount codes, pay-first party checkout on the `Payment` record, offline payments, price breakdowns in the admin views (`docs/checkout.md`) | backend landed (on Stripe's processor shape); pages in progress |
 | 2 | The trip-keyed public conference page: speakers, schedule, registration block | landed |
-| 3 | Ticket page, staff check-in, counts, batch badges, check-in REST for the iOS app (`docs/checkin.md`) | after Phase 1 |
+| 3 | Ticket page, staff check-in, counts, batch badges, check-in REST for the iOS app (`docs/checkin.md`) | landed (types and days read the typed answers, so it did not wait for Phase 1) |
 | 4 | One-time import of people and past registrations from the old us-east-1 account | last |
 
 ## Trip kind
@@ -58,7 +58,9 @@ Rules that matter:
   question so existing answers still display.
 - `attestationText`, when set, is a statement the registrant must tick to pick the choice ("I am staying at the
   conference hotel"): the generic form of mir2026's Rosen Centre logic. Enforcement lands with checkout (Phase 1).
-- `days` are the ISO dates a choice covers, for the per-day check-in counts (Phase 3).
+- `days` are the ISO dates a choice covers, for the per-day check-in counts (`docs/checkin.md`).
+- The **type question** (`RegistrationOption.typeQuestion`) is the first shown, required, pick-one question with a
+  priced choice; its answer's label is a registration's type wherever `registrationType` is not stored.
 
 Editing: `WEB-INF/regOptionsDialog.xhtml` gained Type and Required columns and a second dialog for one question's
 choices, opened by that row's "choices" link with the question's key in an `f:param` (row identity baked in at
@@ -82,13 +84,15 @@ pinned by `ConferenceModelTest.theSummaryWordingIsPinned`.
 
 ## Tickets
 
-`security/TicketCodes`: 128 random bits as 26 RFC 4648 base32 characters, the bearer secret a ticket page and its
-QR will carry (Phase 3). `normalize` accepts a typed or grouped code and maps 0/1/8 to O/I/B; `matches` compares in
+`security/TicketCodes`: 128 random bits as 26 RFC 4648 base32 characters, the bearer secret the ticket page
+(`trip/ticket.jsf?trip=&t=`) and its QR carry; the page, staff check-in, counts, badges and the API are in
+`docs/checkin.md`. `normalize` accepts a typed or grouped code and maps 0/1/8 to O/I/B; `matches` compares in
 constant time and never on a prefix.
 
 **Invariant: every CONFIRMED registration has a ticket.** `RegistrationCommands.withTicket` mints one;
 `saveRegistration` applies it to everything it stores (the backstop for every confirm path), and `approvePending`
-applies it first so the object it holds carries the code. Older CONFIRMED rows get theirs on their next save.
+applies it first so the object it holds carries the code. Older CONFIRMED rows get theirs on their next save, or
+lazily from `CheckinCommands.ticketFor` (a check-in, a badge, the focus panel's ticket link).
 
 ## Agenda fields on events
 
@@ -102,8 +106,8 @@ composed leg. The REST event view sends any non-empty `details`, so the app sees
 
 `checkinStaff` ("Check-in Staff") is a new trip-scoped role in `PrivilegeCommands.TRIP_SCOPED_BASES` and
 `OrgCommands.TRIP_ROLE_NAMES`, so the trip editor's role picker and the org allow-list offer it. An organization
-whose `grantablePrivileges` allow-list is set must have it ticked before it can be granted. The pages that use it
-arrive in Phase 3.
+whose `grantablePrivileges` allow-list is set must have it ticked before it can be granted. It opens the Check-in tab
+and page and the "Check-in: {title}" Admin menu entry (`docs/checkin.md`).
 
 ## The conference page
 
