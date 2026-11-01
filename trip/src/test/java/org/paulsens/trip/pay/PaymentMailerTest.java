@@ -48,6 +48,34 @@ public class PaymentMailerTest {
                 "The org copy and the site notification ride as bcc");
     }
 
+    @Test
+    public void theFailureNoticeUsesTheFixedStarterAndCarriesTheReason() {
+        final MailCommands mail = Mockito.mock(MailCommands.class);
+        Mockito.when(mail.sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+        final Person payer = person("Joe", "joe@example.com");
+        final PaymentMailer mailer = new PaymentMailer(mail, id -> payer);
+        final TripPaymentConfig effective = TripPaymentConfig.builder()
+                .mailFrom("CFPW <no-reply@x.org>").bcc("books@x.org").build();
+
+        assertTrue(mailer.sendPaymentFailed(payment(payer), trip(), effective, "CFPW", "Stripe",
+                "the bank returned the debit", AuditActor.system()));
+        @SuppressWarnings("unchecked")
+        final ArgumentCaptor<java.util.Map<String, Object>> values = ArgumentCaptor.forClass(java.util.Map.class);
+        Mockito.verify(mail).sendManagedTemplateForOrg(ArgumentMatchers.eq("payment-failed"),
+                ArgumentMatchers.any(), values.capture(), ArgumentMatchers.eq("joe@example.com"),
+                ArgumentMatchers.eq("CFPW <no-reply@x.org>"), ArgumentMatchers.any(),
+                ArgumentMatchers.eq("books@x.org"), ArgumentMatchers.any());
+        assertEquals(values.getValue().get("failureReason"), "the bank returned the debit");
+        assertEquals(values.getValue().get("processorName"), "Stripe");
+
+        assertFalse(mailer.sendPaymentFailed(payment(payer), trip(), TripPaymentConfig.builder().build(),
+                "CFPW", "Stripe", "x", AuditActor.system()), "no From = unsendable, quietly");
+        assertFalse(new PaymentMailer(mail, id -> null).sendPaymentFailed(payment(payer), trip(), effective,
+                "CFPW", "Stripe", "x", AuditActor.system()), "no payer = unsendable, quietly");
+    }
+
     /**
      * Whose confirmation copy goes out: the PAYMENT's own organization. A capture is confirmed wherever the
      * processor calls back -- often on a background thread with no host at all -- so the org must come from

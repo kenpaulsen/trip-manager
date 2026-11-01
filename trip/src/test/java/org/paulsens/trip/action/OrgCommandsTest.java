@@ -561,6 +561,61 @@ public class OrgCommandsTest {
     }
 
     @Test
+    public void stripeConfigsCarryWebhookSecretsAndNeedAPublishableKey() throws IOException {
+        final Person acmeAdmin = savedPerson();
+        final Organization acme = orgWithAdmin(acmeAdmin);
+        final OrgCommands cmds = commandsFor(acmeAdmin);
+        assertFalse(cmds.saveProcessorConfig(acme.getId().getValue(), null, "Acme Stripe", "STRIPE",
+                "SANDBOX", true, "  ", "pk_test_1", 0, 0), "Stripe needs its publishable key");
+        final String cfgId = cmds.saveProcessorConfigId(acme.getId().getValue(), null, "Acme Stripe", "STRIPE",
+                "SANDBOX", true, "pk_live_1", "pk_test_1", 0, 0);
+        assertEquals(cfgId, cmds.getProcessorConfigs(acme.getId().getValue()).get(0).getId().getValue(),
+                "the page needs the NEW config's id to store its secrets and show its webhook URL");
+        assertNull(cmds.saveProcessorConfigId(acme.getId().getValue(), null, " ", "STRIPE", "SANDBOX", true,
+                "pk_live_1", null, 0, 0), "a refusal answers null");
+
+        assertFalse(cmds.hasWebhookSecret(cfgId, false));
+        assertTrue(cmds.setProcessorSecrets(acme.getId().getValue(), cfgId, "sk_live_1", null,
+                " whsec_live ", null));
+        assertTrue(cmds.hasProcessorSecret(cfgId, false));
+        assertTrue(cmds.hasWebhookSecret(cfgId, false));
+        assertFalse(cmds.hasWebhookSecret(cfgId, true), "blank leaves the sandbox webhook secret unset");
+        assertEquals(org.paulsens.trip.security.ProcessorSecrets.getInstance().get(cfgId)
+                .get(OrgCommands.WEBHOOK_SECRET), "whsec_live", "pasted values are trimmed");
+        assertTrue(cmds.setProcessorSecrets(acme.getId().getValue(), cfgId, null, null, null, "whsec_test"));
+        assertTrue(cmds.hasWebhookSecret(cfgId, true));
+        assertFalse(cmds.hasWebhookSecret(null, true));
+
+        assertEquals(OrgCommands.webhookUrl("https://acme.unitetrip.com", cfgId),
+                "https://acme.unitetrip.com/api/webhooks/stripe/" + cfgId);
+        assertNull(OrgCommands.webhookUrl(null, cfgId), "off-request there is no host to build on");
+        assertNull(OrgCommands.webhookUrl("https://x", " "), "unsaved config = no URL yet");
+        assertNull(cmds.webhookUrl(cfgId), "no FacesContext in a unit test");
+
+        assertFalse(cmds.registerPaymentDomain(acme.getId().getValue(), "no-such-config", false));
+        assertFalse(cmds.registerPaymentDomain(acme.getId().getValue(), cfgId, false),
+                "no request host in a unit test");
+
+        assertTrue(admin().deleteProcessorConfig(acme.getId().getValue(), cfgId));
+        assertFalse(cmds.hasWebhookSecret(cfgId, false), "delete wipes the webhook secrets too");
+        assertFalse(cmds.hasWebhookSecret(cfgId, true));
+        assertFalse(cmds.hasProcessorSecret(cfgId, false));
+    }
+
+    @Test
+    public void walletRegistrationIsStripeOnly() throws IOException {
+        final Person acmeAdmin = savedPerson();
+        final Organization acme = orgWithAdmin(acmeAdmin);
+        final OrgCommands cmds = commandsFor(acmeAdmin);
+        assertTrue(cmds.saveProcessorConfig(acme.getId().getValue(), null, "Acme Fake", "FAKE",
+                "SANDBOX", true, "x", "y", 0, 0));
+        final String cfgId = cmds.getProcessorConfigs(acme.getId().getValue()).get(0).getId().getValue();
+        assertFalse(cmds.registerPaymentDomain(acme.getId().getValue(), cfgId, false));
+        assertFalse(commandsFor(savedPerson()).registerPaymentDomain(acme.getId().getValue(), cfgId, false),
+                "outsiders cannot register domains on someone else's account");
+    }
+
+    @Test
     public void testConnectionAndDeleteFollowTheRules() throws IOException {
         final Person acmeAdmin = savedPerson();
         final Organization acme = orgWithAdmin(acmeAdmin);

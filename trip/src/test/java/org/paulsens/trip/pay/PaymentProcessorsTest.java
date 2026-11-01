@@ -16,8 +16,6 @@ public class PaymentProcessorsTest {
     public void fakeAndUnbuiltTypesResolveHonestly() {
         assertTrue(PaymentProcessors.forConfig(config(ProcessorType.FAKE), false) instanceof FakeProcessor);
         assertThrows(PaymentProcessor.ProcessorException.class,
-                () -> PaymentProcessors.forConfig(config(ProcessorType.STRIPE), false));
-        assertThrows(PaymentProcessor.ProcessorException.class,
                 () -> PaymentProcessors.forConfig(config(ProcessorType.ZEFFY), false));
         assertThrows(PaymentProcessor.ProcessorException.class,
                 () -> PaymentProcessors.forConfig(null, false));
@@ -42,6 +40,37 @@ public class PaymentProcessorsTest {
         config.setVersion(config.getVersion() + 1);
         assertTrue(live != PaymentProcessors.forConfig(config, false),
                 "A config edit (version bump) rebuilds -- credential rotation without restart");
+        live.cancel("ORDER-1");   // a redirect processor has nothing to release: the SPI default is a no-op
+    }
+
+    @Test
+    public void stripeBuildsFromThePublishableKeyAndSecretKeyAndChecksTheirMode() {
+        final PaymentProcessorConfig config = config(ProcessorType.STRIPE);
+        config.getPublicConfig().put("clientId", "pk_live_1");
+        config.getSandboxPublicConfig().put("clientId", "pk_test_1");
+        assertTrue(ProcessorSecrets.getInstance().put(config.getId().getValue(),
+                Map.of("clientSecret", "sk_live_1", "clientSecretSandbox", "sk_test_1")));
+
+        final PaymentProcessor live = PaymentProcessors.forConfig(config, false);
+        assertEquals(live.type(), ProcessorType.STRIPE);
+        assertTrue(live instanceof StripeProcessor);
+        assertTrue(live == PaymentProcessors.forConfig(config, false), "memoized per config/version/sandbox");
+        assertTrue(live != PaymentProcessors.forConfig(config, true), "the sandbox toggle builds on the test keys");
+
+        final PaymentProcessorConfig mixed = config(ProcessorType.STRIPE);
+        mixed.getSandboxPublicConfig().put("clientId", "pk_test_2");
+        assertTrue(ProcessorSecrets.getInstance().put(mixed.getId().getValue(),
+                Map.of("clientSecretSandbox", "sk_live_2")));
+        assertThrows(PaymentProcessor.ProcessorException.class,
+                () -> PaymentProcessors.forConfig(mixed, true));
+
+        final PaymentProcessorConfig sandboxMode = config(ProcessorType.STRIPE);
+        sandboxMode.setMode(PaymentProcessorConfig.ProcessorMode.SANDBOX);
+        sandboxMode.getPublicConfig().put("clientId", "pk_test_3");
+        assertTrue(ProcessorSecrets.getInstance().put(sandboxMode.getId().getValue(),
+                Map.of("clientSecret", "sk_test_3")));
+        assertEquals(PaymentProcessors.forConfig(sandboxMode, false).type(), ProcessorType.STRIPE,
+                "a SANDBOX-mode config's primary credentials are test keys");
     }
 
     @Test
@@ -57,8 +86,8 @@ public class PaymentProcessorsTest {
                 .orgId(org.paulsens.trip.model.Organization.Id.newInstance())
                 .label("Test").type(type)
                 .mode(PaymentProcessorConfig.ProcessorMode.LIVE)
-                .publicConfig(Map.of("clientId", "live-id"))
-                .sandboxPublicConfig(Map.of("clientId", "sb-id"))
+                .publicConfig(new java.util.HashMap<>(Map.of("clientId", "live-id")))
+                .sandboxPublicConfig(new java.util.HashMap<>(Map.of("clientId", "sb-id")))
                 .version(1L)
                 .build();
     }

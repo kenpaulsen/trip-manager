@@ -61,12 +61,17 @@ public class PaymentCommandsTest {
         assertEquals(quote.getDonationCents(), 100000L);
         assertTrue(quote.getTotalCents() > 195000L, "The gross-up rides on top of the credits");
 
-        final String approvalUrl = commands.startPayment(trip(), amounts, "1000", false,
+        final PaymentCommands.Start started = commands.startPayment(trip(), amounts, "1000", false,
                 "http://localhost/trip/payment.jsf");
-        assertNotNull(approvalUrl, "The FAKE processor answers its checkout page");
-        assertTrue(approvalUrl.startsWith("/trip/fakeCheckout.jsf?token=FAKE-"));
+        assertNotNull(started, "The FAKE processor answers its checkout page");
+        assertTrue(started.getApprovalUrl().startsWith("/trip/fakeCheckout.jsf?token=FAKE-"));
+        assertFalse(started.isInline());
+        assertEquals(started.getMerchantName(), "CFPW");
+        assertEquals(started.getPayerEmail(), payer.getEmail());
 
-        final String paymentId = paymentIdFrom(approvalUrl);
+        final String paymentId = started.getPaymentId();
+        assertEquals(paymentId, paymentIdFrom(started.getApprovalUrl()),
+                "the Start names the same payment the return URL carries");
         final org.paulsens.trip.push.PushNotifications pushes =
                 Mockito.mock(org.paulsens.trip.push.PushNotifications.class);
         org.paulsens.trip.push.PushNotifications.setInstance(pushes);
@@ -109,10 +114,10 @@ public class PaymentCommandsTest {
         final PaymentCommands commands = commandsFor(admin, true);
         assertTrue(commands.isSandboxAllowed(trip()), "paymentsAdmin@the-trip's-org enables sandbox");
 
-        final String approvalUrl = commands.startPayment(trip(),
+        final PaymentCommands.Start started = commands.startPayment(trip(),
                 Map.of(admin.getId().getValue(), "475"), null, true, "http://localhost/pay");
-        assertNotNull(approvalUrl);
-        final String paymentId = paymentIdFrom(approvalUrl);
+        assertNotNull(started);
+        final String paymentId = started.getPaymentId();
 
         final PaymentCommands.Completion outcome = commands.completePayment(paymentId, null);
         assertEquals(outcome.getStatus(), "sandbox");
@@ -172,9 +177,8 @@ public class PaymentCommandsTest {
     public void cancelOnlyWorksBeforeCapture() {
         final Person payer = savedPerson();
         final PaymentCommands commands = commandsFor(payer, false);
-        final String approvalUrl = commands.startPayment(trip(),
-                Map.of(payer.getId().getValue(), "50"), null, false, "http://localhost/pay");
-        final String paymentId = paymentIdFrom(approvalUrl);
+        final String paymentId = commands.startPayment(trip(),
+                Map.of(payer.getId().getValue(), "50"), null, false, "http://localhost/pay").getPaymentId();
 
         assertTrue(commands.cancelPayment(paymentId));
         assertEquals(commands.completePayment(paymentId, null).getStatus(), "cancelled");
@@ -238,9 +242,8 @@ public class PaymentCommandsTest {
     public void adminCompleteFinishesACapturedPayment() throws IOException {
         final Person payer = savedPerson();
         final PaymentCommands commands = commandsFor(payer, false);
-        final String approvalUrl = commands.startPayment(trip(),
-                Map.of(payer.getId().getValue(), "60"), null, false, "http://localhost/pay");
-        final String paymentId = paymentIdFrom(approvalUrl);
+        final String paymentId = commands.startPayment(trip(),
+                Map.of(payer.getId().getValue(), "60"), null, false, "http://localhost/pay").getPaymentId();
 
         // Simulate the crash-after-capture shape: capture happened, recording did not.
         final Payment payment = DAO.getInstance().getPayment(paymentId).orElseThrow();
@@ -262,9 +265,8 @@ public class PaymentCommandsTest {
     public void completionRefusesStrangersAndUnknownIds() {
         final Person payer = savedPerson();
         final PaymentCommands commands = commandsFor(payer, false);
-        final String approvalUrl = commands.startPayment(trip(),
-                Map.of(payer.getId().getValue(), "40"), null, false, "http://localhost/pay");
-        final String paymentId = paymentIdFrom(approvalUrl);
+        final String paymentId = commands.startPayment(trip(),
+                Map.of(payer.getId().getValue(), "40"), null, false, "http://localhost/pay").getPaymentId();
 
         assertEquals(commands.completePayment("no-such-payment", null).getStatus(), "notfound");
         assertEquals(commandsFor(savedPerson(), false).completePayment(paymentId, null).getStatus(),
@@ -328,9 +330,8 @@ public class PaymentCommandsTest {
         final PaymentCommands commands = new PaymentCommands(callerSource, new OrgCommands(callerSource),
                 new AuditCommands(), broken, PaymentProcessors::forConfig, () -> mailer);
 
-        final String approvalUrl = commands.startPayment(trip(),
-                Map.of(payer.getId().getValue(), "40"), null, false, "http://localhost/pay");
-        final String paymentId = paymentIdFrom(approvalUrl);
+        final String paymentId = commands.startPayment(trip(),
+                Map.of(payer.getId().getValue(), "40"), null, false, "http://localhost/pay").getPaymentId();
         assertEquals(commands.completePayment(paymentId, null).getStatus(), "mismatch");
         assertEquals(DAO.getInstance().getPayment(paymentId).orElseThrow().getStatus(),
                 Payment.Status.CAPTURED, "Money moved; the row waits for reconciliation");
@@ -358,10 +359,10 @@ public class PaymentCommandsTest {
         final Person donor = savedPerson();
         final PaymentCommands commands = commandsFor(donor, false);
         // No amounts map at all: a pure donation.
-        final String approvalUrl =
+        final PaymentCommands.Start started =
                 commands.startPayment(trip(), null, "250", false, "http://localhost/pay");
-        assertNotNull(approvalUrl);
-        final String paymentId = paymentIdFrom(approvalUrl);
+        assertNotNull(started);
+        final String paymentId = started.getPaymentId();
         assertEquals(commands.completePayment(paymentId, null).getStatus(), "recorded");
         assertEquals(txCmds.getBalance(donor.getId()), 0.0, "The donation pair is balance-neutral");
         assertEquals(txCmds.getTransactions(donor.getId()).size(), 2);
@@ -375,9 +376,9 @@ public class PaymentCommandsTest {
         amounts.put(payer.getId().getValue(), "40");
         amounts.put("someone-else", "");
         amounts.put("another", "0");
-        final String approvalUrl =
+        final PaymentCommands.Start started =
                 commands.startPayment(trip(), amounts, null, false, "http://localhost/pay");
-        assertNotNull(approvalUrl, "Blank boxes are not selections, not errors");
+        assertNotNull(started, "Blank boxes are not selections, not errors");
     }
 
     @Test
@@ -467,9 +468,9 @@ public class PaymentCommandsTest {
         Mockito.when(mailer.sendConfirmation(ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(false);
-        final String approvalUrl = commands.startPayment(trip(),
-                Map.of(payer.getId().getValue(), "30"), null, false, "http://localhost/pay");
-        assertEquals(commands.completePayment(paymentIdFrom(approvalUrl), null).getStatus(), "recorded");
+        final String paymentId = commands.startPayment(trip(),
+                Map.of(payer.getId().getValue(), "30"), null, false, "http://localhost/pay").getPaymentId();
+        assertEquals(commands.completePayment(paymentId, null).getStatus(), "recorded");
         assertEquals(txCmds.getBalance(payer.getId()), 30.0);
     }
 
@@ -480,7 +481,184 @@ public class PaymentCommandsTest {
         assertFalse(commandsFor(savedPersonAsSiteAdmin(), false).cancelPayment("nope"));
     }
 
+    // ------------------------------------------------------------------ inline (Stripe-shaped) flow
+
+    @Test
+    public void anInlineProcessorAnswersAClientSecretInsteadOfARedirect() {
+        final Person payer = savedPerson();
+        final PaymentCommands commands = commandsFor(payer, false);
+        final PaymentCommands.Start started = commands.startPayment(inlineTrip(),
+                Map.of(payer.getId().getValue(), "25"), null, false, "http://localhost/trip/payment.jsf");
+        assertNotNull(started);
+        assertTrue(started.isInline());
+        assertNull(started.getApprovalUrl());
+        assertEquals(started.getPublishableKey(), "pk_fake");
+        assertTrue(started.getClientSecret().startsWith("FAKE-"), "the fake's secret is its order ref");
+        assertNull(started.getScriptUrl(), "null script = the page's own fake Stripe.js");
+        assertEquals(started.getTotalFormatted(), "$26.42", "$25.00 grossed up: ceil((2500 + 49) / (1 - 0.0349))");
+        final Payment stored = DAO.getInstance().getPayment(started.getPaymentId()).orElseThrow();
+        assertEquals(stored.getOrderRef(), started.getClientSecret());
+
+        assertEquals(commands.completePayment(started.getPaymentId(), null).getStatus(), "recorded",
+                "the inline fake settles like a card");
+    }
+
+    @Test
+    public void aSettlingBankPaymentIsPendingUntilTheWebhookStandInFinishesIt() {
+        final Person payer = savedPerson();
+        final PaymentCommands commands = commandsFor(payer, false);
+        final PaymentCommands.Start started = commands.startPayment(inlineTrip(),
+                Map.of(payer.getId().getValue(), "40"), null, false, "http://localhost/trip/payment.jsf");
+        assertTrue(commands.fakeMarkAsync(started.getClientSecret()));
+        assertFalse(commands.fakeMarkAsync("FAKE-nope"));
+
+        final PaymentCommands.Completion pending = commands.completePayment(started.getPaymentId(), null);
+        assertEquals(pending.getStatus(), "pending");
+        assertTrue(pending.getMessage().contains("processing"), pending.getMessage());
+        assertTrue(pending.getMessage().contains("nothing more is needed"), pending.getMessage());
+        assertEquals(pending.getReference(), started.getClientSecret(), "the page's settle link needs it");
+        assertEquals(DAO.getInstance().getPayment(started.getPaymentId()).orElseThrow().getStatus(),
+                Payment.Status.CREATED, "a settling payment stays CREATED until it clears");
+        Mockito.verify(mailer, Mockito.never()).sendConfirmation(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any());
+
+        assertEquals(commands.fakeSettle("FAKE-nope").getStatus(), "notfound");
+        final PaymentCommands.Completion settled = commands.fakeSettle(started.getClientSecret());
+        assertEquals(settled.getStatus(), "recorded", settled.getMessage());
+        Mockito.verify(mailer).sendConfirmation(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any());
+
+        // The payer's own return visit after the webhook: already recorded, and NO second mail.
+        assertEquals(commands.completePayment(started.getPaymentId(), null).getStatus(), "recorded");
+        Mockito.verify(mailer, Mockito.times(1)).sendConfirmation(ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any());
+    }
+
+    /**
+     * THE race the webhook introduces: the return page and the webhook both finish the same CAPTURED row. The
+     * loser's RECORDED put fails the condition; it must answer the winner's outcome and send nothing.
+     */
+    @Test
+    public void theLoserOfTheRecordRaceSendsNoSecondConfirmation() throws IOException {
+        final Person payer = savedPerson();
+        final PaymentCommands commands = commandsFor(payer, false);
+        final String paymentId = commands.startPayment(trip(),
+                Map.of(payer.getId().getValue(), "60"), null, false, "http://localhost/pay").getPaymentId();
+        // The row as the webhook would find it: captured by one writer, not yet recorded.
+        final Payment captured = DAO.getInstance().getPayment(paymentId).orElseThrow();
+        captured.setCaptureId("CAP-race");
+        captured.setCapturedGrossCents(captured.getTotalChargedCents());
+        captured.setStatus(Payment.Status.CAPTURED);
+        DAO.getInstance().transitionPayment(captured, Payment.Status.CREATED);
+
+        // Writer A finishes between B's read of the row and B's RECORDED put: emulate by recording with a
+        // second commands instance (same mailer) first, then letting the first instance's stale copy race.
+        final PaymentRecorder recorder = new PaymentRecorder();
+        final PaymentCommands racer = new PaymentCommands(() -> Caller.forActor(AuditActor.system()),
+                new OrgCommands(() -> Caller.forActor(AuditActor.system())), new AuditCommands(),
+                new PaymentRecorder() {
+                    @Override
+                    public Result record(final Payment payment, final String orgName, final String processorName) {
+                        // B is mid-record: A completes the whole payment first.
+                        commands.completeFromWebhook(payment.getPaymentId());
+                        return recorder.record(payment, orgName, processorName);
+                    }
+                }, PaymentProcessors::forConfig, () -> mailer);
+
+        assertEquals(racer.completeFromWebhook(paymentId).getStatus(), "recorded");
+        Mockito.verify(mailer, Mockito.times(1)).sendConfirmation(ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any());
+        assertEquals(DAO.getInstance().getPayment(paymentId).orElseThrow().getStatus(), Payment.Status.RECORDED);
+    }
+
+    @Test
+    public void cancellingReleasesTheOrderAtTheProcessor() {
+        final Person payer = savedPerson();
+        final PaymentProcessor processor = Mockito.mock(PaymentProcessor.class);
+        final org.mockito.ArgumentCaptor<Payment> started = org.mockito.ArgumentCaptor.forClass(Payment.class);
+        Mockito.when(processor.createOrder(started.capture(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any())).thenReturn(PaymentProcessor.CreatedOrder.inline("pi_1", "pk", "sec"));
+        final PaymentCommands commands = commandsFor(payer, false, (config, sandbox) -> processor);
+        final String paymentId = commands.startPayment(trip(), Map.of(payer.getId().getValue(), "10"), null,
+                false, "http://localhost/pay").getPaymentId();
+        assertTrue(commands.cancelPayment(paymentId));
+        Mockito.verify(processor).cancel("pi_1");
+
+        // A processor that refuses the cancel does not un-cancel our row.
+        final String second = commands.startPayment(trip(), Map.of(payer.getId().getValue(), "10"), null,
+                false, "http://localhost/pay").getPaymentId();
+        Mockito.doThrow(new IllegalStateException("down")).when(processor).cancel(ArgumentMatchers.any());
+        assertTrue(commands.cancelPayment(second));
+        assertEquals(DAO.getInstance().getPayment(second).orElseThrow().getStatus(), Payment.Status.CANCELLED);
+    }
+
+    @Test
+    public void webhookEntryPointsRespectTheStateMachine() throws IOException {
+        final Person payer = savedPerson();
+        final PaymentCommands commands = commandsFor(payer, false);
+        Mockito.when(mailer.sendPaymentFailed(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any())).thenReturn(true);
+        final String failing = commands.startPayment(trip(), Map.of(payer.getId().getValue(), "10"), null,
+                false, "http://localhost/pay").getPaymentId();
+        commands.noteFailure(failing, "card_declined");
+        assertEquals(DAO.getInstance().getPayment(failing).orElseThrow().getStatus(), Payment.Status.CREATED,
+                "a card decline is retryable, never terminal");
+        commands.noteFailure("no-such-payment", "x");
+
+        assertTrue(commands.failFromWebhook(failing, "the bank returned the debit"));
+        assertEquals(DAO.getInstance().getPayment(failing).orElseThrow().getStatus(), Payment.Status.FAILED);
+        Mockito.verify(mailer).sendPaymentFailed(ArgumentMatchers.argThat(p -> failing.equals(p.getPaymentId())),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.eq("CFPW"),
+                ArgumentMatchers.eq("Test Processor"), ArgumentMatchers.eq("the bank returned the debit"),
+                ArgumentMatchers.any());
+        assertFalse(commands.failFromWebhook(failing, "again"), "FAILED is terminal");
+        assertFalse(commands.failFromWebhook("no-such-payment", "x"));
+
+        final String cancelling = commands.startPayment(trip(), Map.of(payer.getId().getValue(), "10"), null,
+                false, "http://localhost/pay").getPaymentId();
+        assertTrue(commands.cancelFromWebhook(cancelling));
+        assertEquals(DAO.getInstance().getPayment(cancelling).orElseThrow().getStatus(),
+                Payment.Status.CANCELLED);
+        assertFalse(commands.cancelFromWebhook(cancelling));
+        assertEquals(commands.completeFromWebhook("no-such-payment").getStatus(), "notfound");
+        assertEquals(commands.completeFromWebhook(cancelling).getStatus(), "cancelled");
+
+        // A sandbox failure mails nobody.
+        final Person tester = savedPerson();
+        final PaymentCommands sandboxed = commandsFor(tester, true);
+        final String sandboxId = sandboxed.startPayment(trip(), Map.of(tester.getId().getValue(), "10"), null,
+                true, "http://localhost/pay").getPaymentId();
+        assertTrue(sandboxed.failFromWebhook(sandboxId, "returned"));
+        Mockito.verify(mailer, Mockito.never()).sendPaymentFailed(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any());
+    }
+
+    @Test
+    public void abandonIsSiteAdminOnlyAndCreatedOnly() throws IOException {
+        final Person payer = savedPerson();
+        final PaymentCommands commands = commandsFor(payer, false);
+        final String paymentId = commands.startPayment(trip(), Map.of(payer.getId().getValue(), "10"), null,
+                false, "http://localhost/pay").getPaymentId();
+        assertFalse(commands.abandon(paymentId), "the payer is not a site admin");
+        final PaymentCommands admin = commandsFor(savedPersonAsSiteAdmin(), false);
+        assertFalse(admin.abandon("no-such-payment"));
+        assertTrue(admin.abandon(paymentId));
+        assertEquals(DAO.getInstance().getPayment(paymentId).orElseThrow().getStatus(), Payment.Status.CANCELLED);
+        assertFalse(admin.abandon(paymentId), "only CREATED can be abandoned");
+        assertFalse(admin.getOpenPayments().stream().anyMatch(p -> p.getPaymentId().equals(paymentId)));
+    }
+
     // ------------------------------------------------------------------ helpers
+
+    private Trip inlineTrip() {
+        return DAO.getInstance().getTrip(FakeData.FAKE2_TRIP_ID, Cached.NO).orElseThrow();
+    }
 
     private Trip trip() {
         return DAO.getInstance().getTrip(FakeData.FAKE_TRIP_ID, Cached.NO).orElseThrow();

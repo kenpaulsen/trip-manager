@@ -28,8 +28,8 @@ public class ApiSurfaceTest {
             MediaResource.class, OrgWaiversResource.class,
             PasskeyResource.class, PaymentsResource.class, PeopleResource.class, PrivilegesResource.class,
             PushResource.class,
-            RegistrationsResource.class, TodosResource.class, TransactionsResource.class, TripsResource.class,
-            TripWaiversResource.class);
+            RegistrationsResource.class, StripeWebhookResource.class, TodosResource.class,
+            TransactionsResource.class, TripsResource.class, TripWaiversResource.class);
 
     @Test
     public void theAuditTrailIsReadOnlyAndMustStayThatWay() {
@@ -63,12 +63,27 @@ public class ApiSurfaceTest {
         // name-bound, so forgetting the annotation silently serves everybody. The two auth resources are the
         // deliberate exceptions, because ways IN have to work without a session; they bind per-method instead.
         for (final Class<?> resource : RESOURCES) {
-            if (resource == AuthResource.class || resource == PasskeyResource.class) {
+            if (resource == AuthResource.class || resource == PasskeyResource.class
+                    || resource == StripeWebhookResource.class) {
+                // The webhook's caller is Stripe's server: no session exists; its authority is the HMAC
+                // signature over the body, verified against the config's stored secret (see the class).
                 continue;
             }
             Assert.assertNotNull(resource.getAnnotation(TripApi.class),
                     resource.getSimpleName() + " is not @TripApi, so it serves unauthenticated callers.");
         }
+    }
+
+    @Test
+    public void theWebhookResourceHasExactlyOneOpenPostAndNothingElse() {
+        final List<String> endpoints = Arrays.stream(StripeWebhookResource.class.getDeclaredMethods())
+                .filter(method -> method.getAnnotation(Path.class) != null)
+                .map(Method::getName)
+                .sorted()
+                .toList();
+        Assert.assertEquals(endpoints, List.of("receive"), "the webhook resource must stay a single POST");
+        Assert.assertNotNull(StripeWebhookResource.class.getDeclaredMethods()[0]);
+        Assert.assertNull(StripeWebhookResource.class.getAnnotation(TripApi.class));
     }
 
     @Test

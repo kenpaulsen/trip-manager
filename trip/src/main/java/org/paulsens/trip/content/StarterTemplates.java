@@ -28,6 +28,7 @@ public final class StarterTemplates {
     public static final String REGISTRATION_APPROVED_ID = "registration-approved";
     public static final String SUPPORT_REQUEST_ID = "support-request";
     public static final String PAYMENT_CONFIRMATION_ID = "payment-confirmation";
+    public static final String PAYMENT_FAILED_ID = "payment-failed";
     public static final String ORG_INVITE_ID = "org-invite";
 
     // The BAND family (2026-09): full-bleed page sections for a marketing-style home page. STANDARD bands
@@ -56,7 +57,7 @@ public final class StarterTemplates {
     public static final List<String> IDS = List.of(YOUTUBE_VIDEO_ID, IMAGE_ID, TEXT_ONLY_ID,
             CONTAINER_ID, PILGRIMAGES_ID, PHOTO_ALBUMS_ID, FILE_ID, PERSON_ID, PEOPLE_LIST_ID,
             REGISTRATION_RECEIVED_ID, REGISTRATION_APPROVED_ID, SUPPORT_REQUEST_ID,
-            PAYMENT_CONFIRMATION_ID, ORG_INVITE_ID,
+            PAYMENT_CONFIRMATION_ID, PAYMENT_FAILED_ID, ORG_INVITE_ID,
             BAND_HERO_ID, BAND_SPLIT_ID, BAND_CTA_ID, BAND_TESTIMONIAL_ID, BAND_TEXT_ID,
             FEATURE_CARD_ID, STAT_ITEM_ID,
             BAND_FEATURES_ID, BAND_STATS_ID, BAND_FAQ_ID, BAND_LOGOS_ID);
@@ -67,7 +68,7 @@ public final class StarterTemplates {
     public static List<ContentTemplate> all() {
         return List.of(youtubeVideo(), image(), textOnly(), container(), pilgrimages(), photoAlbums(),
                 file(), person(), peopleList(), registrationReceived(), registrationApproved(), supportRequest(),
-                paymentConfirmation(), orgInvite(),
+                paymentConfirmation(), paymentFailed(), orgInvite(),
                 bandHero(), bandSplit(), bandCta(), bandTestimonial(), bandText(), featureCard(), statItem(),
                 bandFeatures(), bandStats(), bandFaq(), bandLogos());
     }
@@ -452,6 +453,25 @@ public final class StarterTemplates {
                 """;
         return mail(PAYMENT_CONFIRMATION_ID, "Payment received - {{tripTitle}}",
                 "Payment confirmation email; the name doubles as the subject line.", body);
+    }
+
+    /**
+     * Sent when a payment that was ACCEPTED and shown as "processing" later fails -- a bank debit returned
+     * days after the payer left the page. Tokens: the confirmation's set plus failureReason.
+     */
+    private static ContentTemplate paymentFailed() {
+        final String body = """
+                <p>Dear {{payerName}},</p>
+                <p>Unfortunately your payment of <b>{{totalPaid}}</b> for <b>{{tripTitle}}</b> did not go
+                through: {{failureReason}}.</p>
+                <p>Nothing was recorded on your balance with {{orgName}}, and you were not charged. Please
+                make the payment again, or reply to this email if you have questions.</p>
+                <p style="font-size:0.85em;color:#666;">Processor: {{processorName}} &middot;
+                reference {{captureId}}</p>
+                """;
+        return mail(PAYMENT_FAILED_ID, "Payment not completed - {{tripTitle}}",
+                "Sent when an accepted payment (a bank debit) later fails; the name doubles as the subject line.",
+                body);
     }
 
     private static ContentTemplate mail(final String id, final String subject, final String description,

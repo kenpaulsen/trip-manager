@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.MailCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.chat.MailTemplates;
+import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
@@ -52,6 +53,29 @@ public class PaymentMailer {
         return mail.sendManagedTemplateForOrg(effective.getConfirmationTemplateId(), orgOf(payment, trip),
                 values(payment, trip, effective, payer, orgName, processorName),
                 payer.getEmail(), effective.getMailFrom(), effective.getReplyTo(), bcc, actor);
+    }
+
+    /**
+     * The "your bank payment did not go through" notice for a payment that FAILED after the payer saw
+     * "processing" (a returned debit, days later): the fixed {@code payment-failed} MAIL starter, sent from
+     * the same effective From/reply-to as the confirmation, bcc'ing the org copy. Same contract as
+     * {@link #sendConfirmation}: false when unconfigured or unsendable, logged, never thrown.
+     */
+    public boolean sendPaymentFailed(final Payment payment, final Trip trip, final TripPaymentConfig effective,
+            final String orgName, final String processorName, final String reason, final AuditActor actor) {
+        final Person payer = people.apply(payment.getPayerId());
+        if (payer == null || payer.getEmail() == null || payer.getEmail().isBlank()) {
+            log.warn("Payment {}: payer has no address; failure notice not sent", payment.getPaymentId());
+            return false;
+        }
+        if (effective.getMailFrom() == null) {
+            log.warn("Payment {}: failure notice unconfigured (no From)", payment.getPaymentId());
+            return false;
+        }
+        final Map<String, Object> values = values(payment, trip, effective, payer, orgName, processorName);
+        values.put("failureReason", reason == null ? "" : reason);
+        return mail.sendManagedTemplateForOrg(StarterTemplates.PAYMENT_FAILED_ID, orgOf(payment, trip), values,
+                payer.getEmail(), effective.getMailFrom(), effective.getReplyTo(), effective.getBcc(), actor);
     }
 
     /** Whose confirmation copy this is: the payment's organization, else its trip's, else nobody's. */

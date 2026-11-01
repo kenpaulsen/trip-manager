@@ -30,13 +30,18 @@ import org.paulsens.trip.pay.PaymentMailer;
 import org.paulsens.trip.pay.PaymentProcessor;
 import org.paulsens.trip.pay.PaymentProcessors;
 import org.paulsens.trip.pay.PaymentRecorder;
+import org.paulsens.trip.audit.AuditActor;
+import org.paulsens.trip.dynamo.LocalMode;
+import org.paulsens.trip.pay.FakeProcessor;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 
 /**
  * The payment flow, ALL of it in Java (a user-locked rule: the mir2026 xhtml-driven callback handling made
- * mobile impossible): quote &rarr; start (order + redirect) &rarr; complete (capture + record + mail) &rarr;
- * cancel, plus the site-admin reconciliation actions. The page and the REST resource are both thin callers
- * of these same methods.
+ * mobile impossible): quote &rarr; start (order + redirect, or an inline client secret for the page's Payment
+ * Element / the apps' PaymentSheet) &rarr; complete (capture + record + mail) &rarr; cancel, plus the
+ * site-admin reconciliation actions and the trusted {@code *FromWebhook} entry points Stripe's webhook
+ * resource calls after verifying the event. The page and the REST resource are both thin callers of these
+ * same methods.
  *
  * <p>Ordering on completion is what makes money safe here: capture first, then the conditional
  * {@code CREATED->CAPTURED} transition (double-submits serialize at the row), then gross verification (a
@@ -152,12 +157,13 @@ public class PaymentCommands {
     // ------------------------------------------------------------------ start
 
     /**
-     * Validates, persists the CREATED payment, audits the start, creates the processor order, and answers
-     * the approval URL to redirect to -- or null with a growl. {@code pageUrl} is the payment page's own
-     * absolute URL; the processor return/cancel URLs derive from it ({@code ?trip=..&payment=..}, which
-     * PayPal preserves and re-appends its token to).
+     * Validates, persists the CREATED payment, audits the start, creates the processor order, and answers how
+     * the payer completes it -- an approval URL to redirect to (PayPal, the fake checkout) or the inline
+     * client secret the page's Payment Element / the apps' PaymentSheet confirm in place (Stripe) -- or null
+     * with a growl. {@code pageUrl} is the payment page's own absolute URL; the processor return/cancel URLs
+     * derive from it ({@code ?trip=..&payment=..}, which PayPal preserves and re-appends its token to).
      */
-    public String startPayment(final Trip trip, final Map<String, Object> rawAmounts,
+    public Start startPayment(final Trip trip, final Map<String, Object> rawAmounts,
             final Object rawDonation, final boolean sandbox, final String pageUrl) {
         final Caller current = caller();
         final Person payer = currentPerson();
@@ -221,7 +227,7 @@ public class PaymentCommands {
                     trip.getTitle() + " - payment", base, base + "&cancelled=true");
             payment.setOrderRef(order.orderRef());
             DAO.getInstance().transitionPayment(payment, Payment.Status.CREATED);
-            return order.approvalUrl();
+            return Start.of(payment, order, orgNameOf(payment), payer.getEmail());
         } catch (final PaymentProcessor.ProcessorException ex) {
             return startFailed(payment, current, ex.getMessage());
         } catch (final RuntimeException | IOException ex) {
@@ -286,8 +292,18 @@ public class PaymentCommands {
         switch (result.status()) {
             case COMPLETED, ALREADY_CAPTURED -> { }
             case PENDING -> {
+                if (result.isSettling()) {
+                    // A bank debit in flight: nothing more from the payer; the webhook (or an admin's
+                    // Finish) records it when it clears. The reference lets the page name it.
+                    audit.payment(payment, true, sandboxTag(payment) + "Payment accepted and processing at "
+                            + displayNameOf(config) + " (reference " + result.captureId() + ")",
+                            current.auditActor());
+                    return Completion.of("pending", "Your payment method was accepted and the payment is "
+                            + "processing (bank payments can take several business days). We will email you "
+                            + "when it clears; nothing more is needed from you.").withReference(payment);
+                }
                 return Completion.of("pending", "The payment has not completed at the processor yet. "
-                        + "If you approved it, try again in a moment.");
+                        + "If you approved it, try again in a moment.").withReference(payment);
             }
             default -> {
                 markFailed(payment, current, "capture failed at the processor");
@@ -303,10 +319,7 @@ public class PaymentCommands {
         try {
             DAO.getInstance().transitionPayment(payment, Payment.Status.CREATED);
         } catch (final ConditionalCheckFailedException ex) {
-            // A concurrent return-page retry won; adopt ITS row and continue from wherever it got to.
-            final Payment winner = DAO.getInstance().getPayment(payment.getPaymentId()).orElse(null);
-            return (winner == null) ? Completion.of("failed", "The payment state could not be read.")
-                    : complete(winner, token, current);
+            return adoptWinner(payment, token, current);
         } catch (final RuntimeException | IOException ex) {
             log.error("Unable to persist capture for payment {}", payment.getPaymentId(), ex);
         }
@@ -344,7 +357,11 @@ public class PaymentCommands {
         try {
             DAO.getInstance().transitionPayment(payment, Payment.Status.CAPTURED);
         } catch (final ConditionalCheckFailedException ex) {
+            // The webhook and the return page raced to record (the ledger write was idempotent, so the rows
+            // are the same): the winner owns the mail, the push and the audit line. Answer ITS outcome and
+            // do none of them again -- until 2026-11 the loser mailed the payer a second confirmation.
             log.info("Payment {} was recorded by a concurrent writer", payment.getPaymentId());
+            return adoptWinner(payment, null, current);
         } catch (final RuntimeException | IOException ex) {
             log.error("Unable to persist RECORDED for payment {}", payment.getPaymentId(), ex);
         }
@@ -368,6 +385,19 @@ public class PaymentCommands {
                 : "Sandbox payment completed; NO ledger rows were written.");
     }
 
+    /**
+     * A conditional transition lost to a concurrent writer (the return page vs the webhook vs an admin's
+     * Finish): re-read the row and continue from wherever the winner got to. A RECORDED winner answers its
+     * outcome with NO side effects, since the winner already mailed, pushed and audited.
+     */
+    private Completion adoptWinner(final Payment payment, final String token, final Caller current) {
+        final Payment winner = DAO.getInstance().getPayment(payment.getPaymentId()).orElse(null);
+        if (winner == null) {
+            return Completion.of("failed", "The payment state could not be read.");
+        }
+        return complete(winner, token, current);
+    }
+
     /** The cancel-URL callback: only an un-captured payment can cancel. */
     public boolean cancelPayment(final String paymentId) {
         final Caller current = caller();
@@ -377,6 +407,11 @@ public class PaymentCommands {
                 || (!current.isSiteAdmin() && (me == null || !payment.getPayerId().equals(me.getId())))) {
             return false;
         }
+        return cancelCreated(payment, current, "Payment cancelled by the payer");
+    }
+
+    /** CREATED -> CANCELLED plus the processor's own cancel (an inline intent must not stay confirmable). */
+    private boolean cancelCreated(final Payment payment, final Caller current, final String note) {
         payment.setStatus(Payment.Status.CANCELLED);
         try {
             DAO.getInstance().transitionPayment(payment, Payment.Status.CREATED);
@@ -384,9 +419,111 @@ public class PaymentCommands {
             log.warn("Unable to mark payment {} cancelled", payment.getPaymentId(), ex);
             return false;
         }
-        audit.payment(payment, true, sandboxTag(payment) + "Payment cancelled by the payer",
-                current.auditActor());
+        releaseAtProcessor(payment);
+        audit.payment(payment, true, sandboxTag(payment) + note, current.auditActor());
         return true;
+    }
+
+    private void releaseAtProcessor(final Payment payment) {
+        if (payment.getOrderRef() == null) {
+            return;
+        }
+        try {
+            processors.apply(configOf(payment), payment.isSandbox()).cancel(payment.getOrderRef());
+        } catch (final RuntimeException ex) {
+            // Our row is already CANCELLED; a processor that cannot be reached just keeps a dangling intent.
+            log.warn("Processor cancel failed for payment {}: {}", payment.getPaymentId(), ex.getMessage());
+        }
+    }
+
+    // ------------------------------------------------------------------ webhook entry points (trusted)
+
+    /**
+     * The webhook resource's door, after it has verified Stripe's signature and matched the event to this
+     * row: finish the payment under the system actor. Amounts are never taken from the event; the normal
+     * capture path re-reads the intent, so a forged or stale event can at worst trigger a verification read.
+     */
+    public Completion completeFromWebhook(final String paymentId) {
+        final Payment payment = DAO.getInstance().getPayment(paymentId).orElse(null);
+        if (payment == null) {
+            return Completion.of("notfound", "Unknown payment.");
+        }
+        return complete(payment, null, systemCaller());
+    }
+
+    /**
+     * The processor says the payer's bank refused the debit after accepting it (Stripe's
+     * {@code payment_intent.payment_failed} for a bank account): CREATED -> FAILED, audited, and the payer is
+     * told by mail -- FAILED is terminal and leaves the reconciliation list, so without this nobody would.
+     * False when the payment is not CREATED (already recorded, cancelled, or failed).
+     */
+    public boolean failFromWebhook(final String paymentId, final String reason) {
+        final Payment payment = DAO.getInstance().getPayment(paymentId).orElse(null);
+        if (payment == null || payment.getStatus() != Payment.Status.CREATED) {
+            return false;
+        }
+        final Caller current = systemCaller();
+        payment.setStatus(Payment.Status.FAILED);
+        try {
+            DAO.getInstance().transitionPayment(payment, Payment.Status.CREATED);
+        } catch (final RuntimeException | IOException ex) {
+            log.warn("Unable to mark payment {} failed from the webhook", payment.getPaymentId(), ex);
+            return false;
+        }
+        audit.payment(payment, false, sandboxTag(payment) + "Payment failed at the processor (via webhook): "
+                + reason, current.auditActor());
+        if (!payment.isSandbox()) {
+            final Trip trip = DAO.getInstance().getTrip(payment.getTripId(), Cached.NO).orElse(null);
+            final boolean mailed = mailerSource.get().sendPaymentFailed(payment, trip,
+                    orgs.effectivePaymentConfig(trip), orgNameOf(payment), displayNameOf(configOf(payment)),
+                    reason, current.auditActor());
+            if (!mailed) {
+                audit.payment(payment, false, "Payment-failed email was not sent", current.auditActor());
+            }
+        }
+        return true;
+    }
+
+    /**
+     * A failure that is NOT terminal for us -- a declined card the payer is retrying inside the Element or
+     * the sheet, on the same intent. Audit only; the row stays CREATED and retryable.
+     */
+    public void noteFailure(final String paymentId, final String reason) {
+        final Payment payment = DAO.getInstance().getPayment(paymentId).orElse(null);
+        if (payment == null) {
+            return;
+        }
+        audit.payment(payment, false, sandboxTag(payment) + "Payment attempt failed at the processor (via "
+                + "webhook), payer may retry: " + reason, systemCaller().auditActor());
+    }
+
+    /** The processor reports the intent canceled (Stripe's {@code payment_intent.canceled}): CREATED -> CANCELLED. */
+    public boolean cancelFromWebhook(final String paymentId) {
+        final Payment payment = DAO.getInstance().getPayment(paymentId).orElse(null);
+        if (payment == null || payment.getStatus() != Payment.Status.CREATED) {
+            return false;
+        }
+        return cancelCreated(payment, systemCaller(), "Payment cancelled at the processor (via webhook)");
+    }
+
+    private static Caller systemCaller() {
+        return Caller.forActor(AuditActor.system());
+    }
+
+    // ------------------------------------------------------------------ local-mode fake processor hooks
+
+    /** LOCAL ONLY: the fake checkout's "pay as bank" -- the fake order becomes a settling PENDING. */
+    public boolean fakeMarkAsync(final String orderRef) {
+        return LocalMode.isLocal() && FakeProcessor.markAsync(orderRef);
+    }
+
+    /** LOCAL ONLY: the fake checkout's "settle" -- the stand-in for Stripe's webhook finishing the payment. */
+    public Completion fakeSettle(final String orderRef) {
+        if (!LocalMode.isLocal()) {
+            return Completion.of("notfound", "Unknown payment.");
+        }
+        final String paymentId = FakeProcessor.settle(orderRef);
+        return (paymentId == null) ? Completion.of("notfound", "Unknown payment.") : completeFromWebhook(paymentId);
     }
 
     // ------------------------------------------------------------------ reconciliation (site admin)
@@ -423,9 +560,26 @@ public class PaymentCommands {
         return complete(payment, null, current);
     }
 
+    /**
+     * The reconciliation "abandon" button for a CREATED payment the payer walked away from: an inline intent
+     * never expires on its own, so this cancels it at the processor and marks the row CANCELLED. Site admin
+     * only; refuses anything but CREATED (CAPTURED money is finished, never abandoned).
+     */
+    public boolean abandon(final String paymentId) {
+        final Caller current = caller();
+        if (!current.isSiteAdmin()) {
+            return fail("Not allowed", "Only a site administrator can abandon a payment.");
+        }
+        final Payment payment = DAO.getInstance().getPayment(paymentId).orElse(null);
+        if (payment == null || payment.getStatus() != Payment.Status.CREATED) {
+            return fail("Not abandoned", "Only a CREATED payment can be abandoned.");
+        }
+        return cancelCreated(payment, current, "Payment abandoned by " + current.auditActor().email());
+    }
+
     // ------------------------------------------------------------------ helpers
 
-    private String startFailed(final Payment payment, final Caller current, final String reason) {
+    private Start startFailed(final Payment payment, final Caller current, final String reason) {
         payment.setStatus(Payment.Status.FAILED);
         try {
             DAO.getInstance().transitionPayment(payment, Payment.Status.CREATED);
@@ -579,7 +733,7 @@ public class PaymentCommands {
         return PageFeedback.refuse(summary, detail);
     }
 
-    private String failNull(final String summary, final String detail) {
+    private Start failNull(final String summary, final String detail) {
         fail(summary, detail);
         return null;
     }
@@ -614,7 +768,56 @@ public class PaymentCommands {
         }
     }
 
-    /** A completion outcome for the page/REST: a status keyword, a message, and sandbox dry-run lines. */
+    /**
+     * How a started payment is completed: {@code approvalUrl} to redirect to (PayPal, the fake checkout), or
+     * {@code clientSecret} + {@code publishableKey} for an inline form (Stripe's Payment Element on the page,
+     * PaymentSheet in the apps; {@code scriptUrl} is the browser script that mounts it, null = the local
+     * fake). Scalars only, so the page may park them in its view.
+     */
+    @Getter
+    public static final class Start implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
+        private String paymentId;
+        private String approvalUrl;
+        private String publishableKey;
+        private String clientSecret;
+        private String scriptUrl;
+        private String merchantName;
+        private String payerEmail;
+        private long totalCents;
+
+        static Start of(final Payment payment, final PaymentProcessor.CreatedOrder order,
+                final String merchantName, final String payerEmail) {
+            final Start start = new Start();
+            start.paymentId = payment.getPaymentId();
+            start.approvalUrl = order.approvalUrl();
+            if (order.isInline()) {
+                start.publishableKey = order.inline().publishableKey();
+                start.clientSecret = order.inline().clientSecret();
+                start.scriptUrl = order.inline().scriptUrl();
+            }
+            start.merchantName = merchantName;
+            start.payerEmail = payerEmail;
+            start.totalCents = payment.getTotalChargedCents();
+            return start;
+        }
+
+        public boolean isInline() {
+            return clientSecret != null;
+        }
+
+        public String getTotalFormatted() {
+            return MoneyMath.formatCents(totalCents);
+        }
+    }
+
+    /**
+     * A completion outcome for the page/REST: a status keyword, a message, sandbox dry-run lines, and for a
+     * pending outcome the processor's reference to the in-flight payment (the fake checkout's settle link
+     * needs it; a real one shows it to the payer).
+     */
     @Getter
     public static final class Completion implements Serializable {
         @Serial
@@ -623,12 +826,18 @@ public class PaymentCommands {
         private String status;
         private String message;
         private List<String> dryRunLines = List.of();
+        private String reference;
 
         static Completion of(final String status, final String message) {
             final Completion completion = new Completion();
             completion.status = status;
             completion.message = message;
             return completion;
+        }
+
+        Completion withReference(final Payment payment) {
+            this.reference = payment.getOrderRef();
+            return this;
         }
     }
 }

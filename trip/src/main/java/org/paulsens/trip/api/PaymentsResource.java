@@ -54,12 +54,18 @@ public class PaymentsResource extends BaseResource {
         result.put("totalCents", quote.getTotalCents());
         result.put("payerPaysFee", quote.isPayerPays());
         result.put("payable", quote.isPayable());
+        result.put("processorLabel", quote.getProcessorLabel());
         // The page's sandbox toggle is gated by paymentsAdmin@org; a client has no other way to learn it.
         result.put("sandboxAllowed", commands.isSandboxAllowed(trip));
         return ok(result);
     }
 
-    /** Starts a payment; answers the approval URL to open. The return URL must be allowlisted. */
+    /**
+     * Starts a payment; answers how to complete it: {@code approvalUrl} to open (a redirect processor), or
+     * {@code clientSecret} + {@code publishableKey} for the native PaymentSheet (Stripe). {@code paymentId}
+     * is what the client completes or cancels afterwards. The return URL must be allowlisted; for an inline
+     * processor it is the sheet's return URL for redirect-based methods.
+     */
     @POST
     @Consumes({V1, MediaType.APPLICATION_JSON})
     @Produces({V1, MediaType.APPLICATION_JSON})
@@ -75,13 +81,19 @@ public class PaymentsResource extends BaseResource {
             return error(400, ApiErrors.BAD_REQUEST,
                     "returnUrl must start with a configured allowed prefix.");
         }
-        final String approvalUrl = paymentCommands().startPayment(trip, amountsOf(body),
-                body.donation(), Boolean.TRUE.equals(body.sandbox()), body.returnUrl());
-        if (approvalUrl == null) {
+        final org.paulsens.trip.action.PaymentCommands.Start start = paymentCommands().startPayment(trip,
+                amountsOf(body), body.donation(), Boolean.TRUE.equals(body.sandbox()), body.returnUrl());
+        if (start == null) {
             return error(400, ApiErrors.BAD_REQUEST,
                     "The payment could not be started (check the amounts and the trip's configuration).");
         }
-        return ok(Map.of("approvalUrl", approvalUrl));
+        final Map<String, Object> result = new LinkedHashMap<>();
+        result.put("paymentId", start.getPaymentId());
+        result.put("approvalUrl", start.getApprovalUrl());
+        result.put("publishableKey", start.getPublishableKey());
+        result.put("clientSecret", start.getClientSecret());
+        result.put("merchantName", start.getMerchantName());
+        return ok(result);
     }
 
     /** Completes an approved payment (capture + record + mail); safe to retry. */
@@ -150,7 +162,7 @@ public class PaymentsResource extends BaseResource {
             Boolean sandbox, String returnUrl) {
     }
 
-    /** The v2 complete body: the processor's return token (PayPal's {@code token} query param). */
+    /** The v2 complete body: the processor's return token (PayPal's {@code token} query param; null for Stripe). */
     public record CompleteRequest(String token) {
     }
 

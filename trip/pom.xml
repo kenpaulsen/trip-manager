@@ -189,6 +189,17 @@
         </dependency>
         <dependency>
             <!--
+                Stripe server SDK (PaymentIntents, Balance ping, webhook signature check). Blocking
+                HttpURLConnection under the hood, so it parks the calling virtual thread like every other
+                client here; our code passes the key per call (RequestOptions) and never sets the global
+                Stripe.apiKey, because each organization has its own Stripe account.
+            -->
+            <groupId>com.stripe</groupId>
+            <artifactId>stripe-java</artifactId>
+            <version>34.1.0</version>
+        </dependency>
+        <dependency>
+            <!--
                 Sync HTTP client for every AWS SDK client (virtual-threads migration): blocking socket I/O
                 parks the calling virtual thread, and its bounded connection pool doubles as the DynamoDB
                 admission bound. netty-nio-client is excluded from every SDK artifact above; the only

@@ -20,7 +20,12 @@ import java.util.Set;
  * {@code application/json}. And the contents are account-specific (the Apple team id, the Play signing
  * certificate's fingerprint), so they live in the private overlay under {@code WEB-INF/well-known/}, where
  * nothing else can serve them, and this class in the public repo knows only the names. The mapping is
- * {@code /.well-known/*} in the live web.xml; anything but the two known names is a plain 404.</p>
+ * {@code /.well-known/*} in the live web.xml; anything but the known names is a plain 404.</p>
+ *
+ * <p>Since 2026-11 the folder also holds Stripe's {@code apple-developer-merchantid-domain-association}:
+ * Apple fetches it when an organization registers a host for Apple Pay in the Payment Element
+ * ({@code OrgCommands.registerPaymentDomain}). It is Stripe's file, the same for every Stripe account, and
+ * goes out as text/plain.</p>
  *
  * <p>Every host this app answers on serves the same files -- the apex, {@code www}, and each organization's
  * subdomain -- which is what the invite links need, since a link is minted on the trip's own site.</p>
@@ -28,7 +33,9 @@ import java.util.Set;
 public class WellKnownServlet extends HttpServlet {
 
     static final String FOLDER = "/WEB-INF/well-known/";
-    static final Set<String> KNOWN = Set.of("apple-app-site-association", "assetlinks.json");
+    /** Stripe's Apple Pay domain-verification file: identical for every Stripe account, plain text, no extension. */
+    static final String APPLE_PAY = "apple-developer-merchantid-domain-association";
+    static final Set<String> KNOWN = Set.of("apple-app-site-association", "assetlinks.json", APPLE_PAY);
 
     @Override
     protected void doGet(final HttpServletRequest request, final HttpServletResponse response)
@@ -45,7 +52,7 @@ public class WellKnownServlet extends HttpServlet {
             }
             final String json = new String(in.readAllBytes(), StandardCharsets.UTF_8);
             response.setStatus(HttpServletResponse.SC_OK);
-            response.setContentType("application/json");
+            response.setContentType(APPLE_PAY.equals(name) ? "text/plain" : "application/json");
             response.setCharacterEncoding(StandardCharsets.UTF_8.name());
             // Apple's CDN re-fetches on its own schedule and Android verifies at install; a short public
             // cache keeps a change from taking a day to show up without hammering the task.

@@ -57,6 +57,19 @@ public class WellKnownServletTest {
     }
 
     @Test
+    public void stripesApplePayFileIsServedAsPlainText() throws Exception {
+        Mockito.when(request.getPathInfo()).thenReturn("/" + WellKnownServlet.APPLE_PAY);
+        Mockito.when(context.getResourceAsStream(WellKnownServlet.FOLDER + WellKnownServlet.APPLE_PAY))
+                .thenReturn(new ByteArrayInputStream("7B22AB".getBytes(StandardCharsets.UTF_8)));
+
+        servlet.doGet(request, response);
+
+        Assert.assertEquals(body.toString(), "7B22AB");
+        Mockito.verify(response).setContentType("text/plain");
+        Mockito.verify(response, Mockito.never()).sendError(ArgumentMatchers.anyInt());
+    }
+
+    @Test
     public void theAndroidFileIsServedTheSameWay() throws Exception {
         Mockito.when(request.getPathInfo()).thenReturn("/assetlinks.json");
         Mockito.when(context.getResourceAsStream(WellKnownServlet.FOLDER + "assetlinks.json"))

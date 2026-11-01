@@ -36,7 +36,8 @@ Java 25 · Jakarta EE 10 (Servlet 6.1, Faces 4.1 / Mojarra, CDI 4.1 / Weld) · P
 (`jakarta` classifier) · Jersey 3.1 (REST) · MapStruct · Lombok · Jackson · AWS SDK v2, sync clients blocking
 on virtual threads (DynamoDB, SES,
 Secrets Manager, CloudWatch Logs, S3, CloudFront, CodePipeline) · Lettuce (**must stay 6.x** — the build pins
-Netty 4.1; Lettuce 7 needs Netty 4.2) · BCrypt (`at.favre.lib`) · PayPal server SDK · Apache POI · TestNG ·
+Netty 4.1; Lettuce 7 needs Netty 4.2) · BCrypt (`at.favre.lib`) · PayPal server SDK · Stripe Java SDK (blocking
+HttpURLConnection; the key travels per call in `RequestOptions`, never the global `Stripe.apiKey`) · Apache POI · TestNG ·
 NightMonkeys `imageio-heif` (chat-photo HEIC decode over the SYSTEM libheif via FFM — needs
 `--enable-native-access` plus an unversioned `libheif.so` on `java.library.path`; without it HEIC uploads get
 a clean "convert to JPEG" rejection and everything else works) · metadata-extractor (EXIF orientation).
@@ -265,7 +266,9 @@ gate and the signed-copy PDF; see `docs/waivers.md`), `deploy`, `json`, `tripUti
 Jersey servlet (declared in the live web.xml, sibling repo) running `TripApiApplication` — resources are
 registered **explicitly** in `getClasses()`, no package scanning; a new resource must be added there (and to
 `ApiSurfaceTest.RESOURCES`). Resources include auth, people, trips, registrations, transactions, todos,
-privileges, chat, chat-admin, photo-chat, audit, config, mail, payments, deploy, lodging, family, budget and
+privileges, chat, chat-admin, photo-chat, audit, config, mail, payments, the Stripe webhook
+(`webhooks/stripe/{configId}`, deliberately not `@TripApi`: its authority is Stripe's HMAC signature over the
+body, verified with that config's stored signing secret; `docs/payments.md`), deploy, lodging, family, budget and
 expenses (`getClasses()` is the authoritative list) +
 `TripAuthFilter`, `JsonExceptionMapper`, `ObjectMapperProvider`. DTOs in `api/dto`, MapStruct mappers in
 `api/mapper`. Versioning is via the `Accept` media type, not a URL segment.

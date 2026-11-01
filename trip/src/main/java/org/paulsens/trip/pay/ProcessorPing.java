@@ -13,8 +13,9 @@ import org.paulsens.trip.model.PaymentProcessorConfig;
 
 /**
  * The "Test connection" button behind a processor config: proves the stored credentials actually
- * authenticate, without creating an order. PAYPAL does a real OAuth client-credentials exchange; FAKE always
- * succeeds (local mode); STRIPE/ZEFFY answer an honest "not supported yet" rather than a fake pass.
+ * authenticate, without creating an order. PAYPAL does a real OAuth client-credentials exchange; STRIPE reads
+ * the account balance with the secret key (after checking the key belongs to the right mode); FAKE always
+ * succeeds (local mode); ZEFFY answers an honest "not supported yet" rather than a fake pass.
  */
 @Slf4j
 public class ProcessorPing {
@@ -33,14 +34,21 @@ public class ProcessorPing {
             .build();
 
     private final HttpClient http;
+    private final String stripeBaseUrl;
 
     public ProcessorPing() {
-        this(SHARED);
+        this(SHARED, null);
     }
 
     /** Test seam. */
     ProcessorPing(final HttpClient http) {
+        this(http, null);
+    }
+
+    /** Test seam: {@code stripeBaseUrl} points the Stripe SDK at a local fake (null = api.stripe.com). */
+    ProcessorPing(final HttpClient http, final String stripeBaseUrl) {
         this.http = http;
+        this.stripeBaseUrl = stripeBaseUrl;
     }
 
     /**
@@ -55,8 +63,18 @@ public class ProcessorPing {
         return switch (config.getType()) {
             case FAKE -> null;
             case PAYPAL -> pingPayPal(config, sandbox, clientSecret);
-            case STRIPE, ZEFFY -> config.getType().name() + " is not supported yet.";
+            case STRIPE -> pingStripe(config, sandbox, clientSecret);
+            case ZEFFY -> config.getType().name() + " is not supported yet.";
         };
+    }
+
+    private String pingStripe(final PaymentProcessorConfig config, final boolean sandbox,
+            final String secretKey) {
+        if (secretKey == null || secretKey.isBlank()) {
+            return "No secret key stored" + (sandbox ? " (sandbox)." : ".");
+        }
+        final boolean testMode = sandbox || config.getMode() == PaymentProcessorConfig.ProcessorMode.SANDBOX;
+        return StripeProcessor.pingKey(secretKey, testMode, stripeBaseUrl);
     }
 
     private String pingPayPal(final PaymentProcessorConfig config, final boolean sandbox,

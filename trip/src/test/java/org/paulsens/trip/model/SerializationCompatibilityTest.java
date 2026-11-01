@@ -183,6 +183,7 @@ public class SerializationCompatibilityTest {
             of(PaymentCommands.Quote.class, PaymentCommands.Quote::new, PaymentCommands.Quote::getProcessorLabel),
             of(PaymentCommands.Completion.class, PaymentCommands.Completion::new,
                     PaymentCommands.Completion::getDryRunLines),
+            of(PaymentCommands.Start.class, PaymentCommands.Start::new, PaymentCommands.Start::getTotalFormatted),
             of(ProfilePhotos.Slot.class, () -> new ProfilePhotos.Slot(1, "profile/person-ada/1-3.jpg", "/u/1"),
                     ProfilePhotos.Slot::key),
             of(BrandingPhotos.Version.class,

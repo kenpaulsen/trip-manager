@@ -221,8 +221,15 @@ the website), 403 with the send codes (`MUTED`, `FORBIDDEN`, `CHANNEL_ARCHIVED`)
 (photos off, bad crop, empty body), 413 `ATTACHMENT_TOO_LARGE` (the channel's `maxAttachmentBytes`), 422
 `BAD_ATTACHMENT` (not an image). URL bases: `GET /api/media/bases` → `{chatPhotos, profilePhotos, remote}`
 (absolute, end in `/`; a stored `s3Key` resolves as `chatPhotos + key`). Payments: `POST
-/api/payments/quote` (answers `sandboxAllowed`), `POST /api/payments` → `{approvalUrl}`,
-`POST /api/payments/{id}/complete {token}`, `POST /api/payments/{id}/cancel`.
+/api/payments/quote` (answers `sandboxAllowed` and `processorLabel`, the processor's display name for the
+screen's footer), `POST /api/payments` → `{paymentId, approvalUrl?, publishableKey?, clientSecret?,
+merchantName}` -- `approvalUrl` set = a redirect processor (PayPal): open it and come back through the return
+URL; `clientSecret` + `publishableKey` set = a Stripe PaymentIntent: present the native PaymentSheet with them
+(`merchantName` is the organization's display name), then `POST /api/payments/{paymentId}/complete {token}`
+(`token` null for Stripe) and read `status` (`recorded`, `sandbox`, `pending` = a bank debit is processing and
+the server will email when it clears, `mismatch`, `failed`, `cancelled`), or `POST /api/payments/{id}/cancel`
+when the sheet is dismissed. `POST /api/webhooks/stripe/{configId}` is Stripe's, not a client's: no session,
+authenticated by the `Stripe-Signature` header.
 Audit: `GET /api/audit?org&before=<ISO instant>&actor&action&outcome&text&limit` →
 `{events[], searchedBackTo, complete, degraded, nextCursor}`. A `body` may carry the formatting markup (`**bold**`, `*italic*`, `__underline__`, `~~strike~~`, `- `/`1. ` list lines; the grammar is `trip/docs/chat-formatting.md`) beside `@{personId}` tokens; it is text, never HTML, and the app renders it with `ChatMarkup.swift`.
 

@@ -98,10 +98,13 @@ public class PaymentsResourceTest extends ResourceTestSupport {
                 body(FakeData.FAKE_TRIP_ID, "40", RETURN_URL));
         assertOk(started);
         @SuppressWarnings("unchecked")
-        final String approvalUrl =
-                (String) ((Map<String, Object>) started.getEntity()).get("approvalUrl");
+        final Map<String, Object> startBody = (Map<String, Object>) started.getEntity();
+        final String approvalUrl = (String) startBody.get("approvalUrl");
         Assert.assertTrue(approvalUrl.startsWith("/trip/fakeCheckout.jsf?token=FAKE-"));
         final String paymentId = paymentIdFrom(approvalUrl);
+        Assert.assertEquals(startBody.get("paymentId"), paymentId, "the client completes by this id");
+        Assert.assertNull(startBody.get("clientSecret"), "a redirect processor hands out no client secret");
+        Assert.assertEquals(startBody.get("merchantName"), "CFPW");
 
         // Send the processor's token back the way a returning client does; it is the order reference the
         // capture falls back to when the row has none, so a null body would skip that path entirely.
@@ -119,6 +122,34 @@ public class PaymentsResourceTest extends ResourceTestSupport {
         final PaymentsResource stranger = resource(new PaymentsResource());
         assertError(stranger.complete(paymentId, CSRF_OK, null), 404, ApiErrors.NOT_FOUND);
         assertError(stranger.complete("no-such-payment", CSRF_OK, null), 404, ApiErrors.NOT_FOUND);
+    }
+
+    /** The Stripe-shaped answer: no URL to open, a client secret and publishable key for the native sheet. */
+    @Test
+    public void anInlineProcessorAnswersTheSheetsInputs() {
+        final Person payer = savedPerson();
+        signedInAs(payer.getId());
+        final Response started = resource.start(CSRF_OK, body(FakeData.FAKE2_TRIP_ID, "40", RETURN_URL));
+        assertOk(started);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> startBody = (Map<String, Object>) started.getEntity();
+        Assert.assertNull(startBody.get("approvalUrl"));
+        Assert.assertEquals(startBody.get("publishableKey"), "pk_fake");
+        Assert.assertTrue(((String) startBody.get("clientSecret")).startsWith("FAKE-"));
+        Assert.assertNotNull(startBody.get("paymentId"));
+
+        final Response completed = resource.complete((String) startBody.get("paymentId"), CSRF_OK,
+                new PaymentsResource.CompleteRequest(null));
+        assertOk(completed);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> outcome = (Map<String, Object>) completed.getEntity();
+        Assert.assertEquals(outcome.get("status"), "recorded");
+
+        final Response quoted = resource.quote(body(FakeData.FAKE2_TRIP_ID, "40", RETURN_URL));
+        assertOk(quoted);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> quote = (Map<String, Object>) quoted.getEntity();
+        Assert.assertEquals(quote.get("processorLabel"), "Test Processor", "the apps' footer names the processor");
     }
 
     /**

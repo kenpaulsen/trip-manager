@@ -26,10 +26,26 @@ public class ProcessorPingTest {
     public void fakeAlwaysPassesAndUnbuiltTypesSaySoHonestly() {
         final ProcessorPing ping = new ProcessorPing();
         assertNull(ping.ping(config(ProcessorType.FAKE), false, null));
-        assertEquals(ping.ping(config(ProcessorType.STRIPE), false, "sk"), "STRIPE is not supported yet.");
         assertEquals(ping.ping(config(ProcessorType.ZEFFY), false, null), "ZEFFY is not supported yet.");
         assertTrue(ping.ping(null, false, null).contains("Unknown"));
         assertTrue(ping.ping(new PaymentProcessorConfig(), false, null).contains("Unknown"));
+    }
+
+    @Test
+    public void stripeChecksTheKeyBeforeTouchingTheNetwork() {
+        final ProcessorPing ping = new ProcessorPing(Mockito.mock(HttpClient.class), "http://127.0.0.1:1");
+        assertTrue(ping.ping(config(ProcessorType.STRIPE), false, " ").contains("No secret key"));
+        assertTrue(ping.ping(config(ProcessorType.STRIPE), true, "").contains("(sandbox)"));
+        assertTrue(ping.ping(config(ProcessorType.STRIPE), false, "sk_test_1").contains("LIVE-mode"),
+                "a live config's own set must hold a live key");
+        assertTrue(ping.ping(config(ProcessorType.STRIPE), true, "sk_live_1").contains("TEST-mode"),
+                "the sandbox set must hold a test key");
+        final PaymentProcessorConfig sandboxMode = config(ProcessorType.STRIPE);
+        sandboxMode.setMode(PaymentProcessorConfig.ProcessorMode.SANDBOX);
+        assertTrue(ping.ping(sandboxMode, false, "sk_live_1").contains("TEST-mode"),
+                "a SANDBOX-mode config's primary credentials are test keys");
+        assertTrue(ping.ping(sandboxMode, false, "sk_test_1").contains("Could not reach"),
+                "a well-formed key goes to the network (here: a closed port)");
     }
 
     @Test

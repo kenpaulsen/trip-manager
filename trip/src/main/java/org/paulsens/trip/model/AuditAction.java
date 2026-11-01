@@ -49,7 +49,7 @@ public enum AuditAction {
     REGISTRATION("REG", "Register"),
     /** A financial transaction was recorded or edited. */
     TRANSACTION("saveTx"),
-    /** A PayPal payment. */
+    /** A payment through a processor (PayPal, Stripe): start, capture, record, cancel, webhook. */
     PAYMENT,
     /** A todo item's status changed. */
     TODO,

@@ -528,8 +528,10 @@ public final class FakeData {
         if (kevin == null || !commands.setOrgAdmin(ACME_ORG_ID, kevin.getId(), true)) {
             throw new IllegalStateException("Fake org seed: could not make Kevin the Acme org admin");
         }
-        seedFakeProcessor(CFPW_PROCESSOR_ID, CFPW_ORG_ID, "CFPW Test Processor", admin.getId());
-        seedFakeProcessor(ACME_PROCESSOR_ID, ACME_ORG_ID, "Acme Test Processor", kevin.getId());
+        seedFakeProcessor(CFPW_PROCESSOR_ID, CFPW_ORG_ID, "CFPW Test Processor", admin.getId(), false);
+        seedFakeProcessor(CFPW_INLINE_PROCESSOR_ID, CFPW_ORG_ID, "CFPW Inline Test Processor", admin.getId(),
+                true);
+        seedFakeProcessor(ACME_PROCESSOR_ID, ACME_ORG_ID, "Acme Test Processor", kevin.getId(), false);
         seedFakeWaiver(admin.getId());
         seedCfpwPaymentDefaults();
         seedBetaBranding();
@@ -799,9 +801,11 @@ public final class FakeData {
     /** Fixed FAKE-processor config ids, so webtests and the payment flow agree across re-seeds. */
     public static final String CFPW_PROCESSOR_ID = "0c41d9b7-6e2a-4f58-9a03-8b1c5d7e2f60";
     public static final String ACME_PROCESSOR_ID = "9d82e4c6-1b5f-4a37-8c09-2e6a4f8b1d73";
+    /** The INLINE (Stripe-shaped) fake: the Summer Demo trip pays through it, so the Element page runs locally. */
+    public static final String CFPW_INLINE_PROCESSOR_ID = "5e3b8a1c-2d47-4f69-9b0e-7c1a6d4f8e25";
 
     private static void seedFakeProcessor(final String id, final String orgId, final String label,
-            final Person.Id creator) {
+            final Person.Id creator, final boolean inline) {
         try {
             final boolean saved = DAO.getInstance().savePaymentProcessorConfig(PaymentProcessorConfig.builder()
                     .id(PaymentProcessorConfig.Id.from(id))
@@ -810,6 +814,7 @@ public final class FakeData {
                     .type(ProcessorType.FAKE)
                     .mode(PaymentProcessorConfig.ProcessorMode.SANDBOX)
                     .enabled(true)
+                    .publicConfig(inline ? Map.of("inline", "true") : Map.of())
                     .createdBy(creator)
                     .created(LocalDateTime.now())
                     .build());
@@ -1213,7 +1218,7 @@ public final class FakeData {
                 LocalDateTime.now().minusDays(5), null, null, null));
         events2.add(newTripEvent(FAKE2_DBV_KEF_EVENT_ID, TripEvent.Type.FLIGHT, "DBV -> KEF", "Trip for 1 to Iceland",
                 LocalDateTime.now(), null, null, null));
-        trips.add(Trip.builder()
+        final Trip summer = Trip.builder()
                 .id(FAKE2_TRIP_ID)
                 .title("Summer Demo Trip")
                 .orgId(CFPW_ORG_ID)
@@ -1228,7 +1233,11 @@ public final class FakeData {
                 .people(somePeople)
                 .tripEvents(events2)
                 .regOptions(getDefaultOptions())
-                .build());
+                .build();
+        // The trip rung of the payment ladder: this trip pays through the INLINE fake (the Payment Element
+        // page), while the org default keeps the Spring Demo on the redirect fake (the PayPal-shaped flow).
+        summer.getPaymentConfig().setProcessorConfigId(CFPW_INLINE_PROCESSOR_ID);
+        trips.add(summer);
         addLandingPageSeeds(trips, allPeople, tripStaff);
         return trips;
     }

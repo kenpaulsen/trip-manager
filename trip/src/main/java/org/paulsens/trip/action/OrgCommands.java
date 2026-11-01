@@ -1,7 +1,9 @@
 package org.paulsens.trip.action;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
+import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -38,6 +40,7 @@ import org.paulsens.trip.model.SharedSiteRegisterTarget;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPaymentConfig;
 import org.paulsens.trip.pay.ProcessorPing;
+import org.paulsens.trip.pay.StripeDomains;
 import org.paulsens.trip.security.ProcessorSecrets;
 import org.paulsens.trip.site.SiteUrls;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
@@ -1878,6 +1881,10 @@ public class OrgCommands {
 
     // ------------------------------------------------------------------ payment processor configs
 
+    /** Secret-store field names for a Stripe config's webhook signing secrets (live endpoint / test endpoint). */
+    public static final String WEBHOOK_SECRET = "webhookSecret";
+    public static final String WEBHOOK_SECRET_SANDBOX = "webhookSecretSandbox";
+
     /** Processor type names for the settings page's picker. */
     public List<String> getProcessorTypes() {
         return java.util.Arrays.stream(ProcessorType.values()).map(Enum::name).toList();
@@ -1912,16 +1919,28 @@ public class OrgCommands {
     public boolean saveProcessorConfig(final String orgId, final String configId, final String label,
             final String typeName, final String modeName, final boolean enabled,
             final String clientId, final String sandboxClientId, final int feeBps, final int feeFixedCents) {
+        return saveProcessorConfigId(orgId, configId, label, typeName, modeName, enabled, clientId,
+                sandboxClientId, feeBps, feeFixedCents) != null;
+    }
+
+    /**
+     * {@link #saveProcessorConfig} answering the saved config's id (null = refused, growled). The page needs
+     * the id of a config it has just CREATED: the secrets it pastes in the same Save go to the secret store
+     * under that id, and the Stripe webhook URL it then shows contains it.
+     */
+    public String saveProcessorConfigId(final String orgId, final String configId, final String label,
+            final String typeName, final String modeName, final boolean enabled,
+            final String clientId, final String sandboxClientId, final int feeBps, final int feeFixedCents) {
         final Caller current = caller();
         if (!canManageOrg(orgId)) {
-            return fail("Not allowed", "Only this organization's admins can manage payment processors.");
+            return failNull("Not allowed", "Only this organization's admins can manage payment processors.");
         }
         if (label == null || label.isBlank()) {
-            return fail("Label required", "Give this processor configuration a label.");
+            return failNull("Label required", "Give this processor configuration a label.");
         }
         final ProcessorType type = parseType(typeName);
         if (type == null) {
-            return fail("Type required", "Pick a processor type.");
+            return failNull("Type required", "Pick a processor type.");
         }
         final PaymentProcessorConfig config;
         if (configId == null || configId.isBlank()) {
@@ -1933,7 +1952,7 @@ public class OrgCommands {
         } else {
             config = findProcessorConfig(orgId, configId);
             if (config == null) {
-                return fail("Unable to save", "Unknown processor configuration.");
+                return failNull("Unable to save", "Unknown processor configuration.");
             }
         }
         config.setLabel(label);
@@ -1942,17 +1961,27 @@ public class OrgCommands {
                 ? PaymentProcessorConfig.ProcessorMode.LIVE
                 : PaymentProcessorConfig.ProcessorMode.SANDBOX);
         config.setEnabled(enabled);
+        if (type == ProcessorType.STRIPE && (clientId == null || clientId.isBlank())) {
+            // The Payment Element and PaymentSheet cannot mount without it; PayPal's redirect never needed one.
+            return failNull("Publishable key required",
+                    "A Stripe configuration needs its publishable key (pk_...).");
+        }
         config.getPublicConfig().put("clientId", (clientId == null) ? "" : clientId.trim());
         config.getSandboxPublicConfig().put("clientId",
                 (sandboxClientId == null) ? "" : sandboxClientId.trim());
         config.setFeeBps(Math.max(0, feeBps));
         config.setFeeFixedCents(Math.max(0, feeFixedCents));
         if (!saveProcessorOrWarn(config)) {
-            return false;
+            return null;
         }
         audit(current, findOrganization(orgId),
                 "Processor config '" + label + "' (" + type + ") saved; enabled=" + enabled);
-        return true;
+        return config.getId().getValue();
+    }
+
+    private String failNull(final String summary, final String detail) {
+        fail(summary, detail);
+        return null;
     }
 
     /**
@@ -1961,18 +1990,27 @@ public class OrgCommands {
      */
     public boolean setProcessorSecret(final String orgId, final String configId,
             final String liveSecret, final String sandboxSecret) {
+        return setProcessorSecrets(orgId, configId, liveSecret, sandboxSecret, null, null);
+    }
+
+    /**
+     * {@link #setProcessorSecret} plus the two webhook signing secrets a Stripe config carries ({@code
+     * whsec_...}, one per Stripe endpoint: the live dashboard's and the test dashboard's). Same field
+     * contract: blank leaves the stored value alone.
+     */
+    public boolean setProcessorSecrets(final String orgId, final String configId,
+            final String liveSecret, final String sandboxSecret,
+            final String liveWebhookSecret, final String sandboxWebhookSecret) {
         final Caller current = caller();
         final PaymentProcessorConfig config = findProcessorConfig(orgId, configId);
         if (config == null || !canManageOrg(orgId)) {
             return fail("Not allowed", "Only this organization's admins can manage payment processors.");
         }
         final java.util.Map<String, String> fields = new java.util.HashMap<>();
-        if (liveSecret != null && !liveSecret.isBlank()) {
-            fields.put("clientSecret", liveSecret);
-        }
-        if (sandboxSecret != null && !sandboxSecret.isBlank()) {
-            fields.put("clientSecretSandbox", sandboxSecret);
-        }
+        putIfGiven(fields, "clientSecret", liveSecret);
+        putIfGiven(fields, "clientSecretSandbox", sandboxSecret);
+        putIfGiven(fields, WEBHOOK_SECRET, liveWebhookSecret);
+        putIfGiven(fields, WEBHOOK_SECRET_SANDBOX, sandboxWebhookSecret);
         if (fields.isEmpty()) {
             return true;
         }
@@ -1984,10 +2022,94 @@ public class OrgCommands {
         return true;
     }
 
+    private static void putIfGiven(final java.util.Map<String, String> fields, final String key,
+            final String value) {
+        if (value != null && !value.isBlank()) {
+            fields.put(key, value.trim());
+        }
+    }
+
     /** Whether a (live/sandbox) secret is stored, for the settings page's badges. */
     public boolean hasProcessorSecret(final String configId, final boolean sandbox) {
         return configId != null && ProcessorSecrets.getInstance()
                 .hasSecret(configId.trim(), sandbox ? "clientSecretSandbox" : "clientSecret");
+    }
+
+    /** Whether a (live/sandbox) Stripe webhook signing secret is stored, for the settings page's badges. */
+    public boolean hasWebhookSecret(final String configId, final boolean sandbox) {
+        return configId != null && ProcessorSecrets.getInstance()
+                .hasSecret(configId.trim(), sandbox ? WEBHOOK_SECRET_SANDBOX : WEBHOOK_SECRET);
+    }
+
+    /**
+     * The URL an organization pastes into its Stripe dashboard as the webhook endpoint for this config,
+     * built on the host the admin is looking at (any host this app answers on works; the webhook resource
+     * verifies Stripe's signature with THIS config's secret, so the config id in the path is what routes it).
+     * Null until the config has been saved once.
+     */
+    public String webhookUrl(final String configId) {
+        return webhookUrl(currentBaseUrl(), configId);
+    }
+
+    static String webhookUrl(final String baseUrl, final String configId) {
+        if (baseUrl == null || configId == null || configId.isBlank()) {
+            return null;
+        }
+        return baseUrl + "/api/webhooks/stripe/" + configId.trim();
+    }
+
+    /** scheme://host[:port]/context of the request being rendered, or null off-request (tests, schedulers). */
+    private static String currentBaseUrl() {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        final Object raw = (ctx == null) ? null : ctx.getExternalContext().getRequest();
+        if (!(raw instanceof HttpServletRequest request)) {
+            return null;
+        }
+        final boolean defaultPort = ("https".equals(request.getScheme()) && request.getServerPort() == 443)
+                || ("http".equals(request.getScheme()) && request.getServerPort() == 80)
+                || request.getServerPort() <= 0;
+        return request.getScheme() + "://" + request.getServerName()
+                + (defaultPort ? "" : ":" + request.getServerPort()) + request.getContextPath();
+    }
+
+    /**
+     * Registers the host the admin is on with the config's Stripe account so Apple Pay, Google Pay and Link
+     * can render in the Payment Element there. Once per host per Stripe account; an organization whose
+     * payers use both the shared site and its own subdomain registers both. The outcome lands in a growl.
+     */
+    public boolean registerPaymentDomain(final String orgId, final String configId, final boolean sandbox) {
+        final Caller current = caller();
+        final PaymentProcessorConfig config = findProcessorConfig(orgId, configId);
+        if (config == null || !canManageOrg(orgId)) {
+            return fail("Not allowed", "Unknown processor configuration.");
+        }
+        if (config.getType() != ProcessorType.STRIPE) {
+            return fail("Not Stripe", "Wallet domain registration applies to Stripe configurations only.");
+        }
+        final String host = currentHost();
+        if (host == null) {
+            return fail("No host", "The current request's host could not be determined.");
+        }
+        final String secret = ProcessorSecrets.getInstance().get(configId.trim())
+                .get(sandbox ? "clientSecretSandbox" : "clientSecret");
+        if (secret == null || secret.isBlank()) {
+            return fail("No secret key", "Store the " + (sandbox ? "sandbox " : "") + "secret key first.");
+        }
+        final boolean testMode = sandbox || config.getMode() == PaymentProcessorConfig.ProcessorMode.SANDBOX;
+        final String outcome = StripeDomains.register(secret, testMode, host);
+        if (outcome.startsWith("Stripe refused")) {
+            return fail("Registration failed", outcome);
+        }
+        audit(current, findOrganization(orgId), "Wallet domain " + host + " registered for processor config '"
+                + config.getLabel() + "'" + (sandbox ? " (sandbox)" : "") + ": " + outcome);
+        PageFeedback.info(outcome);
+        return true;
+    }
+
+    private static String currentHost() {
+        final FacesContext ctx = FacesContext.getCurrentInstance();
+        final Object raw = (ctx == null) ? null : ctx.getExternalContext().getRequest();
+        return (raw instanceof HttpServletRequest request) ? request.getServerName() : null;
     }
 
     /** The Test-connection button: null-success message contract turned into a growl by the page. */
@@ -2020,8 +2142,8 @@ public class OrgCommands {
         if (!DAO.getInstance().deletePaymentProcessorConfig(config.getOrgId(), config.getId())) {
             return fail("Unable to delete", "The delete did not complete.");
         }
-        ProcessorSecrets.getInstance().put(configId.trim(),
-                java.util.Map.of("clientSecret", "", "clientSecretSandbox", ""));
+        ProcessorSecrets.getInstance().put(configId.trim(), java.util.Map.of("clientSecret", "",
+                "clientSecretSandbox", "", WEBHOOK_SECRET, "", WEBHOOK_SECRET_SANDBOX, ""));
         audit(current, findOrganization(orgId), "Processor config '" + config.getLabel() + "' DELETED");
         return true;
     }

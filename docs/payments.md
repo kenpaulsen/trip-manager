@@ -168,8 +168,26 @@ are thin callers of the same methods — that is what makes iOS/Android possible
 status (double-submits serialize). Completion order: capture → verify (COMPLETED + real capture id/amount —
 `PayPalProcessor` never reports a $0 success; ALREADY_CAPTURED recovers via getOrder) → gross==expected
 check (mismatch parks in CAPTURED) → idempotent record → RECORDED → confirmation mail (failure audited,
-never blocks). `admin/payments.jsf` lists non-terminal payments with a "Finish" that reruns the same path —
-this is the no-webhooks-yet safety net (webhooks arrive with Stripe).
+never blocks). `admin/payments.jsf` lists non-terminal payments with a "Finish" that reruns the same path and,
+since 2026-11, an "Abandon" for a CREATED payment the payer walked away from (cancels the order at the
+processor, then CANCELLED; a Stripe PaymentIntent never expires on its own).
+
+**Two shapes of start (2026-11).** `startPayment` answers a `Start`: `approvalUrl` for a REDIRECT processor
+(PayPal, the fake checkout) or `publishableKey` + `clientSecret` (+ `scriptUrl`) for an INLINE one (Stripe):
+the page then renders a second step with the processor's form mounted in place (`trip-js/payElement.js`
+over Stripe.js; `trip-js/fakeStripe.js` locally) and the processor redirects to the same `?trip=..&payment=..`
+completion path afterwards -- so the page's `initPage` is the one completion door for both shapes. The Pay
+button is a FULL postback on purpose: the mounted iframes must never sit inside an ajax-updated region.
+
+**PENDING has two flavors** (`CaptureResult.isSettling()`): with a processor reference, the payer's method was
+ACCEPTED and settlement is outstanding (a US bank debit, 3-5 business days) -- the page says "Payment
+processing ... nothing more is needed from you" and the row stays CREATED until the webhook (or Finish)
+records it; without one, the payer simply has not finished (approved-uncaptured, a form still open) and may
+retry. A declined card inside the Element is NOT a terminal failure: the payer retries on the same intent.
+
+**The record race** (fixed 2026-11): the return page and the webhook can both finish one CAPTURED row. The
+loser's RECORDED conditional put fails; it re-reads the row and answers the winner's outcome WITHOUT mailing,
+pushing or auditing again (`adoptWinner`). Before the fix the loser mailed a second confirmation.
 
 Audit: `AuditAction.PAYMENT` targeted at `payment:{id}` for start/complete/fail, `[SANDBOX] ` prefixed in
 sandbox.
@@ -186,11 +204,50 @@ excluded from balances and the reconciliation list.
 
 ## Processors (`pay/`)
 
-`PaymentProcessor` SPI (createOrder → approvalUrl redirect; capture → verified result), built per config by
-`PaymentProcessors.forConfig(config, sandbox)` (memoized per config id+version+sandbox — rotation without
-restart). `FakeProcessor` + `trip/fakeCheckout.xhtml` drive the whole flow locally (webtest:
-`PaymentPagePwIT`). Stripe: implement as a Checkout Session behind the same SPI, plus a webhook resource
-(the non-`@TripApi` precedent) funneling into `completePayment`. Zeffy: a future record-only kind.
+`PaymentProcessor` SPI (createOrder → a redirect `approvalUrl` OR an inline client secret; capture → verified
+result; cancel → release the order), built per config by `PaymentProcessors.forConfig(config, sandbox)`
+(memoized per config id+version+sandbox -- rotation without restart). `FakeProcessor` + `trip/fakeCheckout.xhtml`
+drive the whole flow locally (webtest: `PaymentPagePwIT`): the CFPW org default is the REDIRECT fake, and the
+Summer Demo trip's own payment config is the INLINE fake (`publicConfig.inline=true`, `FakeData
+.CFPW_INLINE_PROCESSOR_ID`), whose "checkout" page doubles as its back end (`?async=1` = pay as bank, `?settle=1`
+= the webhook stand-in). Zeffy: a future record-only kind.
+
+### Stripe (shipped 2026-11)
+
+- **Shape**: `StripeProcessor` creates a PaymentIntent (`automatic_payment_methods`, so the org's Stripe
+  dashboard decides which methods the form offers: cards, Link, US bank account, Apple Pay, Google Pay) and
+  answers its client secret; the website mounts Stripe's **Payment Element** in `trip/payment.xhtml`, the
+  apps present the native **PaymentSheet** with the same secret (`POST /api/payments` → `clientSecret`,
+  `publishableKey`, `merchantName`, `paymentId`). Card data is Stripe's iframes / native sheet, never ours:
+  the org's PCI scope is SAQ A. Hosted Checkout was considered and rejected (the owner wants an on-page form).
+- **Ids**: `orderRef` = `captureId` = the PaymentIntent id (`pi_...`), what Stripe's dashboard, refunds and
+  disputes key on; `capture` is a verification READ of the intent (`succeeded` + a positive USD
+  `amount_received` is the ONLY success; `processing` = the settling PENDING; `canceled` = FAILED; a transport
+  failure = plain PENDING, never FAILED, because FAILED is terminal and would strand paid money). The fee comes
+  from the expanded balance transaction when present.
+- **Keys**: per org, pasted on `admin/orgProcessors.jsf`. `publicConfig.clientId` = publishable key (REQUIRED
+  for STRIPE), secret-store `clientSecret`/`clientSecretSandbox` = secret key, `webhookSecret`/
+  `webhookSecretSandbox` = the two endpoints' signing secrets. The sandbox set is Stripe TEST mode; the
+  processor refuses a key whose `_test_`/`_live_` segment disagrees with the set. Every SDK call passes the
+  key in `RequestOptions`; `ArchitectureTest` bans the process-global `Stripe.apiKey`.
+- **Webhook**: `api/StripeWebhookResource`, `POST /api/webhooks/stripe/{configId}` (the page shows the URL),
+  deliberately not `@TripApi`: the body's HMAC (`Stripe-Signature`) is verified against THAT config's live
+  then sandbox secret before anything is read. It reads only `metadata.paymentId`, the intent id, `status`
+  and the failed method's type from the RAW event JSON (the SDK's typed object is empty when the endpoint's
+  API version differs), checks the event belongs to the stored row (config, intent id, sandbox vs test
+  endpoint, livemode) -- a mismatch is audited and answered 200 -- then calls the trusted
+  `PaymentCommands.*FromWebhook` paths under the system actor: `payment_intent.succeeded` →
+  `completeFromWebhook` (re-reads the intent; 503 when the read answers pending so Stripe redelivers),
+  `payment_failed` with a `us_bank_account` → `failFromWebhook` (FAILED + the `payment-failed` mail; a card
+  decline is `noteFailure`, audit only), `canceled` → `cancelFromWebhook`, `processing` → 200. Re-delivery is
+  a no-op through the state machine; there is no event-id table.
+- **Wallets**: "Register this site for wallets" (`OrgCommands.registerPaymentDomain`, Stripe's
+  PaymentMethodDomain API) once per host per org account; `WellKnownServlet` serves Stripe's
+  `apple-developer-merchantid-domain-association` on every host. The iOS app's Apple Pay certificate is per
+  org account and user-run (setup-instructions.txt, "Stripe").
+- **Fees**: `ProcessorType.STRIPE(290, 30)`; the payer-pays estimate uses the card rate even when the payer
+  picks ACH (0.8%, $5 cap) -- the org keeps the difference; `actualFeeCents` records the truth.
+- **No new AWS cost**: same Secrets Manager secret, same ALB (no path rules touch `/api/*`), same tables.
 
 ## Local mode seeds
 
@@ -212,5 +269,10 @@ Kevin/user3 as its NON-site-admin org admin is the tenant-isolation demo.
    settings page; Test connection; set the trip/org payment config; Send Test Email.
 7. Grant `paymentsAdmin` to org members on the org People page (`/admin/orgPeople.jsf?orgId=…`) if
    non-site-admins need sandbox (bounded by the org's allow-list — `docs/org-admin.md`).
+8. Stripe, per organization (2026-11): the numbered steps under "Stripe" in `medjugorje/setup-instructions.txt`
+   (keys, the two webhook endpoints with the four `payment_intent.*` events, wallet domain registration per
+   host, the iOS Apple Pay certificate, Stripe's own receipt off); re-run `install-starter-templates.sh` for
+   the `payment-failed` MAIL starter; ship the app builds that carry PaymentSheet BEFORE switching an org whose
+   travelers pay from the apps (an older app gets no `approvalUrl` from a Stripe org and cannot pay).
 
 Recurring cost: ≈$0.45/mo (one secret + four KB-scale tables) — under the $1 approval line.

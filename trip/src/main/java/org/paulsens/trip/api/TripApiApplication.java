@@ -44,6 +44,7 @@ public class TripApiApplication extends Application {
                 PeopleResource.class,
                 PhotoChatResource.class,
                 RegistrationsResource.class,
+                StripeWebhookResource.class,
                 TodosResource.class,
                 TransactionsResource.class,
                 TripsResource.class,

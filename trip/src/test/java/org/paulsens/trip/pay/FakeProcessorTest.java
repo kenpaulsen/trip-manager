@@ -32,6 +32,42 @@ public class FakeProcessorTest {
     }
 
     @Test
+    public void theInlineFakeAnswersAClientSecretAndCanSettleLater() {
+        final FakeProcessor fake = new FakeProcessor(true);
+        final Payment payment = Payment.builder()
+                .payerId(Person.Id.newInstance()).totalChargedCents(5000L).build();
+        final PaymentProcessor.CreatedOrder order = fake.createOrder(payment, "desc", "http://r", "http://c");
+        assertTrue(order.isInline());
+        assertEquals(order.inline().publishableKey(), "pk_fake");
+        assertEquals(order.inline().clientSecret(), order.orderRef());
+        assertEquals(order.inline().scriptUrl(), null, "null = the page's own fake Stripe.js");
+
+        assertTrue(FakeProcessor.markAsync(order.orderRef()));
+        final PaymentProcessor.CaptureResult settling = fake.capture(order.orderRef());
+        assertEquals(settling.status(), PaymentProcessor.CaptureResult.Status.PENDING);
+        assertTrue(settling.isSettling());
+        assertEquals(FakeProcessor.settle(order.orderRef()), payment.getPaymentId());
+        assertEquals(fake.capture(order.orderRef()).status(), PaymentProcessor.CaptureResult.Status.COMPLETED);
+
+        assertEquals(FakeProcessor.settle("FAKE-unknown"), null);
+        assertTrue(!FakeProcessor.markAsync(null));
+        fake.cancel(order.orderRef());
+        assertEquals(fake.capture(order.orderRef()).status(), PaymentProcessor.CaptureResult.Status.FAILED,
+                "a cancelled order is gone");
+        fake.cancel(null);
+    }
+
+    @Test
+    public void inlineIsAConfigFlag() {
+        final org.paulsens.trip.model.PaymentProcessorConfig inline =
+                org.paulsens.trip.model.PaymentProcessorConfig.builder().type(ProcessorType.FAKE)
+                        .publicConfig(java.util.Map.of("inline", "TRUE")).build();
+        assertTrue(FakeProcessor.isInline(inline));
+        assertTrue(!FakeProcessor.isInline(new org.paulsens.trip.model.PaymentProcessorConfig()));
+        assertTrue(!FakeProcessor.isInline(null));
+    }
+
+    @Test
     public void processorExceptionsCarryPayerSafeMessages() {
         assertEquals(new PaymentProcessor.ProcessorException("refused").getMessage(), "refused");
         final PaymentProcessor.ProcessorException chained = new PaymentProcessor.ProcessorException(

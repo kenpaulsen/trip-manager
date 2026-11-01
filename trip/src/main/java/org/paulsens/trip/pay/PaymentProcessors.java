@@ -31,13 +31,31 @@ public final class PaymentProcessors {
             throw new PaymentProcessor.ProcessorException("No payment processor is configured.");
         }
         return switch (config.getType()) {
-            case FAKE -> new FakeProcessor();
+            case FAKE -> new FakeProcessor(FakeProcessor.isInline(config));
             case PAYPAL -> CACHE.computeIfAbsent(
                     config.getId().getValue() + ":" + config.getVersion() + ":" + sandbox,
                     key -> buildPayPal(config, sandbox));
-            case STRIPE, ZEFFY -> throw new PaymentProcessor.ProcessorException(
+            case STRIPE -> CACHE.computeIfAbsent(
+                    config.getId().getValue() + ":" + config.getVersion() + ":" + sandbox,
+                    key -> buildStripe(config, sandbox));
+            case ZEFFY -> throw new PaymentProcessor.ProcessorException(
                     config.getType().name() + " is not supported yet.");
         };
+    }
+
+    /**
+     * Stripe reuses PayPal's field names: {@code clientId} holds the PUBLISHABLE key and
+     * {@code clientSecret} the SECRET key, so the admin page's badges, pings and deletes need no per-type
+     * branches. Test mode (the sandbox credential set, or a SANDBOX-mode config) must hold {@code _test_}
+     * keys; the processor refuses a mismatch so a "sandbox" payment can never move real money.
+     */
+    private static PaymentProcessor buildStripe(final PaymentProcessorConfig config, final boolean sandbox) {
+        final Map<String, String> publicSet =
+                sandbox ? config.getSandboxPublicConfig() : config.getPublicConfig();
+        final String secret = ProcessorSecrets.getInstance().get(config.getId().getValue())
+                .get(sandbox ? "clientSecretSandbox" : "clientSecret");
+        final boolean testMode = sandbox || config.getMode() == PaymentProcessorConfig.ProcessorMode.SANDBOX;
+        return new StripeProcessor(publicSet.get("clientId"), secret, testMode);
     }
 
     private static PaymentProcessor buildPayPal(final PaymentProcessorConfig config, final boolean sandbox) {

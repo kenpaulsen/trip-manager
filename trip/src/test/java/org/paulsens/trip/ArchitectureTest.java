@@ -70,6 +70,21 @@ public class ArchitectureTest {
                 "the unbounded platform pool (and its class of OOM) must not come back; spawn via TripThreads");
     }
 
+    /**
+     * Stripe keys travel per request ({@code RequestOptions.setApiKey}): one organization's key set on the
+     * SDK's process-global {@code Stripe.apiKey} would bill or refund another organization's payers.
+     */
+    @Test
+    public void stripeKeysAreNeverProcessGlobal() throws IOException {
+        final List<String> offenders = new ArrayList<>();
+        for (final Path source : mainSources()) {
+            offenders.addAll(linesMatching(source, "Stripe.apiKey"));
+            offenders.addAll(linesMatching(source, "Stripe.overrideApiBase"));
+        }
+        Assert.assertEquals(offenders, List.of(),
+                "every Stripe call passes its organization's key in RequestOptions; never the global one");
+    }
+
     /** Matches CODE lines only: comments may (and do) name the banned things while explaining their absence. */
     private static List<String> linesMatching(final Path source, final String needle) throws IOException {
         final List<String> hits = new ArrayList<>();

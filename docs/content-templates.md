@@ -18,7 +18,8 @@ strand instances; `saveTemplate` rejects it):
 | `MAIL` | an EMAIL body with `{{token}}` placeholders; the template NAME doubles as the subject line | none — mail templates have no instances | never on a page; rendered by `MailCommands.renderManagedTemplateForOrg` (resolved per organization, below), tokens filled by JAVA only (no EL — runtime-editable EL would be code execution) |
 
 MAIL templates are excluded from every content picker; the shipped ones are `registration-received`,
-`registration-approved`, `support-request`, `payment-confirmation`, and `org-invite` (the org-admin
+`registration-approved`, `support-request`, `payment-confirmation`, `payment-failed` (a bank debit that was
+accepted and later returned; see `docs/payments.md`), and `org-invite` (the org-admin
 "invite by email" flow -- see `docs/org-admin.md`). They are edited on the
 same `/admin/templates.jsf` manager as everything else (contentAdmin): the page has a kind filter
 (`TemplateCommands.getTemplates(kind)`, fails open to the full list on blank/bogus values) and the
@@ -449,7 +450,7 @@ datastore).
 
 1. Privilege rows (hand-created in `/admin/editPrivs.jsf`): `contentAdmin` (raw-HTML power — grant like
    script access), `eventAdmin`, `mediaAdmin`.
-2. `install-starter-templates.sh` — the TWENTY-THREE starters (JSON generated from `StarterTemplates` by
+2. `install-starter-templates.sh` -- the TWENTY-SIX starters (JSON generated from `StarterTemplates` by
    the test-scope `BootstrapScriptJson` tool; the twelve originals plus the eleven bands).
 3. `bootstrap-home-v2.sh` — the `page:trip-index` skeleton (JSON generated from `V2PageBootstrap`);
    `--purge-v1` deletes the retired `home.*` rows. New rows appear on their own within ~5 minutes (the
