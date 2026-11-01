@@ -8,6 +8,7 @@ import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.ArrayList;
@@ -18,15 +19,20 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.AuditCommands;
 import org.paulsens.trip.action.ChatCommands;
+import org.paulsens.trip.action.CheckoutCommands;
+import org.paulsens.trip.action.PaymentCommands;
 import org.paulsens.trip.action.RegistrationCommands;
 import org.paulsens.trip.action.WaiverCommands;
+import org.paulsens.trip.api.dto.CheckoutRequest;
 import org.paulsens.trip.api.dto.RegisterPartyRequest;
 import org.paulsens.trip.api.dto.RegisterPartyResponse;
 import org.paulsens.trip.api.dto.RegistrationDto;
 import org.paulsens.trip.api.mapper.RegistrationMapper;
+import org.paulsens.trip.checkout.CheckoutProblem;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.Registration;
+import org.paulsens.trip.model.RegistrationDraft;
 import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Trip;
 
@@ -194,7 +200,8 @@ public class RegistrationsResource extends BaseResource {
         final Person person = requireSubject(subject);
         final RegistrationCommands registrations = Beans.get(RegistrationCommands.class);
         final Registration existing = registrations.getRegistration(tripId, subject);
-        final Registration toSave = merge(existing, body);
+        final Registration toSave = merge(existing, body, staff ? optionsOf(body)
+                : withPaidAnswersKept(trip, existing, optionsOf(body)));
         if (!registrations.saveRegistration(toSave)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the registration.");
         }
@@ -247,7 +254,7 @@ public class RegistrationsResource extends BaseResource {
             selected.put(key, Boolean.TRUE);
             digests.put(key, traveler.dailyDigest() != null ? traveler.dailyDigest()
                     : chat.digestChoiceOrDefault(existing));
-            agreements.put(key, agreementsOf(traveler));
+            agreements.put(key, agreementsOf(traveler.waivers()));
         }
         final RegistrationCommands.PartyOutcome outcome = registrations.registerPartyOutcome(trip, selected, regs,
                 digests, agreements, WaiverCommands.ClientInfo.of(TripWaiversResource.clientOf(body.client()),
@@ -287,11 +294,11 @@ public class RegistrationsResource extends BaseResource {
     }
 
     /** A traveler's document answers as the bean takes them; none given is an empty list. */
-    private static List<WaiverCommands.Agreement> agreementsOf(final RegisterPartyRequest.TravelerRequest traveler) {
-        if (traveler.waivers() == null) {
+    private static List<WaiverCommands.Agreement> agreementsOf(final List<RegisterPartyRequest.WaiverAnswer> waivers) {
+        if (waivers == null) {
             return List.of();
         }
-        return traveler.waivers().stream()
+        return waivers.stream()
                 .filter(java.util.Objects::nonNull)
                 .map(w -> new WaiverCommands.Agreement(w.waiverId(), w.version(), w.agreed(), w.authorityAttested()))
                 .toList();
@@ -300,6 +307,231 @@ public class RegistrationsResource extends BaseResource {
     /** Seam: the bean bound to THIS caller (its per-traveler authorization needs one); tests substitute. */
     protected RegistrationCommands callerBoundRegistrations() {
         return new RegistrationCommands(this::caller);
+    }
+
+    // ------------------------------------------------------------------ priced checkout (docs/checkout.md)
+
+    /**
+     * The live price of a checkout party: each traveler's breakdown and problems, the party's credits, the fee when
+     * the payer pays it, and the total. Writes nothing. The page's totals panel, through the same bean.
+     */
+    @POST
+    @Path("party/quote")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response quoteCheckout(@PathParam("tripId") final String tripId, final CheckoutRequest body) {
+        final Trip trip = requireTrip(tripId);
+        final CheckoutCommands checkout = callerBoundCheckout();
+        final CheckoutParty party = checkoutParty(trip, checkout, body);
+        final CheckoutCommands.Quote quote = checkout.quote(trip, party.draft(), party.people());
+        final Map<String, Object> result = new LinkedHashMap<>();
+        result.put("persons", quote.persons());
+        result.put("problems", quote.problems());
+        result.put("creditCents", quote.creditCents());
+        result.put("feeCents", quote.feeCents());
+        result.put("totalCents", quote.totalCents());
+        result.put("payable", quote.payable());
+        result.put("ready", quote.isReady());
+        return ok(result);
+    }
+
+    /**
+     * Starts the party's checkout (pay-first: nobody is registered until the payment is recorded). Answers how to
+     * pay exactly like {@code POST /payments} ({@code paymentId} plus {@code approvalUrl}, or {@code clientSecret}
+     * and {@code publishableKey} for the native sheet), completed through {@code POST /payments/{id}/complete},
+     * which registers the party. A party that owes nothing is registered at once and answers the completion
+     * ({@code status}, {@code message}). Every refusal is a 400 listing each problem with its code.
+     */
+    @POST
+    @Path("party/checkout")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response startCheckout(
+            @PathParam("tripId") final String tripId,
+            @HeaderParam(CSRF_HEADER) final String csrf,
+            final CheckoutRequest body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final Trip trip = requireTrip(tripId);
+        final CheckoutCommands checkout = callerBoundCheckout();
+        final CheckoutParty party = checkoutParty(trip, checkout, body);
+        if (body.returnUrl() == null || !PaymentsResource.isAllowed(body.returnUrl())) {
+            return error(400, ApiErrors.BAD_REQUEST, "returnUrl must start with a configured allowed prefix.");
+        }
+        final Response refused = refusedBeforeStart(trip, checkout, party, body);
+        if (refused != null) {
+            return refused;
+        }
+        final CheckoutCommands.Started started = checkout.start(trip, party.draft(), party.people(),
+                payerOf(body), Boolean.TRUE.equals(body.sandbox()), body.returnUrl());
+        if (started == null) {
+            return error(400, ApiErrors.BAD_REQUEST,
+                    "The checkout could not be started (check the payer and the trip's payment setup).");
+        }
+        if (started.completion() != null) {
+            return ok(completionOf(started.completion()));
+        }
+        final PaymentCommands.Start start = started.start();
+        final Map<String, Object> result = new LinkedHashMap<>();
+        result.put("paymentId", start.getPaymentId());
+        result.put("approvalUrl", start.getApprovalUrl());
+        result.put("publishableKey", start.getPublishableKey());
+        result.put("clientSecret", start.getClientSecret());
+        result.put("merchantName", start.getMerchantName());
+        return ok(result);
+    }
+
+    /**
+     * Registers the party as paid OUTSIDE any processor: a check, cash, a comp or other. Registration admins only
+     * (the website's "Record offline payment"). The amount must equal the party's total unless {@code partial}.
+     * Answers the completion.
+     */
+    @POST
+    @Path("party/offline")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response recordOfflineCheckout(
+            @PathParam("tripId") final String tripId,
+            @HeaderParam(CSRF_HEADER) final String csrf,
+            final CheckoutRequest body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final Trip trip = requireTrip(tripId);
+        final CheckoutCommands checkout = callerBoundCheckout();
+        if (!checkout.canAdminister(trip)) {
+            return error(403, ApiErrors.FORBIDDEN, "Registration admin required.");
+        }
+        final CheckoutParty party = checkoutParty(trip, checkout, body);
+        final CheckoutRequest.Offline offline = body.offline();
+        if (offline == null) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "Say how the payment was made (offline).");
+        }
+        final Response refused = refusedBeforeStart(trip, checkout, party, body);
+        if (refused != null) {
+            return refused;
+        }
+        final PaymentCommands.Completion completion = checkout.recordOffline(trip, party.draft(), party.people(),
+                payerOf(body), offline.method(), offline.reference(),
+                offline.amountCents() == null ? null : offline.amountCents() / 100.0, offline.receivedOn(),
+                Boolean.TRUE.equals(offline.partial()));
+        if (completion == null) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "The payment could not be recorded: the method must be "
+                    + String.join(", ", CheckoutCommands.OFFLINE_METHODS)
+                    + " and the amount the party's total (or less when partial).");
+        }
+        return ok(completionOf(completion));
+    }
+
+    /** A request's party as the page's draft holds it, and the people it names. */
+    private record CheckoutParty(RegistrationDraft draft, List<Person> people,
+            Map<String, List<WaiverCommands.Agreement>> agreements) {
+    }
+
+    /**
+     * Turns the request into the page's draft: every named traveler selected, their answers (the trip's own
+     * question keys only), code, ticked attestations and digest choice. Refuses (by throwing the response, like
+     * {@code requireTrip}) a malformed party, a trip that does not use checkout, and a traveler the caller may
+     * not act for: even a quote reveals the person's age band.
+     */
+    private CheckoutParty checkoutParty(final Trip trip, final CheckoutCommands checkout,
+            final CheckoutRequest body) {
+        if (body == null || body.travelers() == null || body.travelers().isEmpty()) {
+            throw new WebApplicationException(error(400, ApiErrors.VALIDATION_FAILED, "Name at least one traveler."));
+        }
+        if (!checkout.isEnabled(trip)) {
+            throw new WebApplicationException(error(409, ApiErrors.CONFLICT,
+                    "This trip does not register through checkout; use POST .../registrations/party."));
+        }
+        final boolean admin = checkout.canAdminister(trip);
+        final RegistrationDraft draft = new RegistrationDraft();
+        final List<Person> people = new ArrayList<>();
+        final Map<String, List<WaiverCommands.Agreement>> agreements = new LinkedHashMap<>();
+        for (final CheckoutRequest.Traveler traveler : body.travelers()) {
+            if (traveler == null || traveler.personId() == null || traveler.personId().isBlank()) {
+                throw new WebApplicationException(error(400, ApiErrors.VALIDATION_FAILED,
+                        "Every traveler needs a personId."));
+            }
+            final String key = traveler.personId().trim();
+            if (draft.getSel().containsKey(key)) {
+                throw new WebApplicationException(error(400, ApiErrors.VALIDATION_FAILED,
+                        "A traveler is named twice: " + key + "."));
+            }
+            final Person.Id id = Person.Id.from(key);
+            final Person person = requireSubject(id);
+            if (!admin && !actsFor(id)) {
+                throw new WebApplicationException(error(403, ApiErrors.FORBIDDEN,
+                        "You cannot register " + key + "."));
+            }
+            people.add(person);
+            draft.getSel().put(key, Boolean.TRUE);
+            draft.getRegs().put(key, withAnswers(new Registration(trip.getId(), id), trip,
+                    traveler.options() == null ? Map.of() : traveler.options()));
+            if (traveler.code() != null && !traveler.code().isBlank()) {
+                draft.getCodes().put(key, traveler.code().trim());
+            }
+            if (traveler.attested() != null) {
+                traveler.attested().forEach(choiceId -> draft.getAttest()
+                        .put(RegistrationDraft.attestKey(key, choiceId), Boolean.TRUE));
+            }
+            if (traveler.dailyDigest() != null) {
+                draft.getDigest().put(key, traveler.dailyDigest());
+            }
+            agreements.put(key, agreementsOf(traveler.waivers()));
+        }
+        return new CheckoutParty(draft, people, agreements);
+    }
+
+    /**
+     * Records the party's document answers (consent stands even if the payment is abandoned, as in party
+     * registration), then answers a 400 listing every reason the bean would refuse to go on, or null.
+     */
+    private Response refusedBeforeStart(final Trip trip, final CheckoutCommands checkout, final CheckoutParty party,
+            final CheckoutRequest body) {
+        final WaiverCommands waivers = callerBoundWaivers();
+        final WaiverCommands.ClientInfo client = WaiverCommands.ClientInfo.of(
+                TripWaiversResource.clientOf(body.client()), request);
+        party.agreements().forEach((personId, agreements) -> applyAgreements(waivers, trip, personId, agreements,
+                client));
+        final List<CheckoutProblem> problems = checkout.problemsBeforeStart(trip, party.draft(), party.people());
+        if (problems.isEmpty()) {
+            return null;
+        }
+        final Map<String, Object> entity = new LinkedHashMap<>();
+        entity.put("error", ApiErrors.VALIDATION_FAILED);
+        entity.put("message", String.join(" ", problems.stream().map(CheckoutProblem::message).toList()));
+        entity.put("problems", problems);
+        return Response.status(400).type(negotiatedType()).header("Vary", "Accept").entity(entity).build();
+    }
+
+    private static void applyAgreements(final WaiverCommands waivers, final Trip trip, final String personId,
+            final List<WaiverCommands.Agreement> agreements, final WaiverCommands.ClientInfo client) {
+        if (!agreements.isEmpty()) {
+            waivers.applyAgreements(trip, Person.Id.from(personId), agreements, client);
+        }
+    }
+
+    private static Person.Id payerOf(final CheckoutRequest body) {
+        return body.payerId() == null || body.payerId().isBlank() ? null : Person.Id.from(body.payerId().trim());
+    }
+
+    private static Map<String, Object> completionOf(final PaymentCommands.Completion completion) {
+        final Map<String, Object> result = new LinkedHashMap<>();
+        result.put("status", completion.getStatus());
+        result.put("message", completion.getMessage());
+        result.put("dryRunLines", completion.getDryRunLines());
+        return result;
+    }
+
+    /** Seam: the checkout bean bound to THIS caller; tests substitute. */
+    protected CheckoutCommands callerBoundCheckout() {
+        return new CheckoutCommands(this::caller);
+    }
+
+    /** Seam: the documents bean bound to THIS caller; tests substitute. */
+    protected WaiverCommands callerBoundWaivers() {
+        return new WaiverCommands(this::caller);
     }
 
     /** The room this person is assigned to on this trip. */
@@ -363,12 +595,23 @@ public class RegistrationsResource extends BaseResource {
      * <p>{@code Registration} is immutable in the ways that matter ({@code withStatus} returns a copy), so this
      * builds the object to save rather than mutating one. Absent fields are left as they were.
      */
-    private static Registration merge(final Registration existing, final RegistrationDto body) {
+    private static Registration merge(final Registration existing, final RegistrationDto body,
+            final Map<String, String> options) {
         if (body == null) {
             return existing;
         }
-        final Registration withOptions = (body.options() == null) ? existing : existing.withOptions(body.options());
+        final Registration withOptions = (options == null) ? existing : existing.withOptions(options);
         return (body.status() == null) ? withOptions : withOptions.withStatus(parseStatus(body.status()));
+    }
+
+    private static Map<String, String> optionsOf(final RegistrationDto body) {
+        return body == null ? null : body.options();
+    }
+
+    /** A traveler's PUT never changes what they paid for (docs/checkout.md); staff edits go through as posted. */
+    private static Map<String, String> withPaidAnswersKept(final Trip trip, final Registration existing,
+            final Map<String, String> posted) {
+        return posted == null ? null : CheckoutCommands.keepPaidAnswers(trip, existing.getOptions(), posted);
     }
 
     /**

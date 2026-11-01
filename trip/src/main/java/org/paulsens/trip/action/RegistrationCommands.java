@@ -208,6 +208,8 @@ public class RegistrationCommands {
         public static final String WAIVERS_REQUIRED = "WAIVERS_REQUIRED";
         /** A question the trip marks required is unanswered for this traveler. */
         public static final String ANSWERS_REQUIRED = "ANSWERS_REQUIRED";
+        /** The trip registers new people only through priced checkout, which takes payment first. */
+        public static final String CHECKOUT_REQUIRED = "CHECKOUT_REQUIRED";
 
         static PartyOutcome empty() {
             return new PartyOutcome(new java.util.ArrayList<>(), new java.util.ArrayList<>(),
@@ -252,6 +254,9 @@ public class RegistrationCommands {
             } else if (PartyOutcome.WAIVERS_REQUIRED.equals(refusal.getValue())) {
                 PageFeedback.warn("Not registered", name + " must agree to every required document: tick both "
                         + "boxes under each one.");
+            } else if (PartyOutcome.CHECKOUT_REQUIRED.equals(refusal.getValue())) {
+                PageFeedback.warn("Not registered",
+                        name + " registers through checkout, which takes payment first.");
             } else if (PartyOutcome.ANSWERS_REQUIRED.equals(refusal.getValue())) {
                 PageFeedback.warn("Not registered: " + name + " has unanswered required questions ("
                         + String.join(", ", missingAnswers(trip, regs.get(refusal.getKey()))) + ").");
@@ -333,6 +338,11 @@ public class RegistrationCommands {
             if (reg == null || reg.getStatus() != Registration.Status.NOT_REGISTERED) {
                 // Already pending/confirmed: nothing to file (their answers may still be edited below).
                 outcome.refused().put(entry.getKey(), PartyOutcome.ALREADY_REGISTERED);
+                continue;
+            }
+            if (trip.getCheckout().isOn()) {
+                // Pay-first (docs/checkout.md): a free filing here would skip the payment checkout requires.
+                outcome.refused().put(entry.getKey(), PartyOutcome.CHECKOUT_REQUIRED);
                 continue;
             }
             // A traveler already ON the roster bypasses canJoin (which is false for them by definition):
@@ -455,6 +465,9 @@ public class RegistrationCommands {
             return false;
         }
         for (final org.paulsens.trip.model.RegistrationOption opt : trip.getRegOptions()) {
+            if (CheckoutCommands.isPaidQuestion(trip, opt)) {
+                continue;   // what they paid for; staff change it on the admin pages
+            }
             final String key = opt.getKey();
             final String value = draftReg.getOptions().get(key);
             if (!java.util.Objects.equals(value, stored.getOptions().get(key))) {

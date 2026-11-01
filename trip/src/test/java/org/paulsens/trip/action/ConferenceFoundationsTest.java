@@ -102,6 +102,49 @@ public class ConferenceFoundationsTest {
         assertEquals(filed.registered().size(), 1, "answered, the traveler registers");
     }
 
+    // ------------------------------------------------------------------ pay-first guards (docs/checkout.md)
+
+    /** A checkout trip files nobody for free, and a registered person's party edit keeps what they paid for. */
+    @Test
+    public void aCheckoutTripRegistersOnlyThroughCheckoutAndKeepsPaidAnswers() throws IOException {
+        final Person me = savedPerson();
+        final RegistrationOption paid = new RegistrationOption(1, "Admission", "", true,
+                RegistrationOption.QuestionType.CHOICE, true, List.of(
+                        new OptionChoice("fri", "Friday", 6000L, null, null, null, null),
+                        new OptionChoice("full", "Full weekend", 15000L, null, null, null, null)), null);
+        final Trip trip = Trip.builder().id("co-" + RandomData.genAlpha(8)).title("Checkout Trip")
+                .startDate(LocalDateTime.now().plusDays(30)).endDate(LocalDateTime.now().plusDays(32))
+                .regOptions(List.of(paid, new RegistrationOption(2, "Diet", "", true))).build();
+        trip.getCheckout().setOn(true);
+        assertTrue(dao.saveTrip(trip));
+        final RegistrationCommands commands = new RegistrationCommands(() -> callerFor(me));
+        final String pid = me.getId().getValue();
+
+        final Map<String, Registration> regs = new HashMap<>();
+        regs.put(pid, new Registration(trip.getId(), me.getId(), null, null,
+                new HashMap<>(Map.of("1", "full"))));
+        assertEquals(commands.registerPartyOutcome(trip, Map.of(pid, Boolean.TRUE), regs, null).refused(),
+                Map.of(pid, RegistrationCommands.PartyOutcome.CHECKOUT_REQUIRED), "pay first");
+
+        assertTrue(dao.saveRegistration(new Registration(trip.getId(), me.getId(), null,
+                Registration.Status.CONFIRMED, new HashMap<>(Map.of("1", "fri", "2", "none")))));
+        regs.put(pid, new Registration(trip.getId(), me.getId(), null, Registration.Status.CONFIRMED,
+                new HashMap<>(Map.of("1", "full", "2", "vegan"))));
+        assertEquals(commands.registerPartyOutcome(trip, Map.of(pid, Boolean.TRUE), regs, null).updated().size(), 1);
+        final Registration stored = dao.getRegistration(trip.getId(), me.getId(), Cached.NO).orElseThrow();
+        assertEquals(stored.getOptions().get("1"), "fri", "Friday-only does not become the full weekend free");
+        assertEquals(stored.getOptions().get("2"), "vegan");
+
+        assertTrue(CheckoutCommands.isPaidQuestion(trip, paid));
+        assertFalse(CheckoutCommands.isPaidQuestion(trip, trip.getRegOptions().get(1)), "unpriced");
+        assertFalse(CheckoutCommands.isPaidQuestion(null, paid));
+        assertEquals(CheckoutCommands.keepPaidAnswers(trip, Map.of(), Map.of("1", "full", "2", "x")),
+                Map.of("2", "x"), "no paid answer stored: none may be posted");
+        assertEquals(CheckoutCommands.keepPaidAnswers(null, Map.of(), Map.of("1", "full")), Map.of("1", "full"));
+        trip.getCheckout().setOn(false);
+        assertFalse(CheckoutCommands.isPaidQuestion(trip, paid), "a classic trip's answers stay editable");
+    }
+
     @Test
     public void aPickAnyAnswerIsStoredCommaJoined() {
         final Map<String, String> answers = new HashMap<>();

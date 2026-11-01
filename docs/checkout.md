@@ -88,12 +88,30 @@ problem's message is a whole sentence, because pages put it in a growl summary.
 
 `GET /api/trips/{id}/registrations/pricing` answers the policy to any signed-in caller, with the discount codes only
 for the trip's staff (a code is a secret its holders were given). `PUT` replaces it, trip managers only, refusing a
-policy with problems. Prices are the trip's typed questions on the trips API. The checkout itself over REST (quote,
-start, offline) is the next step for the iOS app.
+policy with problems. Prices are the trip's typed questions on the trips API.
+
+The checkout itself is `POST .../registrations/party/quote`, `.../party/checkout` and `.../party/offline`
+(`docs/api-contract.md`, "Priced checkout"), one `CheckoutRequest` body for all three. Each turns the request into
+the page's `RegistrationDraft` and calls the same `CheckoutCommands` method the page does; nothing is priced or
+checked at the edge. Two edge-only steps: the document answers are recorded first (as the party POST does), and
+`problemsBeforeStart` answers every refusal as coded problems, since a growl reaches no native client. The return
+URL is `PaymentsResource.isAllowed`, the payments API's rule.
+
+## Pay-first guards on the classic paths
+
+A checkout trip must not be reachable for free through the older doors:
+
+- `RegistrationCommands.registerPartyOutcome` refuses a NEW registration `CHECKOUT_REQUIRED` while
+  `checkout.isOn()` (the join page's classic submit and `POST .../registrations/party`).
+- A paid answer (`CheckoutCommands.isPaidQuestion`: checkout on and the question priced) is kept as stored by the
+  self-service edit paths: the party edit (`applyOptionEdits`) and a traveler's `PUT .../registrations/{id}`
+  (`keepPaidAnswers`). Changing Friday-only to the full weekend would otherwise be free. Staff change a paid
+  answer on the admin pages, and the price breakdown stays what was paid.
 
 ## Tests
 
 `CheckoutPricingTest`, `CheckoutValidatorTest`, `CheckoutCapacityTest` (pure), `CheckoutModelsTest`,
 `CheckoutCommandsTest` (a family through the FAKE processor: rows, tickets, roster, Bills, zero balances, one mail,
 idempotent return; the PENDING policy; free and offline payments; sandbox; every refusal; registered meanwhile; the
-RECORDED repair), additions to `PaymentMailerTest`, `RegistrationsResourceTest` and `PaymentProcessorsTest`.
+RECORDED repair), additions to `PaymentMailerTest`, `RegistrationsResourceTest` (pricing, and the three checkout endpoints through
+mocked beans) and `PaymentProcessorsTest`; the pay-first guards in `ConferenceFoundationsTest`.

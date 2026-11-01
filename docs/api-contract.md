@@ -94,6 +94,36 @@ the trip's pinned version is recorded first, then a traveler with any unsigned d
 `WAIVERS_REQUIRED` (a per-traveler refusal like `CANNOT_JOIN`, never an HTTP error). Nobody already registered is
 ever un-registered by a document.
 
+### Priced checkout (2026-11; backend `docs/checkout.md`)
+
+A trip whose `GET .../registrations/pricing` answers `enabled: true` registers new people ONLY through checkout:
+the party POST above refuses them `CHECKOUT_REQUIRED` (per traveler, like the others), and a traveler's `PUT` or
+party edit keeps their stored answer to every PRICED question (what they paid for; staff may change it). Prices
+are the trip's typed questions (`regOptions[].choices[].priceCents`); the policy (window, age bands, codes for
+staff only) is `GET .../pricing`, replaced by `PUT .../pricing` (trip managers).
+
+All three take one body, `{payerId?, travelers:[{personId, options{"<optId>":"choiceId|text"}, code?,
+attested?:["choiceId"], dailyDigest?, waivers?:[...]}], sandbox?, returnUrl?, offline?, client?}`. Every traveler
+must be someone the caller may act for, unless the caller is a registration admin (403 otherwise: a price reveals
+the person's age band); 409 `CONFLICT` when the trip does not use checkout; 400 for an empty party or a blank or
+duplicate `personId`.
+
+- `POST .../registrations/party/quote` → `{persons:[{personId, name, breakdown{inputs, lines[{label, kind,
+  deltaCents}], totalCents, registrationType}, problems[]}], problems[], creditCents, feeCents, totalCents,
+  payable, ready}`. Writes nothing; call it on every change. `feeCents` is non-zero only when the payer pays the
+  processor fee. Each problem is `{code, personId, ref, message}`, the message a whole sentence.
+- `POST .../registrations/party/checkout` (CSRF; `returnUrl` allowlisted exactly like `POST /payments`) records the
+  document answers, then refuses with 400 `{error: VALIDATION_FAILED, message, problems[]}` when anything would
+  stop it (codes: `CHECKOUT_CLOSED`, `ANSWERS_REQUIRED`, `CHOICE_REQUIRED`, `ATTESTATION_REQUIRED`,
+  `CODE_INVALID`, `CAPACITY_FULL`, plus not-allowed, already-registered and unsigned documents). Otherwise it
+  answers `{paymentId, approvalUrl, publishableKey, clientSecret, merchantName}` like `POST /payments`, and
+  `POST /payments/{paymentId}/complete` registers the party (pay-first: nobody is registered before). A party that
+  owes nothing is registered at once and answers `{status, message, dryRunLines}` instead. `payerId` other than
+  the caller needs a registration admin.
+- `POST .../registrations/party/offline` (CSRF; registration admins) with `offline: {method: CHECK|CASH|COMP|OTHER,
+  reference?, amountCents, receivedOn?, partial?}` registers the party paid outside any processor and answers the
+  completion. The amount must equal the total unless `partial`; COMP ignores it.
+
 ## Waivers (trip documents, 2026-10-27; Accept `application/vnd.trip.waivers.v1+json`; backend `docs/waivers.md`)
 
 "Waiver" is loose: any document a trip requires each traveler to agree to. An organization owns its documents and

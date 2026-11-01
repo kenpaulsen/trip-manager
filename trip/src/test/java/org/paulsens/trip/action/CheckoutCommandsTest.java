@@ -233,6 +233,8 @@ public class CheckoutCommandsTest {
         final RegistrationDraft strangers = new RegistrationDraft();
         pick(strangers, stranger, "full", null);
         assertNull(start(flow, trip, strangers, stranger), "not mine to register");
+        assertFalse(flow.checkout.problemsBeforeStart(trip, strangers, List.of(stranger)).isEmpty(),
+                "the REST edge hears the same refusal, coded");
 
         final RegistrationDraft badCode = new RegistrationDraft();
         pick(badCode, me, "fri", null);
@@ -244,6 +246,8 @@ public class CheckoutCommandsTest {
         final RegistrationDraft late = new RegistrationDraft();
         pick(late, me, "full", null);
         assertNull(start(flow, trip, late, me), "registration has closed");
+        assertEquals(flow.checkout.problemsBeforeStart(trip, late, List.of(me)).get(0).code(),
+                org.paulsens.trip.checkout.CheckoutProblem.CHECKOUT_CLOSED);
         assertTrue(DAO.getInstance().getRegistrations(trip.getId(), Cached.NO).isEmpty());
     }
 

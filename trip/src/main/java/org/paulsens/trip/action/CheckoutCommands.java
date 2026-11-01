@@ -176,6 +176,49 @@ public class CheckoutCommands {
                 payerPays ? credits + fee : credits, config != null);
     }
 
+    /**
+     * Every reason {@link #start} would refuse this party, as coded problems (the REST edge answers them; the
+     * page shows them as growls): the quote's checks plus who may register whom, already registered, unsigned
+     * documents, and capacity. Empty when the start would go ahead.
+     */
+    public List<CheckoutProblem> problemsBeforeStart(final Trip trip, final RegistrationDraft draft,
+            final List<Person> party) {
+        final Prepared prepared = prepare(trip, draft, party, true);
+        final List<CheckoutProblem> all = new ArrayList<>(prepared.problems());
+        prepared.persons().forEach(person -> all.addAll(person.problems()));
+        return all;
+    }
+
+    /**
+     * Whether {@code question} is a PAID answer on {@code trip}: the trip registers through checkout and the question
+     * carries a price. A paid answer is what the person paid for, so the self-service edit paths keep it as stored
+     * (changing Friday-only to the full weekend would otherwise be free); staff change it on the admin pages.
+     */
+    public static boolean isPaidQuestion(final Trip trip, final RegistrationOption question) {
+        return trip != null && question != null && trip.getCheckout().isOn() && question.isPriced();
+    }
+
+    /** {@code posted} with every paid answer (see {@link #isPaidQuestion}) put back to its {@code stored} value. */
+    public static Map<String, String> keepPaidAnswers(final Trip trip, final Map<String, String> stored,
+            final Map<String, String> posted) {
+        final Map<String, String> kept = new java.util.LinkedHashMap<>(posted);
+        if (trip == null || trip.getRegOptions() == null) {
+            return kept;
+        }
+        for (final RegistrationOption question : trip.getRegOptions()) {
+            if (!isPaidQuestion(trip, question)) {
+                continue;
+            }
+            final String paid = stored.get(question.getKey());
+            if (paid == null) {
+                kept.remove(question.getKey());
+            } else {
+                kept.put(question.getKey(), paid);
+            }
+        }
+        return kept;
+    }
+
     // ------------------------------------------------------------------ start
 
     /**

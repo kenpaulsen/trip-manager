@@ -565,4 +565,227 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         Mockito.when(trips.saveTrip(trip)).thenReturn(false);
         assertError(resource.savePricing(TRIP_ID, CSRF_OK, policy), 500, ApiErrors.STORE_FAILED);
     }
+
+    // ------------------------------------------------------------------ checkout over REST (docs/checkout.md)
+
+    private static final String RETURN_URL = "https://trip.example.org/pay/return";
+
+    private org.paulsens.trip.action.CheckoutCommands checkout;
+    private org.paulsens.trip.action.WaiverCommands waivers;
+
+    /** Both checkout beans are caller-bound (built with this::caller), so they are substituted by seam. */
+    private RegistrationsResource checkoutResource() {
+        checkout = Mockito.mock(org.paulsens.trip.action.CheckoutCommands.class);
+        waivers = Mockito.mock(org.paulsens.trip.action.WaiverCommands.class);
+        Mockito.when(checkout.isEnabled(ArgumentMatchers.any())).thenReturn(true);
+        final org.paulsens.trip.action.ConfigCommands config = bindMock(org.paulsens.trip.action.ConfigCommands.class);
+        Mockito.when(config.getString(org.paulsens.trip.config.KnownSettings.PAYMENT_RETURN_URL_PREFIXES))
+                .thenReturn("https://trip.example.org/");
+        return resource(new RegistrationsResource() {
+            @Override
+            protected org.paulsens.trip.action.CheckoutCommands callerBoundCheckout() {
+                return checkout;
+            }
+
+            @Override
+            protected org.paulsens.trip.action.WaiverCommands callerBoundWaivers() {
+                return waivers;
+            }
+        });
+    }
+
+    private static org.paulsens.trip.api.dto.CheckoutRequest.Traveler buyer(final Person.Id id,
+            final Map<String, String> options, final String code, final List<String> attested,
+            final List<org.paulsens.trip.api.dto.RegisterPartyRequest.WaiverAnswer> waivers) {
+        return new org.paulsens.trip.api.dto.CheckoutRequest.Traveler(id.getValue(), options, code, attested,
+                Boolean.FALSE, waivers);
+    }
+
+    private static org.paulsens.trip.api.dto.CheckoutRequest checkoutOf(final String returnUrl,
+            final org.paulsens.trip.api.dto.CheckoutRequest.Offline offline,
+            final org.paulsens.trip.api.dto.CheckoutRequest.Traveler... travelers) {
+        return new org.paulsens.trip.api.dto.CheckoutRequest(null, List.of(travelers), null, returnUrl, offline,
+                null);
+    }
+
+    private static org.paulsens.trip.action.CheckoutCommands.Quote quoteOf(final long totalCents) {
+        return new org.paulsens.trip.action.CheckoutCommands.Quote(List.of(), List.of(), totalCents, 0L, totalCents,
+                true);
+    }
+
+    @Test
+    public void checkoutRefusesAMalformedPartyAnOffTripAndSomeoneElse() {
+        signedInAs(ME);
+        final RegistrationsResource first = checkoutResource();
+        assertThrown(() -> first.quoteCheckout(TRIP_ID, null), 400, ApiErrors.VALIDATION_FAILED);
+        assertThrown(() -> first.quoteCheckout(TRIP_ID, checkoutOf(null, null,
+                new org.paulsens.trip.api.dto.CheckoutRequest.Traveler(" ", null, null, null, null, null))),
+                400, ApiErrors.VALIDATION_FAILED);
+        assertThrown(() -> first.quoteCheckout(TRIP_ID, checkoutOf(null, null, buyer(ME, null, null, null, null),
+                buyer(ME, null, null, null, null))), 400, ApiErrors.VALIDATION_FAILED);
+        assertThrown(() -> first.quoteCheckout(TRIP_ID, checkoutOf(null, null, buyer(OTHER, null, null, null, null))),
+                403, ApiErrors.FORBIDDEN);
+        Mockito.when(checkout.isEnabled(ArgumentMatchers.any())).thenReturn(false);
+        assertThrown(() -> first.quoteCheckout(TRIP_ID, checkoutOf(null, null, buyer(ME, null, null, null, null))),
+                409, ApiErrors.CONFLICT);
+        Mockito.verify(checkout, Mockito.never()).quote(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any());
+    }
+
+    /** The request becomes exactly the page's draft: answers (trip keys only), code, attestations, digest. */
+    @Test
+    public void aQuoteIsThePagesDraftPricedByTheSameBean() {
+        signedInAs(ME);
+        final Trip trip = Trip.builder().id(TRIP_ID).title("Conf")
+                .regOptions(List.of(new org.paulsens.trip.model.RegistrationOption(1, "Admission", "Which?", true)))
+                .build();
+        Mockito.when(trips.getTrip(TRIP_ID)).thenReturn(trip);
+        final RegistrationsResource party = checkoutResource();
+        final String key = trip.getRegOptions().get(0).getKey();
+        Mockito.when(checkout.quote(ArgumentMatchers.eq(trip), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(quoteOf(15000L));
+
+        final Response response = party.quoteCheckout(TRIP_ID, checkoutOf(null, null,
+                buyer(ME, Map.of(key, "full", "_registeredBy", "forged"), " speaker ", List.of("hotel"), null)));
+        assertOk(response);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> body = (Map<String, Object>) response.getEntity();
+        Assert.assertEquals(body.get("totalCents"), 15000L);
+        Assert.assertEquals(body.get("ready"), Boolean.TRUE);
+
+        final ArgumentCaptor<org.paulsens.trip.model.RegistrationDraft> draft =
+                ArgumentCaptor.forClass(org.paulsens.trip.model.RegistrationDraft.class);
+        @SuppressWarnings("unchecked")
+        final ArgumentCaptor<List<Person>> people = ArgumentCaptor.forClass(List.class);
+        Mockito.verify(checkout).quote(ArgumentMatchers.eq(trip), draft.capture(), people.capture());
+        final String me = ME.getValue();
+        Assert.assertEquals(draft.getValue().getSel().get(me), Boolean.TRUE);
+        Assert.assertEquals(draft.getValue().getRegs().get(me).getOptions(), Map.of(key, "full"),
+                "only the trip's own question keys are taken");
+        Assert.assertEquals(draft.getValue().getCodes().get(me), "speaker");
+        Assert.assertEquals(draft.getValue().getAttest().get(
+                org.paulsens.trip.model.RegistrationDraft.attestKey(me, "hotel")), Boolean.TRUE);
+        Assert.assertEquals(draft.getValue().getDigest().get(me), Boolean.FALSE);
+        Assert.assertEquals(people.getValue().get(0).getId(), ME);
+    }
+
+    @Test
+    public void startingACheckoutChecksTheReturnUrlAndAnswersEveryProblem() {
+        signedInAs(ME);
+        final RegistrationsResource party = checkoutResource();
+        final org.paulsens.trip.api.dto.CheckoutRequest.Traveler me = buyer(ME, null, null, null, List.of(
+                new org.paulsens.trip.api.dto.RegisterPartyRequest.WaiverAnswer("w1", 2, true, true)));
+        assertError(party.startCheckout(TRIP_ID, null, checkoutOf(RETURN_URL, null, me)), 403, ApiErrors.CSRF);
+        assertError(party.startCheckout(TRIP_ID, CSRF_OK, checkoutOf(null, null, me)), 400, ApiErrors.BAD_REQUEST);
+        assertError(party.startCheckout(TRIP_ID, CSRF_OK, checkoutOf("https://evil.example/x", null, me)), 400,
+                ApiErrors.BAD_REQUEST);
+
+        final org.paulsens.trip.checkout.CheckoutProblem full = new org.paulsens.trip.checkout.CheckoutProblem(
+                org.paulsens.trip.checkout.CheckoutProblem.CAPACITY_FULL, null, TRIP_ID, "The event is full.");
+        Mockito.when(checkout.problemsBeforeStart(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any())).thenReturn(List.of(full));
+        final Response refused = party.startCheckout(TRIP_ID, CSRF_OK, checkoutOf(RETURN_URL, null, me));
+        assertError(refused, 400, ApiErrors.VALIDATION_FAILED);
+        Assert.assertEquals(((Map<?, ?>) refused.getEntity()).get("problems"), List.of(full));
+        Mockito.verify(waivers).applyAgreements(ArgumentMatchers.any(), ArgumentMatchers.eq(ME),
+                ArgumentMatchers.eq(List.of(new org.paulsens.trip.action.WaiverCommands.Agreement("w1", 2, true,
+                        true))), ArgumentMatchers.any());
+        Mockito.verify(checkout, Mockito.never()).start(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.anyBoolean(), ArgumentMatchers.any());
+    }
+
+    @Test
+    public void aStartedCheckoutAnswersHowToPayAndAFreePartyItsCompletion() {
+        signedInAs(ME);
+        final RegistrationsResource party = checkoutResource();
+        Mockito.when(checkout.problemsBeforeStart(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any())).thenReturn(List.of());
+        final org.paulsens.trip.action.PaymentCommands.Start start =
+                Mockito.mock(org.paulsens.trip.action.PaymentCommands.Start.class);
+        Mockito.when(start.getPaymentId()).thenReturn("pay-1");
+        Mockito.when(start.getClientSecret()).thenReturn("secret");
+        Mockito.when(checkout.start(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.isNull(), ArgumentMatchers.eq(false), ArgumentMatchers.eq(RETURN_URL)))
+                .thenReturn(new org.paulsens.trip.action.CheckoutCommands.Started(start, null));
+        final org.paulsens.trip.api.dto.CheckoutRequest body = checkoutOf(RETURN_URL, null,
+                buyer(ME, null, null, null, null));
+        final Response started = party.startCheckout(TRIP_ID, CSRF_OK, body);
+        assertOk(started);
+        Assert.assertEquals(((Map<?, ?>) started.getEntity()).get("paymentId"), "pay-1");
+        Assert.assertEquals(((Map<?, ?>) started.getEntity()).get("clientSecret"), "secret");
+
+        final org.paulsens.trip.action.PaymentCommands.Completion done =
+                Mockito.mock(org.paulsens.trip.action.PaymentCommands.Completion.class);
+        Mockito.when(done.getStatus()).thenReturn("recorded");
+        Mockito.when(checkout.start(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.anyBoolean(), ArgumentMatchers.any()))
+                .thenReturn(new org.paulsens.trip.action.CheckoutCommands.Started(null, done));
+        Assert.assertEquals(((Map<?, ?>) party.startCheckout(TRIP_ID, CSRF_OK, body).getEntity()).get("status"),
+                "recorded", "a free party is registered at once");
+
+        Mockito.when(checkout.start(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any(), ArgumentMatchers.anyBoolean(), ArgumentMatchers.any())).thenReturn(null);
+        assertError(party.startCheckout(TRIP_ID, CSRF_OK, body), 400, ApiErrors.BAD_REQUEST);
+    }
+
+    @Test
+    public void anOfflinePaymentIsForRegistrationAdminsAndAnswersItsCompletion() {
+        signedInAs(ME);
+        final RegistrationsResource party = checkoutResource();
+        final org.paulsens.trip.api.dto.CheckoutRequest.Offline check =
+                new org.paulsens.trip.api.dto.CheckoutRequest.Offline("CHECK", "1042", 15000L, null, null);
+        final org.paulsens.trip.api.dto.CheckoutRequest body = new org.paulsens.trip.api.dto.CheckoutRequest(
+                OTHER.getValue(), List.of(buyer(OTHER, null, null, null, null)), null, null, check, null);
+        assertError(party.recordOfflineCheckout(TRIP_ID, null, body), 403, ApiErrors.CSRF);
+        assertError(party.recordOfflineCheckout(TRIP_ID, CSRF_OK, body), 403, ApiErrors.FORBIDDEN);
+
+        Mockito.when(checkout.canAdminister(ArgumentMatchers.any())).thenReturn(true);
+        assertError(party.recordOfflineCheckout(TRIP_ID, CSRF_OK, new org.paulsens.trip.api.dto.CheckoutRequest(
+                null, body.travelers(), null, null, null, null)), 400, ApiErrors.VALIDATION_FAILED);
+        Mockito.when(checkout.problemsBeforeStart(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.any())).thenReturn(List.of());
+        assertError(party.recordOfflineCheckout(TRIP_ID, CSRF_OK, body), 400, ApiErrors.VALIDATION_FAILED);
+
+        final org.paulsens.trip.action.PaymentCommands.Completion done =
+                Mockito.mock(org.paulsens.trip.action.PaymentCommands.Completion.class);
+        Mockito.when(done.getStatus()).thenReturn("recorded");
+        Mockito.when(checkout.recordOffline(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.eq(OTHER), ArgumentMatchers.eq("CHECK"), ArgumentMatchers.eq("1042"),
+                ArgumentMatchers.eq(150.0), ArgumentMatchers.isNull(), ArgumentMatchers.eq(false))).thenReturn(done);
+        final Response recorded = party.recordOfflineCheckout(TRIP_ID, CSRF_OK, body);
+        assertOk(recorded);
+        Assert.assertEquals(((Map<?, ?>) recorded.getEntity()).get("status"), "recorded",
+                "an admin registers someone else, paid by check");
+    }
+
+    /** A traveler's PUT never changes what they paid for; staff may. */
+    @Test
+    public void aTravelersPutKeepsTheirPaidAnswer() {
+        final org.paulsens.trip.model.RegistrationOption admission =
+                new org.paulsens.trip.model.RegistrationOption(1, "Admission", "Which?", true);
+        admission.setType(org.paulsens.trip.model.RegistrationOption.QuestionType.CHOICE);
+        admission.setChoices(List.of(new org.paulsens.trip.model.OptionChoice("fri", "Friday", 6000L, null, null,
+                null, null), new org.paulsens.trip.model.OptionChoice("full", "Full", 15000L, null, null, null,
+                null)));
+        final Trip trip = Trip.builder().id(TRIP_ID).regOptions(List.of(admission)).build();
+        trip.setCheckout(new org.paulsens.trip.model.CheckoutConfig(Boolean.TRUE, null, null, null, List.of(),
+                List.of()));
+        Mockito.when(trips.getTrip(TRIP_ID)).thenReturn(trip);
+        final String key = admission.getKey();
+        Mockito.when(registrations.getRegistration(TRIP_ID, ME)).thenReturn(new Registration(TRIP_ID, ME, null,
+                Registration.Status.CONFIRMED, Map.of(key, "fri", "diet", "none")));
+        Mockito.when(registrations.saveRegistration(ArgumentMatchers.any())).thenReturn(true);
+        signedInAs(ME);
+        final RegistrationDto posted = new RegistrationDto(TRIP_ID, ME.getValue(), null, null,
+                Map.of(key, "full", "diet", "vegan"), null);
+        final RegistrationDto saved = (RegistrationDto) resource.save(TRIP_ID, ME.getValue(), CSRF_OK, posted)
+                .getEntity();
+        Assert.assertEquals(saved.options().get(key), "fri", "Friday-only does not become the full weekend free");
+        Assert.assertEquals(saved.options().get("diet"), "vegan", "unpriced answers still edit");
+
+        signedInAsSiteAdmin(ME);
+        final RegistrationDto staffSaved = (RegistrationDto) resource(new RegistrationsResource())
+                .save(TRIP_ID, ME.getValue(), CSRF_OK, posted).getEntity();
+        Assert.assertEquals(staffSaved.options().get(key), "full", "staff change a paid choice");
+    }
 }

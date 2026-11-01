@@ -141,9 +141,10 @@ public class PaymentsResource extends BaseResource {
      * site admin listing every tenant, and a slug that is cleared stops being accepted with it.
      *
      * <p>The allowlist is a setting so an app's custom scheme can be added at release time rather than
-     * needing a deploy. Both matching rules live in {@link RedirectAllowlist}, where they are tested.
+     * needing a deploy. Both matching rules live in {@link RedirectAllowlist}, where they are tested. Shared with
+     * the registration checkout's start ({@code RegistrationsResource}), so both doors answer one rule.
      */
-    private static boolean isAllowed(final String url) {
+    static boolean isAllowed(final String url) {
         return RedirectAllowlist.allows(
                 url, Beans.get(ConfigCommands.class).getString(KnownSettings.PAYMENT_RETURN_URL_PREFIXES))
                 || RedirectAllowlist.allowsOrgSite(url, PaymentsResource::isOrgHost);
