@@ -228,11 +228,7 @@ public class CheckinCommands {
      * code.
      */
     public String ticketUrl(final Trip trip, final String code) {
-        if (trip == null || code == null || code.isBlank()) {
-            return "";
-        }
-        return SiteUrls.baseUrlForTrip(trip, KnownSettings.REG_MAIL_BASE_URL, new ConfigCommands())
-                + "/trip/ticket.jsf?trip=" + trip.getId() + "&t=" + code;
+        return SiteUrls.ticketUrl(trip, code, new ConfigCommands());
     }
 
     /** {@link #ticketUrl} for one person's registration, minting the ticket if it must: the focus panel's link. */
@@ -894,6 +890,7 @@ public class CheckinCommands {
         row.put("age", age.isPresent() ? Integer.valueOf(age.getAsInt()) : "");
         final String type = registrationType(trip, answered);
         row.put("regType", type == null ? "" : type);
+        putCheckout(row, trip, answered);
         row.put("ticket", answered.getTicketCode() == null ? "" : TicketCodes.grouped(answered.getTicketCode()));
         row.put("checkedIn", answered.getCheckedInAt() == null ? "" : answered.getCheckedInAt().format(STAMP));
         row.put("registered", reg == null ? "" : reg.getCreated().toLocalDate().toString());
@@ -903,6 +900,30 @@ public class CheckinCommands {
             row.put(questionKey(question), text == null ? "" : text);
         }
         return row;
+    }
+
+    /**
+     * The priced-checkout columns (docs/checkout.md): the stored price, the discount code it used and every
+     * attestation ticked, as "choice: statement" joined by "; ". Blank for a registration no checkout priced.
+     */
+    private static void putCheckout(final Map<String, Object> row, final Trip trip, final Registration reg) {
+        final org.paulsens.trip.model.PriceBreakdown breakdown = reg.getPriceBreakdown();
+        row.put("total", breakdown == null ? "" : MoneyMath.formatCents(breakdown.getTotalCents()));
+        final String code = breakdown == null ? null : breakdown.getInputs().getCodeText();
+        row.put("code", code == null ? "" : code);
+        final List<String> attested = new java.util.ArrayList<>();
+        reg.getAttestations().forEach((choiceId, text) -> attested.add(choiceLabel(trip, choiceId) + ": " + text));
+        row.put("attestation", String.join("; ", attested));
+    }
+
+    /** A choice id's label on this trip, or the id when no question offers it any more. */
+    private static String choiceLabel(final Trip trip, final String choiceId) {
+        return trip.getRegOptions().stream()
+                .map(question -> question.choice(choiceId))
+                .filter(java.util.Objects::nonNull)
+                .map(org.paulsens.trip.model.OptionChoice::getLabel)
+                .findFirst()
+                .orElse(choiceId);
     }
 
     /** The Options column: an HTML list for the screen and newline-joined text for the file, as the page built them. */

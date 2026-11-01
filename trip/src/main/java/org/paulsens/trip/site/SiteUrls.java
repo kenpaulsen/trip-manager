@@ -63,6 +63,18 @@ public final class SiteUrls {
     }
 
     /**
+     * A ticket's page (docs/checkin.md): what its QR encodes and every email links. On the trip's org's own site
+     * when it has a subdomain, else the registration-mail base URL. Blank without a trip or a code.
+     */
+    public static String ticketUrl(final Trip trip, final String code, final ConfigCommands config) {
+        if (trip == null || code == null || code.isBlank()) {
+            return "";
+        }
+        return baseUrlForTrip(trip, KnownSettings.REG_MAIL_BASE_URL, config) + "/trip/ticket.jsf?trip=" + trip.getId()
+                + "&t=" + code;
+    }
+
+    /**
      * {@code https://{slug}.{base}} -- the production address of an org's site. The base domain falls back
      * to its compiled default when the setting cannot be read (a mocked config in a sender's test, an
      * outage): a mail link with a null host is worse than one on the shipped domain.

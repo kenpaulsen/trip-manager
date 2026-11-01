@@ -41,9 +41,10 @@ the API all read them.
 
 ## The ticket page: `trip/ticket.jsf?trip=&t=`
 
-The link the confirmation email carries and the URL inside the QR (`ticketUrl`: the trip's org's own site when it
-has a subdomain, else `reg.mail.baseUrl`, the chat-invite rule `SiteUrls.baseUrlForTrip`). Whoever holds the link
-may open it, so:
+The link the confirmation emails carry and the URL inside the QR (`SiteUrls.ticketUrl`: the trip's org's own site
+when it has a subdomain, else `reg.mail.baseUrl`, the chat-invite rule `SiteUrls.baseUrlForTrip`). The checkout
+confirmation links each confirmed person's code (`PaymentMailer.ticketLink`); the approval email's `{{ticketBlock}}`
+does the same on a conference and is empty on a pilgrimage. Whoever holds the link may open it, so:
 
 - The view is TRANSIENT for everyone (`stateless=true`) and the page touches no viewScope: `checkin.ticketView`
   resolves everything into `requestScope.tk`, and every read names `requestScope` (a bare-name read of a missing
@@ -136,8 +137,9 @@ card shows "N not yet printed" and opens either view.
 new optional columns Registration-Type, Ticket (grouped), Checked-In, Registered, Status, and one per typed (pick)
 question by label (`Q: <shortDesc>` in the column picker). The default columns and their cells are byte-for-byte
 what the EL built. `?pending=true` (the "Include pending registrations" switch) adds everyone with a PENDING
-registration who is not on the roster yet; off by default (roster only). Not built yet, waiting for checkout: Total,
-Discount-Code and Attestation columns.
+registration who is not on the roster yet; off by default (roster only). The checkout columns Total (the stored
+price), Discount-Code and Attestation ("choice: statement", joined by "; ") read the row's stored breakdown and
+attestations, blank for a registration no checkout priced.
 
 ## Navigation
 

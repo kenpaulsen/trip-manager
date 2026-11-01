@@ -221,7 +221,10 @@ public class PaymentMailerTest {
                 ArgumentMatchers.any());
         final String block = ((MailTemplates.Raw) values.getValue().get("registrantsBlock")).html();
         assertTrue(block.contains("Ann Tester</b>: Full weekend, $150.00 (Confirmed)"), block);
-        assertTrue(block.contains("ticket <b>ABCD-EFGH</b>"), block);
+        assertTrue(block.contains("ticket <a href=\"https://") && block.contains(
+                "/trip/ticket.jsf?trip=golden&amp;t=ABCDEFGH\"><b>ABCD-EFGH</b></a>"),
+                "the code links to the ticket page, the QR check-in scans: " + block);
+        assertEquals(PaymentMailer.ticketLink(null, "ABCDEFGH"), "ticket <b>ABCD-EFGH</b>", "no trip, no link");
         assertTrue(block.contains("Kid Tester</b>: Registered, $50.00 (Pending)"), block);
         assertTrue(values.getValue().get("statusNote").toString().contains("awaiting confirmation"),
                 "one registrant still waits for approval");

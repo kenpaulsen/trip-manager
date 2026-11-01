@@ -633,6 +633,23 @@ public class CheckinCommandsTest {
         assertEquals(row.get("status"), "Confirmed");
         assertEquals(row.get(CheckinCommands.questionKey(trip.getRegOptions().getFirst())), "Saturday only");
         assertEquals(row.get("q2"), "", "an unanswered typed question");
+        assertEquals(row.get("total"), "", "no checkout priced this registration");
+        assertEquals(row.get("code"), "");
+        assertEquals(row.get("attestation"), "");
+
+        // A checkout-priced row: its stored price, the code it used and the statements ticked.
+        final org.paulsens.trip.model.PriceBreakdown paid = new org.paulsens.trip.model.PriceBreakdown(
+                new org.paulsens.trip.model.PriceBreakdown.Inputs(30, null, List.of("sat"), "sat", "EARLY10",
+                        List.of("sat")), List.of(), 54_00, "Saturday only", null);
+        assertTrue(DAO.getInstance().saveRegistration(DAO.getInstance()
+                .getRegistration(trip.getId(), ann.getId(), Cached.NO).orElseThrow().withPriceBreakdown(paid)
+                .withAttestations(Map.of("sat", "I am staying at the hotel", "gone", "Old statement"))));
+        final Map<String, Object> priced = viewer.exportRow(trip, ann.getId());
+        assertEquals(priced.get("total"), "$54.00");
+        assertEquals(priced.get("code"), "EARLY10");
+        final String attestation = (String) priced.get("attestation");
+        assertTrue(attestation.contains("Saturday only: I am staying at the hotel"), attestation);
+        assertTrue(attestation.contains("gone: Old statement"), "a withdrawn choice shows its id: " + attestation);
 
         final Map<String, Object> blank = viewer.exportRow(trip, rosterOnly.getId());
         assertEquals(blank.get("status"), "Not Registered");

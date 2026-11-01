@@ -414,6 +414,7 @@ public final class StarterTemplates {
         final String body = """
                 <p>Welcome to <b>{{tripTitle}}</b>, {{firstName}}!</p>
                 <p>Your registration has been approved&mdash;we are so glad you are coming.</p>
+                {{ticketBlock}}
                 <p><a href="{{itineraryUrl}}">See your trip</a></p>
                 <p>Please make sure <a href="{{profileUrl}}">your profile</a> is complete (passport,
                 birthdate, emergency contact): we need it for travel arrangements.</p>
@@ -421,7 +422,8 @@ public final class StarterTemplates {
                 """;
         return mail(REGISTRATION_APPROVED_ID, "You're confirmed - {{tripTitle}}",
                 "Sent to a person (or, if they have no email, their family's managers) when their "
-                        + "registration is approved. Tokens: tripTitle, firstName, itineraryUrl, profileUrl.",
+                        + "registration is approved. Tokens: tripTitle, firstName, itineraryUrl, profileUrl, "
+                        + "ticketBlock (a conference's ticket link, empty otherwise).",
                 body);
     }
 

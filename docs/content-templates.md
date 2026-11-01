@@ -456,8 +456,8 @@ datastore).
 
 1. Privilege rows (hand-created in `/admin/editPrivs.jsf`): `contentAdmin` (raw-HTML power — grant like
    script access), `eventAdmin`, `mediaAdmin`.
-2. `install-starter-templates.sh` — the TWENTY-EIGHT starters (JSON generated from `StarterTemplates` by
-   the test-scope `BootstrapScriptJson` tool: the originals, the six MAIL bodies, the eleven bands and the two
+2. `install-starter-templates.sh` — the TWENTY-NINE starters (JSON generated from `StarterTemplates` by
+   the test-scope `BootstrapScriptJson` tool: the originals, the seven MAIL bodies, the eleven bands and the two
    conference types).
 3. `bootstrap-home-v2.sh` — the `page:trip-index` skeleton (JSON generated from `V2PageBootstrap`);
    `--purge-v1` deletes the retired `home.*` rows. New rows appear on their own within ~5 minutes (the

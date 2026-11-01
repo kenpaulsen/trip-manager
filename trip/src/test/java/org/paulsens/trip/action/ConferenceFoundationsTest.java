@@ -145,6 +145,28 @@ public class ConferenceFoundationsTest {
         assertFalse(CheckoutCommands.isPaidQuestion(trip, paid), "a classic trip's answers stay editable");
     }
 
+    /** A conference's approval email links the ticket; a pilgrimage's reads as it always did. */
+    @Test
+    public void theApprovalEmailLinksAConferencesTicket() throws IOException {
+        final Person me = savedPerson();
+        final Trip conference = Trip.builder().id(java.util.UUID.randomUUID().toString()).title("Conf")
+                .kind(TripKind.CONFERENCE).build();
+        final Registration approved = RegistrationCommands.withTicket(new Registration(conference.getId(),
+                me.getId()).withStatus(Registration.Status.CONFIRMED));
+        final RegistrationCommands reg = new RegistrationCommands();
+        final String html = ((org.paulsens.trip.chat.MailTemplates.Raw) reg.approvedMailValues(conference, me,
+                approved).get("ticketBlock")).html();
+        assertTrue(html.contains("/trip/ticket.jsf?trip=" + conference.getId() + "&amp;t=" + approved.getTicketCode()),
+                html);
+        assertTrue(html.contains(TicketCodes.grouped(approved.getTicketCode())), html);
+
+        final Trip pilgrimage = Trip.builder().id(java.util.UUID.randomUUID().toString()).title("Walk").build();
+        assertEquals(((org.paulsens.trip.chat.MailTemplates.Raw) reg.approvedMailValues(pilgrimage, me, approved)
+                .get("ticketBlock")).html(), "");
+        assertEquals(((org.paulsens.trip.chat.MailTemplates.Raw) reg.approvedMailValues(conference, me)
+                .get("ticketBlock")).html(), "", "no row, no ticket");
+    }
+
     /** Every save path refuses an inconsistent pricing policy (the editor's dialog X skips its Done check). */
     @Test
     public void aTripWithAnInconsistentPricingPolicyIsNotSaved() {

@@ -594,10 +594,25 @@ public class RegistrationCommands {
                 "travelersBlock", new org.paulsens.trip.chat.MailTemplates.Raw(block.toString()));
     }
 
-    /** Tokens for the registration-approved MAIL template. */
+    /** Tokens for the registration-approved MAIL template, without a ticket. */
     public java.util.Map<String, Object> approvedMailValues(final org.paulsens.trip.model.Trip trip,
             final Person person) {
+        return approvedMailValues(trip, person, null);
+    }
+
+    /**
+     * Tokens for the registration-approved MAIL template. {@code ticketBlock} links the approved row's ticket
+     * (docs/checkin.md); it is empty on a trip that is not a conference, so a pilgrim's approval reads as before.
+     */
+    public java.util.Map<String, Object> approvedMailValues(final org.paulsens.trip.model.Trip trip,
+            final Person person, final Registration approved) {
+        final String code = approved == null || !trip.isConference() ? null : approved.getTicketCode();
+        final String url = org.paulsens.trip.site.SiteUrls.ticketUrl(trip, code, new ConfigCommands());
+        final String ticket = url.isEmpty() ? "" : "<p>Your ticket for check-in: <a href=\""
+                + org.paulsens.trip.chat.MailTemplates.escape(url) + "\"><b>"
+                + org.paulsens.trip.security.TicketCodes.grouped(code) + "</b></a></p>";
         return java.util.Map.of(
+                "ticketBlock", new org.paulsens.trip.chat.MailTemplates.Raw(ticket),
                 "tripTitle", trip.getTitle() == null ? "" : trip.getTitle(),
                 "firstName", person.getPreferredName() == null ? "" : person.getPreferredName(),
                 "itineraryUrl", regBaseUrl(trip) + "/trip/itinerary.jsf?trip=" + trip.getId()
@@ -857,7 +872,7 @@ public class RegistrationCommands {
             // own wording whichever site the admin happens to be approving from.
             mailSource.get().sendManagedTemplateForOrg(
                     org.paulsens.trip.content.StarterTemplates.REGISTRATION_APPROVED_ID, trip.getOrgId(),
-                    approvedMailValues(trip, person), approvalRecipients(person),
+                    approvedMailValues(trip, person, confirmed), approvalRecipients(person),
                     addresses.fromFor(org.paulsens.trip.config.KnownSettings.REG_MAIL_FROM.getName()),
                     addresses.replyToFor(
                             org.paulsens.trip.config.KnownSettings.REG_MAIL_REPLY_TO.getName(), trip),

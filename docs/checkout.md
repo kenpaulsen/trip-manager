@@ -69,7 +69,8 @@ problem's message is a whole sentence, because pages put it in a growl summary.
   noted; an overrun of capacity is noted too, never refused, because money has moved. A sandbox payment registers
   nobody, as it writes no ledger rows.
 - The confirmation mail is the `checkout-confirmation` MAIL starter (`PaymentMailer.sendCheckoutConfirmation`): one
-  line per person with type, price, status and ticket code.
+  line per person with type, price, status and ticket code, the code linking to the ticket page (its QR is what
+  check-in scans, `docs/checkin.md`).
 
 ## The pages (`../medjugorje/webapp`)
 

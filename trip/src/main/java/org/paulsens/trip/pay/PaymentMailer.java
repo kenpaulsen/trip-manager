@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.paulsens.trip.action.ConfigCommands;
 import org.paulsens.trip.action.MailCommands;
 import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.chat.MailTemplates;
@@ -17,6 +18,7 @@ import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.security.TicketCodes;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.TripPaymentConfig;
+import org.paulsens.trip.site.SiteUrls;
 
 /**
  * The payment confirmation email: fills the trip's configured MAIL template ({@code payment-confirmation}
@@ -109,7 +111,7 @@ public class PaymentMailer {
     Map<String, Object> checkoutValues(final Payment payment, final Trip trip, final String processorName) {
         final Map<String, Object> values = new HashMap<>();
         final List<Registration> rows = payment.getCheckout().getRows();
-        values.put("registrantsBlock", registrantsBlock(rows));
+        values.put("registrantsBlock", registrantsBlock(trip, rows));
         final boolean allConfirmed = rows.stream().allMatch(row -> row.getStatus() == Registration.Status.CONFIRMED);
         values.put("statusNote", allConfirmed ? "Your registration is confirmed. Bring your ticket code to check-in."
                 : "Your registration is received and awaiting confirmation; we will email you when it is approved.");
@@ -120,19 +122,27 @@ public class PaymentMailer {
         return values;
     }
 
-    private MailTemplates.Raw registrantsBlock(final List<Registration> rows) {
-        final String items = rows.stream().map(this::registrantItem).collect(Collectors.joining());
+    private MailTemplates.Raw registrantsBlock(final Trip trip, final List<Registration> rows) {
+        final String items = rows.stream().map(row -> registrantItem(trip, row)).collect(Collectors.joining());
         return new MailTemplates.Raw(items.isEmpty() ? "" : "<ul>" + items + "</ul>");
     }
 
-    private String registrantItem(final Registration row) {
+    private String registrantItem(final Trip trip, final Registration row) {
         final String type = row.getRegistrationType() == null ? "Registered" : row.getRegistrationType();
         final long price = row.getPriceBreakdown() == null ? 0L : row.getPriceBreakdown().getTotalCents();
         final String ticket = row.getStatus() == Registration.Status.CONFIRMED && row.getTicketCode() != null
-                ? " &middot; ticket <b>" + TicketCodes.grouped(row.getTicketCode()) + "</b>" : "";
+                ? " &middot; " + ticketLink(trip, row.getTicketCode()) : "";
         return "<li><b>" + MailTemplates.escape(nameOf(row.getUserId())) + "</b>: "
                 + MailTemplates.escape(type) + ", " + MoneyMath.formatCents(price) + " ("
                 + row.getStatus().getDescription() + ")" + ticket + "</li>";
+    }
+
+    /** "ticket CODE", the code linking to the ticket page (its QR, for check-in) when the trip is known. */
+    static String ticketLink(final Trip trip, final String code) {
+        final String grouped = "<b>" + TicketCodes.grouped(code) + "</b>";
+        final String url = SiteUrls.ticketUrl(trip, code, new ConfigCommands());
+        return url.isEmpty() ? "ticket " + grouped
+                : "ticket <a href=\"" + MailTemplates.escape(url) + "\">" + grouped + "</a>";
     }
 
     /** Whose confirmation copy this is: the payment's organization, else its trip's, else nobody's. */
