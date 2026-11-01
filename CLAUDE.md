@@ -197,8 +197,13 @@ carries `paymentId`, `ticketCode` (`security/TicketCodes`; every CONFIRMED row h
 `AGENDA_HIDDEN`; `hasDetails()` counts transport keys only); the trip role `checkinStaff`. A conference's PUBLIC PAGE is content sections under
 `page:trip:{tripUuid}:home` (`OrgPageBootstrap.tripPageKey`), hosted by `trip/tripDetails.xhtml`, edited by the
 trip's `tripMgr` and its org's content admins, seeded once on save (`ConferenceCommands.ensurePage`); its views
-(`#{conference}`: `tripFor`, `publicAgenda`, `registrationInfo`) are cached-read-only render code. Priced checkout
-itself is the next phase (`docs/checkout.md`, waiting on the Stripe processor work).
+(`#{conference}`: `tripFor`, `publicAgenda`, `registrationInfo`) are cached-read-only render code. **Priced checkout** (`docs/checkout.md`, required reading
+before touching pricing or a checkout payment): the pure engine in `checkout/` (`CheckoutPricing`, `CheckoutValidator`,
+`CheckoutCapacity`), the policy `Trip.checkout` (`CheckoutConfig`: window, `AgeBand`s, `DiscountCode`s; prices stay on
+the typed questions), bean `checkout` (`CheckoutCommands`), PAY-FIRST: the party rides the `Payment` as a
+`PendingParty` and `PaymentCommands.recordNow` writes it via `finalizeParty`; `ProcessorType.OFFLINE` for checks,
+cash, comps and $0 parties; `pay/Bills` is the one deterministic Bill writer (lodging and checkout).
+`Payment.hasCheckout()` must never become a bean getter (`docs/checkout.md`, "Idempotency").
 
 `Person.privacy` (`PrivacySettings`) holds the owner's field-visibility choices; `PersonDto.redactedFor`
 (REST) and `PrivacyView` (pages) are the two enforcement points — read `docs/privacy-settings.md` before

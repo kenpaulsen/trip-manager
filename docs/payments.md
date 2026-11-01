@@ -156,6 +156,17 @@ REST: `DELETE /api/transactions/people/{personId}/{txId}` runs the same dispatch
 supplied; an empty list with no groupId is still a 400, since that would store nothing under an id the client
 could never use.
 
+## Priced checkout rides this pipeline (2026-11)
+
+A registration checkout (`docs/checkout.md`) is an ordinary `Payment` with a `PendingParty` (`Payment.checkout`,
+`hasCheckout()`): `CheckoutCommands` builds it through `newPayment`/`startPrepared` (split out of `startPayment`), and
+`recordNow` calls `CheckoutCommands.finalizeParty` right after the ledger write and before `CAPTURED -> RECORDED`, in
+the same guarded step, so every completion door (return page, Stripe webhook, Finish) registers the party and a
+failure leaves the row CAPTURED for Finish. A checkout payment mails `checkout-confirmation` instead of
+`payment-confirmation`, and may also be completed by the trip's `registrationAdmin`s. `ProcessorType.OFFLINE` (not
+configurable, no processor) is a payment taken by hand or a $0 party: built already CAPTURED, its capture id the
+method's label ("CHECK 1042", "COMP", "FREE"), recorded through `PaymentCommands.recordOffline` along the same path.
+
 ## The flow (`action/PaymentCommands` — Java-first, user-locked)
 
 ALL flow logic is Java; `trip/payment.xhtml` and `api/PaymentsResource` (v2: `POST payments`,

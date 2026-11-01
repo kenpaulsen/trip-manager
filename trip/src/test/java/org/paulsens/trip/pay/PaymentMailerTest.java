@@ -190,6 +190,62 @@ public class PaymentMailerTest {
         assertTrue(block.html().contains("ghost-1"), block.html());
     }
 
+    /** A checkout's confirmation lists each registrant with type, price, status and (when confirmed) ticket. */
+    @Test
+    public void aCheckoutConfirmationListsEveryRegistrant() {
+        final MailCommands mail = Mockito.mock(MailCommands.class);
+        Mockito.when(mail.sendManagedTemplateForOrg(ArgumentMatchers.anyString(), ArgumentMatchers.any(),
+                ArgumentMatchers.anyMap(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+        final Person payer = person("Ann", "ann@example.com");
+        final Person kid = person("Kid", "kid@example.com");
+        final java.util.Map<org.paulsens.trip.model.Person.Id, Person> people =
+                java.util.Map.of(payer.getId(), payer, kid.getId(), kid);
+        final PaymentMailer mailer = new PaymentMailer(mail, people::get);
+        final Payment payment = payment(payer);
+        payment.setCheckout(new org.paulsens.trip.model.PendingParty("party", payer.getId(), List.of(
+                row(payer, org.paulsens.trip.model.Registration.Status.CONFIRMED, "Full weekend", 15000L, "ABCDEFGH"),
+                row(kid, org.paulsens.trip.model.Registration.Status.PENDING, null, 5000L, null)), null, null));
+        final Trip trip = trip();
+        trip.setStartDate(LocalDateTime.of(2027, 3, 5, 8, 0));
+        trip.setEndDate(LocalDateTime.of(2027, 3, 7, 17, 0));
+        final TripPaymentConfig effective = TripPaymentConfig.builder().mailFrom("CFPW <no-reply@x.org>").build();
+
+        assertTrue(mailer.sendCheckoutConfirmation(payment, trip, effective, "CFPW", "PayPal", "office@x.org",
+                AuditActor.system()));
+        @SuppressWarnings("unchecked")
+        final ArgumentCaptor<java.util.Map<String, Object>> values = ArgumentCaptor.forClass(java.util.Map.class);
+        Mockito.verify(mail).sendManagedTemplateForOrg(ArgumentMatchers.eq("checkout-confirmation"),
+                ArgumentMatchers.any(), values.capture(), ArgumentMatchers.eq("ann@example.com"),
+                ArgumentMatchers.anyString(), ArgumentMatchers.any(), ArgumentMatchers.eq("office@x.org"),
+                ArgumentMatchers.any());
+        final String block = ((MailTemplates.Raw) values.getValue().get("registrantsBlock")).html();
+        assertTrue(block.contains("Ann Tester</b>: Full weekend, $150.00 (Confirmed)"), block);
+        assertTrue(block.contains("ticket <b>ABCD-EFGH</b>"), block);
+        assertTrue(block.contains("Kid Tester</b>: Registered, $50.00 (Pending)"), block);
+        assertTrue(values.getValue().get("statusNote").toString().contains("awaiting confirmation"),
+                "one registrant still waits for approval");
+        assertEquals(values.getValue().get("tripDates"), "March 5, 2027 to March 7, 2027");
+        assertEquals(values.getValue().get("paymentMethod"), "PayPal");
+
+        payment.setTotalChargedCents(0L);
+        assertEquals(mailer.checkoutValues(payment, trip, "Offline payment").get("paymentMethod"), "no charge");
+        assertEquals(mailer.checkoutValues(payment, null, "x").get("tripDates"), "");
+        assertFalse(mailer.sendCheckoutConfirmation(payment, trip, TripPaymentConfig.builder().build(), "CFPW",
+                "PayPal", null, AuditActor.system()), "no From = unsendable, quietly");
+        assertFalse(new PaymentMailer(mail, id -> null).sendCheckoutConfirmation(payment, trip, effective, "CFPW",
+                "PayPal", null, AuditActor.system()), "no payer = unsendable, quietly");
+    }
+
+    private static org.paulsens.trip.model.Registration row(final Person person,
+            final org.paulsens.trip.model.Registration.Status status, final String type, final long cents,
+            final String ticket) {
+        final org.paulsens.trip.model.PriceBreakdown breakdown = new org.paulsens.trip.model.PriceBreakdown(null,
+                null, cents, type, null);
+        return new org.paulsens.trip.model.Registration("golden", person.getId()).withStatus(status)
+                .withRegistrationType(type).withPriceBreakdown(breakdown).withTicketCode(ticket);
+    }
+
     private static Person person(final String first, final String email) {
         return Person.builder().first(first).last("Tester").email(email).build();
     }

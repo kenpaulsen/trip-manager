@@ -11,7 +11,7 @@ conference page) are done.
 | Phase | What | State |
 |---|---|---|
 | 0 | Trip kind, typed and priceable questions, the widened `Registration`, ticket codes, agenda fields, the Check-in Staff role | landed |
-| 1 | Priced checkout: age bands, discount codes, pay-first party checkout on the `Payment` record, offline payments, price breakdowns in the admin views (`docs/checkout.md`) | waiting for the Stripe integration, so it builds on the new processor shape |
+| 1 | Priced checkout: age bands, discount codes, pay-first party checkout on the `Payment` record, offline payments, price breakdowns in the admin views (`docs/checkout.md`) | backend landed (on Stripe's processor shape); pages in progress |
 | 2 | The trip-keyed public conference page: speakers, schedule, registration block | landed |
 | 3 | Ticket page, staff check-in, counts, batch badges, check-in REST for the iOS app (`docs/checkin.md`) | after Phase 1 |
 | 4 | One-time import of people and past registrations from the old us-east-1 account | last |

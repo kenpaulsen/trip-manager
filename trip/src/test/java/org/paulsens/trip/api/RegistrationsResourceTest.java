@@ -517,4 +517,52 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any());
     }
+
+    // ------------------------------------------------------------------ pricing (docs/checkout.md)
+
+    /** The policy is readable by any signed-in caller; the discount codes only by the trip's staff. */
+    @Test
+    public void pricingHidesTheCodesFromEveryoneButStaff() {
+        signedInAs(ME);
+        final Trip trip = Trip.builder().id(TRIP_ID).build();
+        trip.setCheckout(new org.paulsens.trip.model.CheckoutConfig(Boolean.TRUE, null, null, null, List.of(),
+                List.of(new org.paulsens.trip.model.DiscountCode("SPEAKER", null, null, null, null, null, null))));
+        Mockito.when(trips.getTrip(TRIP_ID)).thenReturn(trip);
+        final org.paulsens.trip.model.CheckoutConfig seen =
+                (org.paulsens.trip.model.CheckoutConfig) resource.pricing(TRIP_ID).getEntity();
+        Assert.assertTrue(seen.isOn());
+        Assert.assertTrue(seen.getCodes().isEmpty(), "a code is a secret its holders were given");
+
+        signedInAsSiteAdmin(ME);
+        resource = resource(new RegistrationsResource());   // privileges are memoized per resource instance
+        final org.paulsens.trip.model.CheckoutConfig full =
+                (org.paulsens.trip.model.CheckoutConfig) resource.pricing(TRIP_ID).getEntity();
+        Assert.assertEquals(full.getCodes().size(), 1);
+    }
+
+    @Test
+    public void savingPricingIsForManagersAndRefusesAPolicyWithProblems() {
+        final org.paulsens.trip.model.CheckoutConfig policy = new org.paulsens.trip.model.CheckoutConfig(
+                Boolean.TRUE, null, null, null, List.of(), List.of());
+        signedInAs(ME);
+        assertError(resource.savePricing(TRIP_ID, CSRF_OK, policy), 403, ApiErrors.FORBIDDEN);
+        assertError(resource.savePricing(TRIP_ID, null, policy), 403, ApiErrors.CSRF);
+
+        signedInAsSiteAdmin(ME);
+        resource = resource(new RegistrationsResource());   // privileges are memoized per resource instance
+        assertError(resource.savePricing(TRIP_ID, CSRF_OK, null), 400, ApiErrors.VALIDATION_FAILED);
+        final org.paulsens.trip.model.CheckoutConfig twice = new org.paulsens.trip.model.CheckoutConfig(
+                Boolean.TRUE, null, null, null, List.of(), List.of(
+                        new org.paulsens.trip.model.DiscountCode("A", null, null, null, null, null, null),
+                        new org.paulsens.trip.model.DiscountCode("a", null, null, null, null, null, null)));
+        assertError(resource.savePricing(TRIP_ID, CSRF_OK, twice), 400, ApiErrors.VALIDATION_FAILED);
+
+        final Trip trip = Trip.builder().id(TRIP_ID).build();
+        Mockito.when(trips.getTrip(TRIP_ID)).thenReturn(trip);
+        Mockito.when(trips.saveTrip(trip)).thenReturn(true);
+        assertOk(resource.savePricing(TRIP_ID, CSRF_OK, policy));
+        Assert.assertTrue(trip.getCheckout().isOn(), "saved onto the trip");
+        Mockito.when(trips.saveTrip(trip)).thenReturn(false);
+        assertError(resource.savePricing(TRIP_ID, CSRF_OK, policy), 500, ApiErrors.STORE_FAILED);
+    }
 }

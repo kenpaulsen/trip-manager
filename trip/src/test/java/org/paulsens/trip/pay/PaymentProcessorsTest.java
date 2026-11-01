@@ -91,4 +91,21 @@ public class PaymentProcessorsTest {
                 .version(1L)
                 .build();
     }
+
+    /** OFFLINE is a payment recorded by hand: it has no processor to build, ping or configure. */
+    @org.testng.annotations.Test
+    public void anOfflinePaymentHasNoProcessor() {
+        final org.paulsens.trip.model.PaymentProcessorConfig offline = org.paulsens.trip.model.PaymentProcessorConfig
+                .builder().type(org.paulsens.trip.model.ProcessorType.OFFLINE).build();
+        org.testng.Assert.assertThrows(PaymentProcessor.ProcessorException.class,
+                () -> PaymentProcessors.forConfig(offline, false));
+        org.testng.Assert.assertEquals(new ProcessorPing().ping(offline, false, null),
+                "An offline payment has no processor to test.");
+        org.testng.Assert.assertFalse(org.paulsens.trip.model.ProcessorType.configurableTypes()
+                .contains(org.paulsens.trip.model.ProcessorType.OFFLINE));
+        org.testng.Assert.assertFalse(org.paulsens.trip.model.ProcessorType.OFFLINE.isConfigurable());
+        org.testng.Assert.assertTrue(org.paulsens.trip.model.ProcessorType.STRIPE.isConfigurable());
+        org.testng.Assert.assertFalse(new org.paulsens.trip.action.OrgCommands().getProcessorTypes()
+                .contains("OFFLINE"), "an org can never set one up");
+    }
 }

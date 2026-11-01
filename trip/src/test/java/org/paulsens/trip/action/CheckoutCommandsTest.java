@@ -73,6 +73,9 @@ public class CheckoutCommandsTest {
         assertEquals(quote.creditCents(), 22000L, "adult 150 + shirt 20, child capped at 50");
         assertTrue(quote.feeCents() > 0, "CFPW's seeded defaults are payer-pays");
         assertEquals(quote.totalCents(), quote.creditCents() + quote.feeCents());
+        assertFalse(quote.isFree());
+        assertEquals(quote.getTotal(), org.paulsens.trip.pay.MoneyMath.formatCents(quote.totalCents()));
+        assertEquals(quote.getFee(), org.paulsens.trip.pay.MoneyMath.formatCents(quote.feeCents()));
 
         final CheckoutCommands.Started started = flow.checkout.start(trip, draft, List.of(parent, child),
                 parent.getId(), false, "http://localhost/trip/joinTrip.jsf");
