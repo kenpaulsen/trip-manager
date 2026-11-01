@@ -130,6 +130,33 @@ public class CheckoutModelsTest {
         assertTrue(new PendingParty().getRows().isEmpty());
     }
 
+    /** A cancelled-and-back visit keeps each person's code and ticks, and nobody else's. */
+    @Test
+    public void aDraftCarriesOnePersonsCodeAndAttestations() {
+        final RegistrationDraft old = new RegistrationDraft();
+        old.getCodes().put("ada", "SPEAKER");
+        old.getAttest().put(RegistrationDraft.attestKey("ada", "hotel"), Boolean.TRUE);
+        old.getAttest().put(RegistrationDraft.attestKey("bob", "hotel"), Boolean.TRUE);
+        final RegistrationDraft fresh = new RegistrationDraft();
+        fresh.carryCheckoutFrom(old, "ada");
+        fresh.carryCheckoutFrom(old, "carl");
+        fresh.carryCheckoutFrom(null, "ada");
+        fresh.carryCheckoutFrom(old, null);
+        assertEquals(fresh.getCodes(), java.util.Map.of("ada", "SPEAKER"));
+        assertEquals(fresh.getAttest(), java.util.Map.of(RegistrationDraft.attestKey("ada", "hotel"), Boolean.TRUE));
+        new RegistrationDraft().carryCheckoutFrom(new RegistrationDraft(), "ada");
+    }
+
+    @Test
+    public void aTripWithoutAPolicyHasNoProblemsAndGetsNoPolicy() {
+        final Trip trip = Trip.builder().id("t").build();
+        assertTrue(trip.checkoutProblems().isEmpty());
+        trip.setCheckout(new CheckoutConfig(Boolean.TRUE, null, null, null, List.of(), List.of(
+                new DiscountCode("A", null, null, null, null, null, null),
+                new DiscountCode("a", null, null, null, null, null, null))));
+        assertEquals(trip.checkoutProblems(), List.of("The code A is listed twice."));
+    }
+
     private static CheckoutConfig policy() {
         return new CheckoutConfig(Boolean.TRUE, null, NOW.minusMonths(1), NOW.plusMonths(1), List.of(
                 new AgeBand("Infant", 0, 3, new Concession(Concession.Kind.COMPLIMENTARY, 0, 0L, null, null, null)),

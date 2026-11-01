@@ -130,6 +130,12 @@ public class TripCommands {
     }
 
     public boolean saveTrip(final Trip trip) {
+        final List<String> pricing = trip.checkoutProblems();
+        if (!pricing.isEmpty()) {
+            // The Pricing fieldset's Done refuses these too, but closing the dialog with its X skips Done.
+            PageFeedback.warn("Not saved", String.join(" ", pricing));
+            return false;
+        }
         boolean result;
         // Read the roster BEFORE the write, so anyone dropped in this edit can be taken off the chat too. Done
         // here rather than at each Remove button because there are several ways off a trip and they must all

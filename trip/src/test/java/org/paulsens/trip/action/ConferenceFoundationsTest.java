@@ -145,6 +145,16 @@ public class ConferenceFoundationsTest {
         assertFalse(CheckoutCommands.isPaidQuestion(trip, paid), "a classic trip's answers stay editable");
     }
 
+    /** Every save path refuses an inconsistent pricing policy (the editor's dialog X skips its Done check). */
+    @Test
+    public void aTripWithAnInconsistentPricingPolicyIsNotSaved() {
+        final Trip trip = Trip.builder().id("pp-" + RandomData.genAlpha(8)).title("Bad policy").build();
+        trip.getCheckout().setOpensAt(LocalDateTime.now());
+        trip.getCheckout().setClosesAt(LocalDateTime.now().minusDays(1));
+        assertFalse(new TripCommands().saveTrip(trip));
+        assertTrue(dao.getTrip(trip.getId(), Cached.NO).isEmpty(), "nothing was written");
+    }
+
     @Test
     public void aPickAnyAnswerIsStoredCommaJoined() {
         final Map<String, String> answers = new HashMap<>();

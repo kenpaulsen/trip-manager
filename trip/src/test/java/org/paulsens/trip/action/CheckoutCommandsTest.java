@@ -196,6 +196,26 @@ public class CheckoutCommandsTest {
                 "CASH", null, 150.0, null, false), "only a registration admin records offline payments");
     }
 
+    /** The admin who started a checkout for someone else (its payer is that person) may cancel it; others not. */
+    @Test
+    public void theAdminWhoStartedACheckoutForSomeoneMayCancelIt() throws IOException {
+        final Trip trip = pricedTrip(true);
+        final Person admin = savedPerson(LocalDate.of(1970, 1, 1));
+        final Person attendee = savedPerson(LocalDate.of(1985, 1, 1));
+        final Flow flow = flowFor(admin, true);
+        final RegistrationDraft draft = new RegistrationDraft();
+        pick(draft, attendee, "full", null);
+        final CheckoutCommands.Started started = flow.checkout.start(trip, draft, List.of(attendee),
+                attendee.getId(), false, "http://localhost/trip/joinTrip.jsf");
+        final String paymentId = started.start().getPaymentId();
+        assertEquals(DAO.getInstance().getPayment(paymentId).orElseThrow().getPayerId(), attendee.getId());
+
+        final Person stranger = savedPerson(LocalDate.of(1990, 1, 1));
+        assertFalse(flowFor(stranger, false).payments.cancelPayment(paymentId), "not theirs to cancel");
+        assertTrue(flow.payments.cancelPayment(paymentId), "the registration admin's Change registration");
+        assertEquals(DAO.getInstance().getPayment(paymentId).orElseThrow().getStatus(), Payment.Status.CANCELLED);
+    }
+
     @Test
     public void aSandboxCheckoutRegistersNobody() throws IOException {
         final Trip trip = pricedTrip(true);

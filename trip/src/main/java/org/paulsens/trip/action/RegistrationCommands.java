@@ -527,6 +527,7 @@ public class RegistrationCommands {
                 draft.getRegs().put(key, oldReg);
                 draft.getSel().put(key, Boolean.TRUE.equals(old.getSel().get(key)));
                 draft.getDigest().put(key, Boolean.TRUE.equals(old.getDigest().get(key)));
+                draft.carryCheckoutFrom(old, key);
             } else {
                 draft.getRegs().put(key, fresh);
                 draft.getSel().put(key, caller.isAuthenticated() && member.getId().equals(caller.personId()));
@@ -540,6 +541,7 @@ public class RegistrationCommands {
                     draft.getSel().put(entry.getKey(), Boolean.TRUE.equals(old.getSel().get(entry.getKey())));
                     draft.getDigest().put(entry.getKey(),
                             Boolean.TRUE.equals(old.getDigest().get(entry.getKey())));
+                    draft.carryCheckoutFrom(old, entry.getKey());
                 }
             }
         }

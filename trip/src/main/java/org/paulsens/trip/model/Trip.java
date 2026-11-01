@@ -355,6 +355,14 @@ public final class Trip implements Serializable {
                 .collect(Collectors.joining(", "));
     }
 
+    /**
+     * The checkout policy's editor problems (docs/checkout.md), without creating a policy on a trip that has none:
+     * every save checks it, and a lazy {@link #getCheckout} there would write a policy into every trip row.
+     */
+    public List<String> checkoutProblems() {
+        return checkout == null ? List.of() : checkout.problems();
+    }
+
     public CheckoutConfig getCheckout() {
         if (checkout == null) {
             checkout = new CheckoutConfig();

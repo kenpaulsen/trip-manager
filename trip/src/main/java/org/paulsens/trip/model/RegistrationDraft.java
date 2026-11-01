@@ -58,6 +58,30 @@ public class RegistrationDraft implements Serializable {
         return attest;
     }
 
+    /**
+     * Copies one person's checkout entries (their code and ticked attestations) from {@code old}, beside the
+     * answers {@code RegistrationCommands.loadDraft} carries: someone who cancels at the processor and comes back
+     * must not retype a code or re-tick a statement.
+     */
+    public void carryCheckoutFrom(final RegistrationDraft old, final String personId) {
+        if (old == null || personId == null) {
+            return;
+        }
+        if (old.codes != null && old.codes.get(personId) != null) {
+            getCodes().put(personId, old.codes.get(personId));
+        }
+        if (old.attest != null) {
+            final String prefix = attestKey(personId, "");
+            old.attest.forEach((key, value) -> carryAttestation(prefix, key, value));
+        }
+    }
+
+    private void carryAttestation(final String prefix, final String key, final Object value) {
+        if (key.startsWith(prefix)) {
+            getAttest().put(key, value);
+        }
+    }
+
     /** The attestation map's key for one person's choice. */
     public static String attestKey(final String personId, final String choiceId) {
         return personId + "|" + choiceId;

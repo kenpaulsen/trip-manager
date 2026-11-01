@@ -71,6 +71,35 @@ problem's message is a whole sentence, because pages put it in a growl summary.
 - The confirmation mail is the `checkout-confirmation` MAIL starter (`PaymentMailer.sendCheckoutConfirmation`): one
   line per person with type, price, status and ticket code.
 
+## The pages (`../medjugorje/webapp`)
+
+- `trip/joinTrip.xhtml` is the one registration page. With checkout on it becomes a pay-first form; a classic trip
+  renders exactly as before. Each traveler's choices show that person's own price after their age band
+  (`regQuestionInput.xhtml`'s `pricePerson`), a picked choice needing a statement shows its checkbox, and each
+  traveler has a code box. The totals panel is `checkout.quote` on every render: each person's price with its
+  breakdown lines, the fee when the payer covers it, the total and every problem. Already-registered rows are
+  read-only: their answers are what was paid for.
+- "Pay and register" is a full postback, like the payment page's Pay: it redirects for a redirect processor,
+  mounts the shared `WEB-INF/payInlineStep.xhtml` in place for an inline one (the payment page uses the same
+  fragment), or registers a $0 party at once. The processor returns to the same page with `?payment=` (or
+  `&cancelled=true`); `initPage` completes or cancels and shows a result panel: registered (name, type, price,
+  status, ticket per person), sandbox dry run, cancelled, failed, processing (a settling bank debit: nobody is
+  registered yet) or mismatch. The payer is `checkout.payerFor`: the subject for a registration admin, else the
+  caller, so a family manager acting for a member pays as themselves.
+- Registration admins get "Record offline payment" (method, reference, amount, date received, partial) and may
+  open the Registrations tab's `?id=` links on a priced trip (the page's gate becomes `registrationAdmin` there).
+- The trip editor's Registration Options dialog has a Pricing fieldset: on/off, auto-confirm, the window, and the
+  age-band and code tables, whose rows are removed by identity (`rowKey`). Done refuses an inconsistent policy and
+  stays open, and `TripCommands.saveTrip` refuses it again on every save path (the dialog's X skips Done).
+  Nothing persists until the trip page's Save.
+- `admin/tripRegistrations.xhtml` adds Type and Paid columns and a details dialog with the stored breakdown;
+  `admin/payments.xhtml` adds a Checkout column (`intentSummary`). An abandoned processor checkout is the only
+  place an unpaid party is ever visible; an offline payment is RECORDED at once and never appears there.
+- EL reads record COMPONENTS only: on `Quote` call `getTotal()`, `getFee()` and `isFree()` as methods.
+- A visit that comes back (a cancel at the processor) keeps each person's code and ticks
+  (`RegistrationDraft.carryCheckoutFrom`, called by `loadDraft`), and whoever may complete a checkout payment may
+  cancel it, so the admin who started one for someone else can change it.
+
 ## Idempotency and failure
 
 - Everything is re-runnable: rows are written only if absent, Bill ids are deterministic, ticket codes are minted
@@ -114,4 +143,6 @@ A checkout trip must not be reachable for free through the older doors:
 `CheckoutCommandsTest` (a family through the FAKE processor: rows, tickets, roster, Bills, zero balances, one mail,
 idempotent return; the PENDING policy; free and offline payments; sandbox; every refusal; registered meanwhile; the
 RECORDED repair), additions to `PaymentMailerTest`, `RegistrationsResourceTest` (pricing, and the three checkout endpoints through
-mocked beans) and `PaymentProcessorsTest`; the pay-first guards in `ConferenceFoundationsTest`.
+mocked beans) and `PaymentProcessorsTest`; the pay-first guards in `ConferenceFoundationsTest`; the page helpers in `CheckoutViewsTest`. Browser tests
+(`../medjugorje/webtest`): `CheckoutPagePwIT`, `CheckoutFreePwIT`, `CheckoutOfflinePwIT`, `CheckoutInlinePwIT`,
+`CheckoutConfigDialogPwIT`, built on `WebFixtures.pricing(tripId, json)`.

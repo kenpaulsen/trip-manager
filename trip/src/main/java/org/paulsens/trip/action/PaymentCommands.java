@@ -500,9 +500,9 @@ public class PaymentCommands {
     public boolean cancelPayment(final String paymentId) {
         final Caller current = caller();
         final Payment payment = DAO.getInstance().getPayment(paymentId).orElse(null);
-        final Person me = currentPerson();
-        if (payment == null || payment.getStatus() != Payment.Status.CREATED
-                || (!current.isSiteAdmin() && (me == null || !payment.getPayerId().equals(me.getId())))) {
+        // Whoever may complete it may cancel it: that includes the registration admin who started a checkout
+        // on someone's behalf (its payer is the person registered), whose "Change registration" cancels here.
+        if (payment == null || payment.getStatus() != Payment.Status.CREATED || !mayComplete(current, payment)) {
             return false;
         }
         return cancelCreated(payment, current, "Payment cancelled by the payer");
