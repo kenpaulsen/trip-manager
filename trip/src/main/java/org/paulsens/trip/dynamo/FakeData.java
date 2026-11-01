@@ -30,6 +30,7 @@ import org.paulsens.trip.model.ContentTemplate;
 import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.MediaItem;
 import org.paulsens.trip.model.Address;
+import org.paulsens.trip.model.OptionChoice;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.PaymentProcessorConfig;
 import org.paulsens.trip.model.Person;
@@ -37,10 +38,12 @@ import org.paulsens.trip.model.ProcessorType;
 import org.paulsens.trip.security.ProcessorSecrets;
 import org.paulsens.trip.model.Person.Sex;
 import org.paulsens.trip.model.Privilege;
+import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
+import org.paulsens.trip.model.TripKind;
 import org.paulsens.trip.model.WaiverDocument;
 import org.paulsens.trip.model.WaiverVersion;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -129,6 +132,7 @@ public final class FakeData {
             addFakeOrgs();
             addFakeFamily();
             seatLucyOnSpringDemo();
+            addFakeConferenceRegistrations();
             addFakeLodging();
             relaxChatLimitsForFakeTrips();
         }
@@ -1239,7 +1243,155 @@ public final class FakeData {
         summer.getPaymentConfig().setProcessorConfigId(CFPW_INLINE_PROCESSOR_ID);
         trips.add(summer);
         addLandingPageSeeds(trips, allPeople, tripStaff);
+        trips.add(conferenceSeed(tripStaff));
         return trips;
+    }
+
+    /** "2027 Mar: Peace Conference Demo": the CONFERENCE-kind seed (docs/conference.md, docs/checkout.md). */
+    public static final String CONF_TRIP_ID = "c0f3a7d1-5b2e-4c88-9a1d-7e4f2b6c8d05";
+    /** The conference's typed questions, by option id: the admission choice and the paid add-ons. */
+    public static final int CONF_ADMISSION_OPT = 1;
+    public static final int CONF_EXTRAS_OPT = 2;
+    public static final int CONF_SHIRT_SIZE_OPT = 3;
+    public static final int CONF_DIETARY_OPT = 4;
+    /** The admission choices' fixed ids (what answers store). */
+    public static final String CONF_FULL_WEEKEND = "full-weekend";
+    public static final String CONF_FRIDAY = "friday";
+    public static final String CONF_SATURDAY = "saturday";
+    public static final String CONF_HOTEL_WEEKEND = "hotel-weekend";
+    public static final String CONF_TSHIRT = "tshirt";
+    /** The seeded agenda event kept off the public schedule. */
+    public static final String CONF_HIDDEN_EVENT_TITLE = "Volunteer briefing";
+
+    /**
+     * A public CFPW conference 75 days out, three days long: a required priced admission question (with a hotel-guest
+     * variant behind an attestation), a priced add-on that age pricing does not touch, two unpriced typed questions,
+     * a two-day agenda with presenters, rooms and tracks (one event hidden from the public schedule) and the lodging
+     * event every seed carries. Its registrations are seeded after the people exist
+     * ({@link #addFakeConferenceRegistrations}).
+     */
+    private static Trip conferenceSeed(final List<Person.Id> tripStaff) {
+        final LocalDate day1 = LocalDate.now().plusDays(75);
+        final List<String> allDays = List.of(day1.toString(), day1.plusDays(1).toString(), day1.plusDays(2).toString());
+        final List<RegistrationOption> questions = List.of(
+                new RegistrationOption(CONF_ADMISSION_OPT, "Admission", "Which days are you attending?", true,
+                        RegistrationOption.QuestionType.CHOICE, true, List.of(
+                                new OptionChoice(CONF_FULL_WEEKEND, "Full weekend", 15000L, null, null, allDays, null),
+                                new OptionChoice(CONF_FRIDAY, "Friday only", 6000L, null, null,
+                                        List.of(allDays.get(0)), null),
+                                new OptionChoice(CONF_SATURDAY, "Saturday only", 6000L, null, null,
+                                        List.of(allDays.get(1)), null),
+                                new OptionChoice(CONF_HOTEL_WEEKEND, "Full weekend (conference hotel guest)", 12000L,
+                                        null, "I am staying at the conference hotel", allDays, null)),
+                        null),
+                new RegistrationOption(CONF_EXTRAS_OPT, "Extras", "Optional add-ons", true,
+                        RegistrationOption.QuestionType.MULTI_CHOICE, false, List.of(
+                                new OptionChoice(CONF_TSHIRT, "Conference T-shirt", 2000L, null, null, null, null)),
+                        Boolean.FALSE),
+                new RegistrationOption(CONF_SHIRT_SIZE_OPT, "T-shirt size", "Only if you ordered a shirt", true,
+                        RegistrationOption.QuestionType.CHOICE, false, List.of(
+                                sizeChoice("s", "Small"), sizeChoice("m", "Medium"),
+                                sizeChoice("l", "Large"), sizeChoice("xl", "X-Large")),
+                        null),
+                new RegistrationOption(CONF_DIETARY_OPT, "Dietary needs", "Allergies or restrictions", true));
+        final List<TripEvent> events = new ArrayList<>();
+        events.add(agendaEvent(1, "Opening session", day1.atTime(9, 0), "Fr. Demo Director", "Main Hall", null));
+        events.add(agendaEvent(2, "Keynote: Living the Messages", day1.atTime(11, 0), "Sr. Demo Speaker",
+                "Main Hall", null));
+        events.add(agendaEvent(3, "Youth workshop", day1.plusDays(1).atTime(10, 0), "Demo Youth Team", "Room B",
+                "Youth"));
+        final TripEvent hidden = agendaEvent(4, CONF_HIDDEN_EVENT_TITLE, day1.plusDays(1).atTime(8, 0), null,
+                "Green Room", null);
+        hidden.getDetails().put(TripEvent.Detail.AGENDA_HIDDEN.key(), "true");
+        events.add(hidden);
+        events.add(agendaEvent(5, "Closing Mass", day1.plusDays(2).atTime(11, 0), null, "Main Hall", null));
+        events.add(newTripEvent(conferenceEventId(6), TripEvent.Type.LODGING, "Conference hotel", "Seeded lodging",
+                day1.minusDays(1).atTime(15, 0), day1.plusDays(2).atTime(11, 0), null, null));
+        return Trip.builder()
+                .id(CONF_TRIP_ID)
+                .title("2027 Mar: Peace Conference Demo")
+                .kind(TripKind.CONFERENCE)
+                .orgId(CFPW_ORG_ID)
+                .openToPublic(true)
+                .provider("CFPW")
+                .language(Language.English)
+                .description("<p>Three days of talks, prayer and music: the <b>Peace Conference Demo</b>.</p>")
+                .startDate(day1.atTime(8, 0))
+                .endDate(day1.plusDays(2).atTime(17, 0))
+                .regLimit(150)
+                .regOptions(questions)
+                .tripEvents(events)
+                .facilitatorIds(tripStaff)
+                .build();
+    }
+
+    /** One EVENT on the conference agenda, its presenter, room and track stored as the event dialog stores them. */
+    private static TripEvent agendaEvent(final int n, final String title, final LocalDateTime start,
+            final String presenter, final String location, final String track) {
+        final TripEvent event = newTripEvent(conferenceEventId(n), TripEvent.Type.EVENT, title, "", start,
+                start.plusHours(1), null, null);
+        final Map<String, String> details = new LinkedHashMap<>();
+        putDetail(details, TripEvent.Detail.PRESENTER, presenter);
+        putDetail(details, TripEvent.Detail.LOCATION, location);
+        putDetail(details, TripEvent.Detail.TRACK, track);
+        event.setDetails(details);
+        return event;
+    }
+
+    private static void putDetail(final Map<String, String> details, final TripEvent.Detail which,
+            final String value) {
+        if (value != null) {
+            details.put(which.key(), value);
+        }
+    }
+
+    private static OptionChoice sizeChoice(final String id, final String label) {
+        return new OptionChoice(id, label, 0L, null, null, null, null);
+    }
+
+    private static String conferenceEventId(final int n) {
+        return UUID.nameUUIDFromBytes(("conf-event:" + n).getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    /**
+     * The conference's two registrations, once the people exist: Trinity (user4) CONFIRMED and on the roster for the
+     * full weekend, with a ticket; Dave (user5) PENDING for Friday only. Through the DAO (the seed is data, not a
+     * flow); guarded so a re-run adds nothing.
+     */
+    private static void addFakeConferenceRegistrations() {
+        final Person trinity = DAO.getInstance().getPersonByEmail(localEmail("user4"), Cached.NO);
+        final Person dave = DAO.getInstance().getPersonByEmail(localEmail("user5"), Cached.NO);
+        final Trip conference = DAO.getInstance().getTrip(CONF_TRIP_ID, Cached.NO).orElse(null);
+        if (trinity == null || dave == null || conference == null) {
+            return;
+        }
+        try {
+            // Guarded on the TRIP, not on a person: a re-seed mints new fake people, and a per-person guard
+            // filed a second pair of rows (test-caught).
+            List<Registration> regs = DAO.getInstance().getRegistrations(CONF_TRIP_ID, Cached.NO);
+            if (regs.isEmpty()) {
+                DAO.getInstance().saveRegistration(org.paulsens.trip.action.RegistrationCommands.withTicket(
+                        conferenceRegistration(trinity.getId(), Registration.Status.CONFIRMED, CONF_FULL_WEEKEND)));
+                DAO.getInstance().saveRegistration(
+                        conferenceRegistration(dave.getId(), Registration.Status.PENDING, CONF_FRIDAY));
+                regs = DAO.getInstance().getRegistrations(CONF_TRIP_ID, Cached.NO);
+            }
+            // Every re-seed rewrites the trip with an empty roster; the confirmed registrants go back on it.
+            regs.stream().filter(reg -> reg.getStatus() == Registration.Status.CONFIRMED)
+                    .map(Registration::getUserId)
+                    .filter(id -> !conference.getPeople().contains(id))
+                    .forEach(conference.getPeople()::add);
+            DAO.getInstance().saveTrip(conference);
+        } catch (final IOException ex) {
+            throw new IllegalStateException("Fake conference seed: could not save its registrations", ex);
+        }
+    }
+
+    private static Registration conferenceRegistration(final Person.Id who, final Registration.Status status,
+            final String admission) {
+        final Map<String, String> answers = new HashMap<>();
+        answers.put(String.valueOf(CONF_ADMISSION_OPT), admission);
+        return new Registration(CONF_TRIP_ID, who, LocalDateTime.now().minusDays(3), status, answers);
     }
 
     /**

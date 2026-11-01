@@ -12,6 +12,7 @@ import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.util.EmailAddresses;
 import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
 import org.paulsens.trip.cache.Cached;
@@ -143,12 +144,27 @@ public class FamilyCommands {
      * registration confirmation checklist.
      */
     public List<String> missingProfileFields(final Person person) {
+        return missingProfileFields(person, null);
+    }
+
+    /**
+     * {@link #missingProfileFields(Person)} for a registration on {@code trip}: a conference is not travel, so its
+     * checklist never asks for a passport (birthdate still matters, it prices the ticket). A null trip is the
+     * travel checklist, which is what the family page shows.
+     */
+    public List<String> missingProfileFields(final Person person, final Trip trip) {
         final List<String> missing = new ArrayList<>();
         if (person == null) {
             return missing;
         }
         if (person.getBirthdate() == null) {
             missing.add("Birthdate");
+        }
+        if (trip != null && trip.isConference()) {
+            if (isBlank(person.getEmergencyContactName())) {
+                missing.add("Emergency contact");
+            }
+            return missing;
         }
         if (isBlank(person.getPassport().getNumber())) {
             missing.add("Passport number");

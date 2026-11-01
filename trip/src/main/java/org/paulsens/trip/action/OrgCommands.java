@@ -852,7 +852,8 @@ public class OrgCommands {
             PrivilegeCommands.TRIP_FIN_VIEW, "Finance Viewer",
             PrivilegeCommands.TRIP_VIEW, "Viewer",
             PrivilegeCommands.CHAT_MGR, "Chat Admin",
-            PrivilegeCommands.REGISTRATION_ADMIN, "Registration Admin");
+            PrivilegeCommands.REGISTRATION_ADMIN, "Registration Admin",
+            PrivilegeCommands.CHECKIN_STAFF, "Check-in Staff");
 
     /** The trip editor's display name for a trip-scoped role base, or null when the base is not one. */
     static String tripRoleName(final String base) {

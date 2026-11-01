@@ -166,8 +166,27 @@ public final class Trip implements Serializable {
     @JsonProperty("waivers")
     @Getter(AccessLevel.NONE)
     private List<TripWaiver> waivers;
+    /**
+     * What kind of event this is. Null on every trip stored before conferences existed, which reads as
+     * {@link TripKind#PILGRIMAGE} through the accessor below (the {@link #chatEnabled} pattern), so no
+     * migration is needed.
+     */
+    @JsonProperty("kind")
+    @Getter(AccessLevel.NONE)
+    private TripKind kind;
 
     private Trip() {
+    }
+
+    /** The trip's kind; a trip stored before kinds existed is a pilgrimage. */
+    public TripKind getKind() {
+        return kind == null ? TripKind.PILGRIMAGE : kind;
+    }
+
+    /** Whether this trip is a conference: the switch for its public content page and kind-dependent copy. */
+    @JsonIgnore
+    public boolean isConference() {
+        return kind == TripKind.CONFERENCE;
     }
 
     /**

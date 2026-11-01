@@ -224,8 +224,8 @@ public class RegistrationsResource extends BaseResource {
                 }
             }
         }
-        return new Registration(existing.getTripId(), existing.getUserId(), existing.getCreated(),
-                existing.getStatus(), options);
+        // withOptions, never the constructor: a rebuild would drop the ticket, payment and check-in fields.
+        return existing.withOptions(options);
     }
 
     /** A traveler's document answers as the bean takes them; none given is an empty list. */
@@ -309,9 +309,7 @@ public class RegistrationsResource extends BaseResource {
         if (body == null) {
             return existing;
         }
-        final Registration withOptions = (body.options() == null) ? existing
-                : new Registration(existing.getTripId(), existing.getUserId(), existing.getCreated(),
-                        existing.getStatus(), body.options());
+        final Registration withOptions = (body.options() == null) ? existing : existing.withOptions(body.options());
         return (body.status() == null) ? withOptions : withOptions.withStatus(parseStatus(body.status()));
     }
 

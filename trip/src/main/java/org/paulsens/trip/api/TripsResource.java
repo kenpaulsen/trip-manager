@@ -25,14 +25,17 @@ import org.paulsens.trip.action.ProfilePhotos;
 import org.paulsens.trip.action.LodgingCommands;
 import org.paulsens.trip.action.LodgingViews;
 import org.paulsens.trip.action.TripCommands;
+import org.paulsens.trip.api.dto.RegChoiceDto;
 import org.paulsens.trip.api.dto.RegOptionDto;
 import org.paulsens.trip.api.dto.TripDto;
 import org.paulsens.trip.api.dto.TripEventDto;
 import org.paulsens.trip.api.dto.TripRosterDto;
 import org.paulsens.trip.api.mapper.TripMapper;
+import org.paulsens.trip.model.OptionChoice;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.model.TripKind;
 import org.paulsens.trip.site.SiteContext;
 import org.paulsens.trip.model.TripEvent;
 
@@ -337,6 +340,10 @@ public class TripsResource extends BaseResource {
             return error(400, ApiErrors.VALIDATION_FAILED, "tripEvents on a write are append-only: ids "
                     + "must be null (editing an existing event is the editor page's job).");
         }
+        final String badValue = badEnumValue(body);
+        if (badValue != null) {
+            return error(400, ApiErrors.VALIDATION_FAILED, badValue);
+        }
         final TripCommands trips = Beans.get(TripCommands.class);
         final Trip trip = trips.createTrip();
         apply(body, trip);
@@ -375,6 +382,10 @@ public class TripsResource extends BaseResource {
         if (eventsCarryIds(body)) {
             return error(400, ApiErrors.VALIDATION_FAILED, "tripEvents on a write are append-only: ids "
                     + "must be null (editing an existing event is the editor page's job).");
+        }
+        final String badValue = badEnumValue(body);
+        if (badValue != null) {
+            return error(400, ApiErrors.VALIDATION_FAILED, badValue);
         }
         apply(body, trip);
         if (!Beans.get(TripCommands.class).saveTrip(trip)) {
@@ -558,7 +569,7 @@ public class TripsResource extends BaseResource {
                 dto.startDate(), dto.endDate(), dto.regLimit(), dto.provider(), dto.orgId(), dto.language(),
                 dto.estimatedPrice(), dto.director(), dto.localGuide(), dto.facilitators(), dto.flyerUrl(),
                 dto.nonHostedTripUrl(), dto.nonHostedRegNumber(), dto.regOptions(), dto.people(),
-                eventDtos(trip, me));
+                eventDtos(trip, me), dto.kind());
     }
 
     private static List<TripEventDto> eventDtos(final Trip trip, final Person.Id viewer) {
@@ -573,7 +584,12 @@ public class TripsResource extends BaseResource {
         final TripEventDto dto = TripMapper.INSTANCE.toDto(event);
         return new TripEventDto(dto.id(), dto.type(), dto.title(), dto.notes(), dto.start(), dto.end(),
                 dto.participants(), event.getParticipants().contains(viewer), event.getPrivNotes().get(viewer),
-                event.hasDetails() ? new LinkedHashMap<>(event.getDetails()) : null);
+                hasAnyDetail(event) ? new LinkedHashMap<>(event.getDetails()) : null);
+    }
+
+    /** Transport components OR agenda fields: the app shows both, so any stored detail is sent. */
+    private static boolean hasAnyDetail(final TripEvent event) {
+        return event.getDetails() != null && !event.getDetails().isEmpty();
     }
 
     private static void apply(final TripDto body, final Trip trip) {
@@ -601,7 +617,47 @@ public class TripsResource extends BaseResource {
         if (body.regLimit() != null) {
             trip.setRegLimit(body.regLimit());
         }
+        if (body.kind() != null) {
+            trip.setKind(parseKind(body.kind()));
+        }
         applyDetails(body, trip);
+    }
+
+    /** A kind off the wire, by constant name; null for one that names no kind ({@link #badEnumValue} refuses it). */
+    static TripKind parseKind(final String raw) {
+        return parseEnum(TripKind.class, raw);
+    }
+
+    /**
+     * The 400 message for a body naming an unknown trip kind or question type, or null when every value is one the
+     * model knows. Checked before {@link #apply} so a bad value never half-applies a write.
+     */
+    static String badEnumValue(final TripDto body) {
+        if (body == null) {
+            return null;
+        }
+        if (body.kind() != null && parseKind(body.kind()) == null) {
+            return "Unknown trip kind: " + body.kind();
+        }
+        if (body.regOptions() != null) {
+            for (final RegOptionDto option : body.regOptions()) {
+                if (option.type() != null && !option.type().isBlank() && parseQuestionType(option.type()) == null) {
+                    return "Unknown question type: " + option.type();
+                }
+            }
+        }
+        return null;
+    }
+
+    private static <E extends Enum<E>> E parseEnum(final Class<E> type, final String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return Enum.valueOf(type, raw.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (final IllegalArgumentException ex) {
+            return null;
+        }
     }
 
     /**
@@ -638,9 +694,24 @@ public class TripsResource extends BaseResource {
         final List<RegistrationOption> options = new ArrayList<>();
         for (final RegOptionDto dto : body.regOptions()) {
             final int id = dto.id() != null ? dto.id() : options.size();
-            options.add(new RegistrationOption(id, dto.shortDesc(), dto.longDesc(), dto.show()));
+            options.add(new RegistrationOption(id, dto.shortDesc(), dto.longDesc(), dto.show(),
+                    parseQuestionType(dto.type()), dto.required(), choicesOf(dto.choices()), dto.ageBandsApply()));
         }
         trip.setRegOptions(options);
+    }
+
+    /** A question type off the wire, by constant name; blank keeps the free-text default. */
+    private static RegistrationOption.QuestionType parseQuestionType(final String raw) {
+        return parseEnum(RegistrationOption.QuestionType.class, raw);
+    }
+
+    private static List<OptionChoice> choicesOf(final List<RegChoiceDto> dtos) {
+        return dtos == null ? null : dtos.stream().map(TripsResource::choiceOf).toList();
+    }
+
+    private static OptionChoice choiceOf(final RegChoiceDto dto) {
+        return new OptionChoice(dto.id(), dto.label(), dto.priceCents() == null ? 0L : dto.priceCents(),
+                dto.capacity(), dto.attestationText(), dto.days(), dto.enabled());
     }
 
     /**

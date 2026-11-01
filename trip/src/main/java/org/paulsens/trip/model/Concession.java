@@ -33,7 +33,7 @@ public final class Concession implements Serializable {
     private Kind kind;
     /** PERCENT only: basis points off, 0..10000 (1250 = 12.5%). */
     private int percentBps;
-    /** PER_NIGHT and TOTAL: the amount off, never negative. */
+    /** PER_NIGHT and TOTAL: the amount off; FIXED_PRICE: the most it may cost. Never negative. */
     private long amountCents;
     private String reason;
     private Person.Id by;
@@ -78,6 +78,9 @@ public final class Concession implements Serializable {
             case TOTAL:
                 net = grossCents - amountCents;
                 break;
+            case FIXED_PRICE:
+                net = Math.min(grossCents, amountCents);
+                break;
             case COMPLIMENTARY:
             default:
                 net = 0L;
@@ -98,6 +101,8 @@ public final class Concession implements Serializable {
                 return MoneyMath.formatCents(amountCents) + "/night discount";
             case TOTAL:
                 return MoneyMath.formatCents(amountCents) + " discount";
+            case FIXED_PRICE:
+                return "at most " + MoneyMath.formatCents(amountCents);
             case COMPLIMENTARY:
             default:
                 return "complimentary";
@@ -134,6 +139,12 @@ public final class Concession implements Serializable {
         /** {@code amountCents} off the stay. */
         TOTAL,
         /** The stay is free. */
-        COMPLIMENTARY
+        COMPLIMENTARY,
+        /**
+         * The price becomes at most {@code amountCents} (a child's ticket capped at $50, an "exact price"
+         * discount code). Added for priced checkout (2026-11); lodging's menus list their kinds by hand and do
+         * not offer it.
+         */
+        FIXED_PRICE
     }
 }

@@ -57,6 +57,12 @@ public class TripEventForm extends DateSpanForm implements Serializable {
     private String carrier;
     private String duration;
     private List<Person.Id> participants;
+    /** Agenda fields of an EVENT (the conference page's public schedule); blank is "not set". */
+    private String presenter;
+    private String location;
+    private String track;
+    /** Agenda: keep this event off the public schedule. */
+    private boolean agendaHidden;
 
     public List<Person.Id> getParticipants() {
         if (participants == null) {
@@ -98,6 +104,11 @@ public class TripEventForm extends DateSpanForm implements Serializable {
 
     public boolean isGenericSection() {
         return TripEvent.Type.EVENT.name().equals(getSection());
+    }
+
+    /** Whether the agenda fields show: EVENT-type events only (a flight shown generically has no presenter). */
+    public boolean isAgendaSection() {
+        return TripEvent.Type.EVENT.name().equals(type);
     }
 
     public boolean isLodgingCreate() {

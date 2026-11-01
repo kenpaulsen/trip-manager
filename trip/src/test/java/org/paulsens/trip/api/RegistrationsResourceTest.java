@@ -192,6 +192,29 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
     }
 
     /**
+     * An answer edit over the API rebuilds the registration; it must carry the ticket, payment and check-in fields
+     * along (a constructor rebuild silently erased them, docs/checkout.md).
+     */
+    @Test
+    public void anAnswerEditKeepsTheTicketAndCheckIn() {
+        signedInAs(ME);
+        final java.time.LocalDateTime checkedIn = java.time.LocalDateTime.of(2027, 3, 5, 8, 30);
+        final Registration existing = registration(ME, Registration.Status.CONFIRMED)
+                .withTicketCode("TICKETCODE").withPaymentId("pay-1").withCheckedInAt(checkedIn);
+        Mockito.when(registrations.getRegistration(TRIP_ID, ME)).thenReturn(existing);
+        Mockito.when(registrations.saveRegistration(ArgumentMatchers.any())).thenReturn(true);
+
+        assertOk(resource.save(TRIP_ID, ME.getValue(), CSRF_OK,
+                new RegistrationDto(null, null, null, null, Map.of("diet", "vegan"), null)));
+        final ArgumentCaptor<Registration> saved = ArgumentCaptor.forClass(Registration.class);
+        Mockito.verify(registrations).saveRegistration(saved.capture());
+        Assert.assertEquals(saved.getValue().getOptions(), Map.of("diet", "vegan"));
+        Assert.assertEquals(saved.getValue().getTicketCode(), "TICKETCODE");
+        Assert.assertEquals(saved.getValue().getPaymentId(), "pay-1");
+        Assert.assertEquals(saved.getValue().getCheckedInAt(), checkedIn);
+    }
+
+    /**
      * The GET->PUT round trip. The wire carries both the enum name and the display form; each must parse back,
      * or an unchanged PUT wipes the status it is echoing.
      */

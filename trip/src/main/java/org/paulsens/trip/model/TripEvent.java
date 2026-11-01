@@ -101,10 +101,21 @@ public final class TripEvent implements Serializable {
         return participants.remove(personId);
     }
 
-    /** Whether a bespoke editor has the components it needs; false for every legacy or free-text event. */
+    /**
+     * Whether a bespoke TRANSPORT editor has the components it needs; false for every legacy or free-text event.
+     * Only the transport keys count: an agenda event's presenter or location is not a reason to swap the event
+     * dialog to the flight or bus form.
+     */
     @JsonIgnore
     public boolean hasDetails() {
-        return details != null && !details.isEmpty();
+        return details != null && Arrays.stream(Detail.values())
+                .anyMatch(which -> which.isTransport() && details.containsKey(which.key()));
+    }
+
+    /** Whether this event is kept off the trip's PUBLIC agenda (the conference page's schedule section). */
+    @JsonIgnore
+    public boolean isAgendaHidden() {
+        return Boolean.parseBoolean(detail(Detail.AGENDA_HIDDEN));
     }
 
     /** One typed component, or null when it was never recorded. */
@@ -121,20 +132,35 @@ public final class TripEvent implements Serializable {
      * and so the stored key ({@link #key()}) can stay stable if a constant is ever renamed.
      */
     public enum Detail {
-        FROM("from"),
-        TO("to"),
-        FLIGHT_NUMBER("flightNumber"),
-        DURATION("duration"),
-        CARRIER("carrier");
+        FROM("from", true),
+        TO("to", true),
+        FLIGHT_NUMBER("flightNumber", true),
+        DURATION("duration", true),
+        CARRIER("carrier", true),
+        /** Agenda: who presents the session. The keys below feed the public schedule (docs/conference.md). */
+        PRESENTER("presenter", false),
+        /** Agenda: the room or place. */
+        LOCATION("location", false),
+        /** Agenda: a track or stream name, shown as a chip. */
+        TRACK("track", false),
+        /** Agenda: {@code "true"} keeps the event off the public schedule (it stays on itineraries). */
+        AGENDA_HIDDEN("agendaHidden", false);
 
         private final String key;
+        private final boolean transport;
 
-        Detail(final String key) {
+        Detail(final String key, final boolean transport) {
             this.key = key;
+            this.transport = transport;
         }
 
         public String key() {
             return key;
+        }
+
+        /** Whether the key belongs to the flight and bus editors (see {@link #hasDetails()}). */
+        public boolean isTransport() {
+            return transport;
         }
     }
 

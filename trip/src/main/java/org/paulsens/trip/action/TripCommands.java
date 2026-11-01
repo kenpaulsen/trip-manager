@@ -31,8 +31,10 @@ import org.paulsens.trip.model.Language;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.SharedSiteRegisterTarget;
+import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
+import org.paulsens.trip.model.TripKind;
 
 import static java.time.temporal.ChronoUnit.DAYS;
 import org.paulsens.trip.cache.Cached;
@@ -367,6 +369,10 @@ public class TripCommands {
         form.setFlightNumber(event.detail(TripEvent.Detail.FLIGHT_NUMBER));
         form.setDuration(event.detail(TripEvent.Detail.DURATION));
         form.setCarrier(event.detail(TripEvent.Detail.CARRIER));
+        form.setPresenter(event.detail(TripEvent.Detail.PRESENTER));
+        form.setLocation(event.detail(TripEvent.Detail.LOCATION));
+        form.setTrack(event.detail(TripEvent.Detail.TRACK));
+        form.setAgendaHidden(event.isAgendaHidden());
         form.setParticipants(new ArrayList<>(event.getParticipants()));
         return form;
     }
@@ -441,7 +447,7 @@ public class TripCommands {
             }
             title = form.getTitle().trim();
             notes = form.getNotes();
-            details = null;
+            details = (type == TripEvent.Type.EVENT) ? agendaDetails(form) : null;
         }
         if (form.isEditing()) {
             return editTripEvent(trip, form.getEventId(), type, title, notes, form.getStart(), form.getEnd(),
@@ -474,6 +480,28 @@ public class TripCommands {
             details.put(TripEvent.Detail.CARRIER.key(), form.getCarrier().trim());
         }
         return details;
+    }
+
+    /**
+     * An EVENT's agenda fields for the public schedule, or null when none are set (a plain event stays
+     * detail-free, exactly as before agendas existed).
+     */
+    private static Map<String, String> agendaDetails(final TripEventForm form) {
+        final Map<String, String> details = new LinkedHashMap<>();
+        putIfSet(details, TripEvent.Detail.PRESENTER, form.getPresenter());
+        putIfSet(details, TripEvent.Detail.LOCATION, form.getLocation());
+        putIfSet(details, TripEvent.Detail.TRACK, form.getTrack());
+        if (form.isAgendaHidden()) {
+            details.put(TripEvent.Detail.AGENDA_HIDDEN.key(), "true");
+        }
+        return details.isEmpty() ? null : details;
+    }
+
+    private static void putIfSet(final Map<String, String> details, final TripEvent.Detail which,
+            final String value) {
+        if (!blank(value)) {
+            details.put(which.key(), value.trim());
+        }
     }
 
     /** The enum for a menu's NAME string; null for a blank or unknown one (a forged submit, not a user). */
@@ -803,15 +831,24 @@ public class TripCommands {
      */
     public List<Trip> getPublicTrips(final String language) {
         final Language wanted = parseLanguage(language);
-        return getPublicTrips().stream()
+        return publicPilgrimages().stream()
                 .filter(trip -> languageOf(trip) == wanted)
                 .toList();
+    }
+
+    /**
+     * {@link #getPublicTrips()} without conferences: the pilgrimage-shaped views (the per-language sidebar lists,
+     * their language sections, the countdown cards) are about travel. A conference is listed by its own page and
+     * the Trips menu; the REST "open" listing keeps everything.
+     */
+    private List<Trip> publicPilgrimages() {
+        return getPublicTrips().stream().filter(trip -> !trip.isConference()).toList();
     }
 
     /** The distinct languages present in {@link #getPublicTrips()}, in declaration (display) order --
      *  drives which language sections the landing page renders, so a new language appears automatically. */
     public List<Language> getPublicTripLanguages() {
-        final Set<Language> present = getPublicTrips().stream()
+        final Set<Language> present = publicPilgrimages().stream()
                 .map(TripCommands::languageOf)
                 .collect(Collectors.toSet());
         return Arrays.stream(Language.values()).filter(present::contains).toList();
@@ -848,6 +885,7 @@ public class TripCommands {
                 .filter(trip -> scope.shows(trip.getOrgId()))
                 .filter(trip -> languageOf(trip) == wanted)
                 .filter(trip -> !cfpwOnly || trip.isCfpw())
+                .filter(trip -> !trip.isConference())
                 .limit(max)
                 .toList();
     }
@@ -879,7 +917,7 @@ public class TripCommands {
         // Holy Angels card at 5 PM Pacific the day BEFORE it started (2026-09-19). So a trip stays a
         // candidate through the server day after its start date, and the browser script (mainTemplate)
         // hides a card once the VIEWER's local count goes negative.
-        final List<Trip> upcoming = getPublicTrips().stream()
+        final List<Trip> upcoming = publicPilgrimages().stream()
                 .filter(trip -> orgSite || trip.isCfpw())
                 .filter(trip -> trip.getStartDate() != null
                         && !trip.getStartDate().toLocalDate().isBefore(today.minusDays(1)))
@@ -905,6 +943,43 @@ public class TripCommands {
     /** The languages a trip can be offered in, for the trip editor's menu (replaces a hardcoded list). */
     public List<Language> getLanguages() {
         return List.of(Language.values());
+    }
+
+    /** The question types for the registration-options editor's Type menu. */
+    public List<RegistrationOption.QuestionType> getQuestionTypes() {
+        return List.of(RegistrationOption.QuestionType.values());
+    }
+
+    /**
+     * The trip's question with this key ({@code RegistrationOption.getKey()}), or null: the choices dialog's row,
+     * named by the key its opener carried in an {@code f:param}, never by a row position.
+     */
+    public RegistrationOption regOption(final Trip trip, final String key) {
+        if (trip == null || key == null) {
+            return null;
+        }
+        return trip.getRegOptions().stream().filter(opt -> key.equals(opt.getKey())).findFirst().orElse(null);
+    }
+
+    /** The choices dialog's "Add choice", on the edit draft; nothing persists until the page's Save. */
+    public void addRegChoice(final Trip trip, final String key) {
+        final RegistrationOption option = regOption(trip, key);
+        if (option != null) {
+            option.addChoice();
+        }
+    }
+
+    /** The choices dialog's per-row "Remove", on the edit draft; answers naming the choice keep its id. */
+    public void removeRegChoice(final Trip trip, final String key, final String choiceId) {
+        final RegistrationOption option = regOption(trip, key);
+        if (option != null && choiceId != null) {
+            option.removeChoice(choiceId);
+        }
+    }
+
+    /** The kinds a trip can be, for the trip editors' Kind menu (pilgrimage first, the default). */
+    public List<TripKind> getTripKinds() {
+        return List.of(TripKind.values());
     }
 
     private static Language languageOf(final Trip trip) {

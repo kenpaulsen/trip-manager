@@ -128,6 +128,9 @@ Persistence gotchas (each has caused a real bug):
   after the chat reaction window shipped that shape with green tests and failed on every production read).
 - Lombok `@Builder` zeroes primitive defaults — hand-write builders (see `TripBuilder`) and assert
   `builder().build().equals(new Whatever())` in the model test.
+- `Registration` is immutable and every field is `@With`: change one field with `withX`, NEVER rebuild through a
+  constructor -- the 5-arg one predates the ticket, payment, price and check-in fields and silently erases them
+  on the next save (two REST paths did; `docs/conference.md`).
 - A DAO on `PartitionScanCache` must delete rows via `removeOne`, never `invalidate()`: in local mode the
   cache client IS the datastore (soft revalidate off), so a full invalidation silently deletes every OTHER
   row too — one removed chat photo emptied the whole trip album before this rule existed.
@@ -182,6 +185,17 @@ Availability calendar (counts, dates) and the operator's Trips tab (trip titles,
 hotel; never a price or a bill) -- `docs/lodging.md` "Roles".
 **Every type that can land in viewScope must be `Serializable`** — a non-serializable one breaks the session
 save and 500s every later request (looks like a site-wide outage). `ModelSerializationTest` is the guard.
+
+**Conferences** (`docs/conference.md`, required reading before touching any of these): a conference is a `Trip`
+with `kind` `TripKind.CONFERENCE` (null reads as PILGRIMAGE; kind changes copy, never permissions);
+`RegistrationOption` is TYPED (`QuestionType` TEXT/CHOICE/MULTI_CHOICE/YES_NO, `required`, `OptionChoice`s with
+optional price, capacity, attestation, days) -- a conference's admission types are a priced pick-one question, NOT
+a separate model; answers store choice IDS and every page shows them through `reg.answerText`; `Registration`
+carries `paymentId`, `ticketCode` (`security/TicketCodes`; every CONFIRMED row has one, enforced in
+`saveRegistration`), `registrationType`, `priceBreakdown` (`PriceBreakdown`, stored once, never recomputed),
+`attestations` and the check-in stamps; `TripEvent` agenda details (`PRESENTER`/`LOCATION`/`TRACK`/
+`AGENDA_HIDDEN`; `hasDetails()` counts transport keys only); the trip role `checkinStaff`. Priced checkout itself
+is the next phase (`docs/checkout.md`, waiting on the Stripe processor work).
 
 `Person.privacy` (`PrivacySettings`) holds the owner's field-visibility choices; `PersonDto.redactedFor`
 (REST) and `PrivacyView` (pages) are the two enforcement points — read `docs/privacy-settings.md` before

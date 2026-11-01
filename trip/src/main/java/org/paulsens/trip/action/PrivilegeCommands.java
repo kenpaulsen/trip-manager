@@ -63,6 +63,12 @@ public class PrivilegeCommands {
     /** Works the trip's registrations page (approve, move, rooms, approval mail). Trip-scoped. */
     public static final String REGISTRATION_ADMIN = "registrationAdmin";
     /**
+     * Event check-in staff: looks up registrants, opens tickets, checks people in and sees the check-in
+     * counts, and nothing else (no money, no edits). Trip-scoped. Clearing a check-in stays with
+     * {@link #TRIP_MGR}. See {@code docs/checkin.md}.
+     */
+    public static final String CHECKIN_STAFF = "checkinStaff";
+    /**
      * Retired 2026-10-25: folded into the Hotel Operator ({@link #ACCOMMODATION_ADMIN}), who rooms every trip
      * staying at their hotel instead of being granted trip by trip. In no base list, so no page offers or
      * renders it; one inert production row exists, nothing reads it.
@@ -99,7 +105,7 @@ public class PrivilegeCommands {
      * name dropdown -- content containers may still reference arbitrary names beyond it.
      */
     public static final List<String> TRIP_SCOPED_BASES = List.of(TRIP_MGR, TRIP_FIN_ADMIN, TRIP_FIN_VIEW,
-            TRIP_VIEW, CHAT_MGR, REGISTRATION_ADMIN);
+            TRIP_VIEW, CHAT_MGR, REGISTRATION_ADMIN, CHECKIN_STAFF);
     /**
      * The org-scoped grants. {@link #CONTENT_ADMIN}, {@link #MEDIA_ADMIN} and {@link #AUDIT_ADMIN} are BOTH
      * here and global: the global row edits every site (reads every trail), the org-scoped row ({@code
@@ -142,6 +148,7 @@ public class PrivilegeCommands {
             java.util.Map.entry(TRIP_VIEW, "View the trip's admin pages (read-only)"),
             java.util.Map.entry(CHAT_MGR, "Moderate the trip's chat"),
             java.util.Map.entry(REGISTRATION_ADMIN, "Work the trip's registrations page"),
+            java.util.Map.entry(CHECKIN_STAFF, "Check people in at the event: look up registrants and tickets"),
             java.util.Map.entry(PEOPLE_ADMIN, "Manage the organization's people"),
             java.util.Map.entry(ADD_TRIP, "Create new trips for the organization"),
             java.util.Map.entry(EMAIL_ADMIN, "Send email to the organization's members"),

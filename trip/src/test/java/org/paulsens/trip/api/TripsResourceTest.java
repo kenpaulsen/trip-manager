@@ -553,6 +553,58 @@ public class TripsResourceTest extends ResourceTestSupport {
         Assert.assertEquals(existing.getRegOptions().get(1).getShow(), Boolean.FALSE);
     }
 
+    /** The kind and typed questions ride the trip write (docs/conference.md, docs/checkout.md). */
+    @Test
+    public void updateSetsTheKindAndTypedQuestions() {
+        signedInAsSiteAdmin(ME);
+        final Trip existing = trip(TRIP_ID, ME);
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(existing)).thenReturn(true);
+
+        final org.paulsens.trip.api.dto.RegChoiceDto full = new org.paulsens.trip.api.dto.RegChoiceDto("full",
+                "Full weekend", 15000L, 200, null, List.of("2027-03-05"), null);
+        final org.paulsens.trip.api.dto.RegChoiceDto hotel = new org.paulsens.trip.api.dto.RegChoiceDto(null,
+                "Hotel guest", null, null, "I am staying at the hotel", null, Boolean.FALSE);
+        final TripDto body = new TripDto(null, null, null, null, false, null, null, null, null,
+                null, null, null, null, null, null, null, null, null,
+                List.of(new org.paulsens.trip.api.dto.RegOptionDto(null, "Admission", "", null, "choice", true,
+                        List.of(full, hotel), Boolean.FALSE)),
+                null, null, "conference");
+        final jakarta.ws.rs.core.Response response = resource.update(TRIP_ID, CSRF_OK, body);
+        assertOk(response);
+
+        Assert.assertTrue(existing.isConference());
+        final org.paulsens.trip.model.RegistrationOption admission = existing.getRegOptions().get(0);
+        Assert.assertEquals(admission.getType(), org.paulsens.trip.model.RegistrationOption.QuestionType.CHOICE);
+        Assert.assertTrue(admission.isRequiredFlag());
+        Assert.assertFalse(admission.isAgeBandsApplyFlag());
+        Assert.assertEquals(admission.choice("full").getPriceCents(), 15000L);
+        Assert.assertEquals(admission.getChoices().get(1).getPriceCents(), 0L, "a missing price is free");
+        Assert.assertFalse(admission.getChoices().get(1).isOffered());
+        Assert.assertEquals(TripsResource.parseKind("Pilgrimage"), org.paulsens.trip.model.TripKind.PILGRIMAGE);
+    }
+
+    /** An unknown kind or question type is refused before anything is applied. */
+    @Test
+    public void anUnknownKindOrQuestionTypeIs400AndChangesNothing() {
+        signedInAsSiteAdmin(ME);
+        final Trip existing = trip(TRIP_ID, ME);
+        tripExists(existing);
+
+        final TripDto badKind = new TripDto(null, "Renamed", null, null, false, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null, null, "retreat");
+        Assert.assertEquals(resource.update(TRIP_ID, CSRF_OK, badKind).getStatus(), 400);
+        Assert.assertEquals(existing.getTitle(), "Pilgrimage", "a refused write half-applies nothing");
+
+        final TripDto badType = new TripDto(null, null, null, null, false, null, null, null, null,
+                null, null, null, null, null, null, null, null, null,
+                List.of(new org.paulsens.trip.api.dto.RegOptionDto(null, "Q", "", null, "essay", null, null, null)),
+                null, null);
+        Assert.assertEquals(resource.update(TRIP_ID, CSRF_OK, badType).getStatus(), 400);
+        Assert.assertNull(TripsResource.badEnumValue(null));
+        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any());
+    }
+
     /** Events on a write APPEND (null ids only): replacing by id would erase participants/private notes. */
     @Test
     public void updateAppendsNewEventsAndRefusesIds() {

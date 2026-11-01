@@ -18,6 +18,8 @@ import org.paulsens.trip.model.DataId;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.Registration;
+import org.paulsens.trip.model.RegistrationOption;
+import org.paulsens.trip.security.TicketCodes;
 import org.paulsens.trip.cache.Cached;
 
 @Slf4j
@@ -82,7 +84,8 @@ public class RegistrationCommands {
     public boolean saveRegistration(final Registration reg) {
         boolean result;
         try {
-            result = DAO.getInstance().saveRegistration(reg);
+            // The backstop for the CONFIRMED => ticket invariant: whatever path confirmed it, the stored row has one.
+            result = DAO.getInstance().saveRegistration(withTicket(reg));
         } catch (final RuntimeException ex) {
             PageFeedback.failure("Error saving registration for '" + reg.getUserId() + "': " + reg.getTripId());
             log.error("Error while saving registration: ", ex);
@@ -93,6 +96,80 @@ public class RegistrationCommands {
             result = false;
         }
         return result;
+    }
+
+    /**
+     * A MULTI_CHOICE answer as the list a {@code selectManyCheckbox} binds to. The answer is stored comma-joined
+     * in the registration's String-valued options map; binding a selectMany straight to that map would put a
+     * {@code String[]} into it, which then fails to serialize. Usage:
+     * {@code value="#{reg.multiAnswer(answers, opt.key).values}"}.
+     */
+    public MultiAnswer multiAnswer(final java.util.Map<String, String> answers, final String key) {
+        return new MultiAnswer(answers, key);
+    }
+
+    /** See {@link #multiAnswer}: reads and writes one comma-joined answer, created per EL evaluation. */
+    public static final class MultiAnswer {
+        private final java.util.Map<String, String> answers;
+        private final String key;
+
+        MultiAnswer(final java.util.Map<String, String> answers, final String key) {
+            this.answers = answers;
+            this.key = key;
+        }
+
+        public List<String> getValues() {
+            final String stored = (answers == null || key == null) ? null : answers.get(key);
+            final List<String> values = new java.util.ArrayList<>();
+            if (stored != null) {
+                for (final String part : stored.split(",")) {
+                    if (!part.isBlank()) {
+                        values.add(part.trim());
+                    }
+                }
+            }
+            return values;
+        }
+
+        public void setValues(final List<String> values) {
+            if (answers == null || key == null) {
+                return;
+            }
+            if (values == null || values.isEmpty()) {
+                answers.remove(key);
+            } else {
+                answers.put(key, String.join(",", values));
+            }
+        }
+    }
+
+    /**
+     * The shown, required questions this registration leaves unanswered, by label (empty when complete). A question
+     * hidden from registrants is never required of them.
+     */
+    public static List<String> missingAnswers(final org.paulsens.trip.model.Trip trip, final Registration reg) {
+        if (trip == null) {
+            return List.of();
+        }
+        final java.util.Map<String, String> answers = (reg == null) ? java.util.Map.of() : reg.getOptions();
+        return trip.getRegOptions().stream()
+                .filter(opt -> Boolean.TRUE.equals(opt.getShow()) && opt.isRequiredFlag())
+                .filter(opt -> !opt.isAnswered(answers.get(opt.getKey())))
+                .map(RegistrationOption::getShortDesc)
+                .toList();
+    }
+
+    /**
+     * The registration with a ticket code when it is CONFIRMED and has none, else the registration itself. Every
+     * CONFIRMED registration carries a ticket (the check-in QR and the ticket page key on it, see
+     * {@code docs/checkin.md}); {@link #saveRegistration} applies this to everything it stores, and a path that
+     * needs the code on the object it holds (the approval mail) applies it first.
+     */
+    public static Registration withTicket(final Registration reg) {
+        if (reg == null || reg.getStatus() != Registration.Status.CONFIRMED || reg.getTicketCode() != null) {
+            return reg;
+        }
+        return reg.withTicketCode(TicketCodes.mint());
     }
 
     /**
@@ -129,6 +206,8 @@ public class RegistrationCommands {
         public static final String CANNOT_JOIN = "CANNOT_JOIN";
         /** The trip requires documents this traveler has not agreed to (both boxes, each document). */
         public static final String WAIVERS_REQUIRED = "WAIVERS_REQUIRED";
+        /** A question the trip marks required is unanswered for this traveler. */
+        public static final String ANSWERS_REQUIRED = "ANSWERS_REQUIRED";
 
         static PartyOutcome empty() {
             return new PartyOutcome(new java.util.ArrayList<>(), new java.util.ArrayList<>(),
@@ -173,6 +252,9 @@ public class RegistrationCommands {
             } else if (PartyOutcome.WAIVERS_REQUIRED.equals(refusal.getValue())) {
                 PageFeedback.warn("Not registered", name + " must agree to every required document: tick both "
                         + "boxes under each one.");
+            } else if (PartyOutcome.ANSWERS_REQUIRED.equals(refusal.getValue())) {
+                PageFeedback.warn("Not registered: " + name + " has unanswered required questions ("
+                        + String.join(", ", missingAnswers(trip, regs.get(refusal.getKey()))) + ").");
             }
         }
         if (outcome.registered().isEmpty() && outcome.updated().isEmpty()) {
@@ -262,6 +344,10 @@ public class RegistrationCommands {
             }
             if (!waivers.isSatisfied(trip, travelerId)) {
                 outcome.refused().put(entry.getKey(), PartyOutcome.WAIVERS_REQUIRED);
+                continue;
+            }
+            if (!missingAnswers(trip, reg).isEmpty()) {
+                outcome.refused().put(entry.getKey(), PartyOutcome.ANSWERS_REQUIRED);
                 continue;
             }
             reg.getOptions().put(Registration.OPT_REGISTERED_BY, me.getId().getValue());
@@ -728,7 +814,7 @@ public class RegistrationCommands {
             PageFeedback.warn("User lacks permission to join: " + reg.getUserId().getValue());
             return false;
         }
-        final Registration confirmed = reg.withStatus(Registration.Status.CONFIRMED);
+        final Registration confirmed = withTicket(reg.withStatus(Registration.Status.CONFIRMED));
         trip.getPeople().add(reg.getUserId());
         if (!saveRegistration(confirmed)) {
             return false;
@@ -831,6 +917,23 @@ public class RegistrationCommands {
     public String regOptionValue(final List<Registration> regs, final String userId, final Object optId) {
         final Registration reg = rowRegistration(regs, userId);
         return (reg == null || optId == null) ? null : reg.getOptions().get(String.valueOf(optId));
+    }
+
+    /** {@link #answerText} for the row registration of {@code userId}: the admin table's Options column. */
+    public String regAnswerText(final List<Registration> regs, final String userId, final RegistrationOption opt) {
+        return answerText(rowRegistration(regs, userId), opt);
+    }
+
+    /**
+     * How one registration's answer to one question reads to a person: choice LABELS for a pick-one or pick-any
+     * question (the stored answer is choice ids), the text otherwise; null when unanswered. Every page that shows
+     * answers goes through this so none prints a choice id.
+     */
+    public String answerText(final Registration registration, final RegistrationOption opt) {
+        if (registration == null || opt == null) {
+            return null;
+        }
+        return opt.displayOf(registration.getOptions().get(opt.getKey()));
     }
 
     public int getNumPending(final String tripId) {
