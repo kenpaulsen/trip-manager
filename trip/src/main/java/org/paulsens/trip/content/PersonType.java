@@ -13,6 +13,9 @@ import org.paulsens.trip.model.Placeholder;
  * profile edit shows everywhere the person is listed with nothing duplicated. A row with no account (someone
  * who never signed up) is still possible: the name and phone overrides then carry the whole row.
  *
+ * <p>A conference SPEAKER is the same card (docs/conference.md): usually no account, so the name, a photo URL, a
+ * subtitle (the talk title) and a biography are typed into the row. One concept for board members and speakers.
+ *
  * <p>Privacy: listing a person is a content editor's deliberate act of publication, so the account-derived
  * fields keep the reach the hand-written board page always gave them (the cell to everyone, the account
  * email to signed-in viewers) -- EXCEPT that a field the person has made PRIVATE is withheld here too. The
@@ -27,6 +30,12 @@ public final class PersonType implements ProgrammaticContentTemplate {
     public static final String PROP_PUBLIC_EMAIL = "publicEmail";
     public static final String PROP_NAME = "name";
     public static final String PROP_PHONE = "phone";
+    /** A picture URL for someone without an account (a conference speaker); an account's own photo wins. */
+    public static final String PROP_PHOTO_URL = "photoUrl";
+    /** A line under the name: a speaker's talk title, a director's term. */
+    public static final String PROP_SUBTITLE = "subtitle";
+    /** A short biography (rich text, validated and cleaned on save like every RICH_TEXT value). */
+    public static final String PROP_BIO = "bio";
 
     @Override
     public String getTypeId() {
@@ -41,7 +50,7 @@ public final class PersonType implements ProgrammaticContentTemplate {
     @Override
     public String getDescription() {
         return "One person's card: photo, name, role and contact details, read live from their account; "
-                + "their privacy choices are honored.";
+                + "their privacy choices are honored. Someone without an account (a speaker) is typed in.";
     }
 
     @Override
@@ -56,7 +65,13 @@ public final class PersonType implements ProgrammaticContentTemplate {
                 new Placeholder(PROP_NAME, Placeholder.Type.TEXT, "Name",
                         "Only when there is no account, or to show a different name", false),
                 new Placeholder(PROP_PHONE, Placeholder.Type.TEXT, "Phone",
-                        "Only when there is no account, or to show a different number", false));
+                        "Only when there is no account, or to show a different number", false),
+                new Placeholder(PROP_PHOTO_URL, Placeholder.Type.IMAGE_URL, "Photo URL",
+                        "A picture for someone without an account (an absolute https:// link)", false),
+                new Placeholder(PROP_SUBTITLE, Placeholder.Type.TEXT, "Subtitle",
+                        "A line under the name, e.g. a speaker's talk title", false),
+                new Placeholder(PROP_BIO, Placeholder.Type.RICH_TEXT, "Biography",
+                        "A few sentences about the person; blank shows none", false));
     }
 
     @Override
@@ -70,7 +85,7 @@ public final class PersonType implements ProgrammaticContentTemplate {
      * fallback, each null when withheld.
      */
     public record Card(String personId, String name, String role, String publicEmail, String accountEmail,
-            String phone, String avatarEmail, String initials) {
+            String phone, String avatarEmail, String initials, String photoUrl, String subtitle, String bio) {
     }
 
     /**
@@ -82,9 +97,12 @@ public final class PersonType implements ProgrammaticContentTemplate {
         final String publicEmail = value(values, PROP_PUBLIC_EMAIL);
         final String nameOverride = value(values, PROP_NAME);
         final String phoneOverride = value(values, PROP_PHONE);
+        final String photoUrl = photoUrl(values);
+        final String subtitle = value(values, PROP_SUBTITLE);
+        final String bio = value(values, PROP_BIO);
         if (person == null) {
             return new Card(null, nameOverride, role, publicEmail, null, phoneOverride, null,
-                    initials(nameOverride));
+                    initials(nameOverride), photoUrl, subtitle, bio);
         }
         final String name = nameOverride != null ? nameOverride : accountName(person);
         final boolean emailShareable = person.getPrivacy().isEmailVisible() && present(person.getEmail());
@@ -94,7 +112,17 @@ public final class PersonType implements ProgrammaticContentTemplate {
                 && !person.getEmail().trim().equalsIgnoreCase(publicEmail == null ? "" : publicEmail)
                 ? person.getEmail().trim() : null;
         return new Card(person.getId().getValue(), name, role, publicEmail, accountEmail, phone,
-                emailShareable ? person.getEmail().trim() : null, initials(name));
+                emailShareable ? person.getEmail().trim() : null, initials(name), photoUrl, subtitle, bio);
+    }
+
+    /** The typed picture URL when it is absolute http(s) (the IMAGE_URL rule), else null. */
+    private static String photoUrl(final Map<String, String> values) {
+        final String raw = value(values, PROP_PHOTO_URL);
+        if (raw == null) {
+            return null;
+        }
+        final String url = ContentRenderer.requireHttpUrl(raw);
+        return url.isEmpty() ? null : url;
     }
 
     private static String accountName(final Person person) {

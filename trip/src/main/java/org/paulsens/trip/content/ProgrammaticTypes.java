@@ -15,7 +15,8 @@ import org.paulsens.trip.model.TemplateKind;
 public final class ProgrammaticTypes {
 
     public static final List<ProgrammaticContentTemplate> ALL = List.of(
-            new PilgrimagesType(), new PhotoAlbumsType(), new FileType(), new PersonType());
+            new PilgrimagesType(), new PhotoAlbumsType(), new FileType(), new PersonType(), new TripScheduleType(),
+            new TripRegistrationType());
 
     private ProgrammaticTypes() {
     }

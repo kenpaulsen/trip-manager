@@ -214,21 +214,26 @@ public class ConferenceFoundationsTest {
     // ------------------------------------------------------------------ listings
 
     @Test
-    public void conferencesStayOutOfThePilgrimageListings() throws IOException {
-        // Its own public conference: the suite's other classes re-seed the shared fake data in between.
-        final Trip own = Trip.builder().id("conf-" + RandomData.genAlpha(8)).title("Listing Conference")
-                .kind(TripKind.CONFERENCE).orgId(FakeData.CFPW_ORG_ID).provider("CFPW").openToPublic(true)
+    public void conferencesStayOutOfThePilgrimageListings() {
+        // A fixed public listing through a spy: the real one reads the trip date index, which other classes in
+        // the shared suite clear and rebuild, so a trip saved here is not reliably listed by the time it is read.
+        final Trip conference = Trip.builder().title("Listing Conference").kind(TripKind.CONFERENCE)
+                .orgId(FakeData.CFPW_ORG_ID).provider("CFPW").openToPublic(true)
                 .language(org.paulsens.trip.model.Language.English)
                 .startDate(LocalDateTime.now().plusDays(10)).endDate(LocalDateTime.now().plusDays(12)).build();
-        assertTrue(dao.saveTrip(own));
-        final TripCommands trips = new TripCommands();
-        assertTrue(trips.getPublicTrips().stream().anyMatch(t -> own.getId().equals(t.getId())),
-                "the raw public listing (the API's 'open') still has the conference");
-        assertFalse(trips.getPublicTrips("English").stream().anyMatch(Trip::isConference));
-        assertFalse(trips.getCountdownTrips(400).stream().anyMatch(Trip::isConference));
+        final Trip pilgrimage = Trip.builder().title("Listing Pilgrimage").orgId(FakeData.CFPW_ORG_ID)
+                .provider("CFPW").openToPublic(true).language(org.paulsens.trip.model.Language.English)
+                .startDate(LocalDateTime.now().plusDays(11)).endDate(LocalDateTime.now().plusDays(20)).build();
+        final TripCommands trips = org.mockito.Mockito.spy(new TripCommands());
+        org.mockito.Mockito.doReturn(List.of(conference, pilgrimage)).when(trips).getPublicTrips();
+
+        assertEquals(trips.getPublicTrips("English"), List.of(pilgrimage), "the sidebar's language list");
+        assertEquals(trips.getPublicTripLanguages(), List.of(org.paulsens.trip.model.Language.English));
+        assertFalse(trips.getCountdownTrips(400).contains(conference), "no countdown card for a conference");
         final ContentInstance listing = new ContentInstance("cf-listing", "page:x", "Trips", "pilgrimages", 1,
                 new HashMap<>(Map.of("language", "English")), null, 0, 1, null, null);
-        assertFalse(trips.getPublicTripsFor(listing).stream().anyMatch(Trip::isConference));
+        assertFalse(new TripCommands().getPublicTripsFor(listing).stream().anyMatch(Trip::isConference),
+                "the Trip Listings section never lists a conference");
     }
 
     @Test

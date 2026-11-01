@@ -141,6 +141,13 @@ whole `admin/tripRegistrations.jsf` page — approve, move, rooms, approval mail
 `reqPriv` door, and the REST roster (`RegistrationsResource.isTripStaff`) all honor it; it deliberately
 does NOT light up the other trip tabs, the way an invited chat guest gets exactly the Chat tab.
 
+`checkinStaff@trip` (display name "Check-in Staff", 2026-11, `docs/conference.md`) is the event check-in role:
+looking up registrants and tickets and checking people in, nothing else. An org whose allow-list is set must tick
+it before it can be granted. Its pages arrive with the check-in phase.
+
+`tripMgr@trip` also edits that trip's public CONFERENCE page (`page:trip:{id}:home`, `docs/conference.md`), the
+one trip role that edits content; the trip's org's `contentAdmin` edits it too (below).
+
 A hotel's OWN staff are not a trip role at all since 2026-10-25: they are **Hotel Operators**
 (`accommodationAdmin` scoped to the hotel's UUID), granted on the hotel page's "Hotel operators" roster and
 never through the Trip Managers roster or any privilege editor. An operator gets the Assignments board of
@@ -476,7 +483,8 @@ like any other org grant and bounded by the org's allow-list) edits that ONE org
 - **Content** (`ContentCommands.canEdit/mayEdit`): the org of a section is derived from the SECTION —
   `OrgPageBootstrap.orgOf(pageKey)`, or for a container's children the container row's page — never
   from the request's host, so a forged section cannot become editable and an org grant provably never
-  reaches `page:trip-index`, `page:unitetrip-home` or another org's page. Container config fields
+  reaches `page:trip-index`, `page:unitetrip-home` or another org's page. A conference's trip page
+  (`page:trip:{id}:home`) belongs to the TRIP's org, resolved from the trip. Container config fields
   (editor-privilege chips, child allow-lists) stay global-`contentAdmin`-only, and the chips themselves
   are global privilege names (an org-scoped chip is a deliberate non-feature for now).
 - **Templates** (`TemplateCommands.mayAuthor`): an org editor authors templates scoped to their org only,

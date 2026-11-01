@@ -45,7 +45,7 @@ public class StarterTemplatesTest {
         Assert.assertNull(container.getAllowedChildTemplateIds(), "and allows any non-container child");
 
         for (final String id : List.of(StarterTemplates.PILGRIMAGES_ID, StarterTemplates.PHOTO_ALBUMS_ID,
-                StarterTemplates.FILE_ID)) {
+                StarterTemplates.FILE_ID, StarterTemplates.TRIP_SCHEDULE_ID, StarterTemplates.TRIP_REGISTRATION_ID)) {
             final ContentTemplate starter = byId(id);
             Assert.assertEquals(starter.getKind(), TemplateKind.PROGRAMMATIC, id);
             Assert.assertEquals(starter.getProgrammaticTypeId(), id, "starter id doubles as its type id");

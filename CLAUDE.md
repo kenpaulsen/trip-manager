@@ -194,8 +194,11 @@ a separate model; answers store choice IDS and every page shows them through `re
 carries `paymentId`, `ticketCode` (`security/TicketCodes`; every CONFIRMED row has one, enforced in
 `saveRegistration`), `registrationType`, `priceBreakdown` (`PriceBreakdown`, stored once, never recomputed),
 `attestations` and the check-in stamps; `TripEvent` agenda details (`PRESENTER`/`LOCATION`/`TRACK`/
-`AGENDA_HIDDEN`; `hasDetails()` counts transport keys only); the trip role `checkinStaff`. Priced checkout itself
-is the next phase (`docs/checkout.md`, waiting on the Stripe processor work).
+`AGENDA_HIDDEN`; `hasDetails()` counts transport keys only); the trip role `checkinStaff`. A conference's PUBLIC PAGE is content sections under
+`page:trip:{tripUuid}:home` (`OrgPageBootstrap.tripPageKey`), hosted by `trip/tripDetails.xhtml`, edited by the
+trip's `tripMgr` and its org's content admins, seeded once on save (`ConferenceCommands.ensurePage`); its views
+(`#{conference}`: `tripFor`, `publicAgenda`, `registrationInfo`) are cached-read-only render code. Priced checkout
+itself is the next phase (`docs/checkout.md`, waiting on the Stripe processor work).
 
 `Person.privacy` (`PrivacySettings`) holds the owner's field-visibility choices; `PersonDto.redactedFor`
 (REST) and `PrivacyView` (pages) are the two enforcement points — read `docs/privacy-settings.md` before

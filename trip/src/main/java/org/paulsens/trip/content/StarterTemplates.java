@@ -23,6 +23,9 @@ public final class StarterTemplates {
     public static final String FILE_ID = "file";
     public static final String PERSON_ID = "person";
     public static final String PEOPLE_LIST_ID = "people-list";
+    /** A conference's public schedule and its registration block (docs/conference.md). */
+    public static final String TRIP_SCHEDULE_ID = "trip-schedule";
+    public static final String TRIP_REGISTRATION_ID = "trip-registration";
 
     public static final String REGISTRATION_RECEIVED_ID = "registration-received";
     public static final String REGISTRATION_APPROVED_ID = "registration-approved";
@@ -60,7 +63,8 @@ public final class StarterTemplates {
             PAYMENT_CONFIRMATION_ID, PAYMENT_FAILED_ID, ORG_INVITE_ID,
             BAND_HERO_ID, BAND_SPLIT_ID, BAND_CTA_ID, BAND_TESTIMONIAL_ID, BAND_TEXT_ID,
             FEATURE_CARD_ID, STAT_ITEM_ID,
-            BAND_FEATURES_ID, BAND_STATS_ID, BAND_FAQ_ID, BAND_LOGOS_ID);
+            BAND_FEATURES_ID, BAND_STATS_ID, BAND_FAQ_ID, BAND_LOGOS_ID,
+            TRIP_SCHEDULE_ID, TRIP_REGISTRATION_ID);
 
     private StarterTemplates() {
     }
@@ -70,7 +74,7 @@ public final class StarterTemplates {
                 file(), person(), peopleList(), registrationReceived(), registrationApproved(), supportRequest(),
                 paymentConfirmation(), paymentFailed(), orgInvite(),
                 bandHero(), bandSplit(), bandCta(), bandTestimonial(), bandText(), featureCard(), statItem(),
-                bandFeatures(), bandStats(), bandFaq(), bandLogos());
+                bandFeatures(), bandStats(), bandFaq(), bandLogos(), tripSchedule(), tripRegistration());
     }
 
     // --- the band family ---
@@ -507,6 +511,16 @@ public final class StarterTemplates {
     private static ContentTemplate person() {
         return programmatic(PERSON_ID, "Person (from account)",
                 "One person's card: photo, name, role and contact details, read live from their account.");
+    }
+
+    private static ContentTemplate tripSchedule() {
+        return programmatic(TRIP_SCHEDULE_ID, "Event schedule",
+                "The event's public agenda by day, straight from its itinerary events (presenter, room, track).");
+    }
+
+    private static ContentTemplate tripRegistration() {
+        return programmatic(TRIP_REGISTRATION_ID, "Registration",
+                "Registration status, places left, prices, a countdown and the Register button, from the event.");
     }
 
     /**

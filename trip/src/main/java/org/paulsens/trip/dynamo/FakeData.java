@@ -133,6 +133,7 @@ public final class FakeData {
             addFakeFamily();
             seatLucyOnSpringDemo();
             addFakeConferenceRegistrations();
+            seedConferencePage();
             addFakeLodging();
             relaxChatLimitsForFakeTrips();
         }
@@ -1385,6 +1386,12 @@ public final class FakeData {
         } catch (final IOException ex) {
             throw new IllegalStateException("Fake conference seed: could not save its registrations", ex);
         }
+    }
+
+    /** The conference's starter page, after addFakeContent installed the templates its rows pin. */
+    private static void seedConferencePage() {
+        DAO.getInstance().getTrip(CONF_TRIP_ID, Cached.NO)
+                .ifPresent(conference -> new org.paulsens.trip.action.ConferenceCommands().ensurePage(conference));
     }
 
     private static Registration conferenceRegistration(final Person.Id who, final Registration.Status status,

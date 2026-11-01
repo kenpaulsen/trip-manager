@@ -30,7 +30,9 @@ STANDARD as null so JSON round trips stay equal).
 
 ## Section-key conventions
 
-- **A page is a section key**: `page:trip-index` holds the landing page's ordered sections.
+- **A page is a section key**: `page:trip-index` holds the landing page's ordered sections. A CONFERENCE's page is
+  keyed by its trip, `page:trip:{tripUuid}:home`, and edited by that trip's managers as well as its org's content
+  admins (`docs/conference.md`).
 - **A container's children live under the container INSTANCE's id** as their section key. Container ids
   double as the page's anchors (`<a id="...">`): the landing page's containers are `events`, `reflection`,
   `docs`, so `#events`/`#docs` deep links keep working.
@@ -131,7 +133,9 @@ events (beforeEncode, command, ajax) lose them -- which is why the include's com
 
 `PersonType` (`person`) renders one person's card (`WEB-INF/ptypes/person.xhtml`): picture, name and role,
 email, phone. The instance stores the person's **id** (a `PERSON` placeholder) plus the page's own words --
-`role`, `publicEmail`, and `name` / `phone` overrides for someone with no account. Name, cell, account email
+`role`, `publicEmail`, and `name` / `phone` overrides for someone with no account, plus `photoUrl` (absolute
+http(s) only), `subtitle` and a RICH_TEXT `bio` for a conference SPEAKER, who usually has no account
+(`docs/conference.md`; the same card, not a second type). Name, cell, account email
 and photo are read live from the account by `content.personCard` (memoized per request), so a profile edit
 shows everywhere the person is listed.
 
@@ -221,7 +225,9 @@ prompts the content dialog shows), `getFragmentPath()` (`/WEB-INF/ptypes/*.xhtml
 and `choicesFor(prop)` feeding `Placeholder.Type.CHOICE` dropdowns (e.g. the File type's media picker, the
 pilgrimage language menu). Registry: `ProgrammaticTypes.ALL` (KnownSettings pattern). Shipped types:
 `pilgrimages`, `photo-albums`, `file` (one media item by id — title/size/URL read LIVE from the cached
-media table; hidden or deleted media renders nothing).
+media table; hidden or deleted media renders nothing), `person`, and the conference page's `trip-schedule` and
+`trip-registration` (`docs/conference.md`). `fitsTripPage()` (default true) keeps a type off a TRIP page's Add
+dialog: `pilgrimages` and `photo-albums` list other trips and answer false.
 
 Fragments are **pure render-time** (accordions/galleria/rows only — no build-time tags) and read the
 hosting instance as `#{instance}`. A template of kind PROGRAMMATIC copies its type's properties into
@@ -450,8 +456,9 @@ datastore).
 
 1. Privilege rows (hand-created in `/admin/editPrivs.jsf`): `contentAdmin` (raw-HTML power — grant like
    script access), `eventAdmin`, `mediaAdmin`.
-2. `install-starter-templates.sh` -- the TWENTY-SIX starters (JSON generated from `StarterTemplates` by
-   the test-scope `BootstrapScriptJson` tool; the twelve originals plus the eleven bands).
+2. `install-starter-templates.sh` — the TWENTY-EIGHT starters (JSON generated from `StarterTemplates` by
+   the test-scope `BootstrapScriptJson` tool: the originals, the six MAIL bodies, the eleven bands and the two
+   conference types).
 3. `bootstrap-home-v2.sh` — the `page:trip-index` skeleton (JSON generated from `V2PageBootstrap`);
    `--purge-v1` deletes the retired `home.*` rows. New rows appear on their own within ~5 minutes (the
    cache refresh merges); only DELETES need the Settings page's "Clear caches" button (the refresh never

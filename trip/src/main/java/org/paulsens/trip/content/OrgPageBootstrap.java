@@ -1,13 +1,18 @@
 package org.paulsens.trip.content;
 
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.ToIntFunction;
 import java.util.regex.Pattern;
 import org.paulsens.trip.model.ContentInstance;
 import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.site.SiteContext;
 
 /**
@@ -40,6 +45,15 @@ public final class OrgPageBootstrap {
     private static final String ORG_PAGE_PREFIX = "page:org:";
     private static final String SHARED_PAGE_PREFIX = "page:shared:";
     private static final String MARKETING_PAGE_PREFIX = "page:unitetrip:";
+    /**
+     * A TRIP's pages (a conference's public page, docs/conference.md): {@code page:trip:{tripUuid}:{pageName}}.
+     * Keyed by the trip, never by the host, so the same conference page renders whichever site reaches the trip,
+     * and its editors are derived from the trip (its org's content admins and its own trip managers).
+     */
+    private static final String TRIP_PAGE_PREFIX = "page:trip:";
+    /** Trip ids are canonical UUIDs (FakeData's comment explains why); a key naming anything else is no key. */
+    private static final Pattern TRIP_ID = Pattern.compile(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
     /**
      * A page name is a key segment, never free text: lower-case so two spellings can never name two pages,
      * and colon-free so {@link #orgOf} can split an org key unambiguously.
@@ -100,6 +114,33 @@ public final class OrgPageBootstrap {
         return HOME_PAGE.equals(name) ? V2PageBootstrap.PAGE_KEY : SHARED_PAGE_PREFIX + name;
     }
 
+    /** The section key of a trip's main public page: {@code page:trip:{uuid}:home}. */
+    public static String tripPageKey(final String tripId) {
+        return tripPageKey(tripId, HOME_PAGE);
+    }
+
+    /** The section key of a trip's page called {@code pageName}; reserved for a conference's sub-pages. */
+    public static String tripPageKey(final String tripId, final String pageName) {
+        if (tripId == null || !TRIP_ID.matcher(tripId).matches()) {
+            throw new IllegalArgumentException("Not a trip id: " + tripId);
+        }
+        return TRIP_PAGE_PREFIX + tripId + ":" + requirePageName(pageName);
+    }
+
+    /** The trip a trip-page key names, or null for any other key (org, shared and marketing pages, containers). */
+    public static String tripOf(final String pageKey) {
+        if (pageKey == null || !pageKey.startsWith(TRIP_PAGE_PREFIX)) {
+            return null;
+        }
+        final String rest = pageKey.substring(TRIP_PAGE_PREFIX.length());
+        final int colon = rest.lastIndexOf(':');
+        if (colon <= 0 || !isPageName(rest.substring(colon + 1))) {
+            return null;
+        }
+        final String id = rest.substring(0, colon);
+        return TRIP_ID.matcher(id).matches() ? id : null;
+    }
+
     /** Whether {@code pageKey} is one of the marketing host's pages: its home page or a named one. */
     public static boolean isMarketingPageKey(final String pageKey) {
         return MARKETING_PAGE_KEY.equals(pageKey)
@@ -138,6 +179,94 @@ public final class OrgPageBootstrap {
                 row(key, "Upcoming Trips", StarterTemplates.PILGRIMAGES_ID, templateVersion, 1,
                         Map.of("language", "English", "cfpwOnly", "false")),
                 row(key, "Pictures", StarterTemplates.PHOTO_ALBUMS_ID, templateVersion, 2, Map.of()));
+    }
+
+    /**
+     * The starter rows for a CONFERENCE's page ({@link #tripPageKey}), unsaved and pinned like {@link #rows}: a hero
+     * with the Register button, About, Speakers (a people list with one placeholder speaker), the schedule and the
+     * registration block, the venue, questions, and a closing call to action. Ids are DETERMINISTIC per trip, so a
+     * retried seed rewrites the same rows instead of doubling them, and the hero's Schedule button can anchor to
+     * the schedule section. Every text is plainly a placeholder its editors replace.
+     */
+    public static List<ContentInstance> tripRows(final Trip trip, final String orgName,
+            final ToIntFunction<String> templateVersion) {
+        final String key = tripPageKey(trip.getId());
+        final String register = "/trip/joinTrip.jsf?trip=" + trip.getId();
+        final String registerLabel = trip.getKind().getRegisterLabel();
+        final String speakers = tripRowId(trip, "speakers");
+        final String schedule = tripRowId(trip, "schedule");
+        final String faq = tripRowId(trip, "faq");
+        final Map<String, String> hero = new HashMap<>();
+        hero.put("eyebrow", orgName == null ? "" : orgName);
+        hero.put("headline", trip.getShortTitle());
+        hero.put("subheadline", dateRange(trip));
+        hero.put("primaryText", registerLabel);
+        hero.put("primaryUrl", register);
+        hero.put("secondaryText", "Schedule");
+        hero.put("secondaryUrl", "#" + schedule);
+        final String about = (trip.getDescription() == null || trip.getDescription().isBlank())
+                ? "<p>Tell visitors what this event is about: who it is for, what happens and why it matters.</p>"
+                : trip.getDescription();
+        return List.of(
+                tripRow(trip, "hero", key, "", StarterTemplates.BAND_HERO_ID, templateVersion, 0, hero),
+                tripRow(trip, "about", key, "About", StarterTemplates.BAND_TEXT_ID, templateVersion, 1,
+                        Map.of("heading", "About", "body", about)),
+                new ContentInstance(speakers, key, "Speakers", StarterTemplates.PEOPLE_LIST_ID,
+                        templateVersion.applyAsInt(StarterTemplates.PEOPLE_LIST_ID), new HashMap<>(), null, 2, 0,
+                        null, SEED_AUTHOR),
+                tripRow(trip, "speaker-1", speakers, "", StarterTemplates.PERSON_ID, templateVersion, 0,
+                        Map.of("name", "Speaker name", "subtitle", "Talk title",
+                                "bio", "<p>A few sentences about the speaker.</p>")),
+                new ContentInstance(schedule, key, "Schedule", StarterTemplates.TRIP_SCHEDULE_ID,
+                        templateVersion.applyAsInt(StarterTemplates.TRIP_SCHEDULE_ID), new HashMap<>(), null, 3, 0,
+                        null, SEED_AUTHOR),
+                tripRow(trip, "registration", key, "Registration", StarterTemplates.TRIP_REGISTRATION_ID,
+                        templateVersion, 4, Map.of()),
+                tripRow(trip, "venue", key, "Venue", StarterTemplates.BAND_SPLIT_ID, templateVersion, 5,
+                        Map.of("tone", "tint", "icon", "pi-map-marker", "heading", "Venue",
+                                "body", "<p>Where the event takes place, with directions and parking.</p>")),
+                new ContentInstance(faq, key, "Questions", StarterTemplates.BAND_FAQ_ID,
+                        templateVersion.applyAsInt(StarterTemplates.BAND_FAQ_ID), new HashMap<>(), null, 6, 0,
+                        null, SEED_AUTHOR),
+                tripRow(trip, "faq-1", faq, "How do I register?", StarterTemplates.TEXT_ONLY_ID, templateVersion,
+                        0, Map.of("body", "<p>Use the " + escape(registerLabel) + " button on this page.</p>")),
+                tripRow(trip, "cta", key, "", StarterTemplates.BAND_CTA_ID, templateVersion, 7,
+                        Map.of("tone", "dark", "heading", "Join us", "buttonText", registerLabel,
+                                "buttonUrl", register)));
+    }
+
+    /** The template ids {@link #tripRows} pins: every one must be installed before a conference page can seed. */
+    public static List<String> tripRowTemplateIds() {
+        return List.of(StarterTemplates.BAND_HERO_ID, StarterTemplates.BAND_TEXT_ID, StarterTemplates.PEOPLE_LIST_ID,
+                StarterTemplates.PERSON_ID, StarterTemplates.TRIP_SCHEDULE_ID, StarterTemplates.TRIP_REGISTRATION_ID,
+                StarterTemplates.BAND_SPLIT_ID, StarterTemplates.BAND_FAQ_ID, StarterTemplates.TEXT_ONLY_ID,
+                StarterTemplates.BAND_CTA_ID);
+    }
+
+    /** A conference page row's fixed id: the same trip and slot always name the same row. */
+    static String tripRowId(final Trip trip, final String slot) {
+        return UUID.nameUUIDFromBytes(("trip-page:" + trip.getId() + ":" + slot)
+                .getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    private static ContentInstance tripRow(final Trip trip, final String slot, final String section,
+            final String title, final String templateId, final ToIntFunction<String> templateVersion,
+            final int position, final Map<String, String> values) {
+        return new ContentInstance(tripRowId(trip, slot), section, title, templateId,
+                templateVersion.applyAsInt(templateId), new HashMap<>(values), null, position, 0, null, SEED_AUTHOR);
+    }
+
+    /** "March 5 - 7, 2027" in English: computed without a FacesContext, since a REST save seeds too. */
+    static String dateRange(final Trip trip) {
+        if (trip.getStartDate() == null || trip.getEndDate() == null) {
+            return "";
+        }
+        final LocalDate start = trip.getStartDate().toLocalDate();
+        final LocalDate end = trip.getEndDate().toLocalDate();
+        final DateTimeFormatter month = DateTimeFormatter.ofPattern("MMMM d", Locale.ENGLISH);
+        final String endPart = start.getMonth() == end.getMonth() && start.getYear() == end.getYear()
+                ? String.valueOf(end.getDayOfMonth()) : month.format(end);
+        return month.format(start) + (start.equals(end) ? "" : " - " + endPart) + ", " + end.getYear();
     }
 
     /** The welcome section: the org's name as the page heading, then text that is plainly a placeholder. */

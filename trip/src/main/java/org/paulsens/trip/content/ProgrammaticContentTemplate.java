@@ -51,6 +51,14 @@ public interface ProgrammaticContentTemplate {
         return Set.of();
     }
 
+    /**
+     * Whether an editor may add this type to a TRIP's page (a conference page, docs/conference.md). False for the
+     * types that list other trips or their albums: a conference page is about one event.
+     */
+    default boolean fitsTripPage() {
+        return true;
+    }
+
     /** One dropdown option. Render-time only -- never parked in viewScope. */
     record Choice(String value, String label) {
     }

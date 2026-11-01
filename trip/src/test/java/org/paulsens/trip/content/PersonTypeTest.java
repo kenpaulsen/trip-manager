@@ -36,10 +36,32 @@ public class PersonTypeTest {
         Assert.assertFalse(type.getDescription().isBlank());
         Assert.assertEquals(type.getProperties().get(0).getType(), Placeholder.Type.PERSON);
         Assert.assertEquals(type.getProperties().stream().map(Placeholder::getName).toList(),
-                java.util.List.of("personId", "role", "publicEmail", "name", "phone"));
+                java.util.List.of("personId", "role", "publicEmail", "name", "phone", "photoUrl", "subtitle", "bio"));
         Assert.assertTrue(type.getProperties().stream().noneMatch(Placeholder::isRequired),
                 "a row without an account is legitimate, so nothing is required");
         Assert.assertTrue(ProgrammaticTypes.byId(StarterTemplates.PERSON_ID).isPresent(), "registered");
+    }
+
+    /** A conference speaker: no account, so the row's own photo, talk title and biography carry the card. */
+    @Test
+    public void aSpeakerRowCarriesItsOwnPhotoSubtitleAndBio() {
+        final java.util.Map<String, String> values = new java.util.HashMap<>();
+        values.put(PersonType.PROP_NAME, "Sr. Demo Speaker");
+        values.put(PersonType.PROP_PHOTO_URL, " https://cdn.example.com/sr-demo.jpg ");
+        values.put(PersonType.PROP_SUBTITLE, "Living the Messages");
+        values.put(PersonType.PROP_BIO, "<p>Twenty years of retreats.</p>");
+        final PersonType.Card card = PersonType.card(values, null, false);
+        Assert.assertNull(card.personId());
+        Assert.assertEquals(card.name(), "Sr. Demo Speaker");
+        Assert.assertEquals(card.photoUrl(), "https://cdn.example.com/sr-demo.jpg");
+        Assert.assertEquals(card.subtitle(), "Living the Messages");
+        Assert.assertEquals(card.bio(), "<p>Twenty years of retreats.</p>");
+        Assert.assertEquals(card.initials(), "SS");
+
+        values.put(PersonType.PROP_PHOTO_URL, "javascript:alert(1)");
+        Assert.assertNull(PersonType.card(values, null, false).photoUrl(), "only an absolute http(s) picture shows");
+        values.remove(PersonType.PROP_PHOTO_URL);
+        Assert.assertNull(PersonType.card(values, null, false).photoUrl());
     }
 
     @Test

@@ -174,6 +174,12 @@ public final class Trip implements Serializable {
     @JsonProperty("kind")
     @Getter(AccessLevel.NONE)
     private TripKind kind;
+    /**
+     * When this conference's public page was seeded with its starter sections (docs/conference.md), the
+     * {@code Organization.homePageSeededAt} pattern: seeded exactly once, so a page its editors emptied stays empty.
+     */
+    @JsonProperty("pageSeededAt")
+    private LocalDateTime pageSeededAt;
 
     private Trip() {
     }

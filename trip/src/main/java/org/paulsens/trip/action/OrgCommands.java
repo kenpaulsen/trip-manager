@@ -1582,15 +1582,9 @@ public class OrgCommands {
         }
         final String pageKey = OrgPageBootstrap.pageKey(org.getId());
         try {
-            // A page someone already authored by hand is theirs: seeding only ever fills an EMPTY page.
-            if (DAO.getInstance().getContentForSection(pageKey, Cached.NO).isEmpty()) {
-                final int retain = new ConfigCommands().getInt(KnownSettings.CONTENT_VERSIONS_RETAINED, 0, 50);
-                for (final ContentInstance row : OrgPageBootstrap.rows(org, this::currentTemplateVersion)) {
-                    if (!DAO.getInstance().saveContent(row, retain)) {
-                        return fail("Home page not created",
-                                "The starter page for '" + org.getName() + "' could not be saved.");
-                    }
-                }
+            if (!seedIfEmpty(pageKey, OrgPageBootstrap.rows(org, OrgCommands::currentTemplateVersion))) {
+                return fail("Home page not created",
+                        "The starter page for '" + org.getName() + "' could not be saved.");
             }
         } catch (final RuntimeException ex) {
             log.error("Unable to seed the home page of organization {}", org.getId(), ex);
@@ -1604,8 +1598,26 @@ public class OrgCommands {
         return true;
     }
 
+    /**
+     * Saves a page's starter rows when the page has no sections yet; a page someone already authored by hand is
+     * theirs, so seeding only ever fills an EMPTY page. Shared by an organization's home page and a conference's
+     * page (ConferenceCommands). Throws on a read failure; false when a row could not be saved.
+     */
+    static boolean seedIfEmpty(final String pageKey, final List<ContentInstance> rows) {
+        if (!DAO.getInstance().getContentForSection(pageKey, Cached.NO).isEmpty()) {
+            return true;
+        }
+        final int retain = new ConfigCommands().getInt(KnownSettings.CONTENT_VERSIONS_RETAINED, 0, 50);
+        for (final ContentInstance row : rows) {
+            if (!DAO.getInstance().saveContent(row, retain)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** The version a starter row pins: the template's CURRENT one, or 1 when it cannot be read. */
-    private int currentTemplateVersion(final String templateId) {
+    static int currentTemplateVersion(final String templateId) {
         try {
             return DAO.getInstance().getTemplate(templateId, Cached.NO)
                     .map(ContentTemplate::getVersion)

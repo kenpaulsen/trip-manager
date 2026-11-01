@@ -46,6 +46,12 @@ final class PilgrimagesType implements ProgrammaticContentTemplate {
                 SharedSiteOrgChoices.property());
     }
 
+    /** Lists other trips, so a single trip's page never offers it. */
+    @Override
+    public boolean fitsTripPage() {
+        return false;
+    }
+
     @Override
     public String getFragmentPath() {
         return "/WEB-INF/ptypes/pilgrimages.xhtml";

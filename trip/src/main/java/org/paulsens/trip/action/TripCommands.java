@@ -151,6 +151,10 @@ public class TripCommands {
         }
         if (result) {
             ChatCommands.getChatCommands().leaveOnTripRemoval(trip.getId(), removed);
+            if (trip.isConference() && trip.getPageSeededAt() == null) {
+                // Every save path (both editors, REST create, a kind flip) reaches here; once per trip.
+                new ConferenceCommands().ensurePage(trip);
+            }
         }
         return result;
     }

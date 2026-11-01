@@ -22,6 +22,7 @@ import org.paulsens.trip.audit.AuditEventBuilder;
 import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.ContentRenderer;
 import org.paulsens.trip.content.HtmlFragmentValidator;
+import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.content.PersonType;
 import org.paulsens.trip.content.ProgrammaticContentTemplate;
@@ -688,7 +689,24 @@ public class ContentCommands {
         if (org != null && priv.check(PrivilegeCommands.CONTENT_ADMIN, org.getValue(), userId)) {
             return true;
         }
+        final String trip = tripOf(section, container);
+        if (trip != null && priv.check(PrivilegeCommands.TRIP_MGR, trip, userId)) {
+            return true;
+        }
         return editorPrivilegesOf(container).stream().anyMatch(name -> priv.check(name, null, userId));
+    }
+
+    /**
+     * The trip whose page a section belongs to ({@code page:trip:{id}:...}, docs/conference.md), or null for
+     * every other page. Like {@link #orgOf}, derived from the SECTION (a container's children through the
+     * container row), never from the host.
+     */
+    static String tripOf(final String section, final ContentInstance container) {
+        final String direct = OrgPageBootstrap.tripOf(section);
+        if (direct != null) {
+            return direct;
+        }
+        return container == null ? null : OrgPageBootstrap.tripOf(container.getSection());
     }
 
     /**
@@ -706,10 +724,22 @@ public class ContentCommands {
         return container == null ? null : orgOfKey(container.getSection());
     }
 
-    /** An org page key's org; the marketing pages' is the platform organization (when one exists). */
+    /**
+     * An org page key's org; the marketing pages' is the platform organization (when one exists); a trip page's
+     * is the trip's owning organization, so that org's content admins edit it and its person picker offers that
+     * org's members (a point-cached read).
+     */
     private static Organization.Id orgOfKey(final String pageKey) {
         if (OrgPageBootstrap.isMarketingPageKey(pageKey)) {
             return OrgCommands.platformOrgId();
+        }
+        final String tripId = OrgPageBootstrap.tripOf(pageKey);
+        if (tripId != null) {
+            return DAO.getInstance().getTrip(tripId, Cached.YES)
+                    .map(Trip::getOrgId)
+                    .filter(id -> !id.isBlank())
+                    .map(Organization.Id::from)
+                    .orElse(null);
         }
         return OrgPageBootstrap.orgOf(pageKey);
     }
@@ -763,6 +793,10 @@ public class ContentCommands {
         final ContentInstance container = containerOf(section);
         final Organization.Id org = orgOf(section, container);
         if (org != null && caller.has(PrivilegeCommands.CONTENT_ADMIN, org.getValue())) {
+            return true;
+        }
+        final String trip = tripOf(section, container);
+        if (trip != null && caller.has(PrivilegeCommands.TRIP_MGR, trip)) {
             return true;
         }
         return editorPrivilegesOf(container).stream().anyMatch(caller::has);
@@ -950,7 +984,10 @@ public class ContentCommands {
             return List.of();
         }
         if (container == null) {
-            return all;     // a page key: any kind may become a section
+            // A page key: any kind may become a section, except that a trip's page leaves out the types
+            // that list OTHER trips (fitsTripPage, docs/conference.md).
+            return OrgPageBootstrap.tripOf(section) == null ? all
+                    : all.stream().filter(ContentCommands::fitsTripPage).toList();
         }
         final ContentTemplate containerTemplate =
                 DAO.getInstance().getTemplate(container.getTemplateId(), Cached.NO).orElse(null);
@@ -959,6 +996,12 @@ public class ContentCommands {
                 .filter(t -> t.getKind() != TemplateKind.CONTAINER)
                 .filter(t -> allowed == null || allowed.isEmpty() || allowed.contains(t.getId()))
                 .toList();
+    }
+
+    private static boolean fitsTripPage(final ContentTemplate template) {
+        return template.getKind() != TemplateKind.PROGRAMMATIC
+                || ProgrammaticTypes.byId(template.getProgrammaticTypeId())
+                        .map(ProgrammaticContentTemplate::fitsTripPage).orElse(true);
     }
 
     /**
@@ -1156,6 +1199,10 @@ public class ContentCommands {
     }
 
     private List<ContentInstance> readSection(final String section) {
+        if (section == null) {
+            // No page here (tripDetails for a pilgrimage, or a conference this site does not reach).
+            return List.of();
+        }
         try {
             return DAO.getInstance().getContentForSection(section, Cached.YES);
         } catch (final RuntimeException ex) {

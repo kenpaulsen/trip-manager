@@ -12,6 +12,7 @@ import org.paulsens.trip.config.KnownSettings;
 import org.paulsens.trip.content.OrgPageBootstrap;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.site.SiteContext;
 
@@ -81,6 +82,26 @@ public class SiteCommands {
      */
     public String pageKey(final String pageName) {
         return OrgPageBootstrap.pageKeyOf(getCurrent(), pageName);
+    }
+
+    /**
+     * The content section key of a CONFERENCE's public page ({@code page:trip:{id}:home}, docs/conference.md), or
+     * null when there is no such page to show here: no such trip, not a conference, or a trip this site does not
+     * reach ({@link ListingScope#reachable}). Same per-request rule as {@link #getPageKey()}: never stored.
+     */
+    public String tripPageKey(final String tripId) {
+        if (tripId == null || tripId.isBlank()) {
+            return null;
+        }
+        final Trip trip = DAO.getInstance().getTrip(tripId.trim(), Cached.YES).orElse(null);
+        if (trip == null || !trip.isConference() || !ListingScope.reachable(trip.getOrgId())) {
+            return null;
+        }
+        try {
+            return OrgPageBootstrap.tripPageKey(trip.getId());
+        } catch (final IllegalArgumentException notAUuid) {
+            return null;
+        }
     }
 
     /**

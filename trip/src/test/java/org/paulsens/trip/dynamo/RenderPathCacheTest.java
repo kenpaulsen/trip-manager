@@ -117,7 +117,26 @@ public class RenderPathCacheTest {
             Assert.assertTrue(content.saveContent(row, 5), row.getTitle());
         }
 
+        // A CONFERENCE's page (docs/conference.md): keyed by its trip, seeded from OrgPageBootstrap.tripRows,
+        // with a people-list container of speakers and the schedule and registration sections.
+        final org.paulsens.trip.model.Trip conference = org.paulsens.trip.model.Trip.builder()
+                .title("Render Conference").kind(org.paulsens.trip.model.TripKind.CONFERENCE).build();
+        final String conferencePage = OrgPageBootstrap.tripPageKey(conference.getId());
+        String speakers = null;
+        for (final ContentInstance row : OrgPageBootstrap.tripRows(conference, "Org", id -> 1)) {
+            Assert.assertTrue(content.saveContent(row, 5), row.getTitle());
+            if (StarterTemplates.PEOPLE_LIST_ID.equals(row.getTemplateId())) {
+                speakers = row.getId();
+            }
+        }
+
         // Warm every cache the render path touches (the first request may hit the store; that is allowed).
+        content.getContentForSection(conferencePage);
+        content.getContentForSection(speakers);
+        templates.getTemplate(StarterTemplates.PEOPLE_LIST_ID, 1);
+        templates.getTemplate(StarterTemplates.PERSON_ID, 1);
+        templates.getTemplate(StarterTemplates.TRIP_SCHEDULE_ID, 1);
+        templates.getTemplate(StarterTemplates.TRIP_REGISTRATION_ID, 1);
         content.getContentForSection(page);
         content.getContentForSection("rp-holder");
         content.getContentForSection(orgPage);
@@ -148,6 +167,13 @@ public class RenderPathCacheTest {
             templates.getTemplate(StarterTemplates.BAND_FEATURES_ID, 1);
             templates.getTemplate(StarterTemplates.FEATURE_CARD_ID, 1);
             templates.getTemplate(StarterTemplates.BAND_HERO_ID, 1);
+            // The conference page: its sections, its speakers, and the four templates only it adds.
+            content.getContentForSection(conferencePage);
+            content.getContentForSection(speakers);
+            templates.getTemplate(StarterTemplates.PEOPLE_LIST_ID, 1);
+            templates.getTemplate(StarterTemplates.PERSON_ID, 1);
+            templates.getTemplate(StarterTemplates.TRIP_SCHEDULE_ID, 1);
+            templates.getTemplate(StarterTemplates.TRIP_REGISTRATION_ID, 1);
         }
         Assert.assertEquals(counting.reads.get(), 0,
                 "the warm render path must answer entirely from cache -- no live store reads");
