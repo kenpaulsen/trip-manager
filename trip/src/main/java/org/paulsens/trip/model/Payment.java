@@ -56,6 +56,12 @@ public final class Payment implements Serializable {
     private LocalDateTime capturedAt;
     private LocalDateTime recordedAt;
     private List<String> txIds;
+    /**
+     * A priced checkout's party (docs/checkout.md): the registrations this payment pays for, written when it is
+     * recorded. Null for every other payment. Set through the setter, not the creator (the
+     * {@code Transaction.orgId} additive pattern); every transition puts the whole item, so it rides along.
+     */
+    private PendingParty checkout;
 
     @Builder
     @JsonCreator
@@ -110,6 +116,12 @@ public final class Payment implements Serializable {
     public Payment() {
         this(null, null, null, null, null, null, null, 0L, null, 0L, 0L, 0L, false, null, null, 0L, null,
                 null, null, null, null, null);
+    }
+
+    /** Whether this payment pays for a priced checkout's registrations. */
+    @JsonIgnore
+    public boolean isCheckout() {
+        return checkout != null;
     }
 
     /** Sum of the per-person credited amounts (fees and donation excluded). */

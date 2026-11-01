@@ -180,6 +180,14 @@ public final class Trip implements Serializable {
      */
     @JsonProperty("pageSeededAt")
     private LocalDateTime pageSeededAt;
+    /**
+     * The priced-checkout policy (docs/checkout.md): on/off, auto-confirm, the window, age bands and codes. Read
+     * through the lazy getter (the {@code getPaymentConfig} pattern) so the editor's dialog can bind before
+     * anything was saved; absent on every trip stored before checkout existed, which reads as off.
+     */
+    @JsonProperty("checkout")
+    @Getter(AccessLevel.NONE)
+    private CheckoutConfig checkout;
 
     private Trip() {
     }
@@ -345,6 +353,13 @@ public final class Trip implements Serializable {
                 .filter(Objects::nonNull)
                 .map(person -> person.getPreferredName() + " " + person.getLast())
                 .collect(Collectors.joining(", "));
+    }
+
+    public CheckoutConfig getCheckout() {
+        if (checkout == null) {
+            checkout = new CheckoutConfig();
+        }
+        return checkout;
     }
 
     public TripPaymentConfig getPaymentConfig() {
