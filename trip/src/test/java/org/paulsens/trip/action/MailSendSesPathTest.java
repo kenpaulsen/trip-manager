@@ -4,7 +4,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
@@ -303,6 +305,65 @@ public class MailSendSesPathTest {
         Assert.assertEquals(out.size(), 2, "one response per usable recipient, in recipient order");
         Assert.assertEquals(out.get(0).messageId(), "ses-99");
         Mockito.verify(ses, Mockito.times(2)).sendEmail(ArgumentMatchers.any(SendEmailRequest.class));
+    }
+
+    /**
+     * The fan-out is BOUNDED. One fork per recipient is fine; one in-flight SES call per recipient is not --
+     * past the SDK's 50-connection pool (or SES's send quota) the surplus sends fail, and {@code send} maps a
+     * failure to null, so an unbounded merge silently skips recipients. The mocked client records how many
+     * sends overlap; the ceiling must be {@link MailCommands#MERGE_PARALLELISM} and every recipient must still
+     * get a response, in order.
+     */
+    @Test
+    public void aMergeKeepsAtMostMergeParallelismSendsInFlight() {
+        Mockito.clearInvocations(ses);
+        final AtomicInteger inFlight = new AtomicInteger();
+        final AtomicInteger maxSeen = new AtomicInteger();
+        Mockito.when(ses.sendEmail(ArgumentMatchers.any(SendEmailRequest.class)))
+                .thenAnswer(invocation -> recordOverlap(inFlight, maxSeen));
+        final com.sun.jsft.util.ELUtil el = Mockito.mock(com.sun.jsft.util.ELUtil.class);
+        Mockito.when(el.eval("S")).thenReturn("S");
+        Mockito.when(el.eval("B")).thenReturn("B");
+        final List<Person> recipients = new ArrayList<>();
+        for (int i = 0; i < MERGE_RECIPIENTS; i++) {
+            final Person person = new Person();
+            person.setEmail("r" + i + "@example.org");
+            recipients.add(person);
+        }
+
+        final List<SendEmailResponse> out;
+        try (var elStatic = Mockito.mockStatic(com.sun.jsft.util.ELUtil.class)) {
+            elStatic.when(com.sun.jsft.util.ELUtil::getInstance).thenReturn(el);
+            out = new MailCommands(ses).sendTemplate("f@example.org", recipients, null,
+                    "r@example.org", "S", "B", AuditActor.system());
+        }
+
+        Assert.assertTrue(maxSeen.get() <= MailCommands.MERGE_PARALLELISM,
+                "sends in flight at once must not exceed MERGE_PARALLELISM (" + MailCommands.MERGE_PARALLELISM
+                        + "), saw " + maxSeen.get());
+        Assert.assertTrue(maxSeen.get() > 1, "the merge must still run sends concurrently, saw " + maxSeen.get());
+        Assert.assertEquals(out.size(), MERGE_RECIPIENTS, "one response per recipient");
+        for (int i = 0; i < MERGE_RECIPIENTS; i++) {
+            Assert.assertNotNull(out.get(i), "recipient " + i + " was silently skipped");
+            Assert.assertEquals(out.get(i).messageId(), "ses-99", "recipient " + i);
+        }
+        Mockito.verify(ses, Mockito.times(MERGE_RECIPIENTS)).sendEmail(ArgumentMatchers.any(SendEmailRequest.class));
+    }
+
+    /** Three times the cap, so an unbounded fan-out overshoots it by a margin no scheduling jitter explains. */
+    private static final int MERGE_RECIPIENTS = 3 * MailCommands.MERGE_PARALLELISM;
+
+    /** Holds the "connection" for 30 ms so overlapping sends are actually observed overlapping. */
+    private static SendEmailResponse recordOverlap(final AtomicInteger inFlight, final AtomicInteger maxSeen)
+            throws InterruptedException {
+        final int now = inFlight.incrementAndGet();
+        maxSeen.accumulateAndGet(now, Math::max);
+        try {
+            Thread.sleep(30);
+        } finally {
+            inFlight.decrementAndGet();
+        }
+        return okResponse();
     }
 
     /** Off a Faces thread the EL evaluates to null; sendTemplate must refuse loudly, not mail "null". */

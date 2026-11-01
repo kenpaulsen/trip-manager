@@ -98,9 +98,15 @@ public final class CloudWatchAuditSink implements AuditSink {
 
         streamReady = createStream(true);
 
-        this.flusher = new Thread(this::flushLoop, "trip-audit-flusher");
-        this.flusher.setDaemon(true);
+        // Virtual (and therefore daemon): it blocks on the queue for the life of the task, and close() still
+        // reaches it through interrupt + a timed join.
+        this.flusher = Thread.ofVirtual().name("trip-audit-flusher").unstarted(this::flushLoop);
         this.flusher.start();
+    }
+
+    /** The writer thread, so a test can assert what kind of thread carries the deliveries. */
+    Thread writerThreadForTest() {
+        return flusher;
     }
 
     @Override

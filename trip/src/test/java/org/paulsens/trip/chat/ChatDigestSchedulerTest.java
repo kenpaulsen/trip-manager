@@ -22,7 +22,7 @@ import org.testng.annotations.Test;
 /**
  * The digest's multi-instance coordination.
  *
- * <p>Every ECS task schedules the digest independently, so the interesting behaviour is not "does it send" but "do N
+ * <p>Every ECS task schedules the digest independently, so the interesting behavior is not "does it send" but "do N
  * tasks send it exactly once". These tests drive {@code attemptOnce} directly rather than through the scheduler's
  * clock, so the protocol is asserted without waiting on real time.
  */
@@ -48,7 +48,7 @@ public class ChatDigestSchedulerTest {
      * executor had nothing left to do and the JVM never sent another digest. Worst in the shipped-dark state:
      * disabled reports finished immediately, so the first firing retired the scheduler and later enabling the
      * config did nothing until a restart. Asserted through {@code untilNextRun}, which is what a finished run
-     * consults — a positive, under-24h delay is the evidence that tomorrow is reachable at all.
+     * consults -- a positive, under-24h delay is the evidence that tomorrow is reachable at all.
      */
     @Test
     public void aFinishedRunArmsTheFollowingDay() {
@@ -66,7 +66,7 @@ public class ChatDigestSchedulerTest {
      *
      * <p>The run lock has a TTL, so a dispatch that outlives it lets a second task in while the first is still
      * working. Each reads the progress hash once, as a snapshot, and a snapshot cannot contain a claim made after
-     * it was taken — so the claim has to be an atomic set-if-absent, not a look-then-write. Simulated here by
+     * it was taken -- so the claim has to be an atomic set-if-absent, not a look-then-write. Simulated here by
      * letting both instances run with the run lock already expired.
      */
     @Test
@@ -319,5 +319,16 @@ public class ChatDigestSchedulerTest {
         } finally {
             listener.contextDestroyed(null);
         }
+    }
+
+    /** The scheduler sleeps between runs for the life of the JVM; that belongs on a virtual thread. */
+    @Test
+    public void theSchedulerThreadIsVirtual() {
+        final ChatDigestScheduler scheduler = ChatDigestScheduler.forTest(cache, enabled, sender);
+
+        final Thread thread = scheduler.newThread(() -> { });
+
+        Assert.assertTrue(thread.isVirtual());
+        Assert.assertEquals(thread.getName(), "chat-digest");
     }
 }

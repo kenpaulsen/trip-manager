@@ -12,7 +12,10 @@ import java.lang.management.ManagementFactory;
 import java.nio.FloatBuffer;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -25,8 +28,8 @@ import lombok.extern.slf4j.Slf4j;
  * The caller composites it over whatever background it likes; this class never touches storage.
  *
  * <p><b>Memory is the constraint, not speed.</b> The task has an OOM history, so inference is bounded
- * hard: ONE permit ({@link #GATE}) — a second request while one runs waits briefly and then reports "busy"
- * rather than queueing work — and the input is downscaled to {@link #MODEL_SIZE} before the tensor is built,
+ * hard: ONE permit ({@link #GATE}) -- a second request while one runs waits briefly and then reports "busy"
+ * rather than queueing work -- and the input is downscaled to {@link #MODEL_SIZE} before the tensor is built,
  * so peak transient cost is one 320x320 float tensor plus the session's own workspace. The session itself is
  * created lazily on FIRST use, never at boot (the feature ships flag-off, and a disabled feature must cost
  * zero), and is CLOSED again after {@link #IDLE_CLOSE_MILLIS} without use, giving most of that arena back.
@@ -40,8 +43,18 @@ import lombok.extern.slf4j.Slf4j;
  * -- the caller shows its ordinary "busy or unavailable" message and the next click tries afresh. A session
  * already resident is never re-checked: its memory is already paid for.
  *
- * <p>The model file lives on the classpath ({@value #MODEL_RESOURCE}). Absent — a build that chose not to
- * carry it — the feature reports {@link #isAvailable()} false and callers degrade to a friendly message.
+ * <p><b>Inference runs on a dedicated PLATFORM thread, never on the caller's.</b> Every request runs on a
+ * virtual thread, and the Fargate task has cpu=1024, so the JVM sees ONE CPU and the virtual-thread
+ * scheduler has a single carrier. ONNX Runtime is JNI: a native frame pins its carrier, the scheduler does
+ * not compensate for native calls, and the model load and the pixel loops are CPU-bound work that is never
+ * time-sliced -- so an inference on the request thread would freeze EVERY other virtual thread in the JVM
+ * (every other request, the chat polls, the cache) for its whole duration. {@link #cutout} therefore hands
+ * {@link #runCutout} to {@link #INFERENCE}, one platform thread the OS schedules alongside the carrier, and
+ * the caller simply blocks on the result; the single thread is also exactly what {@link #GATE} already
+ * promises, one inference at a time.
+ *
+ * <p>The model file lives on the classpath ({@value #MODEL_RESOURCE}). Absent -- a build that chose not to
+ * carry it -- the feature reports {@link #isAvailable()} false and callers degrade to a friendly message.
  */
 @Slf4j
 public final class BackgroundRemover {
@@ -60,12 +73,21 @@ public final class BackgroundRemover {
     private static final long GATE_WAIT_SECONDS = 5;
 
     /**
+     * The one thread inference (and the lazy model load inside it) runs on; see the class comment for why it
+     * must be a platform thread. A single-thread executor starts its thread on the FIRST submit and keeps it
+     * for the process's life, so a flag-off feature still costs nothing, and {@link #GATE} already guarantees
+     * the queue never holds more than the task in flight.
+     */
+    private static final ExecutorService INFERENCE = Executors.newSingleThreadExecutor(
+            Thread.ofPlatform().name("bg-remover-inference").daemon(true).factory());
+
+    /**
      * How long the loaded session may sit unused before the reaper closes it. An occasional-use feature gives
      * the memory back and re-pays the ~1s model load on the next use instead of holding the arena forever.
      *
      * <p>Cost measured in PRODUCTION on 2026-08-13, superseding a ~440 MB bench figure that was too high by
      * ~1.6x and led to an over-conservative heap sizing: loading the session costs <b>~283 MiB</b>, and
-     * closing it returns <b>~192 MiB</b>. The ~90 MiB difference is not a native leak — it is heap the
+     * closing it returns <b>~192 MiB</b>. The ~90 MiB difference is not a native leak -- it is heap the
      * inference allocated (masks, ARGB renditions) that G1 has not had reason to collect, and it stays inside
      * the heap ceiling. Re-measure both numbers before trusting them in a sizing decision; the container
      * budget they feed is written out in {@code medjugorje/docker/Dockerfile}.
@@ -90,6 +112,8 @@ public final class BackgroundRemover {
     private static volatile String modelResource = MODEL_RESOURCE;
     /** Free container bytes, as the JVM's container-aware OS bean reports them; a test substitutes a number. */
     private static volatile LongSupplier freeMemoryBytes = BackgroundRemover::containerFreeBytes;
+    /** The thread the last inference ran on; a test asserts it is the dedicated platform thread. */
+    private static volatile Thread lastInferenceThread;
 
     private BackgroundRemover() {
     }
@@ -124,7 +148,7 @@ public final class BackgroundRemover {
         }
         try {
             lastUsedAt = System.currentTimeMillis();
-            return Optional.ofNullable(runCutout(jpeg512));
+            return Optional.ofNullable(awaitInference(INFERENCE.submit(() -> runCutout(jpeg512))));
         } finally {
             // Stamped again on the way out so a long inference doesn't eat into its own idle window.
             lastUsedAt = System.currentTimeMillis();
@@ -132,7 +156,39 @@ public final class BackgroundRemover {
         }
     }
 
+    /**
+     * Blocks the (virtual) caller until the platform thread is done; parking a virtual thread on a future is
+     * free, which is the whole point of the hand-off. Failures come back as they would have on the caller's
+     * own thread: a corrupt input is a PhotoRejectedException the request path turns into a user message, so
+     * runtime causes are rethrown as themselves rather than wrapped. An interrupted caller leaves empty as
+     * the gate path does; the abandoned inference still finishes on its thread, which is safe because the
+     * executor is single-threaded (a later request queues behind it) and the exit stamp keeps the reaper
+     * away for a full idle window.
+     */
+    private static byte[] awaitInference(final Future<byte[]> pending) {
+        try {
+            return pending.get();
+        } catch (final InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (final ExecutionException ex) {
+            throw unwrapped(ex);
+        }
+    }
+
+    private static RuntimeException unwrapped(final ExecutionException ex) {
+        final Throwable cause = ex.getCause();
+        if (cause instanceof RuntimeException runtime) {
+            return runtime;
+        }
+        if (cause instanceof Error error) {
+            throw error;
+        }
+        return new IllegalStateException("Background removal inference failed", cause);
+    }
+
     private static byte[] runCutout(final byte[] imageBytes) {
+        lastInferenceThread = Thread.currentThread();
         final BufferedImage source = decodeSquare(imageBytes);
         final OrtSession ort = orCreateSession();
         if (ort == null) {
@@ -239,7 +295,7 @@ public final class BackgroundRemover {
         return ManagementFactory.getPlatformMXBean(OperatingSystemMXBean.class).getFreeMemorySize();
     }
 
-    /** Min-max normalization of the raw saliency map — the model's outputs are not guaranteed 0..1. */
+    /** Min-max normalization of the raw saliency map -- the model's outputs are not guaranteed 0..1. */
     static float[][] normalized(final float[][] mask) {
         float min = Float.MAX_VALUE;
         float max = -Float.MAX_VALUE;
@@ -285,15 +341,18 @@ public final class BackgroundRemover {
                 REAPER_PERIOD_SECONDS, REAPER_PERIOD_SECONDS, TimeUnit.SECONDS);
     }
 
-    private static Thread reaperThread(final Runnable task) {
-        final Thread thread = new Thread(task, "bg-remover-idle-reaper");
-        thread.setDaemon(true);
-        return thread;
+    /**
+     * The reaper sleeps for a minute at a time and occasionally calls {@code session.close()}; that close IS
+     * native (JNI) and so pins the carrier, but for milliseconds, once per idle window, which is acceptable.
+     * A virtual thread is always daemon, so nothing here can hold the JVM open.
+     */
+    static Thread reaperThread(final Runnable task) {
+        return Thread.ofVirtual().name("bg-remover-idle-reaper").unstarted(task);
     }
 
     /**
      * Closes the session once it has sat idle past the window, giving its ~440 MB back; the next use simply
-     * reloads. Takes the SAME permit inference holds, so a session is never closed mid-run — and a held
+     * reloads. Takes the SAME permit inference holds, so a session is never closed mid-run -- and a held
      * permit means "in use", which is its own reason not to close.
      */
     static void closeIfIdle() {
@@ -331,7 +390,7 @@ public final class BackgroundRemover {
         idleCloseMillis = millis;
     }
 
-    /** Test seam: back to a pristine state — real model location, no remembered failure, no live session. */
+    /** Test seam: back to a pristine state -- real model location, no remembered failure, no live session. */
     static void resetForTest() {
         synchronized (BackgroundRemover.class) {
             if (session != null) {
@@ -346,7 +405,13 @@ public final class BackgroundRemover {
             modelResource = MODEL_RESOURCE;
             idleCloseMillis = IDLE_CLOSE_MILLIS;
             freeMemoryBytes = BackgroundRemover::containerFreeBytes;
+            lastInferenceThread = null;
         }
+    }
+
+    /** Test seam: the thread the most recent inference ran on, or null when none has run since a reset. */
+    static Thread lastInferenceThreadForTest() {
+        return lastInferenceThread;
     }
 
     /** Test seam: dictates what the headroom check sees, so a tight container is testable on any machine. */

@@ -13,6 +13,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.StructuredTaskScope;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.audit.Audit;
@@ -59,6 +60,17 @@ public class MailCommands {
     /** Client-level timeouts replace the per-call orTimeout the CF era needed; a hung send fails, not hangs. */
     private static final Duration ATTEMPT_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration CALL_TIMEOUT = Duration.ofSeconds(30);
+    /**
+     * How many SES sends a mail merge keeps in flight at once. Package-private so the fan-out test can read it.
+     *
+     * <p>Without a cap the merge forks one virtual thread per recipient and every one of them calls
+     * {@code sendEmail} at the same instant. The SDK's default Apache pool holds 50 connections with a 10 s
+     * acquisition timeout, and SES enforces a per-second send quota, so a merge larger than the pool against a
+     * slow SES -- or one that trips the quota -- surfaces as exceptions. {@link #send} maps every exception to
+     * null and logs it, which means over-subscription does not fail the merge: it silently drops recipients.
+     * Eight keeps well under both limits and still finishes a few-hundred-recipient merge in seconds.
+     */
+    static final int MERGE_PARALLELISM = 8;
 
     final SesClient client;
 
@@ -154,12 +166,12 @@ public class MailCommands {
     }
 
     /**
-     * Sends one email — blocking, on the caller's (virtual) thread — recording {@code who} asked for it.
+     * Sends one email -- blocking, on the caller's (virtual) thread -- recording {@code who} asked for it.
      *
      * <p>There is deliberately no form without an actor, and the explicit parameter always wins. A null falls
      * back to {@link AuditActor#current()}, which since the virtual-threads migration reads the bound
-     * {@code RequestContext} ScopedValue — correct on a request thread and inside {@code StructuredTaskScope}
-     * forks — but still finds nobody on a plain spawn or an unbound scheduler thread. That failure mode is why
+     * {@code RequestContext} ScopedValue -- correct on a request thread and inside {@code StructuredTaskScope}
+     * forks -- but still finds nobody on a plain spawn or an unbound scheduler thread. That failure mode is why
      * the parameter exists: an anonymous EMAIL record is indistinguishable from a correct one until somebody
      * reads the trail, and exactly that cost this application every EMAIL record between the Phase 10 rework
      * and 2026-07-28.
@@ -312,8 +324,9 @@ public class MailCommands {
      *
      * <p>Rendering and sending are split on purpose. The EL evaluation mutates {@code requestScope.to} -- one
      * shared slot -- so each recipient's subject and body are rendered sequentially on the calling thread; only
-     * the SES calls fan out, one {@code StructuredTaskScope} fork per recipient, which is the same concurrency
-     * the async-client era had. Forks inherit the caller's ScopedValues, so the actor also flows into each send.
+     * the SES calls fan out, one {@code StructuredTaskScope} fork per recipient, with at most
+     * {@link #MERGE_PARALLELISM} sends in flight at once. Forks inherit the caller's ScopedValues, so the actor
+     * also flows into each send.
      */
     public List<SendEmailResponse> sendTemplate(
             final String from,
@@ -351,13 +364,19 @@ public class MailCommands {
             final String replyTo,
             final AuditActor actor,
             final List<Prepared> prepared) {
+        // One fork per recipient, gated by a semaphore rather than a smaller pool (the PasswordMigration
+        // shape): the permit caps how many SES calls are in flight, the scope still guarantees every send has
+        // finished before the response list is built. The acquire happens INSIDE the subtask so forking stays
+        // instant and the waiting is done by cheap parked virtual threads.
+        final Semaphore permits = new Semaphore(MERGE_PARALLELISM);
         try (var scope = StructuredTaskScope.open()) {
             final List<StructuredTaskScope.Subtask<SendEmailResponse>> sends = new ArrayList<>();
             for (final Prepared mail : prepared) {
-                sends.add(scope.fork(() -> sendPrepared(from, bcc, replyTo, actor, mail)));
+                sends.add(scope.fork(() -> sendPrepared(from, bcc, replyTo, actor, mail, permits)));
             }
             scope.join();
-            // send() maps its own failures to null, so subtasks never fail and get() is always answerable.
+            // sendPrepared never throws (send() maps its failures to null, and an interrupt becomes null too),
+            // so no subtask fails, the scope's fail-fast default stays inert, and get() is always answerable.
             // The nulls are KEPT: the list stays in recipient order and a null marks whose send failed.
             final List<SendEmailResponse> responses = new ArrayList<>();
             for (final StructuredTaskScope.Subtask<SendEmailResponse> sent : sends) {
@@ -370,13 +389,30 @@ public class MailCommands {
         }
     }
 
+    /**
+     * One recipient's send, under a permit. Never throws: a failed send is a null in the merge's response
+     * list, and an interrupt -- the scope shutting down -- is reported the same way after re-asserting the flag,
+     * because throwing here would cancel the sibling sends that are still allowed to finish.
+     */
     private SendEmailResponse sendPrepared(
             final String from,
             final String bcc,
             final String replyTo,
             final AuditActor actor,
-            final Prepared mail) {
-        return send(from, mail.to(), bcc, replyTo, mail.subject(), mail.body(), actor);
+            final Prepared mail,
+            final Semaphore permits) {
+        try {
+            permits.acquire();
+        } catch (final InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            log.warn("Interrupted before sending '{}' to '{}'", mail.subject(), mail.to());
+            return null;
+        }
+        try {
+            return send(from, mail.to(), bcc, replyTo, mail.subject(), mail.body(), actor);
+        } finally {
+            permits.release();
+        }
     }
 
     public String previewTemplate(final Person to, final String template) {

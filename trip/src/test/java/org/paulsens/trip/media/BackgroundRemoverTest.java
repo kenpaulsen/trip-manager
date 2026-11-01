@@ -4,6 +4,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.imageio.ImageIO;
 import org.testng.Assert;
 import org.testng.SkipException;
@@ -11,7 +12,7 @@ import org.testng.annotations.Test;
 
 /**
  * Background removal. The inference tests run only when the model file is on the classpath
- * ({@code src/main/resources/models/u2netp.onnx}) — a build that does not carry it must still pass, with the
+ * ({@code src/main/resources/models/u2netp.onnx}) -- a build that does not carry it must still pass, with the
  * feature reporting itself unavailable (which is itself asserted here).
  */
 public class BackgroundRemoverTest {
@@ -53,7 +54,7 @@ public class BackgroundRemoverTest {
         Assert.assertTrue(max > min, "A saliency mask over a gradient must vary, not be a constant");
     }
 
-    /** A corrupt model fails ONCE, loudly, and the feature then reports unavailable — never per-click. */
+    /** A corrupt model fails ONCE, loudly, and the feature then reports unavailable -- never per-click. */
     @Test
     public void aBrokenModelFailsFastAndReportsUnavailable() {
         BackgroundRemover.resetForTest();
@@ -91,7 +92,7 @@ public class BackgroundRemoverTest {
         }
     }
 
-    /** The idle reaper gives the session's memory back — but never mid-inference, and never early. */
+    /** The idle reaper gives the session's memory back -- but never mid-inference, and never early. */
     @Test
     public void idleCloseReclaimsTheSessionButNeverEarlyOrBusy() {
         BackgroundRemover.resetForTest();
@@ -199,6 +200,66 @@ public class BackgroundRemoverTest {
         } finally {
             BackgroundRemover.resetForTest();
         }
+    }
+
+    /**
+     * Inference must leave the caller's virtual thread: ONNX Runtime runs under JNI, a native frame pins the
+     * carrier, and the single-CPU task has exactly one carrier -- so an inference on the request thread would
+     * stall every other virtual thread in the JVM for its whole duration. The hand-off must also keep the
+     * contract that a corrupt input still surfaces as PhotoRejectedException to the caller.
+     */
+    @Test
+    public void inferenceRunsOnTheDedicatedPlatformThreadEvenWhenCalledFromAVirtualThread()
+            throws InterruptedException {
+        BackgroundRemover.resetForTest();
+        if (!BackgroundRemover.isAvailable()) {
+            throw new SkipException("u2netp.onnx not on the classpath");
+        }
+        try {
+            // This test is about threads, not memory: take the headroom guard out of the picture.
+            BackgroundRemover.freeMemoryForTest(() -> Long.MAX_VALUE);
+            final AtomicReference<Optional<byte[]>> result = new AtomicReference<>();
+            final Thread caller = Thread.ofVirtual().name("test-request")
+                    .start(() -> result.set(BackgroundRemover.cutout(PhotoFixtures.jpeg(64, 64))));
+            caller.join(60_000);
+            Assert.assertFalse(caller.isAlive(), "The cutout must finish within the test's patience");
+            Assert.assertTrue(result.get().isPresent(), "The hand-off must still deliver the cutout");
+
+            final Thread inference = BackgroundRemover.lastInferenceThreadForTest();
+            Assert.assertNotNull(inference, "runCutout records the thread it ran on");
+            Assert.assertFalse(inference.isVirtual(),
+                    "A JNI inference on a virtual thread pins the task's only carrier; it must be a platform thread");
+            Assert.assertEquals(inference.getName(), "bg-remover-inference");
+            Assert.assertNotSame(inference, caller, "The caller's thread must not be the one running inference");
+
+            final AtomicReference<Throwable> thrown = new AtomicReference<>();
+            final Thread rejected = Thread.ofVirtual().name("test-request-garbage")
+                    .start(() -> thrown.set(cutoutFailure("not an image".getBytes())));
+            rejected.join(60_000);
+            Assert.assertTrue(thrown.get() instanceof PhotoRejectedException,
+                    "A corrupt input must still surface as PhotoRejectedException through the hand-off, got "
+                            + thrown.get());
+        } finally {
+            BackgroundRemover.resetForTest();
+        }
+    }
+
+    private static Throwable cutoutFailure(final byte[] input) {
+        try {
+            BackgroundRemover.cutout(input);
+            return null;
+        } catch (final RuntimeException ex) {
+            return ex;
+        }
+    }
+
+    /** The reaper only sleeps and occasionally closes a session; a virtual thread costs nothing while idle. */
+    @Test
+    public void theIdleReaperRunsOnAVirtualThread() {
+        final Thread thread = BackgroundRemover.reaperThread(() -> { });
+        Assert.assertTrue(thread.isVirtual(), "The reaper does nothing a platform thread is needed for");
+        Assert.assertEquals(thread.getName(), "bg-remover-idle-reaper");
+        Assert.assertTrue(thread.isDaemon(), "Virtual threads are always daemon; the reaper never holds the JVM");
     }
 
     @Test

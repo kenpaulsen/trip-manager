@@ -31,9 +31,15 @@ public final class DynamoAuditSink implements AuditSink {
     private volatile boolean running = true;
 
     public DynamoAuditSink() {
-        this.writer = new Thread(this::writeLoop, "trip-audit-dynamo");
-        this.writer.setDaemon(true);
+        // Virtual (and therefore daemon): it blocks on the queue for the life of the task, and close() still
+        // reaches it through interrupt + a timed join.
+        this.writer = Thread.ofVirtual().name("trip-audit-dynamo").unstarted(this::writeLoop);
         this.writer.start();
+    }
+
+    /** The writer thread, so a test can assert what kind of thread carries the deliveries. */
+    Thread writerThreadForTest() {
+        return writer;
     }
 
     @Override

@@ -89,7 +89,7 @@ public final class TripEvent implements Serializable {
     }
      */
 
-    public synchronized boolean joinTripEvent(final Person.Id personId) {
+    public boolean joinTripEvent(final Person.Id personId) {
         boolean added = false;
         if (!participants.contains(personId)) {
             added = participants.add(personId);
@@ -97,7 +97,7 @@ public final class TripEvent implements Serializable {
         return added;
     }
 
-    public synchronized boolean leaveTripEvent(final Person.Id personId) {
+    public boolean leaveTripEvent(final Person.Id personId) {
         return participants.remove(personId);
     }
 

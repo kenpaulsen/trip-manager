@@ -4,7 +4,11 @@ import java.io.IOException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
@@ -101,5 +105,29 @@ public class ProcessorPingTest {
                 .publicConfig(Map.of("clientId", "live-id"))
                 .sandboxPublicConfig(Map.of("clientId", "sandbox-id"))
                 .build();
+    }
+
+    /**
+     * OrgCommands builds a {@code new ProcessorPing()} per "Test connection" click and never closes it. The JDK
+     * client starts an {@code HttpClient-N-SelectorManager} PLATFORM thread per instance that lives until GC, so a
+     * per-instance client leaks one thread per click; the production client has to be shared.
+     */
+    @Test
+    public void constructingManyPingsStartsAtMostOneSelectorManagerThread() {
+        final int before = selectorManagerThreads().size();
+        final List<ProcessorPing> pings = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            pings.add(new ProcessorPing());
+        }
+        final int after = selectorManagerThreads().size();
+        assertTrue(after - before <= 1, "SelectorManager threads grew from " + before + " to " + after
+                + " for " + pings.size() + " instances");
+    }
+
+    private static Set<String> selectorManagerThreads() {
+        return Thread.getAllStackTraces().keySet().stream()
+                .map(Thread::getName)
+                .filter(name -> name.contains("SelectorManager"))
+                .collect(Collectors.toSet());
     }
 }

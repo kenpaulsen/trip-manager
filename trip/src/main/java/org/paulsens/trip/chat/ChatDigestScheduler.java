@@ -25,7 +25,7 @@ import org.paulsens.trip.dynamo.DAO;
 /**
  * Fires the daily digest, coordinated through Valkey so N tasks send it once.
  *
- * <p>Every task schedules this independently — there is no leader and no external scheduler in this stack — so the
+ * <p>Every task schedules this independently -- there is no leader and no external scheduler in this stack -- so the
  * coordination is the whole design:
  *
  * <ol>
@@ -35,7 +35,7 @@ import org.paulsens.trip.dynamo.DAO;
  *       attempted and is removed only if the attempt fails. So a crash between the two leaves them marked and they
  *       are skipped: <b>missing one summary beats sending it twice.</b> A resuming task therefore continues where the
  *       dead one stopped instead of starting over.</li>
- *   <li><b>A completion flag.</b> Written when the run finishes. Losing tasks stop retrying when they see it — the
+ *   <li><b>A completion flag.</b> Written when the run finishes. Losing tasks stop retrying when they see it -- the
  *       alternative is a straggler concluding nothing ran and mailing everyone again.</li>
  *   <li><b>Retry with jitter, and a hard stop.</b> A loser retries at +5 minutes plus jitter; the jitter keeps N
  *       tasks from waking together and contending on the same lock forever. After two hours a task gives up even
@@ -43,7 +43,7 @@ import org.paulsens.trip.dynamo.DAO;
  * </ol>
  *
  * <p>Everything here degrades to "no digest" rather than to duplicates. With the cache unavailable
- * {@code tryAcquireLock} returns false by contract, so no task believes it holds the lock and nothing is sent —
+ * {@code tryAcquireLock} returns false by contract, so no task believes it holds the lock and nothing is sent --
  * which is the correct direction to fail for a daily summary.
  */
 @Slf4j
@@ -76,11 +76,10 @@ public final class ChatDigestScheduler {
         this.scheduler = Executors.newSingleThreadScheduledExecutor(this::newThread);
     }
 
-    private Thread newThread(final Runnable body) {
-        final Thread thread = new Thread(body, "chat-digest");
-        // Daemon: a container shutting down must not wait on a sleeping scheduler.
-        thread.setDaemon(true);
-        return thread;
+    Thread newThread(final Runnable body) {
+        // Virtual, so a thread that sleeps until tomorrow costs no carrier; and virtual threads are always daemon,
+        // so a container shutting down never waits on it.
+        return Thread.ofVirtual().name("chat-digest").unstarted(body);
     }
 
     /** Starts the scheduler once per JVM. Safe to call again; later calls do nothing. */
@@ -165,7 +164,7 @@ public final class ChatDigestScheduler {
         }
     }
 
-    /** @return true when this task is finished with the run — sent it, saw it done, or gave up. */
+    /** @return true when this task is finished with the run -- sent it, saw it done, or gave up. */
     boolean attemptOnce(final String runId, final Instant firstAttempt) {
         if (!config.getBoolean(KnownSettings.CHAT_DIGEST_ENABLED)) {
             // Ships dark. Enabling is a config-table change, not a deploy.

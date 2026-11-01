@@ -29,7 +29,10 @@ import org.paulsens.trip.dynamo.DAO;
 @Slf4j
 public final class ChatNudgeRegistry {
 
-    /** What a parked reader supplies. Called at most once per park, on a pool thread, never on an event loop. */
+    /**
+     * What a parked reader supplies. Called at most once per park, on a fresh virtual thread (the cache client
+     * hands every pub/sub message off through {@code TripThreads}), never on the Netty event loop.
+     */
     public interface Waiter {
         /**
          * @param upToMillis the nudge watermark, or 0 when it could not be read. Advisory: the reader's own cursor
@@ -72,9 +75,23 @@ public final class ChatNudgeRegistry {
         if (channelId == null || waiter == null) {
             return () -> { };
         }
-        final Channel channel = channels.computeIfAbsent(channelId, this::openChannel);
-        channel.waiters.add(waiter);
+        channels.compute(channelId, (key, existing) -> attach(key, existing, waiter));
         return () -> leave(channelId, waiter);
+    }
+
+    /**
+     * Opens the channel when it has no entry yet, then adds the waiter -- both inside the same {@code compute} as
+     * {@link #leave}. Doing the add outside it is the bug this replaced: a leave() landing between "get the channel"
+     * and "add my waiter" saw an empty list, closed the subscription and dropped the channel, and the waiter was
+     * then attached to an orphan nothing would ever nudge, so its long-poll sat out the full timeout.
+     *
+     * <p>The mapping function deliberately does blocking I/O (the subscribe): serializing park and leave per key is
+     * the point, and the lock held is only that key's bin.
+     */
+    private Channel attach(final String channelId, final Channel existing, final Waiter waiter) {
+        final Channel channel = existing == null ? openChannel(channelId) : existing;
+        channel.waiters.add(waiter);
+        return channel;
     }
 
     /** Publishes a nudge for a channel. Safe to call on any thread; never throws. */
@@ -128,11 +145,11 @@ public final class ChatNudgeRegistry {
     /**
      * Removes a waiter and, when it was the last one, closes the channel's subscription.
      *
-     * <p>Synchronized against {@link #openChannel} through {@code channels.compute}, so a reader parking at the
-     * same moment the last one leaves cannot attach to a subscription that is being torn down.
+     * <p>Serialized against {@link #attach} because both run inside {@code channels.compute} on the same key, so a
+     * reader parking at the same moment the last one leaves either finds the channel still open (and keeps it) or
+     * finds it gone (and opens a fresh one); it can never attach to a subscription that is being torn down.
      */
     private void leave(final String channelId, final Waiter waiter) {
-        // Still inside compute(), which is what makes this atomic against a concurrent park().
         channels.compute(channelId, (key, channel) -> withoutWaiter(key, channel, waiter));
     }
 

@@ -297,4 +297,15 @@ public class CloudWatchAuditSinkTest {
             throw new AssertionError(ex);
         }
     }
+
+    /** The flusher blocks on a queue poll for the life of the task; that belongs on a virtual thread. */
+    @Test
+    public void theFlusherIsAVirtualThread() {
+        final CloudWatchAuditSink sink = new CloudWatchAuditSink("/trip/audit", clientThatWorks());
+        try {
+            Assert.assertTrue(sink.writerThreadForTest().isVirtual());
+        } finally {
+            sink.close();
+        }
+    }
 }

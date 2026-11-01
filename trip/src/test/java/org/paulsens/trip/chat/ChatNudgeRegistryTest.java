@@ -2,6 +2,7 @@ package org.paulsens.trip.chat;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.paulsens.trip.cache.InMemoryCacheClient;
 import org.paulsens.trip.cache.NoopCacheClient;
@@ -14,6 +15,9 @@ import org.testng.annotations.Test;
 public class ChatNudgeRegistryTest {
 
     private static final String CHANNEL = "trip:t1";
+
+    /** Enough park/leave pairs that a lost race on the channel map shows up in a single run, well under a second. */
+    private static final int RACE_ITERATIONS = 50_000;
 
     @Test
     public void aParkedReaderIsWokenByANudgeOnItsChannel() throws Exception {
@@ -125,6 +129,42 @@ public class ChatNudgeRegistryTest {
         registry.park(CHANNEL, null).close();
         registry.nudge(null, 1L);
         Assert.assertFalse(registry.isSubscribed(CHANNEL));
+    }
+
+    @Test
+    public void aReaderParkingWhileTheLastOneLeavesIsNeverOrphaned() throws Exception {
+        // Regression: park() used to open-or-get the channel and add its waiter in two steps. A leave() between the
+        // two saw an empty waiter list, closed the subscription and dropped the channel, and the late waiter was
+        // then added to a Channel the registry no longer tracked -- parked, but unreachable by any nudge. The
+        // invariant under test: while a waiter's handle is open, the registry MUST be subscribed to its channel.
+        final ChatNudgeRegistry registry = new ChatNudgeRegistry(new InMemoryCacheClient());
+        final AtomicInteger orphans = new AtomicInteger();
+        final Thread checker = Thread.ofPlatform().name("nudge-race-checker")
+                .start(() -> parkCheckAndLeaveRepeatedly(registry, orphans));
+        final Thread churner = Thread.ofPlatform().name("nudge-race-churner")
+                .start(() -> parkAndLeaveRepeatedly(registry));
+        checker.join(20_000L);
+        churner.join(20_000L);
+        Assert.assertFalse(checker.isAlive(), "the checking thread should have finished");
+        Assert.assertFalse(churner.isAlive(), "the churning thread should have finished");
+        Assert.assertEquals(orphans.get(), 0, "open waiters on a channel the registry no longer tracks");
+        Assert.assertFalse(registry.isSubscribed(CHANNEL), "both threads closed every handle they opened");
+    }
+
+    private static void parkCheckAndLeaveRepeatedly(final ChatNudgeRegistry registry, final AtomicInteger orphans) {
+        for (int i = 0; i < RACE_ITERATIONS; i++) {
+            final AutoCloseable handle = registry.park(CHANNEL, ignored -> { });
+            if (!registry.isSubscribed(CHANNEL)) {
+                orphans.incrementAndGet();
+            }
+            closeQuietly(handle);
+        }
+    }
+
+    private static void parkAndLeaveRepeatedly(final ChatNudgeRegistry registry) {
+        for (int i = 0; i < RACE_ITERATIONS; i++) {
+            closeQuietly(registry.park(CHANNEL, ignored -> { }));
+        }
     }
 
     private static void closeQuietly(final AutoCloseable handle) {

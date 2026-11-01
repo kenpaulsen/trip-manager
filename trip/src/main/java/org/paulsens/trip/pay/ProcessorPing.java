@@ -7,6 +7,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.concurrent.Executors;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.model.PaymentProcessorConfig;
 
@@ -20,10 +21,21 @@ public class ProcessorPing {
     static final String PAYPAL_LIVE = "https://api-m.paypal.com/v1/oauth2/token";
     static final String PAYPAL_SANDBOX = "https://api-m.sandbox.paypal.com/v1/oauth2/token";
 
+    /**
+     * One client for the JVM. OrgCommands builds a {@code new ProcessorPing()} per "Test connection" click and never
+     * closes it, and every JDK client owns an {@code HttpClient-N-SelectorManager} platform thread that lives until
+     * GC, so a per-instance client leaked one thread per click. Response handling goes to virtual threads rather
+     * than the JDK default cached platform pool.
+     */
+    private static final HttpClient SHARED = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .executor(Executors.newVirtualThreadPerTaskExecutor())
+            .build();
+
     private final HttpClient http;
 
     public ProcessorPing() {
-        this(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build());
+        this(SHARED);
     }
 
     /** Test seam. */

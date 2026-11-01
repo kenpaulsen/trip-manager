@@ -5,6 +5,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.concurrent.Executors;
 
 /**
  * The HTTP seam under both gateways: one synchronous request in, one response out. Production wraps the
@@ -20,10 +21,18 @@ public interface PushTransport {
 
     /** The JDK client with the plan's budgets: 10 s to connect (requests carry their own 15 s timeout). */
     static PushTransport jdk() {
-        final HttpClient client = HttpClient.newBuilder()
+        final HttpClient client = jdkClient();
+        return request -> client.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    /** The client behind {@link #jdk()}, exposed so a test can assert how it is configured. */
+    static HttpClient jdkClient() {
+        return HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_2)
                 .connectTimeout(Duration.ofSeconds(10))
+                // Without this the client falls back to the JDK default: a cached pool of PLATFORM threads,
+                // the one kind of pool the virtual-thread migration removed everywhere else.
+                .executor(Executors.newVirtualThreadPerTaskExecutor())
                 .build();
-        return request -> client.send(request, HttpResponse.BodyHandlers.ofString());
     }
 }

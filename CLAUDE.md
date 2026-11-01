@@ -63,8 +63,10 @@ per-feature gates (e.g. `BackgroundRemover.GATE`).
   re-binds identity via `startAs` (`RequestContext`/`AuditActor`); schedulers bind `RequestContext.system()`.
 - Never run caller code on a Lettuce/Netty event loop (pub/sub listeners hand off to a fresh virtual thread)
   and never block a request on delivery backends: the audit sinks queue to dedicated daemon writer threads.
-- The few remaining platform threads are deliberate singletons: the two audit-sink writers, the
-  `ChatDigestScheduler` and `BackgroundRemover` reaper timer threads, and the shutdown hook.
+- The few remaining platform threads are ones we cannot make virtual: Lettuce's Netty event loops, the AWS
+  SDK's Apache client internals, the dedicated `bg-remover-inference` thread (ONNX inference pins its carrier,
+  so it runs on one platform thread), and the shutdown hook. The audit-sink writers and the
+  `ChatDigestScheduler` timer thread are virtual.
 
 ### Persistence (`org.paulsens.trip.dynamo`)
 
@@ -254,8 +256,9 @@ gate and the signed-copy PDF; see `docs/waivers.md`), `deploy`, `json`, `tripUti
 - Bean `get*` methods (e.g. `getPerson`, `getTrip`) **never return null** — they answer a blank object with a
   fresh id, so null checks don't fire and a careless PUT saves a junk row. REST code must use the
   `BaseResource.find*` helpers instead.
-- `AuditActor.current()` reads a ThreadLocal: inside any `CompletableFuture` callback it records NO actor.
-  Capture it on the request thread and pass it across async boundaries.
+- `AuditActor.current()` reads the `RequestContext` ScopedValue, bound per request by `SessionRecoveryFilter`
+  and inherited by `StructuredTaskScope` forks. A plain `TripThreads.start` spawn does NOT inherit it -- use
+  `startAs(actor, ...)` for work that outlives its request (`CompletableFuture` is banned by `ArchitectureTest`).
 
 ### REST API (`org.paulsens.trip.api`, served at `/api/*`)
 
