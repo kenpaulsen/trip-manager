@@ -3,7 +3,9 @@ package org.paulsens.trip.pay;
 import com.paypal.sdk.PaypalServerSdkClient;
 import com.paypal.sdk.controllers.OrdersController;
 import com.paypal.sdk.exceptions.ApiException;
+import com.paypal.sdk.exceptions.ErrorException;
 import com.paypal.sdk.http.response.ApiResponse;
+import com.paypal.sdk.models.ErrorDetails;
 import com.paypal.sdk.models.LinkDescription;
 import com.paypal.sdk.models.Money;
 import com.paypal.sdk.models.Order;
@@ -12,6 +14,8 @@ import com.paypal.sdk.models.OrdersCapture;
 import com.paypal.sdk.models.PaymentCollection;
 import com.paypal.sdk.models.PurchaseUnit;
 import com.paypal.sdk.models.SellerReceivableBreakdown;
+import io.apimatic.coreinterfaces.http.Context;
+import io.apimatic.coreinterfaces.http.response.Response;
 import java.util.List;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
@@ -21,6 +25,7 @@ import org.paulsens.trip.model.ProcessorType;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertThrows;
 import static org.testng.Assert.assertTrue;
@@ -30,6 +35,9 @@ import static org.testng.Assert.assertTrue;
  * used to write a $0 transaction and report success).
  */
 public class PayPalProcessorTest {
+    /** The SDK's message for EVERY 422 -- the issue code is never in it (see PayPalProcessor.isAlreadyCaptured). */
+    private static final String SDK_422_REASON = "The requested action could not be performed, semantically "
+            + "incorrect, or failed business validation.";
 
     @Test
     public void credentialsAreRequiredToConstruct() {
@@ -97,9 +105,7 @@ public class PayPalProcessorTest {
 
     @Test
     public void alreadyCapturedRecoversTheOriginalCapture() throws Exception {
-        final ApiException alreadyCaptured = Mockito.mock(ApiException.class);
-        Mockito.when(alreadyCaptured.getResponseCode()).thenReturn(422);
-        Mockito.when(alreadyCaptured.getMessage()).thenReturn("{\"issue\":\"ORDER_ALREADY_CAPTURED\"}");
+        final ErrorException alreadyCaptured = paypalRefusal(422, "ORDER_ALREADY_CAPTURED");
         assertTrue(PayPalProcessor.isAlreadyCaptured(alreadyCaptured));
 
         final ApiResponse<Order> recovered = response(completedOrder("CAP-OLD", "50.00", null));
@@ -111,6 +117,45 @@ public class PayPalProcessorTest {
         assertEquals(result.status(), PaymentProcessor.CaptureResult.Status.ALREADY_CAPTURED);
         assertEquals(result.captureId(), "CAP-OLD");
         assertEquals(result.grossCents(), 5000L);
+    }
+
+    /**
+     * The 2026-11-01 regression: the SDK's message is a fixed reason string, so the code must read the parsed
+     * details (or the raw body), and a message-only match is the OLD false positive, not a success.
+     */
+    @Test
+    public void isAlreadyCapturedReadsTheParsedIssueNotTheMessage() {
+        // (a) the production shape: fixed message, issue in the details.
+        assertTrue(PayPalProcessor.isAlreadyCaptured(paypalRefusal(422, "ORDER_ALREADY_CAPTURED")));
+
+        // (b) the code ONLY in the message (the old test's shape) is not a match.
+        final ApiException messageOnly = Mockito.mock(ApiException.class);
+        Mockito.when(messageOnly.getResponseCode()).thenReturn(422);
+        Mockito.when(messageOnly.getMessage()).thenReturn("ORDER_ALREADY_CAPTURED");
+        assertFalse(PayPalProcessor.isAlreadyCaptured(messageOnly));
+
+        // (c) a different 422 issue, and (f) the right issue on a non-422, are not matches.
+        assertFalse(PayPalProcessor.isAlreadyCaptured(paypalRefusal(422, "INSTRUMENT_DECLINED")));
+        assertFalse(PayPalProcessor.isAlreadyCaptured(paypalRefusal(400, "ORDER_ALREADY_CAPTURED")));
+
+        // (d) no parsed details: the raw response body is the fallback.
+        // Mocks are built BEFORE the when() (Mockito nesting rule).
+        final Context rawContext = contextWithBody(
+                "{\"name\":\"UNPROCESSABLE_ENTITY\",\"details\":[{\"issue\":\"ORDER_ALREADY_CAPTURED\"}]}");
+        final ApiException rawOnly = Mockito.mock(ApiException.class);
+        Mockito.when(rawOnly.getResponseCode()).thenReturn(422);
+        Mockito.when(rawOnly.getHttpContext()).thenReturn(rawContext);
+        assertTrue(PayPalProcessor.isAlreadyCaptured(rawOnly));
+
+        // (e) null details and null context: false, never an NPE.
+        final ErrorException bare = Mockito.mock(ErrorException.class);
+        Mockito.when(bare.getResponseCode()).thenReturn(422);
+        assertFalse(PayPalProcessor.isAlreadyCaptured(bare));
+        final Context emptyContext = Mockito.mock(Context.class);
+        final ApiException noResponse = Mockito.mock(ApiException.class);
+        Mockito.when(noResponse.getResponseCode()).thenReturn(422);
+        Mockito.when(noResponse.getHttpContext()).thenReturn(emptyContext);
+        assertFalse(PayPalProcessor.isAlreadyCaptured(noResponse));
     }
 
     @Test
@@ -135,9 +180,7 @@ public class PayPalProcessorTest {
                 () -> broken.createOrder(payment(), "a".repeat(300), "http://r", "http://c"));
 
         // Already-captured whose recovery ALSO fails: FAILED, never a guess.
-        final ApiException alreadyCaptured = Mockito.mock(ApiException.class);
-        Mockito.when(alreadyCaptured.getResponseCode()).thenReturn(422);
-        Mockito.when(alreadyCaptured.getMessage()).thenReturn("ORDER_ALREADY_CAPTURED");
+        final ErrorException alreadyCaptured = paypalRefusal(422, "ORDER_ALREADY_CAPTURED");
         assertEquals(processorAnswering(c -> {
             Mockito.when(c.captureOrder(ArgumentMatchers.any())).thenThrow(alreadyCaptured);
             Mockito.when(c.getOrder(ArgumentMatchers.any())).thenThrow(transport);
@@ -206,6 +249,25 @@ public class PayPalProcessorTest {
                                 .captures(List.of(capture.build())).build())
                         .build()))
                 .build();
+    }
+
+    /** A PayPal refusal in the shape the SDK really throws: fixed message, issue code in the parsed details. */
+    private static ErrorException paypalRefusal(final int status, final String issue) {
+        final ErrorDetails detail = new ErrorDetails();
+        detail.setIssue(issue);
+        final ErrorException ex = Mockito.mock(ErrorException.class);
+        Mockito.when(ex.getResponseCode()).thenReturn(status);
+        Mockito.when(ex.getMessage()).thenReturn(SDK_422_REASON);
+        Mockito.when(ex.getDetails()).thenReturn(List.of(detail));
+        return ex;
+    }
+
+    private static Context contextWithBody(final String body) {
+        final Response response = Mockito.mock(Response.class);
+        Mockito.when(response.getBody()).thenReturn(body);
+        final Context context = Mockito.mock(Context.class);
+        Mockito.when(context.getResponse()).thenReturn(response);
+        return context;
     }
 
     private static Payment payment() {

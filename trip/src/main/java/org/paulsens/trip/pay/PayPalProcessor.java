@@ -4,10 +4,12 @@ import com.paypal.sdk.Environment;
 import com.paypal.sdk.PaypalServerSdkClient;
 import com.paypal.sdk.authentication.ClientCredentialsAuthModel;
 import com.paypal.sdk.exceptions.ApiException;
+import com.paypal.sdk.exceptions.ErrorException;
 import com.paypal.sdk.models.AmountWithBreakdown;
 import com.paypal.sdk.models.CaptureOrderInput;
 import com.paypal.sdk.models.CheckoutPaymentIntent;
 import com.paypal.sdk.models.CreateOrderInput;
+import com.paypal.sdk.models.ErrorDetails;
 import com.paypal.sdk.models.GetOrderInput;
 import com.paypal.sdk.models.LinkDescription;
 import com.paypal.sdk.models.Order;
@@ -27,8 +29,8 @@ import org.paulsens.trip.model.ProcessorType;
 
 /**
  * PayPal Checkout (orders v2) behind the {@link PaymentProcessor} SPI -- constructed PER
- * {@code PaymentProcessorConfig} with that config's credentials (multi-tenant; the env-var singleton
- * {@link PayPalClient} is the legacy flow awaiting deletion).
+ * {@code PaymentProcessorConfig} with that config's credentials (multi-tenant; the mir2026 env-var singleton it
+ * replaced is gone).
  *
  * <p>{@link #capture} closes the prototype's known gap: it answers COMPLETED only for an order whose status
  * IS completed and whose first capture carries a real id and amount -- anything unparsable is FAILED, never a
@@ -178,9 +180,36 @@ public final class PayPalProcessor implements PaymentProcessor {
         return order.getPurchaseUnits().getFirst().getPayments().getCaptures().getFirst();
     }
 
+    /**
+     * Whether a capture refusal is PayPal's "already captured" issue. The SDK gives EVERY 422 the same fixed
+     * reason as its message ("The requested action could not be performed, semantically incorrect, or failed
+     * business validation."), so the message can never carry the issue code: PayPal's codes are parsed into
+     * {@link ErrorException#getDetails()}, with the raw body as the fallback. Until 2026-11-01 this read the
+     * message, never matched, and every retry FAILED instead of converging on the earlier capture.
+     */
     static boolean isAlreadyCaptured(final ApiException ex) {
-        final String body = String.valueOf(ex.getMessage());
-        return ex.getResponseCode() == 422 && body.contains("ORDER_ALREADY_CAPTURED");
+        return ex.getResponseCode() == 422 && hasIssue(ex, "ORDER_ALREADY_CAPTURED");
+    }
+
+    /** Whether PayPal's parsed error details name {@code issue}; the raw body is consulted only when none parsed. */
+    static boolean hasIssue(final ApiException ex, final String issue) {
+        if (ex instanceof ErrorException err && err.getDetails() != null && !err.getDetails().isEmpty()) {
+            for (final ErrorDetails detail : err.getDetails()) {
+                if (issue.equals(detail.getIssue())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        final String body = rawBody(ex);
+        return body != null && body.contains(issue);
+    }
+
+    private static String rawBody(final ApiException ex) {
+        if (ex.getHttpContext() == null || ex.getHttpContext().getResponse() == null) {
+            return null;
+        }
+        return ex.getHttpContext().getResponse().getBody();
     }
 
     static String centsToValue(final long cents) {
