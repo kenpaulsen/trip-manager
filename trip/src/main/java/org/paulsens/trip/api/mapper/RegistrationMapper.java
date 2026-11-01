@@ -19,5 +19,7 @@ public interface RegistrationMapper {
     RegistrationMapper INSTANCE = Mappers.getMapper(RegistrationMapper.class);
 
     @Mapping(target = "waiversSatisfied", ignore = true)
+    @Mapping(target = "ticketUrl", ignore = true)
+    @Mapping(target = "name", ignore = true)
     RegistrationDto toDto(Registration registration);
 }

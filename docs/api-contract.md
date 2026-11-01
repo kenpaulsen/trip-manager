@@ -94,6 +94,37 @@ the trip's pinned version is recorded first, then a traveler with any unsigned d
 `WAIVERS_REQUIRED` (a per-traveler refusal like `CANNOT_JOIN`, never an HTTP error). Nobody already registered is
 ever un-registered by a document.
 
+### Tickets and check-in (2026-11; backend `docs/checkin.md`)
+
+`RegistrationDto` gained `ticketCode`, `ticketUrl` (absolute: the trip's org site when it has a subdomain, else the
+registration-mail base URL), `checkedInAt`, `checkedInBy` (person id), `registrationType` (the stored type, else
+the label of the answer to the trip's type question) and `name` (check-in responses only). A ticket is a BEARER
+secret: the single `GET {personId}` carries it for the traveler, their family manager or trip staff (the app shows
+the owner's QR from it), and every LISTING (`GET registrations`, `lookup`) strips it. Who may: check in = site
+admin, `tripMgr` or `checkinStaff`; clear = site admin or `tripMgr`; counts = the check-in callers plus `tripView`,
+`tripFinView`, `tripFinAdmin` and the global `viewFinances`.
+
+- `GET /api/trips/{tripId}/registrations/lookup?q=` → `[RegistrationDto]` (no `options`, no ticket; `name` is
+  "Last, First"). A whole ticket code (grouped, any case, 0/1/8 for O/I/B) matches exactly that ticket, never a
+  prefix; any other `q` must match every whitespace token in first/last/preferred name or email. CONFIRMED and
+  PENDING only, at most 50.
+- `GET /api/trips/{tripId}/registrations/ticket/{code}` → `RegistrationDto` with ticket, stamp, type and name
+  (`options` only for `tripMgr`/`tripView`/`registrationAdmin`); 404 `NOT_FOUND` for no such ticket ON THIS TRIP.
+- `POST /api/trips/{tripId}/registrations/{personId}/checkin` (CSRF header for a cookie caller) → 200
+  `RegistrationDto` stamped `checkedInAt`/`checkedInBy`; 409 `ALREADY_CHECKED_IN` (the message carries the first
+  stamp, which is never overwritten), 409 `NOT_CONFIRMED` (pending), 404 `NOT_FOUND` (not registered or cancelled),
+  403 `FORBIDDEN`.
+- `DELETE /api/trips/{tripId}/registrations/{personId}/checkin` → 200 `RegistrationDto` without a stamp
+  (idempotent); 403 for check-in staff, who may not clear.
+- `GET /api/trips/{tripId}/registrations/counts` → `{registered, confirmed, pending, checkedIn, byType:[{label,
+  total, checkedIn}], byDay:[{label, total, checkedIn}], money?:{paidCents, dueCents, paidUp, owing}}`; the
+  breakdowns count CONFIRMED people, `money` only for a caller who sees the trip's finances (amounts bound to THIS
+  trip only).
+
+**Scan flow (the app):** read the QR, which is the ticket page URL `https://<site>/trip/ticket.jsf?trip=<tripId>&t=
+<code>`; take `trip` and `t` from it (never open it); `GET .../ticket/{t}` to show who it is, then `POST
+.../{userId}/checkin`. A ticket for another event is a 404 on this trip.
+
 ## Waivers (trip documents, 2026-10-27; Accept `application/vnd.trip.waivers.v1+json`; backend `docs/waivers.md`)
 
 "Waiver" is loose: any document a trip requires each traveler to agree to. An organization owns its documents and
@@ -386,7 +417,7 @@ versioned put, so two simultaneous writes can refuse one as "Saved by someone el
 ## Errors
 
 `NOT_AUTHENTICATED`(401) `FORBIDDEN`(403) `NOT_FOUND`(404) `BAD_REQUEST`/`VALIDATION_FAILED`(400/422)
-`CONFLICT`(409) `MISSING_ATTESTATION`(422) `NOT_PINNED`(409) `RATE_LIMITED`(429 + Retry-After) `STORE_FAILED`/`INTERNAL`(500). Chat adds
+`CONFLICT`(409) `ALREADY_CHECKED_IN`/`NOT_CONFIRMED`(409, check-in) `MISSING_ATTESTATION`(422) `NOT_PINNED`(409) `RATE_LIMITED`(429 + Retry-After) `STORE_FAILED`/`INTERNAL`(500). Chat adds
 `NOT_A_TRIP_MEMBER, LEFT_CHANNEL, REMOVED_FROM_CHANNEL, CHANNEL_ARCHIVED, CHAT_DISABLED, MUTED, SLOW_MODE,
 BAD_CHANNEL, MESSAGE_EMPTY, MESSAGE_TOO_LONG, BAD_ATTACHMENT, EDIT_WINDOW_CLOSED, EDIT_DISABLED,
 ON_BEHALF_NOT_ALLOWED`.
@@ -416,6 +447,13 @@ curl -s -H "$H" -X POST -H 'Content-Type: image/jpeg' --data-binary @pic.jpg \
 curl -s -H "$H" -X POST -H 'Content-Type: application/json' \
   -d "{\"travelers\":[{\"personId\":\"$ME\",\"options\":{}}]}" \
   http://localhost:8080/api/trips/$T/registrations/party
+# check-in scan flow on the demo conference (admin token; Trinity is CONFIRMED with a ticket)
+C=c0f3a7d1-5b2e-4c88-9a1d-7e4f2b6c8d05
+TT=$(curl -s -H "$H" "http://localhost:8080/api/trips/$C/registrations/lookup?q=trinity" | jq -r '.[0].userId')
+CODE=$(curl -s -H "$H" http://localhost:8080/api/trips/$C/registrations/$TT | jq -r .ticketCode)
+curl -s -H "$H" http://localhost:8080/api/trips/$C/registrations/ticket/$CODE | jq '{name, registrationType}'
+curl -s -H "$H" -X POST http://localhost:8080/api/trips/$C/registrations/$TT/checkin | jq .checkedInAt
+curl -s -H "$H" http://localhost:8080/api/trips/$C/registrations/counts | jq '{checkedIn, confirmed}'
 # acting as a family member (user2 = Ken manages Lucy, who is on the Spring Demo roster)
 LUCY=$(curl -s -H "$H" http://localhost:8080/api/family | jq -r '.members[]|select(.first=="Lucy").id')
 curl -s -H "$H" -X POST -H 'Content-Type: application/vnd.trip.chat.v1+json' \

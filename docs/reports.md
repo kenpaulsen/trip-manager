@@ -52,6 +52,8 @@ grants nothing: every card is separately `rendered=` on the gate of the page it 
 | Payments | `admin/reports/tripPayments.jsf?print=true&trip=` | `seeFinances` |
 | Budget | `admin/reports/budget.jsf?trip=` (number: the overall surplus, or "No budget yet") | `seeBudget` = `budget.canViewBudget` (see `docs/budget.md`) |
 | Expense Report | `admin/reports/expenses.jsf?trip=` (number: "$55,560.95 spent", or "No expenses yet") | `seeExpenses` = `expenses.canViewExpenses`, the same `TripFinanceGate` as the budget (see `docs/expense-report.md`) |
+| Check-in (conferences) | `admin/checkin.jsf?trip=` (number: "37 of 120 checked in") | `seeCheckin` = `checkin.canViewCounts` (see `docs/checkin.md`) |
+| Badges (conferences) | `trip/itinerary-badge.jsf?all=true[&unprinted=true]&trip=` (number: "N not yet printed") | `seeBadges` = `checkin.canPrintBadges` |
 
 `tripViewer` is `showAll || tripView@trip`; `seeFinances` is `viewFinances || tripFinView@trip`. Both are
 computed into `requestScope` every request, so a grant made while the page is open takes effect on the next

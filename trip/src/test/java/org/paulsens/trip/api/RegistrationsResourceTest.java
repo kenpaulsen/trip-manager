@@ -70,6 +70,11 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         Mockito.when(people.getPerson(id)).thenReturn(new Person());
     }
 
+    /** A PUT body carrying only a status and/or answers, the two fields a client writes. */
+    private static RegistrationDto body(final String status, final Map<String, String> options) {
+        return new RegistrationDto(null, null, null, status, options, null, null, null, null, null, null, null);
+    }
+
     private static Registration registration(final Person.Id who, final Registration.Status status) {
         return new Registration(TRIP_ID, who, null, status, Map.of("diet", "vegetarian"));
     }
@@ -179,12 +184,12 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
 
         // Status in the body, no staff role: refused outright.
         assertError(resource.save(TRIP_ID, ME.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, "CONFIRMED", null, null)), 403, ApiErrors.FORBIDDEN);
+                body("CONFIRMED", null)), 403, ApiErrors.FORBIDDEN);
         Mockito.verify(registrations, Mockito.never()).saveRegistration(ArgumentMatchers.any());
 
         // Answers alone: accepted, and the stored status survives.
         assertOk(resource.save(TRIP_ID, ME.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, null, Map.of("diet", "vegan"), null)));
+                body(null, Map.of("diet", "vegan"))));
         final ArgumentCaptor<Registration> saved = ArgumentCaptor.forClass(Registration.class);
         Mockito.verify(registrations).saveRegistration(saved.capture());
         Assert.assertEquals(saved.getValue().getStatus(), Registration.Status.PENDING);
@@ -205,7 +210,7 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         Mockito.when(registrations.saveRegistration(ArgumentMatchers.any())).thenReturn(true);
 
         assertOk(resource.save(TRIP_ID, ME.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, null, Map.of("diet", "vegan"), null)));
+                body(null, Map.of("diet", "vegan"))));
         final ArgumentCaptor<Registration> saved = ArgumentCaptor.forClass(Registration.class);
         Mockito.verify(registrations).saveRegistration(saved.capture());
         Assert.assertEquals(saved.getValue().getOptions(), Map.of("diet", "vegan"));
@@ -227,9 +232,9 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         Mockito.when(bean(TripCommands.class).getTrip(TRIP_ID)).thenReturn(Trip.builder().id(TRIP_ID).build());
 
         assertOk(resource.save(TRIP_ID, ME.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, "CONFIRMED", null, null)));
+                body("CONFIRMED", null)));
         assertOk(resource.save(TRIP_ID, ME.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, "Confirmed", null, null)));
+                body("Confirmed", null)));
 
         final ArgumentCaptor<Registration> saved = ArgumentCaptor.forClass(Registration.class);
         Mockito.verify(registrations, Mockito.times(2)).saveRegistration(saved.capture());
@@ -247,11 +252,11 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         Mockito.when(bean(TripCommands.class).getTrip(TRIP_ID)).thenReturn(Trip.builder().id(TRIP_ID).build());
 
         resource.save(TRIP_ID, ME.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, null, Map.of("diet", "vegan"), null));
+                body(null, Map.of("diet", "vegan")));
         Mockito.verifyNoInteractions(audit);
 
         resource.save(TRIP_ID, ME.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, "CONFIRMED", null, null));
+                body("CONFIRMED", null));
         Mockito.verify(audit).registered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
@@ -264,7 +269,7 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         Mockito.when(bean(TripCommands.class).getTrip(TRIP_ID)).thenReturn(Trip.builder().id(TRIP_ID).build());
 
         resource.save(TRIP_ID, ME.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, "NOT_REGISTERED", null, null));
+                body("NOT_REGISTERED", null));
 
         Mockito.verify(audit).registrationRemoved(ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any());
@@ -349,7 +354,7 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
         tripIsMissing("gone");
 
         assertThrown(() -> resource.save("gone", ME.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, "CONFIRMED", null, null)), 404, ApiErrors.NOT_FOUND);
+                body("CONFIRMED", null)), 404, ApiErrors.NOT_FOUND);
         Mockito.verify(registrations, Mockito.never()).saveRegistration(ArgumentMatchers.any());
         Mockito.verifyNoInteractions(audit);
     }
@@ -380,7 +385,7 @@ public class RegistrationsResourceTest extends ResourceTestSupport {
 
         assertThrown(() -> resource.get(TRIP_ID, nobody.getValue()), 404, ApiErrors.NOT_FOUND);
         assertThrown(() -> resource.save(TRIP_ID, nobody.getValue(), CSRF_OK,
-                new RegistrationDto(null, null, null, "CONFIRMED", null, null)), 404, ApiErrors.NOT_FOUND);
+                body("CONFIRMED", null)), 404, ApiErrors.NOT_FOUND);
         assertThrown(() -> resource.room(TRIP_ID, nobody.getValue()), 404, ApiErrors.NOT_FOUND);
         assertThrown(() -> resource.saveRoom(TRIP_ID, nobody.getValue(), CSRF_OK, Map.of("room", "101")),
                 404, ApiErrors.NOT_FOUND);

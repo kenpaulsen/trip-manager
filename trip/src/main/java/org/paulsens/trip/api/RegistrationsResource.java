@@ -1,6 +1,7 @@
 package org.paulsens.trip.api;
 
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.POST;
@@ -8,6 +9,7 @@ import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.ArrayList;
@@ -17,9 +19,11 @@ import java.util.Locale;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.AuditCommands;
+import org.paulsens.trip.action.CheckinCommands;
 import org.paulsens.trip.action.ChatCommands;
 import org.paulsens.trip.action.RegistrationCommands;
 import org.paulsens.trip.action.WaiverCommands;
+import org.paulsens.trip.api.dto.CheckinCountsDto;
 import org.paulsens.trip.api.dto.RegisterPartyRequest;
 import org.paulsens.trip.api.dto.RegisterPartyResponse;
 import org.paulsens.trip.api.dto.RegistrationDto;
@@ -53,7 +57,8 @@ public class RegistrationsResource extends BaseResource {
      *
      * <p>Answers are stripped from every entry: this is the roster view, and a list endpoint is the easiest
      * place to leak a hundred people's dietary and medical notes at once. A caller who needs one person's
-     * answers fetches that one registration, where the check is made per person.
+     * answers fetches that one registration, where the check is made per person. The ticket goes too: it is a
+     * bearer secret, and a roster is exactly the listing that gets exported and forwarded.
      */
     @GET
     @Produces({V1, MediaType.APPLICATION_JSON})
@@ -62,7 +67,7 @@ public class RegistrationsResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN, "Trip staff required.");
         }
         return ok(Beans.get(RegistrationCommands.class).getRegistrations(tripId).stream()
-                .map(reg -> RegistrationMapper.INSTANCE.toDto(reg).withoutOptions())
+                .map(reg -> RegistrationMapper.INSTANCE.toDto(reg).withoutSecrets())
                 .toList());
     }
 
@@ -75,6 +80,128 @@ public class RegistrationsResource extends BaseResource {
             return error(403, ApiErrors.FORBIDDEN, "Trip staff required.");
         }
         return ok(Map.of("pending", Beans.get(RegistrationCommands.class).getNumPending(tripId)));
+    }
+
+    // ------------------------------------------------------------------ check-in (docs/checkin.md)
+
+    /**
+     * Staff search for the check-in desk: a whole ticket code matches exactly that ticket, anything else matches
+     * names and email by token ({@code CheckinCommands.lookup}). Listing entries: no answers, no ticket. Whoever may
+     * check people in here (site admin, tripMgr, checkinStaff).
+     */
+    @GET
+    @Path("lookup")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response lookup(@PathParam("tripId") final String tripId, @QueryParam("q") final String query) {
+        requireTrip(tripId);
+        final CheckinCommands checkin = callerBoundCheckin();
+        if (!checkin.canCheckIn(tripId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Check-in staff required.");
+        }
+        return ok(checkin.lookup(tripId, query).stream().map(row -> rowDto(tripId, row)).toList());
+    }
+
+    /**
+     * The registration a scanned ticket belongs to (the app parses {@code t} from the QR's URL and asks here), with
+     * its ticket, stamp, type and name; answers only for trip staff who may read them. 404 for no such ticket.
+     */
+    @GET
+    @Path("ticket/{code}")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response ticket(@PathParam("tripId") final String tripId, @PathParam("code") final String code) {
+        final Trip trip = requireTrip(tripId);
+        final CheckinCommands checkin = callerBoundCheckin();
+        if (!checkin.canCheckIn(tripId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Check-in staff required.");
+        }
+        final Registration reg = checkin.byTicket(tripId, code);
+        if (reg == null) {
+            return error(404, ApiErrors.NOT_FOUND, "No such ticket for this event.");
+        }
+        return ok(checkinDto(checkin, trip, reg));
+    }
+
+    /**
+     * Checks the person in. 409 {@code ALREADY_CHECKED_IN} (the first stamp is kept; the message says when and by
+     * whom) or {@code NOT_CONFIRMED}; 404 when they are not registered at all.
+     */
+    @POST
+    @Path("{personId}/checkin")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response checkIn(@PathParam("tripId") final String tripId,
+            @PathParam("personId") final String personIdParam, @HeaderParam(CSRF_HEADER) final String csrf) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final Trip trip = requireTrip(tripId);
+        requireSubject(Person.Id.from(personIdParam));
+        final CheckinCommands checkin = callerBoundCheckin();
+        final CheckinCommands.Result result = checkin.checkInOutcome(tripId, personIdParam);
+        return switch (result.outcome()) {
+            case CHECKED_IN -> ok(checkinDto(checkin, trip, result.registration()));
+            case ALREADY_CHECKED_IN -> error(409, ApiErrors.ALREADY_CHECKED_IN,
+                    "Already checked in " + checkin.stampText(result.registration()) + ".");
+            case NOT_CONFIRMED -> error(409, ApiErrors.NOT_CONFIRMED, "The registration is "
+                    + result.registration().getStatus().getDescription() + ", not Confirmed.");
+            case NOT_FOUND -> error(404, ApiErrors.NOT_FOUND, "Not registered for this event.");
+            case NOT_ALLOWED -> error(403, ApiErrors.FORBIDDEN, "Check-in staff required.");
+            default -> error(500, ApiErrors.STORE_FAILED, "Could not save the check-in.");
+        };
+    }
+
+    /** Clears a check-in (the wrong person was scanned): the trip's managers only. Idempotent. */
+    @DELETE
+    @Path("{personId}/checkin")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response clearCheckIn(@PathParam("tripId") final String tripId,
+            @PathParam("personId") final String personIdParam, @HeaderParam(CSRF_HEADER) final String csrf) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final Trip trip = requireTrip(tripId);
+        requireSubject(Person.Id.from(personIdParam));
+        final CheckinCommands checkin = callerBoundCheckin();
+        final CheckinCommands.Result result = checkin.clearCheckInOutcome(tripId, personIdParam);
+        return switch (result.outcome()) {
+            case CLEARED, NOT_CHECKED_IN -> ok(checkinDto(checkin, trip, result.registration()));
+            case NOT_FOUND -> error(404, ApiErrors.NOT_FOUND, "Not registered for this event.");
+            case NOT_ALLOWED -> error(403, ApiErrors.FORBIDDEN, "Only the event's managers may clear a check-in.");
+            default -> error(500, ApiErrors.STORE_FAILED, "Could not clear the check-in.");
+        };
+    }
+
+    /** The check-in counts; the money row only for a caller who sees the trip's finances. */
+    @GET
+    @Path("counts")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response counts(@PathParam("tripId") final String tripId) {
+        requireTrip(tripId);
+        final CheckinCommands checkin = callerBoundCheckin();
+        if (!checkin.canViewCounts(tripId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Not permitted to read this event's counts.");
+        }
+        return ok(CheckinCountsDto.of(checkin.counts(tripId), checkin.money(tripId)));
+    }
+
+    /** Seam: the check-in bean bound to THIS caller (bearer or session); tests substitute. */
+    protected CheckinCommands callerBoundCheckin() {
+        return new CheckinCommands(this::caller);
+    }
+
+    /** One check-in registration on the wire: absolute ticket URL, type, name; answers for trip staff only. */
+    private RegistrationDto checkinDto(final CheckinCommands checkin, final Trip trip, final Registration reg) {
+        final RegistrationDto dto = RegistrationMapper.INSTANCE.toDto(reg);
+        final Person person = findPerson(reg.getUserId());
+        return (isTripStaff(trip.getId()) ? dto : dto.withoutOptions()).withCheckin(
+                absoluteUrl(checkin.ticketUrl(trip, reg.getTicketCode())),
+                CheckinCommands.registrationType(trip, reg),
+                person == null ? null : CheckinCommands.displayName(person));
+    }
+
+    private static RegistrationDto rowDto(final String tripId, final RegistrationCommands.RegRow row) {
+        final Registration.Status status = Registration.Status.fromDescription(row.getStatus());
+        return new RegistrationDto(tripId, row.getUserId(), row.getCreated(), status == null ? null : status.name(),
+                null, null, null, null, row.getCheckedInAt(), null, row.getRegistrationType(), row.getName());
     }
 
     /**
@@ -99,8 +226,11 @@ public class RegistrationsResource extends BaseResource {
         final Trip trip = requireTrip(tripId);
         requireSubject(subject);
         final Registration reg = Beans.get(RegistrationCommands.class).getRegistration(tripId, subject);
+        // The owner's own ticket (code and absolute URL) rides along: the app shows its QR at the door.
         return ok(RegistrationMapper.INSTANCE.toDto(reg)
-                .withWaiversSatisfied(new WaiverCommands(this::caller).isSatisfied(trip, subject)));
+                .withWaiversSatisfied(new WaiverCommands(this::caller).isSatisfied(trip, subject))
+                .withCheckin(absoluteUrl(callerBoundCheckin().ticketUrl(trip, reg.getTicketCode())),
+                        CheckinCommands.registrationType(trip, reg), null));
     }
 
     /**
