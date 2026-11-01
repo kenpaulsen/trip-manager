@@ -6,9 +6,7 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import lombok.Data;
 
 /**
@@ -26,9 +24,8 @@ public final class PendingParty implements Serializable {
     /** The {@code Registration.OPT_PARTY} stamp the rows share. */
     private String partyId;
     private Person.Id registeredBy;
+    /** The rows to write; each carries its parked chat digest answer in its options, as party registration does. */
     private List<Registration> rows;
-    /** personId value -> the daily chat digest answer, applied on confirmation. */
-    private Map<String, Boolean> digest;
     /** When the rows were written; null until then. */
     private LocalDateTime finalizedAt;
     /** What an admin should know (someone registered meanwhile, over capacity, a code over its limit). */
@@ -39,18 +36,16 @@ public final class PendingParty implements Serializable {
             @JsonProperty("partyId") final String partyId,
             @JsonProperty("registeredBy") final Person.Id registeredBy,
             @JsonProperty("rows") final List<Registration> rows,
-            @JsonProperty("digest") final Map<String, Boolean> digest,
             @JsonProperty("finalizedAt") final LocalDateTime finalizedAt,
             @JsonProperty("warnings") final List<String> warnings) {
         this.partyId = partyId;
         this.registeredBy = registeredBy;
         this.rows = (rows == null) ? new ArrayList<>() : new ArrayList<>(rows);
-        this.digest = (digest == null) ? new HashMap<>() : new HashMap<>(digest);
         this.finalizedAt = finalizedAt;
         this.warnings = (warnings == null) ? new ArrayList<>() : new ArrayList<>(warnings);
     }
 
     public PendingParty() {
-        this(null, null, null, null, null, null);
+        this(null, null, null, null, null);
     }
 }

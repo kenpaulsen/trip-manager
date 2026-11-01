@@ -13,14 +13,36 @@ public enum ProcessorType {
     /** Zeffy hosted forms: no capture API; record-only reconciliation. Not yet implemented. */
     ZEFFY(0, 0),
     /** Local-mode fake: drives the full flow in tests with no network. PayPal-like fees so math is real. */
-    FAKE(349, 49);
+    FAKE(349, 49),
+    /**
+     * Not a processor: a registration paid outside one (a check, cash, a comp) or costing nothing, run through the
+     * same {@code Payment} pipeline so it records and registers exactly like a processor payment
+     * (docs/checkout.md). Never configurable, never charged, no fees, no capture step.
+     */
+    OFFLINE(0, 0, false);
 
     private final int defaultFeeBps;
     private final int defaultFeeFixedCents;
+    private final boolean configurable;
 
     ProcessorType(final int defaultFeeBps, final int defaultFeeFixedCents) {
+        this(defaultFeeBps, defaultFeeFixedCents, true);
+    }
+
+    ProcessorType(final int defaultFeeBps, final int defaultFeeFixedCents, final boolean configurable) {
         this.defaultFeeBps = defaultFeeBps;
         this.defaultFeeFixedCents = defaultFeeFixedCents;
+        this.configurable = configurable;
+    }
+
+    /** Whether an organization can set this type up as a processor config (everything but OFFLINE). */
+    public boolean isConfigurable() {
+        return configurable;
+    }
+
+    /** The types an organization may configure, in declaration order: the processor settings picker. */
+    public static java.util.List<ProcessorType> configurableTypes() {
+        return java.util.Arrays.stream(values()).filter(ProcessorType::isConfigurable).toList();
     }
 
     public int getDefaultFeeBps() {

@@ -14,6 +14,8 @@ import org.paulsens.trip.content.StarterTemplates;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.security.TicketCodes;
+import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.TripPaymentConfig;
 
 /**
@@ -24,6 +26,7 @@ import org.paulsens.trip.model.TripPaymentConfig;
  */
 @Slf4j
 public class PaymentMailer {
+    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("MMMM d, yyyy");
     private final MailCommands mail;
     private final Function<Person.Id, Person> people;
 
@@ -76,6 +79,60 @@ public class PaymentMailer {
         values.put("failureReason", reason == null ? "" : reason);
         return mail.sendManagedTemplateForOrg(StarterTemplates.PAYMENT_FAILED_ID, orgOf(payment, trip), values,
                 payer.getEmail(), effective.getMailFrom(), effective.getReplyTo(), effective.getBcc(), actor);
+    }
+
+    /**
+     * A priced checkout's confirmation (docs/checkout.md): the {@code checkout-confirmation} MAIL starter (the
+     * org's own copy when it has one), one line per registrant with what they registered as, its price, their
+     * status and their ticket code. Same contract as {@link #sendConfirmation}: false when unconfigured or
+     * unsendable, logged, never thrown.
+     */
+    public boolean sendCheckoutConfirmation(final Payment payment, final Trip trip, final TripPaymentConfig effective,
+            final String orgName, final String processorName, final String notifyEmail, final AuditActor actor) {
+        final Person payer = people.apply(payment.getPayerId());
+        if (payer == null || payer.getEmail() == null || payer.getEmail().isBlank()) {
+            log.warn("Payment {}: payer has no address; registration confirmation not sent", payment.getPaymentId());
+            return false;
+        }
+        if (effective.getMailFrom() == null) {
+            log.warn("Payment {}: registration confirmation unconfigured (no From)", payment.getPaymentId());
+            return false;
+        }
+        final Map<String, Object> values = values(payment, trip, effective, payer, orgName, processorName);
+        values.putAll(checkoutValues(payment, trip, processorName));
+        return mail.sendManagedTemplateForOrg(StarterTemplates.CHECKOUT_CONFIRMATION_ID, orgOf(payment, trip), values,
+                payer.getEmail(), effective.getMailFrom(), effective.getReplyTo(),
+                joinAddresses(effective.getBcc(), notifyEmail), actor);
+    }
+
+    /** The checkout tokens: the registrants block, the status note, the trip's dates and how it was paid. */
+    Map<String, Object> checkoutValues(final Payment payment, final Trip trip, final String processorName) {
+        final Map<String, Object> values = new HashMap<>();
+        final List<Registration> rows = payment.getCheckout().getRows();
+        values.put("registrantsBlock", registrantsBlock(rows));
+        final boolean allConfirmed = rows.stream().allMatch(row -> row.getStatus() == Registration.Status.CONFIRMED);
+        values.put("statusNote", allConfirmed ? "Your registration is confirmed. Bring your ticket code to check-in."
+                : "Your registration is received and awaiting confirmation; we will email you when it is approved.");
+        values.put("tripDates", trip == null || trip.getStartDate() == null ? ""
+                : DATE.format(trip.getStartDate()) + (trip.getEndDate() == null ? ""
+                        : " to " + DATE.format(trip.getEndDate())));
+        values.put("paymentMethod", payment.getTotalChargedCents() == 0 ? "no charge" : processorName);
+        return values;
+    }
+
+    private MailTemplates.Raw registrantsBlock(final List<Registration> rows) {
+        final String items = rows.stream().map(this::registrantItem).collect(Collectors.joining());
+        return new MailTemplates.Raw(items.isEmpty() ? "" : "<ul>" + items + "</ul>");
+    }
+
+    private String registrantItem(final Registration row) {
+        final String type = row.getRegistrationType() == null ? "Registered" : row.getRegistrationType();
+        final long price = row.getPriceBreakdown() == null ? 0L : row.getPriceBreakdown().getTotalCents();
+        final String ticket = row.getStatus() == Registration.Status.CONFIRMED && row.getTicketCode() != null
+                ? " &middot; ticket <b>" + TicketCodes.grouped(row.getTicketCode()) + "</b>" : "";
+        return "<li><b>" + MailTemplates.escape(nameOf(row.getUserId())) + "</b>: "
+                + MailTemplates.escape(type) + ", " + MoneyMath.formatCents(price) + " ("
+                + row.getStatus().getDescription() + ")" + ticket + "</li>";
     }
 
     /** Whose confirmation copy this is: the payment's organization, else its trip's, else nobody's. */

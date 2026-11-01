@@ -22,6 +22,7 @@ import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.PaymentProcessorConfig;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.ProcessorType;
 import org.paulsens.trip.model.FeesPaidBy;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripPaymentConfig;
@@ -57,12 +58,17 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
 @Named("payment")
 @ApplicationScoped
 public class PaymentCommands {
+    /** What a payment recorded outside any processor (a check, cash, a comp, a $0 registration) is called. */
+    public static final String OFFLINE_NAME = "Offline payment";
+
     private final Supplier<Caller> callerSource;
     private final OrgCommands orgs;
     private final AuditCommands audit;
     private final PaymentRecorder recorder;
     private final BiFunction<PaymentProcessorConfig, Boolean, PaymentProcessor> processors;
     private final Supplier<PaymentMailer> mailerSource;
+    /** Priced checkout's finalize step (docs/checkout.md); created lazily, it builds a PaymentCommands too. */
+    private final Supplier<CheckoutCommands> checkoutSource;
 
     public PaymentCommands() {
         this(Caller::current);
@@ -81,12 +87,21 @@ public class PaymentCommands {
             final AuditCommands audit, final PaymentRecorder recorder,
             final BiFunction<PaymentProcessorConfig, Boolean, PaymentProcessor> processors,
             final Supplier<PaymentMailer> mailerSource) {
+        this(callerSource, orgs, audit, recorder, processors, mailerSource, () -> new CheckoutCommands(callerSource));
+    }
+
+    /** Test seam with the checkout finalizer handed in too. */
+    public PaymentCommands(final Supplier<Caller> callerSource, final OrgCommands orgs,
+            final AuditCommands audit, final PaymentRecorder recorder,
+            final BiFunction<PaymentProcessorConfig, Boolean, PaymentProcessor> processors,
+            final Supplier<PaymentMailer> mailerSource, final Supplier<CheckoutCommands> checkoutSource) {
         this.callerSource = callerSource;
         this.orgs = orgs;
         this.audit = audit;
         this.recorder = recorder;
         this.processors = processors;
         this.mailerSource = mailerSource;
+        this.checkoutSource = checkoutSource;
     }
 
     // ------------------------------------------------------------------ page-facing views
@@ -191,10 +206,22 @@ public class PaymentCommands {
         if (credits <= 0 && donation <= 0) {
             return failNull("Nothing to pay", "Enter an amount for at least one traveler, or a donation.");
         }
+        final Payment payment = newPayment(trip, payer, config, effective, allocations, donation, sandbox);
+        return startPrepared(trip, payment, config, payer, pageUrl, trip.getTitle() + " - payment");
+    }
+
+    /**
+     * A CREATED payment for these credits and donation, its fees per the effective config: the one place a
+     * payment's money fields are computed, for the payment page and priced checkout alike.
+     */
+    Payment newPayment(final Trip trip, final Person payer, final PaymentProcessorConfig config,
+            final TripPaymentConfig effective, final List<Payment.Allocation> allocations, final long donation,
+            final boolean sandbox) {
+        final long credits = allocations.stream().mapToLong(Payment.Allocation::getAmountCents).sum();
         final boolean payerPays = effective.getFeesPaidBy() == FeesPaidBy.PAYER;
         final long creditFee = MoneyMath.creditFeeCents(credits, config.getEffectiveFeeBps(),
                 config.getEffectiveFeeFixedCents());
-        final Payment payment = Payment.builder()
+        return Payment.builder()
                 .tripId(trip.getId())
                 .orgId(trip.getOrgId())
                 .payerId(payer.getId())
@@ -209,6 +236,16 @@ public class PaymentCommands {
                 .sandbox(sandbox)
                 .createdAt(LocalDateTime.now())
                 .build();
+    }
+
+    /**
+     * Persists a built CREATED payment, audits the start, creates the processor order and answers how the payer
+     * completes it (the second half of {@link #startPayment}, shared with priced checkout, whose payment carries
+     * its pending party).
+     */
+    Start startPrepared(final Trip trip, final Payment payment, final PaymentProcessorConfig config,
+            final Person payer, final String pageUrl, final String orderDescription) {
+        final Caller current = caller();
         try {
             DAO.getInstance().createPayment(payment);
         } catch (final RuntimeException | IOException ex) {
@@ -217,14 +254,15 @@ public class PaymentCommands {
         }
         audit.payment(payment, true, sandboxTag(payment) + "Payment started by "
                 + payer.getEmail() + ": " + MoneyMath.formatCents(payment.getTotalChargedCents())
-                + " to trip " + trip.getId() + " (" + allocations.size() + " traveler(s), donation "
-                + MoneyMath.formatCents(donation) + ", via " + config.getDisplayLabel() + ")",
+                + " to trip " + trip.getId() + " (" + payment.getAllocations().size() + " traveler(s), donation "
+                + MoneyMath.formatCents(payment.getDonationCents()) + ", via " + config.getDisplayLabel()
+                + (payment.isCheckout() ? ", registration checkout" : "") + ")",
                 current.auditActor());
         try {
-            final PaymentProcessor processor = processors.apply(config, sandbox);
+            final PaymentProcessor processor = processors.apply(config, payment.isSandbox());
             final String base = pageUrl + "?trip=" + trip.getId() + "&payment=" + payment.getPaymentId();
-            final PaymentProcessor.CreatedOrder order = processor.createOrder(payment,
-                    trip.getTitle() + " - payment", base, base + "&cancelled=true");
+            final PaymentProcessor.CreatedOrder order = processor.createOrder(payment, orderDescription, base,
+                    base + "&cancelled=true");
             payment.setOrderRef(order.orderRef());
             DAO.getInstance().transitionPayment(payment, Payment.Status.CREATED);
             return Start.of(payment, order, orgNameOf(payment), payer.getEmail());
@@ -242,19 +280,55 @@ public class PaymentCommands {
     public Completion completePayment(final String paymentId, final String token) {
         final Caller current = caller();
         final Payment payment = DAO.getInstance().getPayment(paymentId).orElse(null);
-        if (payment == null) {
-            return Completion.of("notfound", "Unknown payment.");
-        }
-        if (!current.isSiteAdmin()
-                && (currentPerson() == null || !payment.getPayerId().equals(currentPerson().getId()))) {
+        if (payment == null || !mayComplete(current, payment)) {
             return Completion.of("notfound", "Unknown payment.");
         }
         return complete(payment, token, current);
     }
 
+    /**
+     * Who may finish a payment from a return page: its payer, a site admin, and for a registration checkout the
+     * trip's registration admins too (an admin paying on a family's behalf comes back to their own page).
+     */
+    private boolean mayComplete(final Caller current, final Payment payment) {
+        if (current.isSiteAdmin()) {
+            return true;
+        }
+        final Person me = currentPerson();
+        if (me != null && payment.getPayerId().equals(me.getId())) {
+            return true;
+        }
+        return payment.isCheckout() && current.has(PrivilegeCommands.REGISTRATION_ADMIN, payment.getTripId());
+    }
+
+    /**
+     * Records a payment taken OUTSIDE any processor (docs/checkout.md): a check, cash or a comp an admin entered,
+     * or a party whose total is $0. The payment arrives built and already CAPTURED (its capture id is the
+     * method's label, its gross what was received) and runs the one completion path, so it records, registers
+     * and mails exactly like a processor payment. Callers authorize (CheckoutCommands).
+     */
+    Completion recordOffline(final Payment payment) {
+        final Caller current = caller();
+        try {
+            DAO.getInstance().createPayment(payment);
+        } catch (final RuntimeException | IOException ex) {
+            log.error("Unable to persist offline payment {}", payment.getPaymentId(), ex);
+            return Completion.of("failed", "The registration could not be saved; try again.");
+        }
+        audit.payment(payment, true, sandboxTag(payment) + "Offline payment entered: "
+                + MoneyMath.formatCents(payment.getCapturedGrossCents()) + " (" + payment.getCaptureId() + ") to trip "
+                + payment.getTripId(), current.auditActor());
+        return complete(payment, null, current);
+    }
+
     private Completion complete(final Payment payment, final String token, final Caller current) {
         switch (payment.getStatus()) {
             case RECORDED -> {
+                if (payment.isCheckout() && payment.getCheckout().getFinalizedAt() == null && !payment.isSandbox()) {
+                    // Recorded by a build that predates checkout (a rolling deploy): the money is in, the
+                    // registrations are owed. Finalizing is idempotent, so this only ever completes the job.
+                    return finalizeRecorded(payment, current);
+                }
                 return recordedOutcome(payment, "Payment already recorded.");
             }
             case CANCELLED -> {
@@ -338,10 +412,16 @@ public class PaymentCommands {
         final Trip trip = DAO.getInstance().getTrip(payment.getTripId(), Cached.NO).orElse(null);
         final String orgName = orgNameOf(payment);
         final PaymentProcessorConfig config = configOf(payment);
-        final String processorName = displayNameOf(config);
+        final String processorName = processorNameOf(payment, config);
         final PaymentRecorder.Result result;
         try {
             result = recorder.record(payment, orgName, processorName);
+            if (payment.isCheckout()) {
+                // The party's registrations and Bills, in the SAME guarded step as the ledger write: a failure
+                // leaves the row CAPTURED for the reconciliation Finish, which re-runs both idempotently. Before
+                // the RECORDED transition, so that put also stores what finalize stamped on the party.
+                checkoutSource.get().finalizeParty(payment, trip);
+            }
         } catch (final RuntimeException ex) {
             // Money HAS moved; the payment stays CAPTURED and the reconciliation list owns it now.
             log.error("Ledger write failed for CAPTURED payment {}", payment.getPaymentId(), ex);
@@ -369,8 +449,11 @@ public class PaymentCommands {
             // The payer's phone/browser hears first; off-thread and never able to fail the record.
             org.paulsens.trip.push.PushNotifications.getInstance().paymentRecorded(payment, trip, orgName);
             final TripPaymentConfig effective = orgs.effectivePaymentConfig(trip);
-            final boolean mailed = mailerSource.get().sendConfirmation(payment, trip, effective, orgName,
-                    processorName, notifyEmail(), current.auditActor());
+            final boolean mailed = payment.isCheckout()
+                    ? mailerSource.get().sendCheckoutConfirmation(payment, trip, effective, orgName, processorName,
+                            notifyEmail(), current.auditActor())
+                    : mailerSource.get().sendConfirmation(payment, trip, effective, orgName, processorName,
+                            notifyEmail(), current.auditActor());
             if (!mailed) {
                 audit.payment(payment, false, "Confirmation email was not sent",
                         current.auditActor());
@@ -383,6 +466,21 @@ public class PaymentCommands {
         return recordedOutcome(payment, sandboxTag(payment).isEmpty()
                 ? "Payment received - thank you!"
                 : "Sandbox payment completed; NO ledger rows were written.");
+    }
+
+    /** The RECORDED repair: finalize a checkout's party and store the stamp; never re-mails (the record did). */
+    private Completion finalizeRecorded(final Payment payment, final Caller current) {
+        final Trip trip = DAO.getInstance().getTrip(payment.getTripId(), Cached.NO).orElse(null);
+        try {
+            checkoutSource.get().finalizeParty(payment, trip);
+            DAO.getInstance().transitionPayment(payment, Payment.Status.RECORDED);
+        } catch (final RuntimeException | IOException ex) {
+            log.error("Unable to finalize the registrations of recorded payment {}", payment.getPaymentId(), ex);
+            return Completion.of("mismatch", "Your payment was received, but registering it hit a problem. "
+                    + "An administrator will finish it up; you will not be charged again.");
+        }
+        audit.payment(payment, true, "Registrations written for a payment recorded earlier", current.auditActor());
+        return recordedOutcome(payment, "Payment already recorded.");
     }
 
     /**
@@ -615,6 +713,11 @@ public class PaymentCommands {
         return completion;
     }
 
+    /** The processor config a payment for this trip would use, or null when it takes no payments. */
+    PaymentProcessorConfig processorConfigFor(final Trip trip) {
+        return resolveConfig(trip, orgs.effectivePaymentConfig(trip));
+    }
+
     private PaymentProcessorConfig resolveConfig(final Trip trip, final TripPaymentConfig effective) {
         if (trip == null || trip.getOrgId() == null || trip.getOrgId().isBlank()
                 || !effective.isPayable()) {
@@ -634,6 +737,11 @@ public class PaymentCommands {
                 PaymentProcessorConfig.Id.from(payment.getProcessorConfigId()), Cached.NO).orElse(null);
     }
 
+    /** The payment's processor as people read it: an offline payment has no config, only its type. */
+    private String processorNameOf(final Payment payment, final PaymentProcessorConfig config) {
+        return payment.getProcessorType() == ProcessorType.OFFLINE ? OFFLINE_NAME : displayNameOf(config);
+    }
+
     private String displayNameOf(final PaymentProcessorConfig config) {
         if (config == null || config.getType() == null) {
             return "the payment processor";
@@ -643,6 +751,7 @@ public class PaymentCommands {
             case STRIPE -> "Stripe";
             case ZEFFY -> "Zeffy";
             case FAKE -> "Test Processor";
+            case OFFLINE -> OFFLINE_NAME;
         };
     }
 

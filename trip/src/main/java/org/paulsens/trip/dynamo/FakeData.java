@@ -1321,9 +1321,30 @@ public final class FakeData {
                 .endDate(day1.plusDays(2).atTime(17, 0))
                 .regLimit(150)
                 .regOptions(questions)
+                .checkout(conferencePricing())
                 .tripEvents(events)
                 .facilitatorIds(tripStaff)
                 .build();
+    }
+
+    /**
+     * The conference's priced-checkout policy (docs/checkout.md): ON, paid registrations confirmed outright, infants
+     * free and children capped at $50, and two codes: SPEAKER (the full weekend at no cost, five uses) and EARLY10.
+     */
+    private static org.paulsens.trip.model.CheckoutConfig conferencePricing() {
+        final java.util.List<org.paulsens.trip.model.AgeBand> bands = List.of(
+                new org.paulsens.trip.model.AgeBand("Infant (0-3)", 0, 3, new org.paulsens.trip.model.Concession(
+                        org.paulsens.trip.model.Concession.Kind.COMPLIMENTARY, 0, 0L, null, null, null)),
+                new org.paulsens.trip.model.AgeBand("Child (4-10)", 4, 10, new org.paulsens.trip.model.Concession(
+                        org.paulsens.trip.model.Concession.Kind.FIXED_PRICE, 0, 5000L, null, null, null)));
+        final java.util.List<org.paulsens.trip.model.DiscountCode> codes = List.of(
+                new org.paulsens.trip.model.DiscountCode("SPEAKER", "Speakers and their families",
+                        new org.paulsens.trip.model.Concession(org.paulsens.trip.model.Concession.Kind.FIXED_PRICE,
+                                0, 0L, null, null, null), null, List.of(CONF_FULL_WEEKEND), null, 5),
+                new org.paulsens.trip.model.DiscountCode("EARLY10", "Early registration",
+                        new org.paulsens.trip.model.Concession(org.paulsens.trip.model.Concession.Kind.PERCENT,
+                                1000, 0L, null, null, null), null, null, null, null));
+        return new org.paulsens.trip.model.CheckoutConfig(Boolean.TRUE, null, null, null, bands, codes);
     }
 
     /** One EVENT on the conference agenda, its presenter, room and track stored as the event dialog stores them. */

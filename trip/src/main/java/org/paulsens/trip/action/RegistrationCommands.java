@@ -820,16 +820,7 @@ public class RegistrationCommands {
             return false;
         }
         trips.saveTrip(trip);
-        // Approval is when the digest answer given at registration becomes a real preference. Handed the
-        // trip itself, not its id: the roster just changed and a re-read can still see the old one while
-        // the cache invalidation is in flight.
-        new ChatCommands().applyRegistrationDigestChoice(trip, confirmed);
-        final Person person = PersonCommands.getPersonCommands().getPerson(reg.getUserId());
-        auditSource.get().registrationApproved(person, trip);
-        // The push goes to the person AND their family managers (a phone needs no address); off-thread,
-        // never blocking the approval. The email below is the admin's choice; the push is not asked about.
-        org.paulsens.trip.push.PushNotifications.getInstance()
-                .registrationApproved(person, trip, approvalRecipientIds(person));
+        final Person person = afterConfirmed(trip, confirmed);
         // The email goes to the person, or to their family's mailable managers, and a missing
         // template/address never blocks the approval itself.
         if (sendApprovalEmail && canEmailApproval(person)) {
@@ -845,6 +836,23 @@ public class RegistrationCommands {
                     null, org.paulsens.trip.audit.AuditActor.current());
         }
         return true;
+    }
+
+    /**
+     * What becoming CONFIRMED does beyond the row and the roster, shared by the admin's Approve and a paid priced
+     * checkout (docs/checkout.md): the parked chat digest answer becomes a real preference, the approval is
+     * audited, and the person and their family managers get a push. {@code trip} is the caller's own copy with
+     * the roster already updated (a re-read can still see the old one while the cache invalidation is in
+     * flight). Answers the person, for the caller's mail.
+     */
+    public Person afterConfirmed(final org.paulsens.trip.model.Trip trip, final Registration confirmed) {
+        new ChatCommands().applyRegistrationDigestChoice(trip, confirmed);
+        final Person person = PersonCommands.getPersonCommands().getPerson(confirmed.getUserId());
+        auditSource.get().registrationApproved(person, trip);
+        // Off-thread, never blocking; a phone needs no address, so the family managers hear too.
+        org.paulsens.trip.push.PushNotifications.getInstance()
+                .registrationApproved(person, trip, approvalRecipientIds(person));
+        return person;
     }
 
     /** Confirmed -> Pending (un-approve, leaving the roster) or Not Registered -> Pending (revive). */

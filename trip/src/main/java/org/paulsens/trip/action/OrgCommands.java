@@ -1900,7 +1900,7 @@ public class OrgCommands {
 
     /** Processor type names for the settings page's picker. */
     public List<String> getProcessorTypes() {
-        return java.util.Arrays.stream(ProcessorType.values()).map(Enum::name).toList();
+        return ProcessorType.configurableTypes().stream().map(Enum::name).toList();
     }
 
     /** This org's processor configs, label-sorted, for its settings page. Admin-gated like the page. */
@@ -2514,8 +2514,10 @@ public class OrgCommands {
 
     private static ProcessorType parseType(final String typeName) {
         try {
+            // A non-configurable type (OFFLINE) is not a processor an org can set up: refused like garbage.
             return (typeName == null || typeName.isBlank()) ? null
-                    : ProcessorType.valueOf(typeName.trim().toUpperCase(Locale.ROOT));
+                    : java.util.Optional.of(ProcessorType.valueOf(typeName.trim().toUpperCase(Locale.ROOT)))
+                            .filter(ProcessorType::isConfigurable).orElse(null);
         } catch (final IllegalArgumentException ex) {
             return null;
         }

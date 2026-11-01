@@ -65,6 +65,7 @@ public class ProcessorPing {
             case PAYPAL -> pingPayPal(config, sandbox, clientSecret);
             case STRIPE -> pingStripe(config, sandbox, clientSecret);
             case ZEFFY -> config.getType().name() + " is not supported yet.";
+            case OFFLINE -> "An offline payment has no processor to test.";
         };
     }
 

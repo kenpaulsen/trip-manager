@@ -32,10 +32,34 @@ public class RegistrationDraft implements Serializable {
      */
     private Map<String, Object> waivers;
 
+    /** Priced checkout (docs/checkout.md): personId value -> the discount code that person typed. Lazy, as above. */
+    private Map<String, String> codes;
+    /** Priced checkout: {@code personId|choiceId} -> Boolean, the attestation checkboxes. Lazy, as above. */
+    private Map<String, Object> attest;
+
     public Map<String, Object> getWaivers() {
         if (waivers == null) {
             waivers = new HashMap<>();
         }
         return waivers;
+    }
+
+    public Map<String, String> getCodes() {
+        if (codes == null) {
+            codes = new HashMap<>();
+        }
+        return codes;
+    }
+
+    public Map<String, Object> getAttest() {
+        if (attest == null) {
+            attest = new HashMap<>();
+        }
+        return attest;
+    }
+
+    /** The attestation map's key for one person's choice. */
+    public static String attestKey(final String personId, final String choiceId) {
+        return personId + "|" + choiceId;
     }
 }

@@ -40,6 +40,7 @@ public final class PaymentProcessors {
                     key -> buildStripe(config, sandbox));
             case ZEFFY -> throw new PaymentProcessor.ProcessorException(
                     config.getType().name() + " is not supported yet.");
+            case OFFLINE -> throw new PaymentProcessor.ProcessorException("An offline payment has no processor.");
         };
     }
 

@@ -66,6 +66,64 @@ public class RegistrationsResource extends BaseResource {
                 .toList());
     }
 
+    /**
+     * The trip's priced-checkout policy (docs/checkout.md): on/off, auto-confirm, the window and the age bands, for
+     * any signed-in caller (the registration form shows them); the discount CODES only to the trip's managers and
+     * registration admins, since a code is a secret its holders were given. Prices are the trip's typed questions
+     * ({@code GET /api/trips/{id}}), never duplicated here.
+     */
+    @GET
+    @Path("pricing")
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response pricing(@PathParam("tripId") final String tripId) {
+        final Trip trip = requireTrip(tripId);
+        final org.paulsens.trip.model.CheckoutConfig policy = trip.getCheckout();
+        if (mayManagePricing(tripId) || isTripStaff(tripId)) {
+            return ok(policy);
+        }
+        return ok(new org.paulsens.trip.model.CheckoutConfig(policy.getEnabled(), policy.getAutoConfirmPaid(),
+                policy.getOpensAt(), policy.getClosesAt(), policy.getAgeBands(), List.of()));
+    }
+
+    /**
+     * Replaces the trip's priced-checkout policy. Trip managers (and site admins) only, like the trip editor's
+     * dialog; a policy with problems (overlapping age bands, a duplicate code, a window that closes before it opens)
+     * is refused whole with every problem in the message.
+     */
+    @PUT
+    @Path("pricing")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response savePricing(
+            @PathParam("tripId") final String tripId,
+            @HeaderParam(CSRF_HEADER) final String csrf,
+            final org.paulsens.trip.model.CheckoutConfig body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        if (!mayManagePricing(tripId)) {
+            return error(403, ApiErrors.FORBIDDEN, "Trip manager required.");
+        }
+        if (body == null) {
+            return error(400, ApiErrors.VALIDATION_FAILED, "A pricing policy is required.");
+        }
+        final List<String> problems = body.problems();
+        if (!problems.isEmpty()) {
+            return error(400, ApiErrors.VALIDATION_FAILED, String.join(" ", problems));
+        }
+        // Load, mutate, save the SAME object: a DAO read hands back a copy.
+        final Trip trip = requireTrip(tripId);
+        trip.setCheckout(body);
+        if (!Beans.get(org.paulsens.trip.action.TripCommands.class).saveTrip(trip)) {
+            return error(500, ApiErrors.STORE_FAILED, "Could not save the pricing policy.");
+        }
+        return ok(trip.getCheckout());
+    }
+
+    private boolean mayManagePricing(final String tripId) {
+        return privileges().has(ApiPrivileges.TRIP_MGR, tripId);
+    }
+
     /** How many registrations are awaiting approval. Trip staff only. */
     @GET
     @Path("pending-count")

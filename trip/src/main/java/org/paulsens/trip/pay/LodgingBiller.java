@@ -1,7 +1,5 @@
 package org.paulsens.trip.pay;
 
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -9,7 +7,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.action.TransactionsCommands;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
-import org.paulsens.trip.model.BindingType;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Reservation;
 import org.paulsens.trip.model.ReservationOffer;
@@ -120,46 +117,16 @@ public class LodgingBiller {
 
     private Result applyOne(final String txId, final Person.Id person, final long signedCents,
             final String description, final String tripId, final String eventId) {
-        final Transaction existing = DAO.getInstance().getTransaction(person, txId, Cached.NO).orElse(null);
-        if (signedCents == 0L) {
-            if (existing == null) {
-                return Result.none();
-            }
-            existing.delete();
-            save(existing, tripId, txId);
-            return new Result(0, 0, 1);
-        }
-        if (existing != null && existing.getAmount() != null && cents(existing.getAmount()) == signedCents
-                && description.equals(existing.getNote())) {
-            return new Result(0, 1, 0);
-        }
-        final Transaction tx = new Transaction(txId, person, null, Transaction.Type.Tx,
-                Transaction.TransactionType.Bill, existing == null ? LocalDateTime.now() : existing.getTxDate(),
-                MoneyMath.toFloatDollars(signedCents), CATEGORY, description);
-        if (existing != null) {
-            tx.setOrgId(existing.getOrgId());
-        }
-        save(tx, tripId, txId);
-        if (tripId != null && !tripId.isBlank()) {
-            final String key = txCmds.getBind().key(person.getValue(), txId);
-            txCmds.getBind().setBindings(key, BindingType.TRANSACTION, BindingType.TRIP, List.of(tripId), true);
-            if (eventId != null && !eventId.isBlank()) {
-                txCmds.getBind().setBindings(key, BindingType.TRANSACTION, BindingType.TRIP_EVENT, List.of(eventId),
-                        true);
-            }
-        }
-        return new Result(1, 0, 0);
+        return switch (Bills.apply(txCmds, txId, person, signedCents, CATEGORY, description, tripId, eventId)) {
+            case WRITTEN -> new Result(1, 0, 0);
+            case UNCHANGED -> new Result(0, 1, 0);
+            case REMOVED -> new Result(0, 0, 1);
+            case NONE -> Result.none();
+        };
     }
 
-    private void save(final Transaction tx, final String tripId, final String txId) {
-        if (!txCmds.saveTransaction(tx, tripId)) {
-            throw new IllegalStateException("Ledger write failed for lodging row " + txId);
-        }
-    }
-
-    /** Signed cents from the row's Float (bills are negative, so {@code MoneyMath.toCents}'s guard does not fit). */
+    /** Signed cents from the row's Float; {@link Bills#cents}, kept for this class's callers. */
     static long cents(final Float dollars) {
-        return BigDecimal.valueOf(dollars.doubleValue()).movePointRight(2)
-                .setScale(0, java.math.RoundingMode.HALF_UP).longValueExact();
+        return Bills.cents(dollars);
     }
 }

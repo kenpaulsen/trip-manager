@@ -32,6 +32,8 @@ public final class StarterTemplates {
     public static final String SUPPORT_REQUEST_ID = "support-request";
     public static final String PAYMENT_CONFIRMATION_ID = "payment-confirmation";
     public static final String PAYMENT_FAILED_ID = "payment-failed";
+    /** A priced checkout's confirmation: who is registered as what, for how much (docs/checkout.md). */
+    public static final String CHECKOUT_CONFIRMATION_ID = "checkout-confirmation";
     public static final String ORG_INVITE_ID = "org-invite";
 
     // The BAND family (2026-09): full-bleed page sections for a marketing-style home page. STANDARD bands
@@ -60,7 +62,7 @@ public final class StarterTemplates {
     public static final List<String> IDS = List.of(YOUTUBE_VIDEO_ID, IMAGE_ID, TEXT_ONLY_ID,
             CONTAINER_ID, PILGRIMAGES_ID, PHOTO_ALBUMS_ID, FILE_ID, PERSON_ID, PEOPLE_LIST_ID,
             REGISTRATION_RECEIVED_ID, REGISTRATION_APPROVED_ID, SUPPORT_REQUEST_ID,
-            PAYMENT_CONFIRMATION_ID, PAYMENT_FAILED_ID, ORG_INVITE_ID,
+            PAYMENT_CONFIRMATION_ID, PAYMENT_FAILED_ID, CHECKOUT_CONFIRMATION_ID, ORG_INVITE_ID,
             BAND_HERO_ID, BAND_SPLIT_ID, BAND_CTA_ID, BAND_TESTIMONIAL_ID, BAND_TEXT_ID,
             FEATURE_CARD_ID, STAT_ITEM_ID,
             BAND_FEATURES_ID, BAND_STATS_ID, BAND_FAQ_ID, BAND_LOGOS_ID,
@@ -72,7 +74,7 @@ public final class StarterTemplates {
     public static List<ContentTemplate> all() {
         return List.of(youtubeVideo(), image(), textOnly(), container(), pilgrimages(), photoAlbums(),
                 file(), person(), peopleList(), registrationReceived(), registrationApproved(), supportRequest(),
-                paymentConfirmation(), paymentFailed(), orgInvite(),
+                paymentConfirmation(), paymentFailed(), checkoutConfirmation(), orgInvite(),
                 bandHero(), bandSplit(), bandCta(), bandTestimonial(), bandText(), featureCard(), statItem(),
                 bandFeatures(), bandStats(), bandFaq(), bandLogos(), tripSchedule(), tripRegistration());
     }
@@ -463,6 +465,21 @@ public final class StarterTemplates {
      * Sent when a payment that was ACCEPTED and shown as "processing" later fails -- a bank debit returned
      * days after the payer left the page. Tokens: the confirmation's set plus failureReason.
      */
+    private static ContentTemplate checkoutConfirmation() {
+        final String body = """
+                <p>Dear {{payerName}},</p>
+                <p>Thank you for registering for <b>{{tripTitle}}</b> ({{tripDates}}).</p>
+                {{registrantsBlock}}
+                <p>{{statusNote}}</p>
+                <p>Total paid: <b>{{totalPaid}}</b> ({{paymentMethod}}). {{feeNote}}</p>
+                <p style="font-size:0.85em;color:#666;">{{orgName}} &middot; reference {{captureId}}
+                &middot; {{paymentDate}}</p>
+                """;
+        return mail(CHECKOUT_CONFIRMATION_ID, "Registration confirmed - {{tripTitle}}",
+                "Sent when a priced checkout is paid: each person's registration type, price, status and ticket; "
+                        + "the name doubles as the subject line.", body);
+    }
+
     private static ContentTemplate paymentFailed() {
         final String body = """
                 <p>Dear {{payerName}},</p>
