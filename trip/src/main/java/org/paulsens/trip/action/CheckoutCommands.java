@@ -371,7 +371,7 @@ public class CheckoutCommands {
 
     /** "3 people, $310.00, confirmed" for a checkout payment on the reconciliation list; "" otherwise. */
     public String intentSummary(final Payment payment) {
-        if (payment == null || !payment.isCheckout()) {
+        if (payment == null || !payment.hasCheckout()) {
             return "";
         }
         final PendingParty party = payment.getCheckout();

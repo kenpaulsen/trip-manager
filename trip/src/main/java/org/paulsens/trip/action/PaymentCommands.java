@@ -256,7 +256,7 @@ public class PaymentCommands {
                 + payer.getEmail() + ": " + MoneyMath.formatCents(payment.getTotalChargedCents())
                 + " to trip " + trip.getId() + " (" + payment.getAllocations().size() + " traveler(s), donation "
                 + MoneyMath.formatCents(payment.getDonationCents()) + ", via " + config.getDisplayLabel()
-                + (payment.isCheckout() ? ", registration checkout" : "") + ")",
+                + (payment.hasCheckout() ? ", registration checkout" : "") + ")",
                 current.auditActor());
         try {
             final PaymentProcessor processor = processors.apply(config, payment.isSandbox());
@@ -298,7 +298,7 @@ public class PaymentCommands {
         if (me != null && payment.getPayerId().equals(me.getId())) {
             return true;
         }
-        return payment.isCheckout() && current.has(PrivilegeCommands.REGISTRATION_ADMIN, payment.getTripId());
+        return payment.hasCheckout() && current.has(PrivilegeCommands.REGISTRATION_ADMIN, payment.getTripId());
     }
 
     /**
@@ -324,7 +324,7 @@ public class PaymentCommands {
     private Completion complete(final Payment payment, final String token, final Caller current) {
         switch (payment.getStatus()) {
             case RECORDED -> {
-                if (payment.isCheckout() && payment.getCheckout().getFinalizedAt() == null && !payment.isSandbox()) {
+                if (payment.hasCheckout() && payment.getCheckout().getFinalizedAt() == null && !payment.isSandbox()) {
                     // Recorded by a build that predates checkout (a rolling deploy): the money is in, the
                     // registrations are owed. Finalizing is idempotent, so this only ever completes the job.
                     return finalizeRecorded(payment, current);
@@ -416,7 +416,7 @@ public class PaymentCommands {
         final PaymentRecorder.Result result;
         try {
             result = recorder.record(payment, orgName, processorName);
-            if (payment.isCheckout()) {
+            if (payment.hasCheckout()) {
                 // The party's registrations and Bills, in the SAME guarded step as the ledger write: a failure
                 // leaves the row CAPTURED for the reconciliation Finish, which re-runs both idempotently. Before
                 // the RECORDED transition, so that put also stores what finalize stamped on the party.
@@ -449,7 +449,7 @@ public class PaymentCommands {
             // The payer's phone/browser hears first; off-thread and never able to fail the record.
             org.paulsens.trip.push.PushNotifications.getInstance().paymentRecorded(payment, trip, orgName);
             final TripPaymentConfig effective = orgs.effectivePaymentConfig(trip);
-            final boolean mailed = payment.isCheckout()
+            final boolean mailed = payment.hasCheckout()
                     ? mailerSource.get().sendCheckoutConfirmation(payment, trip, effective, orgName, processorName,
                             notifyEmail(), current.auditActor())
                     : mailerSource.get().sendConfirmation(payment, trip, effective, orgName, processorName,

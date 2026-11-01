@@ -118,9 +118,12 @@ public final class Payment implements Serializable {
                 null, null, null, null, null);
     }
 
-    /** Whether this payment pays for a priced checkout's registrations. */
-    @JsonIgnore
-    public boolean isCheckout() {
+    /**
+     * Whether this payment pays for a priced checkout's registrations. Deliberately not a bean getter
+     * ({@code isCheckout}): Jackson would pair it with {@link #getCheckout()} as one property, and an
+     * {@code @JsonIgnore} on either accessor drops the whole pending party from the stored row (test-caught).
+     */
+    public boolean hasCheckout() {
         return checkout != null;
     }
 
