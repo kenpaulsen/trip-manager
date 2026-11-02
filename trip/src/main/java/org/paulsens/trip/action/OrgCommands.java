@@ -449,6 +449,18 @@ public class OrgCommands {
         return (at < 1 || at == addr.length() - 1) ? null : addr;
     }
 
+    /**
+     * A migration script's membership write (docs/migrations/conference-import.md): site admins only, and reached
+     * from no page. The one membership writer, so the derived {@code Person.orgIds} and the audit follow as for
+     * every other path; {@code how} says which import wrote it.
+     */
+    public boolean importMembership(final String orgId, final Person.Id personId, final String how) {
+        if (!caller().isSiteAdmin()) {
+            return fail("Not allowed", "Only a site admin may import memberships.");
+        }
+        return writeMembership(orgId, personId, how);
+    }
+
     private boolean writeMembership(final String orgId, final Person.Id personId) {
         return writeMembership(orgId, personId, null);
     }

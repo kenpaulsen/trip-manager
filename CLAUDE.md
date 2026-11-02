@@ -274,9 +274,11 @@ gate and the signed-copy PDF; see `docs/waivers.md`), `checkin` (CheckinCommands
 counts, the trip-bound balance, batch badges and the export rows; see `docs/checkin.md`), `deploy`, `json`,
 `tripUtil`.
 
-- A `Person` comes into being through exactly four paths: sign-up, a family manager's add-member flow, the
-  REST people API, and a lodging contact auto-created by `LodgingCommands.findOrCreateContact` (no
-  credentials, no mail; email-code activation on first sign-in). Never add a fifth without the owner.
+- A `Person` comes into being through exactly five paths: sign-up, a family manager's add-member flow, the
+  REST people API, a lodging contact auto-created by `LodgingCommands.findOrCreateContact` (no
+  credentials, no mail; email-code activation on first sign-in), and the owner-approved, script-only conference
+  import (`migrate/`, `docs/migrations/conference-import.md`; reachable from no page). Never add a sixth without
+  the owner.
 
 - `ChatPhotos.getChatPhotos()` is ONE static instance on purpose — never give it ChatCommands'
   FacesContext/application-map lookup: the upload servlet has no FacesContext and the JSF send does, so a
@@ -371,6 +373,10 @@ expenses (`getClasses()` is the authoritative list) +
   Manager; unset ⇒ logs a warning, hashes unpeppered). Local mode uses `Pepper.none()`.
 
 ## Scripts & data migrations
+
+The conference import from an older deployment (people, past conferences, registrations, ledger, roles) is the
+`org.paulsens.trip.migrate` CLI, run by the private repo's `scripts/conf-import/` -- plan (reads only), rehearse
+(in memory), apply, verify, rollback; `docs/migrations/conference-import.md` holds the owner's rules and the checks.
 
 `scripts/`: `backfill-people-email.sh` (email-index GSI backfill), `migrate-group-tx-membership.sh`
 (also `--repair`, for group rows whose stamped membership went stale), `sweep-orphan-tx-bindings.sh`

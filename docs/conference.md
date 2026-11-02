@@ -176,6 +176,12 @@ its certificate, DNS and a host-to-trip map, plus a host-only cookie domain.
 - `Concession.Kind.FIXED_PRICE`: "costs at most `amountCents`", the child cap and the exact-price discount code
   in checkout pricing. Lodging's menus list their kinds by hand and do not offer it.
 
+## Past conferences from the old deployment
+
+The 2025 and 2026 conferences, their people, registrations, check-ins, ledger and roles come over once from the old
+`mir2026` account through the conference import (`docs/migrations/conference-import.md`): plan, rehearse in memory,
+apply after the `conference` deploy, verify.
+
 ## Local seed
 
 `FakeData.CONF_TRIP_ID` ("2027 Mar: Peace Conference Demo", mirrored in the webtests' `SeededIds`): a public CFPW
