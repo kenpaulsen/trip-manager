@@ -254,13 +254,14 @@ public class ConferenceCommands {
             return false;
         }
         try {
+            final LocalDateTime now = clock.get();
             final List<ContentInstance> rows =
-                    OrgPageBootstrap.tripRows(trip, orgNameOf(trip), OrgCommands::currentTemplateVersion);
+                    OrgPageBootstrap.tripRows(trip, orgNameOf(trip), OrgCommands::currentTemplateVersion, now);
             if (!OrgCommands.seedIfEmpty(OrgPageBootstrap.tripPageKey(trip.getId()), rows)) {
                 log.error("Conference page for trip {} could not be saved", trip.getId());
                 return false;
             }
-            trip.setPageSeededAt(clock.get());
+            trip.setPageSeededAt(now);
             return DAO.getInstance().saveTrip(trip);
         } catch (final RuntimeException | IOException ex) {
             log.error("Unable to seed the conference page of trip {}", trip.getId(), ex);

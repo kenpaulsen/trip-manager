@@ -123,7 +123,8 @@ public class RenderPathCacheTest {
                 .title("Render Conference").kind(org.paulsens.trip.model.TripKind.CONFERENCE).build();
         final String conferencePage = OrgPageBootstrap.tripPageKey(conference.getId());
         String speakers = null;
-        for (final ContentInstance row : OrgPageBootstrap.tripRows(conference, "Org", id -> 1)) {
+        for (final ContentInstance row : OrgPageBootstrap.tripRows(conference, "Org", id -> 1,
+                java.time.LocalDateTime.now())) {
             Assert.assertTrue(content.saveContent(row, 5), row.getTitle());
             if (StarterTemplates.PEOPLE_LIST_ID.equals(row.getTemplateId())) {
                 speakers = row.getId();

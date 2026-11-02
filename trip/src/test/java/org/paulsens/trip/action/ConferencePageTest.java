@@ -319,9 +319,9 @@ public class ConferencePageTest {
     public void theStarterRowsAreDeterministicAndAnchorTheSchedule() {
         final Trip trip = Trip.builder().title("2027 Mar: Rows").kind(TripKind.CONFERENCE)
                 .startDate(LocalDateTime.of(2027, 3, 5, 8, 0)).endDate(LocalDateTime.of(2027, 3, 7, 17, 0)).build();
-        final List<ContentInstance> rows = OrgPageBootstrap.tripRows(trip, "CFPW", id -> 2);
+        final List<ContentInstance> rows = OrgPageBootstrap.tripRows(trip, "CFPW", id -> 2, NOW);
         assertEquals(rows.stream().map(ContentInstance::getId).toList(),
-                OrgPageBootstrap.tripRows(trip, "CFPW", id -> 2).stream().map(ContentInstance::getId).toList(),
+                OrgPageBootstrap.tripRows(trip, "CFPW", id -> 2, NOW).stream().map(ContentInstance::getId).toList(),
                 "the same trip always seeds the same row ids");
         final ContentInstance hero = rows.get(0);
         final ContentInstance schedule = rows.stream()
@@ -333,6 +333,35 @@ public class ConferencePageTest {
         assertTrue(rows.stream().allMatch(r -> r.getTemplateVersion() == 2), "pinned to the current version");
         assertTrue(OrgPageBootstrap.tripRowTemplateIds().containsAll(
                 rows.stream().map(ContentInstance::getTemplateId).toList()));
+    }
+
+    @Test
+    public void onlyThePlaceholderRowsAreSeededHiddenFromVisitors() {
+        final Trip trip = Trip.builder().title("2027 Mar: Hidden").kind(TripKind.CONFERENCE).build();
+        final Map<String, LocalDateTime> showUntil = new HashMap<>();
+        for (final ContentInstance row : OrgPageBootstrap.tripRows(trip, "CFPW", id -> 2, NOW)) {
+            showUntil.put(row.getTitle() + "/" + row.getTemplateId(), row.getEventDate());
+            assertEquals(row.isVisibleAt(NOW.plusSeconds(1)), row.getEventDate() == null, row.getTitle());
+        }
+        // The sample speaker, the venue, the sample question and both containers: past "Show until", so hidden.
+        for (final String placeholder : List.of("Speakers/" + StarterTemplates.PEOPLE_LIST_ID,
+                "/" + StarterTemplates.PERSON_ID, "Venue/" + StarterTemplates.BAND_SPLIT_ID,
+                "Questions/" + StarterTemplates.BAND_FAQ_ID, "How do I register?/" + StarterTemplates.TEXT_ONLY_ID,
+                "About/" + StarterTemplates.BAND_TEXT_ID)) {
+            assertEquals(showUntil.get(placeholder), NOW, placeholder);
+        }
+        // The trip's own data shows at once.
+        for (final String real : List.of("/" + StarterTemplates.BAND_HERO_ID,
+                "Schedule/" + StarterTemplates.TRIP_SCHEDULE_ID,
+                "Registration/" + StarterTemplates.TRIP_REGISTRATION_ID, "/" + StarterTemplates.BAND_CTA_ID)) {
+            assertTrue(showUntil.containsKey(real) && showUntil.get(real) == null, real);
+        }
+        // About is a placeholder only while the trip has no description; a described trip's About shows.
+        trip.setDescription("<p>Our third conference.</p>");
+        final ContentInstance about = OrgPageBootstrap.tripRows(trip, "CFPW", id -> 2, NOW).stream()
+                .filter(r -> "About".equals(r.getTitle())).findFirst().orElseThrow();
+        assertNull(about.getEventDate());
+        assertEquals(about.getValues().get("body"), "<p>Our third conference.</p>");
     }
 
     // ------------------------------------------------------------------ helpers

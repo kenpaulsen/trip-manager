@@ -151,8 +151,13 @@ anonymous visitor, frozen ids in viewScope when signed in). A build-time `c:if` 
 the conference sections (with a strip of anchors to every titled section, the Register button, and the Edit page
 toggle) or the unchanged pilgrimage markup, so a pilgrimage builds none of the content tree. Every read in that
 script names its scope: a pilgrimage leaves the key null, and a bare-name read of a missing value probes the view
-map, which would mint a session. The page uses the classic layout (card and sidebar): `fullWidth` is decided by
-`mainTemplate` before the page's initPage runs, so it cannot depend on the trip.
+map, which would mint a session. The page follows its org's Appearance layout (`site.layout`) exactly as the org's
+home page does: Full width drops the card and the sidebar. `mainTemplate` decides `fullWidth` before the page's
+initPage runs, so the page's `fullWidth` param reads the REQUEST parameter
+(`site.tripPageKey(param.trip) != null and brand.fullWidth`), and the conference branch carries a plain hidden
+`trip` field so a postback (which posts without the query string) rebuilds the same branch. A pilgrimage, or a
+conference this host does not reach, stays classic. A conference page renders NO `<h1>` title (the hero band carries
+it, as on the named content pages); the trip tab strip stays for the members it renders for.
 
 **Who edits it.** `ContentCommands.canEdit`/`mayEdit` gained `tripMgr@{trip}` for a trip page and its containers'
 children (`ContentCommands.tripOf`, derived from the SECTION like `orgOf`, never the host): the first trip role that
@@ -192,6 +197,29 @@ current version, saved only into an EMPTY page (`OrgCommands.seedIfEmpty`, share
 records `pageSeededAt`, on the caller's own object so a draft re-save keeps it; an emptied page is never refilled.
 While any starter is missing (production before `install-starter-templates.sh` ran) nothing is seeded or stamped,
 and the next save retries.
+
+**Placeholders start hidden.** The rows that are only placeholders (the sample speaker, the venue, the sample
+question, their two containers, and About when the trip has no description) are seeded with "Show until" set to
+the seed time: the section's existing expiry (`ContentInstance.eventDate`, `isVisibleAt`), not a new flag. Visitors
+never see "Speaker name"; editors see the sections dimmed in edit mode, and the content dialog says "this date has
+passed, so visitors do not see this section; clear it to publish". The hero, schedule, registration block and closing
+call to action carry the trip's own data and show at once.
+
+**Look and feel: no per-conference settings.** Everything an event site needs already has a home:
+- The org's Appearance page (`admin/orgConfig.jsf`): logo, favicon, link-preview image, palette, dark mode,
+  background image or color, and the Full width layout, all of which the conference page follows.
+- Custom styling: an org-scoped STANDARD content template (`admin/templates.jsf`, the org's content admins; bodies
+  are raw HTML rendered unescaped) whose body is a `<link rel="stylesheet" href="…">` to a `.css` in the org's media
+  library (or a `<style>` block), placed as one section of the page. Write the body with the template dialog's "Edit
+  raw HTML" textarea: the visual editor would drop the tag. It styles that page only, because it renders only there. Write its rules under `.contentItem` (every section's wrapper) so they never restyle the topbar, the
+  menu or the dialogs; page-level touches such as `.confNav{display:none}` (no anchor strip) or
+  `.layoutFull{background:transparent}` (show the org's background image behind a full-width page) go in the same
+  file. A font the stylesheet loads from the media CDN needs a CORS response-headers policy on that distribution
+  (`MediaStack`), which it does not have yet; Google Fonts load fine.
+
+**Wide content.** An imported description is often wider than a phone. `site.css` keeps it inside the window:
+`.grid > .col{min-width:0}` (primeflex's flex column otherwise grows to its widest content), and pictures, iframes and
+videos inside a section shrink to fit.
 
 **Later phases, not built.** A per-conference subdomain needs `SiteIndex`/`SiteContext` to resolve a label to a
 trip (a new site mode carrying the trip id, `ListingScope` and branding for it); a custom domain additionally needs

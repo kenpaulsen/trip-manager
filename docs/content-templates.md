@@ -414,9 +414,16 @@ org site whose `site.layout` setting is `full-width` (`org-admin.md`, "Branding"
 it to `mainTemplate.xhtml` as the `fullWidth` ui:param, which builds (`c:if`, build time -- the
 `mainContent` insert may only be built once) either the classic card-and-sidebar grid or a bare
 `.layoutFull` holding the sections and the footer, and `template.xhtml` widens `.layout-content` with
-`layout-content-full`. Only the home page changes; every other page, and every shared host, renders the
-classic markup byte for byte (`OrgSubdomainPwIT.theClassicLayoutIsUnchanged`). In edit mode the dashed
-section frames wrap each band, which then stays inside its frame rather than reaching the window's edges.
+`layout-content-full`. Only the home page and a CONFERENCE's page (`trip/tripDetails.xhtml`, which reads the trip
+from the request parameter because the branch is built before its initPage; `conference.md`) change; every other
+page, and every shared host, renders the classic markup byte for byte
+(`OrgSubdomainPwIT.theClassicLayoutIsUnchanged`). In edit mode the dashed section frames wrap each band, which then
+stays inside its frame rather than reaching the window's edges.
+
+**A page's own stylesheet** is a content section, not a setting: an org-scoped STANDARD template whose body is a
+`<link rel="stylesheet">` to a `.css` in the org's media library (or a `<style>` block), placed once on the page it
+styles. Authoring it is the template manager's raw-HTML trust (`contentAdmin`), the same as any template. Its rules
+belong under `.contentItem` so the site's own chrome is never restyled. `conference.md`, "Look and feel".
 
 **The marketing page** (`page:unitetrip-home`) is seeded from `MarketingPageBootstrap`: a hero, a
 six-card Features band, three split bands, a four-item Stats band, a five-question FAQ and a dark call to

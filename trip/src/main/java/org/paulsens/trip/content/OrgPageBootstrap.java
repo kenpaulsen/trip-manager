@@ -2,6 +2,7 @@ package org.paulsens.trip.content;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
@@ -187,9 +188,16 @@ public final class OrgPageBootstrap {
      * registration block, the venue, questions, and a closing call to action. Ids are DETERMINISTIC per trip, so a
      * retried seed rewrites the same rows instead of doubling them, and the hero's Schedule button can anchor to
      * the schedule section. Every text is plainly a placeholder its editors replace.
+     *
+     * <p>The rows that are ONLY placeholders (the sample speaker, the venue, the sample question and their two
+     * containers, and About when the trip has no description) are seeded with "Show until" set to {@code seededAt},
+     * the section's existing expiry ({@link ContentInstance#isVisibleAt}): visitors never see "Speaker name", while
+     * editors see the sections dimmed in edit mode and publish one by filling it in and clearing that date. The
+     * hero, the schedule, the registration block and the closing call to action carry the trip's own data and show
+     * at once.
      */
     public static List<ContentInstance> tripRows(final Trip trip, final String orgName,
-            final ToIntFunction<String> templateVersion) {
+            final ToIntFunction<String> templateVersion, final LocalDateTime seededAt) {
         final String key = tripPageKey(trip.getId());
         final String register = "/trip/joinTrip.jsf?trip=" + trip.getId();
         final String registerLabel = trip.getKind().getRegisterLabel();
@@ -204,35 +212,36 @@ public final class OrgPageBootstrap {
         hero.put("primaryUrl", register);
         hero.put("secondaryText", "Schedule");
         hero.put("secondaryUrl", "#" + schedule);
-        final String about = (trip.getDescription() == null || trip.getDescription().isBlank())
-                ? "<p>Tell visitors what this event is about: who it is for, what happens and why it matters.</p>"
-                : trip.getDescription();
+        final boolean described = trip.getDescription() != null && !trip.getDescription().isBlank();
+        final String about = described ? trip.getDescription()
+                : "<p>Tell visitors what this event is about: who it is for, what happens and why it matters.</p>";
         return List.of(
-                tripRow(trip, "hero", key, "", StarterTemplates.BAND_HERO_ID, templateVersion, 0, hero),
+                tripRow(trip, "hero", key, "", StarterTemplates.BAND_HERO_ID, templateVersion, 0, hero, null),
                 tripRow(trip, "about", key, "About", StarterTemplates.BAND_TEXT_ID, templateVersion, 1,
-                        Map.of("heading", "About", "body", about)),
+                        Map.of("heading", "About", "body", about), described ? null : seededAt),
                 new ContentInstance(speakers, key, "Speakers", StarterTemplates.PEOPLE_LIST_ID,
-                        templateVersion.applyAsInt(StarterTemplates.PEOPLE_LIST_ID), new HashMap<>(), null, 2, 0,
+                        templateVersion.applyAsInt(StarterTemplates.PEOPLE_LIST_ID), new HashMap<>(), seededAt, 2, 0,
                         null, SEED_AUTHOR),
                 tripRow(trip, "speaker-1", speakers, "", StarterTemplates.PERSON_ID, templateVersion, 0,
                         Map.of("name", "Speaker name", "subtitle", "Talk title",
-                                "bio", "<p>A few sentences about the speaker.</p>")),
+                                "bio", "<p>A few sentences about the speaker.</p>"), seededAt),
                 new ContentInstance(schedule, key, "Schedule", StarterTemplates.TRIP_SCHEDULE_ID,
                         templateVersion.applyAsInt(StarterTemplates.TRIP_SCHEDULE_ID), new HashMap<>(), null, 3, 0,
                         null, SEED_AUTHOR),
                 tripRow(trip, "registration", key, "Registration", StarterTemplates.TRIP_REGISTRATION_ID,
-                        templateVersion, 4, Map.of()),
+                        templateVersion, 4, Map.of(), null),
                 tripRow(trip, "venue", key, "Venue", StarterTemplates.BAND_SPLIT_ID, templateVersion, 5,
                         Map.of("tone", "tint", "icon", "pi-map-marker", "heading", "Venue",
-                                "body", "<p>Where the event takes place, with directions and parking.</p>")),
+                                "body", "<p>Where the event takes place, with directions and parking.</p>"), seededAt),
                 new ContentInstance(faq, key, "Questions", StarterTemplates.BAND_FAQ_ID,
-                        templateVersion.applyAsInt(StarterTemplates.BAND_FAQ_ID), new HashMap<>(), null, 6, 0,
+                        templateVersion.applyAsInt(StarterTemplates.BAND_FAQ_ID), new HashMap<>(), seededAt, 6, 0,
                         null, SEED_AUTHOR),
                 tripRow(trip, "faq-1", faq, "How do I register?", StarterTemplates.TEXT_ONLY_ID, templateVersion,
-                        0, Map.of("body", "<p>Use the " + escape(registerLabel) + " button on this page.</p>")),
+                        0, Map.of("body", "<p>Use the " + escape(registerLabel) + " button on this page.</p>"),
+                        seededAt),
                 tripRow(trip, "cta", key, "", StarterTemplates.BAND_CTA_ID, templateVersion, 7,
                         Map.of("tone", "dark", "heading", "Join us", "buttonText", registerLabel,
-                                "buttonUrl", register)));
+                                "buttonUrl", register), null));
     }
 
     /** The template ids {@link #tripRows} pins: every one must be installed before a conference page can seed. */
@@ -251,9 +260,10 @@ public final class OrgPageBootstrap {
 
     private static ContentInstance tripRow(final Trip trip, final String slot, final String section,
             final String title, final String templateId, final ToIntFunction<String> templateVersion,
-            final int position, final Map<String, String> values) {
+            final int position, final Map<String, String> values, final LocalDateTime showUntil) {
         return new ContentInstance(tripRowId(trip, slot), section, title, templateId,
-                templateVersion.applyAsInt(templateId), new HashMap<>(values), null, position, 0, null, SEED_AUTHOR);
+                templateVersion.applyAsInt(templateId), new HashMap<>(values), showUntil, position, 0, null,
+                SEED_AUTHOR);
     }
 
     /** "March 5 - 7, 2027" in English: computed without a FacesContext, since a REST save seeds too. */
