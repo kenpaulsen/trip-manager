@@ -165,7 +165,7 @@ public final class BackgroundRemover {
      * executor is single-threaded (a later request queues behind it) and the exit stamp keeps the reaper
      * away for a full idle window.
      */
-    private static byte[] awaitInference(final Future<byte[]> pending) {
+    static byte[] awaitInference(final Future<byte[]> pending) {   // package-private: its failure paths are tested
         try {
             return pending.get();
         } catch (final InterruptedException ex) {

@@ -4,6 +4,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.imageio.ImageIO;
 import org.testng.Assert;
@@ -270,5 +271,36 @@ public class BackgroundRemoverTest {
         }
         Assert.assertThrows(PhotoRejectedException.class,
                 () -> BackgroundRemover.cutout("not an image".getBytes()));
+    }
+
+    /**
+     * The hand-off back from the inference thread: an interrupted caller leaves empty (and stays interrupted), a
+     * runtime failure comes back as itself, an Error is rethrown, and a checked cause is wrapped once.
+     */
+    @Test
+    public void theInferenceHandOffReportsFailuresAsTheCallersThreadWould() {
+        final CompletableFuture<byte[]> done = CompletableFuture.completedFuture(new byte[] {1});
+        Assert.assertEquals(BackgroundRemover.awaitInference(done), new byte[] {1});
+
+        Thread.currentThread().interrupt();
+        Assert.assertNull(BackgroundRemover.awaitInference(new CompletableFuture<>()));
+        Assert.assertTrue(Thread.interrupted(), "the interrupt is kept (and cleared here)");
+
+        final IllegalArgumentException runtime = new IllegalArgumentException("corrupt");
+        Assert.assertSame(expectThrown(CompletableFuture.failedFuture(runtime)), runtime);
+        final AssertionError error = new AssertionError("native");
+        Assert.assertSame(expectThrown(CompletableFuture.failedFuture(error)), error);
+        final Throwable wrapped = expectThrown(CompletableFuture.failedFuture(new IOException("checked")));
+        Assert.assertTrue(wrapped instanceof IllegalStateException, wrapped.toString());
+        Assert.assertTrue(wrapped.getCause() instanceof IOException);
+    }
+
+    private static Throwable expectThrown(final CompletableFuture<byte[]> failed) {
+        try {
+            BackgroundRemover.awaitInference(failed);
+        } catch (final RuntimeException | Error thrown) {
+            return thrown;
+        }
+        throw new AssertionError("expected the failure to be rethrown");
     }
 }
