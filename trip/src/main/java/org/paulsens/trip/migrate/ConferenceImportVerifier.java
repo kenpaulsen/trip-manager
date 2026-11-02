@@ -22,6 +22,7 @@ import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.Registration;
+import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripKind;
@@ -38,9 +39,13 @@ import org.paulsens.trip.model.TripKind;
  */
 public class ConferenceImportVerifier {
 
-    /** Answer keys the planner moves or folds on purpose, so their absence is not a loss. */
+    /**
+     * Answer keys the planner moves or folds on purpose, so their absence is not a loss: the admission answer under
+     * its question, the check-in onto the row, the legacy pricing answers into the price breakdown.
+     */
     private static final Set<String> MOVED_ANSWERS = Set.of(ConferenceImportPlanner.ADMISSION_KEY,
-            ConferenceImportPlanner.CHECKED_IN_KEY);
+            ConferenceImportPlanner.CHECKED_IN_KEY, ConferenceImportPlanner.REGISTRANT_TYPE_KEY,
+            ConferenceImportPlanner.DISCOUNT_KEY, ConferenceImportPlanner.DISCOUNT_CODE_KEY);
 
     private final ObjectMapper mapper;
     private final ImportMapping mapping;
@@ -183,7 +188,7 @@ public class ConferenceImportVerifier {
     public void checkTarget(final LegacyExport export, final ImportPlan plan) {
         checkPeople(plan);
         checkFamilies(plan);
-        checkTrips(plan);
+        checkTrips(export, plan);
         checkRegistrations(export, plan);
         checkLedger(export, plan);
         checkRoles(plan);
@@ -247,7 +252,12 @@ public class ConferenceImportVerifier {
                 + " wrong)");
     }
 
-    private void checkTrips(final ImportPlan plan) {
+    /**
+     * Each trip is a conference of the organization with its roster and questions; a trip with admission options
+     * holds the age bands and discount codes the EXPORT implies, its admission question is the required
+     * registration-type question, and every CONFIRMED registration on it carries a price breakdown.
+     */
+    private void checkTrips(final LegacyExport export, final ImportPlan plan) {
         for (final Trip want : plan.trips()) {
             final Trip have = DAO.getInstance().getTrip(want.getId(), Cached.NO).orElse(null);
             final boolean ok = have != null && have.getKind() == TripKind.CONFERENCE
@@ -256,7 +266,31 @@ public class ConferenceImportVerifier {
                     && have.getRegOptions().size() == want.getRegOptions().size();
             check(ok, "trip '" + want.getTitle() + "': conference of the organization, roster of "
                     + want.getPeople().size() + ", " + want.getRegOptions().size() + " questions");
+            final ObjectNode old = export.trips().stream()
+                    .filter(trip -> want.getId().equals(ConferenceImportPlanner.text(trip, "id")))
+                    .findFirst().orElse(null);
+            if (have != null && old != null && !ConferenceImportPlanner.isBlank(old.get("admissionOptions"))) {
+                checkPricing(old, want, have);
+            }
         }
+    }
+
+    private void checkPricing(final ObjectNode old, final Trip want, final Trip have) {
+        final int bands = ConferenceImportPlanner.legacyBandCount(old);
+        final int codes = old.path("discountCodes").size();
+        check(have.getCheckout().getAgeBands().size() == bands && have.getCheckout().getCodes().size() == codes,
+                "trip '" + want.getTitle() + "': checkout policy holds " + bands + " age bands and " + codes
+                + " discount codes (export), found " + have.getCheckout().getAgeBands().size() + " and "
+                + have.getCheckout().getCodes().size());
+        final RegistrationOption planned = RegistrationOption.typeQuestion(want.getRegOptions());
+        final RegistrationOption live = RegistrationOption.typeQuestion(have.getRegOptions());
+        check(planned != null && live != null && live.getId() == planned.getId(),
+                "trip '" + want.getTitle() + "': the admission question is the required registration-type question");
+        final long unpriced = DAO.getInstance().getRegistrations(want.getId(), Cached.NO).stream()
+                .filter(reg -> reg.getStatus() == Registration.Status.CONFIRMED && reg.getPriceBreakdown() == null)
+                .count();
+        check(unpriced == 0, "trip '" + want.getTitle() + "': every CONFIRMED registration has a price breakdown ("
+                + unpriced + " without)");
     }
 
     private void checkRegistrations(final LegacyExport export, final ImportPlan plan) {
@@ -268,6 +302,7 @@ public class ConferenceImportVerifier {
                     && have.getOptions().equals(want.getOptions())
                     && Objects.equals(have.getCheckedInAt(), want.getCheckedInAt())
                     && Objects.equals(have.getRegistrationType(), want.getRegistrationType())
+                    && Objects.equals(have.getPriceBreakdown(), want.getPriceBreakdown())
                     && (have.getStatus() != Registration.Status.CONFIRMED || have.getTicketCode() != null);
             if (!ok) {
                 differ++;

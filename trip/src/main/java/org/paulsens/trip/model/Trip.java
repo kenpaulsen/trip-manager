@@ -199,6 +199,14 @@ public final class Trip implements Serializable {
     @JsonProperty("checkout")
     @Getter(AccessLevel.NONE)
     private CheckoutConfig checkout;
+    /**
+     * How a conference's public page looks (docs/conference.md, "Look and feel"): its layout, background, title,
+     * section links and stylesheet, each null to follow the organization. Same lazy-getter shape as
+     * {@link #checkout}; absent on every trip stored before it existed, which reads as "the organization's".
+     */
+    @JsonProperty("page")
+    @Getter(AccessLevel.NONE)
+    private TripPageOptions page;
 
     private Trip() {
     }
@@ -388,6 +396,25 @@ public final class Trip implements Serializable {
             checkout = new CheckoutConfig();
         }
         return checkout;
+    }
+
+    /** The page options' field-level problems (docs/conference.md), without creating options on a trip with none. */
+    public List<String> pageProblems() {
+        return page == null ? List.of() : page.problems();
+    }
+
+    /** The conference page's options, which a trip with none reads as all-inherited (see {@link #pageProblems}). */
+    public TripPageOptions getPage() {
+        if (page == null) {
+            page = new TripPageOptions();
+        }
+        return page;
+    }
+
+    /** The stored options, or null when the trip has never set any: render code reads this and never allocates. */
+    @JsonIgnore
+    public TripPageOptions pageOrNull() {
+        return page;
     }
 
     public TripPaymentConfig getPaymentConfig() {

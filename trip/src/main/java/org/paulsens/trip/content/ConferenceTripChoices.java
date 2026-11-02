@@ -22,8 +22,13 @@ final class ConferenceTripChoices {
     }
 
     static List<ProgrammaticContentTemplate.Choice> choices() {
+        return choices("This page's event");
+    }
+
+    /** The same list with the blank choice's label chosen by the type (the albums type means something wider). */
+    static List<ProgrammaticContentTemplate.Choice> choices(final String blankLabel) {
         final List<ProgrammaticContentTemplate.Choice> choices = new ArrayList<>();
-        choices.add(new ProgrammaticContentTemplate.Choice("", "This page's event"));
+        choices.add(new ProgrammaticContentTemplate.Choice("", blankLabel));
         for (final Trip trip : new TripCommands().getPublicTrips()) {
             if (trip.isConference()) {
                 choices.add(new ProgrammaticContentTemplate.Choice(trip.getId(), trip.getTitle()));

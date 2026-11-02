@@ -158,12 +158,29 @@ public class PaymentMailer {
                 + row.getStatus().getDescription() + ")" + ticket + "</li>";
     }
 
-    /** "ticket CODE", the code linking to the ticket page (its QR, for check-in) when the trip is known. */
+    /**
+     * "ticket CODE", the code linking to the ticket page (its QR, for check-in) when the trip is known, with the
+     * QR itself as an image under the link ({@code SiteUrls.ticketQrUrl}): the check-in table scans the email
+     * directly, no page load on a venue's Wi-Fi.
+     */
     static String ticketLink(final Trip trip, final String code) {
         final String grouped = "<b>" + TicketCodes.grouped(code) + "</b>";
-        final String url = SiteUrls.ticketUrl(trip, code, new ConfigCommands());
-        return url.isEmpty() ? "ticket " + grouped
-                : "ticket <a href=\"" + MailTemplates.escape(url) + "\">" + grouped + "</a>";
+        final ConfigCommands config = new ConfigCommands();
+        final String url = SiteUrls.ticketUrl(trip, code, config);
+        if (url.isEmpty()) {
+            return "ticket " + grouped;
+        }
+        return "ticket <a href=\"" + MailTemplates.escape(url) + "\">" + grouped + "</a><br/>"
+                + qrImage(SiteUrls.ticketQrUrl(trip, code, config));
+    }
+
+    /**
+     * The {@code <img>} of a ticket's QR PNG, sized so a mail client reserves the box before the image loads. Shared
+     * with the approval email ({@code RegistrationCommands.approvedMailValues}) so both emails carry one shape.
+     */
+    public static String qrImage(final String qrUrl) {
+        return "<img src=\"" + MailTemplates.escape(qrUrl)
+                + "\" width=\"160\" height=\"160\" alt=\"Check-in QR code\">";
     }
 
     /** Whose confirmation copy this is: the payment's organization, else its trip's, else nobody's. */

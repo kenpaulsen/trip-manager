@@ -1,5 +1,6 @@
 package org.paulsens.trip.model;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Map;
@@ -47,6 +48,12 @@ public enum AuditAction {
     EMAIL,
     /** A person registered, or a registration was changed. */
     REGISTRATION("REG", "Register"),
+    /**
+     * Event check-in ({@code docs/checkin.md}): staff stamped a registration checked in, or a manager cleared the
+     * stamp. Its own constant rather than {@link #REGISTRATION}: "who arrived, and when" is the question a
+     * conference asks of its trail, and it must be filterable apart from the sign-ups and status changes.
+     */
+    CHECKIN("Check-in"),
     /** A financial transaction was recorded or edited. */
     TRANSACTION("saveTx"),
     /** A payment through a processor (PayPal, Stripe): start, capture, record, cancel, webhook. */
@@ -151,9 +158,14 @@ public enum AuditAction {
      * <p>Never throws and never returns null: an unrecognised value yields {@link #UNKNOWN}, because the
      * alternative -- dropping the record or failing the user's request -- is worse than an imprecise label.
      *
+     * <p>Also Jackson's creator for this enum, so a stored record naming an action this build does not know
+     * (one written by a newer build during a blue/green deploy, or read by a rolled-back one) deserializes as
+     * {@link #UNKNOWN} instead of failing {@code AuditDAO.parseEvent} and dropping the row from the view.
+     *
      * @param type the raw type text; may be null, blank, or any historical spelling.
      * @return the matching action, or {@link #UNKNOWN}.
      */
+    @JsonCreator
     public static AuditAction from(final String type) {
         if (type == null || type.isBlank()) {
             return UNKNOWN;

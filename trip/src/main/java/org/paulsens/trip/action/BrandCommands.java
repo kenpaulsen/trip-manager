@@ -324,21 +324,32 @@ public class BrandCommands {
         if (!isBranded()) {
             return null;
         }
-        final String background = safeUrl(setting(KnownSettings.SITE_BACKGROUND_URL));
-        if (background != null) {
-            return "--site-bg:url(" + cssUrl(background) + ")";
-        }
-        return BG_NONE + ";" + BG_COLOR_PROPERTY + backgroundColor();
+        return rootStyleOf(setting(KnownSettings.SITE_BACKGROUND_URL), setting(KnownSettings.SITE_BACKGROUND_COLOR));
     }
 
     /**
-     * The page background color: the org's own when it is a usable hex value, else {@link #PALETTE_BACKGROUND}
+     * The root element's background declarations for a stored image URL and color: the one rule for the org's
+     * settings and for a conference page's own options ({@code ConferenceCommands.lookFor}), so the two cannot
+     * screen or escape differently. An image also makes the full-width layout's own surface transparent
+     * ({@code --layout-full-bg}, read by {@code site.css}): that layout paints an opaque ground of its own, which
+     * would otherwise hide the very image chosen to show behind the page.
+     */
+    static String rootStyleOf(final String backgroundUrl, final String backgroundColor) {
+        final String background = safeLinkUrl(backgroundUrl);
+        if (background != null) {
+            return "--site-bg:url(" + cssUrl(background) + ");--layout-full-bg:transparent";
+        }
+        return BG_NONE + ";" + BG_COLOR_PROPERTY + backgroundColorOf(backgroundColor);
+    }
+
+    /**
+     * The page background color: the stored one when it is a usable hex value, else {@link #PALETTE_BACKGROUND}
      * so the page follows the chosen palette's own tint and the light/dark mode. Never null, and never
      * anything but a hex value or that one fixed expression, because it is interpolated straight into the
      * root element's {@code style}.
      */
-    private String backgroundColor() {
-        final String chosen = SettingDef.hexColor(setting(KnownSettings.SITE_BACKGROUND_COLOR));
+    private static String backgroundColorOf(final String stored) {
+        final String chosen = SettingDef.hexColor(stored);
         return chosen == null ? PALETTE_BACKGROUND : chosen;
     }
 
@@ -747,6 +758,22 @@ public class BrandCommands {
         if (raw == null || ContentRenderer.requireHttpUrl(raw).isEmpty()) {
             return null;
         }
+        return screened(raw);
+    }
+
+    /**
+     * {@link #safeUrl} widened to a site-relative path ({@code /downloads/page.css}; never {@code //host}): what a
+     * conference page's own background or stylesheet may be, since the media library's URLs are site-relative
+     * wherever no media host is configured. The character screen is the same.
+     */
+    static String safeLinkUrl(final String raw) {
+        if (raw == null || ContentRenderer.requireLinkUrl(raw).isEmpty() || raw.trim().charAt(0) == '#') {
+            return null;
+        }
+        return screened(raw);
+    }
+
+    private static String screened(final String raw) {
         for (final char c : raw.toCharArray()) {
             if (c == '"' || c == '\'' || c == '<' || c == '>' || c == '\\' || Character.isWhitespace(c)) {
                 return null;

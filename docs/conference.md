@@ -152,13 +152,16 @@ anonymous visitor, frozen ids in viewScope when signed in). A build-time `c:if` 
 the conference sections (with a strip of anchors to every titled section, the Register button, and the Edit page
 toggle) or the unchanged pilgrimage markup, so a pilgrimage builds none of the content tree. Every read in that
 script names its scope: a pilgrimage leaves the key null, and a bare-name read of a missing value probes the view
-map, which would mint a session. The page follows its org's Appearance layout (`site.layout`) exactly as the org's
-home page does: Full width drops the card and the sidebar. `mainTemplate` decides `fullWidth` before the page's
-initPage runs, so the page's `fullWidth` param reads the REQUEST parameter
-(`site.tripPageKey(param.trip) != null and brand.fullWidth`), and the conference branch carries a plain hidden
-`trip` field so a postback (which posts without the query string) rebuilds the same branch. A pilgrimage, or a
-conference this host does not reach, stays classic. A conference page renders NO `<h1>` title (the hero band carries
-it, as on the named content pages); the trip tab strip stays for the members it renders for.
+map, which would mint a session. The page's look is `ConferenceCommands.lookFor(tripId)` (a `PageLook`: full width or
+not, its own root style or null, title shown, section links shown, a screened stylesheet URL), the trip's page options
+(`Trip.page`, below) laid over the org's Appearance settings, so a trip with none renders exactly as the org's home
+page does. `mainTemplate` decides `fullWidth` before the page's initPage runs, so the page's build-time params
+(`fullWidth`, `rootStyle`, the stylesheet `<link>` in `pageextrahead`) read `conference.lookFor(param.trip)` from the
+REQUEST parameter (memoized per request), and the conference branch carries a plain hidden `trip` field so a
+postback (which posts without the query string) rebuilds the same branch. `lookFor` is null for a pilgrimage, or a
+conference this host does not reach, which EL reads as false/empty: that page stays classic, byte for byte. By default
+a conference page renders NO `<h1>` title (the hero band carries it, as on the named content pages); the trip tab
+strip stays for the members it renders for.
 
 **Who edits it.** `ContentCommands.canEdit`/`mayEdit` gained `tripMgr@{trip}` for a trip page and its containers'
 children (`ContentCommands.tripOf`, derived from the SECTION like `orgOf`, never the host): the first trip role that
@@ -183,7 +186,12 @@ as everywhere.
 Both types have one optional "Event" property (blank: the page's own trip; a pick: show it on an org's home page);
 `ConferenceCommands.tripFor` resolves explicit pick, then the page key, then the host page's `theTripId` (a section
 inside a container), never a trip the site does not reach. `ProgrammaticContentTemplate.fitsTripPage()` keeps the
-types that list OTHER trips (`pilgrimages`, `photo-albums`) off a trip page's Add dialog. The `#{conference}` bean
+one type that can only list OTHER trips (`pilgrimages`) off a trip page's Add dialog. `photo-albums` fits: it carries
+the same optional "Event" property, and on a conference's page (or with an event picked) `MediaCommands.getHomeAlbumsFor`
+answers that ONE event's album from its chat photos, whatever its age or photo count, so a conference page shows its
+own pictures; anywhere else it is the recent trips' albums as before. The album cards' CSS and the photo-viewer glue
+moved out of `homePage.xhtml` into `resources/css/albums.css` and `resources/trip-js/albums.js`, which both hosts
+load (the glue reads the page's facts off `#albumsGlue`). The `#{conference}` bean
 (`ConferenceCommands`) reads only cached DAO lookups and memoizes per request: this is the anonymous render path
 (`RenderPathCacheTest` covers the page's sections and templates).
 
@@ -202,21 +210,41 @@ and the next save retries.
 **Placeholders start hidden.** The rows that are only placeholders (the sample speaker, the venue, the sample
 question, their two containers, and About when the trip has no description) are seeded with "Show until" set to
 the seed time: the section's existing expiry (`ContentInstance.eventDate`, `isVisibleAt`), not a new flag. Visitors
-never see "Speaker name"; editors see the sections dimmed in edit mode, and the content dialog says "this date has
-passed, so visitors do not see this section; clear it to publish". The hero, schedule, registration block and closing
-call to action carry the trip's own data and show at once.
+never see "Speaker name"; editors see the sections dimmed in edit mode, and the content dialog says "placeholder:
+hidden from visitors until you save it". **The first save publishes it**: a row is a seeded placeholder while its author
+is still the bootstrap's and it carries that seed date (`OrgPageBootstrap.isSeededPlaceholder`; no flag of its own),
+and `ContentCommands.saveContent` clears the date when the editor left it exactly as seeded (a date the editor set
+themselves is kept). Saving the first item into a placeholder CONTAINER (a speaker into Speakers, a question into
+Questions) publishes the container too, as its own audited save; and `restoreContent` of the seeded version of a
+published row never hides it again. The rows `conf-page-placeholders.py` hid on an older page match the same rule.
+The hero, schedule, registration block and closing call to action carry the trip's own data and show at once.
 
-**Look and feel: no per-conference settings.** Everything an event site needs already has a home:
-- The org's Appearance page (`admin/orgConfig.jsf`): logo, favicon, link-preview image, palette, dark mode,
-  background image or color, and the Full width layout, all of which the conference page follows.
-- Custom styling: an org-scoped STANDARD content template (`admin/templates.jsf`, the org's content admins; bodies
-  are raw HTML rendered unescaped) whose body is a `<link rel="stylesheet" href="…">` to a `.css` in the org's media
-  library (or a `<style>` block), placed as one section of the page. Write the body with the template dialog's "Edit
-  raw HTML" textarea: the visual editor would drop the tag. It styles that page only, because it renders only there. Write its rules under `.contentItem` (every section's wrapper) so they never restyle the topbar, the
-  menu or the dialogs; page-level touches such as `.confNav{display:none}` (no anchor strip) or
-  `.layoutFull{background:transparent}` (show the org's background image behind a full-width page) go in the same
-  file. A font the stylesheet loads from the media CDN needs a CORS response-headers policy on that distribution
-  (`MediaStack`), which it does not have yet; Google Fonts load fine.
+**Look and feel: the trip's own page options over the org's.** The org's Appearance page (`admin/orgConfig.jsf`)
+supplies the defaults every page of the site shares: logo, favicon, link-preview image, palette, dark mode, background
+and the layout. A conference may differ from them on its own page through `Trip.page` (`TripPageOptions`, the
+`CheckoutConfig` shape: a lazy getter for the editor, `Trip.pageOrNull()` for render code, every field null = "the
+organization's"):
+
+- `layout`: `classic` or `full-width` (the `site.layout` setting's own values; `KnownSettings.SITE_LAYOUT.allows`).
+- `backgroundUrl` / `backgroundColor`: an image (wins) or a hex color behind this page alone. Rendered through the
+  SAME rule as the org's (`BrandCommands.rootStyleOf`, which `getRootStyle` also uses), passed to `template.xhtml` as
+  the `rootStyle` ui:param. An image also sets `--layout-full-bg:transparent`, so the full-width layout's own ground
+  (`.layoutFull` in `site.css`) no longer hides a background image, the org's or the trip's.
+- `showTitle` (null = no: the hero carries it) and `showNav` (null = yes: the strip of section links).
+- `stylesheetUrl`: a CSS file in the trip's organization's media library, loaded by this page alone. The field rules
+  are `TripPageOptions.problems()`; the library rule is `ConferenceCommands.pageProblems` (`MediaCommands.libraryItemFor`
+  must resolve the URL to an item of that org with `text/css`), because any other URL would let a trip manager load
+  arbitrary CSS into the org's site, which is its content admins' call. Rules belong under `.contentItem` (every
+  section's wrapper) so the menu and the dialogs are never restyled.
+
+Edited on the trip editor's "Conference Page" dialog (`WEB-INF/tripPageDialog.xhtml`, the trip's managers, rendered for
+a conference only; binds into the `TripEditDrafts` draft, Done refuses with growls and stays open on `pageOk`, Save
+persists; the page's edit-mode toolbar links there as "Page settings"), and on the API as `TripDto.page`
+(`TripPageOptionsDto`, absent = leave alone, `""` = back to the org's, 400 `VALIDATION_FAILED` on a problem, read back
+by managers only). `TripCommands.saveTrip` refuses the same problems, since a dialog closed with its X skips Done. A
+styles template (an org-scoped STANDARD template holding a `<link rel="stylesheet">`, `content-templates.md`) remains
+possible for a single section. Fonts loaded from the media CDN need a CORS policy (`MediaStack`), which it does not
+have yet; Google Fonts load fine.
 
 **Wide content.** An imported description is often wider than a phone. `site.css` keeps it inside the window:
 `.grid > .col{min-width:0}` (primeflex's flex column otherwise grows to its widest content), and pictures, iframes and

@@ -2,6 +2,7 @@ package org.paulsens.trip.content;
 
 import java.util.List;
 import java.util.Set;
+import org.paulsens.trip.action.ConferenceCommands;
 import org.paulsens.trip.model.Placeholder;
 
 /**
@@ -15,6 +16,14 @@ final class PhotoAlbumsType implements ProgrammaticContentTemplate {
     static final String TYPE_ID = "photo-albums";
     static final String PROP_WINDOW_DAYS = "windowDays";
     static final String PROP_MIN_PHOTOS = "minPhotos";
+    /**
+     * One event's album instead of the recent trips' (docs/conference.md): the conference types' "Event" property,
+     * blank meaning the page's own event on a conference page (and the recent trips anywhere else). What lets a
+     * conference page show its own photos, which is why the type no longer refuses trip pages.
+     */
+    private static final Placeholder EVENT = new Placeholder(ConferenceCommands.PROP_TRIP_ID, Placeholder.Type.CHOICE,
+            "Event", "Blank: recent trips' albums (an event's own on its page); pick an event to show its album alone",
+            false);
 
     @Override
     public String getTypeId() {
@@ -38,13 +47,8 @@ final class PhotoAlbumsType implements ProgrammaticContentTemplate {
                         "How far back a trip may have ended; blank = the site default", false),
                 new Placeholder(PROP_MIN_PHOTOS, Placeholder.Type.TEXT, "Minimum photos",
                         "Fewest visible photos a trip needs to show; blank = the site default", false),
+                EVENT,
                 SharedSiteOrgChoices.property());
-    }
-
-    /** Lists other trips, so a single trip's page never offers it. */
-    @Override
-    public boolean fitsTripPage() {
-        return false;
     }
 
     @Override
@@ -54,6 +58,9 @@ final class PhotoAlbumsType implements ProgrammaticContentTemplate {
 
     @Override
     public List<Choice> choicesFor(final String propertyName) {
+        if (EVENT.getName().equals(propertyName)) {
+            return ConferenceTripChoices.choices("Recent trips (on an event's page: that event)");
+        }
         return SharedSiteOrgChoices.PROP_INCLUDE_ORGS.equals(propertyName)
                 ? SharedSiteOrgChoices.choices() : List.of();
     }

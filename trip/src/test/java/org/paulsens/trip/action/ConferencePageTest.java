@@ -144,7 +144,7 @@ public class ConferencePageTest {
         assertTrue(offered.contains(StarterTemplates.TRIP_REGISTRATION_ID));
         assertTrue(offered.contains(StarterTemplates.BAND_HERO_ID));
         assertFalse(offered.contains(StarterTemplates.PILGRIMAGES_ID), "a trip listing is about other trips");
-        assertFalse(offered.contains(StarterTemplates.PHOTO_ALBUMS_ID));
+        assertTrue(offered.contains(StarterTemplates.PHOTO_ALBUMS_ID), "an event's own album belongs on its page");
         assertTrue(content.getTemplateChoicesFor(FakeData.PAGE_KEY).stream()
                         .anyMatch(t -> t.getKind() == TemplateKind.PROGRAMMATIC
                                 && StarterTemplates.PILGRIMAGES_ID.equals(t.getId())),

@@ -119,6 +119,26 @@ public class AuditEventTest {
     }
 
     @Test
+    public void anActionThisBuildDoesNotKnowDeserializesAsUnknown() throws Exception {
+        // A row written by a newer build during a blue/green flip (or read by a rolled-back one) names an action
+        // this enum lacks. Jackson's default would throw, AuditDAO.parseEvent would log and drop the row, and the
+        // trail would show a hole exactly where someone is looking; AuditAction.from is the creator so it lands
+        // as UNKNOWN with its message intact instead.
+        final com.fasterxml.jackson.databind.ObjectMapper mapper =
+                new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        final AuditEvent event = mapper.readValue("{\"timestamp\":\"2026-07-26T12:00:00Z\",\"action\":\"BOGUS\","
+                + "\"outcome\":\"SUCCESS\",\"message\":\"kept\"}", AuditEvent.class);
+
+        Assert.assertEquals(event.getAction(), AuditAction.UNKNOWN);
+        Assert.assertEquals(event.getMessage(), "kept");
+        // The aliases and the canonical names still resolve through the same creator, so nothing regresses.
+        Assert.assertEquals(mapper.readValue("\"check-in\"", AuditAction.class), AuditAction.CHECKIN);
+        Assert.assertEquals(mapper.readValue("\"CHECKIN\"", AuditAction.class), AuditAction.CHECKIN);
+        Assert.assertEquals(mapper.readValue("\"REG\"", AuditAction.class), AuditAction.REGISTRATION);
+        Assert.assertEquals(mapper.writeValueAsString(AuditAction.CHECKIN), "\"CHECKIN\"", "written by name");
+    }
+
+    @Test
     public void nullsDeserializeRatherThanFailing() {
         // A row written by an older build, or edited by hand in the console, must still load: an audit record
         // that cannot be deserialized is an audit record that has been lost.

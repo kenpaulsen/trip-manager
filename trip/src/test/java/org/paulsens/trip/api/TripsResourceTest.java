@@ -723,6 +723,65 @@ public class TripsResourceTest extends ResourceTestSupport {
                 null, null, null, null, null, null, null, null, config);
     }
 
+    /**
+     * A conference page's own look (docs/conference.md, "Look and feel"): field by field like the payment settings
+     * (absent = leave alone, "" = back to the organization's), the layout must be a known one, and a stylesheet must
+     * be a CSS file in the trip's organization's library, else 400 and nothing is saved.
+     */
+    @Test
+    public void updateAppliesThePageOptionsAndRefusesWhatTheEditorWould() throws java.io.IOException {
+        signedInAsSiteAdmin(ME);
+        final Trip existing = trip(TRIP_ID, ME);
+        existing.setOrgId("org-page");
+        existing.setKind(org.paulsens.trip.model.TripKind.CONFERENCE);
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
+        final org.paulsens.trip.model.MediaItem css = new org.paulsens.trip.model.MediaItem("trips-page-css",
+                "org/org-page/page.css", "Page CSS", null, "text/css", 10L, null, 0, LocalDateTime.now(), "seed",
+                null, null, "org-page");
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveMedia(css));
+        final String cssUrl = new org.paulsens.trip.action.MediaCommands().getUrl(css);
+
+        assertOk(resource.update(TRIP_ID, CSRF_OK, pageBody(new org.paulsens.trip.api.dto.TripPageOptionsDto(
+                "full-width", null, "#336699", Boolean.TRUE, Boolean.FALSE, cssUrl))));
+        Assert.assertEquals(existing.getPage().getLayout(), "full-width");
+        Assert.assertEquals(existing.getPage().getBackgroundColor(), "#336699");
+        Assert.assertEquals(existing.getPage().getShowTitle(), Boolean.TRUE);
+        Assert.assertEquals(existing.getPage().getShowNav(), Boolean.FALSE);
+        Assert.assertEquals(existing.getPage().getStylesheetUrl(), cssUrl);
+
+        assertError(resource.update(TRIP_ID, CSRF_OK, pageBody(new org.paulsens.trip.api.dto.TripPageOptionsDto(
+                "sideways", null, null, null, null, null))), 400, ApiErrors.VALIDATION_FAILED);
+        assertError(resource.update(TRIP_ID, CSRF_OK, pageBody(new org.paulsens.trip.api.dto.TripPageOptionsDto(
+                null, null, null, null, null, "https://elsewhere.example/x.css"))), 400, ApiErrors.VALIDATION_FAILED);
+        Mockito.verify(trips, Mockito.times(1)).saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any());
+
+        tripExists(trip(TRIP_ID, ME));
+        final Trip again = trips.getTrip(TRIP_ID);
+        again.setOrgId("org-page");
+        again.getPage().setLayout("full-width");
+        again.getPage().setStylesheetUrl(cssUrl);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(again), ArgumentMatchers.any())).thenReturn(true);
+        assertOk(resource.update(TRIP_ID, CSRF_OK, pageBody(new org.paulsens.trip.api.dto.TripPageOptionsDto(
+                "", null, null, null, null, ""))));
+        Assert.assertNull(again.getPage().getLayout(), "\"\" clears back to the organization's");
+        Assert.assertNull(again.getPage().getStylesheetUrl());
+
+        // Read-back: a manager sees the options, a plain member does not.
+        again.getPage().setLayout("classic");
+        final TripDto admin = (TripDto) resource.get(TRIP_ID, null).getEntity();
+        Assert.assertEquals(admin.page().layout(), "classic");
+        signedInAs(ME);
+        final TripDto member = (TripDto) resource(new TripsResource()).get(TRIP_ID, null).getEntity();
+        Assert.assertNull(member.page(), "the page options are the managers' business");
+        Assert.assertNull(member.withoutEvents().page());
+    }
+
+    private static TripDto pageBody(final org.paulsens.trip.api.dto.TripPageOptionsDto page) {
+        return new TripDto(null, null, null, null, false, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, page);
+    }
+
     /** Events on a write APPEND (null ids only): replacing by id would erase participants/private notes. */
     @Test
     public void updateAppendsNewEventsAndRefusesIds() {

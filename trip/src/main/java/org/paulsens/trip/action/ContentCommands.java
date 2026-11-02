@@ -4,6 +4,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.faces.context.FacesContext;
 import jakarta.inject.Named;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -151,6 +152,7 @@ public class ContentCommands {
             return false;
         }
         normalizeRichText(instance);
+        publishIfSeededPlaceholder(instance);
         instance.setModifiedBy(caller.auditActor().email());
         final boolean saved;
         try {
@@ -168,8 +170,68 @@ public class ContentCommands {
             audit(caller, instance.getId(),
                     "Saved v" + instance.getVersion() + " of '" + instance.getTitle() + "' in "
                             + instance.getSection());
+            publishContainerOf(caller, instance);
         }
         return saved;
+    }
+
+    /**
+     * The first edit of a seeded placeholder publishes it (docs/conference.md, "Placeholders start hidden"): the
+     * passed "Show until" that hid it was the seed's, not the editor's, so when the editor left that date exactly as
+     * seeded it is cleared. A date the editor set themselves (any other value) is kept.
+     */
+    private void publishIfSeededPlaceholder(final ContentInstance instance) {
+        final ContentInstance stored = storedRow(instance.getId());
+        if (OrgPageBootstrap.isSeededPlaceholder(stored)
+                && leftAsSeeded(stored.getEventDate(), instance.getEventDate())) {
+            instance.setEventDate(null);
+        }
+    }
+
+    /**
+     * Whether the editor left the seed's "Show until" alone: cleared it, or kept it to the minute. The content
+     * dialog's calendar carries minutes only ({@code MM/dd/yyyy HH:mm}), so an untouched seed date comes back with
+     * its seconds dropped; comparing to the second would mistake every untouched date for the editor's own.
+     */
+    private static boolean leftAsSeeded(final LocalDateTime seeded, final LocalDateTime edited) {
+        return edited == null
+                || seeded.truncatedTo(ChronoUnit.MINUTES).equals(edited.truncatedTo(ChronoUnit.MINUTES));
+    }
+
+    /**
+     * Saving the first item into a seeded placeholder CONTAINER (a speaker into Speakers, a question into Questions)
+     * publishes the container too: the editor filled it in, which is the publishing act, and a visible card inside
+     * a hidden band would be no card at all. Its own row, stamped with the caller and audited like any save.
+     */
+    private void publishContainerOf(final Caller caller, final ContentInstance child) {
+        final ContentInstance container = containerOf(child.getSection());
+        if (!OrgPageBootstrap.isSeededPlaceholder(container)) {
+            return;
+        }
+        container.setEventDate(null);
+        container.setModifiedBy(caller.auditActor().email());
+        try {
+            if (DAO.getInstance().saveContent(container, retainCount())) {
+                audit(caller, container.getId(), "Published '" + container.getTitle()
+                        + "' (a seeded placeholder) with its first item");
+            }
+        } catch (final RuntimeException ex) {
+            log.error("Unable to publish the container of content: " + child.getId(), ex);
+        }
+    }
+
+    /** The content dialog's note: whether the row being edited is still a seeded placeholder. */
+    public boolean isSeededPlaceholder(final ContentInstance instance) {
+        return OrgPageBootstrap.isSeededPlaceholder(instance);
+    }
+
+    private static ContentInstance storedRow(final String id) {
+        try {
+            return DAO.getInstance().getContent(id, Cached.NO).orElse(null);
+        } catch (final RuntimeException ex) {
+            log.error("Unable to read the stored content: " + id, ex);
+            return null;
+        }
     }
 
     /**
@@ -566,6 +628,10 @@ public class ContentCommands {
         final ContentInstance restored = snapshot.copy();
         // Carry the stored current version so the DAO's lost-update guard accepts the save.
         restored.setVersion(record.getCurrent().getVersion());
+        if (OrgPageBootstrap.isSeededPlaceholder(snapshot)) {
+            // Restoring the seeded version of a published placeholder must never hide the section again.
+            restored.setEventDate(null);
+        }
         restored.setModifiedBy(caller.auditActor().email());
         final boolean saved;
         try {

@@ -70,14 +70,37 @@ is noted; two of the same status are a blocker.
 
 Trips become `kind` CONFERENCE of the target organization, `openToPublic` false, rosters remapped. Free-text
 questions keep their ids; a hidden `opt<N>` true/false answer makes question N a yes/no one; the legacy
-`admissionOptions` become ONE priced pick-one question (`admissionQuestion`), so admission answers show by label. The
-legacy pricing fields (`admissionOptions`, `discountCodes`, `childPriceCap`) are not carried as fields; the export
-keeps them. Checkout stays off.
+`admissionOptions` become ONE priced pick-one question (`admissionQuestion`), REQUIRED (so it is the trip's
+registration-type question for the engine and check-in), each choice carrying the trip dates its legacy day codes
+(`FRI`/`SAT`/`SUN`) name (a code no date of the trip falls on is noted, never guessed). `tripEvents` is the one trip
+field not carried.
+
+**Legacy pricing** becomes the trip's checkout policy (`Trip.checkout`, `docs/checkout.md`), left OFF: the old
+registration is over, and the policy is the record of how its prices worked. The old site's hard-coded age tiers
+become two age bands on every trip with admission options, "Under 4" (0-3, complimentary) and, when the trip had a
+`childPriceCap`, "Child (4-10)" (4-10, FIXED_PRICE at the cap). Each legacy `discountCode` becomes a `DiscountCode`
+with `enabled` FALSE (nobody may use an old code today): EXACT -> FIXED_PRICE of the amount, valid for its
+`validOptionIds` (the admission choice ids are the legacy option ids, unchanged); DISCOUNT_BY -> TOTAL of the
+amount off; `description` -> `note`, `expiration` -> `expiresOn`.
 
 Registrations keep their status, created date and answers; `_admission` moves under the admission question,
 `_checkedIn` becomes `checkedInAt` (no `checkedInBy`), every CONFIRMED row gets a ticket, and `registrationType` is
-the admission option's label (else the mapped legacy `_regType` label). No price breakdown is invented: what a person
-paid is their ledger.
+the admission option's label (else the mapped legacy `_regType` label). On a trip with admission options every
+registration gets a `priceBreakdown`, computed by TODAY's engine (`CheckoutPricing.price`) over the imported policy
+with its codes and every admission choice ENABLED for that computation only (a code or option withdrawn since must
+still price the people who used it while it was live), from the person's birthdate (age on the trip's first day),
+their answers and the TEXT of the code whose ID `_discountCode` holds, as of the registration's own date (so
+`computedAt` is when they registered and a code live then still counts). `CheckoutCapacity.codeUses` then counts the
+legacy uses. The legacy answers `_registrantType` (derived from the birthdate, which the band reads), `_discountCode`
+and `_discount` leave the answers. What the engine cannot express is kept as NOTE lines on the breakdown: a worded
+`_discount` ("speaker"), a code id the trip no longer knows, and the old site's NUMERIC `_discount`, an admin override
+of the whole price (a scholarship, a comp), which is NOT applied and is also flagged in the plan's notes for the
+owner to review against the person's ledger. What a person paid is still their ledger.
+
+One known divergence: the old site took `min(age-adjusted price, coded price from the BASE price)`, today's engine
+applies the code to the after-band price, so a 4-10 child who also used a DISCOUNT_BY code prices lower than the old
+site charged (the cap less the amount, not the cap). Such a registration shows in the patch's dry run as a breakdown
+with both an age-band line and a code line; review those against the ledger before applying.
 
 Ledger rows keep their ids, amounts, dates, notes and soft-delete stamps, are re-owned by the target person and the
 organization, and are bound to their trip through `BindingCommands`; a Shared or Batch group gets `groupPeople`
@@ -93,11 +116,44 @@ membership writer). Families go through `FamilyCommands.adminLink`. This script 
 Before the apply (`checkPlan`): every field of every created person, every registration answer and every ledger
 field of the export is carried or moved on purpose (text compares trimmed: the model trims names). After it
 (`checkTarget`): every planned person exists with the planned values and is a member; every family link exists, as a
-member; each trip is a conference of the organization with its roster and questions; every registration is stored as
-planned and CONFIRMED rows hold tickets; registrations per trip and status, check-ins per trip, ledger rows and live
-totals per trip, and every person's trip total all equal what the EXPORT says (computed from its own rows and
-bindings, not from the plan); every role is held.
+member; each trip is a conference of the organization with its roster and questions, and one with admission options
+holds the age bands (one, or two with a child cap) and as many discount codes as the EXPORT's trip row, its
+admission question is the required registration-type question, and every CONFIRMED registration on it has a price
+breakdown; every registration is stored as planned, breakdown included, and CONFIRMED rows hold tickets;
+registrations per trip and status, check-ins per trip, ledger rows and live totals per trip, and every person's trip
+total all equal what the EXPORT says (computed from its own rows and bindings, not from the plan); every role is held.
 
 The first production plan (2026-11-01) and its rehearsal: 1726 created, 41 merged, 22 one person with another
 record, 20 skipped, 62 family links, 1108 registrations, 972 ledger rows, 9 roles; every check passed, a second
 apply wrote nothing, the rollback undid every row.
+
+## Patching the pricing onto the 2026-11-01 rows
+
+The 2026-11-01 production apply ran a planner that only NOTED the legacy pricing fields: its trips have no checkout
+policy, an optional admission question without days, and registrations with no breakdown and the raw `_registrantType`,
+`_discount` and `_discountCode` answers. The approved plan promised the pricing, so it ships as a patch phase that
+touches only what that run left unfinished:
+
+```sh
+./conf-import.sh apply --patch-legacy-pricing --export ~/conf-import/export --out ~/conf-import/run --actor <email>
+./conf-import.sh apply --patch-legacy-pricing --export ~/conf-import/export --out ~/conf-import/run --actor <email> --apply
+./conf-import.sh rollback --patch-legacy-pricing --out ~/conf-import/run --actor <email> --yes     # if needed
+```
+
+The first line is a DRY RUN (the default): it plans afresh against the target (the old `plan.json` predates the
+pricing; the planner recognises the people an earlier run created by their id, so the re-plan has no blockers of its
+own), decides every row and writes `patch-dry-run.txt`, nothing else. Exit 2 with blockers. `--apply` (the CLI's
+`--yes`) writes, saves `patch-report.json` (its own file: the import's `report.json` and its rollback stay what they
+were), `patch.txt`, then runs the full verify. Per row:
+
+- a trip gets the planned bands and codes only while its own policy holds none (a policy an admin has since given
+  pricing is theirs and is kept, and reported), and `required` plus the choice days only while its admission question
+  still reads exactly as the import wrote it (one edited since is kept, and reported);
+- a registration gets its planned breakdown and loses the three legacy answers only while it has no breakdown;
+- every write happens only if the row is still what was read a moment before (the applier's read-compare-write, the
+  way a merge is refused when the person changed since the plan), else it is a FAILURE to re-run.
+
+A second patch writes nothing ("unchanged trip", "priced already"). The rollback restores each patched row's
+before-image (`ConferenceImportRollback.undo` does them first, so a report holding both kinds unwinds in order). Press
+Clear caches after either. `ConferenceImportTest` covers the dry run, the patch, its idempotence, the edited-row
+refusals, the verify and the rollback.

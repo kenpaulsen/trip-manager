@@ -77,7 +77,8 @@ public class OrgAppearancePreviewTest {
     @Test
     public void anImageWinsOverAColorAndAColorAloneIsPainted() throws IOException {
         stored(Map.of(BG_URL, IMAGE, BG_COLOR, "#abcdef"));
-        onSite(orgSite, () -> Assert.assertEquals(brand.getRootStyle(), "--site-bg:url(" + IMAGE + ")",
+        onSite(orgSite, () -> Assert.assertEquals(brand.getRootStyle(),
+                "--site-bg:url(" + IMAGE + ");--layout-full-bg:transparent",
                 "an image covers the page, so the color under it must not be painted as well"));
 
         stored(Map.of(BG_COLOR, "#ABCDEF"));
@@ -110,7 +111,8 @@ public class OrgAppearancePreviewTest {
         onSite(orgSite, () -> Assert.assertEquals(brand.getRootStyle(), "--site-bg:none;--site-bg-color:#00ff00",
                 "a chosen color still wins over the palette's tint"));
         stored(Map.of(BG_COLOR, "#00ff00", BG_URL, IMAGE));
-        onSite(orgSite, () -> Assert.assertEquals(brand.getRootStyle(), "--site-bg:url(" + IMAGE + ")",
+        onSite(orgSite, () -> Assert.assertEquals(brand.getRootStyle(),
+                "--site-bg:url(" + IMAGE + ");--layout-full-bg:transparent",
                 "and an image still beats both"));
     }
 
@@ -418,7 +420,7 @@ public class OrgAppearancePreviewTest {
 
         vals.put(BrandCommands.BG_MODE_KEY, BrandCommands.BG_MODE_IMAGE);
         brand.preview(org.getId().getValue(), vals, "abc");
-        Assert.assertEquals(brand.getRootStyle(), "--site-bg:url(" + IMAGE + ")");
+        Assert.assertEquals(brand.getRootStyle(), "--site-bg:url(" + IMAGE + ");--layout-full-bg:transparent");
     }
 
     // --- fixture plumbing ---

@@ -65,6 +65,17 @@ public final class OrgPageBootstrap {
     private OrgPageBootstrap() {
     }
 
+    /**
+     * Whether a stored row is still a seeded placeholder (docs/conference.md, "Placeholders start hidden"): written by
+     * the bootstrap and never saved by an editor since (its author is still {@link #SEED_AUTHOR}), and carrying the
+     * passed "Show until" that only {@link #tripRows} gives a row (the org and marketing seeds never set one). No
+     * flag of its own: the first edit publishes it by clearing that date ({@code ContentCommands.saveContent}), and
+     * the rows a script hid on an older page match exactly the same way.
+     */
+    public static boolean isSeededPlaceholder(final ContentInstance row) {
+        return row != null && SEED_AUTHOR.equals(row.getModifiedBy()) && row.getEventDate() != null;
+    }
+
     /** The section key of an organization's home page: {@code page:org:{uuid}:home}. */
     public static String pageKey(final Organization.Id orgId) {
         return pageKey(orgId, HOME_PAGE);

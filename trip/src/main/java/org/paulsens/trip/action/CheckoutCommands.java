@@ -62,8 +62,9 @@ import org.paulsens.trip.util.Ages;
 public class CheckoutCommands {
     /** The category of a registration's Bill row. */
     public static final String BILL_CATEGORY = "Registration";
-    /** The offline methods an admin may record (docs/checkout.md, "Offline payments"). */
-    public static final List<String> OFFLINE_METHODS = List.of("CHECK", "CASH", "COMP", "OTHER");
+    /** The offline methods an admin may record (docs/checkout.md, "Offline payments"): every one but FREE. */
+    public static final List<String> OFFLINE_METHODS = Payment.OfflineReceipt.METHODS.stream()
+            .filter(method -> !Payment.OfflineReceipt.FREE.equals(method)).toList();
     /** How the page and the mail print the balance due date: "March 1, 2027". */
     public static final java.time.format.DateTimeFormatter LONG_DATE =
             java.time.format.DateTimeFormatter.ofPattern("MMMM d, yyyy", java.util.Locale.US);
@@ -300,7 +301,9 @@ public class CheckoutCommands {
             return refuse("Nothing to register: select at least one person.");
         }
         if (prepared.totalCents() == 0) {
-            final Payment free = offlinePayment(trip, payer.getId(), prepared, 0L, "FREE", LocalDateTime.now());
+            final LocalDateTime now = LocalDateTime.now();
+            final Payment free = offlinePayment(trip, payer.getId(), prepared, 0L,
+                    new Payment.OfflineReceipt(Payment.OfflineReceipt.FREE, null, now.toLocalDate()), now);
             return new Started(null, paymentSource.get().recordOffline(free));
         }
         final PaymentCommands payments = paymentSource.get();
@@ -357,10 +360,9 @@ public class CheckoutCommands {
                             : " (the deposits; tick Partial payment for another amount up to "
                             + MoneyMath.formatCents(price) + ")") + ".");
         }
-        final String label = kind + (reference == null || reference.isBlank() ? "" : " " + reference.trim());
         final LocalDateTime when = receivedOn == null ? LocalDateTime.now() : receivedOn.atStartOfDay();
         final Payment payment = offlinePayment(trip, payerId == null ? callerSource.get().personId() : payerId,
-                prepared, received, label, when);
+                prepared, received, new Payment.OfflineReceipt(kind, reference, when.toLocalDate()), when);
         return paymentSource.get().recordOffline(payment);
     }
 
@@ -649,9 +651,12 @@ public class CheckoutCommands {
         return DAO.getInstance().getPerson(who, Cached.NO).orElse(null);
     }
 
-    /** An OFFLINE payment for the prepared party, already CAPTURED: see PaymentCommands.recordOffline. */
+    /**
+     * An OFFLINE payment for the prepared party, already CAPTURED: see PaymentCommands.recordOffline. The receipt
+     * is stored structured AND as the capture-id label, which the ledger descriptions and the mail print.
+     */
     private Payment offlinePayment(final Trip trip, final Person.Id payerId, final Prepared prepared,
-            final long receivedCents, final String label, final LocalDateTime receivedAt) {
+            final long receivedCents, final Payment.OfflineReceipt receipt, final LocalDateTime receivedAt) {
         final Payment payment = Payment.builder()
                 .tripId(trip.getId())
                 .orgId(trip.getOrgId())
@@ -660,12 +665,13 @@ public class CheckoutCommands {
                 .allocations(allocate(prepared.allocations(), receivedCents))
                 .feesPaidBy(FeesPaidBy.ORGANIZATION)
                 .totalChargedCents(receivedCents)
-                .captureId(label)
+                .captureId(receipt.label())
                 .capturedGrossCents(receivedCents)
                 .status(Payment.Status.CAPTURED)
                 .createdAt(LocalDateTime.now())
                 .capturedAt(receivedAt)
                 .build();
+        payment.setOffline(receipt);
         payment.setCheckout(prepared.party(payment.getPaymentId()));
         return payment;
     }
@@ -1031,10 +1037,14 @@ public class CheckoutCommands {
                 : MoneyMath.formatCents(reg.getPriceBreakdown().getTotalCents());
     }
 
-    /** Everything the Registrations tab's "details" dialog explains about one row's price. */
+    /**
+     * Everything the Registrations tab's "details" dialog explains about one row's price. {@code paidWith} is how
+     * the money arrived ("Check 1042, received 10/30/2026", or the processor and its capture id); "" without a
+     * payment.
+     */
     public record RegDetails(String name, String registrationType, Integer ageAtStart, LocalDate birthdate,
             List<String> choices, String code, List<String> attestations, List<LineView> lines, String total,
-            String paymentId, String ticketCode) implements Serializable {
+            String paymentId, String ticketCode, String paidWith) implements Serializable {
         @Serial
         private static final long serialVersionUID = 1L;
     }
@@ -1045,6 +1055,8 @@ public class CheckoutCommands {
         if (trip == null || reg == null) {
             return null;
         }
+        final Payment payment = reg.getPaymentId() == null ? null
+                : DAO.getInstance().getPayment(reg.getPaymentId()).orElse(null);
         final Person person = DAO.getInstance().getPerson(reg.getUserId(), Cached.YES).orElse(null);
         final PriceBreakdown breakdown = reg.getPriceBreakdown();
         final PriceBreakdown.Inputs inputs = breakdown == null ? null : breakdown.getInputs();
@@ -1059,7 +1071,7 @@ public class CheckoutCommands {
                 person == null ? null : person.getBirthdate(), choices,
                 inputs == null ? "" : blank(inputs.getCodeText()), attestations, breakdownLines(breakdown),
                 breakdown == null ? "" : MoneyMath.formatCents(breakdown.getTotalCents()), blank(reg.getPaymentId()),
-                blank(reg.getTicketCode()));
+                blank(reg.getTicketCode()), payment == null ? "" : PaymentCommands.paidWith(payment));
     }
 
     /** A choice id's label on this trip, or the id itself when no question offers it any more. */

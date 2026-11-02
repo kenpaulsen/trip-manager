@@ -134,7 +134,8 @@ public class BrandCommandsTest {
             Assert.assertNull(brand.getWordmark(), "a logo replaces the wordmark");
             Assert.assertEquals(brand.getFaviconHref(), "https://cdn.acme.example/favicon.ico");
             Assert.assertEquals(brand.getOgImage(), "https://cdn.acme.example/og.png");
-            Assert.assertEquals(brand.getRootStyle(), "--site-bg:url(https://cdn.acme.example/bg.jpg)");
+            Assert.assertEquals(brand.getRootStyle(),
+                    "--site-bg:url(https://cdn.acme.example/bg.jpg);--layout-full-bg:transparent");
             Assert.assertEquals(brand.getFooterTitle(), "Acme Pilgrimages");
             Assert.assertEquals(brand.getFooterText(), "A registered charity");
             Assert.assertEquals(brand.getContactName(), "Wile E.");
@@ -146,6 +147,26 @@ public class BrandCommandsTest {
         });
         // The same settings are NOT the shared site's: another host still sees nothing of them.
         onSite(SiteContext.shared("www.visitqueenofpeace.com"), () -> assertNeutral("the shared site"));
+    }
+
+    /** One rule for the org's background and a conference page's own ({@code ConferenceCommands.lookFor}). */
+    @Test
+    public void theRootStyleRuleIsSharedWithConferencePages() {
+        Assert.assertEquals(BrandCommands.rootStyleOf("https://cdn.example/bg(1).jpg", "#fff"),
+                "--site-bg:url(https://cdn.example/bg%281%29.jpg);--layout-full-bg:transparent",
+                "the image wins, escaped for url(), and the full-width ground goes transparent");
+        Assert.assertEquals(BrandCommands.rootStyleOf("/org/x/bg.jpg", null),
+                "--site-bg:url(/org/x/bg.jpg);--layout-full-bg:transparent", "a site-relative library URL");
+        Assert.assertEquals(BrandCommands.rootStyleOf(null, " #AABBCC "), "--site-bg:none;--site-bg-color:#aabbcc");
+        Assert.assertEquals(BrandCommands.rootStyleOf(null, "red"),
+                "--site-bg:none;--site-bg-color:" + BrandCommands.PALETTE_BACKGROUND, "not a hex value: the palette");
+        Assert.assertEquals(BrandCommands.rootStyleOf("//evil.example/bg.jpg", "#fff"),
+                "--site-bg:none;--site-bg-color:#fff", "a protocol-relative URL is refused, the color stands");
+        Assert.assertNull(BrandCommands.safeLinkUrl("/a b.css"), "whitespace could end the attribute");
+        Assert.assertNull(BrandCommands.safeLinkUrl("#top"), "a fragment is no stylesheet");
+        Assert.assertNull(BrandCommands.safeLinkUrl(null));
+        Assert.assertEquals(BrandCommands.safeLinkUrl("/org/x/page.css"), "/org/x/page.css");
+        Assert.assertEquals(BrandCommands.safeLinkUrl("https://cdn.example/page.css"), "https://cdn.example/page.css");
     }
 
     @Test

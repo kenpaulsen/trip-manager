@@ -5,9 +5,11 @@ import org.mapstruct.Mapping;
 import org.mapstruct.factory.Mappers;
 import org.paulsens.trip.api.dto.TripDto;
 import org.paulsens.trip.api.dto.TripEventDto;
+import org.paulsens.trip.api.dto.TripPageOptionsDto;
 import org.paulsens.trip.api.dto.TripPaymentConfigDto;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
+import org.paulsens.trip.model.TripPageOptions;
 import org.paulsens.trip.model.TripPaymentConfig;
 
 /**
@@ -32,4 +34,7 @@ public interface TripMapper {
 
     /** The trip's own rung of the payment ladder; the enum crosses as its name. */
     TripPaymentConfigDto toDto(TripPaymentConfig config);
+
+    /** A conference page's own look (docs/conference.md); null fields follow the organization. */
+    TripPageOptionsDto toDto(TripPageOptions options);
 }

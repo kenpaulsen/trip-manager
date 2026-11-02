@@ -62,6 +62,9 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
 public class PaymentCommands {
     /** What a payment recorded outside any processor (a check, cash, a comp, a $0 registration) is called. */
     public static final String OFFLINE_NAME = "Offline payment";
+    /** How {@link #paidWith} prints the day a payment arrived: "10/30/2026", the receipt's own format. */
+    private static final java.time.format.DateTimeFormatter RECEIVED_DATE =
+            java.time.format.DateTimeFormatter.ofPattern("M/d/yyyy", java.util.Locale.US);
     /** How many lost optimistic-lock races a refund delivery absorbs before asking for a redelivery. */
     static final int REFUND_ATTEMPTS = 4;
 
@@ -322,7 +325,7 @@ public class PaymentCommands {
         audit.payment(payment, true, sandboxTag(payment) + "Offline payment entered: "
                 + MoneyMath.formatCents(payment.getCapturedGrossCents()) + " (" + payment.getCaptureId() + ") to trip "
                 + payment.getTripId(), current.auditActor());
-        return complete(payment, null, current);
+        return complete(payment, null, current).withOffline(payment);
     }
 
     private Completion complete(final Payment payment, final String token, final Caller current) {
@@ -907,7 +910,7 @@ public class PaymentCommands {
         return (config == null || !config.isEnabled()) ? null : config;
     }
 
-    private PaymentProcessorConfig configOf(final Payment payment) {
+    private static PaymentProcessorConfig configOf(final Payment payment) {
         if (payment.getOrgId() == null || payment.getProcessorConfigId() == null) {
             return null;
         }
@@ -916,11 +919,62 @@ public class PaymentCommands {
     }
 
     /** The payment's processor as people read it: an offline payment has no config, only its type. */
-    private String processorNameOf(final Payment payment, final PaymentProcessorConfig config) {
+    private static String processorNameOf(final Payment payment, final PaymentProcessorConfig config) {
         return payment.getProcessorType() == ProcessorType.OFFLINE ? OFFLINE_NAME : displayNameOf(config);
     }
 
-    private String displayNameOf(final PaymentProcessorConfig config) {
+    /** The payment's processor as people read it, from its stored config: "Stripe", or "Offline payment". */
+    public static String processorNameOf(final Payment payment) {
+        return processorNameOf(payment, configOf(payment));
+    }
+
+    /**
+     * How the money arrived, for a Method column: the offline receipt's method and reference ("Check 1042",
+     * "Comp", "Free") or the processor's name. The reconciliation page's column; an instance method so EL can call it.
+     */
+    public String methodOf(final Payment payment) {
+        final Payment.OfflineReceipt receipt = payment.getOfflineReceipt();
+        return receipt == null ? processorNameOf(payment) : receipt.summary();
+    }
+
+    /** The export's Payment-Method cell: the offline method alone ("Check") or the processor's name. */
+    public static String paymentMethodOf(final Payment payment) {
+        final Payment.OfflineReceipt receipt = payment.getOfflineReceipt();
+        return receipt == null ? processorNameOf(payment) : receipt.methodLabel();
+    }
+
+    /** The export's Payment-Reference cell: the check number, or the processor's capture id; "" when neither. */
+    public static String paymentReferenceOf(final Payment payment) {
+        final Payment.OfflineReceipt receipt = payment.getOfflineReceipt();
+        final String reference = receipt == null ? payment.getCaptureId() : receipt.reference();
+        return reference == null ? "" : reference;
+    }
+
+    /** The day the money arrived: the receipt's date for an offline payment, else the capture's; null when unknown. */
+    public static java.time.LocalDate paymentReceivedOn(final Payment payment) {
+        final Payment.OfflineReceipt receipt = payment.getOfflineReceipt();
+        if (receipt != null) {
+            return receipt.receivedOn();
+        }
+        return payment.getCapturedAt() == null ? null : payment.getCapturedAt().toLocalDate();
+    }
+
+    /**
+     * One line saying how a registration was paid, for the breakdown dialog: "Check 1042, received 10/30/2026" for
+     * an offline payment, "Stripe (id #pi_123), 10/30/2026" for a processor's.
+     */
+    public static String paidWith(final Payment payment) {
+        final Payment.OfflineReceipt receipt = payment.getOfflineReceipt();
+        if (receipt != null) {
+            return receipt.describe();
+        }
+        final java.time.LocalDate received = paymentReceivedOn(payment);
+        return processorNameOf(payment)
+                + (payment.getCaptureId() == null ? "" : " (id #" + payment.getCaptureId() + ")")
+                + (received == null ? "" : ", " + received.format(RECEIVED_DATE));
+    }
+
+    private static String displayNameOf(final PaymentProcessorConfig config) {
         if (config == null || config.getType() == null) {
             return "the payment processor";
         }
@@ -1129,6 +1183,9 @@ public class PaymentCommands {
         private String message;
         private List<String> dryRunLines = List.of();
         private String reference;
+        /** Set by {@link #recordOffline}: the payment entered, and how it was received (echoed by REST). */
+        private String paymentId;
+        private Payment.OfflineReceipt offline;
 
         static Completion of(final String status, final String message) {
             final Completion completion = new Completion();
@@ -1139,6 +1196,12 @@ public class PaymentCommands {
 
         Completion withReference(final Payment payment) {
             this.reference = payment.getOrderRef();
+            return this;
+        }
+
+        Completion withOffline(final Payment payment) {
+            this.paymentId = payment.getPaymentId();
+            this.offline = payment.getOfflineReceipt();
             return this;
         }
     }

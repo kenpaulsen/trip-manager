@@ -126,6 +126,8 @@ public class SerializationCompatibilityTest {
             of(AuditScope.class, () -> AuditScope.org("acme"), AuditScope::orgId),
             of(Person.class, SerializationCompatibilityTest::person, p -> p.getId().getValue()),
             of(Trip.class, () -> Trip.builder().id("trip-rome").build(), Trip::getId),
+            of(TripPageOptions.class, () -> new TripPageOptions("full-width", null, "#336699", Boolean.TRUE, null,
+                    "https://cdn.example/page.css"), TripPageOptions::getStylesheetUrl),
             of(TripEvent.class, SerializationCompatibilityTest::tripEvent, TripEvent::getId),
             of(TripEventForm.class, SerializationCompatibilityTest::tripEventForm, TripEventForm::getEventId),
             of(DateSpanForm.class, SerializationCompatibilityTest::dateSpanForm, DateSpanForm::getStart),

@@ -24,6 +24,10 @@ public class ImportReport {
     private List<Key> registrations = new ArrayList<>();
     private List<Key> transactions = new ArrayList<>();
     private List<Before> privileges = new ArrayList<>();
+    /** Trips already present that the legacy-pricing patch rewrote, with the row as it was (key: trip id). */
+    private List<Before> patchedTrips = new ArrayList<>();
+    /** Registrations the patch gave a breakdown, with the row as it was (key: {@code tripId/userId}). */
+    private List<Before> patchedRegistrations = new ArrayList<>();
     private List<String> skipped = new ArrayList<>();
     private List<String> failures = new ArrayList<>();
 

@@ -170,6 +170,12 @@ public class TripCommands {
             PageFeedback.warn("Not saved", String.join(" ", pricing));
             return false;
         }
+        final List<String> page = new ConferenceCommands().pageProblems(trip);
+        if (!page.isEmpty()) {
+            // Same for the Conference Page dialog (docs/conference.md, "Look and feel").
+            PageFeedback.warn("Not saved", String.join(" ", page));
+            return false;
+        }
         boolean result;
         // Read the roster BEFORE the write, so anyone dropped in this edit can be taken off the chat too. Done
         // here rather than at each Remove button because there are several ways off a trip and they must all

@@ -128,6 +128,21 @@ public class AuditCommandsTest {
     }
 
     @Test
+    public void checkInAndItsUndoAreTheirOwnAction() {
+        // docs/checkin.md: arrivals filter apart from sign-ups and status changes, so a conference's "who is
+        // here" question has its own row in the audit page's Action menu.
+        final Person target = person("Ann", null, "Jones", "ann@example.com");
+        final org.paulsens.trip.audit.AuditActor staff = new org.paulsens.trip.audit.AuditActor("staff@x.org", "s1");
+        final String in = captureStdout(() -> audit.checkedIn(target, trip("Summit 2026"), staff));
+        Assert.assertTrue(in.contains("CHECKIN") && !in.contains("REGISTRATION"), in);
+        Assert.assertTrue(in.contains("staff@x.org checked in Ann Jones") && in.contains("Summit 2026"), in);
+
+        final String cleared = captureStdout(() -> audit.checkInCleared(target, trip("Summit 2026"), staff));
+        Assert.assertTrue(cleared.contains("CHECKIN") && cleared.contains("cleared the check-in of Ann Jones"),
+                cleared);
+    }
+
+    @Test
     public void passwordResetRecordsOutcomeRatherThanProse() {
         final String failed = captureStdout(() -> audit.passwordReset("a@x.com", false, "last name did not match"));
         Assert.assertTrue(failed.contains("outcome=FAILURE"),

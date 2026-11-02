@@ -44,7 +44,12 @@ the API all read them.
 The link the confirmation emails carry and the URL inside the QR (`SiteUrls.ticketUrl`: the trip's org's own site
 when it has a subdomain, else `reg.mail.baseUrl`, the chat-invite rule `SiteUrls.baseUrlForTrip`). The checkout
 confirmation links each confirmed person's code (`PaymentMailer.ticketLink`); the approval email's `{{ticketBlock}}`
-does the same on a conference and is empty on a pilgrimage. Whoever holds the link may open it, so:
+does the same on a conference and is empty on a pilgrimage. Both put the QR itself under the link as an
+`<img>` of `SiteUrls.ticketQrUrl` (`/ticket-qr?trip=&t=`, `web/TicketQrServlet`: `TicketQr.png`, the same symbol as
+the page's SVG, since mail clients render no inline SVG), so the check-in table scans the email without a page
+load. The servlet is public by URL like the page (the code is the secret: `TicketCodes.normalize` then
+`CheckinCommands.byTicket`, anything else a bare 404), touches no session, and answers `Cache-Control: private,
+max-age=86400` with `X-Content-Type-Options: nosniff`. Whoever holds the link may open it, so:
 
 - The view is TRANSIENT for everyone (`stateless=true`) and the page touches no viewScope: `checkin.ticketView`
   resolves everything into `requestScope.tk`, and every read names `requestScope` (a bare-name read of a missing
@@ -83,12 +88,17 @@ action shows it).
   Clear (managers), and a link to the ticket (minting it for an older row, `ticketFor`).
 - **Scanned tickets** arrive as `?t=`: `personForTicket` focuses its person, or the page says the ticket is not for
   this event.
-- **Camera**: `resources/trip-js/checkin.js` uses the browser's own `BarcodeDetector` and shows "Scan ticket" only
-  where it exists (no vendored scanner; the iOS app is the primary scanner). A QR is untrusted input:
-  `TicketScan.parse` accepts only an http(s) URL on this page's origin or the trip's ticket origin, path
-  `/trip/ticket.jsf`, with a code-shaped `t`, and the script then loads THIS page's check-in URL for THIS page's
-  trip with that code. It never navigates to the scanned URL. (The ticket origin is accepted as well as the page's
-  own because tickets live on the org's site while staff may work from the shared one.)
+- **Camera**: `resources/trip-js/checkin.js` shows "Scan ticket" wherever the browser has `getUserMedia`. It decodes
+  with the browser's own `BarcodeDetector` where that exists (Chrome on Android and macOS, Edge); elsewhere (Safari
+  on an iPhone or iPad, Firefox) it draws camera frames onto a canvas and decodes them with the vendored
+  [jsQR 1.4.0](https://github.com/cozmo/jsQR) (Apache-2.0; `resources/trip-js/vendor/jsQR.js` + its LICENSE, the
+  README there records the source URL and sha256), loaded on demand from the resource URL in `#ciScanBox`'s
+  `data-jsqr` the first time a frame needs it, never on page load. `TicketScan.decodeImageData(imageData)` is that
+  leg, exposed for the browser test. A QR is untrusted input: `TicketScan.parse` accepts only an http(s) URL on this
+  page's origin or the trip's ticket origin, path `/trip/ticket.jsf`, with a code-shaped `t`, and the script then
+  loads THIS page's check-in URL for THIS page's trip with that code. It never navigates to the scanned URL. (The
+  ticket origin is accepted as well as the page's own because tickets live on the org's site while staff may work
+  from the shared one.)
 - **Counts** (`canViewCounts`): "37 of 120 checked in", registered / confirmed / pending, by type and by day, on a
   plain `p:poll` every 20 s (no jsft event on it: a command event on `p:poll` fails the page build and surfaces as a
   silent redirect home). The money row (`canSeeMoney`) is NOT polled: it reads one ledger per confirmed person. The
@@ -100,10 +110,13 @@ action shows it).
 pattern; `checkIn` is the growling page wrapper): `NOT_ALLOWED`, `NOT_FOUND` (no row, or NOT_REGISTERED),
 `NOT_CONFIRMED` (pending), `ALREADY_CHECKED_IN` (an existing stamp is NEVER overwritten: the second scan is told
 when and by whom), else it stamps `checkedInAt = now` (to the second) and `checkedInBy`, applies `withTicket` (an
-older confirmed row gets its ticket on the same save), and audits with the existing `AuditAction.REGISTRATION`
-("checked in"). `clearCheckInOutcome` is the managers' undo (`CLEARED`, idempotent `NOT_CHECKED_IN`), audited
-"cleared the check-in". One check-in per registration (owner decision): a multi-day event counts a person on every
-day their type covers once they have arrived.
+older confirmed row gets its ticket on the same save), and audits `AuditAction.CHECKIN` ("checked in"): its own
+action, so arrivals filter apart from sign-ups and status changes on the audit page and in
+`GET /api/audit/vocabularies` (both list `values()`). `clearCheckInOutcome` is the managers' undo (`CLEARED`,
+idempotent `NOT_CHECKED_IN`), audited `CHECKIN` "cleared the check-in". `AuditAction.from` is the enum's Jackson
+creator, so a build without a constant reads a row naming it as `UNKNOWN` rather than dropping it. One check-in per
+registration (owner decision): a multi-day event counts a person on every day their type covers once they have
+arrived.
 
 Two staff scanning the same person in the same second can both pass the fresh read; the later write then carries
 its own stamp. The window is one DynamoDB round trip and the result is still "checked in", so there is no
@@ -162,8 +175,12 @@ secret. The single `GET {personId}` includes the owner's ticket so the app can s
 `CheckinCommandsTest` (the gate matrix per caller kind including anonymous; lookup exactness and the cap; outcomes
 including the kept first stamp and the lazy ticket; counts arithmetic; the trip-bound balance; ticket view levels;
 badges and the export row), `RegistrationsCheckinResourceTest` (the scan flow, the 409s, clear, counts with and
-without money, tickets out of listings), `TicketQrTest`. Webtests: `CheckinPwIT` (anonymous ticket 200 with no
-session cookie and no email or id; the owner's answers; staff land on the controls from the ticket URL; a second
+without money, tickets out of listings), `TicketQrTest` (the SVG, and the PNG as the same symbol at the same scale),
+`TicketQrServletTest` (the emailed image and every 404 leg, no session), `AuditEventTest` (an unknown action reads
+as `UNKNOWN`). Webtests: `CheckinPwIT` (anonymous ticket 200 with no
+session cookie and no email or id, and its `/ticket-qr` PNG likewise cookie-free; the owner's answers; staff land on
+the controls from the ticket URL; a second
 check-in is told "already" and keeps the stamp; only a manager clears; a viewer reads the counts and has the tab;
-another event's ticket; the scanner's URL rule; the Admin menu entry), `BadgesPwIT` (the sheet, mark printed, the
+another event's ticket; the scanner's URL rule; the jsQR leg decoding the page's own QR with `BarcodeDetector`
+removed; the Admin menu entry), `BadgesPwIT` (the sheet, mark printed, the
 dashboard cards, the export's columns and pending toggle), plus `AuthGatePwIT` and `AnonymousFootprintPwIT` entries.

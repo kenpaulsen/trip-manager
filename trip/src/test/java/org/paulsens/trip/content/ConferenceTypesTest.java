@@ -36,7 +36,11 @@ public class ConferenceTypesTest {
         Assert.assertEquals(new TripScheduleType().getTypeId(), StarterTemplates.TRIP_SCHEDULE_ID);
         Assert.assertEquals(new TripRegistrationType().getTypeId(), StarterTemplates.TRIP_REGISTRATION_ID);
         Assert.assertFalse(new PilgrimagesType().fitsTripPage());
-        Assert.assertFalse(new PhotoAlbumsType().fitsTripPage());
+        // Photo albums fit a conference page since they can show ONE event's album (its "Event" property).
+        Assert.assertTrue(new PhotoAlbumsType().fitsTripPage());
+        Assert.assertTrue(new PhotoAlbumsType().getProperties().stream()
+                .anyMatch(p -> ConferenceCommands.PROP_TRIP_ID.equals(p.getName())));
+        Assert.assertEquals(new PhotoAlbumsType().choicesFor(ConferenceCommands.PROP_TRIP_ID).get(0).value(), "");
         Assert.assertTrue(new FileType().fitsTripPage());
     }
 }

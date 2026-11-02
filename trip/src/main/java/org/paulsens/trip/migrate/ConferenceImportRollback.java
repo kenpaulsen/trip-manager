@@ -16,13 +16,16 @@ import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Privilege;
+import org.paulsens.trip.model.Registration;
+import org.paulsens.trip.model.Trip;
 
 /**
  * Undoes an apply from its {@link ImportReport} (docs/migrations/conference-import.md), newest phase first. What the
  * DAO can delete is deleted here (roles, ledger bindings, registrations, trips, families, memberships) and every
- * before-image is restored (roles, families, merged people). People and ledger rows the import CREATED have no
- * delete in the DAO by design, so {@link #deleteScript} writes them as key-only {@code aws dynamodb delete-item}
- * calls for the operator to review and run. Point-in-time recovery remains the backstop.
+ * before-image is restored (the legacy-pricing patch's trips and registrations first, then roles, families, merged
+ * people). People and ledger rows the import CREATED have no delete in the DAO by design, so {@link #deleteScript}
+ * writes them as key-only {@code aws dynamodb delete-item} calls for the operator to review and run. Point-in-time
+ * recovery remains the backstop.
  */
 @Slf4j
 public class ConferenceImportRollback {
@@ -42,6 +45,12 @@ public class ConferenceImportRollback {
 
     /** Undoes everything the DAO can; then run {@link #deleteScript}'s output. */
     public void undo(final ImportReport report) {
+        for (final ImportReport.Before trip : report.getPatchedTrips()) {
+            done("restore trip " + trip.key(), saveTrip(read(trip.before(), Trip.class)));
+        }
+        for (final ImportReport.Before reg : report.getPatchedRegistrations()) {
+            done("restore registration " + reg.key(), saveRegistration(read(reg.before(), Registration.class)));
+        }
         final PrivilegeCommands privileges = new PrivilegeCommands();
         for (final ImportReport.Before role : report.getPrivileges()) {
             done("role " + role.key(), role.before() == null ? DAO.getInstance().deletePrivilege(role.key())
@@ -124,21 +133,35 @@ public class ConferenceImportRollback {
     }
 
     private boolean save(final Person person) {
+        return restore("person " + person.getId(), () -> DAO.getInstance().savePerson(person));
+    }
+
+    private boolean saveTrip(final Trip trip) {
+        return restore("trip " + trip.getId(), () -> DAO.getInstance().saveTrip(trip));
+    }
+
+    private boolean saveRegistration(final Registration reg) {
+        return restore("registration " + reg.getTripId() + "/" + reg.getUserId(),
+                () -> DAO.getInstance().saveRegistration(reg));
+    }
+
+    private boolean saveFamily(final Family family) {
+        return restore("family " + family.getId(), () -> DAO.getInstance().saveFamily(family));
+    }
+
+    /** A DAO write that must not stop the rollback: a refusal or an exception is a FAILED line, nothing more. */
+    private static boolean restore(final String what, final Write write) {
         try {
-            return DAO.getInstance().savePerson(person);
-        } catch (final IOException ex) {
-            log.error("Rollback could not save {}", person.getId(), ex);
+            return Boolean.TRUE.equals(write.run());
+        } catch (final IOException | RuntimeException ex) {
+            log.error("Rollback could not restore {}", what, ex);
             return false;
         }
     }
 
-    private boolean saveFamily(final Family family) {
-        try {
-            return DAO.getInstance().saveFamily(family);
-        } catch (final IOException | RuntimeException ex) {
-            log.error("Rollback could not restore family {}", family.getId(), ex);
-            return false;
-        }
+    /** One DAO save. */
+    private interface Write {
+        Boolean run() throws IOException;
     }
 
     private <T> T read(final JsonNode tree, final Class<T> type) {

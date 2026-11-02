@@ -199,10 +199,13 @@ carries `paymentId`, `ticketCode` (`security/TicketCodes`; every CONFIRMED row h
 `AGENDA_HIDDEN`; `hasDetails()` counts transport keys only); the trip role `checkinStaff`. A conference's PUBLIC PAGE is content sections under
 `page:trip:{tripUuid}:home` (`OrgPageBootstrap.tripPageKey`), hosted by `trip/tripDetails.xhtml`, edited by the
 trip's `tripMgr` and its org's content admins, seeded once on save (`ConferenceCommands.ensurePage`); its views
-(`#{conference}`: `tripFor`, `publicAgenda`, `registrationInfo`) are cached-read-only render code. Its look has NO
-per-conference settings: it follows the org's Appearance page (Full width included), seeds its placeholder sections
-with a passed "Show until" (`ContentInstance.eventDate`) so visitors never see them, and takes custom CSS from an
-org-scoped template holding a `<link rel="stylesheet">` (`docs/conference.md`, "Look and feel"). **Priced checkout** (`docs/checkout.md`, required reading
+(`#{conference}`: `tripFor`, `publicAgenda`, `registrationInfo`) are cached-read-only render code. Its look is the
+trip's own `Trip.page` (`TripPageOptions`: layout, background, title, section links, a stylesheet from the org's media
+library; null = the org's Appearance setting; `ConferenceCommands.lookFor` renders it, `pageProblems` guards it on
+both save paths) laid over the org's Appearance page (`docs/conference.md`, "Look and feel"); its placeholder sections
+are seeded with a passed "Show until" (`ContentInstance.eventDate`) so visitors never see them, and their first save
+publishes them (`OrgPageBootstrap.isSeededPlaceholder`, cleared in `ContentCommands.saveContent`; a child's save
+publishes its container). `photo-albums` fits a conference page and shows that event's own album. **Priced checkout** (`docs/checkout.md`, required reading
 before touching pricing or a checkout payment): the pure engine in `checkout/` (`CheckoutPricing`, `CheckoutValidator`,
 `CheckoutCapacity`), the policy `Trip.checkout` (`CheckoutConfig`: the payment switch, an optional per-person
 `depositCents` + `balanceDueOn`, auto-confirm (null = OFF), window, `AgeBand`s (admission price only), `DiscountCode`s;

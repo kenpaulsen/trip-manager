@@ -1,10 +1,14 @@
 package org.paulsens.trip.migrate;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
@@ -19,11 +23,13 @@ import org.paulsens.trip.audit.AuditActor;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.model.BindingType;
+import org.paulsens.trip.model.CheckoutConfig;
 import org.paulsens.trip.model.Family;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Privilege;
 import org.paulsens.trip.model.Registration;
+import org.paulsens.trip.model.RegistrationOption;
 import org.paulsens.trip.model.Trip;
 
 /**
@@ -32,15 +38,24 @@ import org.paulsens.trip.model.Trip;
  * itself uses for it: memberships through {@code OrgCommands}, families through {@code FamilyCommands.adminLink},
  * bindings through {@code BindingCommands}, roles through {@code PrivilegeCommands}; people, trips, registrations
  * and ledger rows are written as planned. The report is saved after every phase.
+ *
+ * <p>{@link #patchLegacyPricing} is the one exception to "already there is left alone": it carries the legacy
+ * pricing onto trips and registrations an earlier run imported without it (the 2026-11-01 production run).
  */
 @Slf4j
 public class ConferenceImportApplier {
     static final String HOW = "conference import";
+    static final String CHANGED = "changed since it was read; re-run";
+
+    /** The answer keys the legacy-pricing patch moves off a registration, as the planner does on a fresh import. */
+    private static final List<String> LEGACY_ANSWERS = List.of(ConferenceImportPlanner.REGISTRANT_TYPE_KEY,
+            ConferenceImportPlanner.DISCOUNT_KEY, ConferenceImportPlanner.DISCOUNT_CODE_KEY);
 
     private final ObjectMapper mapper;
     private final Supplier<Caller> callerSource;
     private final AuditActor actor;
     private final Consumer<ImportReport> save;
+    private final List<String> patchLines = new ArrayList<>();
 
     /**
      * @param caller a SITE ADMIN caller (the operator): the membership and family writers check for one
@@ -86,11 +101,7 @@ public class ConferenceImportApplier {
 
     private void writePeople(final ImportPlan plan, final ImportReport report) {
         for (final ImportPlan.PersonStep step : plan.people()) {
-            try {
-                writePerson(step, report);
-            } catch (final IOException | RuntimeException ex) {
-                fail(report, "person " + step.oldId(), ex);
-            }
+            attempt(report, "person " + step.oldId(), () -> writePerson(step, report));
         }
     }
 
@@ -197,58 +208,59 @@ public class ConferenceImportApplier {
 
     private void writeTrips(final ImportPlan plan, final ImportReport report) {
         for (final Trip trip : plan.trips()) {
-            try {
-                if (DAO.getInstance().getTrip(trip.getId(), Cached.NO).isPresent()) {
-                    report.getSkipped().add("trip " + trip.getId() + ": already present");
-                } else if (DAO.getInstance().saveTrip(trip)) {
-                    report.getTrips().add(trip.getId());
-                } else {
-                    report.getFailures().add("trip " + trip.getId() + ": save refused");
-                }
-            } catch (final IOException | RuntimeException ex) {
-                fail(report, "trip " + trip.getId(), ex);
-            }
+            attempt(report, "trip " + trip.getId(), () -> writeTrip(trip, report));
+        }
+    }
+
+    private void writeTrip(final Trip trip, final ImportReport report) throws IOException {
+        if (DAO.getInstance().getTrip(trip.getId(), Cached.NO).isPresent()) {
+            report.getSkipped().add("trip " + trip.getId() + ": already present");
+        } else if (DAO.getInstance().saveTrip(trip)) {
+            report.getTrips().add(trip.getId());
+        } else {
+            report.getFailures().add("trip " + trip.getId() + ": save refused");
         }
     }
 
     private void writeRegistrations(final ImportPlan plan, final ImportReport report) {
         for (final Registration reg : plan.registrations()) {
-            final String key = reg.getTripId() + "/" + reg.getUserId().getValue();
-            try {
-                if (DAO.getInstance().getRegistration(reg.getTripId(), reg.getUserId(), Cached.NO).isPresent()) {
-                    report.getSkipped().add("registration " + key + ": already present");
-                } else if (DAO.getInstance().saveRegistration(reg)) {
-                    report.getRegistrations().add(new ImportReport.Key(reg.getTripId(), reg.getUserId().getValue(),
-                            reg.getTripId()));
-                } else {
-                    report.getFailures().add("registration " + key + ": save refused");
-                }
-            } catch (final IOException | RuntimeException ex) {
-                fail(report, "registration " + key, ex);
-            }
+            attempt(report, "registration " + reg.getTripId() + "/" + reg.getUserId().getValue(),
+                    () -> writeRegistration(reg, report));
+        }
+    }
+
+    private void writeRegistration(final Registration reg, final ImportReport report) throws IOException {
+        final String key = reg.getTripId() + "/" + reg.getUserId().getValue();
+        if (DAO.getInstance().getRegistration(reg.getTripId(), reg.getUserId(), Cached.NO).isPresent()) {
+            report.getSkipped().add("registration " + key + ": already present");
+        } else if (DAO.getInstance().saveRegistration(reg)) {
+            report.getRegistrations().add(new ImportReport.Key(reg.getTripId(), reg.getUserId().getValue(),
+                    reg.getTripId()));
+        } else {
+            report.getFailures().add("registration " + key + ": save refused");
         }
     }
 
     private void writeTransactions(final ImportPlan plan, final ImportReport report) {
         final BindingCommands bind = new BindingCommands();
         for (final ImportPlan.TxStep step : plan.transactions()) {
-            final Person.Id user = step.tx().getUserId();
-            final String key = user.getValue() + "/" + step.tx().getTxId();
-            try {
-                if (alreadyThere(bind, step)) {
-                    report.getSkipped().add("transaction " + key + ": already present");
-                    bindToTrip(bind, step);   // a rolled-back run removes the binding, never the row
-                    continue;
-                }
-                if (!DAO.getInstance().saveTransaction(step.tx())) {
-                    report.getFailures().add("transaction " + key + ": save refused");
-                    continue;
-                }
-                report.getTransactions().add(new ImportReport.Key(user.getValue(), step.tx().getTxId(), step.tripId()));
-                bindToTrip(bind, step);
-            } catch (final IOException | RuntimeException ex) {
-                fail(report, "transaction " + key, ex);
-            }
+            attempt(report, "transaction " + step.tx().getUserId().getValue() + "/" + step.tx().getTxId(),
+                    () -> writeTransaction(bind, step, report));
+        }
+    }
+
+    private static void writeTransaction(final BindingCommands bind, final ImportPlan.TxStep step,
+            final ImportReport report) throws IOException {
+        final Person.Id user = step.tx().getUserId();
+        final String key = user.getValue() + "/" + step.tx().getTxId();
+        if (alreadyThere(bind, step)) {
+            report.getSkipped().add("transaction " + key + ": already present");
+            bindToTrip(bind, step);   // a rolled-back run removes the binding, never the row
+        } else if (!DAO.getInstance().saveTransaction(step.tx())) {
+            report.getFailures().add("transaction " + key + ": save refused");
+        } else {
+            report.getTransactions().add(new ImportReport.Key(user.getValue(), step.tx().getTxId(), step.tripId()));
+            bindToTrip(bind, step);
         }
     }
 
@@ -275,24 +287,225 @@ public class ConferenceImportApplier {
     private void writeRoles(final ImportPlan plan, final ImportReport report) {
         final PrivilegeCommands privileges = new PrivilegeCommands();
         for (final ImportPlan.RoleStep role : plan.roles()) {
-            try {
-                final Privilege before = privileges.getOrCreate(role.base(), role.tripId(),
-                        role.base() + " for trip " + role.tripId());
-                Privilege after = before;
-                for (final Person.Id person : role.people()) {
-                    after = after.withNewPerson(person);
-                }
-                if (after == before) {
-                    continue;
-                }
-                report.getPrivileges().add(new ImportReport.Before(before.getId(),
-                        before.getPeople().isEmpty() ? null : tree(before)));
-                if (!privileges.savePrivilege(after, actor)) {
-                    report.getFailures().add("role " + before.getId() + ": save refused");
-                }
-            } catch (final RuntimeException ex) {
-                fail(report, "role " + role.base() + "@" + role.tripId(), ex);
+            attempt(report, "role " + role.base() + "@" + role.tripId(), () -> writeRole(privileges, role, report));
+        }
+    }
+
+    private void writeRole(final PrivilegeCommands privileges, final ImportPlan.RoleStep role,
+            final ImportReport report) {
+        final Privilege before = privileges.getOrCreate(role.base(), role.tripId(),
+                role.base() + " for trip " + role.tripId());
+        Privilege after = before;
+        for (final Person.Id person : role.people()) {
+            after = after.withNewPerson(person);
+        }
+        if (after == before) {
+            return;
+        }
+        report.getPrivileges().add(new ImportReport.Before(before.getId(),
+                before.getPeople().isEmpty() ? null : tree(before)));
+        if (!privileges.savePrivilege(after, actor)) {
+            report.getFailures().add("role " + before.getId() + ": save refused");
+        }
+    }
+
+    // ------------------------------------------------------------------ the legacy-pricing patch
+
+    /**
+     * Carries the legacy pricing onto trips and registrations an earlier run imported without it: each present
+     * trip gets the planned checkout policy's bands and codes (only while its own policy holds none) and its
+     * admission question becomes required with its choices' days (only while that question still reads exactly as
+     * the import wrote it); each present registration gets its planned breakdown and loses its legacy pricing
+     * answers (only while it has no breakdown). Every write happens only if the row is still what was read a
+     * moment before. {@code write} false is a dry run: every decision is in {@link #patchLines()}, nothing is
+     * saved. Refuses a plan with blockers.
+     */
+    public ImportReport patchLegacyPricing(final ImportPlan plan, final String targetOrgId, final boolean write) {
+        if (!plan.blockers().isEmpty()) {
+            throw new IllegalStateException("The plan has " + plan.blockers().size()
+                    + " blockers; resolve them first.");
+        }
+        patchLines.clear();
+        final ImportReport report = new ImportReport();
+        report.setStartedAt(LocalDateTime.now().toString());
+        report.setTargetOrgId(targetOrgId);
+        for (final Trip trip : plan.trips()) {
+            attempt(report, "patch trip " + trip.getId(), () -> patchTrip(trip, report, write));
+        }
+        if (write) {
+            save.accept(report);
+        }
+        for (final Registration reg : plan.registrations()) {
+            attempt(report, "patch registration " + reg.getTripId(), () -> patchRegistration(reg, report, write));
+        }
+        report.setFinishedAt(LocalDateTime.now().toString());
+        if (write) {
+            save.accept(report);
+        }
+        return report;
+    }
+
+    /** One line per row of the last {@link #patchLegacyPricing}: what was (or would be) patched, skipped, refused. */
+    public List<String> patchLines() {
+        return List.copyOf(patchLines);
+    }
+
+    private void patchTrip(final Trip want, final ImportReport report, final boolean write) throws IOException {
+        final Trip live = DAO.getInstance().getTrip(want.getId(), Cached.NO).orElse(null);
+        if (live == null) {
+            skip(report, "trip " + want.getId() + ": not in the target (apply the import first)");
+            return;
+        }
+        final JsonNode before = tree(live);
+        final List<String> changes = new ArrayList<>();
+        patchPolicy(want, live, changes, report);
+        patchAdmissionQuestion(want, live, changes, report);
+        if (changes.isEmpty()) {
+            patchLines.add("unchanged trip " + want.getId() + ": nothing to patch");
+            return;
+        }
+        patchLines.add((write ? "patched " : "would patch ") + "trip " + want.getId() + ": "
+                + String.join("; ", changes));
+        final JsonNode current = DAO.getInstance().getTrip(want.getId(), Cached.NO).map(this::tree).orElse(null);
+        if (write && saveIfUnchanged(report, "trip " + want.getId(), before, current,
+                () -> DAO.getInstance().saveTrip(live))) {
+            report.getPatchedTrips().add(new ImportReport.Before(want.getId(), before));
+        }
+    }
+
+    /**
+     * The patch's conditional write: saves only while the row still reads as {@code before} did a moment ago (the
+     * read-compare-write a merge gets, since neither row carries a version), reporting a changed row or a refused
+     * save as a failure to re-run. Answers whether the row was saved.
+     */
+    private static boolean saveIfUnchanged(final ImportReport report, final String what, final JsonNode before,
+            final JsonNode current, final Write write) throws IOException {
+        if (!before.equals(current)) {
+            report.getFailures().add(what + ": " + CHANGED);
+            return false;
+        }
+        if (!Boolean.TRUE.equals(write.run())) {
+            report.getFailures().add(what + ": save refused");
+            return false;
+        }
+        return true;
+    }
+
+    /** One DAO save. */
+    private interface Write {
+        Boolean run() throws IOException;
+    }
+
+    /** One step of a phase, whose exception is reported, never thrown: the run goes on. */
+    private interface Step {
+        void run() throws IOException;
+    }
+
+    private static void attempt(final ImportReport report, final String what, final Step step) {
+        try {
+            step.run();
+        } catch (final IOException | RuntimeException ex) {
+            fail(report, what, ex);
+        }
+    }
+
+    /** The planned bands and codes onto a policy holding none; one holding any is the admins' and is kept. */
+    private void patchPolicy(final Trip want, final Trip live, final List<String> changes, final ImportReport report) {
+        final CheckoutConfig planned = want.getCheckout();
+        if (planned.getAgeBands().isEmpty() && planned.getCodes().isEmpty()) {
+            return;
+        }
+        final CheckoutConfig policy = live.getCheckout();
+        if (policy.getAgeBands().equals(planned.getAgeBands()) && policy.getCodes().equals(planned.getCodes())) {
+            return;   // patched already
+        }
+        if (!policy.getAgeBands().isEmpty() || !policy.getCodes().isEmpty()) {
+            skip(report, "trip " + want.getId() + ": its checkout policy already holds pricing (kept)");
+            return;
+        }
+        policy.setAgeBands(planned.getAgeBands());
+        policy.setCodes(planned.getCodes());
+        changes.add(planned.getAgeBands().size() + " age bands, " + planned.getCodes().size() + " codes");
+    }
+
+    /** Required and days onto the admission question, while it still reads exactly as the import wrote it. */
+    private void patchAdmissionQuestion(final Trip want, final Trip live, final List<String> changes,
+            final ImportReport report) {
+        final RegistrationOption planned = RegistrationOption.typeQuestion(want.getRegOptions());
+        if (planned == null) {
+            return;
+        }
+        final List<RegistrationOption> questions = live.getRegOptions();
+        final int at = indexOf(questions, planned.getId());
+        if (at < 0) {
+            skip(report, "trip " + want.getId() + ": the admission question is gone (kept as is)");
+        } else if (questions.get(at).equals(planned)) {
+            return;   // patched already
+        } else if (asImported(questions.get(at)).equals(asImported(planned))) {
+            questions.set(at, planned);
+            changes.add("admission question required, choice days");
+        } else {
+            skip(report, "trip " + want.getId() + ": the admission question was edited since the import (kept)");
+        }
+    }
+
+    private static int indexOf(final List<RegistrationOption> questions, final int id) {
+        for (int i = 0; i < questions.size(); i++) {
+            if (questions.get(i).getId() == id) {
+                return i;
             }
+        }
+        return -1;
+    }
+
+    /** The question without what the patch adds: equal before and after, so a patched row is recognised too. */
+    private RegistrationOption asImported(final RegistrationOption question) {
+        final RegistrationOption copy = read(tree(question), RegistrationOption.class);
+        copy.setRequired(null);
+        copy.getChoices().forEach(choice -> choice.setDays(new ArrayList<>()));
+        return copy;
+    }
+
+    private void patchRegistration(final Registration want, final ImportReport report, final boolean write)
+            throws IOException {
+        if (want.getPriceBreakdown() == null) {
+            return;   // an unpriced trip: nothing to carry
+        }
+        final String key = want.getTripId() + "/" + want.getUserId().getValue();
+        final Registration live = DAO.getInstance().getRegistration(want.getTripId(), want.getUserId(), Cached.NO)
+                .orElse(null);
+        if (live == null) {
+            skip(report, "registration " + key + ": not in the target");
+            return;
+        }
+        if (live.getPriceBreakdown() != null) {
+            skip(report, "registration " + key + ": priced already (kept)");
+            return;
+        }
+        final JsonNode before = tree(live);
+        final Map<String, String> options = new HashMap<>(live.getOptions());
+        LEGACY_ANSWERS.forEach(options::remove);
+        final Registration patched = live.withPriceBreakdown(want.getPriceBreakdown()).withOptions(options);
+        patchLines.add((write ? "patched " : "would patch ") + "registration " + key + ": "
+                + want.getPriceBreakdown().summary());
+        final JsonNode current = DAO.getInstance().getRegistration(want.getTripId(), want.getUserId(), Cached.NO)
+                .map(this::tree).orElse(null);
+        if (write && saveIfUnchanged(report, "registration " + key, before, current,
+                () -> DAO.getInstance().saveRegistration(patched))) {
+            report.getPatchedRegistrations().add(new ImportReport.Before(key, before));
+        }
+    }
+
+    private void skip(final ImportReport report, final String what) {
+        report.getSkipped().add(what);
+        patchLines.add("skipped " + what);
+    }
+
+    private <T> T read(final JsonNode tree, final Class<T> type) {
+        try {
+            return mapper.treeToValue(tree, type);
+        } catch (final JsonProcessingException ex) {
+            throw new IllegalStateException("Unreadable row: " + tree, ex);
         }
     }
 

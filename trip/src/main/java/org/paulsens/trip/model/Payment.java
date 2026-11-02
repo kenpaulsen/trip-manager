@@ -5,9 +5,11 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serial;
 import java.io.Serializable;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import lombok.Builder;
 import lombok.Data;
@@ -67,6 +69,14 @@ public final class Payment implements Serializable {
      * for the refund row (see {@code PaymentCommands.refundFromWebhook}). Added 2026-11; older rows read 0.
      */
     private long refundedCents;
+    /**
+     * How an OFFLINE payment was received (docs/checkout.md, "Offline payments"): the method, the reference and
+     * the date, STRUCTURED. {@code captureId} keeps the same facts as one label ("CHECK 1042") because the ledger
+     * descriptions and the mail print that label; this is what reports group by. Set through the setter, like
+     * {@link #checkout}. Null for a processor payment, and for offline rows written before 2026-11 -- read through
+     * {@link #getOfflineReceipt()}, which parses the label for those.
+     */
+    private OfflineReceipt offline;
 
     @Builder
     @JsonCreator
@@ -145,8 +155,82 @@ public final class Payment implements Serializable {
         return feesPaidBy == FeesPaidBy.PAYER;
     }
 
+    /**
+     * The receipt of an OFFLINE payment, or null for a processor payment. An offline row stored before the
+     * structured receipt existed (2026-11) is read from its label: the first word is the method, the rest the
+     * reference, and the date is the capture's. Not a Jackson property (a different name from {@code offline},
+     * so the ignore cannot drop the stored field the way {@code isCheckout} would have).
+     */
+    @JsonIgnore
+    public OfflineReceipt getOfflineReceipt() {
+        if (processorType != ProcessorType.OFFLINE) {
+            return null;
+        }
+        if (offline != null) {
+            return offline;
+        }
+        return OfflineReceipt.parse(captureId, capturedAt == null ? null : capturedAt.toLocalDate());
+    }
+
     public enum Status {
         CREATED, CAPTURED, RECORDED, CANCELLED, FAILED
+    }
+
+    /**
+     * How an offline payment was received: the method ({@link #METHODS}), the reference (a check number; null
+     * when none) and the date. {@link #label()} is the one-line form the ledger and the mail print, so the two
+     * never disagree.
+     */
+    public record OfflineReceipt(String method, String reference, LocalDate receivedOn) implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L; // Pinned: SerializationCompatibilityTest says when to bump.
+
+        /** The method of a party that owed nothing; never offered to an admin. */
+        public static final String FREE = "FREE";
+        /** Every method an offline payment can carry, admin-recordable ones first. */
+        public static final List<String> METHODS = List.of("CHECK", "CASH", "COMP", "OTHER", FREE);
+
+        private static final java.time.format.DateTimeFormatter RECEIVED =
+                java.time.format.DateTimeFormatter.ofPattern("M/d/yyyy", Locale.US);
+
+        public OfflineReceipt {
+            method = method == null ? null : method.trim().toUpperCase(Locale.ROOT);
+            reference = reference == null || reference.isBlank() ? null : reference.trim();
+        }
+
+        /** The stored label, byte for byte what {@code captureId} held before the receipt existed: "CHECK 1042". */
+        public String label() {
+            return reference == null ? method : method + " " + reference;
+        }
+
+        /** The method as people read it: "Check", "Comp", "Free". */
+        public String methodLabel() {
+            return method == null || method.isEmpty() ? ""
+                    : method.charAt(0) + method.substring(1).toLowerCase(Locale.ROOT);
+        }
+
+        /** "Check 1042", or just "Cash". */
+        public String summary() {
+            return reference == null ? methodLabel() : methodLabel() + " " + reference;
+        }
+
+        /** "Check 1042, received 10/30/2026": the breakdown dialog's line. */
+        public String describe() {
+            return receivedOn == null ? summary() : summary() + ", received " + receivedOn.format(RECEIVED);
+        }
+
+        /** Reads a pre-2026-11 label back; null when it names no known method. */
+        static OfflineReceipt parse(final String label, final LocalDate receivedOn) {
+            if (label == null || label.isBlank()) {
+                return null;
+            }
+            final String[] parts = label.trim().split("\\s+", 2);
+            final String method = parts[0].toUpperCase(Locale.ROOT);
+            if (!METHODS.contains(method)) {
+                return null;
+            }
+            return new OfflineReceipt(method, parts.length > 1 ? parts[1] : null, receivedOn);
+        }
     }
 
     /** One person's credited share of this payment (long cents). Order is the page's member order. */

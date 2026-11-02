@@ -227,7 +227,8 @@ pilgrimage language menu). Registry: `ProgrammaticTypes.ALL` (KnownSettings patt
 `pilgrimages`, `photo-albums`, `file` (one media item by id — title/size/URL read LIVE from the cached
 media table; hidden or deleted media renders nothing), `person`, and the conference page's `trip-schedule` and
 `trip-registration` (`docs/conference.md`). `fitsTripPage()` (default true) keeps a type off a TRIP page's Add
-dialog: `pilgrimages` and `photo-albums` list other trips and answer false.
+dialog: `pilgrimages` lists other trips and answers false; `photo-albums` fits, since on a conference's page it shows
+that event's own album (`conference.md`).
 
 Fragments are **pure render-time** (accordions/galleria/rows only — no build-time tags) and read the
 hosting instance as `#{instance}`. A template of kind PROGRAMMATIC copies its type's properties into
@@ -420,10 +421,12 @@ page, and every shared host, renders the classic markup byte for byte
 (`OrgSubdomainPwIT.theClassicLayoutIsUnchanged`). In edit mode the dashed section frames wrap each band, which then
 stays inside its frame rather than reaching the window's edges.
 
-**A page's own stylesheet** is a content section, not a setting: an org-scoped STANDARD template whose body is a
-`<link rel="stylesheet">` to a `.css` in the org's media library (or a `<style>` block), placed once on the page it
-styles. Authoring it is the template manager's raw-HTML trust (`contentAdmin`), the same as any template. Its rules
-belong under `.contentItem` so the site's own chrome is never restyled. `conference.md`, "Look and feel".
+**A page's own stylesheet.** A conference page names one in its page options (`Trip.page.stylesheetUrl`, a CSS file
+in the org's media library, the trip managers' Conference Page dialog; `conference.md`, "Look and feel"). Any page can
+also carry one as a content section: an org-scoped STANDARD template whose body is a `<link rel="stylesheet">` to a
+`.css` in the org's media library (or a `<style>` block), placed once on the page it styles; authoring that is the
+template manager's raw-HTML trust (`contentAdmin`), the same as any template. Either way the rules belong under
+`.contentItem` so the site's own chrome is never restyled.
 
 **The marketing page** (`page:unitetrip-home`) is seeded from `MarketingPageBootstrap`: a hero, a
 six-card Features band, three split bands, a four-item Stats band, a five-question FAQ and a dark call to

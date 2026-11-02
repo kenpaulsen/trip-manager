@@ -36,10 +36,19 @@ import org.paulsens.trip.model.Person;
  *                                                     rollback-deletes.sh land in --out
  * verify   --export DIR --mapping FILE --out DIR      re-checks the target against plan.json and the export
  * rollback --mapping FILE --out DIR --actor EMAIL --yes  undoes report.json (then run rollback-deletes.sh)
+ * apply    --patch-legacy-pricing --export DIR --mapping FILE --out DIR --actor EMAIL [--yes]
+ *                                                     carries the legacy pricing onto trips and registrations an
+ *                                                     earlier run imported without it; a DRY RUN without --yes
+ *                                                     (patch-dry-run.txt); with it, patch-report.json and a verify
+ * rollback --patch-legacy-pricing --mapping FILE --out DIR --actor EMAIL --yes
+ *                                                     restores the rows patch-report.json rewrote
  * </pre>
  * Exit status: 0 done, 1 usage or failure, 2 blockers or failed checks.
  */
 public final class ConferenceImportCli {
+    static final String PATCH_FLAG = "patch-legacy-pricing";
+    static final String PATCH_REPORT = "patch-report.json";
+
     private final ObjectMapper mapper;
     private final PrintStream out;
 
@@ -54,18 +63,19 @@ public final class ConferenceImportCli {
 
     int run(final String[] args) {
         if (args.length == 0) {
-            out.println("usage: plan|apply|verify|rollback --export DIR --mapping FILE --out DIR [--actor EMAIL] "
-                    + "[--yes]");
+            out.println("usage: plan|rehearse|apply|verify|rollback --export DIR --mapping FILE --out DIR "
+                    + "[--actor EMAIL] [--yes] [--patch-legacy-pricing]");
             return 1;
         }
         final Map<String, String> opts = options(args);
+        final boolean patch = opts.containsKey(PATCH_FLAG);
         try {
             return switch (args[0]) {
                 case "plan" -> plan(opts);
                 case "rehearse" -> rehearse(opts);
-                case "apply" -> apply(opts);
+                case "apply" -> patch ? patchPricing(opts) : apply(opts);
                 case "verify" -> verify(opts);
-                case "rollback" -> rollback(opts);
+                case "rollback" -> patch ? rollbackPatch(opts) : rollback(opts);
                 default -> {
                     out.println("Unknown command: " + args[0]);
                     yield 1;
@@ -190,6 +200,60 @@ public final class ConferenceImportCli {
         return rollback.lines().stream().anyMatch(line -> line.startsWith("FAILED")) ? 2 : 0;
     }
 
+    // ------------------------------------------------------------------ the legacy-pricing patch
+
+    /**
+     * Plans afresh against the target (the plan is where the pricing lives, and the 2026-11-01 plan.json predates
+     * it), then patches the present rows: a dry run without {@code --yes}, written and verified with it. The
+     * report goes to its own file so the import's own report.json, and its rollback, stay what they were.
+     */
+    private int patchPricing(final Map<String, String> opts) throws IOException {
+        final boolean write = opts.containsKey("yes");
+        final ImportMapping mapping = ImportMapping.read(path(opts, "mapping"), mapper);
+        final LegacyExport export = LegacyExport.read(path(opts, "export"), mapper);
+        final Path dir = Files.createDirectories(path(opts, "out"));
+        final ImportPlan plan = new ConferenceImportPlanner(mapper, mapping, new DaoTarget()).plan(export);
+        if (!plan.blockers().isEmpty()) {
+            out.println("Blockers (" + plan.blockers().size() + "): the patch needs a clean plan.");
+            plan.blockers().forEach(blocker -> out.println("  " + blocker));
+            return 2;
+        }
+        final Caller caller = siteAdmin(opts.get("actor"));
+        final ConferenceImportApplier applier = new ConferenceImportApplier(mapper, caller,
+                done -> saveReportTo(dir.resolve(PATCH_REPORT), done));
+        final ImportReport report = applier.patchLegacyPricing(plan, mapping.targetOrgId(), write);
+        Files.write(dir.resolve(write ? "patch.txt" : "patch-dry-run.txt"), applier.patchLines());
+        applier.patchLines().forEach(out::println);
+        report.getFailures().forEach(failure -> out.println("  FAILURE " + failure));
+        if (!write) {
+            out.println("DRY RUN: " + count(applier.patchLines(), "would patch trip") + " trips and "
+                    + count(applier.patchLines(), "would patch registration") + " registrations would be patched, "
+                    + report.getSkipped().size() + " rows skipped; nothing written. Add --yes to apply.");
+            return report.getFailures().isEmpty() ? 0 : 2;
+        }
+        out.println("Patched " + report.getPatchedTrips().size() + " trips and "
+                + report.getPatchedRegistrations().size() + " registrations; " + report.getSkipped().size()
+                + " skipped, " + report.getFailures().size() + " failures.");
+        final int verified = verify(export, mapping, plan, dir);
+        return report.getFailures().isEmpty() ? verified : 2;
+    }
+
+    private int rollbackPatch(final Map<String, String> opts) throws IOException {
+        requireYes(opts);
+        final Path dir = path(opts, "out");
+        final ImportReport report = mapper.readValue(dir.resolve(PATCH_REPORT).toFile(), ImportReport.class);
+        final ConferenceImportRollback rollback = new ConferenceImportRollback(mapper,
+                siteAdmin(opts.get("actor")).auditActor());
+        rollback.undo(report);
+        Files.write(dir.resolve("patch-rollback.txt"), rollback.lines());
+        rollback.lines().forEach(out::println);
+        return rollback.lines().stream().anyMatch(line -> line.startsWith("FAILED")) ? 2 : 0;
+    }
+
+    private static long count(final List<String> lines, final String prefix) {
+        return lines.stream().filter(line -> line.startsWith(prefix)).count();
+    }
+
     // ------------------------------------------------------------------ the plan's summary
 
     private List<String> summary(final LegacyExport export, final ImportPlan plan,
@@ -251,8 +315,12 @@ public final class ConferenceImportCli {
     }
 
     private void saveReport(final Path dir, final ImportReport report) {
+        saveReportTo(dir.resolve("report.json"), report);
+    }
+
+    private void saveReportTo(final Path file, final ImportReport report) {
         try {
-            mapper.writeValue(dir.resolve("report.json").toFile(), report);
+            mapper.writeValue(file.toFile(), report);
         } catch (final IOException ex) {
             throw new UncheckedIOException(ex);
         }

@@ -72,7 +72,14 @@ problem's message is a whole sentence, because pages put it in a growl summary.
 - `recordOffline(...)`: registration admins only. CHECK, CASH, COMP or OTHER, with a reference, the amount and the
   date. The amount must equal what is due at registration (the prices, or the deposits) unless "partial", which admits
   any amount up to the full prices (the Bills still bill full prices and each balance shows the rest); COMP is always
-  the full total. It records through `PaymentCommands.recordOffline`, the same completion path.
+  the full total. It records through `PaymentCommands.recordOffline`, the same completion path. The payment keeps
+  the receipt STRUCTURED (`Payment.offline`, a `Payment.OfflineReceipt` of method, reference and received-on; FREE
+  and COMP are methods) beside the one-line label in `captureId` ("CHECK 1042", "FREE"), which the ledger
+  descriptions and the mail still print unchanged. Readers go through `Payment.getOfflineReceipt()`, which parses
+  the label for offline rows stored before the receipt existed (2026-11), so every offline payment answers a
+  method, and reports can total by it: the reconciliation page's Method column, the Registrations tab's
+  "Paid with" line, the export's optional Payment-Method / Payment-Reference / Payment-Received columns, and the
+  `party/offline` REST response (`docs/api-contract.md`).
 - `finalizeParty(payment, trip)`, called by `PaymentCommands.recordNow` right after the ledger write and before the
   RECORDED transition, inside the same guarded step: writes each pending row not already there, joins the person to
   the trip's org, puts CONFIRMED people on the roster (one trip save) and runs `RegistrationCommands.afterConfirmed`
@@ -82,8 +89,8 @@ problem's message is a whole sentence, because pages put it in a growl summary.
   noted; an overrun of capacity is noted too, never refused, because money has moved. A sandbox payment registers
   nobody, as it writes no ledger rows.
 - The confirmation mail is the `checkout-confirmation` MAIL starter (`PaymentMailer.sendCheckoutConfirmation`): one
-  line per person with type, price, status and ticket code, the code linking to the ticket page (its QR is what
-  check-in scans, `docs/checkin.md`).
+  line per person with type, price, status and ticket code, the code linking to the ticket page with the QR
+  itself as an image under it (`/ticket-qr`; the QR is what check-in scans, `docs/checkin.md`).
 
 ## The pages (`../medjugorje/webapp`)
 
@@ -102,6 +109,10 @@ problem's message is a whole sentence, because pages put it in a growl summary.
   caller, so a family manager acting for a member pays as themselves.
 - Registration admins get "Record offline payment" (method, reference, amount, date received, partial) and may
   open the Registrations tab's `?id=` links on a priced trip (the page's gate becomes `registrationAdmin` there).
+  The tab's "details" dialog then says how the row was paid ("Check 1042, received 10/30/2026", or the processor
+  and its capture id), `admin/payments.xhtml` carries a Method column beside the capture id, and
+  `admin/reports/exportTrip.xhtml` offers Payment-Method, Payment-Reference and Payment-Received, none selected
+  by default so an export with the default columns is byte for byte what it was.
 - The trip editor has TWO dialogs side by side on its property sheet (2026-11-02): Registration Options
   (`WEB-INF/regOptionsDialog.xhtml`, the questions and their choices' prices) and Registration Pricing
   (`WEB-INF/tripPricingDialog.xhtml`, the policy: the "Registration requires payment" switch, Full amount or Deposit

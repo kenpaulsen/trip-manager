@@ -75,6 +75,19 @@ public final class SiteUrls {
     }
 
     /**
+     * The PNG of a ticket's QR ({@code web/TicketQrServlet}), on the same base as {@link #ticketUrl}: the image the
+     * confirmation and approval emails embed, since mail clients render no inline SVG. Blank without a trip or a
+     * code.
+     */
+    public static String ticketQrUrl(final Trip trip, final String code, final ConfigCommands config) {
+        if (trip == null || code == null || code.isBlank()) {
+            return "";
+        }
+        return baseUrlForTrip(trip, KnownSettings.REG_MAIL_BASE_URL, config) + "/ticket-qr?trip=" + trip.getId()
+                + "&t=" + code;
+    }
+
+    /**
      * {@code https://{slug}.{base}} -- the production address of an org's site. The base domain falls back
      * to its compiled default when the setting cannot be read (a mocked config in a sender's test, an
      * outage): a mail link with a null host is worse than one on the shipped domain.

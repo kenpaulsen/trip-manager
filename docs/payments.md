@@ -166,6 +166,11 @@ failure leaves the row CAPTURED for Finish. A checkout payment mails `checkout-c
 `payment-confirmation`, and may also be completed by the trip's `registrationAdmin`s. `ProcessorType.OFFLINE` (not
 configurable, no processor) is a payment taken by hand or a $0 party: built already CAPTURED, its capture id the
 method's label ("CHECK 1042", "COMP", "FREE"), recorded through `PaymentCommands.recordOffline` along the same path.
+The label is a DISPLAY form, not the record: the same facts are stored structured in `Payment.offline`
+(`Payment.OfflineReceipt`: method, reference, received-on), read through `getOfflineReceipt()`, which parses the
+label for rows that predate it. `PaymentCommands.processorNameOf(payment)`, `paymentMethodOf`, `paymentReferenceOf`,
+`paymentReceivedOn` and `paidWith` are the one spelling of "how was this paid" for every page and export, and
+`Completion` carries the payment id and receipt back to the REST caller.
 
 ## The flow (`action/PaymentCommands` — Java-first, user-locked)
 

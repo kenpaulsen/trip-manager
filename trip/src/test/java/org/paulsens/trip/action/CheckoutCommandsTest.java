@@ -18,6 +18,7 @@ import org.paulsens.trip.model.OptionChoice;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.PendingParty;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.ProcessorType;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.RegistrationDraft;
 import org.paulsens.trip.model.RegistrationOption;
@@ -233,7 +234,13 @@ public class CheckoutCommandsTest {
         assertEquals(started.completion().getStatus(), "recorded");
         final Registration reg = registration(trip, infant);
         assertEquals(reg.getStatus(), Registration.Status.CONFIRMED);
-        assertEquals(DAO.getInstance().getPayment(reg.getPaymentId()).orElseThrow().getCaptureId(), "FREE");
+        final Payment free = DAO.getInstance().getPayment(reg.getPaymentId()).orElseThrow();
+        assertEquals(free.getCaptureId(), "FREE");
+        assertEquals(free.getOffline(), new Payment.OfflineReceipt("FREE", null, LocalDate.now()),
+                "FREE is a method too, received the day it was entered");
+        assertEquals(started.completion().getPaymentId(), free.getPaymentId(), "the completion names the payment");
+        assertEquals(started.completion().getOffline(), free.getOffline(), "and echoes its receipt");
+        assertEquals(flow.payments.methodOf(free), "Free");
         assertEquals(txCmds.getBalance(infant.getId()), 0.0, "no bill for a free registration");
     }
 
@@ -259,7 +266,17 @@ public class CheckoutCommandsTest {
         assertEquals(done.getStatus(), "recorded");
         final Registration reg = registration(trip, attendee);
         final Payment payment = DAO.getInstance().getPayment(reg.getPaymentId()).orElseThrow();
-        assertEquals(payment.getCaptureId(), "CHECK 1042");
+        assertEquals(payment.getCaptureId(), "CHECK 1042", "the label the ledger and the mail print, unchanged");
+        assertEquals(payment.getOffline(), new Payment.OfflineReceipt("CHECK", "1042", LocalDate.of(2027, 1, 5)),
+                "and the same facts structured: method, reference, the date given");
+        assertEquals(payment.getCapturedAt(), LocalDate.of(2027, 1, 5).atStartOfDay());
+        assertEquals(done.getPaymentId(), payment.getPaymentId());
+        assertEquals(done.getOffline(), payment.getOffline(), "the completion echoes the receipt for REST");
+        assertEquals(flow.payments.methodOf(payment), "Check 1042");
+        assertEquals(PaymentCommands.paymentMethodOf(payment), "Check");
+        assertEquals(PaymentCommands.paymentReferenceOf(payment), "1042");
+        assertEquals(PaymentCommands.paymentReceivedOn(payment), LocalDate.of(2027, 1, 5));
+        assertEquals(PaymentCommands.paidWith(payment), "Check 1042, received 1/5/2027");
         assertEquals(payment.getPayerId(), attendee.getId(), "the attendee's payment, entered by the admin");
         assertEquals(txCmds.getBalance(attendee.getId()), -50.0, "billed in full, $50 still owed");
 
@@ -269,6 +286,36 @@ public class CheckoutCommandsTest {
         assertEquals(flow.checkout.recordOffline(trip, compDraft, List.of(comped), comped.getId(), "COMP", null,
                 null, null, false).getStatus(), "recorded");
         assertEquals(txCmds.getBalance(comped.getId()), 0.0, "a comp is credited in full");
+        final Payment comp = DAO.getInstance().getPayment(registration(trip, comped).getPaymentId()).orElseThrow();
+        assertEquals(comp.getCaptureId(), "COMP");
+        assertEquals(comp.getOffline(), new Payment.OfflineReceipt("COMP", null, LocalDate.now()),
+                "COMP is a method with no reference, received today when no date is given");
+        assertEquals(PaymentCommands.paymentReferenceOf(comp), "");
+
+        final Person cashPayer = savedPerson(LocalDate.of(1962, 2, 2));
+        final RegistrationDraft cashDraft = new RegistrationDraft();
+        pick(cashDraft, cashPayer, "full", null);
+        assertEquals(flow.checkout.recordOffline(trip, cashDraft, List.of(cashPayer), cashPayer.getId(), "CASH",
+                "  ", 150.0, LocalDate.of(2027, 2, 1), false).getStatus(), "recorded");
+        final Payment cash = DAO.getInstance().getPayment(registration(trip, cashPayer).getPaymentId())
+                .orElseThrow();
+        assertEquals(cash.getCaptureId(), "CASH", "a blank reference is no reference");
+        assertEquals(cash.getOffline(), new Payment.OfflineReceipt("CASH", null, LocalDate.of(2027, 2, 1)));
+        assertEquals(PaymentCommands.paidWith(cash), "Cash, received 2/1/2027");
+
+        // A processor payment answers the same questions from its processor and capture (no org: the generic name).
+        final Payment card = Payment.builder().processorType(ProcessorType.FAKE).captureId("CAP-77")
+                .capturedAt(LocalDate.of(2027, 3, 4).atTime(9, 30)).build();
+        assertNull(card.getOfflineReceipt());
+        assertEquals(flow.payments.methodOf(card), "the payment processor");
+        assertEquals(PaymentCommands.paymentMethodOf(card), "the payment processor");
+        assertEquals(PaymentCommands.paymentReferenceOf(card), "CAP-77");
+        assertEquals(PaymentCommands.paymentReceivedOn(card), LocalDate.of(2027, 3, 4));
+        assertEquals(PaymentCommands.paidWith(card), "the payment processor (id #CAP-77), 3/4/2027");
+        final Payment uncaptured = Payment.builder().processorType(ProcessorType.FAKE).build();
+        assertNull(PaymentCommands.paymentReceivedOn(uncaptured));
+        assertEquals(PaymentCommands.paymentReferenceOf(uncaptured), "");
+        assertEquals(PaymentCommands.paidWith(uncaptured), "the payment processor");
 
         final Person someone = savedPerson(LocalDate.of(1990, 1, 1));
         final RegistrationDraft other = new RegistrationDraft();

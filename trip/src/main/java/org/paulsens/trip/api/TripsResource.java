@@ -25,6 +25,7 @@ import org.paulsens.trip.action.OrgCommands;
 import org.paulsens.trip.action.ProfilePhotos;
 import org.paulsens.trip.action.LodgingCommands;
 import org.paulsens.trip.action.LodgingViews;
+import org.paulsens.trip.action.ConferenceCommands;
 import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.api.dto.RegChoiceDto;
 import org.paulsens.trip.api.dto.RegOptionDto;
@@ -36,7 +37,9 @@ import org.paulsens.trip.model.PaymentProcessorConfig;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.FeesPaidBy;
 import org.paulsens.trip.model.TripPaymentConfig;
+import org.paulsens.trip.model.TripPageOptions;
 import org.paulsens.trip.api.dto.TripPaymentConfigDto;
+import org.paulsens.trip.api.dto.TripPageOptionsDto;
 import org.paulsens.trip.api.dto.TripEventDto;
 import org.paulsens.trip.api.dto.TripRosterDto;
 import org.paulsens.trip.api.mapper.TripMapper;
@@ -429,6 +432,10 @@ public class TripsResource extends BaseResource {
             trip.setOpenToPublic(false);
         }
         TripCommands.stampCreationDefaults(trip);
+        final String pageProblem = pageProblem(trip);
+        if (pageProblem != null) {
+            return error(400, ApiErrors.VALIDATION_FAILED, pageProblem);
+        }
         if (!trips.saveTrip(trip, orgs)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the trip.");
         }
@@ -476,6 +483,11 @@ public class TripsResource extends BaseResource {
                     "Only a holder of Create Conferences for the organization may make or unmake a conference.");
         }
         apply(body, trip);
+        final String pageProblem = pageProblem(trip);
+        if (pageProblem != null) {
+            // The trip is this request's own copy (DAO reads are copies), so a refusal here changes nothing stored.
+            return error(400, ApiErrors.VALIDATION_FAILED, pageProblem);
+        }
         if (!Beans.get(TripCommands.class).saveTrip(trip, orgs)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the trip.");
         }
@@ -661,7 +673,7 @@ public class TripsResource extends BaseResource {
                 dto.startDate(), dto.endDate(), dto.regLimit(), dto.provider(), dto.orgId(), dto.language(),
                 dto.estimatedPrice(), dto.director(), dto.localGuide(), dto.facilitators(), dto.flyerUrl(),
                 dto.nonHostedTripUrl(), dto.nonHostedRegNumber(), dto.regOptions(), dto.people(),
-                eventDtos(trip, me), dto.kind(), dto.paymentConfig());
+                eventDtos(trip, me), dto.kind(), dto.paymentConfig(), dto.page());
     }
 
     private static List<TripEventDto> eventDtos(final Trip trip, final Person.Id viewer) {
@@ -714,6 +726,44 @@ public class TripsResource extends BaseResource {
         }
         applyDetails(body, trip);
         applyPaymentConfig(body, trip);
+        applyPage(body, trip);
+    }
+
+    /**
+     * The conference page's own look, field by field, the {@link #applyPaymentConfig} way: an absent field is left
+     * alone, an empty string clears it back to "the organization's", anything else is set. Nothing is allocated
+     * on a trip whose body carries no options.
+     */
+    private static void applyPage(final TripDto body, final Trip trip) {
+        final TripPageOptionsDto options = body.page();
+        if (options == null) {
+            return;
+        }
+        final TripPageOptions target = trip.getPage();
+        if (options.layout() != null) {
+            target.setLayout(blankToNull(options.layout()));
+        }
+        if (options.backgroundUrl() != null) {
+            target.setBackgroundUrl(blankToNull(options.backgroundUrl()));
+        }
+        if (options.backgroundColor() != null) {
+            target.setBackgroundColor(blankToNull(options.backgroundColor()));
+        }
+        if (options.showTitle() != null) {
+            target.setShowTitle(options.showTitle());
+        }
+        if (options.showNav() != null) {
+            target.setShowNav(options.showNav());
+        }
+        if (options.stylesheetUrl() != null) {
+            target.setStylesheetUrl(blankToNull(options.stylesheetUrl()));
+        }
+    }
+
+    /** Why the trip's page options cannot be saved ({@code ConferenceCommands.pageProblems}), or null. */
+    private static String pageProblem(final Trip trip) {
+        final List<String> problems = new ConferenceCommands().pageProblems(trip);
+        return problems.isEmpty() ? null : "page: " + String.join(" ", problems);
     }
 
     /**

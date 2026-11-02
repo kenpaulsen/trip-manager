@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -384,6 +385,21 @@ public class MediaCommands {
         return new TripAlbum(trip, getVisibleInSlot(ChatPhotos.slotFor(trip.getId()), 0));
     }
 
+    /** One event's album, when this site reaches the trip and it has any visible photo; else nothing. */
+    private List<TripAlbum> albumOf(final String tripId) {
+        try {
+            return DAO.getInstance().getTrip(tripId, Cached.YES)
+                    .filter(trip -> ListingScope.reachable(trip.getOrgId()))
+                    .map(this::toAlbum)
+                    .filter(album -> !album.photos().isEmpty())
+                    .map(List::of)
+                    .orElse(List.of());
+        } catch (final RuntimeException ex) {
+            log.error("Unable to build the album for trip " + tripId, ex);
+            return List.of();
+        }
+    }
+
     /**
      * The stored-object filename shape ({@code 20260830-212714549-m457ag.jpg}), which is what an untitled
      * chat upload gets as its title (see {@code ChatPhotos.titleFor}'s fallback). Anchored, so a real title
@@ -412,8 +428,22 @@ public class MediaCommands {
      * on a shared site the instance's curated {@code includeOrgs} list picks whose albums appear.
      */
     public List<TripAlbum> getHomeAlbumsFor(final ContentInstance instance) {
+        return getHomeAlbumsFor(instance, null);
+    }
+
+    /**
+     * {@link #getHomeAlbumsFor(ContentInstance)} on a page that may be ONE event's (docs/conference.md): when the
+     * instance names an event, or sits on a conference's page ({@code hostTripId}, the host page's trip, for a
+     * section inside a container), the answer is that event's album alone, whatever its age or photo count; a
+     * conference page shows its own pictures. Anywhere else it is the recent trips' albums as before.
+     */
+    public List<TripAlbum> getHomeAlbumsFor(final ContentInstance instance, final String hostTripId) {
         if (instance == null) {
             return List.of();
+        }
+        final String tripId = ConferenceCommands.tripIdFor(instance, hostTripId);
+        if (tripId != null) {
+            return albumOf(tripId);
         }
         final int window = parsePositive(instance.getValues().get("windowDays"),
                 config.getInt(KnownSettings.HOME_PHOTOS_WINDOW_DAYS));
@@ -499,6 +529,59 @@ public class MediaCommands {
     public String getMediaBaseUrl() {
         return baseUrl();
     }
+
+    /**
+     * One organization's library items of one content-type family ({@code image/}, {@code text/css}), by title:
+     * the conference page dialog's pick lists (docs/conference.md, "Look and feel"). Keyed by the org explicitly
+     * rather than by the host, because the trip editor may run on the shared site while the trip is an org's; the
+     * same tenancy answer as {@link #discoverable} on that org's own site. Curated items only: never a chat photo,
+     * a receipt or a hidden item.
+     */
+    public List<MediaItem> libraryItems(final String orgId, final String contentTypePrefix) {
+        final String owner = normalizeOrg(orgId);
+        try {
+            return DAO.getInstance().getAllMedia(Cached.YES).stream()
+                    .filter(item -> Objects.equals(item.getOrgId(), owner))
+                    .filter(item -> !ChatPhotos.isChatSlot(item.getSlot()))
+                    .filter(item -> !ExpenseReceipts.isReceiptSlot(item.getSlot()))
+                    .filter(item -> !item.getHidden())
+                    .filter(item -> item.getContentType() != null
+                            && item.getContentType().startsWith(contentTypePrefix))
+                    .sorted(Comparator.comparing(MediaCommands::titleKey))
+                    .toList();
+        } catch (final RuntimeException ex) {
+            log.error("Unable to list the library for organization " + owner, ex);
+            return List.of();
+        }
+    }
+
+    /**
+     * The library item a public URL ({@link #getUrl}) names, when that item is {@code orgId}'s; null for any other
+     * URL, another org's item, or an item that is not in the library at all. The inverse of {@link #getUrl}: the
+     * host (or no host, locally) and then the object key, read fresh ({@link #getByKey}).
+     */
+    public MediaItem libraryItemFor(final String orgId, final String url) {
+        if (url == null) {
+            return null;
+        }
+        final String prefix = baseUrl() + "/";
+        if (!url.trim().startsWith(prefix)) {
+            return null;
+        }
+        final MediaItem item = getByKey(url.trim().substring(prefix.length()));
+        return item != null && Objects.equals(item.getOrgId(), normalizeOrg(orgId)) ? item : null;
+    }
+
+    /** Whether an item is a stylesheet: what a conference page may link as its own CSS. */
+    public static boolean isStylesheet(final MediaItem item) {
+        return item != null && item.getContentType() != null
+                && item.getContentType().toLowerCase(Locale.ROOT).startsWith("text/css");
+    }
+
+    private static String normalizeOrg(final String orgId) {
+        return (orgId == null || orgId.isBlank()) ? null : orgId.trim();
+    }
+
 
     /** @return whether uploads are possible (i.e. a bucket is configured). False locally and in tests. */
     public boolean isUploadEnabled() {

@@ -33,6 +33,7 @@ import org.paulsens.trip.api.dto.RegisterPartyResponse;
 import org.paulsens.trip.api.dto.RegistrationDto;
 import org.paulsens.trip.api.mapper.RegistrationMapper;
 import org.paulsens.trip.checkout.CheckoutProblem;
+import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.PersonDataValue;
 import org.paulsens.trip.model.Registration;
@@ -657,6 +658,18 @@ public class RegistrationsResource extends BaseResource {
         result.put("status", completion.getStatus());
         result.put("message", completion.getMessage());
         result.put("dryRunLines", completion.getDryRunLines());
+        // An offline (or free) party echoes the payment and its receipt; absent otherwise, so older shapes stand.
+        if (completion.getPaymentId() != null) {
+            result.put("paymentId", completion.getPaymentId());
+        }
+        final Payment.OfflineReceipt receipt = completion.getOffline();
+        if (receipt != null) {
+            final Map<String, Object> offline = new LinkedHashMap<>();
+            offline.put("method", receipt.method());
+            offline.put("reference", receipt.reference());
+            offline.put("receivedOn", receipt.receivedOn() == null ? null : receipt.receivedOn().toString());
+            result.put("offline", offline);
+        }
         return result;
     }
 

@@ -5,7 +5,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -19,11 +22,18 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import org.paulsens.trip.action.RegistrationCommands;
+import org.paulsens.trip.checkout.CheckoutPricing;
+import org.paulsens.trip.model.AgeBand;
+import org.paulsens.trip.model.CheckoutConfig;
+import org.paulsens.trip.model.Concession;
+import org.paulsens.trip.model.DiscountCode;
 import org.paulsens.trip.model.Person;
+import org.paulsens.trip.model.PriceBreakdown;
 import org.paulsens.trip.model.Registration;
 import org.paulsens.trip.model.Transaction;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripKind;
+import org.paulsens.trip.pay.MoneyMath;
 
 /**
  * Decides an import (docs/migrations/conference-import.md) without writing anything: who each old person is in the
@@ -65,13 +75,27 @@ public class ConferenceImportPlanner {
     /** Fields never carried from the export: a person's family and orgs are written by their own writers. */
     static final Set<String> NOT_CARRIED = Set.of("managedUsers", "familyId", "orgIds");
 
-    /** The legacy trip fields today's model has no place for; their counts go in the report. */
-    static final List<String> LEGACY_TRIP_FIELDS = List.of("admissionOptions", "discountCodes", "childPriceCap",
-            "tripEvents");
+    /**
+     * The legacy trip fields today's model has no place for; their counts go in the report. The admission options
+     * become the admission question, {@code childPriceCap} and {@code discountCodes} the trip's checkout policy.
+     */
+    static final List<String> LEGACY_TRIP_FIELDS = List.of("admissionOptions", "tripEvents");
 
     static final String ADMISSION_KEY = "_admission";
     static final String CHECKED_IN_KEY = "_checkedIn";
     static final String REG_TYPE_KEY = "_regType";
+    /** The legacy age class ({@code child}, {@code adult}): derived from the birthdate, so the age band says it. */
+    static final String REGISTRANT_TYPE_KEY = "_registrantType";
+    /** The legacy discount: a word ({@code speaker}) or a numeric admin override of the whole price. */
+    static final String DISCOUNT_KEY = "_discount";
+    /** The ID (not the text) of the legacy discount code the registrant applied. */
+    static final String DISCOUNT_CODE_KEY = "_discountCode";
+
+    /** The old site's age tiers (its {@code RegistrationCommands}): 3 and under free, 4 to 10 at the child cap. */
+    static final int AGE_FREE_MAX = 3;
+    static final int AGE_CHILD_MAX = 10;
+    static final String FREE_BAND_LABEL = "Under 4";
+    static final String CHILD_BAND_LABEL = "Child (4-10)";
     private static final String TRANSACTION_PREFIX = "4_";
     private static final String TRIP_PREFIX = "5_";
 
@@ -387,10 +411,12 @@ public class ConferenceImportPlanner {
             }
             final String low = step.person().getEmail().toLowerCase(Locale.ROOT);
             final String other = owners.putIfAbsent(low, step.oldId());
+            final Optional<Person> holder = target.personByEmail(low);
             if (other != null) {
                 work.blockers.add("Two imported people would share the email '" + low + "': " + other + " and "
                         + step.oldId() + ". Decide (mapping sameAs, or a family decision).");
-            } else if (target.personByEmail(low).isPresent()) {
+            } else if (holder.isPresent() && !holder.get().getId().equals(step.targetId())) {
+                // The holder with this very id is this person, created by an earlier run (a re-plan for the patch).
                 work.blockers.add("Imported person " + step.oldId() + " would take the email '" + low
                         + "', which an existing person already holds.");
             }
@@ -420,8 +446,73 @@ public class ConferenceImportPlanner {
             for (final String legacy : LEGACY_TRIP_FIELDS) {
                 legacyNote(work, old, legacy);
             }
-            work.trips.add(convert(trip, Trip.class));
+            final Trip planned = convert(trip, Trip.class);
+            if (work.admissions.containsKey(id)) {
+                planned.setCheckout(checkout(old));
+                work.pricingTrips.put(id, pricingCopy(planned));
+            }
+            work.trips.add(planned);
         }
+    }
+
+    /**
+     * The legacy pricing as today's checkout policy, OFF (the old site's registration is over; the policy is the
+     * record of how its prices worked, and what prices the imported registrations). The old site gave every child
+     * of 3 and under free admission by code, and capped 4 to 10 at the trip's {@code childPriceCap} when it had
+     * one; each discount code is carried disabled: EXACT -> the price becomes the amount (FIXED_PRICE), DISCOUNT_BY
+     * -> the amount off (TOTAL). An EXACT code's option ids are the admission choice ids, unchanged.
+     */
+    static CheckoutConfig checkout(final ObjectNode old) {
+        final List<AgeBand> bands = new ArrayList<>();
+        bands.add(new AgeBand(FREE_BAND_LABEL, 0, AGE_FREE_MAX, concession(Concession.Kind.COMPLIMENTARY, 0L)));
+        if (!isBlank(old.get("childPriceCap"))) {
+            bands.add(new AgeBand(CHILD_BAND_LABEL, AGE_FREE_MAX + 1, AGE_CHILD_MAX,
+                    concession(Concession.Kind.FIXED_PRICE, cents(old.get("childPriceCap")))));
+        }
+        final List<DiscountCode> codes = new ArrayList<>();
+        for (final JsonNode code : old.path("discountCodes")) {
+            codes.add(code(code));
+        }
+        return new CheckoutConfig(Boolean.FALSE, null, null, null, bands, codes);
+    }
+
+    /** How many age bands the policy for this legacy trip holds (the verifier's expectation, from the export). */
+    static int legacyBandCount(final ObjectNode old) {
+        return isBlank(old.get("childPriceCap")) ? 1 : 2;
+    }
+
+    private static DiscountCode code(final JsonNode old) {
+        final boolean exact = "EXACT".equals(text(old, "discountType"));
+        final List<String> valid = new ArrayList<>();
+        if (exact) {
+            old.path("validOptionIds").forEach(id -> valid.add(id.asText()));
+        }
+        return new DiscountCode(text(old, "code"), text(old, "description"),
+                concession(exact ? Concession.Kind.FIXED_PRICE : Concession.Kind.TOTAL, cents(old.get("amount"))),
+                date(text(old, "expiration")), valid, Boolean.FALSE, null);
+    }
+
+    private static Concession concession(final Concession.Kind kind, final long amountCents) {
+        return new Concession(kind, 0, amountCents, null, null, null);
+    }
+
+    /** Legacy dollars (a BigDecimal, serialized as a number or text) to cents, half-up. */
+    static long cents(final JsonNode dollars) {
+        return isBlank(dollars) ? 0L
+                : new BigDecimal(dollars.asText()).movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact();
+    }
+
+    /**
+     * The trip the pricing engine prices imported registrations against: the planned one with every code and every
+     * admission choice ENABLED. The stored policy keeps the codes disabled (nobody may use an old code today) and a
+     * choice the old site had hidden stays withdrawn, but the people who registered while they were live must be
+     * priced as they were then; the engine skips a withdrawn choice and refuses an inactive code.
+     */
+    private Trip pricingCopy(final Trip planned) {
+        final Trip copy = convert(mapper.valueToTree(planned), Trip.class);
+        copy.getCheckout().getCodes().forEach(code -> code.setActive(true));
+        copy.getRegOptions().forEach(question -> question.getChoices().forEach(choice -> choice.setOffered(true)));
+        return copy;
     }
 
     private void legacyNote(final Work work, final ObjectNode trip, final String field) {
@@ -435,7 +526,8 @@ public class ConferenceImportPlanner {
     /**
      * The trip's questions in today's typed form: free text as before; a hidden {@code opt<N>} true/false answer
      * makes question N a yes/no one; the legacy admission options become ONE priced pick-one question, so every
-     * registration's admission shows by its label.
+     * registration's admission shows by its label. That question is REQUIRED (what makes it the registration-type
+     * question the engine and check-in read), and each choice carries the dates its legacy day codes name.
      */
     private ArrayNode questions(final Work work, final ObjectNode trip) {
         final String tripId = text(trip, "id");
@@ -460,23 +552,66 @@ public class ConferenceImportPlanner {
             admission.put("longDesc", "");
             admission.put("show", true);
             admission.put("type", "CHOICE");
+            admission.put("required", true);
             final ArrayNode choices = admission.putArray("choices");
             final Map<String, String> labels = new LinkedHashMap<>();
             for (final JsonNode option : admissions) {
                 final ObjectNode choice = choices.addObject();
                 choice.put("id", option.path("id").asText());
                 choice.put("label", option.path("label").asText());
-                choice.put("priceCents", Math.round(option.path("price").asDouble() * 100));
+                choice.put("priceCents", cents(option.get("price")));
                 choice.put("enabled", option.path("show").asBoolean(true));
+                choice.set("days", mapper.valueToTree(days(work, trip, option)));
                 labels.put(option.path("id").asText(), option.path("label").asText());
             }
-            work.admissions.put(tripId, new Admission(String.valueOf(maxId + 1), labels));
+            final Map<String, String> codes = new LinkedHashMap<>();
+            for (final JsonNode code : trip.path("discountCodes")) {
+                codes.put(text(code, "id"), text(code, "code"));
+            }
+            work.admissions.put(tripId, new Admission(String.valueOf(maxId + 1), labels, codes));
         }
         return questions;
     }
 
-    /** A trip's admission question: its key, and each legacy option id's label. */
-    record Admission(String key, Map<String, String> labels) {
+    /**
+     * The trip's dates a legacy option's day codes ({@code FRI}, {@code SAT}, {@code SUN}) name, as the ISO dates
+     * today's choices hold. A code no date of the trip falls on is noted, never guessed.
+     */
+    private static List<String> days(final Work work, final ObjectNode trip, final JsonNode option) {
+        final List<String> days = new ArrayList<>();
+        final List<LocalDate> tripDays = tripDays(trip);
+        for (final JsonNode code : option.path("days")) {
+            final String wanted = code.asText().trim().toUpperCase(Locale.ROOT);
+            final List<String> matching = wanted.isEmpty() ? List.of() : tripDays.stream()
+                    .filter(day -> day.getDayOfWeek().name().startsWith(wanted))
+                    .map(LocalDate::toString)
+                    .toList();
+            if (matching.isEmpty()) {
+                work.notes.add("Trip '" + text(trip, "title") + "': admission option '" + text(option, "label")
+                        + "' names day " + code.asText() + ", which no date of the trip falls on; not carried.");
+            }
+            days.addAll(matching);
+        }
+        return days;
+    }
+
+    /** Every date of the trip, first to last day inclusive; none without a start date. */
+    private static List<LocalDate> tripDays(final ObjectNode trip) {
+        final List<LocalDate> days = new ArrayList<>();
+        final LocalDateTime start = timestamp(text(trip, "startDate"));
+        final LocalDateTime end = timestamp(text(trip, "endDate"));
+        if (start == null) {
+            return days;
+        }
+        final LocalDate last = end == null ? start.toLocalDate() : end.toLocalDate();
+        for (LocalDate day = start.toLocalDate(); !day.isAfter(last); day = day.plusDays(1)) {
+            days.add(day);
+        }
+        return days;
+    }
+
+    /** A trip's admission question: its key, each legacy option id's label, and each legacy code id's text. */
+    record Admission(String key, Map<String, String> labels, Map<String, String> codes) {
     }
 
     // ------------------------------------------------------------------ registrations
@@ -546,6 +681,10 @@ public class ConferenceImportPlanner {
             }
         }
         final String checkedIn = options.remove(CHECKED_IN_KEY);
+        // The legacy age class is derived from the birthdate, which the age band now reads: nothing to keep.
+        options.remove(REGISTRANT_TYPE_KEY);
+        final Legacy legacy = admission == null ? null
+                : new Legacy(options.remove(DISCOUNT_CODE_KEY), options.remove(DISCOUNT_KEY));
         final ObjectNode tree = mapper.createObjectNode();
         tree.put("tripId", tripId);
         tree.put("userId", user.getValue());
@@ -557,7 +696,61 @@ public class ConferenceImportPlanner {
         if (checkedIn != null) {
             reg = reg.withCheckedInAt(timestamp(checkedIn));
         }
+        if (legacy != null) {
+            reg = reg.withPriceBreakdown(breakdown(work, reg, admission, legacy));
+        }
         return reg.getStatus() == Registration.Status.CONFIRMED ? RegistrationCommands.withTicket(reg) : reg;
+    }
+
+    /** The legacy pricing answers of one registration, taken out of its answers to become its breakdown. */
+    private record Legacy(String codeId, String discount) {
+    }
+
+    /**
+     * Why the registration cost what it did, by TODAY's engine over the trip's imported policy (codes enabled for
+     * this computation only), from the answers, the person's birthdate and the code they applied; priced as of the
+     * registration's own date, so a code that was live then still counts. What the engine cannot express is kept
+     * as NOTE lines: the old site's numeric admin override of the whole price (a scholarship, a comp) is NOT applied
+     * -- what the person paid is their ledger -- and is flagged in the plan's notes for the owner.
+     */
+    private PriceBreakdown breakdown(final Work work, final Registration reg, final Admission admission,
+            final Legacy legacy) {
+        final Person person = work.personOf(reg.getUserId());
+        final String codeText = legacy.codeId() == null ? null : admission.codes().get(legacy.codeId());
+        final PriceBreakdown priced = CheckoutPricing.price(work.pricingTrips.get(reg.getTripId()),
+                person == null ? null : person.getBirthdate(), reg.getOptions(), codeText, reg.getCreated());
+        final List<PriceBreakdown.Line> lines = new ArrayList<>(priced.getLines());
+        if (legacy.codeId() != null && codeText == null) {
+            lines.add(note("Legacy discount code " + legacy.codeId() + " is not one of the trip's codes"));
+        }
+        final BigDecimal override = overrideAmount(legacy.discount());
+        if (override != null) {
+            final String amount = MoneyMath.formatCents(override.movePointRight(2).longValueExact());
+            lines.add(note("Legacy admin price override " + amount + ": not applied, the ledger is what was paid"));
+            work.notes.add("Registration of " + reg.getUserId().getValue() + " on '" + work.titleOf(reg.getTripId())
+                    + "': the old site's admin price override " + amount + " is a note on the breakdown (priced "
+                    + MoneyMath.formatCents(priced.getTotalCents()) + "); review against their ledger.");
+        } else if (legacy.discount() != null && !legacy.discount().isBlank()) {
+            lines.add(note("Legacy discount: " + legacy.discount().trim()));
+        }
+        return new PriceBreakdown(priced.getInputs(), lines, priced.getTotalCents(), priced.getRegistrationType(),
+                priced.getComputedAt());
+    }
+
+    private static PriceBreakdown.Line note(final String text) {
+        return new PriceBreakdown.Line(text, PriceBreakdown.LineKind.NOTE, 0L, "legacy");
+    }
+
+    /** The old site's numeric {@code _discount} ({@code 175}, {@code $175.00}) as an amount, else null. */
+    static BigDecimal overrideAmount(final String discount) {
+        if (discount == null) {
+            return null;
+        }
+        try {
+            return new BigDecimal(discount.replace("$", "").replace(",", "").trim()).setScale(2, RoundingMode.HALF_UP);
+        } catch (final NumberFormatException ex) {
+            return null;
+        }
     }
 
     /** The registration's type: its admission option's label, else the legacy type's mapped label, else none. */
@@ -756,6 +949,15 @@ public class ConferenceImportPlanner {
         }
     }
 
+    /** A legacy date ({@code 2026-07-01}, or a timestamp): its day, or null. */
+    static LocalDate date(final String text) {
+        try {
+            return text == null ? null : LocalDate.parse(text.length() > 10 ? text.substring(0, 10) : text);
+        } catch (final DateTimeParseException ex) {
+            return null;
+        }
+    }
+
     static String describe(final JsonNode old) {
         return text(old, "first") + " " + text(old, "last") + " (" + text(old, "id") + ")";
     }
@@ -773,6 +975,8 @@ public class ConferenceImportPlanner {
         final List<ImportPlan.TxStep> transactions = new ArrayList<>();
         final List<ImportPlan.RoleStep> roles = new ArrayList<>();
         final Map<String, Admission> admissions = new LinkedHashMap<>();
+        /** Each priced trip as the engine prices its imported registrations: the plan's policy, codes enabled. */
+        final Map<String, Trip> pricingTrips = new LinkedHashMap<>();
         final List<String> review = new ArrayList<>();
         final List<String> notes = new ArrayList<>();
         final List<String> blockers = new ArrayList<>();

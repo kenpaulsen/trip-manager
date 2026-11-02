@@ -646,6 +646,25 @@ public class CheckinCommandsTest {
         final Map<String, Object> priced = viewer.exportRow(trip, ann.getId());
         assertEquals(priced.get("total"), "$54.00");
         assertEquals(priced.get("code"), "EARLY10");
+        assertEquals(priced.get("paymentMethod"), "", "no payment registered this row");
+        assertEquals(priced.get("paymentReference"), "");
+        assertEquals(priced.get("paymentReceived"), "");
+
+        // How it was paid (docs/checkout.md): an offline receipt's method, reference and date, structured.
+        final org.paulsens.trip.model.Payment check = org.paulsens.trip.model.Payment.builder()
+                .tripId(trip.getId()).payerId(ann.getId()).processorType(org.paulsens.trip.model.ProcessorType.OFFLINE)
+                .captureId("CHECK 1042").capturedAt(LocalDate.of(2026, 10, 30).atStartOfDay())
+                .status(org.paulsens.trip.model.Payment.Status.RECORDED).build();
+        check.setOffline(new org.paulsens.trip.model.Payment.OfflineReceipt("CHECK", "1042",
+                LocalDate.of(2026, 10, 30)));
+        DAO.getInstance().createPayment(check);
+        assertTrue(DAO.getInstance().saveRegistration(DAO.getInstance()
+                .getRegistration(trip.getId(), ann.getId(), Cached.NO).orElseThrow()
+                .withPaymentId(check.getPaymentId())));
+        final Map<String, Object> byCheck = viewer.exportRow(trip, ann.getId());
+        assertEquals(byCheck.get("paymentMethod"), "Check");
+        assertEquals(byCheck.get("paymentReference"), "1042");
+        assertEquals(byCheck.get("paymentReceived"), "2026-10-30");
         final String attestation = (String) priced.get("attestation");
         assertTrue(attestation.contains("Saturday only: I am staying at the hotel"), attestation);
         assertTrue(attestation.contains("gone: Old statement"), "a withdrawn choice shows its id: " + attestation);

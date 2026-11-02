@@ -607,10 +607,15 @@ public class RegistrationCommands {
     public java.util.Map<String, Object> approvedMailValues(final org.paulsens.trip.model.Trip trip,
             final Person person, final Registration approved) {
         final String code = approved == null || !trip.isConference() ? null : approved.getTicketCode();
-        final String url = org.paulsens.trip.site.SiteUrls.ticketUrl(trip, code, new ConfigCommands());
+        final ConfigCommands config = new ConfigCommands();
+        final String url = org.paulsens.trip.site.SiteUrls.ticketUrl(trip, code, config);
+        // The QR image under the link (PaymentMailer.qrImage, the checkout confirmation's shape): mail clients
+        // render no inline SVG, so the email embeds the PNG the ticket-qr servlet serves for this code.
         final String ticket = url.isEmpty() ? "" : "<p>Your ticket for check-in: <a href=\""
                 + org.paulsens.trip.chat.MailTemplates.escape(url) + "\"><b>"
-                + org.paulsens.trip.security.TicketCodes.grouped(code) + "</b></a></p>";
+                + org.paulsens.trip.security.TicketCodes.grouped(code) + "</b></a><br/>"
+                + org.paulsens.trip.pay.PaymentMailer.qrImage(
+                        org.paulsens.trip.site.SiteUrls.ticketQrUrl(trip, code, config)) + "</p>";
         return java.util.Map.of(
                 "ticketBlock", new org.paulsens.trip.chat.MailTemplates.Raw(ticket),
                 "tripTitle", trip.getTitle() == null ? "" : trip.getTitle(),

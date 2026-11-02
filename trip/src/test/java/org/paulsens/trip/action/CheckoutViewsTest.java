@@ -282,8 +282,11 @@ public class CheckoutViewsTest {
         assertEquals(details.lines().size(), 1);
         assertEquals(details.birthdate(), person.getBirthdate());
 
+        assertEquals(details.paidWith(), "", "payment pay-1 is not stored, so nothing is claimed about it");
+
         final CheckoutCommands.RegDetails bare = views.details(trip, regs, other);
         assertEquals(bare.total(), "");
+        assertEquals(bare.paidWith(), "");
         assertTrue(bare.choices().isEmpty());
         assertEquals(bare.code(), "");
         assertNull(bare.ageAtStart());

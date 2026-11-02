@@ -307,17 +307,17 @@ public class AuditCommands {
         return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who, orgOf(trip));
     }
 
-    /** Staff checked someone in at the event ({@code docs/checkin.md}); a registration event, not a new action. */
+    /** Staff checked someone in at the event ({@code docs/checkin.md}): its own action, so arrivals filter apart. */
     public String checkedIn(final Person target, final Trip trip, final AuditActor who) {
         final String msg = actorEmail(who) + " checked in " + describe(target) + " at '" + titleOf(trip) + "'.";
-        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who, orgOf(trip));
+        return record(AuditAction.CHECKIN, AuditOutcome.SUCCESS, target, msg, who, orgOf(trip));
     }
 
     /** A trip manager undid a check-in (the wrong person was scanned). */
     public String checkInCleared(final Person target, final Trip trip, final AuditActor who) {
         final String msg = actorEmail(who) + " cleared the check-in of " + describe(target) + " at '"
                 + titleOf(trip) + "'.";
-        return record(AuditAction.REGISTRATION, AuditOutcome.SUCCESS, target, msg, who, orgOf(trip));
+        return record(AuditAction.CHECKIN, AuditOutcome.SUCCESS, target, msg, who, orgOf(trip));
     }
 
     /** A todo item's status changed for someone. */

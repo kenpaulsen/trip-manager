@@ -138,7 +138,11 @@ duplicate `personId`.
   the caller needs a registration admin.
 - `POST .../registrations/party/offline` (CSRF; registration admins) with `offline: {method: CHECK|CASH|COMP|OTHER,
   reference?, amountCents, receivedOn?, partial?}` registers the party paid outside any processor and answers the
-  completion. The amount must equal the total unless `partial`; COMP ignores it.
+  completion. The amount must equal the total unless `partial`; COMP ignores it. Since 2026-11 the completion also
+  echoes the receipt: `{status, message, dryRunLines, paymentId, offline: {method, reference, receivedOn}}`
+  (`method` upper-case, `reference` null when none, `receivedOn` an ISO date: the day given, else the day it was
+  entered). A party that owes nothing (the checkout POST's at-once completion) carries the same two fields with
+  `method: "FREE"`; both are absent from every other completion, so older response shapes are unchanged.
 
 ### Tickets and check-in (2026-11; backend `docs/checkin.md`)
 

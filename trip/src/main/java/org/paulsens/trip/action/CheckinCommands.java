@@ -915,6 +915,14 @@ public class CheckinCommands {
         final List<String> attested = new java.util.ArrayList<>();
         reg.getAttestations().forEach((choiceId, text) -> attested.add(choiceLabel(trip, choiceId) + ": " + text));
         row.put("attestation", String.join("; ", attested));
+        // How it was paid (docs/checkout.md, "Offline payments"): the method, reference and date, structured, so a
+        // treasurer can total the checks. Read only for a registration a payment registered.
+        final org.paulsens.trip.model.Payment payment = reg.getPaymentId() == null ? null
+                : DAO.getInstance().getPayment(reg.getPaymentId()).orElse(null);
+        final LocalDate received = payment == null ? null : PaymentCommands.paymentReceivedOn(payment);
+        row.put("paymentMethod", payment == null ? "" : PaymentCommands.paymentMethodOf(payment));
+        row.put("paymentReference", payment == null ? "" : PaymentCommands.paymentReferenceOf(payment));
+        row.put("paymentReceived", received == null ? "" : received.toString());
     }
 
     /** A choice id's label on this trip, or the id when no question offers it any more. */
