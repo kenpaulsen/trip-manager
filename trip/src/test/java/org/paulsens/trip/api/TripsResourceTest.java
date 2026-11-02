@@ -668,7 +668,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         Mockito.when(trips.createTrip()).thenReturn(trip("new-trip", ME));
         final String orgId = java.util.UUID.randomUUID().toString();
         final TripDto body = new TripDto(null, "Rome 2027", null, null, false, null, null, null, null, orgId, null,
-                null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null,
                 new org.paulsens.trip.api.dto.TripPaymentConfigDto("not-ours", null, null, null, null, null, null,
                         null, null));
         assertError(resource.create(CSRF_OK, body), 400, ApiErrors.VALIDATION_FAILED);

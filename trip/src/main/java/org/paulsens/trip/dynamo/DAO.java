@@ -462,6 +462,13 @@ public final class DAO {
     public Optional<Payment> getPayment(final String paymentId) {
         return paymentDao.getPayment(paymentId);
     }
+    public Optional<PaymentDAO.Stored> getPaymentStored(final String paymentId) {
+        return paymentDao.getPaymentStored(paymentId);
+    }
+    public Boolean replacePaymentIfUnchanged(final Payment payment, final String expectedContent)
+            throws IOException {
+        return paymentDao.replacePaymentIfUnchanged(payment, expectedContent);
+    }
     public List<Payment> getAllPayments() {
         return paymentDao.getAllPayments();
     }

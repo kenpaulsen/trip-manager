@@ -62,6 +62,11 @@ public final class Payment implements Serializable {
      * {@code Transaction.orgId} additive pattern); every transition puts the whole item, so it rides along.
      */
     private PendingParty checkout;
+    /**
+     * The CUMULATIVE amount the processor has refunded (cents), as last re-read from it; the optimistic lock
+     * for the refund row (see {@code PaymentCommands.refundFromWebhook}). Added 2026-11; older rows read 0.
+     */
+    private long refundedCents;
 
     @Builder
     @JsonCreator
@@ -87,7 +92,8 @@ public final class Payment implements Serializable {
             @JsonProperty("createdAt") final LocalDateTime createdAt,
             @JsonProperty("capturedAt") final LocalDateTime capturedAt,
             @JsonProperty("recordedAt") final LocalDateTime recordedAt,
-            @JsonProperty("txIds") final List<String> txIds) {
+            @JsonProperty("txIds") final List<String> txIds,
+            @JsonProperty("refundedCents") final long refundedCents) {
         this.paymentId = (paymentId == null || paymentId.isBlank())
                 ? UUID.randomUUID().toString() : paymentId;
         this.tripId = tripId;
@@ -111,11 +117,12 @@ public final class Payment implements Serializable {
         this.capturedAt = capturedAt;
         this.recordedAt = recordedAt;
         this.txIds = (txIds == null) ? new ArrayList<>() : new ArrayList<>(txIds);
+        this.refundedCents = refundedCents;
     }
 
     public Payment() {
         this(null, null, null, null, null, null, null, 0L, null, 0L, 0L, 0L, false, null, null, 0L, null,
-                null, null, null, null, null);
+                null, null, null, null, null, 0L);
     }
 
     /**

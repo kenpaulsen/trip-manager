@@ -16,6 +16,7 @@ import org.paulsens.trip.model.FeesPaidBy;
 import org.paulsens.trip.model.PaymentProcessorConfig;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
+import org.paulsens.trip.pay.FakeProcessor;
 import org.paulsens.trip.pay.PaymentMailer;
 import org.paulsens.trip.pay.PaymentProcessor;
 import org.paulsens.trip.pay.PaymentProcessors;
@@ -691,6 +692,75 @@ public class PaymentCommandsTest {
         Mockito.when(broken.refundedCents(ArgumentMatchers.any())).thenThrow(new IllegalStateException("down"));
         assertEquals(commandsFor(payer, false, (cfg, sandbox) -> broken).refundFromWebhook(paymentId).getStatus(),
                 "pending");
+    }
+
+    /**
+     * THE refund race: two deliveries run at once (two refunds seconds apart, or a redelivery), in two ECS
+     * tasks. A read the processor BEFORE the second refund ($25); B read it after ($100) and finished first;
+     * A's stale row lands last. Without the lock the ledger would end at -$25 with nothing left to fix it.
+     * With it, A's replace fails, A re-reads the processor ($100) and repairs its own row.
+     */
+    @Test
+    public void aStaleRefundDeliveryLosesTheLockAndRepairsItsOwnRow() {
+        final Person payer = savedPerson();
+        final PaymentCommands commands = commandsFor(payer, false);
+        final PaymentCommands.Start started = commands.startPayment(inlineTrip(),
+                Map.of(payer.getId().getValue(), "100"), null, false, "http://localhost/trip/payment.jsf");
+        final String paymentId = started.getPaymentId();
+        final String orderRef = started.getClientSecret();
+        assertEquals(commands.completePayment(paymentId, null).getStatus(), "recorded");
+        final int rows = txCmds.getTransactions(payer.getId()).size();
+
+        // A's processor: answers the OLD total once, then the truth (its retry re-reads the processor).
+        final PaymentProcessor staleThenFresh = Mockito.mock(PaymentProcessor.class);
+        Mockito.when(staleThenFresh.refundedCents(orderRef))
+                .thenReturn(java.util.OptionalLong.of(2500L), java.util.OptionalLong.of(10000L));
+        final PaymentCommands b = commandsFor(payer, false);
+        final java.util.concurrent.atomic.AtomicBoolean interleaved = new java.util.concurrent.atomic.AtomicBoolean();
+        final PaymentCommands a = new PaymentCommands(() -> Caller.forActor(AuditActor.system()),
+                new OrgCommands(() -> Caller.forActor(AuditActor.system())), new AuditCommands(),
+                new PaymentRecorder() {
+                    @Override
+                    public String recordRefund(final Payment payment, final long refundedCents,
+                            final String orgName, final String processorName) {
+                        if (interleaved.compareAndSet(false, true)) {
+                            // B runs to completion while A holds its stale $25 read; A's row lands after B's.
+                            FakeProcessor.refund(orderRef, 10000L);
+                            assertEquals(b.refundFromWebhook(paymentId).getStatus(), "refunded");
+                        }
+                        return super.recordRefund(payment, refundedCents, orgName, processorName);
+                    }
+                }, (cfg, sandbox) -> staleThenFresh, () -> mailer);
+
+        assertEquals(a.refundFromWebhook(paymentId).getStatus(), "refunded");
+        Mockito.verify(staleThenFresh, Mockito.times(2)).refundedCents(orderRef);
+        assertEquals(txCmds.getTransactions(payer.getId()).size(), rows + 1, "still ONE refund row");
+        assertEquals(txCmds.getTransaction(payer.getId(), paymentId + "-refund").getAmount(), -100.0f,
+                "the later truth, not the stale read that landed last");
+        assertEquals(DAO.getInstance().getPayment(paymentId).orElseThrow().getRefundedCents(), 10000L);
+
+        // A delivery that keeps losing the lock gives up with a redelivery request, never a silent drop.
+        final PaymentProcessor fresh = Mockito.mock(PaymentProcessor.class);
+        Mockito.when(fresh.refundedCents(orderRef)).thenReturn(java.util.OptionalLong.of(5000L));
+        final PaymentCommands alwaysLosing = new PaymentCommands(() -> Caller.forActor(AuditActor.system()),
+                new OrgCommands(() -> Caller.forActor(AuditActor.system())), new AuditCommands(),
+                new PaymentRecorder() {
+                    @Override
+                    public String recordRefund(final Payment payment, final long refundedCents,
+                            final String orgName, final String processorName) {
+                        // Somebody else always moves the row between our read and our replace.
+                        final Payment current = DAO.getInstance().getPayment(paymentId).orElseThrow();
+                        current.setRefundedCents(current.getRefundedCents() + 1L);
+                        try {
+                            DAO.getInstance().transitionPayment(current, Payment.Status.RECORDED);
+                        } catch (final IOException ex) {
+                            throw new IllegalStateException(ex);
+                        }
+                        return super.recordRefund(payment, refundedCents, orgName, processorName);
+                    }
+                }, (cfg, sandbox) -> fresh, () -> mailer);
+        assertEquals(alwaysLosing.refundFromWebhook(paymentId).getStatus(), "pending");
+        Mockito.verify(fresh, Mockito.times(PaymentCommands.REFUND_ATTEMPTS)).refundedCents(orderRef);
     }
 
     @Test

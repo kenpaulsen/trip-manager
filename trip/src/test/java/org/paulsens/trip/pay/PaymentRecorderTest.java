@@ -185,6 +185,65 @@ public class PaymentRecorderTest {
         assertTrue(txCmds.getTransactions(payer).isEmpty(), "...but the ledger is untouched");
     }
 
+    /**
+     * THE duplicate-row race (found in the 2026-11 idempotency review): two writers record the same SHARED
+     * payment at once -- the webhook and the return page, each in its own ECS task -- and both look the
+     * members' rows up BEFORE either has written one. With rows looked up by group and minted with random
+     * ids, each writer created its own row per member: the ledger double-credited. Deterministic row ids make
+     * both writers put the SAME rows. Simulated by a second writer whose lookup still sees nothing.
+     */
+    @Test
+    public void twoConcurrentRecordersOfASharedPaymentWriteTheSameRows() {
+        final Person.Id joe = person("Joe");
+        final Person.Id bob = person("Bob");
+        final Payment payment = payment(joe, List.of(
+                new Payment.Allocation(joe, 47500L), new Payment.Allocation(bob, 47500L)),
+                0L, FeesPaidBy.PAYER, 3487L, 0L, 98487L);
+        final TransactionsCommands staleLookup = new TransactionsCommands() {
+            @Override
+            public java.util.Optional<Transaction> getGroupTransactionForUser(final Person.Id userId,
+                    final String groupId) {
+                return java.util.Optional.empty();   // "I looked before you wrote"
+            }
+        };
+        final PaymentRecorder first = recorder();
+        final PaymentRecorder second = new PaymentRecorder(staleLookup, id -> personName(id));
+
+        final PaymentRecorder.Result a = first.record(payment, "CFPW", "Stripe");
+        final PaymentRecorder.Result b = second.record(payment, "CFPW", "Stripe");
+        assertEquals(a.txIds(), b.txIds(), "both writers name the same rows");
+        assertEquals(a.txIds(), List.of(payment.getPaymentId() + "-pay-" + joe.getValue(),
+                payment.getPaymentId() + "-pay-" + bob.getValue()), "ids derive from the payment and the member");
+        assertEquals(txCmds.getTransactions(joe).size(), 1, "ONE row for Joe, not one per writer");
+        assertEquals(txCmds.getTransactions(bob).size(), 1);
+        assertEquals(txCmds.getBalance(joe), 475.0);
+        assertEquals(txCmds.getBalance(bob), 475.0);
+        final Transaction row = txCmds.getGroupTransactionForUser(bob, payment.getPaymentId() + "-pay").orElseThrow();
+        assertTrue(row.isShared());
+        assertEquals(row.getGroupPeople(), List.of(joe, bob), "membership is stamped (the read-time divisor)");
+        assertEquals(row.getOrgId(), FakeData.CFPW_ORG_ID);
+    }
+
+    /** A group row the generic writer created earlier (a random id) keeps its id on a re-record. */
+    @Test
+    public void aLegacyGroupRowKeepsItsIdOnReRecord() {
+        final Person.Id joe = person("Joe");
+        final Person.Id bob = person("Bob");
+        final Payment payment = payment(joe, List.of(
+                new Payment.Allocation(joe, 10000L), new Payment.Allocation(bob, 10000L)),
+                0L, FeesPaidBy.ORGANIZATION, 0L, 0L, 20000L);
+        final String groupId = payment.getPaymentId() + "-pay";
+        assertTrue(txCmds.saveGroupTransaction(groupId, List.of(joe, bob), Transaction.Type.Shared,
+                Transaction.TransactionType.Payment, java.time.LocalDateTime.now(), 200f, "Payment", "old row",
+                FakeData.FAKE_TRIP_ID, null, List.of(joe, bob)));
+        final String legacyId = txCmds.getGroupTransactionForUser(joe, groupId).orElseThrow().getTxId();
+
+        final PaymentRecorder.Result result = recorder().record(payment, "CFPW", "Stripe");
+        assertTrue(result.txIds().contains(legacyId), "the existing row is updated, not shadowed");
+        assertEquals(txCmds.getTransactions(joe).size(), 1);
+        assertTrue(txCmds.getGroupTransactionForUser(joe, groupId).orElseThrow().getNote().contains("id #123447384"));
+    }
+
     // ------------------------------------------------------------------ refunds
 
     /**
@@ -228,6 +287,9 @@ public class PaymentRecorderTest {
         assertEquals(recorder.refundLine(payment, 98487L, "CFPW", "Stripe").description(),
                 "Stripe (id #123447384) Refund of $984.87 from CFPW", "a full refund is not 'partial'");
         assertEquals(txCmds.getTransactions(bob).size(), 1, "Bob's credit row is untouched");
+
+        assertEquals(recorder.refundLine(payment, 0L, "CFPW", "Stripe").description(),
+                "Stripe (id #123447384) Refund of $0.00 (the refund was reversed by the processor) from CFPW");
 
         payment.setSandbox(true);
         assertEquals(recorder.recordRefund(payment, 500L, "CFPW", "Stripe"), null, "sandbox writes nothing");

@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.site.ListingScope;
 import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.dynamo.PaymentDAO;
 import org.paulsens.trip.model.Organization;
 import org.paulsens.trip.model.Payment;
 import org.paulsens.trip.model.PaymentProcessorConfig;
@@ -61,6 +62,8 @@ import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedExce
 public class PaymentCommands {
     /** What a payment recorded outside any processor (a check, cash, a comp, a $0 registration) is called. */
     public static final String OFFLINE_NAME = "Offline payment";
+    /** How many lost optimistic-lock races a refund delivery absorbs before asking for a redelivery. */
+    static final int REFUND_ATTEMPTS = 4;
 
     private final Supplier<Caller> callerSource;
     private final OrgCommands orgs;
@@ -612,13 +615,39 @@ public class PaymentCommands {
      * ({@code PaymentRecorder.recordRefund}). Only a RECORDED payment can be refunded against the ledger;
      * anything else is audited and left alone. Statuses: {@code refunded} (row written), {@code sandbox}
      * (computed, nothing written), {@code unchanged} (nothing refunded, or not RECORDED), {@code pending}
-     * (the processor could not be read -- the webhook answers 503 so Stripe redelivers), {@code notfound}.
+     * (the processor could not be read, or the lock below never settled -- the webhook answers 503 so Stripe
+     * redelivers), {@code notfound}.
+     *
+     * <p><b>Idempotency under concurrent deliveries.</b> Stripe may deliver the same event twice, and two
+     * refunds made seconds apart deliver two events that run at the same time. Exact duplicates converge on
+     * their own (same cumulative total, same row id, a put). The dangerous interleaving is a delivery that
+     * read the processor BEFORE a second refund and writes its row AFTER the delivery that read the later
+     * total: the ledger would end at the older figure with no further event to correct it. So the stored
+     * {@code refundedCents} is an optimistic lock: the ledger row is written first, then the payment is
+     * replaced only if it is byte-for-byte what this delivery read ({@code replacePaymentIfUnchanged}); a
+     * lost race re-reads BOTH the payment and the processor and goes again, and because every pass rewrites
+     * the ledger row, the loser's stale row is repaired by its own retry. Bounded attempts; exhaustion is a
+     * {@code pending} (redelivery), never a silent drop.
      */
     public Completion refundFromWebhook(final String paymentId) {
-        final Payment payment = DAO.getInstance().getPayment(paymentId).orElse(null);
-        if (payment == null) {
+        for (int attempt = 0; attempt < REFUND_ATTEMPTS; attempt++) {
+            final Completion outcome = refundOnce(paymentId);
+            if (outcome != null) {
+                return outcome;
+            }
+        }
+        log.warn("Refund for payment {} lost {} races in a row; asking for a redelivery", paymentId,
+                REFUND_ATTEMPTS);
+        return Completion.of("pending", "The refund could not be recorded; try again.");
+    }
+
+    /** One pass of {@link #refundFromWebhook}: the outcome, or null when the optimistic replace lost. */
+    private Completion refundOnce(final String paymentId) {
+        final PaymentDAO.Stored stored = DAO.getInstance().getPaymentStored(paymentId).orElse(null);
+        if (stored == null) {
             return Completion.of("notfound", "Unknown payment.");
         }
+        final Payment payment = stored.payment();
         final Caller current = systemCaller();
         if (payment.getStatus() != Payment.Status.RECORDED) {
             audit.payment(payment, false, sandboxTag(payment) + "Refund reported by the processor (via webhook) "
@@ -627,45 +656,55 @@ public class PaymentCommands {
             return Completion.of("unchanged", "The payment is not recorded; no refund row was written.");
         }
         final PaymentProcessorConfig config = configOf(payment);
-        final OptionalLong refunded;
+        final OptionalLong read;
         try {
-            refunded = processors.apply(config, payment.isSandbox()).refundedCents(payment.getOrderRef());
+            read = processors.apply(config, payment.isSandbox()).refundedCents(payment.getOrderRef());
         } catch (final RuntimeException ex) {
             log.warn("Refund read failed for payment {}: {}", payment.getPaymentId(), ex.getMessage());
             return Completion.of("pending", "The processor could not be read; try again.");
         }
-        if (refunded.isEmpty()) {
+        if (read.isEmpty()) {
             return Completion.of("pending", "The processor could not be read; try again.");
         }
-        if (refunded.getAsLong() <= 0L) {
+        final long refunded = read.getAsLong();
+        if (refunded <= 0L && payment.getRefundedCents() <= 0L) {
             return Completion.of("unchanged", "The processor reports nothing refunded.");
         }
         final String processorName = displayNameOf(config);
         final String txId;
         try {
-            txId = recorder.recordRefund(payment, refunded.getAsLong(), orgNameOf(payment), processorName);
+            // Always, even when the total is unchanged: this is what repairs a stale row a lost race left.
+            txId = recorder.recordRefund(payment, refunded, orgNameOf(payment), processorName);
         } catch (final RuntimeException ex) {
             log.error("Refund ledger write failed for payment {}", payment.getPaymentId(), ex);
-            audit.payment(payment, false, sandboxTag(payment) + "Refund of "
-                    + MoneyMath.formatCents(refunded.getAsLong()) + " reported by " + processorName
-                    + " (via webhook) but the ledger write FAILED", current.auditActor());
+            audit.payment(payment, false, sandboxTag(payment) + "Refund of " + MoneyMath.formatCents(refunded)
+                    + " reported by " + processorName + " (via webhook) but the ledger write FAILED",
+                    current.auditActor());
             return Completion.of("pending", "The refund could not be recorded; try again.");
         }
-        if (txId != null && !payment.getTxIds().contains(txId)) {
-            payment.getTxIds().add(txId);
-            try {
-                DAO.getInstance().transitionPayment(payment, Payment.Status.RECORDED);
-            } catch (final RuntimeException | IOException ex) {
-                // The row is written and idempotent; the payment's own id list is a convenience.
-                log.warn("Unable to note refund row {} on payment {}", txId, payment.getPaymentId(), ex);
+        final boolean alreadyNoted = refunded == payment.getRefundedCents()
+                && (txId == null || payment.getTxIds().contains(txId));
+        if (!alreadyNoted) {
+            payment.setRefundedCents(refunded);
+            if (txId != null && !payment.getTxIds().contains(txId)) {
+                payment.getTxIds().add(txId);
             }
+            try {
+                DAO.getInstance().replacePaymentIfUnchanged(payment, stored.content());
+            } catch (final ConditionalCheckFailedException ex) {
+                log.info("Refund for payment {} raced another writer; re-reading", payment.getPaymentId());
+                return null;
+            } catch (final RuntimeException | IOException ex) {
+                log.error("Unable to persist refund total on payment {}", payment.getPaymentId(), ex);
+                return Completion.of("pending", "The refund could not be recorded; try again.");
+            }
+            audit.payment(payment, true, sandboxTag(payment) + "Refund of " + MoneyMath.formatCents(refunded)
+                    + (refunded > 0L && refunded < payment.getCapturedGrossCents() ? " (partial)" : "")
+                    + (refunded == 0L ? " (reversed)" : "") + " reported by " + processorName + " (via webhook)"
+                    + (txId == null ? "; sandbox, nothing written" : "; ledger row " + txId), current.auditActor());
         }
-        audit.payment(payment, true, sandboxTag(payment) + "Refund of " + MoneyMath.formatCents(refunded.getAsLong())
-                + (refunded.getAsLong() < payment.getCapturedGrossCents() ? " (partial)" : "")
-                + " reported by " + processorName + " (via webhook)"
-                + (txId == null ? "; sandbox, nothing written" : "; ledger row " + txId), current.auditActor());
         return Completion.of(payment.isSandbox() ? "sandbox" : "refunded",
-                "Refund of " + MoneyMath.formatCents(refunded.getAsLong()) + " recorded.");
+                "Refund of " + MoneyMath.formatCents(refunded) + " recorded.");
     }
 
     private static Caller systemCaller() {

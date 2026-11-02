@@ -203,6 +203,36 @@ pushing or auditing again (`adoptWinner`). Before the fix the loser mailed a sec
 Audit: `AuditAction.PAYMENT` targeted at `payment:{id}` for start/complete/fail, `[SANDBOX] ` prefixed in
 sandbox.
 
+## Idempotency (reviewed 2026-11-02; holds across concurrent ECS tasks)
+
+Every guard is a DynamoDB conditional write, never an in-process lock, because a blue/green deploy runs two
+tasks and the webhook, the return page and an admin's Finish can hit different ones at the same moment:
+
+- **Create**: `createPayment` is `attribute_not_exists` (one row per start; a double-submitted Pay button makes
+  two payments, two orders, and the one the payer never confirms is abandoned, never charged).
+- **Capture / record**: `transitionPayment` is conditional on the EXACT stored status, so of two writers moving
+  CREATED→CAPTURED or CAPTURED→RECORDED one loses and `adoptWinner`s (no second mail, push or audit). The
+  ledger rows are written BEFORE that put, by both writers, which is only safe because every row id is
+  DETERMINISTIC and the write is a put: `{paymentId}-pay` (single credit), `{paymentId}-pay-{personId}` (each
+  member of a SHARED group or an unequal split), `{paymentId}-don` / `-donx`, `{paymentId}-refund`. The SHARED
+  rows were the hole (fixed 2026-11-02): the generic group writer looked a member's row up by group and minted
+  a RANDOM id when none existed, so two concurrent recorders each created a row per member and the ledger
+  double-credited. `PaymentRecorder` now writes group rows itself with the deterministic id (an existing
+  group row keeps its old id). Processor captures are idempotent on their side (PayPal answers
+  ORDER_ALREADY_CAPTURED → ALREADY_CAPTURED; Stripe's capture is a read).
+- **Refunds**: `Payment.refundedCents` is an optimistic lock. Each delivery writes the ledger row (a put on the
+  deterministic id) and then `replacePaymentIfUnchanged`, conditional on the stored row's CONTENT being
+  byte-for-byte what it read; a lost race re-reads the payment AND the processor and goes again, so the
+  stale-read interleaving (A read $25 before the second refund, B read $100 and finished first, A's row lands
+  last) ends with A repairing its own row to $100. Four attempts, then `pending` → 503 so Stripe redelivers.
+  Exact duplicates converge on their own (same total, same row). The content compare, not a version
+  attribute, so rows written by older builds lock correctly too.
+- **FAILED / CANCELLED and their mails** happen only after the conditional put succeeds: once.
+- **Re-pricing** (`selectMethod`): the PaymentIntent is updated first, then the row (status-conditional). Two
+  overlapping picks could leave the two disagreeing, which the capture's gross-vs-expected check turns into a
+  `mismatch` parked for reconciliation rather than a wrong charge; the page serializes its requests so this
+  needs two browsers on one payment.
+
 ## Sandbox mode
 
 The ORG-scoped `paymentsAdmin` privilege — `paymentsAdmin@the-trip's-org`, granted on the org People page;

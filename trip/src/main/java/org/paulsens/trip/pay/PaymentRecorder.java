@@ -112,7 +112,11 @@ public class PaymentRecorder {
         final StringBuilder description = new StringBuilder(processorName)
                 .append(" (id #").append(payment.getCaptureId()).append(") Refund of ")
                 .append(MoneyMath.formatCents(refundedCents));
-        if (refundedCents < payment.getCapturedGrossCents()) {
+        if (refundedCents == 0L) {
+            // A refund the processor later reversed (a failed bank refund): the row stays, at zero, so the
+            // ledger shows what happened rather than silently losing a line someone may have seen.
+            description.append(" (the refund was reversed by the processor)");
+        } else if (refundedCents < payment.getCapturedGrossCents()) {
             description.append(" (partial, of the ").append(MoneyMath.formatCents(payment.getCapturedGrossCents()))
                     .append(" payment)");
         }
@@ -237,25 +241,45 @@ public class PaymentRecorder {
 
     // ------------------------------------------------------------------ application
 
+    /**
+     * The SHARED group: one row per member, group id {@code {paymentId}-pay}, each row's id DETERMINISTIC
+     * ({@code {paymentId}-pay-{personId}}) so that two writers recording the same payment at once (the webhook
+     * and the return page, before the state machine picks the winner) put the SAME rows rather than each
+     * minting their own. The generic group writer ({@code saveGroupTransaction}) looks a member's row up by
+     * group and mints a random id when none exists, which under that race created a duplicate row per
+     * member (found in the 2026-11 idempotency review). A row the generic writer created before this change
+     * is still honored: an existing row for the group keeps its id.
+     */
     private List<String> applySharedLine(final Payment payment, final Line line) {
         final List<Person.Id> members = payment.getAllocations().stream()
                 .filter(allocation -> allocation.getAmountCents() > 0)
                 .map(Payment.Allocation::getPersonId)
                 .toList();
-        // origPeople == members so a re-run updates the same group rows in place (never deletes/duplicates).
-        final boolean saved = txCmds.saveGroupTransaction(line.txOrGroupId(), members,
-                Transaction.Type.Shared, line.txType(), LocalDateTime.now(),
-                MoneyMath.toFloatDollars(line.amountCents()), "Payment", line.description(),
-                payment.getTripId(), null, members);
-        if (!saved) {
-            throw new IllegalStateException("Ledger write failed for payment " + payment.getPaymentId()
-                    + " (shared group " + line.txOrGroupId() + ")");
+        final List<String> txIds = new ArrayList<>();
+        for (final Person.Id member : members) {
+            final String txId = txCmds.getGroupTransactionForUser(member, line.txOrGroupId())
+                    .map(Transaction::getTxId)
+                    .orElse(line.txOrGroupId() + "-" + member.getValue());
+            final Transaction tx = new Transaction(txId, member, line.txOrGroupId(), Transaction.Type.Shared,
+                    line.txType(), LocalDateTime.now(), MoneyMath.toFloatDollars(line.amountCents()), "Payment",
+                    line.description(), members);
+            tx.setOrgId(payment.getOrgId());
+            if (!txCmds.saveTransaction(tx, payment.getTripId())) {
+                throw new IllegalStateException("Ledger write failed for payment " + payment.getPaymentId()
+                        + " (shared group " + line.txOrGroupId() + ", member " + member.getValue() + ")");
+            }
+            bindToTrip(payment, tx);
+            txIds.add(tx.getTxId());
         }
-        return members.stream()
-                .map(member -> txCmds.getGroupTransactionForUser(member, line.txOrGroupId())
-                        .map(Transaction::getTxId).orElse(null))
-                .filter(txId -> txId != null)
-                .toList();
+        return txIds;
+    }
+
+    private void bindToTrip(final Payment payment, final Transaction tx) {
+        if (payment.getTripId() != null && !payment.getTripId().isBlank()) {
+            txCmds.getBind().setBindings(
+                    txCmds.getBind().key(tx.getUserId().getValue(), tx.getTxId()),
+                    BindingType.TRANSACTION, BindingType.TRIP, List.of(payment.getTripId()), true);
+        }
     }
 
     private String applyPlainLine(final Payment payment, final Line line) {
@@ -268,11 +292,7 @@ public class PaymentRecorder {
             throw new IllegalStateException("Ledger write failed for payment " + payment.getPaymentId()
                     + " (tx " + line.txOrGroupId() + ")");
         }
-        if (payment.getTripId() != null && !payment.getTripId().isBlank()) {
-            txCmds.getBind().setBindings(
-                    txCmds.getBind().key(line.userId().getValue(), tx.getTxId()),
-                    BindingType.TRANSACTION, BindingType.TRIP, List.of(payment.getTripId()), true);
-        }
+        bindToTrip(payment, tx);
         return tx.getTxId();
     }
 

@@ -61,6 +61,15 @@ public class PaymentDAO {
     }
 
     protected Optional<Payment> getPayment(final String paymentId) {
+        return getPaymentStored(paymentId).map(Stored::payment);
+    }
+
+    /**
+     * A payment together with the exact stored JSON it was parsed from -- the token
+     * {@link #replacePaymentIfUnchanged} compares against. The raw string, not a re-serialization: a row
+     * written by an older build serializes differently today, and the lock must still work on it.
+     */
+    protected Optional<Stored> getPaymentStored(final String paymentId) {
         if (paymentId == null || paymentId.isBlank()) {
             return Optional.empty();
         }
@@ -68,7 +77,32 @@ public class PaymentDAO {
                 Map.of(PAYMENT_ID, AttributeValue.builder().s(paymentId).build());
         final AttributeValue content =
                 persistence.getItem(b -> b.key(key).tableName(PAYMENTS_TABLE).build()).item().get(CONTENT);
-        return Optional.ofNullable(content == null ? null : parsePayment(content.s()));
+        if (content == null) {
+            return Optional.empty();
+        }
+        final Payment payment = parsePayment(content.s());
+        return (payment == null) ? Optional.empty() : Optional.of(new Stored(payment, content.s()));
+    }
+
+    /**
+     * An optimistic replace: persists the payment's CURRENT state only if the stored row is still byte-for-byte
+     * the {@code expectedContent} it was read as. The compare-and-set for writes that do not change the status
+     * (a refund total on a RECORDED payment), where {@link #transitionPayment}'s status condition would let two
+     * concurrent writers each believe they won. Throws {@link ConditionalCheckFailedException} on a lost race.
+     */
+    protected Boolean replacePaymentIfUnchanged(final Payment payment, final String expectedContent)
+            throws IOException {
+        final Map<String, AttributeValue> map = itemFor(payment);
+        return persistence.putItem(b -> b.tableName(PAYMENTS_TABLE).item(map)
+                        .conditionExpression("#c = :expected")
+                        .expressionAttributeNames(Map.of("#c", CONTENT))
+                        .expressionAttributeValues(Map.of(":expected",
+                                AttributeValue.builder().s(expectedContent).build())))
+                .sdkHttpResponse().isSuccessful();
+    }
+
+    /** A payment plus the stored JSON it came from (the optimistic-lock token). */
+    public record Stored(Payment payment, String content) {
     }
 
     /** Every stored payment (tiny table); the command layer filters for the reconciliation view. */

@@ -64,4 +64,27 @@ public class PaymentDAOTest {
                 .totalChargedCents(49200L)
                 .build();
     }
+    /** The content compare-and-set: a row changed under the reader (by anyone, in any task) refuses the replace. */
+    @Test
+    public void replaceIsConditionalOnTheExactStoredContent() throws IOException {
+        final Payment payment = Payment.builder().payerId(Person.Id.from("cas-payer")).totalChargedCents(100L)
+                .status(Payment.Status.RECORDED).build();
+        DAO.getInstance().createPayment(payment);
+        final PaymentDAO.Stored stored = DAO.getInstance().getPaymentStored(payment.getPaymentId()).orElseThrow();
+        assertEquals(stored.payment().getPaymentId(), payment.getPaymentId());
+
+        final Payment mine = stored.payment();
+        mine.setRefundedCents(25L);
+        assertTrue(DAO.getInstance().replacePaymentIfUnchanged(mine, stored.content()));
+        assertEquals(DAO.getInstance().getPayment(payment.getPaymentId()).orElseThrow().getRefundedCents(), 25L);
+
+        // A second writer holding the ORIGINAL read loses, even though the status is unchanged.
+        final Payment theirs = stored.payment();
+        theirs.setRefundedCents(10L);
+        assertThrows(ConditionalCheckFailedException.class,
+                () -> DAO.getInstance().replacePaymentIfUnchanged(theirs, stored.content()));
+        assertEquals(DAO.getInstance().getPayment(payment.getPaymentId()).orElseThrow().getRefundedCents(), 25L);
+        assertTrue(DAO.getInstance().getPaymentStored("no-such").isEmpty());
+        assertTrue(DAO.getInstance().getPaymentStored(" ").isEmpty());
+    }
 }
