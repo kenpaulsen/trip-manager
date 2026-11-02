@@ -82,7 +82,9 @@ public class ChatMentionDispatchTest {
         @Override
         public void notify(final ChatNotification notification) {
             // Another test's in-flight dispatch, arriving after that test installed its own expectations.
-            if (watching != null && !watching.equals(notification.getChannelId())) {
+            // Before this method names its channel nothing can be its own, so null drops everything: a
+            // neighbour's late ALL_MESSAGES event can land in that window and become everyMessage.get(0).
+            if (watching == null || !watching.equals(notification.getChannelId())) {
                 return;
             }
             // Every trip-channel message also dispatches an ALL_MESSAGES event (the every-message opt-in and

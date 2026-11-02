@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.imageio.ImageIO;
 import org.testng.Assert;
 import org.testng.SkipException;
+import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
 
 /**
@@ -18,9 +19,25 @@ import org.testng.annotations.Test;
  */
 public class BackgroundRemoverTest {
 
+    /**
+     * Every test starts pristine with the free-memory reading pinned high: a load must never depend on how much
+     * RAM the machine has free at that moment (it made results depend on test order). Tests about memory install
+     * their own reading after this.
+     */
+    private static void freshAndRoomy() {
+        BackgroundRemover.resetForTest();
+        BackgroundRemover.freeMemoryForTest(() -> Long.MAX_VALUE);
+    }
+
+    /** No test leaves a seam or a session behind for the next one, whatever order they run in. */
+    @AfterMethod(alwaysRun = true)
+    public void leavePristine() {
+        BackgroundRemover.resetForTest();
+    }
+
     @Test
     public void unavailableMeansEmptyNeverAnError() {
-        BackgroundRemover.resetForTest();
+        freshAndRoomy();
         if (BackgroundRemover.isAvailable()) {
             throw new SkipException("Model present; the unavailable path is exercised where it is absent");
         }
@@ -30,7 +47,7 @@ public class BackgroundRemoverTest {
 
     @Test
     public void cutoutIsAnAlphaVaryingPngOfProfileSize() throws IOException {
-        BackgroundRemover.resetForTest();
+        freshAndRoomy();
         if (!BackgroundRemover.isAvailable()) {
             throw new SkipException("u2netp.onnx not on the classpath; inference untestable here");
         }
@@ -58,7 +75,7 @@ public class BackgroundRemoverTest {
     /** A corrupt model fails ONCE, loudly, and the feature then reports unavailable -- never per-click. */
     @Test
     public void aBrokenModelFailsFastAndReportsUnavailable() {
-        BackgroundRemover.resetForTest();
+        freshAndRoomy();
         try {
             BackgroundRemover.modelResourceForTest("/bad-model.onnx");
             Assert.assertTrue(BackgroundRemover.isAvailable(), "The garbage resource exists on the classpath");
@@ -75,7 +92,7 @@ public class BackgroundRemoverTest {
     /** The single-permit gate: a held permit means "busy", and interruption backs off immediately. */
     @Test
     public void theGateReportsBusyAndHonorsInterruption() throws InterruptedException {
-        BackgroundRemover.resetForTest();
+        freshAndRoomy();
         if (!BackgroundRemover.isAvailable()) {
             throw new SkipException("u2netp.onnx not on the classpath");
         }
@@ -96,7 +113,7 @@ public class BackgroundRemoverTest {
     /** The idle reaper gives the session's memory back -- but never mid-inference, and never early. */
     @Test
     public void idleCloseReclaimsTheSessionButNeverEarlyOrBusy() {
-        BackgroundRemover.resetForTest();
+        freshAndRoomy();
         if (!BackgroundRemover.isAvailable()) {
             throw new SkipException("u2netp.onnx not on the classpath");
         }
@@ -159,7 +176,7 @@ public class BackgroundRemoverTest {
      */
     @Test
     public void aTightContainerDeclinesWithoutRememberingAndRecoversAfterGc() {
-        BackgroundRemover.resetForTest();
+        freshAndRoomy();
         if (!BackgroundRemover.isAvailable()) {
             throw new SkipException("u2netp.onnx not on the classpath");
         }
@@ -190,17 +207,14 @@ public class BackgroundRemoverTest {
     /** Without the seam the guard reads the real OS bean, which must answer a sane positive number anywhere. */
     @Test
     public void theRealHeadroomReadingIsPositive() {
-        BackgroundRemover.resetForTest();
-        if (!BackgroundRemover.isAvailable()) {
-            throw new SkipException("u2netp.onnx not on the classpath");
-        }
-        try {
-            // No seam installed: a dev box or CI runner has far more than 450 MiB free, so this loads.
-            Assert.assertTrue(BackgroundRemover.cutout(PhotoFixtures.jpeg(64, 64)).isPresent(),
-                    "The real reading on a build machine must clear the threshold");
-        } finally {
-            BackgroundRemover.resetForTest();
-        }
+        // The WIRING of the real reading, not its amount: how much RAM a build machine has free at this instant
+        // depends on everything else running, so asserting it clears the load threshold made this (and every test
+        // that loaded the model on the real reading) fail by test order and machine load. The threshold logic
+        // itself is covered with seams (aTightContainerDeclinesWithoutRememberingAndRecoversAfterGc).
+        final long free = BackgroundRemover.realFreeBytesForTest();
+        final long total = java.lang.management.ManagementFactory
+                .getPlatformMXBean(com.sun.management.OperatingSystemMXBean.class).getTotalMemorySize();
+        Assert.assertTrue(free > 0 && free <= total, "free " + free + " of " + total);
     }
 
     /**
@@ -212,7 +226,7 @@ public class BackgroundRemoverTest {
     @Test
     public void inferenceRunsOnTheDedicatedPlatformThreadEvenWhenCalledFromAVirtualThread()
             throws InterruptedException {
-        BackgroundRemover.resetForTest();
+        freshAndRoomy();
         if (!BackgroundRemover.isAvailable()) {
             throw new SkipException("u2netp.onnx not on the classpath");
         }
@@ -265,7 +279,7 @@ public class BackgroundRemoverTest {
 
     @Test
     public void garbageInputIsRejectedNotMasked() {
-        BackgroundRemover.resetForTest();
+        freshAndRoomy();
         if (!BackgroundRemover.isAvailable()) {
             throw new SkipException("u2netp.onnx not on the classpath");
         }

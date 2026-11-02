@@ -414,6 +414,11 @@ public final class BackgroundRemover {
         return lastInferenceThread;
     }
 
+    /** The REAL free-memory reading (whatever seam is installed): its wiring is tested, not its amount. */
+    static long realFreeBytesForTest() {
+        return containerFreeBytes();
+    }
+
     /** Test seam: dictates what the headroom check sees, so a tight container is testable on any machine. */
     static void freeMemoryForTest(final LongSupplier supplier) {
         freeMemoryBytes = supplier;

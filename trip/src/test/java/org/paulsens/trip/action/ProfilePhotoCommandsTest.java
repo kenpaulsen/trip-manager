@@ -419,9 +419,16 @@ public class ProfilePhotoCommandsTest {
         bare.publishOutcome(true);
         bare.publishParam("bgReady", true);
         Assert.assertFalse(bare.bgRemovalEnabled(), "No injected config means the flag reads off");
-        Assert.assertEquals(bare.removeBackground(PhotoFixtures.jpeg(64, 64)).isPresent(),
-                org.paulsens.trip.media.BackgroundRemover.isAvailable(),
-                "The real seam infers exactly when the model is on the classpath");
+        // The model may load only with enough free memory; pinned, so the answer depends on the classpath alone.
+        org.paulsens.trip.media.BackgroundRemoverHooks.reset();
+        org.paulsens.trip.media.BackgroundRemoverHooks.roomy();
+        try {
+            Assert.assertEquals(bare.removeBackground(PhotoFixtures.jpeg(64, 64)).isPresent(),
+                    org.paulsens.trip.media.BackgroundRemover.isAvailable(),
+                    "The real seam infers exactly when the model is on the classpath");
+        } finally {
+            org.paulsens.trip.media.BackgroundRemoverHooks.reset();
+        }
     }
 
     private static CroppedImage crop(final int left, final int top, final int width, final int height) {

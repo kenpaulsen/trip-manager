@@ -109,7 +109,8 @@ public final class DAO {
     private final ChatInviteDAO chatInviteDao;
 
     // This flag is set in the web.xml
-    private static DAO inst;
+    /** The one instance, built under {@code DAO.class} and published before seeding (read by name in tests). */
+    private static volatile DAO inst;
 
     private DAO() {
         this(createTripPersistence(), createCacheClient());
@@ -154,13 +155,27 @@ public final class DAO {
         this.chatInviteDao = new ChatInviteDAO(persistence);
     }
 
+    /**
+     * The one DAO, built (and in local mode seeded) exactly once. Thread-safe: the audit sinks' writer threads
+     * reach here too, and two threads that both saw no instance once built two and seeded them over each other
+     * ("Failed to seed fake content", a test-order failure, 2026-11-02). The instance is published BEFORE seeding,
+     * because the seed fans out (a trip's events resolve in a StructuredTaskScope) and those forks need it: holding
+     * them on the lock until seeding finished deadlocked. A thread arriving mid-seed sees the instance as it fills,
+     * exactly as before this was synchronized.
+     */
     public static DAO getInstance() {
-        if (inst == null) {
-            FakeData.initFakeData();
-            inst = new DAO();
-            FakeData.addFakeData();
+        final DAO existing = inst;
+        if (existing != null) {
+            return existing;
         }
-        return inst;
+        synchronized (DAO.class) {
+            if (inst == null) {
+                FakeData.initFakeData();
+                inst = new DAO();
+                FakeData.addFakeData();
+            }
+            return inst;
+        }
     }
 
     /**

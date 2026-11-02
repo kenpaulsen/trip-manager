@@ -277,7 +277,7 @@ public class PhotoChatCommandsTest {
     public void aTravelersMentionEmailsButAStrangersOnlyHighlights() throws Exception {
         final String key = seedPhoto(false);
         final Person.Id mentioned = seedPersonWithEmail("Mentioned Friend");
-        final CapturingNotifier captured = new CapturingNotifier();
+        final CapturingNotifier captured = new CapturingNotifier(ChatChannel.Id.forPhoto(key));
         ChatNotifications.setNotifier(captured);
 
         Assert.assertFalse(photoChat.isKnownTraveler(stranger), "never joined a trip");
@@ -493,6 +493,11 @@ public class PhotoChatCommandsTest {
     private static final class CapturingNotifier implements ChatNotifier {
         private final CountDownLatch latch = new CountDownLatch(1);
         private final List<ChatNotification> notifications = new CopyOnWriteArrayList<>();
+        private final ChatChannel.Id watching;
+
+        private CapturingNotifier(final ChatChannel.Id watching) {
+            this.watching = watching;
+        }
 
         @Override
         public Channel channel() {
@@ -506,9 +511,11 @@ public class PhotoChatCommandsTest {
 
         @Override
         public void notify(final ChatNotification notification) {
-            if (notification.getReason() == ChatNotification.Reason.ALL_MESSAGES) {
+            if (notification.getReason() == ChatNotification.Reason.ALL_MESSAGES
+                    || !watching.equals(notification.getChannelId())) {
                 // Every trip-chat message dispatches one of these off-thread, so one from an EARLIER test's
-                // carrier message can land here late; it is not a mention and must not trip the latch.
+                // carrier message can land here late; it is not a mention and must not trip the latch. Nor
+                // may a late mention from another test's channel, whichever class ran before this one.
                 return;
             }
             notifications.add(notification);
