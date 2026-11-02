@@ -264,7 +264,10 @@ public class ConferencePageTest {
         final Trip trip = Trip.builder().title("2027 Jul: Seeded Conference").kind(TripKind.CONFERENCE)
                 .orgId(FakeData.CFPW_ORG_ID).startDate(LocalDateTime.now().plusDays(60))
                 .endDate(LocalDateTime.now().plusDays(62)).build();
-        assertTrue(new TripCommands().saveTrip(trip), "every save path seeds through saveTrip");
+        // Making a conference takes Create Conferences (docs/conference.md, "Access"): a site admin here.
+        final OrgCommands siteAdmin = new OrgCommands(() -> new Caller(Person.Id.newInstance(), true,
+                org.paulsens.trip.audit.AuditActor.system(), new PrivilegeCommands()));
+        assertTrue(new TripCommands().saveTrip(trip, siteAdmin), "every save path seeds through saveTrip");
         assertNotNull(trip.getPageSeededAt(), "stamped on the caller's own object");
         final String page = OrgPageBootstrap.tripPageKey(trip.getId());
         final List<ContentInstance> sections = dao.getContentForSection(page, Cached.NO);

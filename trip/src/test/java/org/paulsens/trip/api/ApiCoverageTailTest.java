@@ -250,7 +250,7 @@ public class ApiCoverageTailTest extends ResourceTestSupport {
         final TripsResource resource = resource(new TripsResource());
         final Trip existing = Trip.builder().id("t1").people(List.of(ME)).build();
         Mockito.when(trips.getTrip("t1")).thenReturn(existing);
-        Mockito.when(trips.saveTrip(existing)).thenReturn(true);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
 
         final LocalDateTime start = LocalDateTime.of(2027, 5, 1, 8, 0);
         final LocalDateTime end = LocalDateTime.of(2027, 5, 10, 20, 0);

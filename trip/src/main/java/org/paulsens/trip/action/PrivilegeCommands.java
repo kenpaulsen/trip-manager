@@ -78,6 +78,12 @@ public class PrivilegeCommands {
     @Deprecated
     public static final String LODGING_MANAGER = "lodgingManager";
     public static final String ADD_TRIP = "addTrip";
+    /**
+     * Creates CONFERENCES for the organization, and makes a trip one or turns one back (docs/conference.md,
+     * "Access"). A separately sold feature: an org has it only while its allow-list offers it, and its admins are
+     * NOT implied -- they grant it to members, themselves included. Running a conference is the trip roles' job.
+     */
+    public static final String ADD_CONFERENCE = "addConference";
     /** May flip the payment page into SANDBOX mode (sandbox APIs, no real ledger writes). Org-scoped:
      *  sandbox mode exercises the trip's org's sandbox credentials, so the grant follows the org. */
     public static final String PAYMENTS_ADMIN = "paymentsAdmin";
@@ -114,8 +120,8 @@ public class PrivilegeCommands {
      * privilege-only: an org's admins do not edit content, or read the trail, by being admins.
      */
     public static final List<String> ORG_SCOPED_BASES =
-            List.of(PEOPLE_ADMIN, ADD_TRIP, EMAIL_ADMIN, PAYMENTS_ADMIN, CONTENT_ADMIN, MEDIA_ADMIN, AUDIT_ADMIN,
-                    LODGING_ADMIN);
+            List.of(PEOPLE_ADMIN, ADD_TRIP, ADD_CONFERENCE, EMAIL_ADMIN, PAYMENTS_ADMIN, CONTENT_ADMIN, MEDIA_ADMIN,
+                    AUDIT_ADMIN, LODGING_ADMIN);
     /**
      * Bases scoped to ONE accommodation (a global hotel, not a trip or an org): the hotel-level grant behind
      * the lodging admin page. {@link #knownBases} answers it for the kind {@code ACCOMMODATION}.
@@ -151,6 +157,7 @@ public class PrivilegeCommands {
             java.util.Map.entry(CHECKIN_STAFF, "Check people in at the event: look up registrants and tickets"),
             java.util.Map.entry(PEOPLE_ADMIN, "Manage the organization's people"),
             java.util.Map.entry(ADD_TRIP, "Create new trips for the organization"),
+            java.util.Map.entry(ADD_CONFERENCE, "Create conferences for the organization (offered by a site admin)"),
             java.util.Map.entry(EMAIL_ADMIN, "Send email to the organization's members"),
             java.util.Map.entry(PAYMENTS_ADMIN, "Use payment sandbox mode on the organization's trips"),
             java.util.Map.entry(PRIVILEGE_ADMIN, "See and edit privileges"),

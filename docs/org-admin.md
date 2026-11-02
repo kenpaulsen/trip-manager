@@ -16,7 +16,7 @@ has no role or privilege row, so these pages gate themselves in `initPage`, NOT 
 |------|---------------------------|-----------|
 | `orgSettings.jsf` (hub) | `canViewOrgHub` — admin OR any org-scoped privilege here | — (cards render per-permission) |
 | `orgConfig.jsf` (Organization Settings, tabbed) | `canManageOrg` | per tab: `saveOrgEdits` (Profile, Email; **the name included**; Profile's contact name and phone go through `saveOrgSettings`), `saveOrgSettings` (Home page, Trips & money, Chat, Appearance), `setGrantablePrivileges` (Privileges, site admins only) |
-| `orgTrips.jsf` | `canViewOrgTrips` — admin OR `addTrip@org` | New Trip: `canCreateTripFor` |
+| `orgTrips.jsf` | `canViewOrgTrips` — admin OR `addTrip@org` OR `addConference@org` | New Trip: `canCreateTripFor`; New Conference: `canCreateConferenceFor` |
 | `orgPeople.jsf` | `canViewOrgPeople` — admin OR `peopleAdmin@org` | **org admins only** (all of them) |
 | `orgProcessors.jsf` | `canManageOrg` | `canManageOrg` |
 | `orgWaivers.jsf` | `canManageOrg` | the org's trip documents ("waivers"): create, publish the next version, retire (`docs/waivers.md`) |
@@ -100,6 +100,7 @@ Privileges page once verified:
 |------|----------------------------|
 | `peopleAdmin` | People pages + Manage People for that org's people only; family admin ops over them |
 | `addTrip` | Creating trips belonging to that org (page and `POST /api/trips` use the same rule) |
+| `addConference` | Creating CONFERENCES for that org, and making or unmaking one; org admins are NOT implied, and the org's allow-list must offer it at use (`docs/conference.md`, "Access"); chip name "Create Conferences" |
 | `emailAdmin` | Mail-merge bounded to that org's members + its trips' rosters (`OrgCommands.sendMerge`) |
 | `paymentsAdmin` | The payment page's sandbox toggle for that org's trips |
 | `contentAdmin`, `mediaAdmin` | That org's own site: its page, templates, media library (also global; see "Org-site editors") |

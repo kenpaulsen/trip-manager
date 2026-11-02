@@ -295,7 +295,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         Mockito.when(trips.getTrip("gone")).thenReturn(Trip.builder().build());
 
         assertError(resource.update("gone", CSRF_OK, null), 404, ApiErrors.NOT_FOUND);
-        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any());
+        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     @Test
@@ -432,7 +432,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         final TripsResource ordinary = resource(new TripsResource());
         assertError(ordinary.create(CSRF_OK, createBody(java.util.UUID.randomUUID().toString())),
                 403, ApiErrors.FORBIDDEN);
-        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any());
+        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     @Test
@@ -443,7 +443,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         Assert.assertTrue(priv.savePrivilege(
                 priv.createPrivilege("addTrip", "May create trips", orgId, List.of(ME)), null));
         Mockito.when(trips.createTrip()).thenReturn(trip("new-trip", ME));
-        Mockito.when(trips.saveTrip(ArgumentMatchers.any())).thenReturn(true);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
 
         signedInAs(ME);
         assertOk(resource(new TripsResource()).create(CSRF_OK, createBody(orgId)));
@@ -453,12 +453,56 @@ public class TripsResourceTest extends ResourceTestSupport {
                 403, ApiErrors.FORBIDDEN);
     }
 
+    /** A conference takes Create Conferences, never Create Trips, and only while the org is offered it. */
+    @Test
+    public void aConferenceTakesCreateConferences() throws java.io.IOException {
+        final org.paulsens.trip.model.Organization organization = new org.paulsens.trip.model.Organization(null,
+                "Conf REST " + ME.getValue(), null, null, null, null, null, 0L);
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveOrganization(organization));
+        final String orgId = organization.getId().getValue();
+        final PrivilegeCommands priv = new PrivilegeCommands();
+        Assert.assertTrue(priv.savePrivilege(priv.createPrivilege("addTrip", "trips", orgId, List.of(ME)), null));
+        Mockito.when(trips.createTrip()).thenReturn(trip(java.util.UUID.randomUUID().toString(), ME));
+        Mockito.when(trips.saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(true);
+        signedInAs(ME);
+        assertError(resource(new TripsResource()).create(CSRF_OK, conferenceBody(orgId)), 403, ApiErrors.FORBIDDEN);
+
+        Assert.assertTrue(priv.savePrivilege(priv.createPrivilege("addConference", "conferences", orgId,
+                List.of(ME)), null));
+        signedInAs(ME);
+        assertOk(resource(new TripsResource()).create(CSRF_OK, conferenceBody(orgId)));
+
+        organization.setGrantablePrivileges(List.of("addTrip"));
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().saveOrganization(organization));
+        signedInAs(ME);
+        assertError(resource(new TripsResource()).create(CSRF_OK, conferenceBody(orgId)), 403, ApiErrors.FORBIDDEN);
+    }
+
+    /** A trip manager edits a trip but cannot make it a conference. */
+    @Test
+    public void aTripManagerMayNotMakeAConference() {
+        signedInAs(ME);
+        final String tripId = java.util.UUID.randomUUID().toString();
+        final PrivilegeCommands priv = new PrivilegeCommands();
+        Assert.assertTrue(priv.savePrivilege(priv.createPrivilege("tripMgr", "mgr", tripId, List.of(ME)), null));
+        final Trip existing = trip(tripId, ME);
+        tripExists(existing);
+        assertError(resource(new TripsResource()).update(tripId, CSRF_OK, conferenceBody(null)), 403,
+                ApiErrors.FORBIDDEN);
+        Assert.assertFalse(existing.isConference());
+    }
+
+    private static TripDto conferenceBody(final String orgId) {
+        return new TripDto(null, "Fest 2027", "Three days", null, false, null, null, 40, null, orgId, null, null,
+                null, null, null, null, null, null, null, null, null, "conference");
+    }
+
     @Test
     public void createAppliesTheBodyAndSaves() {
         signedInAsSiteAdmin(ME);
         final Trip created = trip("new-trip", ME);
         Mockito.when(trips.createTrip()).thenReturn(created);
-        Mockito.when(trips.saveTrip(created)).thenReturn(true);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(created), ArgumentMatchers.any())).thenReturn(true);
 
         final String orgId = java.util.UUID.randomUUID().toString();
         final Response response = resource.create(CSRF_OK, createBody(orgId));
@@ -473,7 +517,7 @@ public class TripsResourceTest extends ResourceTestSupport {
     public void aFailedCreateIsReported() {
         signedInAsSiteAdmin(ME);
         Mockito.when(trips.createTrip()).thenReturn(trip("new-trip", ME));
-        Mockito.when(trips.saveTrip(ArgumentMatchers.any())).thenReturn(false);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(false);
 
         assertError(resource.create(CSRF_OK, createBody(java.util.UUID.randomUUID().toString())),
                 500, ApiErrors.STORE_FAILED);
@@ -486,7 +530,7 @@ public class TripsResourceTest extends ResourceTestSupport {
 
         // Membership lets you read; it does not let you write.
         assertError(resource.update(TRIP_ID, CSRF_OK, null), 403, ApiErrors.FORBIDDEN);
-        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any());
+        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     /** The DAO-copies rule: what gets saved must be the very object that was read. */
@@ -495,14 +539,14 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAsSiteAdmin(ME);
         final Trip existing = trip(TRIP_ID, ME);
         tripExists(existing);
-        Mockito.when(trips.saveTrip(existing)).thenReturn(true);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
 
         final TripDto body = new TripDto(null, "Renamed", null, null, false, null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null, null, null, null);
         assertOk(resource.update(TRIP_ID, CSRF_OK, body));
 
         Assert.assertEquals(existing.getTitle(), "Renamed");
-        Mockito.verify(trips).saveTrip(ArgumentMatchers.same(existing));
+        Mockito.verify(trips).saveTrip(ArgumentMatchers.same(existing), ArgumentMatchers.any());
     }
 
     /**
@@ -516,7 +560,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         final Trip existing = trip(TRIP_ID, ME);
         existing.setOrgId("org-1");
         tripExists(existing);
-        Mockito.when(trips.saveTrip(existing)).thenReturn(true);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
         final org.paulsens.trip.action.OrgCommands orgs =
                 bindMock(org.paulsens.trip.action.OrgCommands.class);
         Mockito.when(orgs.isMember("org-1", Person.Id.from("in-org"))).thenReturn(true);
@@ -536,7 +580,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAsSiteAdmin(ME);
         final Trip existing = trip(TRIP_ID, ME);
         tripExists(existing);
-        Mockito.when(trips.saveTrip(existing)).thenReturn(true);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
 
         final TripDto body = new TripDto(null, null, null, null, false, null, null, null, null,
                 null, null, null, null, null, null, null, null, null,
@@ -559,7 +603,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAsSiteAdmin(ME);
         final Trip existing = trip(TRIP_ID, ME);
         tripExists(existing);
-        Mockito.when(trips.saveTrip(existing)).thenReturn(true);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
 
         final org.paulsens.trip.api.dto.RegChoiceDto full = new org.paulsens.trip.api.dto.RegChoiceDto("full",
                 "Full weekend", 15000L, 200, null, List.of("2027-03-05"), null);
@@ -602,7 +646,7 @@ public class TripsResourceTest extends ResourceTestSupport {
                 null, null);
         Assert.assertEquals(resource.update(TRIP_ID, CSRF_OK, badType).getStatus(), 400);
         Assert.assertNull(TripsResource.badEnumValue(null));
-        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any());
+        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     /**
@@ -616,7 +660,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         final Trip existing = trip(TRIP_ID, ME);
         existing.setOrgId("org-pay");
         tripExists(existing);
-        Mockito.when(trips.saveTrip(existing)).thenReturn(true);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
         final org.paulsens.trip.model.PaymentProcessorConfig config =
                 org.paulsens.trip.model.PaymentProcessorConfig.builder()
                         .orgId(org.paulsens.trip.model.Organization.Id.from("org-pay"))
@@ -672,7 +716,7 @@ public class TripsResourceTest extends ResourceTestSupport {
                 new org.paulsens.trip.api.dto.TripPaymentConfigDto("not-ours", null, null, null, null, null, null,
                         null, null));
         assertError(resource.create(CSRF_OK, body), 400, ApiErrors.VALIDATION_FAILED);
-        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any());
+        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     private static TripDto paymentBody(final org.paulsens.trip.api.dto.TripPaymentConfigDto config) {
@@ -686,7 +730,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAsSiteAdmin(ME);
         final Trip existing = trip(TRIP_ID, ME);
         tripExists(existing);
-        Mockito.when(trips.saveTrip(existing)).thenReturn(true);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
 
         final TripDto append = new TripDto(null, null, null, null, false, null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null, null,
@@ -713,7 +757,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         final Trip existing = trip(TRIP_ID, ME);
         existing.setOrgId("org-1");
         tripExists(existing);
-        Mockito.when(trips.saveTrip(existing)).thenReturn(true);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
         bindMock(org.paulsens.trip.action.OrgCommands.class);
 
         final TripDto body = new TripDto(null, "Renamed", null, null, false, null, null, null, null,
@@ -753,7 +797,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         signedInAsSiteAdmin(ME);
         final Trip existing = trip(TRIP_ID, ME);
         tripExists(existing);
-        Mockito.when(trips.saveTrip(existing)).thenReturn(true);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any())).thenReturn(true);
         final LocalDateTime start = LocalDateTime.of(2026, 11, 6, 9, 30);
         final TripEventDto body = new TripEventDto(null, "ground", null, "Coach from the airport", start,
                 start.plusHours(2), null, null, null, null);
@@ -768,7 +812,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         Assert.assertEquals(event.getNotes(), "Coach from the airport");
         Assert.assertEquals(event.getTitle(), "Outbound", "an absent field is left alone");
         Assert.assertTrue(event.getParticipants().contains(ME), "participants are never touched here");
-        Mockito.verify(trips).saveTrip(existing);
+        Mockito.verify(trips).saveTrip(ArgumentMatchers.eq(existing), ArgumentMatchers.any());
     }
 
     @Test
@@ -786,7 +830,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         assertError(resource.updateEvent(TRIP_ID, "evt-1", CSRF_OK, null), 400, ApiErrors.BAD_REQUEST);
         final TripEventDto badType = new TripEventDto(null, "teleport", null, null, null, null, null, null, null, null);
         assertError(resource.updateEvent(TRIP_ID, "evt-1", CSRF_OK, badType), 400, ApiErrors.VALIDATION_FAILED);
-        Mockito.when(trips.saveTrip(ArgumentMatchers.any())).thenReturn(false);
+        Mockito.when(trips.saveTrip(ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(false);
         assertError(resource.updateEvent(TRIP_ID, "evt-1", CSRF_OK, body), 500, ApiErrors.STORE_FAILED);
     }
 

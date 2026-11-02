@@ -785,6 +785,22 @@ public class OrgCommands {
                 || (orgId != null && !orgId.isBlank() && caller().has(PrivilegeCommands.ADD_TRIP, orgId));
     }
 
+    /**
+     * Whether the signed-in user may create a CONFERENCE for this org, or make a trip one or turn one back
+     * (docs/conference.md, "Access"). Unlike trips, being an org admin is not enough: it takes
+     * {@code addConference@org}, AND the org's allow-list must still offer it at the moment of use, so a site
+     * admin withdrawing the feature takes effect at once rather than when each grant is revoked. Site admins may.
+     */
+    public boolean canCreateConferenceFor(final String orgId) {
+        final Caller current = caller();
+        if (current.isSiteAdmin()) {
+            return true;
+        }
+        final Organization org = findOrganization(orgId);
+        return org != null && org.mayGrant(PrivilegeCommands.ADD_CONFERENCE)
+                && current.has(PrivilegeCommands.ADD_CONFERENCE, org.getId().getValue());
+    }
+
     /** The org hub (dashboard): admins plus anyone holding an org-scoped privilege there. */
     public boolean canViewOrgHub(final String orgId) {
         if (canManageOrg(orgId)) {
@@ -798,9 +814,9 @@ public class OrgCommands {
         return PrivilegeCommands.ORG_HUB_BASES.stream().anyMatch(base -> current.has(base, orgId));
     }
 
-    /** The org Trips page: admins, plus addTrip holders (they need the list their button lives on). */
+    /** The org Trips page: admins, plus addTrip and addConference holders (their buttons live on it). */
     public boolean canViewOrgTrips(final String orgId) {
-        return canCreateTripFor(orgId);
+        return canCreateTripFor(orgId) || canCreateConferenceFor(orgId);
     }
 
     /**
@@ -1108,6 +1124,7 @@ public class OrgCommands {
     private static final java.util.Map<String, String> ORG_PRIV_NAMES = java.util.Map.of(
             PrivilegeCommands.PEOPLE_ADMIN, "People Admin",
             PrivilegeCommands.ADD_TRIP, "Create Trips",
+            PrivilegeCommands.ADD_CONFERENCE, "Create Conferences",
             PrivilegeCommands.EMAIL_ADMIN, "Email Admin",
             PrivilegeCommands.PAYMENTS_ADMIN, "Payments Admin",
             PrivilegeCommands.CONTENT_ADMIN, "Site Content Editor",

@@ -187,7 +187,9 @@ hotel; never a price or a bill) -- `docs/lodging.md` "Roles".
 save and 500s every later request (looks like a site-wide outage). `ModelSerializationTest` is the guard.
 
 **Conferences** (`docs/conference.md`, required reading before touching any of these): a conference is a `Trip`
-with `kind` `TripKind.CONFERENCE` (null reads as PILGRIMAGE; kind changes copy, never permissions);
+with `kind` `TripKind.CONFERENCE` (null reads as PILGRIMAGE; kind changes copy, never permissions -- except that
+creating a conference, or making or unmaking one, takes the org-scoped `addConference`, which org admins are NOT
+implied and the org's allow-list must offer at use: docs/conference.md, "Access");
 `RegistrationOption` is TYPED (`QuestionType` TEXT/CHOICE/MULTI_CHOICE/YES_NO, `required`, `OptionChoice`s with
 optional price, capacity, attestation, days) -- a conference's admission types are a priced pick-one question, NOT
 a separate model; answers store choice IDS and every page shows them through `reg.answerText`; `Registration`

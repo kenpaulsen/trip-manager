@@ -341,9 +341,14 @@ public class TripsResource extends BaseResource {
         if (orgId == null || orgId.isBlank()) {
             return error(400, ApiErrors.VALIDATION_FAILED, "orgId is required to create a trip.");
         }
-        // OrgCommands with THIS request's caller, so the page rule and the REST rule are one rule.
-        if (!new OrgCommands(this::caller).canCreateTripFor(orgId)) {
-            return error(403, ApiErrors.FORBIDDEN, "Not permitted to create trips for this organization.");
+        // OrgCommands with THIS request's caller, so the page rule and the REST rule are one rule. A conference
+        // has its own gate (docs/conference.md, "Access"); a trip-creator may not make one.
+        final OrgCommands orgs = new OrgCommands(this::caller);
+        final boolean conference = isConference(body.kind());
+        if (conference ? !orgs.canCreateConferenceFor(orgId) : !orgs.canCreateTripFor(orgId)) {
+            return error(403, ApiErrors.FORBIDDEN, conference
+                    ? "Not permitted to create conferences for this organization (Create Conferences required)."
+                    : "Not permitted to create trips for this organization.");
         }
         if (eventsCarryIds(body)) {
             return error(400, ApiErrors.VALIDATION_FAILED, "tripEvents on a write are append-only: ids "
@@ -364,7 +369,7 @@ public class TripsResource extends BaseResource {
             // Same default the page's create path stamps: never public until someone chooses it.
             trip.setOpenToPublic(false);
         }
-        if (!trips.saveTrip(trip)) {
+        if (!trips.saveTrip(trip, orgs)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the trip.");
         }
         // Creator roles, allow-list-bounded; withheld roles were already reported to the support channel.
@@ -404,11 +409,21 @@ public class TripsResource extends BaseResource {
         if (paymentProblem != null) {
             return error(400, ApiErrors.VALIDATION_FAILED, paymentProblem);
         }
+        final OrgCommands orgs = new OrgCommands(this::caller);
+        if (body.kind() != null && isConference(body.kind()) != trip.isConference()
+                && !orgs.canCreateConferenceFor(trip.getOrgId())) {
+            return error(403, ApiErrors.FORBIDDEN,
+                    "Only a holder of Create Conferences for the organization may make or unmake a conference.");
+        }
         apply(body, trip);
-        if (!Beans.get(TripCommands.class).saveTrip(trip)) {
+        if (!Beans.get(TripCommands.class).saveTrip(trip, orgs)) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the trip.");
         }
         return ok(TripMapper.INSTANCE.toDto(trip).withoutEvents());
+    }
+
+    private static boolean isConference(final String kind) {
+        return kind != null && org.paulsens.trip.model.TripKind.CONFERENCE.name().equalsIgnoreCase(kind.trim());
     }
 
     /**
@@ -463,7 +478,7 @@ public class TripsResource extends BaseResource {
         if (body.end() != null) {
             event.setEnd(body.end());
         }
-        if (!Beans.get(TripCommands.class).saveTrip(trip)) {
+        if (!Beans.get(TripCommands.class).saveTrip(trip, new OrgCommands(this::caller))) {
             return error(500, ApiErrors.STORE_FAILED, "Could not save the trip.");
         }
         return ok(eventDto(event, personId()));

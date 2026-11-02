@@ -36,6 +36,7 @@ public final class ApiPrivileges {
     public static final String REGISTRATION_ADMIN = PrivilegeCommands.REGISTRATION_ADMIN;
     public static final String CHECKIN_STAFF = PrivilegeCommands.CHECKIN_STAFF;
     public static final String ADD_TRIP = PrivilegeCommands.ADD_TRIP;
+    public static final String ADD_CONFERENCE = PrivilegeCommands.ADD_CONFERENCE;
 
     private final Caller caller;
     private final PersonCommands people;

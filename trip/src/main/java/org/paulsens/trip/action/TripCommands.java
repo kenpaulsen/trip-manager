@@ -82,11 +82,22 @@ public class TripCommands {
      * owner-bound, so Save cannot persist a trip an unauthorized user conjured. REST enforces separately.
      */
     public Trip createTripFor(final String orgId) {
-        if (!orgSource.get().canCreateTripFor(orgId)) {
+        return createTripFor(orgId, null);
+    }
+
+    /**
+     * {@link #createTripFor(String)} for a kind: {@code CONFERENCE} is gated by
+     * {@code OrgCommands.canCreateConferenceFor} (docs/conference.md, "Access"), anything else by the trip gate.
+     */
+    public Trip createTripFor(final String orgId, final String kind) {
+        if (!canCreate(orgId, kind)) {
             return null;
         }
         final Trip trip = Trip.builder().build();
         trip.setOrgId(orgId.trim());
+        if (isConferenceKind(kind)) {
+            trip.setKind(TripKind.CONFERENCE);
+        }
         // "Show on homepage?" starts OFF: a half-written trip must never appear on the public landing
         // page because its creator missed a toggle (user decision 2026-08-24).
         trip.setOpenToPublic(false);
@@ -130,6 +141,19 @@ public class TripCommands {
     }
 
     public boolean saveTrip(final Trip trip) {
+        return saveTrip(trip, null);   // this bean's own caller, resolved only if the kind gate needs one
+    }
+
+    /**
+     * {@link #saveTrip(Trip)} judged by {@code org}'s caller: the REST edge passes one bound to ITS caller, since
+     * this bean's own resolves from the JSF session a bearer request does not have. Null: this bean's own.
+     */
+    public boolean saveTrip(final Trip trip, final OrgCommands org) {
+        if (!mayChangeKind(trip, org)) {
+            PageFeedback.warn("Not saved: only someone holding Create Conferences for this organization may make "
+                    + "a trip a conference or change a conference's kind.");
+            return false;
+        }
         final List<String> pricing = trip.checkoutProblems();
         if (!pricing.isEmpty()) {
             // The Pricing fieldset's Done refuses these too, but closing the dialog with its X skips Done.
@@ -990,6 +1014,53 @@ public class TripCommands {
     /** The kinds a trip can be, for the trip editors' Kind menu (pilgrimage first, the default). */
     public List<TripKind> getTripKinds() {
         return List.of(TripKind.values());
+    }
+
+    /** Whether the signed-in user may start a new trip of this kind ({@code CONFERENCE}, else a trip) for the org. */
+    public boolean canCreate(final String orgId, final String kind) {
+        return isConferenceKind(kind) ? orgSource.get().canCreateConferenceFor(orgId)
+                : orgSource.get().canCreateTripFor(orgId);
+    }
+
+    /**
+     * The Kind menu's choices for THIS trip: every kind to whoever may create a conference for its org, else only
+     * the kind it has -- a trip editor neither makes nor unmakes a conference (docs/conference.md, "Access").
+     */
+    public List<TripKind> tripKindsFor(final Trip trip) {
+        if (trip == null || orgSource.get().canCreateConferenceFor(trip.getOrgId())) {
+            return getTripKinds();
+        }
+        return List.of(trip.getKind());
+    }
+
+    /**
+     * Whether saving {@code trip} may change whether it is a conference: always when it does not (the stored kind
+     * and the new one agree, or neither is a conference), else only for {@code canCreateConferenceFor}. The stored
+     * row is read fresh: the caller's copy is the edited one.
+     */
+    boolean mayChangeKind(final Trip trip, final OrgCommands org) {
+        final TripKind stored = storedKind(trip);
+        if (stored == trip.getKind() || stored != TripKind.CONFERENCE && !trip.isConference()) {
+            return true;
+        }
+        return (org == null ? orgSource.get() : org).canCreateConferenceFor(trip.getOrgId());
+    }
+
+    /**
+     * The trip's kind as stored (a new trip: PILGRIMAGE). An unreadable store tells nothing: a conference save then
+     * needs the grant (null), and any other save goes on to fail, or not, through saveTrip's own guards.
+     */
+    private static TripKind storedKind(final Trip trip) {
+        try {
+            return DAO.getInstance().getTrip(trip.getId(), Cached.NO).map(Trip::getKind).orElse(TripKind.PILGRIMAGE);
+        } catch (final RuntimeException ex) {
+            log.warn("Could not read trip {} to compare its kind", trip.getId(), ex);
+            return trip.isConference() ? null : trip.getKind();
+        }
+    }
+
+    private static boolean isConferenceKind(final String kind) {
+        return kind != null && TripKind.CONFERENCE.name().equalsIgnoreCase(kind.trim());
     }
 
     private static Language languageOf(final Trip trip) {

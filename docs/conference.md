@@ -23,7 +23,30 @@ pilgrimage (`Trip.getKind()` folds null, the `chatEnabled` pattern), so there is
 both trip editors (the Editor Admin's, like the title) and over `PUT /api/trips/{id}` (`"kind":"CONFERENCE"`; an
 unknown kind is a 400 before anything is applied).
 
-The kind changes copy and a few defaults, never permissions:
+## Access: Create Conferences
+
+Conferences are a separately granted feature (owner decision 2026-11-02, an upsell). One org-scoped privilege,
+`addConference` ("Create Conferences"), does both jobs, exactly as `addTrip` does for trips:
+
+- **The entitlement** is the org's allow-list (`Organization.grantablePrivileges`, `admin/orgConfig.jsf`, Privileges
+  tab, site admins only). An org whose list is unset offers everything, so the owner configures each org. The offer
+  is checked AT USE (`OrgCommands.canCreateConferenceFor`), so withdrawing it stops new conferences at once even
+  though existing grants stand.
+- **The privilege** is granted by the org's admins to members (`admin/orgPeople.jsf`, "Create Conferences"). Org
+  admins are NOT implied: they grant it to themselves. Site admins always pass.
+- **Create only.** It lets a person create a conference (the org Trips page's "New Conference",
+  `admin/editTrip.jsf?orgId=&kind=CONFERENCE`, or `POST /api/trips` with `"kind":"CONFERENCE"`); the creator gets the
+  usual creator trip roles, and running a conference is the trip roles' job as before. It is not a trip grant
+  either: `addTrip` alone may not create a conference, `addConference` alone may not create a pilgrimage.
+- **Making or unmaking a conference** (changing an existing trip's kind to or from CONFERENCE) takes the same
+  privilege: `TripCommands.saveTrip` refuses it otherwise on every path (the REST edge passes its own caller's
+  `OrgCommands`, because the bean's resolves from the JSF session), and both Kind menus offer only the trip's own
+  kind to anyone else (`TripCommands.tripKindsFor`). A `PUT /api/trips/{id}` that would flip it answers 403.
+
+Tests: `ConferenceAccessTest`, `TripsResourceTest` (`aConferenceTakesCreateConferences`,
+`aTripManagerMayNotMakeAConference`), `ConferenceAccessPwIT`.
+
+Beyond who may make one, the kind changes copy and a few defaults, never permissions:
 
 - `TripKind.registerLabel` / `peopleNoun` word the public trip page's call to action and the registration button
   ("Join Pilgrimage" / "Register Selected Travelers" for a pilgrimage, byte-for-byte what it was).
