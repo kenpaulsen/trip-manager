@@ -165,7 +165,8 @@ public class CheckinCommands {
     private static final Comparator<RegistrationCommands.RegRow> BY_NAME =
             Comparator.comparing(RegistrationCommands.RegRow::getName, String.CASE_INSENSITIVE_ORDER);
 
-    private static List<String> tokensOf(final String query) {
+    /** The lower-cased whitespace-separated tokens of a search query (shared with the Contacts page's search). */
+    static List<String> tokensOf(final String query) {
         final List<String> tokens = new ArrayList<>();
         for (final String token : query.trim().toLowerCase(Locale.ROOT).split("\\s+")) {
             if (!token.isEmpty()) {

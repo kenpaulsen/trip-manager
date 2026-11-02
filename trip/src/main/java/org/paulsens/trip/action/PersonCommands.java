@@ -382,6 +382,45 @@ public class PersonCommands {
                 : people.stream().map(Person::getId).collect(Collectors.toCollection(ArrayList::new));
     }
 
+    /** How many roster rows the trip Contacts page lists without a search (that page only; reports are uncapped). */
+    public static final int CONTACTS_AUTO_LIMIT = 60;
+
+    /** {@link #CONTACTS_AUTO_LIMIT}, for the page's copy. */
+    public int getContactsAutoLimit() {
+        return CONTACTS_AUTO_LIMIT;
+    }
+
+    /**
+     * The ids the trip Contacts page lists: the whole roster when it fits {@link #CONTACTS_AUTO_LIMIT} and there is
+     * no query; nobody when it does not fit and no query narrows it (the page asks for a search instead of
+     * rendering a few hundred rows, each with its own privacy and balance lookups); otherwise the roster members
+     * whose first, last or preferred name or email contains every token of the query, in roster order, capped at
+     * the same limit. Always a new mutable list: the dataTable sorts its value in place.
+     */
+    public List<Person.Id> contactsRoster(final List<Person.Id> roster, final String query) {
+        final List<Person.Id> result = new ArrayList<>();
+        if (roster == null) {
+            return result;
+        }
+        final boolean searching = query != null && !query.isBlank();
+        if (!searching) {
+            if (roster.size() <= CONTACTS_AUTO_LIMIT) {
+                result.addAll(roster);
+            }
+            return result;
+        }
+        final List<String> tokens = CheckinCommands.tokensOf(query);
+        for (final Person.Id id : roster) {
+            if (result.size() >= CONTACTS_AUTO_LIMIT) {
+                break;
+            }
+            if (CheckinCommands.matchesTokens(getPerson(id), tokens)) {
+                result.add(id);
+            }
+        }
+        return result;
+    }
+
     /**
      * Candidate list for people pickers: the already-selected people first (so current selections always remain
      * valid options in the component), then search results for {@code query}. Either argument may be null;
