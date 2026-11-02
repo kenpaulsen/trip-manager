@@ -67,6 +67,27 @@ public final class MoneyMath {
     }
 
     /**
+     * The fee added ON TOP when the payer covers fees and pays by BANK DEBIT: the same gross-up as
+     * {@link #creditFeeCents} without a fixed part, then clamped to the processor's per-payment cap
+     * (Stripe: 0.8%, at most $5.00). At the cap the processor takes the cap from {@code credits + cap},
+     * so the organization still nets the credits exactly.
+     */
+    public static long bankCreditFeeCents(final long creditCents, final int rateBps, final int capCents) {
+        final long uncapped = creditFeeCents(creditCents, rateBps, 0);
+        return (capCents > 0 && uncapped > capCents) ? capCents : uncapped;
+    }
+
+    /**
+     * The donation's informational fee share under bank-debit pricing: {@code rate x donation}, clamped to
+     * the cap like the credit fee (the processor caps the fee on the WHOLE payment; the split between the
+     * two shares is a display convention, so each share is clamped on its own).
+     */
+    public static long bankDonationFeeCents(final long donationCents, final int rateBps, final int capCents) {
+        final long uncapped = donationFeeCents(donationCents, rateBps);
+        return (capCents > 0 && uncapped > capCents) ? capCents : uncapped;
+    }
+
+    /**
      * The donation's INFORMATIONAL fee share ({@code rate x donation}, half-up): shown to the payer and
      * noted in descriptions, never added to the charge, never deducted from the credit -- the organization
      * absorbs it. No fixed-fee share: the fixed fee rides the credit portion (or is absorbed outright on a

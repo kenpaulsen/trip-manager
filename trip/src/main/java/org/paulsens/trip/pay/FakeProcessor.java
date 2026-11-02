@@ -24,7 +24,7 @@ public final class FakeProcessor implements PaymentProcessor {
     /** orderRef -> the order as created; consulted at capture like a real processor would. */
     private static final Map<String, Order> ORDERS = new ConcurrentHashMap<>();
 
-    private record Order(long cents, String paymentId, boolean async) {
+    private record Order(long cents, String paymentId, boolean async, long refundedCents) {
     }
 
     private final boolean inline;
@@ -57,7 +57,7 @@ public final class FakeProcessor implements PaymentProcessor {
     public CreatedOrder createOrder(final Payment payment, final String description,
             final String returnUrl, final String cancelUrl) {
         final String orderRef = "FAKE-" + UUID.randomUUID();
-        ORDERS.put(orderRef, new Order(payment.getTotalChargedCents(), payment.getPaymentId(), false));
+        ORDERS.put(orderRef, new Order(payment.getTotalChargedCents(), payment.getPaymentId(), false, 0L));
         if (inline) {
             // The order ref doubles as the "client secret"; null script = the page's own fake Stripe.js.
             return CreatedOrder.inline(orderRef, "pk_fake", orderRef, null);
@@ -97,7 +97,7 @@ public final class FakeProcessor implements PaymentProcessor {
         if (order == null) {
             return false;
         }
-        ORDERS.put(orderRef, new Order(order.cents(), order.paymentId(), true));
+        ORDERS.put(orderRef, new Order(order.cents(), order.paymentId(), true, order.refundedCents()));
         return true;
     }
 
@@ -107,7 +107,37 @@ public final class FakeProcessor implements PaymentProcessor {
         if (order == null) {
             return null;
         }
-        ORDERS.put(orderRef, new Order(order.cents(), order.paymentId(), false));
+        ORDERS.put(orderRef, new Order(order.cents(), order.paymentId(), false, order.refundedCents()));
         return order.paymentId();
+    }
+
+    /**
+     * The refund stand-in (what a dashboard refund plus Stripe's {@code charge.refunded} event amount to):
+     * the order's CUMULATIVE refunded total becomes {@code cents}. Answers the payment id, or null.
+     */
+    public static String refund(final String orderRef, final long cents) {
+        final Order order = (orderRef == null) ? null : ORDERS.get(orderRef);
+        if (order == null || cents < 0 || cents > order.cents()) {
+            return null;
+        }
+        ORDERS.put(orderRef, new Order(order.cents(), order.paymentId(), order.async(), cents));
+        return order.paymentId();
+    }
+
+    @Override
+    public OptionalLong refundedCents(final String orderRef) {
+        final Order order = (orderRef == null) ? null : ORDERS.get(orderRef);
+        return (order == null) ? OptionalLong.empty() : OptionalLong.of(order.refundedCents());
+    }
+
+    /** Re-prices like Stripe would: only an order that has not been captured (settled) yet. */
+    @Override
+    public boolean updateAmount(final String orderRef, final long cents) {
+        final Order order = (orderRef == null) ? null : ORDERS.get(orderRef);
+        if (order == null || cents <= 0) {
+            throw new ProcessorException("The test processor could not re-price the payment.");
+        }
+        ORDERS.put(orderRef, new Order(cents, order.paymentId(), order.async(), order.refundedCents()));
+        return true;
     }
 }

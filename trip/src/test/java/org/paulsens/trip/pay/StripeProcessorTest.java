@@ -294,4 +294,38 @@ public class StripeProcessorTest {
         return Payment.builder().payerId(Person.Id.newInstance()).tripId("trip-1").totalChargedCents(250000L)
                 .build();
     }
+    @Test
+    public void theRefundReadIsTheChargesCumulativeTotalAndUnknownWhenUnreadable() {
+        routes.put("/v1/payment_intents/pi_ref", new Canned(200, intent("pi_ref", "succeeded", 10000L, "usd")
+                + ",\"latest_charge\":{\"id\":\"ch_1\",\"object\":\"charge\",\"amount_refunded\":2500}}"));
+        assertEquals(processor().refundedCents("pi_ref").getAsLong(), 2500L);
+        final Seen sent = lastSeen();
+        assertEquals(sent.method(), "GET");
+        assertTrue(sent.path().endsWith("/v1/payment_intents/pi_ref"));
+        assertTrue(sent.auth().contains(SK), "the organization's own key");
+
+        routes.put("/v1/payment_intents/pi_nocharge", new Canned(200, intent("pi_nocharge", "succeeded", 1L, "usd")
+                + "}"));
+        assertTrue(processor().refundedCents("pi_nocharge").isEmpty(), "no charge = unknown, never zero");
+        assertTrue(processor().refundedCents("pi_missing").isEmpty(), "a 404 from Stripe is unknown");
+        routes.put("/v1/payment_intents/pi_down", new Canned(500, "{\"error\":{\"message\":\"down\"}}"));
+        assertTrue(processor().refundedCents("pi_down").isEmpty());
+        assertTrue(processor().refundedCents(" ").isEmpty());
+        assertTrue(processor().refundedCents(null).isEmpty());
+    }
+
+    @Test
+    public void rePricingUpdatesTheIntentsAmountAndRefusalsThrow() {
+        routes.put("/v1/payment_intents/pi_open", new Canned(200,
+                intent("pi_open", "requires_payment_method", 0L, "usd") + "}"));
+        assertTrue(processor().updateAmount("pi_open", 2017L));
+        final Seen sent = lastSeen();
+        assertEquals(sent.method(), "POST");
+        assertTrue(sent.path().endsWith("/v1/payment_intents/pi_open"));
+        assertTrue(sent.form().contains("amount=2017"), sent.form());
+
+        assertThrows(PaymentProcessor.ProcessorException.class, () -> processor().updateAmount("pi_missing", 5L));
+        assertThrows(PaymentProcessor.ProcessorException.class, () -> processor().updateAmount("pi_open", 0L));
+        assertThrows(PaymentProcessor.ProcessorException.class, () -> processor().updateAmount(null, 5L));
+    }
 }

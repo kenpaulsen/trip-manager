@@ -273,4 +273,12 @@ public class PayPalProcessorTest {
     private static Payment payment() {
         return Payment.builder().payerId(Person.Id.newInstance()).totalChargedCents(250000L).build();
     }
+    /** The SPI defaults a redirect processor inherits: no refund read, no re-pricing, cancel is a no-op. */
+    @Test
+    public void redirectProcessorsHaveNoRefundReadAndNoRePricing() {
+        final PayPalProcessor paypal = new PayPalProcessor("id", "secret", true);
+        assertTrue(paypal.refundedCents("ORDER-1").isEmpty());
+        assertEquals(paypal.updateAmount("ORDER-1", 100L), false);
+        paypal.cancel("ORDER-1");
+    }
 }

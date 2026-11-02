@@ -57,7 +57,12 @@ date. Chat posts while acting carry `onBehalfOf` (Chat section).
 
 `TripDto`: id, title, description, openToPublic, chatEnabled, startDate, endDate, regLimit, provider,
 orgId, language, estimatedPrice, director, localGuide, facilitators, flyerUrl, nonHostedTripUrl,
-nonHostedRegNumber, regOptions[{id, shortDesc, longDesc, show}], people[ids], tripEvents[].
+nonHostedRegNumber, regOptions[{id, shortDesc, longDesc, show}], people[ids], tripEvents[],
+paymentConfig{processorConfigId, feesPaidBy (ORGANIZATION|PAYER), donationEnabled, donationLabel,
+confirmationTemplateId, mailFrom, replyTo, bcc, extraTokens{}} (2026-11: the trip's OWN payment settings,
+the trip rung of the ladder in `docs/payments.md`; present on a single-trip GET for a trip manager only,
+absent from lists; on `POST`/`PUT` an absent field is left alone and `""` clears it back to inherit;
+`processorConfigId` must name one of the trip's organization's configurations, else 400 `VALIDATION_FAILED`).
 `TripEventDto`: id, type (EVENT|FLIGHT|GROUND|LODGING), title, notes, start, end, participants[ids],
 participating, privNote, details{from,to,flightNumber,duration,carrier} (backend phase).
 
@@ -289,8 +294,14 @@ URL; `clientSecret` + `publishableKey` set = a Stripe PaymentIntent: present the
 (`merchantName` is the organization's display name), then `POST /api/payments/{paymentId}/complete {token}`
 (`token` null for Stripe) and read `status` (`recorded`, `sandbox`, `pending` = a bank debit is processing and
 the server will email when it clears, `mismatch`, `failed`, `cancelled`), or `POST /api/payments/{id}/cancel`
-when the sheet is dismissed. `POST /api/webhooks/stripe/{configId}` is Stripe's, not a client's: no session,
-authenticated by the `Stripe-Signature` header.
+when the sheet is dismissed. `POST /api/payments/{paymentId}/method {type}` (2026-11; `type` is the
+processor's payment method type, `us_bank_account` or `card`) → `{paymentId, creditFeeCents, totalCents,
+totalFormatted, changed}`: re-prices a payer-pays Stripe payment for the picked method (the website's Payment
+Element calls it on its `change` event; PaymentSheet has no equivalent, so the apps need not call it) and
+answers the current total either way; 404 for a payment that is not the caller's. `POST
+/api/webhooks/stripe/{configId}` is Stripe's, not a client's: no session, authenticated by the
+`Stripe-Signature` header; it takes the four `payment_intent.*` events plus `charge.refunded` /
+`charge.refund.updated` (a dashboard refund becomes a ledger row).
 Audit: `GET /api/audit?org&before=<ISO instant>&actor&action&outcome&text&limit` →
 `{events[], searchedBackTo, complete, degraded, nextCursor}`. A `body` may carry the formatting markup (`**bold**`, `*italic*`, `__underline__`, `~~strike~~`, `- `/`1. ` list lines; the grammar is `trip/docs/chat-formatting.md`) beside `@{personId}` tokens; it is text, never HTML, and the app renders it with `ChatMarkup.swift`.
 

@@ -15,6 +15,7 @@ import com.stripe.model.PaymentMethodDomain;
 import com.stripe.net.RequestOptions;
 import com.stripe.param.PaymentIntentCreateParams;
 import com.stripe.param.PaymentIntentRetrieveParams;
+import com.stripe.param.PaymentIntentUpdateParams;
 import com.stripe.param.PaymentMethodDomainCreateParams;
 import java.util.OptionalLong;
 import lombok.extern.slf4j.Slf4j;
@@ -290,6 +291,53 @@ public final class StripeProcessor implements PaymentProcessor {
         } catch (final StripeException ex) {
             // Already canceled or already succeeded both land here; the caller's own state wins.
             log.info("Stripe PaymentIntent {} not canceled: {}", orderRef, ex.getMessage());
+        }
+    }
+
+    /**
+     * The cumulative refunded amount on the intent's latest charge, re-read from Stripe (never trusted from
+     * the {@code charge.refunded} event itself). Empty when Stripe could not be reached or the intent has no
+     * charge yet; the caller treats empty as "ask again", never as zero.
+     */
+    @Override
+    public OptionalLong refundedCents(final String orderRef) {
+        if (orderRef == null || orderRef.isBlank()) {
+            return OptionalLong.empty();
+        }
+        final PaymentIntentRetrieveParams params = PaymentIntentRetrieveParams.builder()
+                .addExpand("latest_charge")
+                .build();
+        try {
+            final PaymentIntent intent = PaymentIntent.retrieve(orderRef, params, options(secretKey, baseUrl, null));
+            final Charge charge = (intent == null) ? null : intent.getLatestChargeObject();
+            if (charge == null || charge.getAmountRefunded() == null) {
+                return OptionalLong.empty();
+            }
+            return OptionalLong.of(charge.getAmountRefunded());
+        } catch (final StripeException ex) {
+            log.warn("Stripe refund read for {} failed: {}", orderRef, ex.getMessage());
+            return OptionalLong.empty();
+        }
+    }
+
+    /**
+     * Re-prices an unconfirmed intent (the payer picked a bank debit, whose fee is lower). Stripe only
+     * accepts a new amount while the intent is still awaiting a payment method or confirmation, which is
+     * exactly when the page asks; anything else surfaces as a refusal and the page keeps the old total.
+     */
+    @Override
+    public boolean updateAmount(final String orderRef, final long cents) {
+        if (orderRef == null || orderRef.isBlank() || cents <= 0) {
+            throw new ProcessorException("Stripe could not re-price the payment.");
+        }
+        try {
+            final PaymentIntent intent = PaymentIntent.retrieve(orderRef, options(secretKey, baseUrl, null));
+            intent.update(PaymentIntentUpdateParams.builder().setAmount(cents).build(),
+                    options(secretKey, baseUrl, null));
+            return true;
+        } catch (final StripeException ex) {
+            log.warn("Stripe PaymentIntent {} could not be re-priced to {}: {}", orderRef, cents, ex.getMessage());
+            throw new ProcessorException("Stripe could not re-price the payment.", ex);
         }
     }
 

@@ -418,7 +418,7 @@ public class TripsResourceTest extends ResourceTestSupport {
     /** A body whose only interesting fields are title/regLimit/orgId -- the create matrix's fixture. */
     private static TripDto createBody(final String orgId) {
         return new TripDto(null, "Rome 2027", "Ten days", null, false, null, null, 40, null,
-                orgId, null, null, null, null, null, null, null, null, null, null, null);
+                orgId, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     @Test
@@ -498,7 +498,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         Mockito.when(trips.saveTrip(existing)).thenReturn(true);
 
         final TripDto body = new TripDto(null, "Renamed", null, null, false, null, null, null, null,
-                null, null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null, null);
         assertOk(resource.update(TRIP_ID, CSRF_OK, body));
 
         Assert.assertEquals(existing.getTitle(), "Renamed");
@@ -523,7 +523,7 @@ public class TripsResourceTest extends ResourceTestSupport {
 
         final TripDto body = new TripDto(null, null, null, null, false, null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null,
-                List.of("in-org", "outside-org"), null);
+                List.of("in-org", "outside-org"), null, null);
         assertOk(resource.update(TRIP_ID, CSRF_OK, body));
 
         Assert.assertEquals(existing.getPeople(), List.of(Person.Id.from("in-org")),
@@ -543,7 +543,7 @@ public class TripsResourceTest extends ResourceTestSupport {
                 List.of(new org.paulsens.trip.api.dto.RegOptionDto(null, "Room Preference", "Who with?", null),
                         new org.paulsens.trip.api.dto.RegOptionDto(null, "Diet", "Anything we should know?",
                                 false)),
-                null, null);
+                null, null, null);
         assertOk(resource.update(TRIP_ID, CSRF_OK, body));
 
         Assert.assertEquals(existing.getRegOptions().size(), 2);
@@ -605,6 +605,81 @@ public class TripsResourceTest extends ResourceTestSupport {
         Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any());
     }
 
+    /**
+     * The trip's own payment settings (2026-11): a manager sets them through the API like the editor's
+     * dialog does, field by field (absent = leave alone, "" = inherit), the processor must belong to the
+     * trip's organization, and only a manager reads them back.
+     */
+    @Test
+    public void updateAppliesThePaymentConfigWithinTheTripsOrg() throws java.io.IOException {
+        signedInAsSiteAdmin(ME);
+        final Trip existing = trip(TRIP_ID, ME);
+        existing.setOrgId("org-pay");
+        tripExists(existing);
+        Mockito.when(trips.saveTrip(existing)).thenReturn(true);
+        final org.paulsens.trip.model.PaymentProcessorConfig config =
+                org.paulsens.trip.model.PaymentProcessorConfig.builder()
+                        .orgId(org.paulsens.trip.model.Organization.Id.from("org-pay"))
+                        .label("Org Stripe").type(org.paulsens.trip.model.ProcessorType.STRIPE)
+                        .mode(org.paulsens.trip.model.PaymentProcessorConfig.ProcessorMode.LIVE).enabled(true)
+                        .publicConfig(Map.of("clientId", "pk_live_x")).createdBy(ME)
+                        .created(LocalDateTime.now()).build();
+        Assert.assertTrue(org.paulsens.trip.dynamo.DAO.getInstance().savePaymentProcessorConfig(config));
+
+        final TripDto body = paymentBody(new org.paulsens.trip.api.dto.TripPaymentConfigDto(
+                config.getId().getValue(), "PAYER", Boolean.TRUE, "Help a traveler", null, null, "reply@org.example",
+                null, Map.of("officePhone", "555-1212")));
+        assertOk(resource.update(TRIP_ID, CSRF_OK, body));
+        Assert.assertEquals(existing.getPaymentConfig().getProcessorConfigId(), config.getId().getValue());
+        Assert.assertEquals(existing.getPaymentConfig().getFeesPaidBy(), org.paulsens.trip.model.FeesPaidBy.PAYER);
+        Assert.assertEquals(existing.getPaymentConfig().getDonationEnabled(), Boolean.TRUE);
+        Assert.assertEquals(existing.getPaymentConfig().getReplyTo(), "reply@org.example");
+        Assert.assertEquals(existing.getPaymentConfig().getExtraTokens().get("officePhone"), "555-1212");
+        Assert.assertNull(existing.getPaymentConfig().getConfirmationTemplateId(), "absent = untouched");
+
+        // "" clears back to inherit; absent fields stay as they were.
+        assertOk(resource.update(TRIP_ID, CSRF_OK, paymentBody(new org.paulsens.trip.api.dto.TripPaymentConfigDto(
+                "", "", null, null, null, null, null, null, null))));
+        Assert.assertNull(existing.getPaymentConfig().getProcessorConfigId());
+        Assert.assertNull(existing.getPaymentConfig().getFeesPaidBy());
+        Assert.assertEquals(existing.getPaymentConfig().getDonationEnabled(), Boolean.TRUE, "left alone");
+
+        // Tenancy: another organization's processor (or a made-up id) is refused before anything changes.
+        assertError(resource.update(TRIP_ID, CSRF_OK, paymentBody(new org.paulsens.trip.api.dto.TripPaymentConfigDto(
+                "someone-elses-config", null, null, null, null, null, null, null, null))), 400,
+                ApiErrors.VALIDATION_FAILED);
+        assertError(resource.update(TRIP_ID, CSRF_OK, paymentBody(new org.paulsens.trip.api.dto.TripPaymentConfigDto(
+                null, "SPLIT", null, null, null, null, null, null, null))), 400, ApiErrors.VALIDATION_FAILED);
+        Assert.assertNull(existing.getPaymentConfig().getProcessorConfigId());
+
+        // Read-back: the site admin (a manager) sees it, a plain member does not.
+        existing.getPaymentConfig().setProcessorConfigId(config.getId().getValue());
+        final TripDto admin = (TripDto) resource.get(TRIP_ID, null).getEntity();
+        Assert.assertEquals(admin.paymentConfig().processorConfigId(), config.getId().getValue());
+        signedInAs(ME);
+        final TripDto member = (TripDto) resource(new TripsResource()).get(TRIP_ID, null).getEntity();
+        Assert.assertNull(member.paymentConfig(), "the payment settings are the managers' business");
+        Assert.assertNull(member.withoutEvents().paymentConfig());
+    }
+
+    @Test
+    public void createRefusesAForeignProcessorBeforeSaving() {
+        signedInAsSiteAdmin(ME);
+        Mockito.when(trips.createTrip()).thenReturn(trip("new-trip", ME));
+        final String orgId = java.util.UUID.randomUUID().toString();
+        final TripDto body = new TripDto(null, "Rome 2027", null, null, false, null, null, null, null, orgId, null,
+                null, null, null, null, null, null, null, null, null, null,
+                new org.paulsens.trip.api.dto.TripPaymentConfigDto("not-ours", null, null, null, null, null, null,
+                        null, null));
+        assertError(resource.create(CSRF_OK, body), 400, ApiErrors.VALIDATION_FAILED);
+        Mockito.verify(trips, Mockito.never()).saveTrip(ArgumentMatchers.any());
+    }
+
+    private static TripDto paymentBody(final org.paulsens.trip.api.dto.TripPaymentConfigDto config) {
+        return new TripDto(null, null, null, null, false, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, config);
+    }
+
     /** Events on a write APPEND (null ids only): replacing by id would erase participants/private notes. */
     @Test
     public void updateAppendsNewEventsAndRefusesIds() {
@@ -617,7 +692,7 @@ public class TripsResourceTest extends ResourceTestSupport {
                 null, null, null, null, null, null, null, null, null, null, null,
                 List.of(new TripEventDto(null, "LODGING", "Hotel Ruža", null,
                         LocalDateTime.now().plusDays(31), null, null, null, null,
-                        Map.of("from", "SEA", "carrier", "Alaska"))));
+                        Map.of("from", "SEA", "carrier", "Alaska"))), null);
         assertOk(resource.update(TRIP_ID, CSRF_OK, append));
         Assert.assertEquals(existing.getTripEvents().size(), 2, "the new event appends after evt-1");
         Assert.assertEquals(existing.getTripEvents().get(1).getDetails().get("carrier"), "Alaska",
@@ -627,7 +702,7 @@ public class TripsResourceTest extends ResourceTestSupport {
 
         final TripDto withId = new TripDto(null, null, null, null, false, null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null, null,
-                List.of(new TripEventDto("evt-1", null, "Rewritten", null, null, null, null, null, null, null)));
+                List.of(new TripEventDto("evt-1", null, "Rewritten", null, null, null, null, null, null, null)), null);
         assertError(resource.update(TRIP_ID, CSRF_OK, withId), 400, ApiErrors.VALIDATION_FAILED);
     }
 
@@ -642,7 +717,7 @@ public class TripsResourceTest extends ResourceTestSupport {
         bindMock(org.paulsens.trip.action.OrgCommands.class);
 
         final TripDto body = new TripDto(null, "Renamed", null, null, false, null, null, null, null,
-                null, null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null, null, null);
         assertOk(resource.update(TRIP_ID, CSRF_OK, body));
 
         Assert.assertEquals(existing.getPeople(), List.of(ME),

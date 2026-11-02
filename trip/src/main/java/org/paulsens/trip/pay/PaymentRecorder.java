@@ -51,7 +51,7 @@ public class PaymentRecorder {
     public record Line(Kind kind, Person.Id userId, String txOrGroupId, long amountCents,
             Transaction.TransactionType txType, String description) {
         public enum Kind {
-            SHARED_CREDIT, CREDIT, DONATION, DONATION_OFFSET
+            SHARED_CREDIT, CREDIT, DONATION, DONATION_OFFSET, REFUND
         }
     }
 
@@ -96,6 +96,42 @@ public class PaymentRecorder {
             }
         }
         return new Result(lines, txIds, true);
+    }
+
+    /**
+     * The ledger row for money the processor sent BACK: one row per payment, {@code {paymentId}-refund},
+     * on the PAYER (whose card or account was refunded), carrying the CUMULATIVE refunded amount as a
+     * negative Payment. A second partial refund, or a re-delivered event, rewrites the same row with the new
+     * total -- idempotent like every other row here, and the ledger never grows a second refund line. The
+     * original credit rows stay as written (money rows are never destroyed); the refund row is what brings
+     * the balance back. Multi-person payments refund the payer too: the processor returned the money to the
+     * one card, and splitting a refund across travelers is the organization's call to make by hand.
+     */
+    public Line refundLine(final Payment payment, final long refundedCents, final String orgName,
+            final String processorName) {
+        final StringBuilder description = new StringBuilder(processorName)
+                .append(" (id #").append(payment.getCaptureId()).append(") Refund of ")
+                .append(MoneyMath.formatCents(refundedCents));
+        if (refundedCents < payment.getCapturedGrossCents()) {
+            description.append(" (partial, of the ").append(MoneyMath.formatCents(payment.getCapturedGrossCents()))
+                    .append(" payment)");
+        }
+        description.append(" from ").append(orgName);
+        return new Line(Line.Kind.REFUND, payment.getPayerId(), payment.getPaymentId() + "-refund",
+                -refundedCents, Transaction.TransactionType.Payment, description.toString());
+    }
+
+    /**
+     * Writes (or rewrites) the refund row; answers its transaction id, or null for a sandbox payment, which
+     * computes the line and writes nothing. Throws {@link IllegalStateException} when the write fails.
+     */
+    public String recordRefund(final Payment payment, final long refundedCents, final String orgName,
+            final String processorName) {
+        final Line line = refundLine(payment, refundedCents, orgName, processorName);
+        if (payment.isSandbox()) {
+            return null;
+        }
+        return applyPlainLine(payment, line);
     }
 
     // ------------------------------------------------------------------ line computation
@@ -226,8 +262,7 @@ public class PaymentRecorder {
         final Transaction tx = new Transaction(line.txOrGroupId(), line.userId(), null,
                 Transaction.Type.Tx, line.txType(), LocalDateTime.now(),
                 MoneyMath.toFloatDollars(line.amountCents()),
-                line.txType() == Transaction.TransactionType.Donation ? "Donation" : "Payment",
-                line.description());
+                categoryOf(line), line.description());
         tx.setOrgId(payment.getOrgId());
         if (!txCmds.saveTransaction(tx, payment.getTripId())) {
             throw new IllegalStateException("Ledger write failed for payment " + payment.getPaymentId()
@@ -239,6 +274,13 @@ public class PaymentRecorder {
                     BindingType.TRANSACTION, BindingType.TRIP, List.of(payment.getTripId()), true);
         }
         return tx.getTxId();
+    }
+
+    private static String categoryOf(final Line line) {
+        if (line.kind() == Line.Kind.REFUND) {
+            return "Refund";
+        }
+        return line.txType() == Transaction.TransactionType.Donation ? "Donation" : "Payment";
     }
 
     private static String preferredName(final Person.Id personId) {

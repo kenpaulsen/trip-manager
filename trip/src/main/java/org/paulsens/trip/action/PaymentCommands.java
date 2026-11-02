@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 import lombok.Getter;
@@ -604,8 +605,137 @@ public class PaymentCommands {
         return cancelCreated(payment, systemCaller(), "Payment cancelled at the processor (via webhook)");
     }
 
+    /**
+     * The processor says money went BACK (Stripe's {@code charge.refunded}, after an organization refunds in
+     * its dashboard): re-read the cumulative refunded amount from the processor with the organization's own
+     * key (never from the event) and write, or rewrite, the ONE refund row on the payer's ledger
+     * ({@code PaymentRecorder.recordRefund}). Only a RECORDED payment can be refunded against the ledger;
+     * anything else is audited and left alone. Statuses: {@code refunded} (row written), {@code sandbox}
+     * (computed, nothing written), {@code unchanged} (nothing refunded, or not RECORDED), {@code pending}
+     * (the processor could not be read -- the webhook answers 503 so Stripe redelivers), {@code notfound}.
+     */
+    public Completion refundFromWebhook(final String paymentId) {
+        final Payment payment = DAO.getInstance().getPayment(paymentId).orElse(null);
+        if (payment == null) {
+            return Completion.of("notfound", "Unknown payment.");
+        }
+        final Caller current = systemCaller();
+        if (payment.getStatus() != Payment.Status.RECORDED) {
+            audit.payment(payment, false, sandboxTag(payment) + "Refund reported by the processor (via webhook) "
+                    + "for a payment that is " + payment.getStatus() + ", not RECORDED; nothing written",
+                    current.auditActor());
+            return Completion.of("unchanged", "The payment is not recorded; no refund row was written.");
+        }
+        final PaymentProcessorConfig config = configOf(payment);
+        final OptionalLong refunded;
+        try {
+            refunded = processors.apply(config, payment.isSandbox()).refundedCents(payment.getOrderRef());
+        } catch (final RuntimeException ex) {
+            log.warn("Refund read failed for payment {}: {}", payment.getPaymentId(), ex.getMessage());
+            return Completion.of("pending", "The processor could not be read; try again.");
+        }
+        if (refunded.isEmpty()) {
+            return Completion.of("pending", "The processor could not be read; try again.");
+        }
+        if (refunded.getAsLong() <= 0L) {
+            return Completion.of("unchanged", "The processor reports nothing refunded.");
+        }
+        final String processorName = displayNameOf(config);
+        final String txId;
+        try {
+            txId = recorder.recordRefund(payment, refunded.getAsLong(), orgNameOf(payment), processorName);
+        } catch (final RuntimeException ex) {
+            log.error("Refund ledger write failed for payment {}", payment.getPaymentId(), ex);
+            audit.payment(payment, false, sandboxTag(payment) + "Refund of "
+                    + MoneyMath.formatCents(refunded.getAsLong()) + " reported by " + processorName
+                    + " (via webhook) but the ledger write FAILED", current.auditActor());
+            return Completion.of("pending", "The refund could not be recorded; try again.");
+        }
+        if (txId != null && !payment.getTxIds().contains(txId)) {
+            payment.getTxIds().add(txId);
+            try {
+                DAO.getInstance().transitionPayment(payment, Payment.Status.RECORDED);
+            } catch (final RuntimeException | IOException ex) {
+                // The row is written and idempotent; the payment's own id list is a convenience.
+                log.warn("Unable to note refund row {} on payment {}", txId, payment.getPaymentId(), ex);
+            }
+        }
+        audit.payment(payment, true, sandboxTag(payment) + "Refund of " + MoneyMath.formatCents(refunded.getAsLong())
+                + (refunded.getAsLong() < payment.getCapturedGrossCents() ? " (partial)" : "")
+                + " reported by " + processorName + " (via webhook)"
+                + (txId == null ? "; sandbox, nothing written" : "; ledger row " + txId), current.auditActor());
+        return Completion.of(payment.isSandbox() ? "sandbox" : "refunded",
+                "Refund of " + MoneyMath.formatCents(refunded.getAsLong()) + " recorded.");
+    }
+
     private static Caller systemCaller() {
         return Caller.forActor(AuditActor.system());
+    }
+
+    // ------------------------------------------------------------------ method-aware re-pricing (inline)
+
+    /**
+     * The payer picked a payment method inside the processor's form, and the organization makes payers cover
+     * fees: a US bank debit costs the processor far less than a card (Stripe: 0.8% capped at $5.00 against
+     * 2.9% + $0.30), so the grossed-up total is recomputed for that method, the processor's order is
+     * re-priced to match, and the new total is answered for the page to show. A card (or any other method)
+     * re-prices back to the card estimate. Only the payer (or a site admin) may do this, only while the
+     * payment is CREATED, and only for a processor with bank pricing and a re-priceable order; everything
+     * else answers the CURRENT total unchanged, so the page never shows a figure the processor will not
+     * charge. The apps' native sheet has no method callback, so they keep the card estimate.
+     */
+    public Reprice selectMethod(final String paymentId, final String methodType) {
+        final Caller current = caller();
+        final Payment payment = DAO.getInstance().getPayment(paymentId).orElse(null);
+        final Person me = currentPerson();
+        if (payment == null
+                || (!current.isSiteAdmin() && (me == null || !payment.getPayerId().equals(me.getId())))) {
+            return null;
+        }
+        final Reprice unchanged = Reprice.of(payment, false);
+        final PaymentProcessorConfig config = configOf(payment);
+        if (payment.getStatus() != Payment.Status.CREATED || !payment.isPayerPaysFee() || config == null
+                || config.getType() == null || !config.getType().hasBankPricing()) {
+            return unchanged;
+        }
+        final boolean bank = "us_bank_account".equals(methodType);
+        final long credits = payment.getCreditTotalCents();
+        final long creditFee = bank
+                ? MoneyMath.bankCreditFeeCents(credits, config.getType().getBankFeeBps(),
+                        config.getType().getBankFeeCapCents())
+                : MoneyMath.creditFeeCents(credits, config.getEffectiveFeeBps(), config.getEffectiveFeeFixedCents());
+        final long donationFee = bank
+                ? MoneyMath.bankDonationFeeCents(payment.getDonationCents(), config.getType().getBankFeeBps(),
+                        config.getType().getBankFeeCapCents())
+                : MoneyMath.donationFeeCents(payment.getDonationCents(), config.getEffectiveFeeBps());
+        final long total = MoneyMath.totalChargedCents(credits, creditFee, payment.getDonationCents(), true);
+        if (total == payment.getTotalChargedCents()) {
+            return unchanged;
+        }
+        try {
+            if (!processors.apply(config, payment.isSandbox()).updateAmount(payment.getOrderRef(), total)) {
+                return unchanged;
+            }
+        } catch (final RuntimeException ex) {
+            log.warn("Re-pricing payment {} at the processor failed: {}", payment.getPaymentId(), ex.getMessage());
+            return unchanged;
+        }
+        payment.setCreditFeeCents(creditFee);
+        payment.setDonationFeeCents(donationFee);
+        payment.setTotalChargedCents(total);
+        try {
+            DAO.getInstance().transitionPayment(payment, Payment.Status.CREATED);
+        } catch (final RuntimeException | IOException ex) {
+            // The processor now expects the new total; the capture's gross-vs-expected check parks the
+            // payment in CAPTURED for reconciliation if this row never catches up.
+            log.error("Unable to persist re-priced payment {}", payment.getPaymentId(), ex);
+            fail("Not re-priced", "The new total could not be saved.");
+            return null;
+        }
+        audit.payment(payment, true, sandboxTag(payment) + "Payment re-priced for " + (bank ? "a bank debit"
+                : "a card") + ": fee " + MoneyMath.formatCents(creditFee) + ", total "
+                + MoneyMath.formatCents(total), current.auditActor());
+        return Reprice.of(payment, true);
     }
 
     // ------------------------------------------------------------------ local-mode fake processor hooks
@@ -613,6 +743,15 @@ public class PaymentCommands {
     /** LOCAL ONLY: the fake checkout's "pay as bank" -- the fake order becomes a settling PENDING. */
     public boolean fakeMarkAsync(final String orderRef) {
         return LocalMode.isLocal() && FakeProcessor.markAsync(orderRef);
+    }
+
+    /** LOCAL ONLY: a dashboard refund's stand-in -- the fake order's refunded total, then the webhook path. */
+    public Completion fakeRefund(final String orderRef, final long cents) {
+        if (!LocalMode.isLocal()) {
+            return Completion.of("notfound", "Unknown payment.");
+        }
+        final String paymentId = FakeProcessor.refund(orderRef, cents);
+        return (paymentId == null) ? Completion.of("notfound", "Unknown payment.") : refundFromWebhook(paymentId);
     }
 
     /** LOCAL ONLY: the fake checkout's "settle" -- the stand-in for Stripe's webhook finishing the payment. */
@@ -896,6 +1035,8 @@ public class PaymentCommands {
         private String merchantName;
         private String payerEmail;
         private long totalCents;
+        /** Whether the payer covers fees -- the page offers method-aware re-pricing only then. */
+        private boolean payerPays;
 
         static Start of(final Payment payment, final PaymentProcessor.CreatedOrder order,
                 final String merchantName, final String payerEmail) {
@@ -910,6 +1051,7 @@ public class PaymentCommands {
             start.merchantName = merchantName;
             start.payerEmail = payerEmail;
             start.totalCents = payment.getTotalChargedCents();
+            start.payerPays = payment.isPayerPaysFee();
             return start;
         }
 
@@ -919,6 +1061,18 @@ public class PaymentCommands {
 
         public String getTotalFormatted() {
             return MoneyMath.formatCents(totalCents);
+        }
+    }
+
+    /**
+     * The answer to a method pick inside the inline form: the payment's (possibly re-priced) fee and total,
+     * and whether anything changed. Returned over REST only (the page's script reads it), so a record.
+     */
+    public record Reprice(String paymentId, long creditFeeCents, long totalCents, String totalFormatted,
+            boolean changed) {
+        static Reprice of(final Payment payment, final boolean changed) {
+            return new Reprice(payment.getPaymentId(), payment.getCreditFeeCents(), payment.getTotalChargedCents(),
+                    MoneyMath.formatCents(payment.getTotalChargedCents()), changed);
         }
     }
 

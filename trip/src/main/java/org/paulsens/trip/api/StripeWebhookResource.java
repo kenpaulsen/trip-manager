@@ -40,7 +40,8 @@ import org.paulsens.trip.security.ProcessorSecrets;
  * one) -- which is why the config id is in the path: it names the secret to verify with, and nothing is read
  * from the body before the signature passes.
  *
- * <p>What the event is allowed to do: name a payment. Amounts and outcomes are never taken from the event;
+ * <p>What the event is allowed to do: name a payment (a {@code payment_intent.*} event by its object, a
+ * {@code charge.refunded} by the charge's intent). Amounts and outcomes are never taken from the event;
  * the trusted {@code PaymentCommands.*FromWebhook} paths re-read the PaymentIntent from Stripe with the
  * organization's own key, so a forged or stale event can at worst trigger a verification read. The fields
  * are read from the event's RAW JSON rather than the SDK's typed object: {@code getObject()} is empty
@@ -61,6 +62,10 @@ public class StripeWebhookResource extends BaseResource {
     static final String PROCESSING = "payment_intent.processing";
     static final String FAILED = "payment_intent.payment_failed";
     static final String CANCELED = "payment_intent.canceled";
+    /** A dashboard refund (full or partial); the event's object is the CHARGE, not the intent. */
+    static final String REFUNDED = "charge.refunded";
+    /** A refund that changed after creation (failed, canceled): re-read the truth exactly like a refund. */
+    static final String REFUND_UPDATED = "charge.refund.updated";
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -91,26 +96,45 @@ public class StripeWebhookResource extends BaseResource {
         }
         final Event event = verified.event();
         final String type = event.getType() == null ? "" : event.getType();
-        if (!type.startsWith("payment_intent.")) {
+        final boolean chargeEvent = REFUNDED.equals(type) || REFUND_UPDATED.equals(type);
+        if (!type.startsWith("payment_intent.") && !chargeEvent) {
             return ignored(event, "not a payment_intent event");
         }
-        final JsonNode intent = JSON.readTree(event.getDataObjectDeserializer().getRawJson());
-        final String paymentId = intent.path("metadata").path("paymentId").asText(null);
-        if (paymentId == null || paymentId.isBlank()) {
-            return ignored(event, "no paymentId in the intent's metadata");
-        }
-        final Payment payment = DAO.getInstance().getPayment(paymentId).orElse(null);
+        final JsonNode object = JSON.readTree(event.getDataObjectDeserializer().getRawJson());
+        // A payment_intent event's object IS the intent; a charge or refund event's object names it.
+        final String intentId = chargeEvent
+                ? object.path("payment_intent").asText(null) : object.path("id").asText(null);
+        final Payment payment = paymentOf(object, intentId);
         if (payment == null) {
-            return ignored(event, "unknown payment " + paymentId);
+            return ignored(event, "no payment matches the event (metadata.paymentId "
+                    + object.path("metadata").path("paymentId").asText(null) + ", intent " + intentId + ")");
         }
-        final String mismatch = mismatch(payment, configId.trim(), intent.path("id").asText(null), event,
-                verified.sandbox());
+        final String mismatch = mismatch(payment, configId.trim(), intentId, event, verified.sandbox());
         if (mismatch != null) {
             audit().payment(payment, false, "Webhook event " + event.getId() + " (" + type
                     + ") did not match the stored payment: " + mismatch, AuditActor.system());
             return ignored(event, mismatch);
         }
-        return dispatch(type, payment, intent, event);
+        return dispatch(type, payment, object, event);
+    }
+
+    /**
+     * Our row for the event: by {@code metadata.paymentId} (set on the intent at creation; Stripe copies the
+     * intent's metadata onto its charge), else by the intent id, which every row stores as its
+     * {@code orderRef} (a refund object carries no metadata of ours). The scan is bounded by the payments
+     * table, which is small, and only runs when the metadata is absent.
+     */
+    private static Payment paymentOf(final JsonNode object, final String intentId) {
+        final String paymentId = object.path("metadata").path("paymentId").asText(null);
+        if (paymentId != null && !paymentId.isBlank()) {
+            return DAO.getInstance().getPayment(paymentId).orElse(null);
+        }
+        if (intentId == null || intentId.isBlank()) {
+            return null;
+        }
+        return DAO.getInstance().getAllPayments().stream()
+                .filter(candidate -> intentId.equals(candidate.getOrderRef()))
+                .findFirst().orElse(null);
     }
 
     private Response dispatch(final String type, final Payment payment, final JsonNode intent,
@@ -148,6 +172,17 @@ public class StripeWebhookResource extends BaseResource {
             case CANCELED -> {
                 return ok(Map.of("status", commands.cancelFromWebhook(payment.getPaymentId())
                         ? "cancelled" : "unchanged"));
+            }
+            case REFUNDED, REFUND_UPDATED -> {
+                // The amount is re-read from Stripe inside; a read that fails asks for a redelivery.
+                final PaymentCommands.Completion outcome = commands.refundFromWebhook(payment.getPaymentId());
+                if ("pending".equals(outcome.getStatus())) {
+                    log.warn("Stripe webhook {}: refund event but the refund read answered pending; asking "
+                            + "for a retry", event.getId());
+                    return Response.status(503).type(MediaType.APPLICATION_JSON)
+                            .entity(Map.of("status", "pending", "retry", true)).build();
+                }
+                return ok(Map.of("status", outcome.getStatus()));
             }
             default -> {
                 return ignored(event, "unhandled type " + type);

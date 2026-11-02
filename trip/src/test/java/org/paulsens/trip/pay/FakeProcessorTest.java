@@ -80,4 +80,27 @@ public class FakeProcessorTest {
         assertEquals(new FakeProcessor().capture("FAKE-never-created").status(),
                 PaymentProcessor.CaptureResult.Status.FAILED);
     }
+    /** The refund and re-pricing stand-ins behave like Stripe's: cumulative refunds, re-price only a live order. */
+    @Test
+    public void refundsAreCumulativeAndRePricingMovesTheOrder() {
+        final FakeProcessor fake = new FakeProcessor(true);
+        final Payment payment = Payment.builder()
+                .payerId(Person.Id.newInstance()).totalChargedCents(10000L).build();
+        final String ref = fake.createOrder(payment, "desc", "http://r", "http://c").orderRef();
+        assertEquals(fake.refundedCents(ref).getAsLong(), 0L, "nothing refunded yet reads as zero, not unknown");
+        assertTrue(fake.refundedCents("FAKE-unknown").isEmpty(), "an unknown order is unknown");
+        assertEquals(FakeProcessor.refund(ref, 2500L), payment.getPaymentId());
+        assertEquals(fake.refundedCents(ref).getAsLong(), 2500L);
+        assertEquals(FakeProcessor.refund(ref, 10000L), payment.getPaymentId(), "the full amount replaces it");
+        assertEquals(fake.refundedCents(ref).getAsLong(), 10000L);
+        assertEquals(FakeProcessor.refund(ref, 10001L), null, "never more than was charged");
+        assertEquals(FakeProcessor.refund(ref, -1L), null);
+        assertEquals(FakeProcessor.refund("FAKE-unknown", 1L), null);
+
+        assertTrue(fake.updateAmount(ref, 10017L));
+        assertEquals(fake.capture(ref).grossCents(), 10017L, "the capture answers the re-priced amount");
+        org.testng.Assert.assertThrows(PaymentProcessor.ProcessorException.class,
+                () -> fake.updateAmount("FAKE-unknown", 5L));
+        org.testng.Assert.assertThrows(PaymentProcessor.ProcessorException.class, () -> fake.updateAmount(ref, 0L));
+    }
 }

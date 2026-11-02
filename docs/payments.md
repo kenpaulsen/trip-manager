@@ -219,9 +219,12 @@ excluded from balances and the reconciliation list.
 result; cancel → release the order), built per config by `PaymentProcessors.forConfig(config, sandbox)`
 (memoized per config id+version+sandbox -- rotation without restart). `FakeProcessor` + `trip/fakeCheckout.xhtml`
 drive the whole flow locally (webtest: `PaymentPagePwIT`): the CFPW org default is the REDIRECT fake, and the
-Summer Demo trip's own payment config is the INLINE fake (`publicConfig.inline=true`, `FakeData
-.CFPW_INLINE_PROCESSOR_ID`), whose "checkout" page doubles as its back end (`?async=1` = pay as bank, `?settle=1`
-= the webhook stand-in). Zeffy: a future record-only kind.
+INLINE fake (`publicConfig.inline=true`, `FakeData.CFPW_INLINE_PROCESSOR_ID`) is what the Summer Demo trip's
+own payment config points at for laptop runs and what the webtest points its OWN trip at through the trips
+API's `paymentConfig` (2026-11). The fake checkout page doubles as the inline fake's back end (`?async=1` =
+pay as bank, `?settle=1` = the webhook stand-in); `FakeProcessor.refund` / `PaymentCommands.fakeRefund` stand
+in for a dashboard refund, and the fake carries Stripe's bank pricing so re-pricing is exercised locally.
+Zeffy: a future record-only kind.
 
 ### Stripe (shipped 2026-11)
 
@@ -252,12 +255,35 @@ Summer Demo trip's own payment config is the INLINE fake (`publicConfig.inline=t
   `payment_failed` with a `us_bank_account` → `failFromWebhook` (FAILED + the `payment-failed` mail; a card
   decline is `noteFailure`, audit only), `canceled` → `cancelFromWebhook`, `processing` → 200. Re-delivery is
   a no-op through the state machine; there is no event-id table.
+- **Refunds (2026-11)**: the org refunds in its Stripe dashboard; `charge.refunded` (and
+  `charge.refund.updated`) reach the same endpoint. The event's object is the CHARGE (or the refund), so the
+  row is found by `metadata.paymentId` (Stripe copies the intent's metadata onto its charge) or by the intent
+  id (= `orderRef`). `PaymentCommands.refundFromWebhook` re-reads the charge's cumulative `amount_refunded`
+  from Stripe (`PaymentProcessor.refundedCents`, never the event's number) and
+  `PaymentRecorder.recordRefund` writes ONE row on the PAYER, `{paymentId}-refund`, category `Refund`,
+  amount = minus the cumulative total ("Stripe (id #pi_…) Refund of $100.00 (partial, of the $984.87 payment)
+  from CFPW"). A second partial refund or a redelivery rewrites that same row; the original credit rows are
+  never touched (money rows are never destroyed). Only a RECORDED payment is refundable against the ledger;
+  anything else is audited and answered `unchanged`. An unreadable Stripe answers 503 so Stripe redelivers.
+  Sandbox computes and writes nothing. No mail: Stripe's own refund receipt covers it, and the org knows.
+  PayPal refunds stay a hand entry (no refund read; the SPI default is "unknown").
+- **Method-aware re-pricing (2026-11, web only)**: when the payer covers fees, the Payment Element's
+  `change` event names the picked method and `trip-js/payElement.js` posts it to
+  `POST /api/payments/{id}/method`; `PaymentCommands.selectMethod` recomputes the gross-up for a
+  `us_bank_account` at `ProcessorType.STRIPE`'s bank pricing (80 bps, $5.00 cap:
+  `MoneyMath.bankCreditFeeCents`), re-prices the PaymentIntent (`PaymentProcessor.updateAmount`) and only then
+  the `Payment` row, and the page rewrites every `[data-pay-total]` and calls `elements.fetchUpdates()`. A
+  card (or Link, or anything else) prices it back to the card estimate. Payer only (or a site admin), CREATED
+  only, payer-pays only, processors with bank pricing only; a processor refusal keeps the quoted total (the
+  page must never show a figure the processor will not charge). The apps' PaymentSheet has no method
+  callback and keeps the card estimate (the org keeps the difference; `actualFeeCents` records the truth).
 - **Wallets**: "Register this site for wallets" (`OrgCommands.registerPaymentDomain`, Stripe's
   PaymentMethodDomain API) once per host per org account; `WellKnownServlet` serves Stripe's
   `apple-developer-merchantid-domain-association` on every host. The iOS app's Apple Pay certificate is per
   org account and user-run (setup-instructions.txt, "Stripe").
-- **Fees**: `ProcessorType.STRIPE(290, 30)`; the payer-pays estimate uses the card rate even when the payer
-  picks ACH (0.8%, $5 cap) -- the org keeps the difference; `actualFeeCents` records the truth.
+- **Fees**: `ProcessorType.STRIPE(290, 30, 80, 500)`: the card rate is the quote, the bank rate applies once
+  the payer picks a US bank account on the website (above); in the apps the card estimate stands and the org
+  keeps the difference. `actualFeeCents` records the truth either way.
 - **No new AWS cost**: same Secrets Manager secret, same ALB (no path rules touch `/api/*`), same tables.
 
 ## Local mode seeds
@@ -281,8 +307,11 @@ Kevin/user3 as its NON-site-admin org admin is the tenant-isolation demo.
 7. Grant `paymentsAdmin` to org members on the org People page (`/admin/orgPeople.jsf?orgId=…`) if
    non-site-admins need sandbox (bounded by the org's allow-list — `docs/org-admin.md`).
 8. Stripe, per organization (2026-11): the numbered steps under "Stripe" in `medjugorje/setup-instructions.txt`
-   (keys, the two webhook endpoints with the four `payment_intent.*` events, wallet domain registration per
-   host, the iOS Apple Pay certificate, Stripe's own receipt off); re-run `install-starter-templates.sh` for
+   (keys, the two webhook endpoints with the four `payment_intent.*` events plus `charge.refunded`, wallet
+   domain registration per host, the iOS Apple Pay certificate, Stripe's own receipt off); the same steps in
+   admin-facing words are the help pages `/admin/help/stripe.jsf` and `/admin/help/paypal.jsf` (medjugorje,
+   linked from the processor page, the org hub and the trip editor's Payment Settings dialog); re-run
+   `install-starter-templates.sh` for
    the `payment-failed` MAIL starter; ship the app builds that carry PaymentSheet BEFORE switching an org whose
    travelers pay from the apps (an older app gets no `approvalUrl` from a Stripe org and cannot pay).
 

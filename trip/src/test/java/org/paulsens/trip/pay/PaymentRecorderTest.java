@@ -185,6 +185,54 @@ public class PaymentRecorderTest {
         assertTrue(txCmds.getTransactions(payer).isEmpty(), "...but the ledger is untouched");
     }
 
+    // ------------------------------------------------------------------ refunds
+
+    /**
+     * A dashboard refund becomes ONE negative row on the payer carrying the cumulative total; a later partial
+     * refund or a redelivered event rewrites that same row. The original credit rows are never touched.
+     */
+    @Test
+    public void aRefundIsOneCumulativeRowOnThePayerRewrittenInPlace() {
+        final Person.Id joe = person("Joe");
+        final Person.Id bob = person("Bob");
+        final Payment payment = payment(joe, List.of(
+                new Payment.Allocation(joe, 47500L), new Payment.Allocation(bob, 47500L)),
+                0L, FeesPaidBy.PAYER, 3487L, 0L, 98487L);
+        payment.setCapturedGrossCents(98487L);
+        payment.setStatus(Payment.Status.RECORDED);
+        final PaymentRecorder recorder = recorder();
+        recorder.record(payment, "CFPW", "Stripe");
+        final int joeRows = txCmds.getTransactions(joe).size();
+
+        final PaymentRecorder.Line partial = recorder.refundLine(payment, 10000L, "CFPW", "Stripe");
+        assertEquals(partial.kind(), PaymentRecorder.Line.Kind.REFUND);
+        assertEquals(partial.userId(), joe, "the payer's card was refunded, so the payer's ledger");
+        assertEquals(partial.amountCents(), -10000L);
+        assertEquals(partial.txType(), Transaction.TransactionType.Payment);
+        assertEquals(partial.txOrGroupId(), payment.getPaymentId() + "-refund");
+        assertEquals(partial.description(),
+                "Stripe (id #123447384) Refund of $100.00 (partial, of the $984.87 payment) from CFPW");
+
+        final String txId = recorder.recordRefund(payment, 10000L, "CFPW", "Stripe");
+        assertEquals(txId, payment.getPaymentId() + "-refund");
+        assertEquals(txCmds.getTransactions(joe).size(), joeRows + 1);
+        final Transaction row = txCmds.getTransaction(joe, txId);
+        assertEquals(row.getAmount(), -100.0f);
+        assertEquals(row.getCategory(), "Refund");
+        assertEquals(row.getOrgId(), FakeData.CFPW_ORG_ID, "stamped with the trip's organization, like every row");
+
+        // The rest comes back: same row, new cumulative amount, no second line.
+        assertEquals(recorder.recordRefund(payment, 98487L, "CFPW", "Stripe"), txId);
+        assertEquals(txCmds.getTransactions(joe).size(), joeRows + 1, "rewritten in place, never duplicated");
+        assertEquals(txCmds.getTransaction(joe, txId).getAmount(), -984.87f);
+        assertEquals(recorder.refundLine(payment, 98487L, "CFPW", "Stripe").description(),
+                "Stripe (id #123447384) Refund of $984.87 from CFPW", "a full refund is not 'partial'");
+        assertEquals(txCmds.getTransactions(bob).size(), 1, "Bob's credit row is untouched");
+
+        payment.setSandbox(true);
+        assertEquals(recorder.recordRefund(payment, 500L, "CFPW", "Stripe"), null, "sandbox writes nothing");
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private PaymentRecorder recorder() {

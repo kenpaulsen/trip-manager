@@ -11,6 +11,8 @@ import org.paulsens.trip.cache.Cached;
 import org.paulsens.trip.dynamo.DAO;
 import org.paulsens.trip.dynamo.FakeData;
 import org.paulsens.trip.model.Payment;
+import org.paulsens.trip.model.ProcessorType;
+import org.paulsens.trip.model.FeesPaidBy;
 import org.paulsens.trip.model.PaymentProcessorConfig;
 import org.paulsens.trip.model.Person;
 import org.paulsens.trip.model.Trip;
@@ -637,6 +639,149 @@ public class PaymentCommandsTest {
         Mockito.verify(mailer, Mockito.never()).sendPaymentFailed(ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any());
+    }
+
+    // ------------------------------------------------------------------ refunds (webhook-driven)
+
+    /**
+     * A dashboard refund reaches us as a webhook; the amount is re-read from the processor and lands as ONE
+     * cumulative refund row on the payer. Partial then full rewrites that row; a CREATED payment, an unknown
+     * one, nothing refunded, and an unreadable processor each leave the ledger alone.
+     */
+    @Test
+    public void aProcessorRefundWritesOneCumulativeRowOnThePayer() {
+        final Person payer = savedPerson();
+        final PaymentCommands commands = commandsFor(payer, false);
+        final PaymentCommands.Start started = commands.startPayment(inlineTrip(),
+                Map.of(payer.getId().getValue(), "100"), null, false, "http://localhost/trip/payment.jsf");
+        final String paymentId = started.getPaymentId();
+        final String orderRef = started.getClientSecret();
+
+        assertEquals(commands.refundFromWebhook(paymentId).getStatus(), "unchanged",
+                "a CREATED payment has no ledger rows to refund against");
+        assertEquals(commands.completePayment(paymentId, null).getStatus(), "recorded");
+        final int rows = txCmds.getTransactions(payer.getId()).size();
+        assertEquals(commands.refundFromWebhook(paymentId).getStatus(), "unchanged", "nothing refunded yet");
+        assertEquals(txCmds.getTransactions(payer.getId()).size(), rows);
+
+        final PaymentCommands.Completion partial = commands.fakeRefund(orderRef, 2500L);
+        assertEquals(partial.getStatus(), "refunded", partial.getMessage());
+        assertEquals(txCmds.getTransactions(payer.getId()).size(), rows + 1);
+        final Payment stored = DAO.getInstance().getPayment(paymentId).orElseThrow();
+        assertEquals(stored.getStatus(), Payment.Status.RECORDED, "a refund never changes the payment's state");
+        assertTrue(stored.getTxIds().contains(paymentId + "-refund"), "the payment remembers its refund row");
+        assertEquals(txCmds.getTransaction(payer.getId(), paymentId + "-refund").getAmount(), -25.0f);
+
+        // Redelivery and a second partial: the SAME row, the cumulative total.
+        assertEquals(commands.refundFromWebhook(paymentId).getStatus(), "refunded");
+        assertEquals(commands.fakeRefund(orderRef, 10000L).getStatus(), "refunded");
+        assertEquals(txCmds.getTransactions(payer.getId()).size(), rows + 1, "rewritten in place");
+        assertEquals(txCmds.getTransaction(payer.getId(), paymentId + "-refund").getAmount(), -100.0f);
+        assertEquals(txCmds.getBalance(payer.getId()), 0.0, "the full refund brings the balance back");
+
+        assertEquals(commands.refundFromWebhook("no-such-payment").getStatus(), "notfound");
+        assertEquals(commands.fakeRefund("FAKE-nope", 1L).getStatus(), "notfound");
+
+        // The processor cannot be read: pending, so the webhook asks Stripe to redeliver.
+        final PaymentProcessor dark = Mockito.mock(PaymentProcessor.class);
+        Mockito.when(dark.refundedCents(ArgumentMatchers.any())).thenReturn(java.util.OptionalLong.empty());
+        assertEquals(commandsFor(payer, false, (cfg, sandbox) -> dark).refundFromWebhook(paymentId).getStatus(),
+                "pending");
+        final PaymentProcessor broken = Mockito.mock(PaymentProcessor.class);
+        Mockito.when(broken.refundedCents(ArgumentMatchers.any())).thenThrow(new IllegalStateException("down"));
+        assertEquals(commandsFor(payer, false, (cfg, sandbox) -> broken).refundFromWebhook(paymentId).getStatus(),
+                "pending");
+    }
+
+    @Test
+    public void aSandboxRefundComputesButWritesNothing() {
+        final Person tester = savedPerson();
+        final PaymentCommands sandboxed = commandsFor(tester, true);
+        final PaymentCommands.Start started = sandboxed.startPayment(inlineTrip(),
+                Map.of(tester.getId().getValue(), "50"), null, true, "http://localhost/trip/payment.jsf");
+        assertEquals(sandboxed.completePayment(started.getPaymentId(), null).getStatus(), "sandbox");
+        assertEquals(sandboxed.fakeRefund(started.getClientSecret(), 1000L).getStatus(), "sandbox");
+        assertTrue(txCmds.getTransactions(tester.getId()).isEmpty(), "the ledger is untouched");
+    }
+
+    // ------------------------------------------------------------------ method-aware re-pricing
+
+    /**
+     * The payer picks a bank debit inside the inline form: a payer-pays total is re-priced to the bank rate
+     * (0.8% capped at $5.00 against the card gross-up), the processor's order follows, and picking a card
+     * again prices it back. Everyone else gets the current total unchanged.
+     */
+    @Test
+    public void pickingABankDebitRePricesAPayerPaysTotalAndACardPricesItBack() {
+        final Person payer = savedPerson();
+        final PaymentCommands commands = commandsFor(payer, false);
+        final PaymentCommands.Start started = commands.startPayment(inlineTrip(),
+                Map.of(payer.getId().getValue(), "20"), null, false, "http://localhost/trip/payment.jsf");
+        assertTrue(started.isPayerPays(), "the Summer Demo trip inherits CFPW's payer-pays default");
+        assertEquals(started.getTotalFormatted(), "$21.24", "the card estimate: ceil((2000 + 49) / 0.9651)");
+        final String paymentId = started.getPaymentId();
+
+        final PaymentCommands.Reprice bank = commands.selectMethod(paymentId, "us_bank_account");
+        assertTrue(bank.changed());
+        assertEquals(bank.totalCents(), 2017L, "2000 + ceil(2000 x 80 / 9920)");
+        assertEquals(bank.totalFormatted(), "$20.17");
+        assertEquals(bank.creditFeeCents(), 17L);
+        final Payment stored = DAO.getInstance().getPayment(paymentId).orElseThrow();
+        assertEquals(stored.getTotalChargedCents(), 2017L);
+        assertEquals(stored.getCreditFeeCents(), 17L);
+        assertEquals(stored.getStatus(), Payment.Status.CREATED);
+
+        assertFalse(commands.selectMethod(paymentId, "us_bank_account").changed(), "same method = nothing moves");
+        final PaymentCommands.Reprice card = commands.selectMethod(paymentId, "card");
+        assertTrue(card.changed());
+        assertEquals(card.totalCents(), 2124L, "back to the card estimate");
+        assertFalse(commands.selectMethod(paymentId, "link").changed(), "any non-bank method is the card rate");
+
+        // The capture must agree with the re-priced total, or the gross check would park the payment.
+        assertEquals(commands.selectMethod(paymentId, "us_bank_account").totalCents(), 2017L);
+        assertEquals(commands.completePayment(paymentId, null).getStatus(), "recorded");
+        assertEquals(DAO.getInstance().getPayment(paymentId).orElseThrow().getCapturedGrossCents(), 2017L);
+        assertFalse(commands.selectMethod(paymentId, "card").changed(), "a finished payment is never re-priced");
+        assertTrue(txCmds.getTransactions(payer.getId()).stream()
+                .anyMatch(tx -> tx.getNote().contains("(minus $0.17 Test Processor fee)")),
+                "the ledger names the bank fee the payer actually covered");
+    }
+
+    @Test
+    public void rePricingIsThePayersOnlyAndLeavesOrgPaysAndRedirectOrdersAlone() throws IOException {
+        final Person payer = savedPerson();
+        final PaymentCommands commands = commandsFor(payer, false);
+        final String paymentId = commands.startPayment(inlineTrip(), Map.of(payer.getId().getValue(), "20"), null,
+                false, "http://localhost/trip/payment.jsf").getPaymentId();
+        assertNull(commandsFor(savedPerson(), false).selectMethod(paymentId, "us_bank_account"),
+                "another person's payment reads as unknown");
+        assertNull(commands.selectMethod("no-such-payment", "card"));
+        assertTrue(commandsFor(savedPersonAsSiteAdmin(), false).selectMethod(paymentId, "us_bank_account").changed(),
+                "a site admin may act on any payment");
+
+        // The organization absorbs fees: the payer's total is the credits, whatever they pay with.
+        final Payment orgPays = Payment.builder()
+                .tripId(FakeData.FAKE2_TRIP_ID).orgId(FakeData.CFPW_ORG_ID).payerId(payer.getId())
+                .processorConfigId(FakeData.CFPW_INLINE_PROCESSOR_ID).processorType(ProcessorType.FAKE)
+                .allocations(List.of(new Payment.Allocation(payer.getId(), 2000L)))
+                .feesPaidBy(FeesPaidBy.ORGANIZATION).creditFeeCents(119L).totalChargedCents(2000L)
+                .orderRef("FAKE-orgpays").createdAt(java.time.LocalDateTime.now()).build();
+        DAO.getInstance().createPayment(orgPays);
+        final PaymentCommands.Reprice unchanged = commands.selectMethod(orgPays.getPaymentId(), "us_bank_account");
+        assertFalse(unchanged.changed());
+        assertEquals(unchanged.totalCents(), 2000L);
+
+        // A processor whose order cannot be re-priced (the SPI default): the quoted total stands.
+        final PaymentProcessor fixed = Mockito.mock(PaymentProcessor.class);
+        Mockito.when(fixed.updateAmount(ArgumentMatchers.any(), ArgumentMatchers.anyLong())).thenReturn(false);
+        final PaymentCommands.Reprice stuck = commandsFor(payer, false, (cfg, sandbox) -> fixed)
+                .selectMethod(paymentId, "card");
+        assertFalse(stuck.changed());
+        final PaymentProcessor refusing = Mockito.mock(PaymentProcessor.class);
+        Mockito.when(refusing.updateAmount(ArgumentMatchers.any(), ArgumentMatchers.anyLong()))
+                .thenThrow(new PaymentProcessor.ProcessorException("no"));
+        assertFalse(commandsFor(payer, false, (cfg, sandbox) -> refusing).selectMethod(paymentId, "card").changed(),
+                "a processor refusal keeps the old total rather than showing one it will not charge");
     }
 
     @Test

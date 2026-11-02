@@ -42,6 +42,27 @@ public interface PaymentProcessor {
     }
 
     /**
+     * How much of a captured order the processor has REFUNDED so far (cumulative, cents), re-read from the
+     * processor rather than trusted from any event. Empty = unknown right now (the processor could not be
+     * reached, or this kind has no refund read), which a caller treats as "ask again later", never as zero.
+     * The default is the "no refund read" answer every redirect processor gives today.
+     */
+    default OptionalLong refundedCents(final String orderRef) {
+        return OptionalLong.empty();
+    }
+
+    /**
+     * Re-prices a not-yet-confirmed order (the payer picked a payment method whose fee differs, so the
+     * grossed-up total changed). True when the processor accepted the new amount; false when this kind has
+     * no re-pricing (a redirect processor, whose amount is final once the payer is sent off). Throws
+     * {@link ProcessorException} when the processor refused or could not be reached, so the caller keeps the
+     * old total rather than showing a figure the processor will not charge.
+     */
+    default boolean updateAmount(final String orderRef, final long cents) {
+        return false;
+    }
+
+    /**
      * The processor order reference plus HOW the payer completes it: {@code approvalUrl} for a redirect
      * processor, {@code inline} for one whose UI runs inside our page or app. Exactly one is non-null.
      */

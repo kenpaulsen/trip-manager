@@ -72,4 +72,16 @@ public class MoneyMathTest {
         assertEquals(MoneyMath.splitEvenly(1L, 2), new long[]{1L, 0L});
         assertThrows(IllegalArgumentException.class, () -> MoneyMath.splitEvenly(10L, 0));
     }
+    /** Stripe's ACH pricing: 0.8% grossed up, then capped at $5.00; the cap binds from about $620 of credits. */
+    @Test
+    public void bankFeesAreGrossedUpThenCapped() {
+        assertEquals(MoneyMath.bankCreditFeeCents(2000L, 80, 500), 17L, "ceil(2000 x 80 / 9920)");
+        assertEquals(MoneyMath.bankCreditFeeCents(3000L, 80, 500), 25L);
+        assertEquals(MoneyMath.bankCreditFeeCents(250000L, 80, 500), 500L, "the cap binds on $2,500");
+        assertEquals(MoneyMath.bankCreditFeeCents(250000L, 80, 0), 2017L, "no cap = the plain gross-up");
+        assertEquals(MoneyMath.bankCreditFeeCents(0L, 80, 500), 0L);
+        assertEquals(MoneyMath.bankDonationFeeCents(100000L, 80, 500), 500L, "$8.00 share clamped to $5.00");
+        assertEquals(MoneyMath.bankDonationFeeCents(2000L, 80, 500), 16L);
+        assertEquals(MoneyMath.bankDonationFeeCents(0L, 80, 500), 0L);
+    }
 }

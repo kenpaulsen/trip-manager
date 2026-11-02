@@ -122,12 +122,12 @@ public class StripeWebhookResourceTest extends ResourceTestSupport {
         final String noMeta = event(StripeWebhookResource.SUCCEEDED, intent("pi_x", "succeeded", null, null, null),
                 true);
         Assert.assertTrue(((String) entity(post(configId(), sign(noMeta, LIVE_SECRET), noMeta)).get("ignored"))
-                .contains("no paymentId"), "stripe trigger shapes have no metadata");
+                .contains("no payment matches"), "stripe trigger shapes have no metadata and an unknown intent");
 
         final String unknown = event(StripeWebhookResource.SUCCEEDED,
                 intent("pi_x", "succeeded", "no-such-payment", null, null), true);
         Assert.assertTrue(((String) entity(post(configId(), sign(unknown, LIVE_SECRET), unknown)).get("ignored"))
-                .contains("unknown payment"));
+                .contains("no payment matches"));
 
         // The right payment, the wrong intent id: a crossed wire, audited and dropped.
         final String wrongIntent = succeeded(payment, "pi_someone_else");
@@ -274,7 +274,78 @@ public class StripeWebhookResourceTest extends ResourceTestSupport {
                 .contains("unhandled"));
     }
 
+    // ------------------------------------------------------------------ refunds
+
+    /**
+     * A dashboard refund arrives as {@code charge.refunded} whose object is the CHARGE: the row is found by
+     * the charge's metadata (copied from the intent) or, for a refund object with none of ours, by the
+     * intent id; the amount is re-read from Stripe, never taken from the event.
+     */
+    @Test
+    public void aRefundEventWritesTheRefundRowFromARereadAmount() throws IOException {
+        final Payment payment = recorded("pi_refund");
+        Mockito.when(stripe.refundedCents("pi_refund")).thenReturn(OptionalLong.of(1500L));
+        final String body = event(StripeWebhookResource.REFUNDED, charge("ch_1", "pi_refund", payment.getPaymentId(),
+                99999L), true);
+        Assert.assertEquals(entity(post(configId(), sign(body, LIVE_SECRET), body)).get("status"), "refunded");
+        final Payment stored = DAO.getInstance().getPayment(payment.getPaymentId()).orElseThrow();
+        Assert.assertTrue(stored.getTxIds().contains(payment.getPaymentId() + "-refund"));
+        Assert.assertEquals(new org.paulsens.trip.action.TransactionsCommands()
+                .getTransaction(payment.getPayerId(), payment.getPaymentId() + "-refund").getAmount(), -15.0f,
+                "Stripe's answer, not the event's 99999");
+
+        // charge.refund.updated carries a Refund object with no metadata of ours: found by the intent id.
+        Mockito.when(stripe.refundedCents("pi_refund")).thenReturn(OptionalLong.of(5000L));
+        final String updated = event(StripeWebhookResource.REFUND_UPDATED,
+                "{\"id\":\"re_1\",\"object\":\"refund\",\"payment_intent\":\"pi_refund\",\"charge\":\"ch_1\"}", true);
+        Assert.assertEquals(entity(post(configId(), sign(updated, LIVE_SECRET), updated)).get("status"), "refunded");
+        Assert.assertEquals(new org.paulsens.trip.action.TransactionsCommands()
+                .getTransaction(payment.getPayerId(), payment.getPaymentId() + "-refund").getAmount(), -50.0f);
+    }
+
+    @Test
+    public void anUnreadableRefundAsksForRedeliveryAndAnUnmatchedOneIsIgnored() throws IOException {
+        final Payment payment = recorded("pi_dark");
+        Mockito.when(stripe.refundedCents("pi_dark")).thenReturn(OptionalLong.empty());
+        final String body = event(StripeWebhookResource.REFUNDED, charge("ch_2", "pi_dark", payment.getPaymentId(),
+                100L), true);
+        Assert.assertEquals(post(configId(), sign(body, LIVE_SECRET), body).getStatus(), 503);
+
+        final String stranger = event(StripeWebhookResource.REFUNDED, charge("ch_3", "pi_nobody", null, 100L), true);
+        Assert.assertTrue(((String) entity(post(configId(), sign(stranger, LIVE_SECRET), stranger)).get("ignored"))
+                .contains("no payment matches"));
+
+        // A refund of a payment never recorded here changes nothing (and is audited inside).
+        final Payment open = created("pi_open_refund", false);
+        final String early = event(StripeWebhookResource.REFUNDED, charge("ch_4", "pi_open_refund", open.getPaymentId(),
+                100L), true);
+        Assert.assertEquals(entity(post(configId(), sign(early, LIVE_SECRET), early)).get("status"), "unchanged");
+        Mockito.verify(stripe, Mockito.never()).refundedCents("pi_open_refund");
+    }
+
     // ------------------------------------------------------------------ helpers
+
+    private Payment recorded(final String intentId) throws IOException {
+        final Payment payment = created(intentId, false);
+        payment.setCaptureId(intentId);
+        payment.setCapturedGrossCents(payment.getTotalChargedCents());
+        payment.setStatus(Payment.Status.CAPTURED);
+        DAO.getInstance().transitionPayment(payment, Payment.Status.CREATED);
+        payment.setStatus(Payment.Status.RECORDED);
+        DAO.getInstance().transitionPayment(payment, Payment.Status.CAPTURED);
+        return DAO.getInstance().getPayment(payment.getPaymentId()).orElseThrow();
+    }
+
+    private static String charge(final String id, final String intentId, final String paymentId,
+            final long amountRefunded) {
+        final StringBuilder json = new StringBuilder("{\"id\":\"" + id + "\",\"object\":\"charge\","
+                + "\"payment_intent\":\"" + intentId + "\",\"amount\":5000,\"amount_refunded\":" + amountRefunded
+                + ",\"refunded\":" + (amountRefunded >= 5000L));
+        if (paymentId != null) {
+            json.append(",\"metadata\":{\"paymentId\":\"").append(paymentId).append("\"}");
+        }
+        return json.append('}').toString();
+    }
 
     private String configId() {
         return config.getId().getValue();

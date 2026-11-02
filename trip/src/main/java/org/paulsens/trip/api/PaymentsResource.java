@@ -118,6 +118,35 @@ public class PaymentsResource extends BaseResource {
         return ok(result);
     }
 
+    /**
+     * The payer picked a payment method inside the inline form (the page's Payment Element reports
+     * {@code us_bank_account}, {@code card}, ...): re-price a payer-pays total for that method and answer the
+     * current fee and total ({@code changed} says whether anything moved). Harmless for every other case: a
+     * redirect processor, an org that absorbs fees, or an unknown method all answer the unchanged total.
+     */
+    @POST
+    @Path("{paymentId}/method")
+    @Consumes({V1, MediaType.APPLICATION_JSON})
+    @Produces({V1, MediaType.APPLICATION_JSON})
+    public Response method(@PathParam("paymentId") final String paymentId,
+            @HeaderParam(CSRF_HEADER) final String csrf, final MethodRequest body) {
+        if (csrfMissing(csrf)) {
+            return error(403, ApiErrors.CSRF, "Missing " + CSRF_HEADER + " header.");
+        }
+        final org.paulsens.trip.action.PaymentCommands.Reprice outcome =
+                paymentCommands().selectMethod(paymentId, body == null ? null : body.type());
+        if (outcome == null) {
+            return error(404, ApiErrors.NOT_FOUND, "Unknown payment.");
+        }
+        final Map<String, Object> result = new LinkedHashMap<>();
+        result.put("paymentId", outcome.paymentId());
+        result.put("creditFeeCents", outcome.creditFeeCents());
+        result.put("totalCents", outcome.totalCents());
+        result.put("totalFormatted", outcome.totalFormatted());
+        result.put("changed", outcome.changed());
+        return ok(result);
+    }
+
     /** Cancels a not-yet-captured payment. */
     @POST
     @Path("{paymentId}/cancel")
@@ -161,6 +190,10 @@ public class PaymentsResource extends BaseResource {
     /** The v2 start/quote body: per-person dollar amounts keyed by person id, plus an optional donation. */
     public record PaymentStart(String tripId, Map<String, Object> amounts, String donation,
             Boolean sandbox, String returnUrl) {
+    }
+
+    /** The method-pick body: the processor's payment method type ({@code card}, {@code us_bank_account}, ...). */
+    public record MethodRequest(String type) {
     }
 
     /** The v2 complete body: the processor's return token (PayPal's {@code token} query param; null for Stripe). */

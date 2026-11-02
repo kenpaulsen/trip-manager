@@ -53,6 +53,39 @@ public class PaymentsResourceTest extends ResourceTestSupport {
         assertError(resource.start(null, body(FakeData.FAKE_TRIP_ID, "10", RETURN_URL)), 403, ApiErrors.CSRF);
         assertError(resource.complete("x", null, null), 403, ApiErrors.CSRF);
         assertError(resource.cancel("x", null), 403, ApiErrors.CSRF);
+        assertError(resource.method("x", null, new PaymentsResource.MethodRequest("card")), 403, ApiErrors.CSRF);
+    }
+
+    /** The page's method pick: a bank debit re-prices a payer-pays total; a stranger's payment is 404. */
+    @Test
+    public void pickingAMethodRePricesTheInlinePayment() {
+        final Person payer = savedPerson();
+        signedInAs(payer.getId());
+        final Response started = resource.start(CSRF_OK, body(FakeData.FAKE2_TRIP_ID, "20", RETURN_URL));
+        assertOk(started);
+        @SuppressWarnings("unchecked")
+        final String paymentId = (String) ((Map<String, Object>) started.getEntity()).get("paymentId");
+
+        final Response bank = resource.method(paymentId, CSRF_OK,
+                new PaymentsResource.MethodRequest("us_bank_account"));
+        assertOk(bank);
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> repriced = (Map<String, Object>) bank.getEntity();
+        Assert.assertEquals(repriced.get("changed"), true);
+        Assert.assertEquals(repriced.get("totalCents"), 2017L);
+        Assert.assertEquals(repriced.get("totalFormatted"), "$20.17");
+        Assert.assertEquals(repriced.get("creditFeeCents"), 17L);
+
+        @SuppressWarnings("unchecked")
+        final Map<String, Object> again = (Map<String, Object>) resource.method(paymentId, CSRF_OK, null).getEntity();
+        Assert.assertEquals(again.get("changed"), true, "a null body reads as 'card': back to the card rate");
+        Assert.assertEquals(again.get("totalCents"), 2124L);
+
+        assertError(resource.method("no-such-payment", CSRF_OK, new PaymentsResource.MethodRequest("card")), 404,
+                ApiErrors.NOT_FOUND);
+        signedInAs(savedPerson().getId());
+        assertError(resource(new PaymentsResource()).method(paymentId, CSRF_OK,
+                new PaymentsResource.MethodRequest("card")), 404, ApiErrors.NOT_FOUND);
     }
 
     @Test

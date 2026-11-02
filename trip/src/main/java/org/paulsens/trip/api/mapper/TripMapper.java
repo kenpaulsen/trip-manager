@@ -5,8 +5,10 @@ import org.mapstruct.Mapping;
 import org.mapstruct.factory.Mappers;
 import org.paulsens.trip.api.dto.TripDto;
 import org.paulsens.trip.api.dto.TripEventDto;
+import org.paulsens.trip.api.dto.TripPaymentConfigDto;
 import org.paulsens.trip.model.Trip;
 import org.paulsens.trip.model.TripEvent;
+import org.paulsens.trip.model.TripPaymentConfig;
 
 /**
  * {@code Trip} and {@code TripEvent} to their wire shapes.
@@ -27,4 +29,7 @@ public interface TripMapper {
     @Mapping(target = "participating", ignore = true)
     @Mapping(target = "privNote", ignore = true)
     TripEventDto toDto(TripEvent event);
+
+    /** The trip's own rung of the payment ladder; the enum crosses as its name. */
+    TripPaymentConfigDto toDto(TripPaymentConfig config);
 }

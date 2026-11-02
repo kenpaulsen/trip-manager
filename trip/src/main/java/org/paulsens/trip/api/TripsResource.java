@@ -28,6 +28,13 @@ import org.paulsens.trip.action.TripCommands;
 import org.paulsens.trip.api.dto.RegChoiceDto;
 import org.paulsens.trip.api.dto.RegOptionDto;
 import org.paulsens.trip.api.dto.TripDto;
+import org.paulsens.trip.dynamo.DAO;
+import org.paulsens.trip.cache.Cached;
+import org.paulsens.trip.model.PaymentProcessorConfig;
+import org.paulsens.trip.model.Organization;
+import org.paulsens.trip.model.FeesPaidBy;
+import org.paulsens.trip.model.TripPaymentConfig;
+import org.paulsens.trip.api.dto.TripPaymentConfigDto;
 import org.paulsens.trip.api.dto.TripEventDto;
 import org.paulsens.trip.api.dto.TripRosterDto;
 import org.paulsens.trip.api.mapper.TripMapper;
@@ -134,7 +141,9 @@ public class TripsResource extends BaseResource {
         if (!canActFor(subject, tripId)) {
             return error(403, ApiErrors.FORBIDDEN, NOT_THEIR_ITINERARY);
         }
-        return ok(withViewerEvents(trip, subject));
+        final TripDto dto = withViewerEvents(trip, subject);
+        // The payment settings (processor, who pays fees, the mail addresses) are the managers' business.
+        return ok(privileges().has(ApiPrivileges.TRIP_MGR, tripId) ? dto : dto.withoutPaymentConfig());
     }
 
     /**
@@ -344,6 +353,10 @@ public class TripsResource extends BaseResource {
         if (badValue != null) {
             return error(400, ApiErrors.VALIDATION_FAILED, badValue);
         }
+        final String paymentProblem = paymentConfigProblem(body, orgId);
+        if (paymentProblem != null) {
+            return error(400, ApiErrors.VALIDATION_FAILED, paymentProblem);
+        }
         final TripCommands trips = Beans.get(TripCommands.class);
         final Trip trip = trips.createTrip();
         apply(body, trip);
@@ -386,6 +399,10 @@ public class TripsResource extends BaseResource {
         final String badValue = badEnumValue(body);
         if (badValue != null) {
             return error(400, ApiErrors.VALIDATION_FAILED, badValue);
+        }
+        final String paymentProblem = paymentConfigProblem(body, trip.getOrgId());
+        if (paymentProblem != null) {
+            return error(400, ApiErrors.VALIDATION_FAILED, paymentProblem);
         }
         apply(body, trip);
         if (!Beans.get(TripCommands.class).saveTrip(trip)) {
@@ -569,7 +586,7 @@ public class TripsResource extends BaseResource {
                 dto.startDate(), dto.endDate(), dto.regLimit(), dto.provider(), dto.orgId(), dto.language(),
                 dto.estimatedPrice(), dto.director(), dto.localGuide(), dto.facilitators(), dto.flyerUrl(),
                 dto.nonHostedTripUrl(), dto.nonHostedRegNumber(), dto.regOptions(), dto.people(),
-                eventDtos(trip, me), dto.kind());
+                eventDtos(trip, me), dto.kind(), dto.paymentConfig());
     }
 
     private static List<TripEventDto> eventDtos(final Trip trip, final Person.Id viewer) {
@@ -621,6 +638,79 @@ public class TripsResource extends BaseResource {
             trip.setKind(parseKind(body.kind()));
         }
         applyDetails(body, trip);
+        applyPaymentConfig(body, trip);
+    }
+
+    /**
+     * Why the body's payment settings cannot be applied, or null. The processor must be one of THIS trip's
+     * organization's configurations (organization is the tenancy boundary; a raw id must not point a trip at
+     * another tenant's account), and {@code feesPaidBy} must be a known value. Checked before anything is
+     * mutated, so a refused write changes nothing.
+     */
+    private static String paymentConfigProblem(final TripDto body, final String orgId) {
+        final TripPaymentConfigDto config = (body == null) ? null : body.paymentConfig();
+        if (config == null) {
+            return null;
+        }
+        if (config.feesPaidBy() != null && !config.feesPaidBy().isBlank()
+                && !List.of("ORGANIZATION", "PAYER").contains(config.feesPaidBy().trim())) {
+            return "paymentConfig.feesPaidBy must be ORGANIZATION or PAYER.";
+        }
+        final String processorId = config.processorConfigId();
+        if (processorId == null || processorId.isBlank()) {
+            return null;
+        }
+        if (orgId == null || orgId.isBlank()) {
+            return "paymentConfig.processorConfigId needs a trip that belongs to an organization.";
+        }
+        final boolean known = DAO.getInstance().getPaymentProcessorConfig(Organization.Id.from(orgId),
+                PaymentProcessorConfig.Id.from(processorId.trim()), Cached.NO).isPresent();
+        return known ? null : "paymentConfig.processorConfigId is not one of this organization's payment "
+                + "processor configurations.";
+    }
+
+    /**
+     * The trip's own payment settings, field by field: an absent (null) field is left alone, an empty string
+     * clears the override back to "inherit", anything else is set. Mirrors the trip editor's dialog, whose
+     * blank menu item means inherit.
+     */
+    private static void applyPaymentConfig(final TripDto body, final Trip trip) {
+        final TripPaymentConfigDto config = body.paymentConfig();
+        if (config == null) {
+            return;
+        }
+        final TripPaymentConfig target = trip.getPaymentConfig();
+        if (config.processorConfigId() != null) {
+            target.setProcessorConfigId(blankToNull(config.processorConfigId()));
+        }
+        if (config.feesPaidBy() != null) {
+            target.setFeesPaidBy(config.feesPaidBy().isBlank() ? null : FeesPaidBy.valueOf(config.feesPaidBy().trim()));
+        }
+        if (config.donationEnabled() != null) {
+            target.setDonationEnabled(config.donationEnabled());
+        }
+        if (config.donationLabel() != null) {
+            target.setDonationLabel(blankToNull(config.donationLabel()));
+        }
+        if (config.confirmationTemplateId() != null) {
+            target.setConfirmationTemplateId(blankToNull(config.confirmationTemplateId()));
+        }
+        if (config.mailFrom() != null) {
+            target.setMailFrom(blankToNull(config.mailFrom()));
+        }
+        if (config.replyTo() != null) {
+            target.setReplyTo(blankToNull(config.replyTo()));
+        }
+        if (config.bcc() != null) {
+            target.setBcc(blankToNull(config.bcc()));
+        }
+        if (config.extraTokens() != null) {
+            target.setExtraTokens(new java.util.HashMap<>(config.extraTokens()));
+        }
+    }
+
+    private static String blankToNull(final String value) {
+        return (value == null || value.isBlank()) ? null : value.trim();
     }
 
     /** A kind off the wire, by constant name; null for one that names no kind ({@link #badEnumValue} refuses it). */
